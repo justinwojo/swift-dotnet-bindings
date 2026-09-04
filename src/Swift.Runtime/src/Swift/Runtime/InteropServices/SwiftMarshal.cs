@@ -480,6 +480,73 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Copies a value of type <typeparamref name="T"/> out of a <b>borrowed</b> Swift value slot whose
+    /// C# ABI carrier is <i>not</i> known to be a plain blittable value. This is the unconstrained
+    /// entry point a protocol-proxy reverse-dispatch receiver uses for a parameter whose projected C#
+    /// type is a managed wrapper (a non-frozen struct / complex enum wrapper, a frozen-with-references
+    /// wrapper, <c>SwiftOptional&lt;T&gt;</c>, <c>SwiftResult&lt;…&gt;</c>, a Foundation value wrapper) or
+    /// a narrow simple enum, and it takes the address of the slot — the generated Swift conformance
+    /// makes a local copy (<c>var xCopy = x</c>, or a heap temporary) and passes <c>&amp;xCopy</c>, then
+    /// deinitializes it once the receiver returns.
+    /// <para>
+    /// A raw <c>Unsafe.Read&lt;T&gt;</c> is wrong for both shapes. For a managed wrapper it reinterprets
+    /// the slot's first machine word as a managed object reference — for a Swift enum with class
+    /// payloads (VisionKit's <c>RecognizedItem</c> is the reported case) that word is a Swift heap
+    /// pointer, so the very first use of the "wrapper" dereferences garbage. For a C# <c>enum : int</c>
+    /// it reads four bytes where Swift stored the discriminator in one, so three bytes of the adjacent
+    /// slot bleed into the case value.
+    /// </para>
+    /// <para>
+    /// Dispatch mirrors the borrowed contract, never the moved one — the slot stays Swift's, so nothing
+    /// here value-witness-<c>Destroy</c>s it:
+    /// <list type="bullet">
+    /// <item><b>True Swift class</b> (<see cref="ISwiftObject"/>, not a value type, not
+    /// <see cref="ISwiftStruct"/>, metadata <c>Kind == Class</c>): the slot holds the instance pointer —
+    /// dereference and take an ObjC-aware <c>+1</c> via <see cref="MarshalBorrowedClassFromSlot{T}"/>.</item>
+    /// <item><b>Reference-backed managed wrapper</b> (every other <see cref="ISwiftObject"/> class —
+    /// Adopt, Copy and Move alike): <see cref="MarshalExtractedPayloadValue{T}"/> copies the slot into a
+    /// freshly-allocated buffer (value-witness <c>InitializeWithCopy</c> for a non-POD payload, a plain
+    /// byte copy for a POD one) and balances the temporary against the wrapper's declared construction
+    /// semantics. Routing an Adopt wrapper straight through <c>NewFromPayload</c> instead would make its
+    /// SafeHandle adopt — and later free — Swift's own slot.</item>
+    /// <item><b>Everything else</b> (primitives, blittable value types, existential containers, tuples,
+    /// and C# enums): <see cref="MarshalFromSwift{T}"/>, whose core reads a simple enum at the Swift
+    /// discriminator's width and every other value type by value.</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The ABI carrier type occupying the slot.</typeparam>
+    /// <param name="slot">Address of the borrowed, initialized value slot (still owned by Swift).</param>
+    /// <returns>The constructed value, owning an independent reference where one exists.</returns>
+    /// <exception cref="SwiftRuntimeException">
+    /// <typeparamref name="T"/> is a managed <see cref="ISwiftObject"/> wrapper whose Swift metadata
+    /// cannot be resolved, so the value-witness copy that keeps the borrow honest cannot be performed.
+    /// Failing here is deliberate: the alternatives silently alias or free memory Swift still owns.
+    /// </exception>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwift / metadata resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwift / metadata resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwift / metadata resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwift / metadata resolution")]
+    public static unsafe T MarshalCopiedValueFromSlot<T>(IntPtr slot)
+    {
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)) && !typeof(T).IsValueType)
+        {
+            if (!TypeMetadata.TryGetTypeMetadata<T>(out var md) || !md.Value.IsValid)
+                throw new SwiftRuntimeException(
+                    $"Cannot copy a borrowed Swift value of type {typeof(T)} out of a reverse-dispatch slot: " +
+                    "its Swift type metadata did not resolve, so the value-witness copy that leaves the " +
+                    "borrowed slot intact cannot be performed.");
+
+            if (md.Value.Kind == TypeMetadataKind.Class && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
+                return MarshalBorrowedClassFromSlot<T>(slot);
+
+            return MarshalExtractedPayloadValue<T>((void*)slot, md.Value.Size);
+        }
+
+        return MarshalFromSwift<T>(slot);
+    }
+
+    /// <summary>
     /// Extracts a payload value of type <typeparamref name="T"/> out of a Swift wire carrier — the
     /// <c>Some</c> payload of <c>SwiftOptional&lt;T&gt;</c> or the success/failure payload of
     /// <c>SwiftResult</c> — into a freshly-constructed managed wrapper that owns an <b>independent</b>
@@ -735,6 +802,55 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// The <c>NewFromPayload</c> body for a generated class whose C# base is an
+    /// <c>NSObject</c>-derived type (an <c>@objc</c>/NSObject-rooted Swift class projected onto
+    /// <c>Foundation.NSObject</c>, <c>UIKit.UIViewController</c>, …). Returns the managed peer
+    /// already registered for <paramref name="handle"/> when there is one, and only otherwise
+    /// calls <paramref name="constructPeer"/> to build a fresh one.
+    /// <para>
+    /// A native NSObject may have at most ONE managed peer: the Apple bindings keep a
+    /// handle→peer map, and constructing a second wrapper over a native object that already has
+    /// one repoints that map. Without this lookup every reverse-dispatch callback that hands a
+    /// receiver back to C# (a delegate method whose first parameter is the object the user
+    /// created) built a brand-new <c>UIViewController</c>-derived peer per invocation: reference
+    /// identity against the user's own instance was lost, any state on the user's subclass was
+    /// invisible, and at callback rates it allocated a peer many times a second. The same
+    /// mechanism applies in the return direction, since a returned class routes through
+    /// <see cref="MarshalFromSwiftObject{T}"/> into the same <c>NewFromPayload</c>.
+    /// </para>
+    /// <para>
+    /// <b>Ownership.</b> <c>NewFromPayload</c>'s contract is that <paramref name="handle"/>
+    /// carries a <c>+1</c> the resulting wrapper takes over — the borrowed-slot readers
+    /// (<see cref="MarshalBorrowedClassFromSlot{T}"/> and friends) take that retain immediately
+    /// before calling in, and the owned readers transfer the carrier's. The construction branch
+    /// keeps that unchanged: the peer's constructor absorbs the <c>+1</c>. The reuse branch has
+    /// no new owner to absorb it — the existing peer already owns its own reference — so it hands
+    /// the <c>+1</c> straight back with the ObjC-aware release that mirrors the caller's retain.
+    /// </para>
+    /// <para>
+    /// A registered peer of an unrelated managed type cannot be returned as
+    /// <typeparamref name="T"/>, so that case falls through to construction — the pre-existing
+    /// behavior. A peer of a type <i>derived</i> from <typeparamref name="T"/> is returned as-is,
+    /// which is strictly better than flattening the user's subclass to its base.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The generated NSObject-rooted wrapper type.</typeparam>
+    /// <param name="handle">The Swift/ObjC instance pointer, carrying the <c>+1</c> described above.</param>
+    /// <param name="constructPeer">Builds a fresh peer that adopts the <c>+1</c>. Invoked only when no peer is registered.</param>
+    /// <returns>The registered peer, or a newly constructed one.</returns>
+    public static T ObjCPeerFromPayload<T>(IntPtr handle, Func<IntPtr, T> constructPeer) where T : class
+    {
+#if IOS || TVOS || MACCATALYST || MACOS
+        if (handle != IntPtr.Zero && ObjCRuntime.Runtime.TryGetNSObject(handle) is T existingPeer)
+        {
+            Arc.UnknownObjectRelease(handle);
+            return existingPeer;
+        }
+#endif
+        return constructPeer(handle);
+    }
+
+    /// <summary>
     /// Computes the size of the destination buffer an extracted-by-copy payload of type
     /// <typeparamref name="T"/> must be allocated with, given the Swift payload's own size
     /// (<paramref name="swiftPayloadSize"/>, the enum/container value-witness <c>Size</c>).
@@ -912,6 +1028,31 @@ public static class SwiftMarshal
         var witnessTable = ProtocolWitnessTable.GetOrThrowDirect<TType, TProtocol>();
         WitnessTableDispatcher.Register(typeof(TType), typeof(TProtocol), witnessTable);
     }
+
+    /// <summary>
+    /// Declares where the Swift protocol-conformance descriptor for a (type, protocol) pair lives,
+    /// for conforming types that cannot implement <see cref="ISwiftObject"/>. Called by generated
+    /// [ModuleInitializer] code alongside <see cref="TypeMetadata.RegisterMetadata"/>.
+    /// </summary>
+    /// <remarks>
+    /// The <see cref="RegisterConformanceFactory{TType, TProtocol}"/> and
+    /// <see cref="RegisterWitnessTable{TType, TProtocol}"/> lanes are both constrained to
+    /// <see cref="ISwiftObject"/>, which a C# <c>enum</c> can never satisfy — so a payload-less
+    /// raw-value Swift enum, projected as a plain C# enum, had no way to declare a conformance
+    /// even though its descriptor symbol is exported. This is that lane: it takes
+    /// <see cref="Type"/> operands instead of type parameters (so a C# enum can be named),
+    /// registers only a symbol location, and defers the load until the conformance is first
+    /// needed. Consumers reach it through
+    /// <see cref="ProtocolConformanceDescriptor.TryGet{TType, TProtocol}"/>, so every witness-table
+    /// resolution — <c>SwiftSet</c>, <c>SwiftDictionary</c> keys, existential boxing — sees it.
+    /// </remarks>
+    /// <param name="conformingType">The C# type standing in for the Swift conforming type.</param>
+    /// <param name="protocolType">The C# marker interface standing in for the Swift protocol
+    /// (e.g. <c>typeof(ISwiftHashable)</c>).</param>
+    /// <param name="libraryName">The library exporting the conformance-descriptor symbol.</param>
+    /// <param name="symbolName">The mangled conformance-descriptor symbol.</param>
+    public static void RegisterConformanceSymbol(Type conformingType, Type protocolType, string libraryName, string symbolName)
+        => ConformanceSymbolRegistry.Register(conformingType, protocolType, libraryName, symbolName);
 
     /// <summary>
     /// Marshals a value to a Swift destination

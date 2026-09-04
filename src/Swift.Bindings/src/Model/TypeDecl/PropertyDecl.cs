@@ -176,5 +176,38 @@ namespace BindingsGeneration
         /// <see cref="BaseDecl.AvailabilityAnnotations"/> from the property.
         /// </summary>
         public IReadOnlyList<AvailabilityAnnotation>? SetterAvailabilityAnnotations { get; set; }
+
+        /// <summary>
+        /// The reference-ownership qualifier on the property's storage (<c>strong</c> by default,
+        /// or <c>weak</c>/<c>unowned</c>/<c>unowned(unsafe)</c>). Read from the ABI JSON Var node's
+        /// <c>ownership</c> field, which both ABI producers spell identically.
+        /// </summary>
+        /// <remarks>
+        /// Load-bearing for marshalling a proxied existential INTO the property: a non-retaining
+        /// sink stores the value without taking a strong reference, so nothing on the Swift side
+        /// keeps the conformer box alive after the setter returns.
+        /// </remarks>
+        public SwiftReferenceOwnership ReferenceOwnership { get; set; } = SwiftReferenceOwnership.Strong;
+    }
+
+    /// <summary>
+    /// Reference-ownership qualifier on a Swift stored property, mirroring the Swift compiler's
+    /// <c>ReferenceOwnership</c> enum. The ABI JSON carries the raw integer in a Var node's
+    /// <c>ownership</c> field and lists <c>ReferenceOwnership</c> in its <c>declAttributes</c>;
+    /// a strong property omits both.
+    /// </summary>
+    public enum SwiftReferenceOwnership
+    {
+        /// <summary>Default storage: the property retains its value.</summary>
+        Strong = 0,
+
+        /// <summary><c>weak var</c> — zeroing, non-retaining. Always Optional in Swift.</summary>
+        Weak = 1,
+
+        /// <summary><c>unowned var</c> — non-retaining with a runtime liveness check.</summary>
+        Unowned = 2,
+
+        /// <summary><c>unowned(unsafe) var</c> — non-retaining, unchecked.</summary>
+        Unmanaged = 3,
     }
 }

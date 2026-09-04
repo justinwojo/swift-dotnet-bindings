@@ -1592,6 +1592,260 @@ public class PropertyHandlerTests
     }
 
     [Fact]
+    public void Emit_WeakOptionalExistentialProperty_SetterTakesConsumerOwnedLane()
+    {
+        // A `weak var delegate: (any P)?` — the shape every Apple framework delegate uses.
+        // Swift storage that does not retain takes no reference on the conformer box behind the
+        // existential, so once the setter returns an auto-wrapped proxy owning the construction +1
+        // is reachable from nothing (weak registry entry, weak auto-wrap memo). The next collection
+        // finalizes it, releases the +1, deinitializes the box, and the property reads back nil
+        // while the consumer still holds their implementation. The setter must therefore marshal
+        // through the consumer-owned lane, whose memo is keyed on the implementation and whose
+        // proxy holds the implementation strongly, so the carrier lives exactly as long as the
+        // implementation the consumer is holding.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+
+        // Distinct class/property names per test: the cdecl wrapper-symbol collector is
+        // process-global, so a shared SBW_Set_TestModule_<Class>_<prop> symbol would make
+        // whichever test runs second emit empty Swift output.
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("WeakSinkHost", moduleDecl);
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "weakCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalExistentialType;
+        property.ReferenceOwnership = SwiftReferenceOwnership.Weak;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // The auto-wrap goes through the consumer-owned memo, and the proxy it constructs is told
+        // to hold the implementation strongly — the two halves that make the carrier follow the
+        // implementation instead of following a Swift reference that a non-retaining slot never
+        // takes. Nothing is rooted against the receiver: that would outlive the implementation and
+        // invert the `weak` contract the Swift declaration states.
+        Assert.Contains(
+            "ExistentialContainerFactory.GetOrCreateConsumerOwned<IDataCaching>(__v, static __p => new DataCachingProxy(__p, global::Swift.Runtime.ProxyImplOwnership.ConsumerOwned), out __owns, out __keepAlive)",
+            csOutput);
+        Assert.DoesNotContain("NonRetainingSinkRoots", csOutput);
+        // The lane swap is additive: the existing owns-gated destroy and cross-call pin still stand.
+        Assert.Contains("DestroyAndFreeExistential(__heap, 1, __owns)", csOutput);
+        Assert.Contains("GC.KeepAlive(__keepAlive)", csOutput);
+        // The public surface says who owns the lifetime, since the Swift side does not.
+        Assert.Contains("Non-retaining (weak) Swift storage", csOutput);
+    }
+
+    [Fact]
+    public void Emit_UnownedOptionalCompositionProperty_SetterKeepsDirectCarrierPath()
+    {
+        // The EC2+ arm. A composition existential has no auto-wrap factory, so a non-null value IS
+        // the Swift-vended proxy aliasing its sole construction +1 — a carrier the consumer already
+        // holds directly, which is the consumer-owned shape by construction. There is nothing to
+        // re-lane and nothing to root; the setter only has to pin the proxy across the native call.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+        RegisterProtocol(typeDatabase, "TestModule.Reloadable");
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("UnownedSinkHost", moduleDecl);
+
+        var optionalCompositionType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[]
+            {
+                new NamedTypeSpec("TestModule.DataCaching"),
+                new NamedTypeSpec("TestModule.Reloadable"),
+            }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "unownedCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalCompositionType;
+        property.ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.DoesNotContain("NonRetainingSinkRoots", csOutput);
+        Assert.DoesNotContain("GetOrCreateConsumerOwned", csOutput);
+        // Positive control that the EC2 setter body itself still emitted as before: the borrowed
+        // proxy is hard-false for the owns-bit and pinned across the native setter call.
+        Assert.Contains("DestroyAndFreeExistential(__heap, 1, false)", csOutput);
+        Assert.Contains("global::System.GC.KeepAlive(value)", csOutput);
+        // `unowned` is non-retaining exactly like `weak`, so the consumer-facing lifetime note must
+        // fire here too; reading only `weak` would leave this arm silently undocumented.
+        Assert.Contains("Non-retaining (unowned) Swift storage", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StrongOptionalExistentialProperty_SetterKeepsSwiftRootedLane()
+    {
+        // The common case must be untouched. A strong sink takes Swift's own store-retain, so the
+        // conformer box outlives the setter with the proxy holding the implementation only weakly
+        // and the tracker holding the strong root. Moving it to the consumer-owned lane would make
+        // a Swift-retained delegate die the moment the consumer let go of their implementation.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("StrongSinkHost", moduleDecl);
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "strongCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalExistentialType;
+        // No ReferenceOwnership assignment: strong is the parser's default for a plain `var`.
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.DoesNotContain("GetOrCreateConsumerOwned", csOutput);
+        Assert.DoesNotContain("ProxyImplOwnership", csOutput);
+        Assert.DoesNotContain("Non-retaining", csOutput);
+        // Positive control: the setter under test really did emit its auto-wrap on the default
+        // lane, so the assertions above are not passing merely because nothing was generated.
+        Assert.Contains(
+            "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p), out __owns, out __keepAlive)",
+            csOutput);
+        Assert.Contains("GC.KeepAlive(__keepAlive)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticNonRetainingExistentialProperty_SetterTakesConsumerOwnedLane()
+    {
+        // The consumer-owned lane keys its memo on the implementation, not on a receiver peer, so
+        // it applies unchanged to a `static weak var` — which has no receiver instance at all. The
+        // ownership of the sink, not the shape of the declaration, is what selects the lane.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("StaticSinkHost", moduleDecl);
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "sharedCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalExistentialType;
+        property.ReferenceOwnership = SwiftReferenceOwnership.Weak;
+        property.IsStatic = true;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("GetOrCreateConsumerOwned<IDataCaching>", csOutput);
+        Assert.Contains("global::Swift.Runtime.ProxyImplOwnership.ConsumerOwned", csOutput);
+        Assert.DoesNotContain("NonRetainingSinkRoots", csOutput);
+        // Positive control: the static setter body still emitted, so the assertions above describe
+        // a real emission rather than an empty one.
+        Assert.Contains("GC.KeepAlive(__keepAlive)", csOutput);
+    }
+
+    /// <summary>
+    /// The non-optional sibling arm. <c>unowned var delegate: any P</c> has no optional to
+    /// decompose, so the setter's value crosses as a plain existential argument through the shared
+    /// call-argument marshaller rather than through the decomposed-optional accessor body. That is
+    /// a different emission site with the same ownership question: whether the sink retains is a
+    /// property of the storage, not of the wire shape, so the lane must follow it here too.
+    /// </summary>
+    [Theory]
+    [InlineData(SwiftReferenceOwnership.Weak, true)]
+    [InlineData(SwiftReferenceOwnership.Unowned, true)]
+    [InlineData(SwiftReferenceOwnership.Strong, false)]
+    public void Emit_NonOptionalExistentialProperty_SetterLaneFollowsSinkOwnership(
+        SwiftReferenceOwnership ownership, bool expectConsumerOwned)
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching", TypeRecordFlags.ClassBound);
+
+        // Distinct class/property names per case: the cdecl wrapper-symbol collector is
+        // process-global, so a shared setter symbol would make a later case emit empty output.
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission($"SlotSinkHost{ownership}", moduleDecl);
+
+        var existentialType = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") });
+        var property = CreateEmittablePropertyDeclWithTypeSpec(
+            classDecl, moduleDecl, $"slotCache{ownership}", existentialType, hasGetter: true, hasSetter: true);
+        SetSinkOwnership(property, ownership);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        AssertSetterLane(csOutput, expectConsumerOwned);
+    }
+
+    /// <summary>
+    /// The <c>@objc protocol</c> sibling arm. An <c>@objc</c> existential is a bare ObjC object
+    /// pointer, so its optional setter takes the auto-wrap-then-read-payload path instead of the
+    /// opaque-container path. The narrower wire width decides how the carrier is handed over, not
+    /// who owns it, so a non-retaining sink selects the consumer-owned lane here as well.
+    /// </summary>
+    [Theory]
+    [InlineData(SwiftReferenceOwnership.Weak, true)]
+    [InlineData(SwiftReferenceOwnership.Unowned, true)]
+    [InlineData(SwiftReferenceOwnership.Strong, false)]
+    public void Emit_ObjCOptionalExistentialProperty_SetterLaneFollowsSinkOwnership(
+        SwiftReferenceOwnership ownership, bool expectConsumerOwned)
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching",
+            TypeRecordFlags.ClassBound | TypeRecordFlags.ObjCProtocol);
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission($"ObjCSinkHost{ownership}", moduleDecl);
+
+        var optionalObjCExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(
+            classDecl, moduleDecl, $"objcCache{ownership}", optionalObjCExistentialType, hasGetter: true, hasSetter: true);
+        SetSinkOwnership(property, ownership);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        AssertSetterLane(csOutput, expectConsumerOwned);
+    }
+
+    /// <summary>
+    /// Sets the storage ownership the way the parser does: on the property, and mirrored onto the
+    /// accessor methods, since the marshalling arms are handed the accessor rather than the
+    /// property it belongs to. (Parser-side propagation has its own coverage.)
+    /// </summary>
+    private static void SetSinkOwnership(PropertyDecl property, SwiftReferenceOwnership ownership)
+    {
+        property.ReferenceOwnership = ownership;
+        foreach (var accessor in property.Accessors)
+            accessor.Method.SinkReferenceOwnership = ownership;
+    }
+
+    /// <summary>
+    /// Asserts which auto-wrap lane a setter emitted, with a positive control on both sides so a
+    /// case that emitted nothing at all cannot pass by absence.
+    /// </summary>
+    private static void AssertSetterLane(string csOutput, bool expectConsumerOwned)
+    {
+        if (expectConsumerOwned)
+        {
+            Assert.Contains("GetOrCreateConsumerOwned<IDataCaching>", csOutput);
+            Assert.Contains("global::Swift.Runtime.ProxyImplOwnership.ConsumerOwned", csOutput);
+        }
+        else
+        {
+            Assert.DoesNotContain("GetOrCreateConsumerOwned", csOutput);
+            Assert.DoesNotContain("ProxyImplOwnership", csOutput);
+            // Positive control: the default lane really did emit, so the absences above describe
+            // a real emission rather than an empty one.
+            Assert.Contains("GetOrCreate<IDataCaching>", csOutput);
+        }
+    }
+
+    [Fact]
     public void Emit_GetterOnlyOptionalString_EmitsBothPublicPropertyAndCdeclWrapper()
     {
         // Regression for GH issue #33 — orphaned getter wrappers. Before the fix, the

@@ -1247,6 +1247,38 @@ public sealed class ModuleEmissionContext
         _simpleEnumMetadataRegistrations.Add((qualifiedName, metadataSymbol, wrapperLibName));
     }
 
+    private readonly List<(string CSharpTypeName, string ProtocolInterface, string ConformanceSymbol, string LibraryName)> _simpleEnumConformanceRegistrations = new();
+    private readonly HashSet<(string, string)> _simpleEnumConformanceKeys = new();
+
+    /// <summary>
+    /// Protocol conformances of simple (payload-less) enums, which project to plain C# enums.
+    /// A C# enum cannot implement <c>ISwiftObject</c>, so it is excluded from both
+    /// <c>RegisterConformanceFactory</c> and <c>RegisterWitnessTable</c> — yet the Swift
+    /// conformance descriptor is a real exported symbol. The module initializer declares that
+    /// symbol via <c>SwiftMarshal.RegisterConformanceSymbol</c> so a witness table can be resolved
+    /// on demand; without it, <c>Set&lt;ThatEnum&gt;</c> and <c>[ThatEnum: V]</c> throw at their
+    /// first call site.
+    /// </summary>
+    public IReadOnlyList<(string CSharpTypeName, string ProtocolInterface, string ConformanceSymbol, string LibraryName)> SimpleEnumConformanceRegistrations =>
+        _simpleEnumConformanceRegistrations;
+
+    /// <summary>
+    /// Records a simple enum's protocol-conformance descriptor symbol for module-initializer
+    /// registration. Deduplicated on (type, protocol) — the last write for a pair is dropped,
+    /// so a type reached twice registers once.
+    /// </summary>
+    public void RecordSimpleEnumConformance(string csharpTypeName, string protocolInterface, string conformanceSymbol, string libraryName)
+    {
+        if (HasOpenGenericAncestor())
+            return;
+        if (string.IsNullOrEmpty(conformanceSymbol) || string.IsNullOrEmpty(libraryName))
+            return;
+        var qualifiedName = GetQualifiedTypeName(csharpTypeName);
+        if (!_simpleEnumConformanceKeys.Add((qualifiedName, protocolInterface)))
+            return;
+        _simpleEnumConformanceRegistrations.Add((qualifiedName, protocolInterface, conformanceSymbol, libraryName));
+    }
+
     // ==================== Class-Bound Existential Metadata Registration ====================
 
     private readonly List<(string LibraryName, string ProtocolDescriptorSymbol)> _classBoundExistentialRegistrations = new();

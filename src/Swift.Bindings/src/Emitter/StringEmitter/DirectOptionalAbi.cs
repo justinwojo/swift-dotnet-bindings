@@ -308,6 +308,13 @@ internal static class DirectOptionalAbi
     /// idea of "the direct path" and the emitter's cannot drift apart. If they did, the half that
     /// still believed a shape was direct would either refuse a member the other emits correctly,
     /// or — the dangerous direction — emit a bare slot for one the floor had stopped guarding.</para>
+    ///
+    /// <para>This answers a WIDTH question only: does the value move through memory, so that its
+    /// register footprint stops mattering? It is not an ownership predicate, and reusing it as one
+    /// is wrong on exactly one arm. The native assembly thunk moves the value through memory yet
+    /// owns nothing — it shifts registers and tail-calls the real accessor — so a callee reached
+    /// through it still consumes what a Swift-source wrapper would have borrowed. Ownership is
+    /// asked of <see cref="SetterValueOwnership"/> instead.</para>
     /// </summary>
     internal static bool UsesSwiftSideCarrier(MethodDecl methodDecl)
         => methodDecl.UsesCdeclWrapper

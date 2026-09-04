@@ -1040,6 +1040,28 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         }
 
+        // Mirror the Swift forwarder's merged availability: a requirement newer than its
+        // protocol is reachable only above the member's own floor, so the C# member that
+        // calls that forwarder must carry the same floor. The emitter drops any platform
+        // and version the proxy class already declares.
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(writer, property, protocolDecl, emitObsolete: false);
+
+        // [SupportedOSPlatform] is compile-time only (CA1416). Below the member's floor the Swift
+        // forwarder this accessor calls is weak-linked to null, so a consumer who suppresses the
+        // diagnostic gets an uncatchable native fault at pc=0 instead of an exception. Guard the
+        // accessor at the same merged floor the attributes advertise, and only where the member
+        // raises the floor above the proxy class's own — a member that adds nothing is already
+        // covered by the class-level gate. The prefix carries the accessor bodies' relative indent
+        // so it can lead the first statement of a raw-string body.
+        const string accessorBodyIndent = "    ";
+        var getterGuardPrefix = AvailabilityAttributeEmitter.BuildStricterFloorGuardPrefix(
+            property.AvailabilityAnnotations, protocolDecl,
+            $"{protocolDecl.Name}.{propertyName}", accessorBodyIndent);
+        var setterAvailability = AvailabilityHelpers.SelectSetterAnnotations(property);
+        var setterGuardPrefix = AvailabilityAttributeEmitter.BuildStricterFloorGuardPrefix(
+            setterAvailability, protocolDecl,
+            $"{protocolDecl.Name}.{propertyName} setter", accessorBodyIndent);
+
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
         writer.Indent++;
@@ -1057,7 +1079,7 @@ public partial class ProtocolProxyEmitter
                     get
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{getterGuardPrefix}}if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
@@ -1090,7 +1112,7 @@ public partial class ProtocolProxyEmitter
                     get
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{getterGuardPrefix}}if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
@@ -1116,7 +1138,7 @@ public partial class ProtocolProxyEmitter
                     get
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{getterGuardPrefix}}if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
@@ -1140,7 +1162,7 @@ public partial class ProtocolProxyEmitter
                     get
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{getterGuardPrefix}}if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
@@ -1179,7 +1201,7 @@ public partial class ProtocolProxyEmitter
                             get
                             {
                                 if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                                if (_csharpImpl != null)
+                                {{getterGuardPrefix}}if (_csharpImpl != null)
                                     return _csharpImpl.{{propertyName}};
                                 fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                                 {
@@ -1195,7 +1217,7 @@ public partial class ProtocolProxyEmitter
                             get
                             {
                                 if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                                if (_csharpImpl != null)
+                                {{getterGuardPrefix}}if (_csharpImpl != null)
                                     return _csharpImpl.{{propertyName}};
                                 fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                                 {
@@ -1266,7 +1288,7 @@ public partial class ProtocolProxyEmitter
                     get
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{getterGuardPrefix}}if (_csharpImpl != null)
                             return _csharpImpl.{{propertyName}};
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
@@ -1278,7 +1300,9 @@ public partial class ProtocolProxyEmitter
             }
             else if (isExistentialReturnGetter)
             {
-                EmitExistentialReturnPropertyGetterBody(writer, property, propertyName, csharpTypeName, accessorSymbol, freeSymbol);
+                EmitExistentialReturnPropertyGetterBody(writer, property, propertyName, csharpTypeName, accessorSymbol, freeSymbol,
+                    AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+                        property.AvailabilityAnnotations, protocolDecl, $"{protocolDecl.Name}.{propertyName}"));
             }
             else
             {
@@ -1300,6 +1324,12 @@ public partial class ProtocolProxyEmitter
         {
             var setterSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "set", property.Name, 0);
 
+            // A setter introduced after its property is exported at the later floor, so the `set`
+            // accessor carries that floor while the property attribute above keeps the getter's.
+            // Same source of truth as the Swift setter forwarder and the setter P/Invoke.
+            bool setterAccessorGated = AvailabilityAttributeEmitter.EmitSetterAccessorAvailability(
+                writer, property.AvailabilityAnnotations, setterAvailability);
+
             if (isSetterDispatchable && isStringProperty)
             {
                 // String setter: encode to UTF-8, pass SBW_Utf8Slice to Swift
@@ -1307,7 +1337,7 @@ public partial class ProtocolProxyEmitter
                     set
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{setterGuardPrefix}}if (_csharpImpl != null)
                         {
                             _csharpImpl.{{propertyName}} = value;
                             return;
@@ -1334,7 +1364,7 @@ public partial class ProtocolProxyEmitter
                     set
                     {
                         if (_disposed) throw new ObjectDisposedException(GetType().Name);
-                        if (_csharpImpl != null)
+                        {{setterGuardPrefix}}if (_csharpImpl != null)
                         {
                             _csharpImpl.{{propertyName}} = value;
                             return;
@@ -1364,6 +1394,9 @@ public partial class ProtocolProxyEmitter
                     }
                     """);
             }
+
+            if (setterAccessorGated)
+                AvailabilityAttributeEmitter.EmitSetterAccessorAvailabilityEpilogue(writer);
         }
 
         writer.Indent--;
@@ -1635,11 +1668,22 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         }
 
+        // Mirror the Swift forwarder's merged availability — see EmitPropertyImplementation.
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(writer, method, protocolDecl, emitObsolete: false);
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;
 
         writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
+
+        // Same runtime floor check the property accessors carry: [SupportedOSPlatform] is a
+        // compile-time analyzer hint, so below the member's floor a consumer who suppresses it
+        // would otherwise reach a witness forwarder whose weak-linked symbol is null. One guard at
+        // body entry covers every dispatch shape this method can take.
+        var methodGuard = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+            method.AvailabilityAnnotations, protocolDecl, $"{protocolDecl.Name}.{methodName}");
+        if (methodGuard != null)
+            writer.WriteLine(methodGuard);
 
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
@@ -2030,7 +2074,8 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private void EmitExistentialReturnPropertyGetterBody(
         CSharpWriter writer, PropertyDecl property, string propertyName,
-        string csharpTypeName, string accessorSymbol, string freeSymbol)
+        string csharpTypeName, string accessorSymbol, string freeSymbol,
+        string? availabilityGuard = null)
     {
         var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
         bool isOptional = existentialHandler.IsOptionalExistential(property.SwiftTypeSpec);
@@ -2061,6 +2106,8 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
         writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
+        if (availabilityGuard != null)
+            writer.WriteLine(availabilityGuard);
         writer.WriteLine("if (_csharpImpl != null)");
         writer.Indent++;
         writer.WriteLine($"return _csharpImpl.{propertyName};");

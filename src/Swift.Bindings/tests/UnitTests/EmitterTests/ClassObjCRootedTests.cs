@@ -813,7 +813,51 @@ public class ClassObjCRootedTests
         var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
 
         var body = GetClassBody(output, "MyLayer");
+        // The construction branch still goes through SwiftHandle → base(NativeHandle); only the
+        // parameter it wraps moved into the peer-reuse lambda.
+        Assert.Contains("new SwiftHandle(", body);
+        Assert.Contains("new MyLayer(new SwiftHandle(", body);
+    }
+
+    [Fact]
+    public void ObjCRooted_NewFromPayload_ReusesRegisteredManagedPeer()
+    {
+        var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
+
+        var body = GetClassBody(output, "MyLayer");
+        // The C# base is NSObject-derived, so the native object may have at most one managed
+        // peer. Construction must therefore be conditional on there being no peer already —
+        // routed through the runtime helper that consults the handle→peer map first and hands
+        // the incoming +1 back when it reuses one.
+        Assert.Contains("ObjCPeerFromPayload<MyLayer>", body);
+    }
+
+    [Fact]
+    public void ObjCRooted_NewFromPayload_DoesNotRegisterWithDisposeScope()
+    {
+        var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
+
+        var body = GetClassBody(output, "MyLayer");
+        // NSObject-derived peers are owned by the Apple bindings' lifetime, not by our
+        // SwiftDisposeScope — a reused peer especially must not be disposed by whoever
+        // happens to receive it from a callback.
+        Assert.DoesNotContain("SwiftDisposeScope.TryRegister", body);
+    }
+
+    [Fact]
+    public void NonObjCRooted_NewFromPayload_ConstructsDirectly()
+    {
+        // Gating proof: a pure-Swift class has no NSObject peer map, so it keeps constructing
+        // unconditionally and keeps its dispose-scope registration.
+        var cls = CreateClassDecl("PurePayload", "TestModule");
+        cls.IsObjCRooted = false;
+
+        var output = EmitNonObjCRootedClass(cls);
+
+        var body = GetClassBody(output, "PurePayload");
+        Assert.DoesNotContain("ObjCPeerFromPayload", body);
         Assert.Contains("new SwiftHandle(handle)", body);
+        Assert.Contains("SwiftDisposeScope.TryRegister", body);
     }
 
     #endregion

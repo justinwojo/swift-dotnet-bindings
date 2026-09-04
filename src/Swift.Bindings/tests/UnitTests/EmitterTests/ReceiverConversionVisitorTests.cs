@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Xunit;
+using ReceiverSlotReadKind = BindingsGeneration.ProtocolProxyEmitter.ReceiverSlotReadKind;
 
 namespace BindingsGeneration.Tests;
 
@@ -232,51 +233,82 @@ public class ReceiverConversionVisitorTests
 
     #endregion
 
-    #region NeedsObjectMarshal — collection wrappers materialize via NewFromPayload
+    #region SlotReadKind — how a borrowed receiver slot must be read
+
+    private static ReceiverSlotReadKind Kind(ITypeProjection proj) =>
+        proj.Accept(new ProtocolProxyEmitter.ReceiverSlotReadKindVisitor());
 
     [Fact]
-    public void NeedsObjectMarshal_Array_IsTrue()
+    public void SlotRead_Collections_UseObjectMarshal()
     {
-        var proj = new ArrayProjection(new BlittableProjection("Int64"), isParameter: true);
-        Assert.True(proj.Accept(new ProtocolProxyEmitter.ReceiverParamNeedsObjectMarshalVisitor()));
+        // Reference-backed ISwiftObject containers hold a storage reference in the borrowed slot;
+        // the object read takes its own copy instead of reinterpreting that reference bitwise.
+        Assert.Equal(ReceiverSlotReadKind.ObjectMarshal,
+            Kind(new ArrayProjection(new BlittableProjection("Int64"), isParameter: true)));
+        Assert.Equal(ReceiverSlotReadKind.ObjectMarshal, Kind(new DictionaryProjection(
+            new BlittableProjection("Int64"), new BlittableProjection("Int64"), isParameter: true)));
+        Assert.Equal(ReceiverSlotReadKind.ObjectMarshal,
+            Kind(new SetProjection(new BlittableProjection("Int64"), isParameter: true)));
+        Assert.Equal(ReceiverSlotReadKind.ObjectMarshal, Kind(new StringProjection()));
     }
 
     [Fact]
-    public void NeedsObjectMarshal_Dictionary_IsTrue()
+    public void SlotRead_BlittableCarriers_StayOnRawRead()
     {
-        var proj = new DictionaryProjection(
-            new BlittableProjection("Int64"), new BlittableProjection("Int64"), isParameter: true);
-        Assert.True(proj.Accept(new ProtocolProxyEmitter.ReceiverParamNeedsObjectMarshalVisitor()));
+        // These carriers have no managed reference and no ARC obligation, so the proxy-local
+        // Unsafe.Read is sound — and for the existential container it is the only correct read.
+        Assert.Equal(ReceiverSlotReadKind.RawRead, Kind(new BlittableProjection("Int64")));
+        Assert.Equal(ReceiverSlotReadKind.RawRead, Kind(new BoolProjection()));
+        Assert.Equal(ReceiverSlotReadKind.RawRead, Kind(new DateProjection()));
+        Assert.Equal(ReceiverSlotReadKind.RawRead,
+            Kind(new ExistentialProjection("ExistentialContainer1", "IMyProtocol", "MyProtocolProxy")));
+        Assert.Equal(ReceiverSlotReadKind.RawRead, Kind(new ObjCBridgedProjection("NSUrlSession")));
     }
 
     [Fact]
-    public void NeedsObjectMarshal_Set_IsTrue()
+    public void SlotRead_ManagedWrapperValueTypes_UseCopiedValue()
     {
-        var proj = new SetProjection(new BlittableProjection("Int64"), isParameter: true);
-        Assert.True(proj.Accept(new ProtocolProxyEmitter.ReceiverParamNeedsObjectMarshalVisitor()));
+        // Non-frozen structs and associated-value enums project to adopting wrapper classes, and
+        // frozen-with-references to a copying one; reading either bitwise reinterprets Swift's
+        // payload bytes as a managed object reference.
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new NonFrozenStructProjection("MyStruct")));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new FrozenWithMemoryProjection("MyFrozen")));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new ResultProjection(
+            new BlittableProjection("Int64"), new ClassProjection("MyError"))));
     }
 
     [Fact]
-    public void NeedsObjectMarshal_String_IsFalse()
+    public void SlotRead_SimpleEnum_UsesCopiedValue()
     {
-        Assert.False(new StringProjection().Accept(
-            new ProtocolProxyEmitter.ReceiverParamNeedsObjectMarshalVisitor()));
+        // The C# carrier is `enum : int` while Swift stores a payload-free discriminator in one
+        // byte, so the raw four-byte read would drag in the neighbouring value's bytes.
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new SimpleEnumProjection("MyEnum", "int")));
     }
 
     [Fact]
-    public void NeedsObjectMarshal_Class_IsFalse()
+    public void SlotRead_Optional_UsesCopiedValue_RegardlessOfInner()
     {
-        Assert.False(new ClassProjection("MyClass").Accept(
-            new ProtocolProxyEmitter.ReceiverParamNeedsObjectMarshalVisitor()));
+        // The ABI carrier is always the SwiftOptional wrapper class, so the top-level kind — not
+        // the inner element — decides, and the tagged carrier is never bitwise-readable.
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new OptionalProjection(new NonFrozenStructProjection("MyStruct"))));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new OptionalProjection(new BlittableProjection("Int64"))));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue,
+            Kind(new OptionalProjection(new ArrayProjection(new BlittableProjection("Int64"), isParameter: true))));
     }
 
     [Fact]
-    public void NeedsObjectMarshal_Optional_IsFalse()
+    public void SlotRead_Tuple_IsRawOnlyWhenEveryElementIs()
     {
-        // An Optional wrapping a collection is still false at the top level — the discriminator
-        // is the top-level projection KIND, not the inner element.
-        var proj = new OptionalProjection(new ArrayProjection(new BlittableProjection("Int64"), isParameter: true));
-        Assert.False(proj.Accept(new ProtocolProxyEmitter.ReceiverParamNeedsObjectMarshalVisitor()));
+        // A tuple is bitwise-readable exactly when all of its elements are; one wrapper-class
+        // element makes the whole read a managed reinterpretation.
+        Assert.Equal(ReceiverSlotReadKind.RawRead, Kind(new TupleProjection(
+            new[] { new BlittableProjection("Int64"), (ITypeProjection)new BoolProjection() })));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new TupleProjection(
+            new[] { new BlittableProjection("Int64"), (ITypeProjection)new StringProjection() })));
+        Assert.Equal(ReceiverSlotReadKind.CopiedValue, Kind(new TupleProjection(
+            new[] { new BlittableProjection("Int64"), (ITypeProjection)new NonFrozenStructProjection("MyStruct") })));
     }
 
     #endregion

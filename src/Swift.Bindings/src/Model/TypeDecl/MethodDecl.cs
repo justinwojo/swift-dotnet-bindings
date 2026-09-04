@@ -87,6 +87,21 @@ namespace BindingsGeneration
         public bool IsSubscriptAccessor { get; set; } = false;
 
         /// <summary>
+        /// For a property accessor, the reference ownership of the storage it reads or writes —
+        /// the owning property's <c>weak</c>/<c>unowned</c> declaration, or
+        /// <see cref="SwiftReferenceOwnership.Strong"/> for everything else.
+        ///
+        /// <para>Marshalling arms see the accessor's <see cref="MethodDecl"/>, never the property,
+        /// so the fact has to travel with the accessor. It decides who roots an auto-wrapped
+        /// existential carrier handed to a setter: non-retaining storage takes no reference on the
+        /// conformer box, so the carrier has to follow the caller's own implementation object
+        /// instead of Swift's liveness. The decision belongs to the SINK, not to the wire width,
+        /// which is why every arm that wraps an implementation for a setter reads this one value
+        /// rather than re-deriving it from the shape of the parameter.</para>
+        /// </summary>
+        public SwiftReferenceOwnership SinkReferenceOwnership { get; set; } = SwiftReferenceOwnership.Strong;
+
+        /// <summary>
         /// Indicates if the method is mutating (modifies self on value types).
         /// Parsed from funcSelfKind in the ABI JSON.
         /// </summary>

@@ -1421,6 +1421,74 @@ public class SwiftABIParserRuntimeTests
             "Protocol where Self conforms to AnyObject should be class-bound even with other constraints");
     }
 
+    // The generic signature reaches the parser in two dialects. A module compiled from source
+    // (every xcframework fixture) prints the DESUGARED subject root `τ_0_0`; Apple's
+    // `swift-api-digester -dump-sdk`, which produces the ABI JSON for an Apple-direct binding,
+    // prints the SUGARED root `Self` and never emits a `τ` at all. Both spell the SAME class-bound
+    // constraint, so grading one class-bound and the other opaque picks the wrong existential
+    // layout for exactly the delegate protocols Apple frameworks are built on
+    // (`DataScannerViewControllerDelegate : AnyObject`): the proxy would write its witness table
+    // into the 5-word opaque slot while Swift reads a 2-word class existential.
+    // `<Self : AnyObject>` is the spelling the digester actually produces; the qualified and
+    // where-clause spellings are covered too so the grading is keyed on the requirement, not on
+    // one rendering of it.
+    [Theory]
+    [InlineData("<Self : AnyObject>")]
+    [InlineData("<Self where Self : AnyObject>")]
+    [InlineData("<Self : Swift.AnyObject>")]
+    [InlineData("<Self : AnyObject, Self : Swift.Sendable>")]
+    [InlineData("<Self where Self : AnyObject, Self.Element : Swift.Equatable>")]
+    public void ParseModule_ProtocolWithSugaredAnyObjectGenericSig_SetsIsClassBound(string genericSig)
+    {
+        var protocolNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "SugaredClassBoundProtocol",
+            mangledName: "$s10TestModule25SugaredClassBoundProtocolP",
+            genericSig: genericSig);
+
+        using var fixture = CreateParserWithNodes(protocolNode);
+        var result = fixture.Parser.ParseModule();
+
+        var protocol = Assert.Single(result.ModuleDecl.Types.OfType<ProtocolDecl>());
+        Assert.True(protocol.IsClassBound,
+            $"Sugared class-bound signature '{genericSig}' should grade class-bound");
+    }
+
+    [Theory]
+    [InlineData("<Self : AnyObject>", "<τ_0_0 : AnyObject>")]
+    [InlineData("<Self where Self : AnyObject>", "<τ_0_0 where τ_0_0 : AnyObject>")]
+    [InlineData("<Self : Swift.AnyObject>", "<τ_0_0 : Swift.AnyObject>")]
+    [InlineData("<Self : AnyObject, Self : Swift.Sendable>",
+                "<τ_0_0 : AnyObject, τ_0_0 : Swift.Sendable>")]
+    [InlineData("<Self : Swift.Sendable>", "<τ_0_0 : Swift.Sendable>")]
+    [InlineData("<Self where Self.Element : AnyObject>",
+                "<τ_0_0 where τ_0_0.Element : AnyObject>")]
+    [InlineData("<Self>", "<τ_0_0>")]
+    public void ParseModule_SugaredAndDesugaredSpellings_GradeClassBoundIdentically(
+        string sugaredSig, string desugaredSig)
+    {
+        // The two dialects describe the same protocol; whichever toolchain produced the ABI JSON
+        // must not change the existential layout the binding marshals through. Includes negative
+        // pairs (marker-only, associated-type-only AnyObject, unconstrained) so the parity is a
+        // real equivalence rather than "both happen to be true".
+        Assert.Equal(GradeClassBound(sugaredSig), GradeClassBound(desugaredSig));
+    }
+
+    private static bool GradeClassBound(string genericSig)
+    {
+        var protocolNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "DialectParityProtocol",
+            mangledName: "$s10TestModule21DialectParityProtocolP",
+            genericSig: genericSig);
+
+        using var fixture = CreateParserWithNodes(protocolNode);
+        var result = fixture.Parser.ParseModule();
+        return Assert.Single(result.ModuleDecl.Types.OfType<ProtocolDecl>()).IsClassBound;
+    }
+
     #endregion
 
     #region Cross-Module Re-Export Detection Tests

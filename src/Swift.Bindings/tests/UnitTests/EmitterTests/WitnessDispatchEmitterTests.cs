@@ -1624,6 +1624,165 @@ public class WitnessDispatchEmitterTests
 
     #endregion
 
+    #region Staggered protocol/requirement availability
+
+    // A requirement introduced after the protocol that declares it is invisible inside a
+    // function whose availability context is only the protocol's floor. When a protocol
+    // extension supplies a same-signature default, Swift silently resolves the call there —
+    // a static call to the default, never a witness-table dispatch, with no diagnostic. Each
+    // forwarder therefore has to be declared at the merged protocol+member floor.
+
+    [Theory]
+    [InlineData("", "iOS 16.0")]       // requirement as old as its protocol keeps the protocol floor
+    [InlineData("17.0", "iOS 17.0")]   // requirement newer than its protocol raises the floor
+    [InlineData("26.0", "iOS 26.0")]
+    public void MethodForwarder_CarriesMergedProtocolAndMemberAvailability(string memberIntroduced, string expectedKey)
+    {
+        var protocolDecl = CreateProtocolWithVoidMethod("Staggered", "newerDidChange");
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { Introduced("iOS", "16.0") };
+        if (memberIntroduced.Length > 0)
+        {
+            protocolDecl.Methods[0].AvailabilityAnnotations =
+                new List<AvailabilityAnnotation> { Introduced("iOS", memberIntroduced) };
+        }
+
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Equal(
+            new[] { $"@available({expectedKey}, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_method_newerDidChange_0"));
+    }
+
+    [Fact]
+    public void MethodForwarders_KeepPerRequirementFloors_WithinOneProtocol()
+    {
+        // The shipped shape: one protocol, one requirement at its floor and one newer.
+        // A single protocol-wide floor for both is exactly the defect.
+        var protocolDecl = CreateProtocolWithVoidMethod("Staggered", "olderDidChange");
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { Introduced("iOS", "16.0") };
+        protocolDecl.Methods.Add(CreateMethod("newerDidChange", TupleTypeSpec.Empty));
+        protocolDecl.Methods[1].AvailabilityAnnotations =
+            new List<AvailabilityAnnotation> { Introduced("iOS", "17.0") };
+
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Equal(
+            new[] { "@available(iOS 16.0, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_method_olderDidChange_0"));
+        Assert.Equal(
+            new[] { "@available(iOS 17.0, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_method_newerDidChange_1"));
+    }
+
+    [Fact]
+    public void PropertyGetterForwarderAndFreeFunction_CarryMemberAvailability()
+    {
+        var protocolDecl = CreateProtocolWithProperty("Staggered", "value", new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { Introduced("iOS", "16.0") };
+        protocolDecl.Properties[0].AvailabilityAnnotations =
+            new List<AvailabilityAnnotation> { Introduced("iOS", "17.0") };
+
+        var output = EmitDispatch(protocolDecl);
+
+        // The free function is emitted next to the accessor and must not sit at a lower floor
+        // than the accessor whose allocation it releases.
+        Assert.Equal(
+            new[] { "@available(iOS 17.0, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_get_value_0"));
+        Assert.Equal(
+            new[] { "@available(iOS 17.0, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_free_get_value_0"));
+    }
+
+    [Fact]
+    public void PropertySetterForwarder_PrefersSetterSpecificAvailability()
+    {
+        var protocolDecl = CreateProtocolWithGetterAndSetter("Staggered", "value", new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { Introduced("iOS", "16.0") };
+        protocolDecl.Properties[0].SetterAvailabilityAnnotations =
+            new List<AvailabilityAnnotation> { Introduced("iOS", "17.4") };
+
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Equal(
+            new[] { "@available(iOS 17.4, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_set_value_0"));
+        Assert.Equal(
+            new[] { "@available(iOS 16.0, *)" },
+            AvailabilityLinesFor(output, "SBW_Staggered_get_value_0"));
+    }
+
+    [Fact]
+    public void Forwarder_MergesAvailabilityPerPlatform()
+    {
+        // The member raises only iOS; the protocol's macOS floor has to survive the merge,
+        // and the platform the member does raise takes the member's version.
+        var protocolDecl = CreateProtocolWithVoidMethod("Staggered", "newerDidChange");
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            Introduced("iOS", "16.0"),
+            Introduced("macOS", "13.0"),
+        };
+        protocolDecl.Methods[0].AvailabilityAnnotations =
+            new List<AvailabilityAnnotation> { Introduced("iOS", "17.0") };
+
+        var lines = AvailabilityLinesFor(EmitDispatch(protocolDecl), "SBW_Staggered_method_newerDidChange_0");
+
+        Assert.Contains("@available(iOS 17.0, *)", lines);
+        Assert.Contains("@available(macOS 13.0, *)", lines);
+        Assert.DoesNotContain("@available(iOS 16.0, *)", lines);
+    }
+
+    [Fact]
+    public void Forwarder_RaisesExplicitMacCatalystFloorWithIOS()
+    {
+        // Mac Catalyst tracks iOS for the unified-SDK era, so a member that raises iOS above
+        // the protocol's explicit macCatalyst floor raises that floor too — otherwise the
+        // forwarder fails to compile for -target …-macabi.
+        var protocolDecl = CreateProtocolWithVoidMethod("Staggered", "newerDidChange");
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            Introduced("iOS", "16.0"),
+            Introduced("macCatalyst", "16.0"),
+        };
+        protocolDecl.Methods[0].AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            Introduced("iOS", "17.0"),
+            Introduced("macCatalyst", "17.0"),
+        };
+
+        var lines = AvailabilityLinesFor(EmitDispatch(protocolDecl), "SBW_Staggered_method_newerDidChange_0");
+
+        Assert.Contains("@available(iOS 17.0, *)", lines);
+        Assert.Contains("@available(macCatalyst 17.0, *)", lines);
+    }
+
+    private static AvailabilityAnnotation Introduced(string platform, string version)
+        => new(platform, version, null, null, false, false, null, null);
+
+    /// <summary>
+    /// The <c>@available</c> lines immediately preceding the <c>@_cdecl(&quot;symbol&quot;)</c>
+    /// declaration, in emission order.
+    /// </summary>
+    private static IReadOnlyList<string> AvailabilityLinesFor(string output, string cdeclSymbol)
+    {
+        var lines = output.Replace("\r\n", "\n").Split('\n');
+        var anchor = Array.FindIndex(lines, l => l.Contains($"@_cdecl(\"{cdeclSymbol}\")", StringComparison.Ordinal));
+        Assert.True(anchor >= 0, $"emitted wrapper has no @_cdecl(\"{cdeclSymbol}\"):\n{output}");
+
+        var collected = new List<string>();
+        for (int i = anchor - 1; i >= 0; i--)
+        {
+            var line = lines[i].Trim();
+            if (!line.StartsWith("@available(", StringComparison.Ordinal))
+                break;
+            collected.Insert(0, line);
+        }
+        return collected;
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitDispatch(ProtocolDecl protocolDecl)
@@ -2823,6 +2982,57 @@ public class WitnessDispatchEmitterTests
         var assocType = new AssociatedTypeReferenceSpec("Self", "Index");
         var property = CreateProperty("startIndex", assocType);
         Assert.False(_emitter.IsPropertyGetterDispatchable(property));
+    }
+
+    #endregion
+
+    #region Setter Availability
+
+    [Fact]
+    public void SetterAvailability_PrefersTheSetterSpecificListOverThePropertyList()
+    {
+        // The Swift @_cdecl setter forwarder and the C# setter walks read ONE rule; a fork here
+        // exports the forwarder at a floor the C# attribute does not advertise.
+        var protocolDecl = CreateProtocolWithProperty("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("macOS", "13.0", null, null, false, false, null, null)
+        };
+        var property = protocolDecl.Properties[0];
+        property.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        };
+        property.SetterAvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null)
+        };
+
+        var setterAvailability = WitnessDispatchEmitter.SetterAvailability(property, protocolDecl);
+
+        Assert.NotNull(setterAvailability);
+        // The setter's own floor replaces the property's — the parser already folded the
+        // property's list into it, so keeping both would re-introduce the looser floor…
+        Assert.Contains(setterAvailability!, a => a.Platform == "iOS" && a.IntroducedVersion == "17.0");
+        Assert.DoesNotContain(setterAvailability!, a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+        // …while the enclosing protocol's floor on other platforms still merges in.
+        Assert.Contains(setterAvailability!, a => a.Platform == "macOS" && a.IntroducedVersion == "13.0");
+    }
+
+    [Fact]
+    public void SetterAvailability_WithoutSetterSpecificList_UsesThePropertyFloor()
+    {
+        var protocolDecl = CreateProtocolWithProperty("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
+        var property = protocolDecl.Properties[0];
+        property.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        };
+
+        var setterAvailability = WitnessDispatchEmitter.SetterAvailability(property, protocolDecl);
+
+        Assert.NotNull(setterAvailability);
+        Assert.Contains(setterAvailability!, a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
     }
 
     #endregion

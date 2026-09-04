@@ -120,6 +120,33 @@ public class ObjCClassParamDriver {
     public func driveOptionalNil(_ receiver: ObjCClassParamReceiver) {
         receiver.didReceiveObjCOptional(nil)
     }
+
+    /// Hands the callback the payload the CALLER supplied, instead of one this driver
+    /// minted. This is the delegate shape a consumer actually writes — the object the
+    /// C# side created is handed straight back to it through the callback — and it is
+    /// the only way to reach the managed-peer-reuse branch: a payload minted inside
+    /// Swift has no managed peer yet, so the callback legitimately constructs one.
+    public func driveWithCallerPayload(_ receiver: ObjCClassParamReceiver, payload: ObjCClassParamPayload) {
+        receiver.didReceiveObjC(payload)
+    }
+}
+
+// MARK: - Managed-peer identity for @objc:NSObject classes
+//
+// An `@objc … : NSObject` Swift class projects onto an NSObject-derived C# base, and a
+// native NSObject may have at most ONE managed peer — the Apple bindings keep a
+// handle→peer map. Every path that turns a raw handle back into a wrapper (the
+// reverse-dispatch receiver above, and the return-value marshalling below) therefore has
+// to hand back the peer that already exists rather than minting a second one over the
+// same native object.
+//
+// `driveWithCallerPayload` covers the callback direction; `echoObjCPayload` covers the
+// return direction through the same `NewFromPayload` seam.
+
+/// Returns the very same instance it was handed. The C# caller passes an object it
+/// created, so a correct return-direction marshal gives back the identical managed peer.
+public func echoObjCPayload(_ payload: ObjCClassParamPayload) -> ObjCClassParamPayload {
+    return payload
 }
 
 // MARK: - Return-direction @objc coverage

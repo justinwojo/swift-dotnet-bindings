@@ -36,6 +36,9 @@ public partial class ProtocolProxyEmitter
                 continue;
             if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesProperty(property, protocolDecl, closureHandler!))
                 continue;
+            // A property's suppression is decided PER ACCESSOR inside EmitPropertyReceivers: Swift can
+            // introduce a setter after the property it belongs to, so the get and set trampolines can
+            // sit at different floors and one bracket around both would be wrong in either direction.
             EmitPropertyReceivers(writer, property, protocolDecl, interfaceName, emittedReceivers);
         }
 
@@ -56,7 +59,9 @@ public partial class ProtocolProxyEmitter
                 subscriptIndex++;
                 continue;
             }
+            var subscriptSuppressed = EmitReceiverAvailabilitySuppressionPrologue(writer, subscript, protocolDecl);
             EmitSubscriptReceivers(writer, subscript, protocolDecl, interfaceName, subscriptIndex, emittedReceivers);
+            EmitReceiverAvailabilitySuppressionEpilogue(writer, subscriptSuppressed);
             subscriptIndex++;
         }
 
@@ -128,12 +133,78 @@ public partial class ProtocolProxyEmitter
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
                 // Only emit receiver for new methods
+                var methodSuppressed = EmitReceiverAvailabilitySuppressionPrologue(writer, method, protocolDecl);
                 EmitMethodReceiver(writer, method, protocolDecl, interfaceName, idx, emittedReceivers);
+                EmitReceiverAvailabilitySuppressionEpilogue(writer, methodSuppressed);
             }
         }
 
         writer.WriteLine("#endregion");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Opens a CA1416 suppression around the reverse-dispatch receiver(s) of a member whose
+    /// availability floor is newer than the protocol's, and returns whether one was opened
+    /// (pair with <see cref="EmitReceiverAvailabilitySuppressionEpilogue"/>).
+    ///
+    /// <para>A receiver is not a call site a consumer can reach: it is an
+    /// <c>[UnmanagedCallersOnly]</c> trampoline whose address is stored in the EveryProtocol
+    /// vtable and which only ever runs because Swift dispatched the requirement into it. Swift
+    /// can only do that at or above the requirement's own availability floor, so the C#
+    /// implementation call inside the body is unreachable below that floor even though the
+    /// analyzer sees it as reachable from the proxy class's (older) floor.</para>
+    ///
+    /// <para>Carrying the floor as a <c>[SupportedOSPlatform]</c> on the receiver instead would
+    /// be wrong: the vtable is populated unconditionally in the proxy's static initializer, at
+    /// the protocol's floor, so gating the receiver just moves the same diagnostic onto the
+    /// <c>&amp;Receive_*</c> address-of — and that one cannot be gated away, since the slot has
+    /// to be filled on every OS the proxy loads on. Consumers still see the requirement's floor:
+    /// it is on the interface member, the proxy's forwarding member, and its P/Invoke.</para>
+    ///
+    /// <para>The floor is passed in as an annotation LIST rather than read off the member,
+    /// because a property's two trampolines can sit at different floors: Swift can introduce a
+    /// setter after the property (a get-only requirement later made settable), and the interface
+    /// member the set trampoline calls then carries that newer floor on its <c>set</c> accessor
+    /// while the getter stays at the property's. Each accessor's receiver is therefore bracketed
+    /// off the same list the rest of that accessor's chain is gated by — the property's own
+    /// annotations for the getter, <see cref="AvailabilityHelpers.SelectSetterAnnotations"/> for
+    /// the setter — so the pragma cannot disagree with the attribute it exists to answer. A member
+    /// with a single floor (a method, a subscript) passes its own list through the decl overload
+    /// below.</para>
+    /// </summary>
+    private static bool EmitReceiverAvailabilitySuppressionPrologue(
+        CSharpWriter writer, IReadOnlyList<AvailabilityAnnotation>? memberAnnotations, ProtocolDecl protocolDecl)
+    {
+        if (!AvailabilityAttributeEmitter.DeclaresStricterFloorThanParent(memberAnnotations, protocolDecl))
+            return false;
+
+        writer.WriteLine("// This requirement was introduced after the protocol. The receiver below is a");
+        writer.WriteLine("// Swift-invoked trampoline reached only through witness dispatch of that");
+        writer.WriteLine("// requirement, which cannot happen below its floor, and its vtable slot must be");
+        writer.WriteLine("// filled at the protocol's floor — so the implementation call is gated by Swift,");
+        writer.WriteLine("// not by the analyzer's call-site model.");
+        writer.WriteLine("#pragma warning disable CA1416");
+        return true;
+    }
+
+    /// <summary>
+    /// Declaration form of
+    /// <see cref="EmitReceiverAvailabilitySuppressionPrologue(CSharpWriter, IReadOnlyList{AvailabilityAnnotation}, ProtocolDecl)"/>,
+    /// for a member whose receivers are all gated at the one floor the declaration itself carries.
+    /// </summary>
+    private static bool EmitReceiverAvailabilitySuppressionPrologue(
+        CSharpWriter writer, BaseDecl member, ProtocolDecl protocolDecl)
+        => EmitReceiverAvailabilitySuppressionPrologue(writer, member.AvailabilityAnnotations, protocolDecl);
+
+    /// <summary>
+    /// Closes a CA1416 suppression opened by <see cref="EmitReceiverAvailabilitySuppressionPrologue"/>.
+    /// No-op when the prologue emitted nothing.
+    /// </summary>
+    private static void EmitReceiverAvailabilitySuppressionEpilogue(CSharpWriter writer, bool suppressed)
+    {
+        if (suppressed)
+            writer.WriteLine("#pragma warning restore CA1416");
     }
 
     /// <summary>
@@ -304,6 +375,8 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_get";
             if (emittedReceivers.Add(receiverName))
             {
+                var getterSuppressed = EmitReceiverAvailabilitySuppressionPrologue(
+                    writer, property.AvailabilityAnnotations, protocolDecl);
                 var getterDescriptor = $"{protocolDecl.Name}.{property.Name} getter";
                 var degraded = EmitReceiverOrDegrade(writer, "IntPtr", receiverName, "IntPtr vtHandle, IntPtr selfContainer",
                     getterDescriptor, () =>
@@ -381,6 +454,7 @@ public partial class ProtocolProxyEmitter
                 // emitted cleanly. A suppressed proxy on the getter's value type surfaces one classified row.
                 if (!degraded)
                     RecordReceiverGetterConsumeDegrade(getterDescriptor, property.SwiftTypeSpec);
+                EmitReceiverAvailabilitySuppressionEpilogue(writer, getterSuppressed);
             }
         }
 
@@ -389,6 +463,11 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_set";
             if (emittedReceivers.Add(receiverName))
             {
+                // The set trampoline calls the interface's `set` accessor, which carries the
+                // setter's own floor when Swift introduced it after the property — so this
+                // bracket is decided off the setter's annotations, not the property's.
+                var setterSuppressed = EmitReceiverAvailabilitySuppressionPrologue(
+                    writer, AvailabilityHelpers.SelectSetterAnnotations(property), protocolDecl);
                 EmitReceiverOrDegrade(writer, "void", receiverName, "IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr",
                     $"{protocolDecl.Name}.{property.Name} setter", () =>
                 {
@@ -482,6 +561,7 @@ public partial class ProtocolProxyEmitter
                         writer.WriteLine();
                     }
                 });
+                EmitReceiverAvailabilitySuppressionEpilogue(writer, setterSuppressed);
             }
         }
     }
@@ -529,6 +609,9 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_set";
             if (emittedReceivers.Add(receiverName))
             {
+                // Setter floor, not the property's — see EmitReceiverAvailabilitySuppressionPrologue.
+                var setterSuppressed = EmitReceiverAvailabilitySuppressionPrologue(
+                    writer, AvailabilityHelpers.SelectSetterAnnotations(property), protocolDecl);
                 var entryPoint = EveryProtocolEmitter.GetProtocolClosurePropertyInvokeThunkEntryPoint(protocolDecl, property);
                 var helperName = EveryProtocolEmitter.GetProtocolClosureInvokeThunkHelperName(entryPoint);
                 var invokerClassName = ClosureEmitter.GetInvokerClassName(helperName);
@@ -559,6 +642,7 @@ public partial class ProtocolProxyEmitter
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
+                EmitReceiverAvailabilitySuppressionEpilogue(writer, setterSuppressed);
             }
         }
 
@@ -567,6 +651,8 @@ public partial class ProtocolProxyEmitter
             var receiverName = $"Receive_{property.Name}_get";
             if (emittedReceivers.Add(receiverName))
             {
+                var getterSuppressed = EmitReceiverAvailabilitySuppressionPrologue(
+                    writer, property.AvailabilityAnnotations, protocolDecl);
                 writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                 writer.WriteLine("{");
@@ -598,6 +684,7 @@ public partial class ProtocolProxyEmitter
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
+                EmitReceiverAvailabilitySuppressionEpilogue(writer, getterSuppressed);
             }
         }
 
@@ -606,6 +693,8 @@ public partial class ProtocolProxyEmitter
         // EveryProtocolEmitter.IsDispatchableClosureProperty.
         if (hasGetter && emittedReceivers.Add(getterThunkName))
         {
+            var thunkSuppressed = EmitReceiverAvailabilitySuppressionPrologue(
+                writer, property.AvailabilityAnnotations, protocolDecl);
             writer.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             writer.WriteLine($"private static void {getterThunkName}(IntPtr ctx)");
             writer.WriteLine("{");
@@ -622,6 +711,7 @@ public partial class ProtocolProxyEmitter
             writer.Indent--;
             writer.WriteLine("}");
             writer.WriteLine();
+            EmitReceiverAvailabilitySuppressionEpilogue(writer, thunkSuppressed);
         }
     }
 
@@ -1909,35 +1999,30 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Issue #40: route a Swift-class (or <c>Optional&lt;class&gt;</c>) reverse-callback
-    /// parameter through the runtime borrowed-slot copy-out instead of the per-proxy local
-    /// <c>MarshalFromSwift&lt;T&gt;</c> (which does <c>Unsafe.Read&lt;T&gt;</c> and reinterprets the Swift
-    /// heap pointer as a managed reference → SIGSEGV on first use). <paramref name="slotExpr"/> is the
-    /// receiver's raw <c>IntPtr</c> argument — the address of the borrowed slot the Swift thunk passed
-    /// via <c>&amp;{param}Copy</c>. Applies to true Swift classes (pure-Swift <see cref="ClassProjection"/>
-    /// and <c>@objc:NSObject</c> <see cref="ObjCRootedClassProjection"/>), whose ObjC-vs-native retain
-    /// dispatch the runtime helper handles via <c>swift_unknownObjectRetain</c>. ObjC-<i>bridged</i> value
-    /// types (<see cref="ObjCBridgedProjection"/>, e.g. NSURLSession) are NOT Swift heap classes and keep
-    /// their existing <c>MarshalFromSwift&lt;IntPtr&gt;</c> + GetNSObject path. Returns the full RHS marshal
-    /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
-    /// </summary>
-    /// <summary>
-    /// Raw materialization of a reverse-dispatch receiver parameter/value from its borrowed Swift slot.
-    /// Reference-backed <c>ISwiftObject</c> collection wrappers (<c>SwiftArray</c>/<c>SwiftDictionary</c>/
-    /// <c>SwiftSet</c>) arrive as the address of a borrowed value slot holding the storage pointer; the
-    /// proxy-local <c>MarshalFromSwift&lt;T&gt;</c> (<c>Unsafe.Read&lt;T&gt;</c>) would reinterpret that
-    /// storage pointer as a managed reference → garbage ref → NullReferenceException /
-    /// <c>swift_abortRetainOverflow</c> SIGABRT. Materialize those via the runtime helper
-    /// (<c>NewFromPayload</c> → <c>InitializeWithCopy</c>, a +1 owned copy of the borrowed slot whose
-    /// finalizer rebalances the retain), exactly as the string param/value path and the forward return
-    /// path already do. Blittable values and value-type existential containers keep the local
-    /// <c>Unsafe.Read</c> fast path (<c>Unsafe.Read</c> is correct for value types).
+    /// Materialization of a reverse-dispatch receiver parameter/value from its borrowed Swift slot.
+    /// <paramref name="slotExpr"/> is the address the Swift thunk passed via <c>&amp;{param}Copy</c>: the
+    /// thunk owns that storage and deinitializes it when the receiver returns, so the read must produce
+    /// a value the managed side can keep without owning the slot.
+    ///
+    /// The projection kind picks one of three reads (see <see cref="ReceiverSlotReadKind"/>). The
+    /// proxy-local <c>MarshalFromSwift&lt;T&gt;</c> is a bare <c>Unsafe.Read&lt;T&gt;</c>, which is sound
+    /// only for blittable carriers: applied to a managed wrapper class it reinterprets Swift's payload
+    /// bytes as an object reference (garbage ref → NullReferenceException or
+    /// <c>swift_abortRetainOverflow</c> SIGABRT), and applied to a C# enum whose Swift discriminator is
+    /// narrower than the C# backing type it also drags in bytes of the neighbouring value. So
+    /// reference-backed container wrappers materialize through the runtime object read, managed
+    /// wrappers and enums through the runtime borrowed copy-out, and only genuinely blittable carriers
+    /// keep the local fast path.
     /// </summary>
     private string GetReceiverRawMaterialization(string abiTypeName, string slotExpr, TypeSpec? typeSpec)
     {
-        if (ReceiverParamNeedsObjectMarshal(typeSpec))
-            return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<{abiTypeName}>({slotExpr})";
-        return $"MarshalFromSwift<{abiTypeName}>({slotExpr})";
+        const string Marshal = "global::Swift.Runtime.InteropServices.SwiftMarshal";
+        return GetReceiverSlotReadKind(typeSpec) switch
+        {
+            ReceiverSlotReadKind.ObjectMarshal => $"{Marshal}.MarshalFromSwiftObject<{abiTypeName}>({slotExpr})",
+            ReceiverSlotReadKind.CopiedValue => $"{Marshal}.MarshalCopiedValueFromSlot<{abiTypeName}>({slotExpr})",
+            _ => $"MarshalFromSwift<{abiTypeName}>({slotExpr})",
+        };
     }
 
     /// <summary>
@@ -1971,19 +2056,31 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// True when a receiver parameter's ABI carrier is a reference-backed <c>ISwiftObject</c> collection
-    /// wrapper (<c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>) that must be materialized through
-    /// <c>NewFromPayload</c> rather than <c>Unsafe.Read</c>. The top-level projection KIND is the reliable
-    /// discriminator (strings are already special-cased upstream; classes go through the copy-out helper).
+    /// Classifies how a receiver parameter's borrowed ABI slot must be read, from the top-level
+    /// projection kind. An unprojectable type falls back to the local raw read, which is what the
+    /// receiver emitted before any classification existed.
     /// </summary>
-    private bool ReceiverParamNeedsObjectMarshal(TypeSpec? typeSpec)
+    private ReceiverSlotReadKind GetReceiverSlotReadKind(TypeSpec? typeSpec)
     {
-        if (typeSpec == null) return false;
+        if (typeSpec == null) return ReceiverSlotReadKind.RawRead;
         var projection = s_projectionFactory.Project(typeSpec,
             new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
-        return projection?.Accept(new ReceiverParamNeedsObjectMarshalVisitor()) ?? false;
+        return projection?.Accept(new ReceiverSlotReadKindVisitor()) ?? ReceiverSlotReadKind.RawRead;
     }
 
+    /// <summary>
+    /// Routes a Swift-class (or <c>Optional&lt;class&gt;</c>) reverse-callback parameter through the
+    /// runtime borrowed-slot copy-out instead of the per-proxy local <c>MarshalFromSwift&lt;T&gt;</c>
+    /// (which does <c>Unsafe.Read&lt;T&gt;</c> and reinterprets the Swift heap pointer as a managed
+    /// reference → SIGSEGV on first use). <paramref name="slotExpr"/> is the receiver's raw
+    /// <c>IntPtr</c> argument — the address of the borrowed slot the Swift thunk passed via
+    /// <c>&amp;{param}Copy</c>. Applies to true Swift classes (pure-Swift <see cref="ClassProjection"/>
+    /// and <c>@objc:NSObject</c> <see cref="ObjCRootedClassProjection"/>), whose ObjC-vs-native retain
+    /// dispatch the runtime helper handles via <c>swift_unknownObjectRetain</c>. ObjC-<i>bridged</i>
+    /// value types (<see cref="ObjCBridgedProjection"/>) are NOT Swift heap classes and keep their
+    /// existing <c>MarshalFromSwift&lt;IntPtr&gt;</c> + GetNSObject path. Returns the full RHS marshal
+    /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
+    /// </summary>
     private string? GetReceiverClassCopyOutExpr(string slotExpr, TypeSpec? typeSpec)
     {
         if (typeSpec == null) return null;
@@ -2358,24 +2455,62 @@ public partial class ProtocolProxyEmitter
                         + "can be read, but a C# type cannot conform back to it.");
                 }
 
+                /// <summary>
+                /// Not supported, for the same reason as the single-argument overload. Present so
+                /// marshalling emitted for a non-retaining Swift sink compiles uniformly.
+                /// </summary>
+                /// <param name="implementation">Unused; this constructor always throws.</param>
+                /// <param name="ownership">Unused; this constructor always throws.</param>
+                public {{proxyClassName}}({{interfaceName}} implementation, global::Swift.Runtime.ProxyImplOwnership ownership)
+                {
+                    throw new global::System.NotSupportedException(
+                        "Cannot create a Swift-backed proxy from a C# implementation of '{{interfaceName}}': "
+                        + "this protocol is forward-only (read-only). Swift-vended 'any {{interfaceName}}' values "
+                        + "can be read, but a C# type cannot conform back to it.");
+                }
+
                 """);
         }
         else
         {
         writer.WriteLines($$"""
             /// <summary>
-            /// Creates a proxy wrapping a C# implementation of {{interfaceName}}.
+            /// Creates a proxy wrapping a C# implementation of {{interfaceName}}, rooted by Swift
+            /// liveness — the shape every retaining Swift sink needs.
             /// </summary>
             /// <param name="implementation">The C# implementation of the protocol.</param>
             public unsafe {{proxyClassName}}({{interfaceName}} implementation)
+                : this(implementation, global::Swift.Runtime.ProxyImplOwnership.SwiftRooted)
+            {
+            }
+
+            /// <summary>
+            /// Creates a proxy wrapping a C# implementation of {{interfaceName}} with an explicit
+            /// ownership mode.
+            /// </summary>
+            /// <param name="implementation">The C# implementation of the protocol.</param>
+            /// <param name="ownership">
+            /// Which side owns this carrier. <c>SwiftRooted</c> (the default construction) roots the
+            /// implementation by Swift liveness; <c>ConsumerOwned</c> is emitted for a Swift sink that
+            /// does not retain (<c>weak</c>/<c>unowned</c> storage), where the implementation owns the
+            /// carrier and the two are collected together once the consumer drops the implementation.
+            /// </param>
+            public unsafe {{proxyClassName}}({{interfaceName}} implementation, global::Swift.Runtime.ProxyImplOwnership ownership)
             {
                 if (implementation == null) throw new ArgumentNullException(nameof(implementation));
-                // Design B2: the impl is rooted by Swift-liveness through ProxyLifetimeTracker's
-                // strong handle-keyed GCHandle (allocated in Track below), NOT by this proxy.
-                // _csharpImplRef stays WEAK and exists only to satisfy the covariant
-                // IProtocolProxyImpl<T>.UserImpl cross-module contract — reverse dispatch resolves
-                // the impl via ProxyLifetimeTracker.ResolveImpl, never through this field.
+                var __consumerOwned = ownership == global::Swift.Runtime.ProxyImplOwnership.ConsumerOwned;
+                // Design B2: for a retaining sink the impl is rooted by Swift-liveness through
+                // ProxyLifetimeTracker's strong handle-keyed GCHandle (allocated in Track below),
+                // NOT by this proxy. _csharpImplRef stays WEAK and exists only to satisfy the
+                // covariant IProtocolProxyImpl<T>.UserImpl cross-module contract — reverse dispatch
+                // resolves the impl via ProxyLifetimeTracker.ResolveImpl, never through this field.
+                //
+                // A consumer-owned carrier inverts that: the tracker's root is a long weak handle,
+                // so this proxy holds the impl STRONGLY. That back-edge keeps the impl resolvable
+                // for a callback racing this proxy's finalizer, and closes no cycle because the
+                // only thing holding this proxy is a memo keyed weakly on that same impl.
                 _csharpImplRef = new WeakReference<{{interfaceName}}>(implementation);
+                _csharpImplStrong = __consumerOwned ? implementation : null;
 
                 // Create a real Swift {{(_useObjCBase ? "EveryObjCProtocol" : "EveryProtocol")}} instance via @_cdecl factory.
                 // The pointer carries a construction +1 (R0) from Unmanaged.passRetained(). We hold
@@ -2410,11 +2545,16 @@ public partial class ProtocolProxyEmitter
                         &Swift.Runtime.ProxyLifetimeTracker.OnEveryProtocolDeinit,
                         _everyProtocolHandle);
 
-                    // Root the impl by Swift-liveness (strong GCHandle keyed by handle) and record
-                    // the R0 entry. Tracker must be called AFTER the deinit callback is wired up so
-                    // that a super-fast Swift release (e.g., never-stored call) still routes through
-                    // OnEveryProtocolDeinit before the finalizer path runs.
-                    Swift.Runtime.ProxyLifetimeTracker.Track(implementation, _everyProtocolHandle);
+                    // Record the R0 entry and root the impl for reverse dispatch: strongly for a
+                    // Swift-rooted carrier, through a long weak handle for a consumer-owned one
+                    // (whose strong reference is _csharpImplStrong above). Tracker must be called
+                    // AFTER the deinit callback is wired up so that a super-fast Swift release
+                    // (e.g., never-stored call) still routes through OnEveryProtocolDeinit before
+                    // the finalizer path runs.
+                    if (__consumerOwned)
+                        Swift.Runtime.ProxyLifetimeTracker.TrackConsumerOwned(implementation, _everyProtocolHandle);
+                    else
+                        Swift.Runtime.ProxyLifetimeTracker.Track(implementation, _everyProtocolHandle);
                 }
                 catch
                 {
@@ -2459,6 +2599,7 @@ public partial class ProtocolProxyEmitter
             {
                 _swiftContainer = container;
                 _csharpImplRef = null;
+                _csharpImplStrong = null;
                 _everyProtocolHandle = IntPtr.Zero;
                 // Swift-backed proxies do NOT own a construction +1 (R0) — they wrap a container
                 // Swift already owns — so the finalizer/Dispose must not call ReleaseHandle.

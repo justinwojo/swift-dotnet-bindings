@@ -40,6 +40,7 @@ internal enum CdeclParamCategory
     ComplexEnum,
     NonFrozenStruct,
     SystemFrozenStruct,
+    ObjCBridgedValueStruct,
     CustomFrozenStruct,
     RawBufferPointer,
     NonCopyableBorrow,

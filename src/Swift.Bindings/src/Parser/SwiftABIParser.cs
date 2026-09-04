@@ -116,6 +116,12 @@ namespace BindingsGeneration
         public required string? paramValueOwnership { get; set; }
         public required bool? hasDefaultArg { get; set; }
         public bool? overriding { get; set; }
+        // Reference-ownership qualifier on a stored property (Swift's ReferenceOwnership enum):
+        // absent/0 = strong, 1 = weak, 2 = unowned, 3 = unowned(unsafe). Both ABI producers the
+        // repo consumes — swift-frontend -emit-abi-descriptor-path and swift-api-digester
+        // -dump-sdk — emit this key with identical spelling and values, alongside a
+        // "ReferenceOwnership" entry in declAttributes.
+        public int? ownership { get; set; }
         public bool? @implicit { get; set; }
         public bool? isFromExtension { get; set; }
         public string? funcSelfKind { get; set; }
@@ -599,11 +605,19 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Merges property-level availability with accessor-specific availability from the
-        /// ABI JSON. For each platform the accessor tightens, the accessor version replaces
-        /// the property-level version; other platforms keep the property's version. Returns
-        /// null if neither source has any entries. Exposed to the test assembly via
-        /// <c>InternalsVisibleTo</c> so setter-availability merging can be unit-tested
-        /// directly without staging a full ABI-JSON fixture.
+        /// ABI JSON. For each platform the accessor tightens, the accessor's introduced version
+        /// replaces the property-level introduced version; other platforms keep the property's
+        /// record untouched. Returns null if neither source has any entries. Exposed to the test
+        /// assembly via <c>InternalsVisibleTo</c> so setter-availability merging can be
+        /// unit-tested directly without staging a full ABI-JSON fixture.
+        ///
+        /// <para>An accessor node carries ONLY <c>intro_*</c> fields — the ABI descriptor has no
+        /// per-accessor deprecation, obsoletion, message or unavailability — so an accessor record
+        /// overrides the introduced version alone and inherits the rest of the property's record
+        /// for that platform. Replacing the whole record would silently drop a property's
+        /// deprecation/obsoletion off the setter, so a property deprecated at iOS 18 whose setter
+        /// arrived at iOS 17 would emit a setter with no <c>[ObsoletedOSPlatform]</c> and no
+        /// deprecation message while the getter kept both.</para>
         /// </summary>
         internal static List<AvailabilityAnnotation>? MergeAccessorAvailability(
             IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
@@ -629,8 +643,13 @@ namespace BindingsGeneration
             {
                 foreach (var ann in accessorAvailability)
                 {
-                    if (ann.Platform != null && ann.IntroducedVersion != null)
-                        merged[ann.Platform] = ann;
+                    if (ann.Platform == null || ann.IntroducedVersion == null)
+                        continue;
+                    // Override the introduced version only; everything else on that platform is a
+                    // property-level fact the accessor node cannot restate.
+                    merged[ann.Platform] = merged.TryGetValue(ann.Platform, out var propertyAnn)
+                        ? propertyAnn with { IntroducedVersion = ann.IntroducedVersion }
+                        : ann;
                 }
             }
 
@@ -2573,15 +2592,26 @@ namespace BindingsGeneration
                 (!r.IsDirect || r.Kind == GenericRequirementKind.SameType));
 
             // Check if class-bound (requires AnyObject). AnyObject may appear in conformances OR as a
-            // DIRECT Self (τ_0_0) conformance in the generic signature (e.g. "<τ_0_0 : AnyObject>" for
+            // DIRECT Self conformance in the generic signature (e.g. "<τ_0_0 : AnyObject>" for
             // a protocol declared ": AnyObject"). A constraint on an associated type
             // ("τ_0_0.Element : AnyObject") must NOT count — hence the IsDirect filter.
+            //
+            // The subject root arrives in BOTH dialects and they mean the same thing: a module
+            // compiled from source prints the desugared `τ_0_0`, while `swift-api-digester
+            // -dump-sdk` — the ABI source for an Apple-direct binding — prints the sugared `Self`
+            // and never emits a `τ` at all. Matching only the desugared root graded every sugared
+            // `: AnyObject` protocol opaque, which is an ABI mismatch rather than a cosmetic one:
+            // the proxy then writes its witness table into the 5-word opaque container while Swift
+            // reads a 2-word class existential, so the callee dispatches through a zero witness
+            // table. Accepting both roots mirrors the superclass-constraint block below, which has
+            // always taken either spelling.
             bool isClassBound = inheritedProtocols.Any(p =>
                 p.Name == "AnyObject" ||
                 p.Name == "Swift.AnyObject") ||
                 parsedSig.Requirements.Any(r =>
                     r.IsDirect && r.Kind == GenericRequirementKind.Conformance &&
-                    string.Equals(r.SubjectRoot, "τ_0_0", StringComparison.Ordinal) &&
+                    (string.Equals(r.SubjectRoot, "τ_0_0", StringComparison.Ordinal) ||
+                     string.Equals(r.SubjectRoot, "Self", StringComparison.Ordinal)) &&
                     r.TargetSimpleName == "AnyObject");
 
             // A superclass constraint (`protocol P : SomeClass`) is also class-bound: its
@@ -3351,6 +3381,7 @@ namespace BindingsGeneration
                     && Array.IndexOf(node.DeclAttributes, "Dynamic") != -1,
                 IsProtocolRequirement = node.protocolReq == true,
                 IsFromExtension = node.isFromExtension == true,
+                ReferenceOwnership = ParseReferenceOwnership(node),
                 // rawName (backtick-stripped, pre-sanitization) is the identifier the .swiftinterface
                 // spells, so it is what the async-accessor fact is keyed by.
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl, rawName)
@@ -3361,6 +3392,15 @@ namespace BindingsGeneration
             {
                 foreach (var accessor in decl.Accessors)
                     accessor.Method.IsExtensionMethod = true;
+            }
+
+            // Propagate the storage's reference ownership to the accessor MethodDecls. Marshalling
+            // arms are handed the accessor, not the property, so a setter that writes weak/unowned
+            // storage can only learn that its value is handed to a non-retaining sink from here.
+            if (decl.ReferenceOwnership != SwiftReferenceOwnership.Strong)
+            {
+                foreach (var accessor in decl.Accessors)
+                    accessor.Method.SinkReferenceOwnership = decl.ReferenceOwnership;
             }
 
             // Suppress underscore-prefixed properties without explicit AccessControl.
@@ -3436,6 +3476,46 @@ namespace BindingsGeneration
             }
             PopulateDocumentation(decl, node);
             return decl;
+        }
+
+        /// <summary>
+        /// Reads a Var node's reference-ownership qualifier (strong / weak / unowned /
+        /// unowned(unsafe)) from the ABI JSON.
+        /// </summary>
+        /// <remarks>
+        /// Both producers agree on the encoding: a non-strong property carries the raw integer in
+        /// <c>ownership</c> and lists <c>ReferenceOwnership</c> in <c>declAttributes</c>; a strong
+        /// property emits neither key. Verified against swift-frontend
+        /// <c>-emit-abi-descriptor-path</c> (the BindingTests fixture producer) and
+        /// <c>swift-api-digester -dump-sdk</c> (the Apple-framework producer) on the same module,
+        /// and against a real framework dump where <c>DataScannerViewController.delegate</c>
+        /// (declared <c>weak</c>) reads 1.
+        ///
+        /// An unrecognized non-zero value is treated as <see cref="SwiftReferenceOwnership.Unowned"/>
+        /// rather than <see cref="SwiftReferenceOwnership.Strong"/>: zero is the only strong
+        /// encoding, so every value the enum could grow is some non-retaining flavor, and
+        /// mis-reading one as strong would silently drop the rooting a non-retaining sink needs.
+        /// </remarks>
+        private static SwiftReferenceOwnership ParseReferenceOwnership(Node node)
+        {
+            // The integer is authoritative when present. The attribute alone (no integer) still
+            // says the storage does not retain, so fall back to the checked-unowned reading
+            // rather than to strong.
+            if (node.ownership is null)
+            {
+                var hasOwnershipAttribute = node.DeclAttributes is not null &&
+                    Array.IndexOf(node.DeclAttributes, "ReferenceOwnership") != -1;
+                return hasOwnershipAttribute ? SwiftReferenceOwnership.Unowned : SwiftReferenceOwnership.Strong;
+            }
+
+            return node.ownership switch
+            {
+                0 => SwiftReferenceOwnership.Strong,
+                1 => SwiftReferenceOwnership.Weak,
+                2 => SwiftReferenceOwnership.Unowned,
+                3 => SwiftReferenceOwnership.Unmanaged,
+                _ => SwiftReferenceOwnership.Unowned,
+            };
         }
 
         /// <summary>

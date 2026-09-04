@@ -160,4 +160,53 @@ public class AvailabilityHelpersTests
         Assert.Equal("18.0", catalyst.IntroducedVersion);
         Assert.Equal("18.0", catalyst.DeprecatedVersion);
     }
+
+    // --- SelectSetterAnnotations: the one rule the Swift and C# setter walks share ---
+
+    private static PropertyDecl Property(
+        List<AvailabilityAnnotation>? propertyAnnotations,
+        IReadOnlyList<AvailabilityAnnotation>? setterAnnotations) =>
+        new()
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            AvailabilityAnnotations = propertyAnnotations,
+            SetterAvailabilityAnnotations = setterAnnotations
+        };
+
+    [Fact]
+    public void SelectSetterAnnotations_SetterSpecificList_ReplacesThePropertyList()
+    {
+        // The parser records the setter list already merged with the property's, so it REPLACES
+        // rather than supplements — supplementing would re-introduce the looser property floor.
+        var setter = new List<AvailabilityAnnotation> { Ann("iOS", "17.0") };
+        var property = Property(new List<AvailabilityAnnotation> { Ann("iOS", "16.0") }, setter);
+
+        Assert.Same(setter, AvailabilityHelpers.SelectSetterAnnotations(property));
+    }
+
+    [Fact]
+    public void SelectSetterAnnotations_NoSetterSpecificList_FallsBackToTheProperty()
+    {
+        var propertyAnnotations = new List<AvailabilityAnnotation> { Ann("iOS", "16.0") };
+
+        Assert.Same(
+            propertyAnnotations,
+            AvailabilityHelpers.SelectSetterAnnotations(Property(propertyAnnotations, null)));
+        Assert.Same(
+            propertyAnnotations,
+            AvailabilityHelpers.SelectSetterAnnotations(
+                Property(propertyAnnotations, new List<AvailabilityAnnotation>())));
+    }
+
+    [Fact]
+    public void SelectSetterAnnotations_NeitherList_IsNull()
+    {
+        Assert.Null(AvailabilityHelpers.SelectSetterAnnotations(Property(null, null)));
+    }
 }

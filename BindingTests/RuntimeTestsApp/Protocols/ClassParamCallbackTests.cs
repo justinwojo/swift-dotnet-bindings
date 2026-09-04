@@ -155,6 +155,86 @@ public class ClassParamCallbackTests : TestBase
         GC.KeepAlive(impl);
     }
 
+    // ---- Managed-peer identity for @objc:NSObject classes ----
+    //
+    // A native NSObject may have at most ONE managed peer: the Apple bindings keep a
+    // handle→peer map, and a second wrapper over an object that already has one repoints
+    // that map. So when Swift hands a C#-created object BACK to C# — the delegate shape,
+    // where the callback's first argument is the object the consumer constructed — the
+    // marshal must return the consumer's own instance, not a fresh wrapper.
+
+    /// <summary>
+    /// The delegate-receiver identity contract: a payload the C# side created and passed
+    /// into Swift must come back through the reverse-dispatch callback as the SAME managed
+    /// object. A second peer would break reference equality against the consumer's instance
+    /// and hide any state living on their subclass.
+    /// </summary>
+    public void TestObjCClassParamCallbackReusesManagedPeer()
+    {
+        var impl = new ObjCClassParamIdentityReceiverImpl();
+        var driver = new ObjCClassParamDriver();
+        using var payload = new ObjCClassParamPayload(code: 5, label: "peer");
+
+        driver.DriveWithCallerPayload(impl, payload);
+
+        AssertTrue(impl.DidReceiveCalled, "didReceiveObjC(_:) fired with the caller-supplied payload");
+        AssertTrue(ReferenceEquals(payload, impl.LastPayload),
+            "the reverse callback must deliver the caller's own managed peer, not a second wrapper over the same native object");
+        AssertEqual(5, impl.LastPayload!.Code, "the delivered peer reads its own state");
+        GC.KeepAlive(impl);
+    }
+
+    /// <summary>
+    /// Peer reuse must get the ownership handoff exactly right. The receiver copy-out takes an
+    /// ObjC-aware <c>+1</c> before marshalling; the reuse branch has no new owner to absorb it,
+    /// so it hands that <c>+1</c> straight back. Driving many callbacks against one caller-owned
+    /// instance must therefore leave the live count at exactly one — an under-release leaks
+    /// (the instance survives its owner's Dispose), an over-release frees it out from under the
+    /// caller.
+    /// </summary>
+    public void TestObjCClassParamPeerReuseBalancesArc()
+    {
+        DrainObjCFinalizers();
+        LifetimeTracker.Reset();
+
+        var payload = new ObjCClassParamPayload(code: 1, label: "peer");
+        LifetimeTracker.AssertLiveCount(1, "the caller-created @objc payload is the only live instance");
+
+        var impl = new ObjCClassParamIdentityReceiverImpl();
+        var driver = new ObjCClassParamDriver();
+        for (int i = 0; i < 200; i++)
+        {
+            driver.DriveWithCallerPayload(impl, payload);
+            AssertTrue(ReferenceEquals(payload, impl.LastPayload), "every callback delivers the same managed peer");
+        }
+
+        DrainObjCFinalizers();
+        LifetimeTracker.AssertLiveCount(1, "peer reuse must neither retain nor over-release across 200 callbacks");
+        AssertEqual(1, payload.Code, "the caller's peer is still usable after 200 callbacks");
+
+        payload.Dispose();
+        DrainObjCFinalizers();
+        LifetimeTracker.AssertLiveCount(0, "disposing the caller's peer releases the last reference");
+        GC.KeepAlive(impl);
+    }
+
+    /// <summary>
+    /// The same identity contract in the RETURN direction: a Swift function handed a
+    /// C#-created <c>@objc:NSObject</c> instance and returning it unchanged must marshal back
+    /// to the caller's own peer. Return values route through the same handle→wrapper seam as
+    /// the callback path, so a regression here and a regression there share one root cause.
+    /// </summary>
+    public void TestObjCPayloadEchoReturnsSameManagedPeer()
+    {
+        using var payload = new ObjCClassParamPayload(code: 7, label: "echo");
+
+        var echoed = TestLibFunctions.EchoObjCPayload(payload);
+
+        AssertTrue(ReferenceEquals(payload, echoed),
+            "a returned @objc:NSObject instance must marshal back to the caller's existing managed peer");
+        AssertEqual(7, echoed.Code, "the echoed peer reads its own state");
+    }
+
     // ---- ARC balance on the reverse-callback receiver path ----
 
     /// <summary>
@@ -482,5 +562,28 @@ internal sealed class ObjCClassParamReceiverImpl : IObjCClassParamReceiver
             LastCode = payload.Code;
             LastLabel = payload.Label.ToString();
         }
+    }
+}
+
+/// <summary>
+/// Receiver that keeps the delivered instance itself, not just its scalars, so the test can
+/// compare it by reference against the payload the caller handed to Swift. Deliberately a
+/// separate impl: <see cref="ObjCClassParamReceiverImpl"/> holds no strong reference to the
+/// payload, which its ARC-balance tests depend on.
+/// </summary>
+internal sealed class ObjCClassParamIdentityReceiverImpl : IObjCClassParamReceiver
+{
+    public bool DidReceiveCalled { get; private set; }
+    public ObjCClassParamPayload? LastPayload { get; private set; }
+
+    public void DidReceiveObjC(ObjCClassParamPayload payload)
+    {
+        DidReceiveCalled = true;
+        LastPayload = payload;
+    }
+
+    public void DidReceiveObjCOptional(ObjCClassParamPayload? payload)
+    {
+        LastPayload = payload;
     }
 }

@@ -57,6 +57,12 @@ public class CdeclLoweringDescriptorTests
         RegisterStruct(cg, "CoreGraphics.CGRect", "$s12CoreGraphics6CGRectVMa", frozen: true);
         db.AddModuleDatabase(cg);
 
+        // Frozen Foundation value struct that is ALSO ObjC-bridgeable: registered the way the
+        // shipped Foundation database registers it, so the bridgeable-value arm is reachable here.
+        var foundation = new ModuleTypeDatabase("Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        RegisterStruct(foundation, "Foundation.UUID", "$s10Foundation4UUIDVMa", frozen: true);
+        db.AddModuleDatabase(foundation);
+
         var test = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         Register(test, "TestModule.MyClass", TypeRecordKind.Class, TypeRecordFlags.None);
         Register(test, "TestModule.MyObjCClass", TypeRecordKind.Class, TypeRecordFlags.ObjCBridged);
@@ -316,6 +322,49 @@ public class CdeclLoweringDescriptorTests
         => AssertDescriptor(Describe(Named("Foundation.Data")), CdeclParamCategory.Data,
             "_ _dW0_value: Int, _ _dW1_value: Int",
             "let valueVal = unsafeBitCast((_dW0_value, _dW1_value), to: Foundation.Data.self)", "valueVal");
+
+    /// <summary>
+    /// A frozen Foundation value struct that also bridges to an ObjC class must NOT reach the
+    /// by-value system-frozen arm: <c>@_cdecl</c> would lower the parameter to a bridged object
+    /// pointer rather than to the struct's value bytes, so the caller's 16 bytes would be read as
+    /// a pointer. It takes the indirect pointer shape instead, which is also the exact inverse of
+    /// the return side's verbatim byte reinterpretation.
+    /// </summary>
+    [Fact]
+    public void ObjCBridgedValueStruct_ReadsThroughPointer()
+    {
+        var spec = Named("Foundation.UUID");
+        AssertDescriptor(Describe(spec), CdeclParamCategory.ObjCBridgedValueStruct,
+            "_ value: UnsafeRawPointer",
+            $"let valueVal = value.assumingMemoryBound(to: {RenderMQ(spec)}.self).pointee", "valueVal");
+    }
+
+    /// <summary>
+    /// The same lowering holds for every by-value parameter shape the wrapper emitters produce —
+    /// plain, and each ownership specifier — so no wrapper kind is left declaring a bare bridgeable
+    /// struct parameter that would silently bridge.
+    /// </summary>
+    [Theory]
+    [InlineData(ParameterOwnership.Default)]
+    [InlineData(ParameterOwnership.Shared)]
+    [InlineData(ParameterOwnership.Owned)]
+    public void ObjCBridgedValueStruct_NeverDeclaresABareStructParameter(ParameterOwnership ownership)
+    {
+        var d = Describe(Named("Foundation.UUID"), ownership: ownership);
+        Assert.Equal(CdeclParamCategory.ObjCBridgedValueStruct, d.Category);
+        Assert.Equal("_ value: UnsafeRawPointer", d.CdeclParam);
+        Assert.DoesNotContain("UUID", d.CdeclParam);
+        Assert.Equal("valueVal", d.CallArg);
+    }
+
+    /// <summary>
+    /// The wedge is narrow: an ordinary system frozen struct that does not bridge to an ObjC class
+    /// keeps the by-value lowering it has always had.
+    /// </summary>
+    [Fact]
+    public void SystemFrozenStruct_WithoutObjCBridge_StaysByValue()
+        => Assert.Equal(CdeclParamCategory.SystemFrozenStruct,
+            Describe(Named("CoreGraphics.CGRect")).Category);
 
     [Fact]
     public void String_TwoWord_DecomposesIntoTwoWords()

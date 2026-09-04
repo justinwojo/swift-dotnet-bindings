@@ -142,10 +142,21 @@ public class ExistentialProjection : ITypeProjection
     /// borrow could otherwise finalize it and release R0 mid-call (UAF). Either way the single post-call
     /// <c>GC.KeepAlive</c> covers the arm that ran. Only valid when <see cref="CanAutoWrapObjCConformer"/> is true.
     /// </summary>
-    internal IReadOnlyList<MarshalStatement> GetObjCAutoWrapBufferStatements(string valueExpr, string bufferVar, string keepAliveVar)
+    /// <param name="consumerOwnsCarrier">
+    /// True when this value is being stored into non-retaining (<c>weak</c>/<c>unowned</c>) Swift
+    /// storage. The wire value is unchanged — still the proxy's single object pointer — but the
+    /// auto-wrap goes through the consumer-owned lane, which keys the carrier's memo on the
+    /// implementation and builds the proxy holding it strongly. Without that, the sink takes no
+    /// reference, the next collection finalizes the freshly built proxy and releases the box's only
+    /// <c>+1</c>, and the slot zeroes while the consumer still holds their implementation.
+    /// </param>
+    internal IReadOnlyList<MarshalStatement> GetObjCAutoWrapBufferStatements(
+        string valueExpr, string bufferVar, string keepAliveVar, bool consumerOwnsCarrier = false)
     {
         string swiftObjTmp = $"{bufferVar}SwiftObj";
         string containerTmp = $"{bufferVar}Container";
+        string factoryMethod = NonRetainingSinkLane.FactoryMethodName(consumerOwnsCarrier, hasProxyClass: true);
+        string proxyOwnershipArg = NonRetainingSinkLane.ProxyOwnershipArgument(consumerOwnsCarrier);
         return new List<MarshalStatement>
         {
             new MarshalStatement.Block(
@@ -164,7 +175,7 @@ public class ExistentialProjection : ITypeProjection
                 new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var {containerTmp} = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{_publicType}>({valueExpr}, static __v => new {_proxyClassName}(__v), out _, out {keepAliveVar});"),
+                        $"var {containerTmp} = Swift.Runtime.ExistentialContainerFactory.{factoryMethod}<{_publicType}>({valueExpr}, static __v => new {_proxyClassName}(__v{proxyOwnershipArg}), out _, out {keepAliveVar});"),
                     new MarshalStatement.Line($"{bufferVar} = {containerTmp}.Payload0;"),
                 }),
         };

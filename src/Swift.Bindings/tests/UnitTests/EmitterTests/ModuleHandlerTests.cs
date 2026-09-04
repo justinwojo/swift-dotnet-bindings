@@ -2054,6 +2054,75 @@ public class ModuleHandlerTests
         Assert.Equal(3, count);
     }
 
+    [Theory]
+    [InlineData("Mode", "global::Swift.ISwiftHashable", "$s10TestModule4ModeOSHAAMc")]
+    [InlineData("Handle.Kind", "global::Swift.ISwiftHashable", "$s10TestModule6HandleV4KindOSHAAMc")]
+    [InlineData("Mode", "global::Swift.ISwiftEquatable", "$s10TestModule4ModeOSQAAMc")]
+    public void Emit_EmitsConformanceSymbolRegistrationForSimpleEnum(
+        string typeName, string protocolInterface, string symbol)
+    {
+        // RegisterConformanceFactory/RegisterWitnessTable are both constrained to ISwiftObject,
+        // which a projected C# enum can never implement. The symbol-keyed registration is the
+        // only lane that can declare such an enum's conformance, so the module initializer must
+        // emit it for every simple enum whose ABI declares one.
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordSimpleEnumConformance(typeName, protocolInterface, symbol, "/tmp/TestModule.dylib");
+
+        var csOutput = EmitModuleWithEmissionContext("TestModule", emissionCtx);
+
+        Assert.Contains(
+            $"RegisterConformanceSymbol(typeof({typeName}), typeof({protocolInterface}), \"/tmp/TestModule.dylib\", \"{symbol}\")",
+            csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConformanceSymbolRegistrationIsFailSoft()
+    {
+        // Module init runs before any user code and cannot be allowed to throw: a conformance
+        // the running OS does not export must degrade to the pre-existing "no witness table"
+        // failure at the call site, not a type-initializer crash at load.
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordSimpleEnumConformance(
+            "Mode", "global::Swift.ISwiftHashable", "$s10TestModule4ModeOSHAAMc", "/tmp/TestModule.dylib");
+
+        var csOutput = EmitModuleWithEmissionContext("TestModule", emissionCtx);
+
+        var line = csOutput.Split('\n').Single(l => l.Contains("RegisterConformanceSymbol"));
+        Assert.StartsWith("try {", line.Trim());
+        Assert.Contains("catch { }", line);
+    }
+
+    [Fact]
+    public void Emit_NoSimpleEnumConformances_EmitsNoConformanceSymbolRegistration()
+    {
+        // A module with no simple-enum conformance recorded must not emit the call at all.
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordSwiftObjectType("MyStruct");
+
+        var csOutput = EmitModuleWithEmissionContext("TestModule", emissionCtx);
+
+        Assert.DoesNotContain("RegisterConformanceSymbol", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MultipleSimpleEnumConformances_EmitsOneRegistrationEach()
+    {
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordSimpleEnumConformance(
+            "Handle.Kind", "global::Swift.ISwiftHashable", "$sHashableSymbolMc", "/tmp/TestModule.dylib");
+        emissionCtx.RecordSimpleEnumConformance(
+            "Handle.Kind", "global::Swift.ISwiftEquatable", "$sEquatableSymbolMc", "/tmp/TestModule.dylib");
+        emissionCtx.RecordSimpleEnumConformance(
+            "Mode", "global::Swift.ISwiftHashable", "$sModeHashableSymbolMc", "/tmp/TestModule.dylib");
+        // A repeat of an already-recorded (type, protocol) pair must collapse.
+        emissionCtx.RecordSimpleEnumConformance(
+            "Mode", "global::Swift.ISwiftHashable", "$sModeHashableSymbolMc", "/tmp/TestModule.dylib");
+
+        var csOutput = EmitModuleWithEmissionContext("TestModule", emissionCtx);
+
+        Assert.Equal(3, csOutput.Split("RegisterConformanceSymbol").Length - 1);
+    }
+
     [Fact]
     public void Emit_BoundGenericType_RegisteredInModuleInitializer()
     {

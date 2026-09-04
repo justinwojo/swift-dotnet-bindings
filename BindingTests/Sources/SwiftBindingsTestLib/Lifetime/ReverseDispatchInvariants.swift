@@ -83,3 +83,119 @@ public class ReverseInvariantHarness {
         return storedDelegate?.storedValue(value) ?? -1
     }
 }
+
+// MARK: R5 — non-retaining (weak / unowned) stored existential
+
+/// Class-bound reverse-dispatch protocol stored through a NON-RETAINING property. Separate
+/// from `ReverseStoredDelegate` so the two storage flavours cannot share a conformer and
+/// mask each other's rooting behaviour.
+public protocol ReverseWeakDelegate: AnyObject {
+    /// Returns `value + 2000`.
+    func weakValue(_ value: Int32) -> Int32
+}
+
+/// R5: the delegate shape Apple frameworks ship — `weak var delegate: (any P)?`.
+///
+/// A non-retaining sink takes no retain on the conformer box behind the existential, so
+/// nothing on the Swift side keeps it alive once the setter returns. That makes this the
+/// fixture for the managed-side ownership rule: the box follows the consumer's own
+/// implementation object — it must survive for as long as the consumer holds that
+/// implementation, and must go away with it even while the receiver is still alive.
+///
+/// `invokeWeak` returns the sentinel `value + 2000` when the delegate is still live and
+/// `-1` when the weak storage has gone nil, so a lost root surfaces as a wrong value rather
+/// than a missed void callback. `unownedDelegate` is the optional-`unowned` flavour of the
+/// same hazard; it is read back only while its conformer is known live, since reading a
+/// dangling `unowned` traps by design.
+public class ReverseWeakSinkHarness {
+    /// Non-retaining, zeroing storage. Optional by language rule (`weak` implies Optional).
+    public weak var weakDelegate: (any ReverseWeakDelegate)?
+
+    /// Non-retaining, non-zeroing storage. Declared Optional so the binding takes the same
+    /// decomposed-optional setter path the `weak` property does.
+    public unowned var unownedDelegate: (any ReverseWeakDelegate)?
+
+    public init() {}
+
+    /// R5: dispatch through the weak sink. `-1` means the weak storage read nil — expected
+    /// once the consumer drops the implementation, a regression while they still hold it.
+    public func invokeWeak(value: Int32) -> Int32 {
+        return weakDelegate?.weakValue(value) ?? -1
+    }
+
+    /// R5: dispatch through the unowned sink. Same sentinel contract as `invokeWeak`.
+    public func invokeUnowned(value: Int32) -> Int32 {
+        return unownedDelegate?.weakValue(value) ?? -1
+    }
+
+    /// Observes the weak storage without vending an existential across the boundary, so a
+    /// liveness assertion cannot itself mint a carrier that changes what it measures.
+    public var hasWeakDelegate: Bool {
+        return weakDelegate != nil
+    }
+}
+
+// MARK: R6 — non-retaining sinks whose setter takes a different marshalling arm
+
+/// `@objc` reverse-dispatch protocol stored through a non-retaining sink.
+///
+/// An `@objc` protocol existential is a single bare ObjC object pointer, not the decomposed
+/// two-word carrier a native Swift class-bound existential uses, so its setter is marshalled
+/// by a different arm than `ReverseWeakDelegate`'s. Ownership is a property of the sink, not
+/// of the wire width, so this shape must reach the same managed-side rooting rule: the
+/// conformer box follows the consumer's own implementation object.
+@objc public protocol ObjCReverseWeakDelegate: AnyObject {
+    /// Returns `value + 3000`.
+    func objcWeakValue(_ value: Int32) -> Int32
+}
+
+/// R6: the `@objc` flavour of the `weak var delegate: (any P)?` sink. NSObject-rooted, since
+/// an `@objc` member needs an ObjC-visible enclosing class.
+public class ObjCReverseWeakSinkHarness: NSObject {
+    /// Non-retaining, zeroing storage over a bare ObjC object pointer.
+    public weak var objcDelegate: (any ObjCReverseWeakDelegate)?
+
+    public override init() {
+        super.init()
+    }
+
+    /// Dispatches through the `@objc` weak sink. `-1` means the storage read nil — expected
+    /// once the consumer drops the implementation, a regression while they still hold it.
+    public func invokeObjCWeak(value: Int32) -> Int32 {
+        return objcDelegate?.objcWeakValue(value) ?? -1
+    }
+
+    /// Observes the storage without vending an existential across the boundary, so a liveness
+    /// assertion cannot itself mint a carrier that changes what it measures.
+    public var hasObjCDelegate: Bool {
+        return objcDelegate != nil
+    }
+}
+
+/// Class-bound reverse-dispatch protocol stored through a NON-OPTIONAL `unowned` sink.
+public protocol ReverseUnownedSlotDelegate: AnyObject {
+    /// Returns `value + 4000`.
+    func unownedSlotValue(_ value: Int32) -> Int32
+}
+
+/// R6: `unowned var delegate: any P` — legal for a class-bound `P`, and not Optional, so its
+/// setter never takes the decomposed-optional arm. The sink still retains nothing, so the
+/// conformer box must follow the consumer's implementation exactly as in the Optional case.
+///
+/// The slot is never read after the implementation is dropped: reading a dangling `unowned`
+/// traps by design, so the carrier's release is observed through the managed-side census
+/// instead.
+public class ReverseUnownedSlotHarness {
+    /// Non-retaining, non-zeroing storage. Non-Optional, so it must be seeded through `init`.
+    public unowned var slotDelegate: any ReverseUnownedSlotDelegate
+
+    public init(slotDelegate: any ReverseUnownedSlotDelegate) {
+        self.slotDelegate = slotDelegate
+    }
+
+    /// Dispatches through the `unowned` slot; returns `value + 4000` while the implementation
+    /// is live.
+    public func invokeSlot(value: Int32) -> Int32 {
+        return slotDelegate.unownedSlotValue(value)
+    }
+}

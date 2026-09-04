@@ -2035,6 +2035,8 @@ public class EveryProtocolEmitter
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var getterFunctionName = GetWitnessTableGetterFunctionName(protocolDecl);
         var mangledGetterName = GetWitnessTableGetterMangledName(protocolDecl);
+        var sizeFunctionName = GetExistentialSizeGetterFunctionName(protocolDecl);
+        var mangledSizeName = GetExistentialSizeGetterMangledName(protocolDecl);
         var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
             protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
         var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availAnnotations, "            ");
@@ -2062,6 +2064,22 @@ public class EveryProtocolEmitter
                             .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
                     }
                 }
+            }
+
+            // Reports the existential size Swift itself uses for `any {{protocolDecl.Name}}`, so the C#
+            // proxy can check ONCE — when it first resolves the witness table above — that the container
+            // shape it fills matches the shape Swift reads. The two shapes place the witness table in
+            // different words (opaque: word 4 of 5; class-bound: word 1 of 2; a pure @objc existential is
+            // a single object pointer with no witness word at all), and the C# side picks between them
+            // from parsed ABI facts. When those facts mis-classify the protocol, Swift reads a witness
+            // table out of a word C# left zero and traps inside the framework on the first callback, with
+            // no managed frame to blame. This accessor makes that a named exception at the boundary.
+            // Exported as a C entry point (@_cdecl) alongside the getter above, for the same
+            // dead-strip-survival reason, and emitted in lockstep with it so a proxy that declares the
+            // witness getter can always reach the size too.
+            {{availPrefix}}@_cdecl("{{mangledSizeName}}")
+            public func {{sizeFunctionName}}() -> Int {
+                return MemoryLayout<any {{protocolName}}>.size
             }
 
             """);
@@ -6581,6 +6599,21 @@ public class EveryProtocolEmitter
     {
         // @_cdecl symbol name that C# will call
         return $"Get_EveryProtocol_{protocolDecl.Name}_WitnessTable";
+    }
+
+    private static string GetExistentialSizeGetterFunctionName(ProtocolDecl protocolDecl)
+    {
+        return $"getEveryProtocol{protocolDecl.Name}ExistentialSize";
+    }
+
+    /// <summary>
+    /// The <c>@_cdecl</c> symbol of the existential-size accessor emitted beside the witness-table
+    /// getter. <c>ProtocolProxyEmitter</c> declares the matching P/Invoke under the same
+    /// getter-emitted gate, so the declared and exported sets cannot drift.
+    /// </summary>
+    internal static string GetExistentialSizeGetterMangledName(ProtocolDecl protocolDecl)
+    {
+        return $"Get_EveryProtocol_{protocolDecl.Name}_ExistentialSize";
     }
 
     /// <summary>

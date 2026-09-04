@@ -1292,6 +1292,158 @@ public class EnumHandlerOutputTests
         Assert.NotEmpty(emissionCtx.SimpleEnumMetadataRegistrations);
     }
 
+    [Theory]
+    [InlineData("Swift.Hashable", "global::Swift.ISwiftHashable")]
+    [InlineData("Swift.Equatable", "global::Swift.ISwiftEquatable")]
+    [InlineData("Swift.Comparable", "global::Swift.ISwiftComparable")]
+    public void Emit_SimpleEnumWithStdlibConformance_RecordsConformanceRegistration(
+        string swiftProtocol, string expectedMarkerInterface)
+    {
+        // Metadata alone is not enough to build a witness table: a Set<Enum> element or a
+        // [Enum: V] key also needs the conformance descriptor. A C# enum can supply neither
+        // through the ISwiftObject lane, so the emitter records the descriptor symbol for the
+        // module initializer to declare.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Cases.Add(CreateCase("slow"));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName(swiftProtocol),
+            "$s10TestModule4ModeOSHAAMc"));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        var registration = Assert.Single(emissionCtx.SimpleEnumConformanceRegistrations);
+        Assert.Equal("Mode", registration.CSharpTypeName);
+        Assert.Equal(expectedMarkerInterface, registration.ProtocolInterface);
+        Assert.Equal("$s10TestModule4ModeOSHAAMc", registration.ConformanceSymbol);
+        // The descriptor is exported by the module's OWN library, not the @_cdecl wrapper
+        // library that carries the metadata accessor.
+        Assert.Equal("/tmp/TestModule.dylib", registration.LibraryName);
+        Assert.NotEqual(typeDatabase.AsyncLibraryName, registration.LibraryName);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithoutConformances_RecordsNoConformanceRegistration()
+    {
+        // Discrimination guard: recording must key on a declared conformance, not on
+        // "is a simple enum" — a raw-value enum that conforms to nothing has no descriptor
+        // symbol to declare.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Cases.Add(CreateCase("slow"));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        Assert.NotEmpty(emissionCtx.SimpleEnumMetadataRegistrations);
+        Assert.Empty(emissionCtx.SimpleEnumConformanceRegistrations);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithNonRuntimeProtocolConformance_RecordsNoConformanceRegistration()
+    {
+        // Only the runtime-owned marker interfaces are declarable this way. An arbitrary
+        // protocol's C# interface may not even be emitted for this module, and the enum would
+        // not implement it in any case — declaring one would emit an unresolvable typeof().
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+            "$s10TestModule4ModeOAA11DescribableAAMc"));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        Assert.Empty(emissionCtx.SimpleEnumConformanceRegistrations);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumWithUnlocatedConformance_RecordsNoConformanceRegistration()
+    {
+        // The parser leaves the descriptor symbol empty when it could not locate the
+        // conformance in the binary. Declaring an empty symbol would emit a registration the
+        // runtime can only fail to load.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+            string.Empty));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        Assert.Empty(emissionCtx.SimpleEnumConformanceRegistrations);
+    }
+
+    [Fact]
+    public void Emit_NestedSimpleEnumWithConformance_RecordsParentQualifiedTypeName()
+    {
+        // The shipped shape is nested (a Kind enum inside a public struct). The registered
+        // typeof() must name the enum through its enclosing type, or the module initializer
+        // emits a typeof(Kind) that does not resolve at namespace scope.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Kind", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("first"));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+            "$s10TestModule6HandleV4KindOSHAAMc"));
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var handler = new EnumHandler(new NullLogger<EnumHandler>());
+        var env = handler.Marshal(enumDecl, typeDatabase);
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.PushTypeNesting("Handle");
+        handler.Emit(new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), env,
+            new Conductor(new NullLoggerFactory()),
+            new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx));
+        emissionCtx.PopTypeNesting();
+
+        var registration = Assert.Single(emissionCtx.SimpleEnumConformanceRegistrations);
+        Assert.Equal("Handle.Kind", registration.CSharpTypeName);
+    }
+
+    [Fact]
+    public void Emit_SimpleEnumNestedInModuleInternalParent_RecordsNoConformanceRegistration()
+    {
+        // The conformance registration rides the same spellability gate as the metadata
+        // registration: without registered metadata a witness table cannot be built anyway,
+        // so declaring the descriptor alone would be dead weight.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateEnumDecl("Parser", moduleDecl, isFrozen: true);
+        outerDecl.IsModuleInternal = true;
+
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.ParentDecl = outerDecl;
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+            "$s10TestModule4ModeOSHAAMc"));
+
+        var (_, _, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        Assert.Empty(emissionCtx.SimpleEnumMetadataRegistrations);
+        Assert.Empty(emissionCtx.SimpleEnumConformanceRegistrations);
+    }
+
     [Fact]
     public void Emit_PayloadEnumNestedInModuleInternalParent_UsesCallConvSwiftMetadataAccessor()
     {

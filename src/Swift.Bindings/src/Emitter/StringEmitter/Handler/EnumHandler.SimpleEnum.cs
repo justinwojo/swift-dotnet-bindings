@@ -94,6 +94,32 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Maps a Swift standard-library protocol to the runtime marker interface the witness-table
+        /// lookup is keyed on, or null when the protocol has no such key.
+        /// </summary>
+        /// <remarks>
+        /// Only the stdlib protocols the runtime itself resolves witness tables for are declarable
+        /// this way: the marker interfaces are runtime-owned types that always exist, whereas an
+        /// arbitrary protocol's C# interface may not be emitted for this module at all — and a
+        /// simple enum, being a plain C# enum, never implements one regardless. Hashable is the
+        /// conformance <c>SwiftSet</c> and <c>SwiftDictionary</c> keys demand; Comparable is
+        /// <c>SwiftClosedRange</c>'s; Equatable rounds out the trio the collection types are
+        /// declared against.
+        /// </remarks>
+        private static string? GetRuntimeMarkerInterface(SwiftTypeName protocol)
+        {
+            // Always module-qualified: a SwiftTypeName cannot be built without a module, and the
+            // parser's printedName fallback roots an unqualified protocol at "Swift." explicitly.
+            return protocol.ModuleQualifiedName switch
+            {
+                "Swift.Hashable" => "global::Swift.ISwiftHashable",
+                "Swift.Equatable" => "global::Swift.ISwiftEquatable",
+                "Swift.Comparable" => "global::Swift.ISwiftComparable",
+                _ => null
+            };
+        }
+
+        /// <summary>
         /// Emits a simple enum as a C# enum value type, with an optional extensions class
         /// for instance methods and properties.
         /// </summary>
@@ -160,6 +186,23 @@ namespace BindingsGeneration
 
                 var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
                 metadataEmissionCtx.RecordSimpleEnumMetadata(enumName, metadataSymbol, wrapperLibName);
+
+                // Declare the enum's protocol-conformance descriptors alongside its metadata. Both
+                // halves are needed to resolve a witness table, and a C# enum can supply neither
+                // through the ISwiftObject lane the other type shapes use — so a Set<Enum> or an
+                // [Enum: V] parameter would otherwise throw on its first call site even though the
+                // Swift conformance is synthesized, exported, and perfectly usable. The descriptor
+                // symbol lives in the module's OWN library, not the @_cdecl wrapper library that
+                // carries the metadata accessor.
+                var conformanceLibName = typeDatabase.GetLibraryPath(moduleDecl.Name);
+                foreach (var conformance in enumDecl.Conformances)
+                {
+                    var markerInterface = GetRuntimeMarkerInterface(conformance.Protocol);
+                    if (markerInterface == null)
+                        continue;
+                    metadataEmissionCtx.RecordSimpleEnumConformance(
+                        enumName, markerInterface, conformance.ProtocolConformanceDescriptor, conformanceLibName);
+                }
             }
 
             // Determine if this enum is nested inside another type (not just a module).

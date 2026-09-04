@@ -628,11 +628,33 @@ public static class CdeclParamMapper
                 // Only lane 0 aligns, so by-value loses every lane past the first. Route them
                 // through the indirect (UnsafeRawPointer + stackalloc) path so the bytes cross
                 // intact.
+                // ObjC-bridged value structs are excluded for the same reason, one level up:
+                // by-value here would not even be a register mismatch but a representation
+                // change — see the IsObjCBridgedValueStruct branch below.
                 if (swiftTypeSpec is NamedTypeSpec frozenNamed && IsSystemFrozenStruct(frozenNamed)
-                    && !IsSimdVectorType(frozenNamed))
+                    && !IsSimdVectorType(frozenNamed) && !IsObjCBridgedValueStruct(frozenNamed))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
                     return Simple(CdeclParamCategory.SystemFrozenStruct, $"_ {label}: {swiftType}", null, $"{argLabel}{label}");
+                }
+
+                // Frozen value structs that are also ObjC-bridgeable: @_cdecl does NOT hand the
+                // wrapper the struct's value bytes. Because the type bridges to an ObjC class,
+                // the C-level parameter is a single object pointer and Swift bridges on entry —
+                // so a caller that passes the raw bytes has its first word read as a pointer and
+                // every later argument shifted by a slot. The return side reinterprets the same
+                // bytes verbatim, so the parameter side must be its exact inverse: take a pointer
+                // to the caller's buffer and read the value straight out of it, with no bridge in
+                // between. Same indirect (UnsafeRawPointer + stackalloc) shape the SIMD wedge and
+                // the custom-frozen-struct path use, which also keeps the value in one argument
+                // slot regardless of where it lands relative to the integer-register boundary.
+                if (swiftTypeSpec is NamedTypeSpec bridgedValueNamed && IsObjCBridgedValueStruct(bridgedValueNamed))
+                {
+                    var bridgedSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+                    return Simple(CdeclParamCategory.ObjCBridgedValueStruct,
+                            $"_ {label}: UnsafeRawPointer",
+                            $"let {label}Val = {label}.assumingMemoryBound(to: {bridgedSwiftType}.self).pointee",
+                            $"{argLabel}{label}Val");
                 }
 
                 // Custom frozen structs: pass as UnsafeRawPointer and reconstruct.
@@ -891,6 +913,34 @@ public static class CdeclParamMapper
 
         return false;
     }
+
+    /// <summary>
+    /// Returns true for frozen Swift value structs that are ALSO ObjC-bridgeable, so an
+    /// <c>@_cdecl</c> parameter declared with the struct type does not receive the struct's value
+    /// bytes at all: Swift lowers the C-level parameter to a single bridged object pointer and
+    /// bridges on entry. A caller passing the value's raw bytes has its first word interpreted as
+    /// an object pointer, and every argument after it shifts by a slot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only members of this set that the type database ALSO reports as frozen value structs
+    /// reach the by-value branch, so this predicate is deliberately narrow. The two other
+    /// bridgeable Foundation value structs in the database already have their own earlier arms in
+    /// <see cref="Describe"/> — a <c>Double</c> wire for the seconds-based one and a two-word wire
+    /// for the buffer-backed one — and are therefore not listed here. Bridgeable Foundation types
+    /// the database records as non-frozen (URL, URLRequest, IndexPath, Calendar, CharacterSet,
+    /// Locale, …) never reach this branch: they take the non-frozen pointer path, which is already
+    /// correct.
+    /// </para>
+    /// <para>
+    /// Callers wedge this in front of by-value branches so such params instead go through the
+    /// indirect (UnsafeRawPointer + stackalloc) path, where the value bytes cross verbatim.
+    /// <c>WrapperValidation.IsNonPrimitiveFrozenStructParam</c> carries the matching wedge so the
+    /// C# P/Invoke side stays in lockstep.
+    /// </para>
+    /// </remarks>
+    internal static bool IsObjCBridgedValueStruct(NamedTypeSpec typeSpec)
+        => typeSpec is not null && typeSpec.Name == "Foundation.UUID";
 
     /// <summary>
     /// Returns true for types that can be passed directly through the C ABI

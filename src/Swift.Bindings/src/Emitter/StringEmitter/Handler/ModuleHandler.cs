@@ -553,6 +553,8 @@ namespace BindingsGeneration
             var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
             var simpleEnumRegistrations = emissionCtx?.SimpleEnumMetadataRegistrations
                 ?? Array.Empty<(string, string, string)>();
+            var simpleEnumConformances = emissionCtx?.SimpleEnumConformanceRegistrations
+                ?? Array.Empty<(string, string, string, string)>();
             var classBoundExistentialRegistrations = emissionCtx?.ClassBoundExistentialRegistrations
                 ?? Array.Empty<(string, string)>();
 
@@ -683,6 +685,17 @@ namespace BindingsGeneration
             {
                 var safeName = typeName.Replace(".", "_");
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
+            }
+            // Declare each simple enum's protocol-conformance descriptor symbols. The two
+            // conformance loops above are constrained to ISwiftObject on both the runtime API and
+            // the static-virtual dispatch they perform, which a C# enum can never satisfy — so
+            // without this lane a payload-less raw-value enum gets its metadata registered and its
+            // conformances silently dropped, and every Set<Enum> / [Enum: V] call site throws
+            // "Unable to get protocol witness table" on first use. Registration is a symbol
+            // declaration only; the descriptor loads lazily when a witness table is first needed.
+            foreach (var (typeName, protocolInterface, conformanceSymbol, libraryName) in simpleEnumConformances)
+            {
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceSymbol(typeof({typeName}), typeof({protocolInterface}), \"{libraryName}\", \"{conformanceSymbol}\"); }} catch {{ }}");
             }
             // Register the shared class-existential value-witness metadata for the
             // ClassExistentialContainer1 carrier (16-byte [classRef][witnessTable] stride).

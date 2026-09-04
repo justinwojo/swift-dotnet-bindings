@@ -940,12 +940,21 @@ namespace BindingsGeneration
             if (_isObjCRooted)
             {
                 // ObjC-rooted: handle is the raw Swift object pointer (same as pure Swift classes).
-                // Wrap with SwiftHandle → base(NativeHandle) → NSObject takes ownership.
+                // The C# base is an NSObject-derived Apple type, which means the native object may
+                // have at most ONE managed peer — the Apple bindings keep a handle→peer map, and a
+                // second wrapper over an object that already has one repoints it, breaks reference
+                // identity against the instance the user created, and re-allocates a peer on every
+                // reverse-dispatch callback. So consult the map first and only construct when there
+                // is no peer yet. The construction branch is the original one: wrap with SwiftHandle
+                // → base(NativeHandle) → NSObject takes ownership of the incoming +1. The reuse
+                // branch hands that +1 back (inside the helper), since the existing peer already
+                // owns its own reference.
                 var text = $$"""
                 [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
+                    return global::Swift.Runtime.InteropServices.SwiftMarshal.ObjCPeerFromPayload<{{_typeNameWithGenerics}}>(
+                        handle, static h => new {{_typeNameWithGenerics}}(new SwiftHandle(h)));
                 }
                 """;
                 _writer.WriteLines(text);

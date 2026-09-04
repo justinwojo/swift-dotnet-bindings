@@ -30,21 +30,20 @@ and will NOT pick up a freshly-added fixture — validate new fixtures with a fu
 
 ## Defect G — root the impl, delete the fabrication paths
 
-### Current model (ground-truthed)
+### The model this defect was found in (historical)
 
-- proxy → impl: **WEAK** (`_csharpImplRef`, `ProtocolProxyEmitter.StaticInit.cs:43`).
-- `SwiftObjectRegistry`: **STRONG**-roots the proxy by handle (`RegisterStrong`, `Receivers.cs:2050`),
-  dropped only by `OnEveryProtocolDeinit` → `Unregister` (Swift deinit).
-- The construction **+1 (R0)** from the `SBW_Create…` factory (`Unmanaged.passRetained`) is owned by
-  `ProxyLifetimeTracker`, keyed **weakly by impl** via a `ConditionalWeakTable`. It is released on
-  **impl-GC** (`ProxyCleanup.~ProxyCleanup → ReleaseAll → SwiftReleaseTrampoline.Release(handle)`,
-  the Mono-safe Cdecl trampoline).
-- `OnEveryProtocolDeinit` (Swift deinit, Cdecl) → `OnEveryProtocolDeinitCore`: free the
-  handle-keyed impl GCHandle / `SwiftObjectRegistry.Unregister` / scrub the R0 entry; does
-  **not** itself call native release of R0. (There is no `NotifyDeinit` API.)
-- Receivers resolve the impl with `SwiftObjectRegistry.TryGetProxy<IProtocolProxyImpl<IFace>>(handle)`
-  then `proxy.UserImpl` (the weak unwrap). On a null impl they **fabricate** a return value
+- proxy → impl: **WEAK** (`_csharpImplRef`).
+- `SwiftObjectRegistry`: **STRONG**-roots the proxy by handle, dropped only by
+  `OnEveryProtocolDeinit` → `Unregister` (Swift deinit).
+- The construction **+1 (R0)** from the `SBW_Create…` factory (`Unmanaged.passRetained`) was owned by
+  `ProxyLifetimeTracker`, keyed **weakly by impl** via a `ConditionalWeakTable`, and released on
+  **impl-GC**.
+- Receivers resolved the impl with `SwiftObjectRegistry.TryGetProxy<IProtocolProxyImpl<IFace>>(handle)`
+  then `proxy.UserImpl` (the weak unwrap). On a null impl they **fabricated** a return value
   (`AllocZeroedSwiftBuffer`, `SwiftOptional.NewNone`, empty collection, `string.Empty`).
+
+The as-built model that replaced it is [Design B2](#recommended-design--design-b2), summarized
+under [As built](#as-built) below.
 
 ### The bug
 
@@ -151,6 +150,36 @@ EveryProtocol alive; any reverse callback resolves impl via the GCHandle). Consu
 → R0 released → no Swift retain → deinit → teardown. No premature death (the proxy owning R0 is alive
 throughout the consumer's use). No cycle (R0 release gated on consumer only; deinit gated on
 R0-release which is independent).
+
+### As built
+
+What actually shipped, and the names to grep for. This is the current model; the bullets under
+"the model this defect was found in" are history.
+
+- **Impl root** — `ProxyLifetimeTracker.s_implRoots`, a `handle → GCHandle` map on the consumer's
+  implementation, allocated from the proxy ctor and freed in `OnEveryProtocolDeinitCore`. Its *kind*
+  encodes who owns whom: `Track` allocates it **strong** (impl rooted by Swift liveness — correct
+  when the sink retains), `TrackConsumerOwned` allocates a **long weak** handle
+  (`WeakTrackResurrection`) for a non-retaining sink, where the consumer's implementation owns the
+  carrier and a strong root here would pin it for the process's lifetime. Every other member of the
+  tracker is kind-agnostic: both kinds resolve through `Target` and both are freed by deinit.
+- **Reverse dispatch** resolves the implementation with `ProxyLifetimeTracker.ResolveImpl<IFace>(handle)`
+  off that root — never through a live proxy. The fabrication branches are gone; a null implementation
+  hits the loud backstop instead.
+- **R0 ownership** — `ProxyLifetimeTracker.s_entries`, a `handle → HandleEntry` map for the
+  construction `+1`. It is owned by the *proxy* and released on the proxy's finalizer/Dispose through
+  `ReleaseHandle` → `SwiftReleaseTrampoline.Release`; the entry's atomic `Released` flag makes that
+  exactly-once against a Dispose/finalizer race, and `SwiftExitGuard` short-circuits it during
+  process teardown.
+- **Registry** holds C#-implementation proxies **weakly**, which is what lets the proxy die (and R0
+  release) while Swift still holds the existential.
+- **Proxy → impl** is weak (`_csharpImplRef`) on the Swift-rooted lane and **strong**
+  (`_csharpImplStrong`, selected by the `ProxyImplOwnership.ConsumerOwned` ctor argument) on the
+  consumer-owned lane.
+- **Auto-wrap memos** are two separate `ConditionalWeakTable`s in `ExistentialContainer.cs`:
+  `s_autoWrapCache` (weak value — the Swift-rooted lane) and `s_consumerOwnedWrapCache` (strong
+  value, safe because the key is the implementation the value points back at). One implementation
+  assigned to both a retaining and a non-retaining slot therefore gets two carriers, by design.
 
 ### Open risks for the design review
 
@@ -641,3 +670,149 @@ parity guard, and the `…OverArityWithBufferableElements_ReturnsFalse` arity gu
 `TupleMarshallingTests` value-oracle + GC-pressure tests over `sumBoxedPair`/`combineBoxAndScalar` (v1),
 `joinStringPair`/`describeLabeledBox` (v2), `describeNameableAgeablePair` (v3). Swift fixtures in
 `Tuples/TupleOfClassParam.swift` and `Protocols/CompositionArgLifetime.swift`.
+
+## Non-retaining sinks — the consumer-owned proxy lane (extends Design B2)
+
+### The gap B2 leaves
+
+Design B2 roots the C# implementation by **Swift liveness**: the proxy ctor allocates a strong
+`GCHandle` on the implementation, keyed by the EveryProtocol handle, and `OnEveryProtocolDeinitCore`
+frees it. That is a faithful model for a **retaining** sink — a strong Swift `var`, a stored
+existential, a borrowed call argument — because Swift's own retain is what keeps the EveryProtocol,
+and therefore the root, alive.
+
+It is not a model for a **non-retaining** sink. `weak var delegate: (any P)?` and
+`unowned var delegate: (any P)?` — the shape essentially every Apple delegate property takes — store
+the existential without taking a retain. When the setter returns, the only reference to the freshly
+minted `{P}Proxy` is the weak entry in `s_autoWrapCache`, and the only reference to the EveryProtocol
+is Swift's non-retaining slot. The next collection finalizes the proxy, the finalizer releases the
+construction +1, the EveryProtocol deinits, and the `weak` slot zeroes. From the consumer's side the
+delegate stops receiving callbacks at an arbitrary GC, even though they are still holding the object
+they assigned.
+
+### Why a receiver-keyed root was rejected
+
+The first shape considered was a side table keyed on the *receiver* (the Swift object that owns the
+`weak` property), holding the carrier strongly until the receiver deinits. It was rejected on three
+counts:
+
+- **The receiver is not always identifiable at the setter.** A `static weak var`, and any setter
+  reached through a value-typed or bridged self, has no receiver handle to key on.
+- **It inverts the ownership Swift declares.** `weak` states that the storage does *not* keep the
+  assignee alive; a receiver-keyed root makes it do exactly that, so the slot never zeroes while the
+  receiver lives and a consumer who intends the delegate to go away cannot make it go away.
+- **It leaks by construction on a re-assigned slot.** Overwriting the property does not tell the
+  managed side that the previous carrier is unreferenced, so each assignment adds a root the receiver
+  holds until it deinits.
+
+### The lane
+
+The ownership question a non-retaining sink asks is not "how long does Swift want this?" but "how
+long does the *consumer* want this?" — so the carrier is anchored to the consumer's own
+implementation object instead of to the Swift side. Two lanes now exist, selected at the emission
+site by the property's declared reference ownership:
+
+- **Lane A (Swift-rooted)** — unchanged Design B2. Strong `GCHandle` keyed on the EveryProtocol
+  handle (`ProxyLifetimeTracker.Track`), weak `{P}Proxy → impl` back-reference, weak auto-wrap memo.
+  Used for strong storage, method and constructor parameters, and returns.
+- **Lane B (consumer-owned)** — `ExistentialContainerFactory.GetOrCreateConsumerOwned<TProtocol>`.
+  Used for `weak` / `unowned` / `unmanaged` property setters whose incoming value is a plain C#
+  implementation.
+
+Lane B's structure, and what each edge is for:
+
+1. **Its own memo.** `ConditionalWeakTable<object impl, ConcurrentDictionary<Type, object proxy>>`,
+   separate from `s_autoWrapCache` and never shared with it. The key is the implementation; the
+   *value* holds the proxy **strongly**. Ephemeron semantics mean the value's reference back to the
+   key does not keep the entry alive, so the entry — and with it the proxy and the construction +1 —
+   drops out when the implementation becomes unreachable. Repeated assignment of the same
+   implementation to the same protocol reuses one carrier rather than minting one per assignment.
+2. **A strong proxy → impl back-edge.** `{P}Proxy` gains a consumer-owned construction mode
+   (`ProxyImplOwnership.ConsumerOwned`) that stores the implementation in `_csharpImplStrong`; the
+   lane-A weak `_csharpImplRef` is retained for lane A, and the internal `_csharpImpl` accessor
+   consults strong-then-weak. The proxy is reachable only from the memo entry the implementation
+   keys, so this edge does not form a root.
+3. **A long weak tracker root.** `ProxyLifetimeTracker.TrackConsumerOwned` does the same handle
+   bookkeeping as `Track` but allocates `GCHandleType.WeakTrackResurrection`. The lane already holds
+   the implementation through the proxy, so a strong handle would add nothing except a second edge to
+   free; the long-weak flavour is what lets a receiver preamble that runs *during* finalization —
+   the deinit callback chain triggered by the proxy's own finalizer — still resolve the
+   implementation. A short weak handle is already cleared at that point.
+
+Because the memo is keyed on the implementation and not on any receiver, `static weak var` takes
+lane B on the same terms as an instance property.
+
+**Every auto-wrap arm asks the same question.** A setter's value reaches Swift through one of
+several marshalling arms depending on the wire shape — the decomposed-Optional accessor body, the
+bare `@objc` object pointer, the wrapper-library existential argument, the direct-dispatch
+existential argument. Ownership is a property of the *sink*, not of the wire width, so the lane
+decision is one predicate (`NonRetainingSinkLane`) consulted by all of them rather than a branch
+duplicated per arm. The arms that are handed an accessor rather than the property it belongs to read
+the ownership from `MethodDecl.SinkReferenceOwnership`, which the parser mirrors onto a stored
+property's accessors, and a parameter-carried arm rides it through
+`MarshalledType.Existential.ConsumerOwnsCarrier`. Only the auto-wrap fallback needs a lane at all: a
+value that already *is* a carrier is one the consumer holds directly.
+
+### Consequences
+
+- **Lifetime.** The Swift slot reads non-nil for exactly as long as the consumer holds a reference to
+  the implementation they assigned. Dropping that reference makes the implementation, the carrier and
+  the construction +1 collectable together, and the slot zeroes at the next collection even while the
+  receiver is still alive. An implementation that itself holds the receiver is collectable with it —
+  the memo does not root either one.
+- **Two carriers for two lanes.** The same implementation assigned to both a `weak` and a strong
+  property gets one lane-A carrier and one lane-B carrier, since the two memos are separate. Both
+  dispatch to the same managed object. While the lane-A carrier's strong root holds the
+  implementation alive, the lane-B memo entry keyed on that implementation stays alive too, so the
+  `weak` slot reads non-nil for as long as the strong slot does — matching what plain Swift shows for
+  one object held in a `weak` and a strong property at once.
+- **A consumer-constructed carrier follows the consumer's reference to it.** If the consumer builds
+  `new {P}Proxy(impl)` themselves and assigns *that* to a `weak` slot, the value is already a carrier
+  and no lane applies; the slot's lifetime is the consumer's reference to the proxy.
+- **The generated setter says so.** Non-retaining existential setters carry a `<remarks>` block
+  telling the consumer to hold their own reference to the implementation for as long as they want
+  callbacks.
+
+### Residuals
+
+- **Parameters Swift stores into a non-retaining property.** A method or constructor *parameter* is
+  marshalled without knowing what the callee does with it. If Swift stores that existential into a
+  `weak` property, the argument took lane A, so the carrier is rooted by nothing after the call
+  returns and the slot zeroes at the next collection. The setter is the only site that can see the
+  declared ownership. A consumer hitting this can construct the proxy explicitly and hold it, or
+  assign through the property instead. This includes the initializer that seeds a non-optional
+  `unowned` property, since `unowned` storage cannot start empty; the generated `<remarks>` says so
+  and points the consumer at the setter.
+
+### Surface
+
+Runtime: `ProxyImplOwnership.cs` (new), `ExistentialContainer.cs`
+(`s_consumerOwnedWrapCache` + `GetOrCreateConsumerOwned`, including the out-parameter-less overload
+the direct-dispatch call-argument arm calls — the `@objc` payload arm has a keep-alive local of its
+own and calls the four-argument form), `ProxyLifetimeTracker.cs` (`TrackConsumerOwned`, shared
+`TrackCore`).
+Generator: `NonRetainingSinkLane.cs` (new — the one lane predicate and the two emission fragments),
+`MethodDecl.SinkReferenceOwnership` + `SwiftABIParser.CreatePropertyDecl` (the accessor-side mirror
+of the storage's ownership), `MarshalledType.Existential.ConsumerOwnsCarrier` +
+`PInvokeEmitter`/`MethodSignature.cs` (the parameter-carried arm), `PropertyHandler.cs` (the
+decomposed-Optional arm + the `<remarks>` block), `WrapperEmitter.Marshalling.cs` (the shared
+existential-argument arm and the `@objc` optional arm), `ExistentialProjection.cs` (the `@objc`
+auto-wrap buffer statements), `ProtocolProxyEmitter.Receivers.cs` (the ownership constructor
+overload), `ProtocolProxyEmitter.StaticInit.cs` (`_csharpImplStrong` + strong-then-weak accessor).
+The earlier receiver-keyed `NonRetainingSinkRoots` table and its tests are deleted.
+
+Tests. Unit: `ProxyLifetimeTrackerTests` (consumer-owned tracking resolves, counts, frees on deinit,
+and does not itself root the implementation), `ExistentialContainerFactoryTests` (carrier reuse, the
+two-memo split, that the memo roots neither the implementation nor its carrier, and that the short
+overload shares the lane), `ReferenceOwnershipParserTests` (the accessor-side mirror, and that a
+plain `var` stays strong), `PropertyHandlerTests` (which lane each ownership emits, per arm and
+including the static case), `ProtocolProxyEmitterTests` (the ownership constructor overload and its
+default). Runtime (BindingTests): `NonRetainingSinkRootingTests` over `ReverseWeakSinkHarness` —
+survival across collections while the consumer holds the implementation, the slot zeroing when they
+drop it with the receiver alive, the implementation-holds-receiver case leaving no residue, carrier
+reuse across re-assignment, and the consumer-constructed-carrier case;
+`ObjCNonRetainingSinkRootingTests` over `ObjCReverseWeakSinkHarness` for the `@objc` pointer arm;
+`UnownedSlotSinkRootingTests` over `ReverseUnownedSlotHarness` for the non-optional `unowned` arm
+(never reading a dangling slot — the drop case restores a live implementation and proves the release
+through the census); `AutoWrappedDelegateTests` for the weak-slot-follows-the-implementation case and
+the both-slots two-carrier case.

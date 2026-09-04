@@ -59,6 +59,27 @@ public static class AvailabilityHelpers
     }
 
     /// <summary>
+    /// The annotation list that governs a property's SETTER. Swift can introduce a setter after
+    /// the property itself (a get-only requirement later made settable), and the parser records
+    /// that as <see cref="PropertyDecl.SetterAvailabilityAnnotations"/> — already the property's
+    /// own list merged with the setter-specific per-platform overrides, so it REPLACES rather
+    /// than supplements the property list. When the setter declares nothing of its own the
+    /// property's list governs.
+    ///
+    /// <para>Single source of truth for that preference order: the Swift <c>@_cdecl</c> setter
+    /// forwarder, the C# setter P/Invoke, the proxy's <c>set</c> accessor and the interface's
+    /// <c>set</c> accessor must all be gated at the same floor, or the attribute a consumer sees
+    /// disagrees with the floor the symbol is exported at.</para>
+    /// </summary>
+    public static IReadOnlyList<AvailabilityAnnotation>? SelectSetterAnnotations(PropertyDecl property)
+    {
+        ArgumentNullException.ThrowIfNull(property);
+        return property.SetterAvailabilityAnnotations is { Count: > 0 } setterAnnotations
+            ? setterAnnotations
+            : property.AvailabilityAnnotations;
+    }
+
+    /// <summary>
     /// Component-wise numeric comparison of dotted OS-version strings: "13.0" &lt; "26.0" and
     /// "9.0" &lt; "10.0" (not lexicographic). Missing components are treated as 0 so "13" == "13.0".
     /// Returns &gt;0 when <paramref name="left"/> is newer, &lt;0 when older, 0 when equal. Single

@@ -900,6 +900,7 @@ namespace BindingsGeneration
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
             EmitExistentialContainerMarshalling(csWriter);
+            EmitConsumedClassSetterValueHandOver(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitOptionalReturnBuffer(csWriter);
             EmitRawBufferFixedStart(csWriter);

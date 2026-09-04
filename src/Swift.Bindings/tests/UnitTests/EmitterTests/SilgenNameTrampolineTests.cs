@@ -254,6 +254,38 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
+    public void IsNonPrimitiveFrozenStructParam_ObjCBridgedValueStruct_ReturnsTrue()
+    {
+        // Foundation.UUID is registered exactly like Foundation.Date above — a frozen system
+        // value struct — yet it must NOT go by value. It is also ObjC-bridgeable, so @_cdecl
+        // lowers such a parameter to a bridged object pointer instead of the struct's 16 value
+        // bytes; passing the value by value hands the wrapper the first word where it expects a
+        // pointer. Returning true here routes the parameter through the same indirect
+        // (pointer + stack buffer) path the Swift side takes for it, so both planes agree.
+        var typeDb = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        RegisterSwiftCoreTypes(swiftModule);
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.UUID"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Guid"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.UUID"),
+                MetadataAccessor = "$s10Foundation4UUIDVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(foundationModule);
+
+        var arg = CreateArgument("identifier", new NamedTypeSpec("Foundation.UUID"));
+
+        Assert.True(MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, typeDb));
+    }
+
+    [Fact]
     public void IsNonPrimitiveFrozenStructParam_CustomFrozenStruct_ReturnsTrue()
     {
         // Custom frozen structs must still be blocked —

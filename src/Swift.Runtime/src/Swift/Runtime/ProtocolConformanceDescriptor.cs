@@ -97,6 +97,20 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     {
         var type = typeof(TType);
 
+        // Symbol-declared conformances come first: they are the only lane available to a
+        // conforming type that cannot implement ISwiftObject at all. A payload-less raw-value
+        // Swift enum is projected as a plain C# enum, so the ISwiftObject branch below can never
+        // fire for it even though its Swift conformance descriptor is exported and usable — a
+        // generated module initializer declares that symbol through
+        // SwiftMarshal.RegisterConformanceSymbol and this lookup turns it into a descriptor.
+        // Nothing registers an ISwiftObject type here today, so the ordering is a cheap
+        // dictionary miss on the existing path rather than a behavioural change to it.
+        if (ConformanceSymbolRegistry.TryResolve(type, typeof(TProtocol), out var registered))
+        {
+            result = registered;
+            return true;
+        }
+
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
             ProtocolConformanceDescriptor candidate;

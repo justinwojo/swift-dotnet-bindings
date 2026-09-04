@@ -41,14 +41,27 @@ internal static class AvailabilityAttributeEmitter
 
     public static void EmitAvailabilityAttributes(
         CSharpWriter csWriter, BaseDecl decl, BaseDecl? parentDecl = null, bool emitObsolete = true)
+        => EmitAvailabilityAttributes(csWriter, decl.AvailabilityAnnotations, parentDecl, emitObsolete);
+
+    /// <summary>
+    /// Same as <see cref="EmitAvailabilityAttributes(CSharpWriter, BaseDecl, BaseDecl, bool)"/> but
+    /// driven by an explicit annotation list rather than the declaration's own. Used where the
+    /// governing floor is not the declaration's — notably a property's SETTER, whose floor comes
+    /// from <see cref="AvailabilityHelpers.SelectSetterAnnotations"/>.
+    /// </summary>
+    public static void EmitAvailabilityAttributes(
+        CSharpWriter csWriter,
+        IReadOnlyList<AvailabilityAnnotation>? declAnnotations,
+        BaseDecl? parentDecl = null,
+        bool emitObsolete = true)
     {
-        if (decl.AvailabilityAnnotations == null || decl.AvailabilityAnnotations.Count == 0)
+        if (declAnnotations == null || declAnnotations.Count == 0)
             return;
 
         // Lift an explicit macCatalyst floor to the iOS floor so the C# attribute matches the
         // floor the @_cdecl wrapper is exported at; lift the parent the same way so the dedup
         // below compares effective (lifted) versions. See AvailabilityHelpers.LiftMacCatalystFloorToIOS.
-        var annotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(decl.AvailabilityAnnotations)!;
+        var annotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(declAnnotations)!;
         var parentAnnotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(parentDecl?.AvailabilityAnnotations);
 
         // Collect parent's platform annotations for dedup
@@ -229,6 +242,65 @@ internal static class AvailabilityAttributeEmitter
     }
 
     /// <summary>
+    /// Builds a ONE-STATEMENT runtime availability guard for a member whose effective floor is
+    /// stricter than the floor its enclosing type already guards, or <c>null</c> when the member
+    /// adds nothing beyond that type. The statement throws
+    /// <see cref="System.PlatformNotSupportedException"/> when the running OS is below the member's
+    /// merged (member + enclosing type) floor — the same floor the member's
+    /// <c>[SupportedOSPlatform]</c> attributes advertise.
+    ///
+    /// <para>The "stricter than parent" gate is deliberately
+    /// <see cref="DeclaresStricterFloorThanParent(IReadOnlyList{AvailabilityAnnotation}, BaseDecl)"/>
+    /// rather than a bare merge test: the enclosing generated type is itself gated at the parent's
+    /// floor, so a member that adds no floor of its own is already covered and a second guard there
+    /// would be dead code on every member of every OS-gated protocol. Only the member that raises
+    /// the floor introduces a reachable window — the parent's floor satisfied, the member's not —
+    /// and that window is exactly what this guards. The THROWN condition still uses the full merged
+    /// floor, not just the added part, so the exception message names the real requirement.</para>
+    ///
+    /// <para>Rendered as a single statement (rather than through
+    /// <see cref="EmitRuntimeAvailabilityGuard"/>) so it can be interpolated into an accessor body
+    /// that is written as one raw-string block.</para>
+    /// </summary>
+    public static string? BuildStricterFloorGuardStatement(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        BaseDecl? parentDecl,
+        string apiDescription)
+    {
+        if (!DeclaresStricterFloorThanParent(memberAnnotations, parentDecl))
+            return null;
+
+        var guarded = ResolveStrictestFloors(
+            AvailabilityHelpers.MergeAvailability(memberAnnotations, parentDecl));
+        if (guarded.Count == 0)
+            return null;
+
+        var floors = string.Join(" / ", guarded.Select(g =>
+            $"{(PlatformDisplayNames.TryGetValue(g.platform, out var disp) ? disp : g.platform)} {g.version}"));
+        var message = $"{apiDescription} is not available on this OS version; it requires {floors} or later.";
+
+        return $"if ({BuildBelowFloorCondition(guarded)}) throw new global::System.PlatformNotSupportedException(" +
+            $"\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\");";
+    }
+
+    /// <summary>
+    /// Builds the guard statement plus the line break and relative indentation needed to prefix it
+    /// onto the first statement of an accessor body written as one raw-string block, or the empty
+    /// string when no guard is required. Emitting the guard as a prefix rather than as its own
+    /// placeholder line keeps the un-guarded (overwhelmingly common) case byte-identical — a
+    /// placeholder line would otherwise leave a whitespace-only line in every generated accessor.
+    /// </summary>
+    public static string BuildStricterFloorGuardPrefix(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        BaseDecl? parentDecl,
+        string apiDescription,
+        string continuationIndent)
+    {
+        var guard = BuildStricterFloorGuardStatement(memberAnnotations, parentDecl, apiDescription);
+        return guard is null ? string.Empty : guard + "\n" + continuationIndent;
+    }
+
+    /// <summary>
     /// Builds the boolean expression that is true when the type's effective availability floor is
     /// SATISFIED on the running OS — the positive form of the runtime guard's "below floor" test.
     /// Returns <c>null</c> when the type carries no platform floor (always available), letting the
@@ -312,6 +384,48 @@ internal static class AvailabilityAttributeEmitter
     }
 
     /// <summary>
+    /// Whether <paramref name="decl"/>'s effective availability floor is strictly newer than
+    /// <paramref name="parentDecl"/>'s on at least one platform — i.e. the member declares a
+    /// floor its enclosing type does not already guarantee, so a call to the member from code
+    /// gated only at the parent's floor draws CA1416.
+    ///
+    /// <para>Both sides are compared after the macCatalyst→iOS lift and after collapsing to the
+    /// strictest introduced version per platform, so the answer matches what
+    /// <see cref="EmitAvailabilityAttributes"/> would actually write. A platform the member
+    /// floors and the parent does not counts as stricter.</para>
+    /// </summary>
+    public static bool DeclaresStricterFloorThanParent(BaseDecl decl, BaseDecl? parentDecl)
+        => DeclaresStricterFloorThanParent(decl.AvailabilityAnnotations, parentDecl);
+
+    /// <summary>
+    /// Annotation-list form of
+    /// <see cref="DeclaresStricterFloorThanParent(BaseDecl, BaseDecl)"/>, for a floor that does not
+    /// come from a declaration's own list — notably a property's SETTER
+    /// (<see cref="AvailabilityHelpers.SelectSetterAnnotations"/>).
+    /// </summary>
+    public static bool DeclaresStricterFloorThanParent(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations, BaseDecl? parentDecl)
+    {
+        var memberFloors = ResolveStrictestFloors(
+            AvailabilityHelpers.MergeAvailability(memberAnnotations, parentDecl));
+        if (memberFloors.Count == 0)
+            return false;
+
+        var parentFloors = ResolveStrictestFloors(parentDecl?.AvailabilityAnnotations)
+            .ToDictionary(f => f.platform, f => f.version, StringComparer.Ordinal);
+
+        foreach (var (platform, version) in memberFloors)
+        {
+            if (!parentFloors.TryGetValue(platform, out var parentVersion))
+                return true;
+            if (IsStrictlyNewer(version, parentVersion))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Emits accessor-level <c>[SupportedOSPlatform]</c> attributes for a property's
     /// setter, covering only the platforms where the setter's introduced version is
     /// strictly greater than the property's. Used by <c>PropertyHandler.EmitSetter</c>
@@ -324,14 +438,58 @@ internal static class AvailabilityAttributeEmitter
     public static bool EmitSetterAccessorAvailability(
         CSharpWriter csWriter,
         IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
+        IReadOnlyList<AvailabilityAnnotation>? setterAvailability,
+        bool emitCa1416Suppression = true)
+    {
+        var tighter = ResolveTighterSetterFloors(propertyAvailability, setterAvailability);
+        if (tighter.Count == 0)
+            return false;
+
+        // CA1416 does not narrow callsite OS availability based on accessor-level
+        // [SupportedOSPlatform] attributes — the analyzer still treats the set body
+        // as reachable from the enclosing property's (looser) floor. Suppress the
+        // warning for the backing-method call inside the setter body; consumers
+        // still get a proper CA1416 diagnostic at their own call site because the
+        // accessor attribute DOES narrow the consumer-facing surface. A bodiless
+        // accessor (an interface requirement) has no such call to suppress, so the
+        // caller can opt out and keep the pragma out of the emitted interface.
+        if (emitCa1416Suppression)
+            csWriter.WriteLine("#pragma warning disable CA1416");
+        foreach (var (dotnetPlatform, version) in tighter)
+        {
+            var platformVersion = $"{dotnetPlatform}{NormalizeVersion(version)}";
+            csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{platformVersion}\")]");
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a property's setter is gated at a strictly newer introduced version than the
+    /// property itself on at least one platform — i.e. whether the <c>set</c> accessor needs its
+    /// own <c>[SupportedOSPlatform]</c>. Asks exactly the question
+    /// <see cref="EmitSetterAccessorAvailability"/> answers by emitting, so a caller that must
+    /// decide the SHAPE of the property (single-line auto-accessors vs an accessor block) before
+    /// writing anything cannot disagree with what the emitter would then write.
+    /// </summary>
+    public static bool SetterFloorIsStricterThanProperty(
+        IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
+        IReadOnlyList<AvailabilityAnnotation>? setterAvailability)
+        => ResolveTighterSetterFloors(propertyAvailability, setterAvailability).Count > 0;
+
+    /// <summary>
+    /// The (platform, version) pairs on which the setter's introduced version is strictly newer
+    /// than the property's. Both sides are macCatalyst→iOS lifted first so the comparison — and
+    /// the attribute built from it — use the floor the <c>@_cdecl</c> setter wrapper is exported at.
+    /// </summary>
+    private static List<(string platform, string version)> ResolveTighterSetterFloors(
+        IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
         IReadOnlyList<AvailabilityAnnotation>? setterAvailability)
     {
-        // Lift both sides' explicit macCatalyst floors so the setter-vs-property comparison and
-        // the emitted accessor attribute use the floor the @_cdecl setter wrapper is exported at —
-        // see AvailabilityHelpers.LiftMacCatalystFloorToIOS.
+        var tighter = new List<(string platform, string version)>();
+
         setterAvailability = AvailabilityHelpers.LiftMacCatalystFloorToIOS(setterAvailability);
         if (setterAvailability == null || setterAvailability.Count == 0)
-            return false;
+            return tighter;
         propertyAvailability = AvailabilityHelpers.LiftMacCatalystFloorToIOS(propertyAvailability);
 
         var propPlatforms = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -344,7 +502,6 @@ internal static class AvailabilityAttributeEmitter
             }
         }
 
-        var tighter = new List<(string platform, string version)>();
         foreach (var ann in setterAvailability)
         {
             if (ann.Platform == null || ann.IntroducedVersion == null)
@@ -359,22 +516,7 @@ internal static class AvailabilityAttributeEmitter
             tighter.Add((dotnetPlatform, ann.IntroducedVersion));
         }
 
-        if (tighter.Count == 0)
-            return false;
-
-        // CA1416 does not narrow callsite OS availability based on accessor-level
-        // [SupportedOSPlatform] attributes — the analyzer still treats the set body
-        // as reachable from the enclosing property's (looser) floor. Suppress the
-        // warning for the backing-method call inside the setter body; consumers
-        // still get a proper CA1416 diagnostic at their own call site because the
-        // accessor attribute DOES narrow the consumer-facing surface.
-        csWriter.WriteLine("#pragma warning disable CA1416");
-        foreach (var (dotnetPlatform, version) in tighter)
-        {
-            var platformVersion = $"{dotnetPlatform}{NormalizeVersion(version)}";
-            csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{platformVersion}\")]");
-        }
-        return true;
+        return tighter;
     }
 
     /// <summary>

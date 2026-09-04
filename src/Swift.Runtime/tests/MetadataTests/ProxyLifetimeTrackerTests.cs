@@ -146,6 +146,181 @@ public class ProxyLifetimeTrackerTests
     }
 
     [Fact]
+    public void TrackConsumerOwned_ThrowsOnNullImpl()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            ProxyLifetimeTracker.TrackConsumerOwned(null!, new IntPtr(0x1234)));
+    }
+
+    [Fact]
+    public void TrackConsumerOwned_ThrowsOnZeroHandle()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            ProxyLifetimeTracker.TrackConsumerOwned(new MockImpl(), IntPtr.Zero));
+    }
+
+    [Fact]
+    public void TrackConsumerOwned_MarksHandleAsTrackedAndResolves()
+    {
+        // Same bookkeeping surface as Track — a consumer-owned carrier still needs the handle to
+        // resolve back to the impl for reverse dispatch; only the root's strength differs.
+        var impl = new MockImpl();
+        var handle = NewMockHandle();
+        try
+        {
+            ProxyLifetimeTracker.TrackConsumerOwned(impl, handle);
+            Assert.True(ProxyLifetimeTracker.IsTrackedForTest(handle));
+            Assert.Same(impl, ProxyLifetimeTracker.ResolveImpl<IMockFace>(handle));
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+            GC.KeepAlive(impl);
+        }
+    }
+
+    [Fact]
+    public void ConsumerOwnedImplRoot_ResolvesWhileSomethingElseHoldsTheImpl()
+    {
+        // A consumer-owned carrier's root is weak, so resolution has to come from the impl still
+        // being reachable elsewhere — here, the test frame. That is the whole point: the consumer's
+        // reference, not Swift's, is what decides how long dispatch keeps working.
+        var impl = new MockImpl();
+        var handle = NewMockHandle();
+        try
+        {
+            ProxyLifetimeTracker.TrackConsumerOwned(impl, handle);
+
+            for (int i = 0; i < 8; i++)
+            {
+                GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.Same(impl, ProxyLifetimeTracker.ResolveImpl<IMockFace>(handle));
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+            GC.KeepAlive(impl);
+        }
+    }
+
+    [Fact]
+    public void ConsumerOwnedImplRoot_DoesNotKeepImplAliveAcrossGc()
+    {
+        // The inversion that makes a non-retaining Swift sink behave the way its declaration says:
+        // tracking a consumer-owned carrier must NOT be a root. Once the consumer drops the impl,
+        // it becomes collectable even though the handle is still tracked — which is what lets the
+        // proxy and the Swift box that reads through it fall away together.
+        // Contrast StrongImplRoot_KeepsImplAliveAcrossGc, which asserts the opposite for the
+        // Swift-rooted lane under an otherwise identical setup.
+        var handle = NewMockHandle();
+        TrackConsumerOwnedImplWithoutKeepingRef(handle);
+
+        for (int i = 0; i < 8; i++)
+        {
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+
+        try
+        {
+            Assert.Null(ProxyLifetimeTracker.ResolveImpl<IMockFace>(handle));
+            // The entry itself is untouched — only Swift's deinit removes it, so the release
+            // bookkeeping the proxy still owns cannot be lost by a collection.
+            Assert.True(ProxyLifetimeTracker.IsTrackedForTest(handle));
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+        }
+    }
+
+    // No-inline sibling of TrackImplWithoutKeepingRef: after this returns, nothing anywhere
+    // references the impl, so a collection is free to take it.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void TrackConsumerOwnedImplWithoutKeepingRef(IntPtr handle)
+    {
+        var impl = new MockImpl();
+        ProxyLifetimeTracker.TrackConsumerOwned(impl, handle);
+        Assert.True(ProxyLifetimeTracker.IsTrackedForTest(handle));
+    }
+
+    [Fact]
+    public void ConsumerOwnedTracking_CountsInImplRoots()
+    {
+        // ImplRootCount is the leak census's "one entry per live EveryProtocol box" reading, so a
+        // consumer-owned carrier has to be counted the same as a Swift-rooted one — otherwise a
+        // whole lane's leaks would be invisible to the census.
+        var impl = new MockImpl();
+        var handle = NewMockHandle();
+        var before = ProxyLifetimeTracker.ImplRootCount;
+        try
+        {
+            ProxyLifetimeTracker.TrackConsumerOwned(impl, handle);
+            Assert.Equal(before + 1, ProxyLifetimeTracker.ImplRootCount);
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+            GC.KeepAlive(impl);
+        }
+        Assert.Equal(before, ProxyLifetimeTracker.ImplRootCount);
+    }
+
+    [Fact]
+    public void TrackConsumerOwned_DuplicateHandle_Throws()
+    {
+        // Same transactional publication guarantee as Track, and across lanes: a handle already
+        // tracked one way cannot be re-tracked the other, so the two maps cannot drift.
+        var impl1 = new MockImpl();
+        var impl2 = new MockImpl();
+        var handle = NewMockHandle();
+        try
+        {
+            ProxyLifetimeTracker.TrackConsumerOwned(impl1, handle);
+            Assert.Throws<InvalidOperationException>(() =>
+                ProxyLifetimeTracker.TrackConsumerOwned(impl2, handle));
+            Assert.Throws<InvalidOperationException>(() =>
+                ProxyLifetimeTracker.Track(impl2, handle));
+
+            Assert.Same(impl1, ProxyLifetimeTracker.ResolveImpl<MockImpl>(handle));
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+            GC.KeepAlive(impl1);
+            GC.KeepAlive(impl2);
+        }
+    }
+
+    [Fact]
+    public void OnEveryProtocolDeinit_ConsumerOwnedRoot_FreesEntry()
+    {
+        using var scope = SwiftExitGuardTestScope.Enter(processExiting: false);
+
+        var impl = new MockImpl();
+        var handle = NewMockHandle();
+        try
+        {
+            ProxyLifetimeTracker.TrackConsumerOwned(impl, handle);
+            var before = ProxyLifetimeTracker.ImplRootCount;
+
+            ProxyLifetimeTracker.OnEveryProtocolDeinitCore(handle);
+
+            Assert.False(ProxyLifetimeTracker.IsTrackedForTest(handle));
+            Assert.Null(ProxyLifetimeTracker.ResolveImpl<MockImpl>(handle));
+            Assert.Equal(before - 1, ProxyLifetimeTracker.ImplRootCount);
+        }
+        finally
+        {
+            ProxyLifetimeTracker.DropForTest(handle);
+            GC.KeepAlive(impl);
+        }
+    }
+
+    [Fact]
     public void Track_MultipleHandlesForSameImpl_AllTracked()
     {
         var impl = new MockImpl();

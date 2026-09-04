@@ -1349,8 +1349,14 @@ public static class WrapperValidation
             // every lane past the first. Treat them as non-primitive so PInvokeEmitter wires
             // up the CdeclFrozenStruct (stackalloc + IntPtr) marshalling that preserves all
             // lanes — keeping CdeclParamMapper.Map's SIMD wedge in lockstep on the Swift side.
+            // ObjC-bridgeable frozen value structs are the second exception, for a different
+            // reason: @_cdecl lowers such a parameter to a bridged object pointer rather than to
+            // the struct's value bytes, so by-value passing hands the wrapper the first word of
+            // the value where it expects a pointer. They take the same CdeclFrozenStruct path,
+            // matching CdeclParamMapper's ObjCBridgedValueStruct arm on the Swift side.
             if (spec is NamedTypeSpec namedSpec && CdeclParamMapper.IsSystemFrozenStruct(namedSpec)
-                && !CdeclParamMapper.IsSimdVectorType(namedSpec))
+                && !CdeclParamMapper.IsSimdVectorType(namedSpec)
+                && !CdeclParamMapper.IsObjCBridgedValueStruct(namedSpec))
                 return false;
             return true;
         }

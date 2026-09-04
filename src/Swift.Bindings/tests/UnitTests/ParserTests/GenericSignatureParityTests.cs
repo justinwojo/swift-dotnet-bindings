@@ -46,6 +46,14 @@ public class GenericSignatureParityTests
         ("<τ_0_0 where τ_0_0 : AnyObject>", "Protocol"),
         ("<τ_0_0 : AnyObject>", "Protocol"),
         ("<τ_0_0 : Swift.AnyObject>", "Protocol"),
+        // Sugared dialect of the same class-bound constraint, as swift-api-digester -dump-sdk
+        // prints it. The frozen oracle answers these WRONG on purpose (see
+        // IsSugaredDirectAnyObjectBlindSpot) — they are here so the gate pins the one place the
+        // production grading now deliberately outruns it.
+        ("<Self : AnyObject>", "Protocol"),
+        ("<Self where Self : AnyObject>", "Protocol"),
+        ("<Self : Swift.AnyObject>", "Protocol"),
+        ("<Self : AnyObject, Self : Swift.Sendable>", "Protocol"),
         // Protocol superclass constraint (target is neither marker nor a conformance) ⇒ class-bound.
         ("<τ_0_0 where τ_0_0 : SwiftBindingsTestLib.BaseRule>", "Protocol"),
         // Associated-type AnyObject must NOT make the protocol class-bound (member clause, not direct).
@@ -94,8 +102,23 @@ public class GenericSignatureParityTests
             // empty conformance set and the comparison isolates the sig grammar.
             bool oldClassBound = OldIsClassBoundFromSig(sig, Array.Empty<string>());
             bool newClassBound = NewIsClassBoundFromSig(sig, Array.Empty<string>());
-            Assert.True(oldClassBound == newClassBound,
-                $"class-bound grading diverged for sig <{sig}>: old={oldClassBound} new={newClassBound}");
+            if (IsSugaredDirectAnyObjectBlindSpot(sig))
+            {
+                // The single sanctioned divergence: the frozen regex only ever matched the
+                // desugared subject root, so it graded a sugared `Self : AnyObject` protocol
+                // opaque. That is not a rendering difference — a class-bound existential is two
+                // words and an opaque one is five, so the old answer put the witness table in the
+                // wrong word for every Apple-direct delegate protocol. Assert the divergence runs
+                // in exactly that direction rather than tolerating any disagreement here.
+                Assert.True(!oldClassBound && newClassBound,
+                    $"sugared class-bound sig <{sig}> must grade class-bound now and did not " +
+                    $"under the frozen oracle: old={oldClassBound} new={newClassBound}");
+            }
+            else
+            {
+                Assert.True(oldClassBound == newClassBound,
+                    $"class-bound grading diverged for sig <{sig}>: old={oldClassBound} new={newClassBound}");
+            }
 
             bool oldSelf = OldHasSelfRequirement(sig);
             bool newSelf = NewHasSelfRequirement(sig);
@@ -390,12 +413,24 @@ public class GenericSignatureParityTests
             string.Equals(r.SubjectRoot, "Self", StringComparison.Ordinal) &&
             (!r.IsDirect || r.Kind == GenericRequirementKind.SameType));
 
+    /// <summary>
+    /// True when the signature carries a DIRECT class-bound constraint written in the sugared
+    /// dialect (<c>Self : AnyObject</c>) — the one shape where the frozen pre-F19 oracle, whose
+    /// regex only ever matched the desugared subject root, disagrees with production on purpose.
+    /// </summary>
+    private static bool IsSugaredDirectAnyObjectBlindSpot(string? sig) =>
+        GenericSignatureParser.ParseSignature(sig).Requirements.Any(r =>
+            r.IsDirect && r.Kind == GenericRequirementKind.Conformance &&
+            string.Equals(r.SubjectRoot, "Self", StringComparison.Ordinal) &&
+            r.TargetSimpleName == "AnyObject");
+
     private static bool NewIsClassBoundFromSig(string? sig, IReadOnlyCollection<string> conformanceSimpleNames)
     {
         var parsedSig = GenericSignatureParser.ParseSignature(sig);
         bool isClassBound = parsedSig.Requirements.Any(r =>
             r.IsDirect && r.Kind == GenericRequirementKind.Conformance &&
-            string.Equals(r.SubjectRoot, "τ_0_0", StringComparison.Ordinal) &&
+            (string.Equals(r.SubjectRoot, "τ_0_0", StringComparison.Ordinal) ||
+             string.Equals(r.SubjectRoot, "Self", StringComparison.Ordinal)) &&
             r.TargetSimpleName == "AnyObject");
         if (!isClassBound)
         {

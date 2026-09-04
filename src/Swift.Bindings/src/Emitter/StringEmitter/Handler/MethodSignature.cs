@@ -234,7 +234,7 @@ namespace BindingsGeneration
                 // protocols (e.g., "OtherModule.IFoo") are recognized along with same-module ones.
                 { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when containerType == "Swift.Runtime.ExistentialContainer1" && IsExistentialInterfacePublicType(publicType) =>
                     existentialType.ProxyClassName != null
-                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v))"
+                        ? $"Swift.Runtime.ExistentialContainerFactory.{NonRetainingSinkLane.FactoryMethodName(existentialType.ConsumerOwnsCarrier, hasProxyClass: true)}<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v{NonRetainingSinkLane.ProxyOwnershipArgument(existentialType.ConsumerOwnsCarrier)}))"
                         : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name})",
                 { Type: MarshalledType.Existential(var containerType, var publicType) } =>
                     $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){parameter.Name}).GetExistentialContainer()",

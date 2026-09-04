@@ -75,13 +75,25 @@ public partial class ProtocolProxyEmitter
         // registry lookups). It is NOT the reverse-dispatch resolution path under Design
         // B2 — receivers resolve through ProxyLifetimeTracker.ResolveImpl, whose strong
         // root keeps the impl alive for exactly as long as Swift references the proxy.
+        //
+        // _csharpImplStrong is populated ONLY for a consumer-owned proxy (one minted for a
+        // Swift sink that does not retain, where the impl owns this carrier instead of the
+        // other way round). There the impl-keyed root is a long weak handle, so this strong
+        // back-edge is what keeps the impl resolvable for a callback that races this proxy's
+        // finalizer; the pair is still collectable because the memo holding this proxy is
+        // keyed weakly on the impl. It stays null for every Swift-rooted proxy, where a
+        // strong back-edge would close a lifetime cycle with the tracker's strong root.
         writer.WriteLines($$"""
             private readonly WeakReference<{{interfaceName}}>? _csharpImplRef;
+            private readonly {{interfaceName}}? _csharpImplStrong;
 
             private {{interfaceName}}? _csharpImpl
             {
                 get
                 {
+                    var strongImpl = _csharpImplStrong;
+                    if (strongImpl != null)
+                        return strongImpl;
                     var weakRef = _csharpImplRef;
                     if (weakRef != null && weakRef.TryGetTarget(out var impl))
                         return impl;

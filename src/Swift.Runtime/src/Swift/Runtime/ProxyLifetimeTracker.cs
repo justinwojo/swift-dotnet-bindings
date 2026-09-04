@@ -23,12 +23,14 @@ namespace Swift.Runtime;
 /// <list type="number">
 ///   <item>
 ///     <description>
-///     <b>Strong impl root</b> (<see cref="s_implRoots"/>): a strong <see cref="GCHandle"/> on
-///     the user's C# implementation object. Allocated in <see cref="Track"/> (from the proxy
-///     ctor) and freed in <see cref="OnEveryProtocolDeinitCore"/> (Swift's last retain dropped).
-///     This roots the impl by <i>Swift liveness</i> — the impl stays reachable for exactly as
-///     long as Swift holds the EveryProtocol, so reverse dispatch can always resolve it via
-///     <see cref="ResolveImpl{T}"/> and never has to fabricate a value.
+///     <b>Impl root</b> (<see cref="s_implRoots"/>): a <see cref="GCHandle"/> on the user's C#
+///     implementation object. Allocated from the proxy ctor and freed in
+///     <see cref="OnEveryProtocolDeinitCore"/> (Swift's last retain dropped), so reverse dispatch
+///     can resolve the impl via <see cref="ResolveImpl{T}"/> and never has to fabricate a value.
+///     <see cref="Track"/> allocates it <i>strong</i>, rooting the impl by Swift liveness — the
+///     right shape when the Swift sink retains the conformer box. <see cref="TrackConsumerOwned"/>
+///     allocates it as a long weak handle instead, for a <c>weak</c>/<c>unowned</c> sink where the
+///     consumer's impl owns the carrier and a strong root here would be a permanent pin.
 ///     </description>
 ///   </item>
 ///   <item>
@@ -64,8 +66,12 @@ namespace Swift.Runtime;
 /// </summary>
 public static class ProxyLifetimeTracker
 {
-    // handle -> strong GCHandle on the user's C# impl. Roots the impl for exactly as long as
-    // Swift holds the EveryProtocol. Freed in OnEveryProtocolDeinitCore (Swift's last retain).
+    // handle -> GCHandle on the user's C# impl, freed in OnEveryProtocolDeinitCore (Swift's last
+    // retain). Its KIND encodes who owns whom: a Normal handle for a retaining Swift sink (the
+    // impl lives for exactly as long as Swift holds the EveryProtocol — see Track), a long weak
+    // handle for a non-retaining sink where the consumer's impl owns the carrier instead (see
+    // TrackConsumerOwned). Either kind resolves through Target, and either is freed by deinit, so
+    // every other member here is kind-agnostic.
     private static readonly ConcurrentDictionary<IntPtr, GCHandle> s_implRoots = new();
 
     // handle -> per-handle R0 state. The atomic Released flag serializes the proxy's Dispose
@@ -84,6 +90,37 @@ public static class ProxyLifetimeTracker
     /// is rolled back, so the handle index is all-or-nothing. A duplicate handle is rejected.
     /// </remarks>
     public static void Track(object impl, IntPtr handle)
+        => TrackCore(impl, handle, GCHandleType.Normal);
+
+    /// <summary>
+    /// Consumer-owned variant of <see cref="Track"/>, for a Swift sink that does NOT retain the
+    /// conformer box — a <c>weak</c>/<c>unowned</c> stored property. Same bookkeeping as
+    /// <see cref="Track"/> (an <see cref="s_implRoots"/> entry plus the <see cref="s_entries"/> R0
+    /// record, freed by the same deinit callback), but the impl root is a
+    /// <see cref="GCHandleType.WeakTrackResurrection"/> handle rather than a strong one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A non-retaining sink inverts who owns whom. The consumer's implementation object owns the
+    /// carrier (the proxy is held strongly by an impl-keyed memo and holds the impl strongly back,
+    /// which the memo's ephemeron semantics make collectable as one unit), so a <i>strong</i> root
+    /// here would be a process-lifetime pin: the strong root keeps the impl alive, the impl keeps
+    /// the carrier alive, the carrier's R0 keeps the Swift box alive, and only the box's deinit
+    /// frees the root.
+    /// </para>
+    /// <para>
+    /// The handle must nonetheless be a <b>long</b> weak handle. When the consumer drops the impl,
+    /// the impl and its proxy die together, and the proxy's finalizer is what releases R0. A Swift
+    /// callback arriving in that window — after the pair became unreachable, before the finalizer
+    /// ran — still has to resolve the impl, and the impl is finalization-reachable through the
+    /// queued proxy for exactly that window. A short (<see cref="GCHandleType.Weak"/>) handle is
+    /// already cleared by then and the receiver would hit its null-impl backstop.
+    /// </para>
+    /// </remarks>
+    public static void TrackConsumerOwned(object impl, IntPtr handle)
+        => TrackCore(impl, handle, GCHandleType.WeakTrackResurrection);
+
+    private static void TrackCore(object impl, IntPtr handle, GCHandleType rootKind)
     {
         if (impl is null)
             throw new ArgumentNullException(nameof(impl));
@@ -94,7 +131,7 @@ public static class ProxyLifetimeTracker
         if (!s_entries.TryAdd(handle, entry))
             throw new InvalidOperationException($"Handle {handle.ToString($"X{IntPtr.Size * 2}")} is already tracked");
 
-        var implRoot = GCHandle.Alloc(impl, GCHandleType.Normal);
+        var implRoot = GCHandle.Alloc(impl, rootKind);
         if (!s_implRoots.TryAdd(handle, implRoot))
         {
             // Roll back the entry write so a subsequent Track/NotifyDeinit sees no leftover state.
@@ -199,9 +236,10 @@ public static class ProxyLifetimeTracker
     }
 
     /// <summary>
-    /// Diagnostic: the number of EveryProtocol impl roots currently held — strong
-    /// <see cref="GCHandle"/>s rooting Swift-owned C# conformers. Read by
-    /// <see cref="SwiftLeakCensus"/> to surface cross-heap conformer leaks.
+    /// Diagnostic: the number of EveryProtocol impl roots currently held — one entry per live
+    /// conformer box, regardless of whether its root is strong (retaining sink) or long-weak
+    /// (consumer-owned sink). Read by <see cref="SwiftLeakCensus"/> to surface cross-heap
+    /// conformer leaks.
     /// </summary>
     internal static int ImplRootCount => s_implRoots.Count;
 

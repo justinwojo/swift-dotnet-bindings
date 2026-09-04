@@ -937,6 +937,27 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value, context.GetEmissionContext());
         }
         XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
+        // Swift `weak`/`unowned` storage does not retain what it holds, so assigning a C#
+        // implementation of the protocol here transfers no ownership: the Swift side clears (weak)
+        // or dangles (unowned) as soon as the managed object it wraps becomes unreachable. Say so
+        // on the public surface — the consumer's own reference is the only thing that decides how
+        // long callbacks keep arriving.
+        if ((isExistential || isOptionalExistential) &&
+            propertyDecl.ReferenceOwnership != SwiftReferenceOwnership.Strong &&
+            accessorsToEmit.OfType<SetAccessorDecl>().Any())
+        {
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine($"/// Non-retaining ({propertyDecl.ReferenceOwnership.ToString().ToLowerInvariant()}) Swift storage: assigning here does not keep the assigned");
+            csWriter.WriteLine("/// object alive. Hold your own reference to the implementation for as long as you want");
+            csWriter.WriteLine("/// callbacks to arrive; once nothing in your code references it, the Swift side stops");
+            csWriter.WriteLine("/// seeing it.");
+            csWriter.WriteLine("/// <para>");
+            csWriter.WriteLine("/// A value handed to an initializer rather than assigned here does not get that treatment:");
+            csWriter.WriteLine("/// an initializer parameter carries no indication of the storage it ends up in. Assign it");
+            csWriter.WriteLine("/// through this property once after construction to put it on the same footing.");
+            csWriter.WriteLine("/// </para>");
+            csWriter.WriteLine("/// </remarks>");
+        }
         // Surface Swift @MainActor isolation on the public property: a <remarks> line plus the
         // [SwiftMainActor] marker, using the same oracle the wrapper method/constructor paths consult.
         // The type-level [SwiftMainActor] already carries the signal for a @MainActor type; this also
@@ -1322,9 +1343,24 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Also thread the keep-alive proxy (change 4) so the finally pins it past the native
                 // call — an auto-wrapped proxy is otherwise unrooted while Swift reads the container,
                 // and a GC could finalize it and release R0 mid-call.
+                // Swift storage that does not retain (weak/unowned) takes no reference on the
+                // conformer box behind the existential, so nothing on the Swift side keeps an
+                // auto-wrapped carrier alive once the setter returns — the next collection
+                // finalizes it, releases the construction +1, deinitializes the box, and the
+                // property reads back nil while the consumer still holds their implementation.
+                // Route those setters through the consumer-owned lane, where the carrier's memo is
+                // keyed on the implementation and the proxy holds the implementation strongly, so
+                // the carrier lives for exactly as long as the implementation does. Nothing on this
+                // path roots the implementation from the Swift side, which is what makes dropping
+                // it nil the Swift slot the way the Swift declaration promises. Only the auto-wrap
+                // arm needs it: without a wrap fallback (and on the EC2+/well-known path below) the
+                // value already IS the carrier, which the consumer holds directly.
+                var consumerOwnsCarrier = NonRetainingSinkLane.ConsumerOwnsCarrier(propertyDecl);
+                var factoryMethod = NonRetainingSinkLane.FactoryMethodName(consumerOwnsCarrier, proxyClassName != null);
+                var proxyOwnershipArg = NonRetainingSinkLane.ProxyOwnershipArgument(consumerOwnsCarrier);
                 var createExpr = useFactory
                     ? (proxyClassName != null
-                        ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, static __p => new {proxyClassName}(__p), out __owns, out __keepAlive)"
+                        ? $"global::Swift.Runtime.ExistentialContainerFactory.{factoryMethod}<{publicType}>(__v, static __p => new {proxyClassName}(__p{proxyOwnershipArg}), out __owns, out __keepAlive)"
                         : $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, out __owns, out __keepAlive)")
                     : $"((global::Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)__v).GetExistentialContainer()";
                 var ownsArg = useFactory ? "__owns" : "false";
@@ -1335,7 +1371,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 var keepAliveStmt = useFactory
                     ? "\n                                global::System.GC.KeepAlive(__keepAlive);"
                     : "\n                                global::System.GC.KeepAlive(value);";
-
                 csWriter.WriteLines($$"""
                     set {
                         unsafe {

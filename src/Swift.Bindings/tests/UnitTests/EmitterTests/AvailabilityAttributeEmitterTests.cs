@@ -932,4 +932,144 @@ public class AvailabilityAttributeEmitterTests
         var belowFloor = positive!.Substring(2, positive.Length - 3);
         Assert.Contains($"if ({belowFloor})", guardOutput);
     }
+    private static List<AvailabilityAnnotation> Intro(string platform, string version)
+        => new() { new(platform, version, null, null, false, false, null, null) };
+
+    [Theory]
+    // A requirement introduced after its enclosing type declares a floor the type does not guard.
+    [InlineData("iOS", "17.0", "iOS", "16.0", true)]
+    // Same floor as the parent: the type's own guard already covers it.
+    [InlineData("iOS", "16.0", "iOS", "16.0", false)]
+    // Older than the parent: the parent's floor still dominates.
+    [InlineData("iOS", "15.0", "iOS", "16.0", false)]
+    // A platform the parent says nothing about is a floor the parent cannot be guarding.
+    [InlineData("macOS", "14.0", "iOS", "16.0", true)]
+    public void DeclaresStricterFloorThanParent_ComparesMemberFloorAgainstParent(
+        string memberPlatform, string memberVersion,
+        string parentPlatform, string parentVersion,
+        bool expected)
+    {
+        var parent = CreateDecl(Intro(parentPlatform, parentVersion));
+        Assert.Equal(
+            expected,
+            AvailabilityAttributeEmitter.DeclaresStricterFloorThanParent(
+                Intro(memberPlatform, memberVersion), parent));
+    }
+
+    [Fact]
+    public void DeclaresStricterFloorThanParent_MemberWithoutAnnotations_IsNotStricter()
+    {
+        var parent = CreateDecl(Intro("iOS", "16.0"));
+        Assert.False(AvailabilityAttributeEmitter.DeclaresStricterFloorThanParent(
+            (IReadOnlyList<AvailabilityAnnotation>)null, parent));
+    }
+
+    [Fact]
+    public void DeclaresStricterFloorThanParent_UnannotatedParent_MemberFloorIsStricter()
+    {
+        Assert.True(AvailabilityAttributeEmitter.DeclaresStricterFloorThanParent(
+            Intro("iOS", "17.0"), CreateDecl(null)));
+    }
+
+    [Fact]
+    public void DeclaresStricterFloorThanParent_DeclOverload_AgreesWithAnnotationOverload()
+    {
+        var parent = CreateDecl(Intro("iOS", "16.0"));
+        var member = CreateDecl(Intro("iOS", "17.0"));
+        Assert.Equal(
+            AvailabilityAttributeEmitter.DeclaresStricterFloorThanParent(
+                member.AvailabilityAnnotations, parent),
+            AvailabilityAttributeEmitter.DeclaresStricterFloorThanParent(member, parent));
+    }
+
+    [Fact]
+    public void BuildStricterFloorGuardStatement_StricterMember_ThrowsBelowMergedFloor()
+    {
+        var guard = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+            Intro("iOS", "17.0"), CreateDecl(Intro("iOS", "16.0")), "IProto.Newer");
+
+        Assert.NotNull(guard);
+        Assert.StartsWith("if (", guard);
+        Assert.Contains("throw new global::System.PlatformNotSupportedException(", guard);
+        // The thrown floor is the member's, not the enclosing type's.
+        Assert.Contains("17", guard);
+        Assert.DoesNotContain("16.0", guard);
+        Assert.Contains("IProto.Newer", guard);
+    }
+
+    [Theory]
+    // Not stricter than the enclosing type -> no redundant guard.
+    [InlineData("16.0", false)]
+    [InlineData("15.0", false)]
+    [InlineData("17.0", true)]
+    public void BuildStricterFloorGuardStatement_EmitsOnlyForStricterMembers(
+        string memberVersion, bool expectGuard)
+    {
+        var guard = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+            Intro("iOS", memberVersion), CreateDecl(Intro("iOS", "16.0")), "IProto.Member");
+        Assert.Equal(expectGuard, guard != null);
+    }
+
+    [Fact]
+    public void BuildStricterFloorGuardStatement_MergesParentPlatformsIntoTheThrownFloor()
+    {
+        // The member raises only iOS; the parent's macOS floor still governs on macOS, so the
+        // guard has to test both or a macOS 12 caller walks straight into the native symbol.
+        var guard = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+            Intro("iOS", "17.0"),
+            CreateDecl(new List<AvailabilityAnnotation>
+            {
+                new("iOS", "16.0", null, null, false, false, null, null),
+                new("macOS", "13.0", null, null, false, false, null, null)
+            }),
+            "IProto.Newer");
+
+        Assert.NotNull(guard);
+        Assert.Contains("17", guard);
+        Assert.Contains("13", guard);
+    }
+
+    [Fact]
+    public void BuildStricterFloorGuardPrefix_NoGuard_IsEmptySoTheBodyIsUnchanged()
+    {
+        Assert.Equal(
+            string.Empty,
+            AvailabilityAttributeEmitter.BuildStricterFloorGuardPrefix(
+                Intro("iOS", "16.0"), CreateDecl(Intro("iOS", "16.0")), "IProto.Member", "    "));
+    }
+
+    [Fact]
+    public void BuildStricterFloorGuardPrefix_Guard_EndsWithTheContinuationIndent()
+    {
+        var prefix = AvailabilityAttributeEmitter.BuildStricterFloorGuardPrefix(
+            Intro("iOS", "17.0"), CreateDecl(Intro("iOS", "16.0")), "IProto.Member", "    ");
+
+        var statement = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+            Intro("iOS", "17.0"), CreateDecl(Intro("iOS", "16.0")), "IProto.Member");
+
+        Assert.Equal(statement + "\n    ", prefix);
+    }
+
+    [Theory]
+    // Setter introduced after the property -> the set accessor needs its own floor.
+    [InlineData("16.0", "17.0", true)]
+    // Setter list equal to the property's -> nothing extra to say on the accessor.
+    [InlineData("16.0", "16.0", false)]
+    // A setter list that is LOOSER than the property never widens the property's floor.
+    [InlineData("17.0", "16.0", false)]
+    public void SetterFloorIsStricterThanProperty_ComparesSetterFloorAgainstProperty(
+        string propertyVersion, string setterVersion, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            AvailabilityAttributeEmitter.SetterFloorIsStricterThanProperty(
+                Intro("iOS", propertyVersion), Intro("iOS", setterVersion)));
+    }
+
+    [Fact]
+    public void SetterFloorIsStricterThanProperty_NoSetterAnnotations_IsNotStricter()
+    {
+        Assert.False(AvailabilityAttributeEmitter.SetterFloorIsStricterThanProperty(
+            Intro("iOS", "16.0"), null));
+    }
 }

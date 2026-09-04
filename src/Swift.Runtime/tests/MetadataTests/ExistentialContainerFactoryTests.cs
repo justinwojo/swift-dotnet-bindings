@@ -229,6 +229,180 @@ public class ExistentialContainerFactoryTests
 
     #endregion
 
+    #region GetOrCreateConsumerOwned Tests
+
+    [Fact]
+    public void GetOrCreateConsumerOwned_AutoWrap_ReusesOneCarrierWhileImplLives()
+    {
+        // The consumer-owned lane still has to be a memo: assigning the same implementation to the
+        // same non-retaining slot twice must not mint a second Swift box.
+        var impl = new PlainProtocolMock();
+        var wrapCount = 0;
+
+        var first = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => { wrapCount++; return new ConsumerOwnedProxyMock(v, (IntPtr)0x11); },
+            out var ownsFirst, out var keepAliveFirst);
+        var second = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => { wrapCount++; return new ConsumerOwnedProxyMock(v, (IntPtr)0x22); },
+            out var ownsSecond, out var keepAliveSecond);
+
+        Assert.Equal(1, wrapCount);
+        Assert.Same(keepAliveFirst, keepAliveSecond);
+        Assert.Equal(first.Payload0, second.Payload0);
+        // An auto-wrapped proxy is borrowed: it owns the +1 itself, so the setter must not destroy
+        // the container it hands back.
+        Assert.False(ownsFirst);
+        Assert.False(ownsSecond);
+        GC.KeepAlive(impl);
+    }
+
+    [Fact]
+    public void GetOrCreateConsumerOwned_KeepsItsOwnMemo_SoOneImplCanCarryBothLanes()
+    {
+        // One implementation assigned to BOTH a retaining and a non-retaining Swift slot needs two
+        // carriers: they have opposite ownership, so a shared memo would force one lane's rooting
+        // onto the other. Distinct carriers is the intended, observable consequence.
+        var impl = new PlainProtocolMock();
+
+        var swiftRooted = ExistentialContainerFactory.GetOrCreate<IProtocolMock>(
+            impl, v => new ConsumerOwnedProxyMock(v, (IntPtr)0xA1),
+            out _, out var swiftRootedKeepAlive);
+        var consumerOwned = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => new ConsumerOwnedProxyMock(v, (IntPtr)0xB2),
+            out _, out var consumerOwnedKeepAlive);
+
+        Assert.NotSame(swiftRootedKeepAlive, consumerOwnedKeepAlive);
+        Assert.Equal((IntPtr)0xA1, swiftRooted.Payload0);
+        Assert.Equal((IntPtr)0xB2, consumerOwned.Payload0);
+
+        // Asking each lane again still returns that lane's own carrier — neither memo evicted the
+        // other's entry for this implementation.
+        ExistentialContainerFactory.GetOrCreate<IProtocolMock>(
+            impl, v => new ConsumerOwnedProxyMock(v, (IntPtr)0xDEAD), out _, out var swiftRootedAgain);
+        ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => new ConsumerOwnedProxyMock(v, (IntPtr)0xDEAD), out _, out var consumerOwnedAgain);
+        Assert.Same(swiftRootedKeepAlive, swiftRootedAgain);
+        Assert.Same(consumerOwnedKeepAlive, consumerOwnedAgain);
+        GC.KeepAlive(impl);
+    }
+
+    [Fact]
+    public void GetOrCreateConsumerOwned_MemoIsNotARootForTheImplOrItsCarrier()
+    {
+        // The lane holds its carrier STRONGLY from the memo value, and the carrier holds the
+        // implementation strongly back. That pair is only safe because the memo is keyed weakly on
+        // the same implementation: an entry whose key is reachable only from its own value is not
+        // reachable, so the implementation and its carrier are collected together once the consumer
+        // lets go. If this went red the lane would be a process-lifetime leak per implementation.
+        var (implRef, proxyRef) = ConsumerOwnedWrapWithoutKeepingRefs();
+
+        for (int i = 0; i < 8; i++)
+        {
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+
+        Assert.False(implRef.IsAlive, "consumer-owned memo must not root the implementation");
+        Assert.False(proxyRef.IsAlive, "the carrier must fall away with the implementation it wraps");
+    }
+
+    // No-inline so neither the implementation nor its carrier is kept alive by the caller's frame:
+    // after this returns the only references are the ones inside the memo.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static (WeakReference Impl, WeakReference Proxy) ConsumerOwnedWrapWithoutKeepingRefs()
+    {
+        var impl = new PlainProtocolMock();
+        ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => new ConsumerOwnedProxyMock(v, (IntPtr)0x99), out _, out var keepAlive);
+        Assert.NotNull(keepAlive);
+        return (new WeakReference(impl), new WeakReference(keepAlive!));
+    }
+
+    [Fact]
+    public void GetOrCreateConsumerOwned_WithExistingProxy_MatchesGetOrCreate()
+    {
+        // A value that already IS a carrier is one the consumer holds directly, so there is nothing
+        // to re-lane: the consumer-owned entry point must behave exactly like the default one for
+        // the convertible, boxable and round-trip branches.
+        var proxyContainer = new ExistentialContainer1 { Payload0 = (IntPtr)0xC1 };
+        var proxy = new ExistentialConvertibleMock(proxyContainer);
+        var fromProxy = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            proxy, static _ => throw new InvalidOperationException("wrap fallback must not run"),
+            out var proxyOwns, out var proxyKeepAlive);
+        Assert.Equal((IntPtr)0xC1, fromProxy.Payload0);
+        Assert.False(proxyOwns);
+        Assert.Same(proxy, proxyKeepAlive);
+
+        var boxableContainer = new ExistentialContainer1 { Payload0 = (IntPtr)0xC2 };
+        var boxable = new ExistentialBoxableMock(boxableContainer);
+        var fromBoxable = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            boxable, static _ => throw new InvalidOperationException("wrap fallback must not run"),
+            out var boxableOwns, out var boxableKeepAlive);
+        Assert.Equal((IntPtr)0xC2, fromBoxable.Payload0);
+        Assert.True(boxableOwns, "the boxable branch transfers a fresh +1 the caller must destroy");
+        Assert.Null(boxableKeepAlive);
+
+        var marshalled = new ExistentialContainer1 { Payload0 = (IntPtr)0xC3 };
+        object boxed = marshalled;
+        var roundTripped = ExistentialContainerFactory.GetOrCreateConsumerOwned<object>(
+            boxed, static _ => throw new InvalidOperationException("wrap fallback must not run"),
+            out var roundTripOwns, out var roundTripKeepAlive);
+        Assert.Equal((IntPtr)0xC3, roundTripped.Payload0);
+        Assert.False(roundTripOwns);
+        Assert.Same(boxed, roundTripKeepAlive);
+    }
+
+    [Fact]
+    public void GetOrCreateConsumerOwned_ShortOverload_SharesTheMemoAndVendsAUsablePayload()
+    {
+        // The arm that hands Swift a bare object pointer reads Payload0 off the container and has
+        // no owns-bit or keep-alive local to thread, so it calls the short overload. That overload
+        // must be the same lane, not a second one: the same implementation has to resolve to the
+        // same carrier whichever overload asks, and the payload it vends has to be the carrier's
+        // conformer box rather than a default-initialized container.
+        var impl = new PlainProtocolMock();
+        var wrapCount = 0;
+
+        var viaShort = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => { wrapCount++; return new ConsumerOwnedProxyMock(v, (IntPtr)0x5150); });
+        var viaLong = ExistentialContainerFactory.GetOrCreateConsumerOwned<IProtocolMock>(
+            impl, v => { wrapCount++; return new ConsumerOwnedProxyMock(v, (IntPtr)0xBEEF); },
+            out var owns, out var keepAlive);
+
+        Assert.Equal(1, wrapCount);
+        Assert.Equal((IntPtr)0x5150, viaShort.Payload0);
+        Assert.Equal(viaShort.Payload0, viaLong.Payload0);
+        // Dropping the out-parameters is only sound because the auto-wrap branch never transfers a
+        // +1 the caller would have to destroy, and because the memo holds the carrier for as long
+        // as the implementation the caller is passing lives.
+        Assert.False(owns);
+        Assert.NotNull(keepAlive);
+        GC.KeepAlive(impl);
+    }
+
+    /// <summary>
+    /// Stands in for a generated proxy constructed in consumer-owned mode: it holds the
+    /// implementation strongly, the way <c>_csharpImplStrong</c> does, so the memo's ephemeron
+    /// behaviour is exercised against the real reference shape.
+    /// </summary>
+    private sealed class ConsumerOwnedProxyMock : IProtocolMock, ISwiftExistentialConvertible<ExistentialContainer1>
+    {
+        private readonly object _implStrong;
+        private readonly ExistentialContainer1 _container;
+
+        public ConsumerOwnedProxyMock(object impl, IntPtr payload)
+        {
+            _implStrong = impl;
+            _container = new ExistentialContainer1 { Payload0 = payload };
+        }
+
+        public ExistentialContainer1 GetExistentialContainer() => _container;
+
+        public object Impl => _implStrong;
+    }
+
+    #endregion
+
     #region GetOrCreate Mock Types
 
     /// <summary>

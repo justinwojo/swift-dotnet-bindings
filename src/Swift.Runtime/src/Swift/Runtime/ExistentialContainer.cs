@@ -1344,6 +1344,148 @@ public static class ExistentialContainerFactory
     }
 
     /// <summary>
+    /// Memo for CONSUMER-OWNED auto-wrapped proxies — the carriers minted for a Swift sink that
+    /// does not retain (a <c>weak</c>/<c>unowned</c> stored property). Keyed weakly by the user's
+    /// implementation instance, with a per-protocol inner map exactly like
+    /// <see cref="s_autoWrapCache"/>, but the inner value holds the proxy <b>strongly</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A non-retaining sink takes no reference on the conformer box, so nothing on the Swift side
+    /// keeps the carrier alive once the setter returns. This memo supplies the missing root and
+    /// ties it to the object the consumer actually controls: the carrier lives for exactly as long
+    /// as the implementation does. Dropping the implementation makes the (impl, proxy) pair one
+    /// unreachable cycle, the proxy's finalizer releases the construction <c>+1</c>, the box
+    /// deinitializes, and the Swift weak slot zeroes — which is the Swift contract for that
+    /// storage, rather than something the binding overrides.
+    /// </para>
+    /// <para>
+    /// Holding the proxy strongly is safe here only because
+    /// <see cref="ConditionalWeakTable{TKey,TValue}"/> entries are ephemerons: the proxy's own
+    /// strong back-edge to the implementation (its consumer-owned construction mode) does NOT keep
+    /// the key alive, so the pair stays collectable. That back-edge is required — it is what keeps
+    /// the impl resolvable while the proxy sits on the finalization queue.
+    /// </para>
+    /// <para>
+    /// This memo is deliberately SEPARATE from <see cref="s_autoWrapCache"/>. The same
+    /// implementation assigned to a non-retaining slot and to a retaining slot legitimately gets
+    /// two carriers (two Swift boxes) because the two lanes root them oppositely; sharing one memo
+    /// would hand a Swift-liveness-rooted carrier to a weak slot, or vice versa.
+    /// </para>
+    /// </remarks>
+    private static readonly ConditionalWeakTable<object, ConcurrentDictionary<Type, ISwiftExistentialConvertible<ExistentialContainer1>>>
+        s_consumerOwnedWrapCache = new();
+
+    /// <summary>
+    /// Consumer-owned counterpart of
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}})"/>,
+    /// for the direct-dispatch call-argument arm, which builds its container inline and has nowhere
+    /// to thread an owns-bit or a keep-alive local.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Dropping the keep-alive is sound on THIS lane specifically, and only here: the memo holds the
+    /// carrier strongly keyed on <paramref name="value"/>, and <paramref name="value"/> is a live
+    /// argument at the call site, so the carrier stays reachable through the memo for the whole
+    /// call. (The auto-wrap branch is also the only one that could need it — the other branches
+    /// return a carrier the caller already holds.) Dropping the owns-bit matches the sibling
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}})"/>:
+    /// this arm passes the container by value into a <c>@guaranteed</c> parameter and runs no
+    /// value-witness destroy afterwards.
+    /// </para>
+    /// <para>
+    /// The other auto-wrap arms are NOT on this overload and must not be moved onto it: the
+    /// decomposed-Optional accessor body, the wrapper-library existential argument and the bare
+    /// <c>@objc</c> object-pointer buffer each write a copy of the container (or one payload word
+    /// read out of it) somewhere Swift can see and then hold no managed reference to the carrier for
+    /// the rest of the call, so they declare a keep-alive local, call the four-argument overload and
+    /// <c>GC.KeepAlive</c> past the native call. Those arms also emit their own statements rather
+    /// than a single call-argument expression, so they have somewhere to put the locals this one has
+    /// not.
+    /// </para>
+    /// </remarks>
+    public static ExistentialContainer1 GetOrCreateConsumerOwned<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        where TProtocol : class
+        => GetOrCreateConsumerOwned(value, wrapFallback, out _, out _);
+
+    /// <summary>
+    /// Consumer-owned counterpart of
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool, out object)"/>,
+    /// emitted for a property setter whose Swift storage does NOT retain (<c>weak</c>/<c>unowned</c>).
+    /// The auto-wrapped carrier's lifetime follows the caller's implementation object rather than
+    /// Swift's liveness — see <see cref="s_consumerOwnedWrapCache"/> for the root structure.
+    /// </summary>
+    /// <remarks>
+    /// The non-auto-wrap branches are IDENTICAL to
+    /// <see cref="GetOrCreate{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool, out object)"/>
+    /// and deliberately so: a value that is already a proxy (or an already-marshalled container) is
+    /// a carrier the CONSUMER holds directly, which is the same ownership this lane establishes for
+    /// a plain implementation — the consumer's reference is the root, and dropping it releases the
+    /// box. A boxable value conformer owns its own fresh <c>+1</c> and has no proxy at all.
+    /// <paramref name="wrapFallback"/> must construct the proxy in its consumer-owned mode so the
+    /// proxy holds the implementation strongly.
+    /// </remarks>
+    public static ExistentialContainer1 GetOrCreateConsumerOwned<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
+        out bool ownsContainer,
+        out object? keepAlive)
+        where TProtocol : class
+    {
+        if (value is ExistentialContainer1 roundTripContainer)
+        {
+            ownsContainer = false;
+            keepAlive = value;
+            return roundTripContainer;
+        }
+
+        if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
+        {
+            ownsContainer = false;
+            keepAlive = convertible;
+            return convertible.GetExistentialContainer();
+        }
+
+        if (value is IExistentialBoxable boxable)
+        {
+            ownsContainer = true;
+            keepAlive = null;
+            return boxable.BoxAsExistential1<TProtocol>();
+        }
+
+        ownsContainer = false;
+
+        if (wrapFallback == null)
+            throw new ArgumentNullException(nameof(wrapFallback));
+
+        var perImplMap = s_consumerOwnedWrapCache.GetValue(
+            value,
+            static _ => new ConcurrentDictionary<Type, ISwiftExistentialConvertible<ExistentialContainer1>>());
+
+        if (perImplMap.TryGetValue(typeof(TProtocol), out var cached))
+        {
+            keepAlive = cached;
+            return cached.GetExistentialContainer();
+        }
+
+        // Miss — build the carrier. Detach it from any active dispose scope for the same reason
+        // the retaining lane does: scope disposal would mark a still-memoized proxy disposed and
+        // trip ObjectDisposedException on the next assignment of the same implementation.
+        var proxy = wrapFallback(value);
+        if (proxy is IDisposable disposable)
+            SwiftDisposeScope.Detach(disposable);
+
+        // Concurrent misses for the same (impl, protocol) pair both build a carrier; GetOrAdd
+        // publishes exactly one and the loser is dropped here rather than left as a memo orphan —
+        // it is unreachable immediately, so its finalizer releases its own construction +1.
+        var published = perImplMap.GetOrAdd(typeof(TProtocol), proxy);
+        keepAlive = published;
+        return published.GetExistentialContainer();
+    }
+
+    /// <summary>
     /// Builds a class-bound <see cref="ClassExistentialContainer1"/> array-element carrier whose
     /// word0 (the class reference) holds exactly ONE owned +1, ready for
     /// <c>SwiftArray&lt;ClassExistentialContainer1&gt;</c> to adopt and release once through the

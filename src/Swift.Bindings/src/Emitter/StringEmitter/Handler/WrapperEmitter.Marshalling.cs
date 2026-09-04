@@ -207,37 +207,76 @@ namespace BindingsGeneration
 
         /// <summary>
         /// True when <paramref name="argumentDecl"/> is the value a Swift setter takes ownership of.
-        ///
-        /// <para>Setters are the one accessor shape whose argument is <c>@owned</c>: SILGen lowers
-        /// <c>foo.setter</c> as <c>(@owned Value, @guaranteed self) -&gt; ()</c>, and a subscript
-        /// setter as <c>(@owned Value, @guaranteed Index..., @guaranteed self)</c>. So the new value
-        /// — always the first parameter — is handed over, while the index arguments beside it are
-        /// borrowed like any ordinary argument. The distinction is per-argument, not per-member:
-        /// treating a whole setter as consuming would skip the Destroy on its indices and leak them,
-        /// and treating none of it as consuming double-releases the value. This is also why the test
-        /// is written against the parameter position rather than the member: there is no
-        /// ownership annotation to read here, because <c>@owned</c> is implied by the accessor's
-        /// lowering and never appears in the ABI JSON that populates
-        /// <see cref="ArgumentDecl.Ownership"/>.</para>
+        /// See <see cref="SetterValueOwnership.IsSetterValue"/> for the <c>@owned</c> lowering this
+        /// reads off the parameter position.
         /// </summary>
         private bool IsConsumedSetterValue(ArgumentDecl argumentDecl)
-            => MarshallingHelpers.MethodIsSetter(_env.MethodDecl)
-               && ReferenceEquals(_env.MethodDecl.CSSignature.ElementAtOrDefault(1), argumentDecl);
+            => SetterValueOwnership.IsSetterValue(_env.MethodDecl, argumentDecl);
 
         /// <summary>
-        /// True when the callee this argument is being marshalled for is Swift's own setter, so the
-        /// <c>@owned</c> lowering described on <see cref="IsConsumedSetterValue"/> actually applies.
+        /// True when this argument must be handed to the callee at +1, so the arm marshalling it
+        /// emits the transfer and disarms its own destroy.
         ///
         /// <para>Ownership is a property of the callee, not of the C# type, which is why every arm
-        /// that hands a setter value across asks this one question. Where a Swift-side carrier sits
-        /// in between — a <c>@_cdecl</c> wrapper, a native thunk, an async bridge — the P/Invoke
-        /// targets that generated wrapper rather than the real accessor symbol, and the wrapper takes
-        /// its parameter borrowed; transferring there would drop the only release and leak. Only on
-        /// direct dispatch does the extern name the accessor itself.</para>
+        /// that hands a setter value across asks this one question — and asks it of an ownership
+        /// oracle rather than of the Optional-width oracle beside it. A Swift-source wrapper
+        /// borrows its parameter, so transferring there would drop the only release and leak; the
+        /// native assembly thunk introduces no frame at all, so the accessor's <c>@owned</c>
+        /// convention reaches this caller unchanged and the value must be handed over exactly as on
+        /// a direct accessor call.</para>
         /// </summary>
         private bool ConsumesSetterValueDirectly(ArgumentDecl argumentDecl)
-            => IsConsumedSetterValue(argumentDecl)
-               && !DirectOptionalAbi.UsesSwiftSideCarrier(_env.MethodDecl);
+            => SetterValueOwnership.IsHandedOverToCallee(_env.MethodDecl, argumentDecl);
+
+        /// <summary>
+        /// Hands a class-typed setter value to the callee at +1.
+        ///
+        /// <para>A plain class argument needs no marshalling: the P/Invoke slot is the object's own
+        /// payload handle, so the call site renders it as <c>{name}.Payload</c> and no arm above ever
+        /// runs for it. That is exactly why its ownership went unmodelled — the shapes that DO get
+        /// marshalled each spell the transfer in their own idiom (a transferring carrier accessor, a
+        /// <c>MarkConsumed</c> on the payload), and a value passed straight through had nowhere to
+        /// say it. Against a callee that consumes its argument, passing the object untouched is an
+        /// under-retain: the strong store takes zero net counts and the object is over-released when
+        /// the slot is next written or the owner is deinitialized.</para>
+        ///
+        /// <para>Only the class arm is transferred here. The same <c>SafeHandle</c> slot also carries
+        /// a non-frozen struct, whose +1 lives in the payload buffer rather than in a refcount, so it
+        /// hands over by marking the payload consumed — the arm above it — and a retain there would
+        /// be meaningless. Every other setter value is either trivially copyable, with no count to
+        /// transfer, or already routed through an arm that models its ownership.</para>
+        /// </summary>
+        private void EmitConsumedClassSetterValueHandOver(CSharpWriter csWriter)
+        {
+            if (_env.MethodDecl.CSSignature.Count <= 1)
+                return;
+
+            var argumentDecl = _env.MethodDecl.CSSignature[1];
+            if (!ConsumesSetterValueDirectly(argumentDecl))
+                return;
+
+            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+
+            // Only the pass-through arm — a parameter the P/Invoke names as a bare SafeHandle whose
+            // call expression is the object's payload. Anything the marshalling above rewrote into a
+            // buffer variable already carried its own transfer.
+            if (!_pInvokeSignature.Parameters.Any(p => p.Name == csName
+                                                       && p.Type is MarshalledType.NonFrozenSafeHandleType))
+                return;
+
+            if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec)
+                return;
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
+            if (!_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record)
+                || record.Kind != TypeRecordKind.Class)
+                return;
+
+            // Pinned across the retain and the call that follows it, so the handle cannot be
+            // finalized between reading the pointer and Swift's entry.
+            csWriter.WriteLine($"using SafeHandlePin {csName}OwnedPin = new SafeHandlePin({csName}.Payload);");
+            csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}OwnedPin.Handle);");
+        }
 
         /// <summary>
         /// Emits bound generic argument marshalling.
@@ -685,8 +724,16 @@ namespace BindingsGeneration
                     // thread out the keep-alive proxy (change 4): the finally / async holder pins it
                     // across the native call so an auto-wrapped proxy cannot be finalized — releasing
                     // R0 — while Swift is still reading the borrowed container.
+                    // A setter writing weak/unowned storage takes no reference on the conformer box,
+                    // so an auto-wrapped carrier has to be rooted by the caller's implementation
+                    // instead of by Swift's liveness — otherwise the next collection finalizes the
+                    // proxy, releases the box's only +1, and the slot goes nil/dangling while the
+                    // consumer still holds their implementation.
+                    var consumerOwnsCarrier = NonRetainingSinkLane.ConsumerOwnsCarrier(_env.MethodDecl, arg);
+                    var factoryMethod = NonRetainingSinkLane.FactoryMethodName(consumerOwnsCarrier, proxyClassName != null);
+                    var proxyOwnershipArg = NonRetainingSinkLane.ProxyOwnershipArgument(consumerOwnsCarrier);
                     var createExpr = proxyClassName != null
-                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, static __v => new {proxyClassName}(__v), out {csName}Owns, out {csName}KeepAlive)"
+                        ? $"Swift.Runtime.ExistentialContainerFactory.{factoryMethod}<{publicType}>({csName}, static __v => new {proxyClassName}(__v{proxyOwnershipArg}), out {csName}Owns, out {csName}KeepAlive)"
                         : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, out {csName}Owns, out {csName}KeepAlive)";
                     csWriter.WriteLine($"var {csName}Container = {createExpr};");
                 }
@@ -818,7 +865,9 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 MarshalPlanRenderer.RenderStatements(csWriter,
-                    objcAutoWrapInner.GetObjCAutoWrapBufferStatements($"{csName}Val", bufferName, $"{csName}KeepAlive"));
+                    objcAutoWrapInner.GetObjCAutoWrapBufferStatements(
+                        $"{csName}Val", bufferName, $"{csName}KeepAlive",
+                        NonRetainingSinkLane.ConsumerOwnsCarrier(_env.MethodDecl, argumentDecl)));
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine("else");

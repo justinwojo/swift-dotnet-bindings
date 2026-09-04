@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Reflection;
+using BindingsGeneration.Demangling;
 using Microsoft.Extensions.Logging.Abstractions;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -165,6 +168,14 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("NativeMethods.", implCtor);
         // The forward-read path (the container ctor) is still emitted for read-only proxies.
         Assert.Contains("public EntityGestureRecognizerProxy(ExistentialContainer1 container", output);
+
+        // The ownership-taking overload exists so marshalling for a non-retaining Swift sink
+        // compiles against every proxy, and it must fail the same way — a read-only protocol is
+        // unsupported in the reverse direction regardless of who would own the carrier.
+        var ownershipCtor = ExtractMethodBody(output,
+            "public EntityGestureRecognizerProxy(IEntityGestureRecognizer implementation, global::Swift.Runtime.ProxyImplOwnership ownership)");
+        Assert.Contains("throw new global::System.NotSupportedException", ownershipCtor);
+        Assert.DoesNotContain("NativeMethods.", ownershipCtor);
     }
 
     [Fact]
@@ -175,10 +186,15 @@ public class ProtocolProxyEmitterTests
         // read-only marking, not on the protocol shape.
         var output = EmitProxyClass(CreateSimpleProtocol("EntityGestureRecognizer"));
 
+        // Synthesis lives on the ownership-taking constructor; the single-argument one delegates
+        // to it with the Swift-rooted default.
         var implCtor = ExtractMethodBody(output,
-            "public unsafe EntityGestureRecognizerProxy(IEntityGestureRecognizer implementation)");
+            "public unsafe EntityGestureRecognizerProxy(IEntityGestureRecognizer implementation, global::Swift.Runtime.ProxyImplOwnership ownership)");
         Assert.Contains("NativeMethods.", implCtor);
         Assert.DoesNotContain("throw new global::System.NotSupportedException", implCtor);
+        Assert.Contains(
+            ": this(implementation, global::Swift.Runtime.ProxyImplOwnership.SwiftRooted)",
+            output);
     }
 
     [Fact]
@@ -207,6 +223,220 @@ public class ProtocolProxyEmitterTests
             "Both SupportedOSPlatform attribute and proxy class declaration must exist.");
         Assert.True(platformIdx < classIdx,
             "SupportedOSPlatform should be emitted before the proxy class declaration.");
+    }
+
+    private static List<AvailabilityAnnotation> Introduced(string platform, string version)
+        => new() { new(platform, version, null, null, false, false, null, null) };
+
+    /// <summary>
+    /// A protocol at iOS 16 carrying, deliberately, three different member floors: a requirement
+    /// introduced later than the protocol, one that adds nothing, and a property whose SETTER is
+    /// introduced later than the property. Each arm exists so the member-level walks can be
+    /// asserted against a sibling that must NOT move.
+    /// </summary>
+    private ProtocolDecl CreateStaggeredProtocol()
+    {
+        var protocolDecl = CreateProtocolWithProperty(
+            "StaggeredProtocol", "value", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.AvailabilityAnnotations = Introduced("iOS", "16.0");
+
+        var property = protocolDecl.Properties[0];
+        property.AvailabilityAnnotations = Introduced("iOS", "16.0");
+        property.SetterAvailabilityAnnotations = Introduced("iOS", "17.0");
+
+        var newer = CreateMethodDecl("newerDidChange");
+        newer.AvailabilityAnnotations = Introduced("iOS", "17.0");
+        protocolDecl.Methods.Add(newer);
+        protocolDecl.Methods.Add(CreateMethodDecl("olderDidChange"));
+
+        return protocolDecl;
+    }
+
+    /// <summary>
+    /// The attribute/pragma lines that immediately precede a declaration in the emitted output —
+    /// the run of contiguous `[...]`, `#pragma` and comment lines above it, stopping at the first
+    /// line of code. Lets a test ask "what is attached to THIS member" without pinning the exact
+    /// text of the surrounding emission.
+    /// </summary>
+    private static string AttributesOn(string output, string declaration)
+    {
+        var idx = output.IndexOf(declaration, StringComparison.Ordinal);
+        Assert.True(idx >= 0, $"expected '{declaration}' in the emitted output");
+        var lines = output.Substring(0, idx).Split('\n');
+        var collected = new List<string>();
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            var line = lines[i].Trim();
+            if (line.Length == 0)
+            {
+                if (collected.Count == 0) continue;
+                break;
+            }
+            if (line.StartsWith("[", StringComparison.Ordinal) ||
+                line.StartsWith("#pragma", StringComparison.Ordinal) ||
+                line.StartsWith("//", StringComparison.Ordinal))
+            {
+                collected.Add(line);
+                continue;
+            }
+            break;
+        }
+        return string.Join("\n", collected);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MemberIntroducedAfterProtocol_CarriesTheStricterFloorOnMemberAndPInvoke()
+    {
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(CreateStaggeredProtocol());
+
+        // The proxy member advertises the member's own floor, not just the protocol's…
+        Assert.Contains("ios17.0", AttributesOn(output, "public void NewerDidChange()"));
+        // …and so does the P/Invoke, which is what the @_cdecl forwarder is exported at.
+        Assert.Contains(
+            "ios17.0",
+            AttributesOn(output, "public static partial void SBW_StaggeredProtocol_method_newerDidChange_0("));
+
+        // The sibling that adds nothing beyond the protocol must not move.
+        Assert.DoesNotContain("SupportedOSPlatform", AttributesOn(output, "public void OlderDidChange()"));
+        Assert.DoesNotContain(
+            "SupportedOSPlatform",
+            AttributesOn(output, "public static partial void SBW_StaggeredProtocol_method_olderDidChange_1("));
+    }
+
+    [Fact]
+    public void EmitProxyClass_MemberIntroducedAfterProtocol_SuppressesCa1416OnItsReceiverOnly()
+    {
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(CreateStaggeredProtocol());
+
+        // The Swift-invoked trampoline is filled at the protocol's floor and can only be reached
+        // through witness dispatch of the later requirement, so its impl call is analyzer-gated
+        // rather than reachable — the suppression belongs on that receiver…
+        Assert.Contains(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static void Receive_newerDidChange_0("));
+        // …and nowhere else.
+        Assert.DoesNotContain(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static void Receive_olderDidChange_1("));
+    }
+
+    [Fact]
+    public void EmitProxyClass_MemberIntroducedAfterProtocol_GuardsAtRuntimeBeforeDispatch()
+    {
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(CreateStaggeredProtocol());
+
+        // CA1416 is a compile-time diagnostic a consumer can suppress; below the floor the
+        // Swift-backed path would otherwise reach a member-gated native forwarder, so the
+        // member throws a managed exception instead.
+        var newerBody = ExtractMethodBody(output, "public void NewerDidChange()");
+        Assert.Contains("global::System.PlatformNotSupportedException", newerBody);
+        Assert.Contains("17", newerBody);
+
+        // A member no stricter than the type the proxy already guards gets no redundant guard.
+        var olderBody = ExtractMethodBody(output, "public void OlderDidChange()");
+        Assert.DoesNotContain("PlatformNotSupportedException", olderBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetterIntroducedAfterProperty_GatesOnlyTheSetAccessor()
+    {
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(CreateStaggeredProtocol());
+
+        var propertyIdx = output.IndexOf("public int Value", StringComparison.Ordinal);
+        Assert.True(propertyIdx >= 0, "expected the projected property on the proxy");
+        var property = output.Substring(propertyIdx);
+
+        var getterBody = ExtractMethodBody(property, "get");
+        var setterIdx = property.IndexOf("set", StringComparison.Ordinal);
+        var setterBody = ExtractMethodBody(property.Substring(setterIdx), "set");
+
+        // The getter keeps the property's floor: no accessor attribute, no guard.
+        Assert.DoesNotContain("ios17.0", getterBody);
+        Assert.DoesNotContain("PlatformNotSupportedException", getterBody);
+        Assert.DoesNotContain("ios17.0", AttributesOn(property, "get"));
+
+        // The setter carries the setter's floor on the accessor AND guards on it.
+        Assert.Contains("ios17.0", AttributesOn(property, "set"));
+        Assert.Contains("global::System.PlatformNotSupportedException", setterBody);
+        Assert.Contains("17", setterBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetterIntroducedAfterProperty_GatesTheSetterPInvokeNotTheGetter()
+    {
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(CreateStaggeredProtocol());
+
+        // The Swift setter forwarder is exported at the setter's floor, so the C# P/Invoke that
+        // names it has to advertise the same floor — otherwise the attribute a consumer sees
+        // disagrees with the symbol's availability.
+        Assert.Contains(
+            "ios17.0",
+            AttributesOn(output, "public static partial void SBW_StaggeredProtocol_set_value_0("));
+        Assert.DoesNotContain(
+            "ios17.0",
+            AttributesOn(output, "public static partial IntPtr SBW_StaggeredProtocol_get_value_0("));
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetterIntroducedAfterProperty_SuppressesCa1416OnTheSetReceiverOnly()
+    {
+        RegisterSwiftInt32();
+        var output = EmitProxyClass(CreateStaggeredProtocol());
+
+        // The set trampoline calls the interface's `set` accessor, which carries the setter's
+        // later floor — so the trampoline, filled at the protocol's floor, needs the suppression…
+        Assert.Contains(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static void Receive_value_set("));
+        // …while the getter, still at the property's floor, must not be bracketed.
+        Assert.DoesNotContain(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static IntPtr Receive_value_get("));
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertyIntroducedAfterProtocol_SuppressesCa1416OnBothReceivers()
+    {
+        RegisterSwiftInt32();
+        // The property itself raises the floor, so BOTH accessors of the interface member carry
+        // it — the per-accessor decision must not narrow the suppression to the setter.
+        var protocolDecl = CreateProtocolWithProperty(
+            "StaggeredProtocol", "value", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.AvailabilityAnnotations = Introduced("iOS", "16.0");
+        protocolDecl.Properties[0].AvailabilityAnnotations = Introduced("iOS", "17.0");
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static IntPtr Receive_value_get("));
+        Assert.Contains(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static void Receive_value_set("));
+    }
+
+    [Fact]
+    public void EmitProxyClass_PropertyAtProtocolFloor_SuppressesCa1416OnNeitherReceiver()
+    {
+        RegisterSwiftInt32();
+        var protocolDecl = CreateProtocolWithProperty(
+            "StaggeredProtocol", "value", hasGetter: true, hasSetter: true, new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.AvailabilityAnnotations = Introduced("iOS", "16.0");
+        protocolDecl.Properties[0].AvailabilityAnnotations = Introduced("iOS", "16.0");
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.DoesNotContain(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static IntPtr Receive_value_get("));
+        Assert.DoesNotContain(
+            "#pragma warning disable CA1416",
+            AttributesOn(output, "private static void Receive_value_set("));
     }
 
     #endregion
@@ -250,10 +480,36 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // _csharpImpl is now a weak-reference-backed property (to break the
-        // impl-anchor lifetime cycle). The field is _csharpImplRef.
+        // _csharpImpl is a property over two backing fields, one per ownership lane. When Swift
+        // roots the implementation the proxy must reference it only weakly (_csharpImplRef), or
+        // the impl-anchor cycle is closed and neither side is ever collected. When the consumer
+        // owns the carrier the proxy holds the implementation strongly (_csharpImplStrong) so a
+        // callback arriving while the proxy sits on the finalizer queue can still resolve it.
         Assert.Contains("private readonly WeakReference<ITestProtocol>? _csharpImplRef;", output);
+        Assert.Contains("private readonly ITestProtocol? _csharpImplStrong;", output);
         Assert.Contains("private ITestProtocol? _csharpImpl", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ImplConstructor_DefaultsToSwiftRootedOwnership()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // The one-argument constructor stays the public shape every existing call site uses and
+        // must keep meaning "Swift roots the implementation" — the lane that applies to a strong
+        // stored property, a borrowed parameter, or a collection element.
+        Assert.Contains("public unsafe TestProtocolProxy(ITestProtocol implementation)", output);
+        Assert.Contains(": this(implementation, global::Swift.Runtime.ProxyImplOwnership.SwiftRooted)", output);
+        // The ownership-taking overload is what a non-retaining sink's marshalling reaches for.
+        Assert.Contains(
+            "public unsafe TestProtocolProxy(ITestProtocol implementation, global::Swift.Runtime.ProxyImplOwnership ownership)",
+            output);
+        // Ownership picks BOTH the proxy's reference to the implementation and the root kind the
+        // tracker allocates; splitting those two decisions is what the lanes exist to prevent.
+        Assert.Contains("_csharpImplStrong = __consumerOwned ? implementation : null;", output);
+        Assert.Contains("ProxyLifetimeTracker.TrackConsumerOwned(implementation, _everyProtocolHandle)", output);
+        Assert.Contains("ProxyLifetimeTracker.Track(implementation, _everyProtocolHandle)", output);
     }
 
     [Fact]
@@ -4608,8 +4864,9 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_MethodReceiver_OptionalExistential_UsesSwiftOptionalExistentialContainer()
     {
-        // Optional<any Protocol> in receiver param must use
-        // MarshalFromSwift<SwiftOptional<Swift.Runtime.ExistentialContainer1>> not SwiftOptional<AnyType>.
+        // Optional<any Protocol> in receiver param must read the slot as
+        // SwiftOptional<Swift.Runtime.ExistentialContainer1>, not SwiftOptional<AnyType>.
+        // An Optional carrier is a managed wrapper, so the slot is copied out rather than read bitwise.
         var protocol = CreateSimpleProtocol("OptionalExistProto");
         var method = CreateMethodDecl("check");
         var optionalExistential = new NamedTypeSpec("Swift.Optional");
@@ -4627,7 +4884,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_check_0", output);
-        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.Contains("MarshalCopiedValueFromSlot<SwiftOptional<Swift.Runtime.ExistentialContainer1>>", output);
         Assert.DoesNotContain("SwiftOptional<Swift.AnyType>", output);
         Assert.DoesNotContain("SwiftOptional<AnyType>", output);
     }
@@ -4809,6 +5066,7 @@ public class ProtocolProxyEmitterTests
         // Optional<any Protocol> property setter ABI type should be
         // SwiftOptional<Swift.Runtime.ExistentialContainer1>, not SwiftOptional<AnyType>.
         // Previously handled by OverrideOptionalExistentialAbiType; now handled by factory path.
+        // An Optional carrier is a managed wrapper, so the slot is copied out rather than read bitwise.
         var optionalExistential = new NamedTypeSpec("Swift.Optional");
         optionalExistential.GenericParameters.Add(
             new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Configurable") }));
@@ -4817,7 +5075,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_delegate_set", output);
-        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.Runtime.ExistentialContainer1>>", output);
+        Assert.Contains("MarshalCopiedValueFromSlot<SwiftOptional<Swift.Runtime.ExistentialContainer1>>", output);
         Assert.DoesNotContain("SwiftOptional<AnyType>", output);
     }
 
@@ -5087,8 +5345,9 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_MethodReceiver_NativeRemappedParam_UsesSwiftWrapperType()
     {
-        // NativeRemapped types must use the Swift wrapper type for MarshalFromSwift,
+        // NativeRemapped types must read the slot as the Swift wrapper type,
         // not SafeHandle (which was the wrong default before override).
+        // The wrapper is a managed class, so the borrowed slot is copied out rather than read bitwise.
         // This tests a generic non-frozen NativeRemapped type (URL is now ObjCBridgeable).
         RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
         var protocol = CreateSimpleProtocol("CustomHandler");
@@ -5105,8 +5364,8 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_open_0", output);
-        // Must use Swift wrapper type for MarshalFromSwift
-        Assert.Contains("MarshalFromSwift<Swift.CustomValue>", output);
+        // Must use Swift wrapper type as the slot-read type argument
+        Assert.Contains("MarshalCopiedValueFromSlot<Swift.CustomValue>", output);
         // Must apply conversion method
         Assert.Contains("ToNSCustom", output);
     }
@@ -5129,7 +5388,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_MethodReceiver_OptionalObjCBridgedParam_UsesDiscriminantAndGetNSObject()
     {
-        // Optional<ObjC> method param: MarshalFromSwift<SwiftOptional<IntPtr>> + discriminant check
+        // Optional<ObjC> method param: slot read as SwiftOptional<IntPtr> + discriminant check
         // + GetNSObject<T>(varName.Some) conversion. Uses the ObjCBridgedProjection branch in
         // GetReceiverOptionalSetterConversion, not the default nullable cast.
         RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
@@ -5149,8 +5408,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_didComplete_0", output);
-        // ABI type: SwiftOptional<IntPtr> (ObjC objects are pointers)
-        Assert.Contains("MarshalFromSwift<SwiftOptional<IntPtr>>", output);
+        // ABI type: SwiftOptional<IntPtr> (ObjC objects are pointers). The Optional carrier is a
+        // managed wrapper, so the borrowed slot is copied out rather than read bitwise.
+        Assert.Contains("MarshalCopiedValueFromSlot<SwiftOptional<IntPtr>>", output);
         // Conversion: discriminant check + GetNSObject wrapping
         Assert.Contains("GetNSObject<Foundation.NSUrlSession>", output);
         Assert.Contains("SwiftOptionalCases.None", output);
@@ -5159,7 +5419,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_PropertySetter_OptionalNativeRemapped_UsesSwiftWrapperType()
     {
-        // Optional<NativeRemapped> property setter: MarshalFromSwift<SwiftOptional<SwiftWrapper>> + ToNative conversion.
+        // Optional<NativeRemapped> property setter: slot read as SwiftOptional<SwiftWrapper> + ToNative conversion.
         // Uses the NativeRemappedProjection branch in GetReceiverOptionalSetterConversion.
         // This tests a generic non-frozen NativeRemapped type (URL is now ObjCBridgeable).
         RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
@@ -5170,8 +5430,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_redirect_set", output);
-        // ABI type: SwiftOptional<Swift.CustomValue> (wrapper implements ISwiftObject, valid for MarshalFromSwift)
-        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.CustomValue>>", output);
+        // ABI type: SwiftOptional<Swift.CustomValue> (wrapper implements ISwiftObject). Both the
+        // Optional carrier and the inner wrapper are managed, so the borrowed slot is copied out.
+        Assert.Contains("MarshalCopiedValueFromSlot<SwiftOptional<Swift.CustomValue>>", output);
         // Conversion: cast to wrapper type + ToNSCustom
         Assert.Contains("ToNSCustom", output);
     }
@@ -6053,6 +6314,112 @@ public class ProtocolProxyEmitterTests
         Assert.True(ebIdx >= 0 && ebIdx < stubIdx,
             "[EditorBrowsable(Never)] should precede the static method stub");
     }
+
+    #region Existential-Layout Tripwire Tests
+
+    // The proxy chooses its existential-container shape (2-word class-bound vs 5-word opaque) from
+    // parsed ABI facts. When those facts are wrong the witness table lands in a word Swift does not
+    // read, and Swift traps inside the framework on the first callback with no managed frame. The
+    // wrapper reports MemoryLayout<any P>.size, so the proxy compares once — lazily, when it first
+    // resolves the witness table — against the size its OWN layout choice implies.
+
+    [Fact]
+    public void EmitProxyClass_OpaqueProtocol_ChecksAgainstOpaqueExistentialSize()
+    {
+        var protocolDecl = CreateProtocolWithProperty("OpaqueProto", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.IsClassBound = false;
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("global::Swift.Runtime.ExistentialLayout.Verify(", output);
+        Assert.Contains("global::Swift.Runtime.ExistentialLayout.OpaqueSize", output);
+        Assert.DoesNotContain("global::Swift.Runtime.ExistentialLayout.ClassBoundSize", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClassBoundProtocol_ChecksAgainstClassBoundExistentialSize()
+    {
+        var protocolDecl = CreateProtocolWithProperty("ClassBoundProto", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.IsClassBound = true;
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("global::Swift.Runtime.ExistentialLayout.Verify(", output);
+        Assert.Contains("global::Swift.Runtime.ExistentialLayout.ClassBoundSize", output);
+        Assert.DoesNotContain("global::Swift.Runtime.ExistentialLayout.OpaqueSize", output);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitProxyClass_ExpectedSizeMatchesEmittedContainerLayout(bool isClassBound)
+    {
+        // The expected size and the container the proxy actually fills must come from the same
+        // decision. The class-bound arm writes the witness table into Payload1 (word 1 of 2); the
+        // opaque arm writes it into the container's last word and stamps ObjectMetadata. Whichever
+        // container is emitted, the size checked against must be the one that shape implies.
+        var protocolDecl = CreateProtocolWithProperty("LayoutProto", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.IsClassBound = isClassBound;
+
+        var output = EmitProxyClass(protocolDecl);
+
+        var wroteClassBoundContainer =
+            output.Contains("_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle", StringComparison.Ordinal);
+        var wroteOpaqueContainer =
+            output.Contains("_swiftContainer.ObjectMetadata = s_everyProtocolMetadata", StringComparison.Ordinal);
+        Assert.True(wroteClassBoundContainer ^ wroteOpaqueContainer,
+            "the proxy should build exactly one of the two existential container shapes");
+
+        var expected = wroteClassBoundContainer
+            ? "global::Swift.Runtime.ExistentialLayout.ClassBoundSize"
+            : "global::Swift.Runtime.ExistentialLayout.OpaqueSize";
+        Assert.Contains(expected, output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_LayoutCheckRunsLazilyFromWitnessTableHandle()
+    {
+        // Lazy, once, and only when the witness table is first resolved: a proxy that never touches
+        // its witness table (every unit test that constructs one without the native library loaded)
+        // must not call into Swift at all.
+        var protocolDecl = CreateProtocolWithProperty("LazyProto", "value", hasGetter: true, hasSetter: false);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        var handleIdx = output.IndexOf("public static IntPtr ProtocolWitnessTableHandle", StringComparison.Ordinal);
+        Assert.True(handleIdx >= 0, "proxy should expose ProtocolWitnessTableHandle");
+        var guardIdx = output.IndexOf("if (_protocolWitnessTable == IntPtr.Zero)", handleIdx, StringComparison.Ordinal);
+        var callIdx = output.IndexOf("VerifyExistentialLayout();", handleIdx, StringComparison.Ordinal);
+        var assignIdx = output.IndexOf("_protocolWitnessTable = GetWitnessTableFromSwift();", handleIdx, StringComparison.Ordinal);
+        Assert.True(guardIdx >= 0 && callIdx > guardIdx && assignIdx > callIdx,
+            "the layout check should run inside the null-handle guard, before the handle is cached");
+    }
+
+    [Fact]
+    public void EmitProxyClass_MissingSizeAccessor_FailsClosed()
+    {
+        // A wrapper too old to export the accessor cannot confirm the layout. Swallowing the
+        // EntryPointNotFoundException would silently restore the crash this check exists to prevent.
+        var protocolDecl = CreateProtocolWithProperty("FailClosedProto", "value", hasGetter: true, hasSetter: false);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("catch (global::System.EntryPointNotFoundException", output);
+        Assert.Contains("global::Swift.Runtime.ExistentialLayout.MissingSizeAccessor(\"FailClosedProto\"", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeclaresExistentialSizeEntryPointBesideWitnessGetter()
+    {
+        var protocolDecl = CreateProtocolWithProperty("EntryPointProto", "value", hasGetter: true, hasSetter: false);
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("Get_EveryProtocol_EntryPointProto_ExistentialSize", output);
+        Assert.Contains("GetExistentialSize", output);
+    }
+
+    #endregion
 
     private string EmitProxyClassWithStaticAbstract(
         ProtocolDecl protocolDecl,
@@ -7743,6 +8110,124 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("private struct LocalProtocolLocalVTable", output);
         // No xm_ scaffolding for a protocol with no cross-module ancestors.
         Assert.DoesNotContain("_xm_", output);
+    }
+
+    /// <summary>
+    /// A protocol declared <c>: AnyObject</c> marshals as a 2-word <c>[classRef][witnessTable]</c>
+    /// class existential, so its proxy must stamp the witness table into <c>Payload1</c> and must
+    /// balance an adopted +1 with an ARC release — never with an opaque value-witness destroy over
+    /// a container whose metadata word is never written.
+    ///
+    /// The signature here is the SUGARED spelling <c>swift-api-digester -dump-sdk</c> produces for
+    /// an Apple-direct binding; a module compiled from source spells the identical constraint
+    /// <c>&lt;τ_0_0 : AnyObject&gt;</c>. Grading the sugared dialect opaque puts the witness table
+    /// in the wrong word for every Apple delegate protocol, which faults inside the framework on
+    /// the first callback rather than at the boundary.
+    /// </summary>
+    [Theory]
+    [InlineData("<Self : AnyObject>")]
+    [InlineData("<τ_0_0 : AnyObject>")]
+    public void EmitProxyClass_ClassBoundProtocolInEitherDialect_UsesTwoWordExistentialLayout(string genericSig)
+    {
+        var output = EmitProxyClass(ParseProtocolWithGenericSig("DialectDelegate", genericSig));
+
+        // Witness table lands in the class existential's second word.
+        Assert.Contains("_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;", output);
+        // …and not in the opaque 5-word layout's metadata + slot-0 pair.
+        Assert.DoesNotContain("_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;", output);
+        Assert.DoesNotContain("_swiftContainer[0] = ProtocolWitnessTableHandle;", output);
+
+        // The adopted-container release is an ARC release of the class reference, not an opaque
+        // value-witness destroy (which would read a metadata word this layout never writes).
+        Assert.Contains("Arc.UnknownObjectReleaseFinalizerSafe", output);
+        Assert.DoesNotContain("DestroyWireBufferRetainsFinalizerSafe", output);
+    }
+
+    /// <summary>
+    /// Negative control for the pair above: a sugared signature carrying only marker conformances
+    /// is NOT class-bound, so the same emitter must still choose the opaque 5-word layout. Without
+    /// this, "always class-bound" would satisfy the positive test.
+    /// </summary>
+    [Theory]
+    [InlineData("<Self : Swift.Sendable>")]
+    [InlineData("<τ_0_0 : Swift.Sendable>")]
+    public void EmitProxyClass_MarkerOnlyProtocolInEitherDialect_UsesOpaqueExistentialLayout(string genericSig)
+    {
+        var output = EmitProxyClass(ParseProtocolWithGenericSig("DialectValueProto", genericSig));
+
+        Assert.Contains("_swiftContainer.ObjectMetadata = s_everyProtocolMetadata;", output);
+        Assert.Contains("_swiftContainer[0] = ProtocolWitnessTableHandle;", output);
+        Assert.DoesNotContain("_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;", output);
+        Assert.Contains("DestroyWireBufferRetainsFinalizerSafe", output);
+    }
+
+    /// <summary>
+    /// Runs the real ABI parser over a single protocol node so the emitted layout is judged on the
+    /// decl the parser actually produces from a raw <c>genericSig</c>, not on a hand-set
+    /// <see cref="ProtocolDecl.IsClassBound"/> flag — the grading step is the part under test.
+    /// </summary>
+    private static ProtocolDecl ParseProtocolWithGenericSig(string protocolName, string genericSig)
+    {
+        var node = new Node
+        {
+            Kind = "TypeDecl",
+            DeclKind = "Protocol",
+            Name = protocolName,
+            MangledName = $"$s10TestModule{protocolName.Length}{protocolName}P",
+            PrintedName = protocolName,
+            ModuleName = "TestModule",
+            DeclAttributes = [],
+            @static = false,
+            IsInternal = false,
+            GenericSig = genericSig,
+            sugared_genericSig = null,
+            throwing = false,
+            AccessorKind = null,
+            EnumRawTypeName = null,
+            paramValueOwnership = null,
+            hasDefaultArg = null,
+            Children = [],
+            Conformances = [],
+            Accessors = []
+        };
+
+        var root = new ABIRootNode
+        {
+            ABIRoot = new RootNode
+            {
+                Kind = "Root",
+                Name = "Root",
+                PrintedName = "Root",
+                Children = [node]
+            }
+        };
+
+        var filePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(filePath, JsonConvert.SerializeObject(root));
+
+            var demanglingCtor = typeof(DemanglingResults).GetConstructor(
+                BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                [typeof(IReduction[]), typeof(HashSet<string>)],
+                modifiers: null)!;
+            var demangling = (DemanglingResults)demanglingCtor.Invoke([Array.Empty<IReduction>(), null]);
+
+            var parser = new SwiftABIParser(
+                filePath,
+                new TypeDatabase(),
+                demangling,
+                NullLogger.Instance,
+                SwiftInterfaceFacts.Empty);
+
+            return Assert.Single(parser.ParseModule().ModuleDecl.Types.OfType<ProtocolDecl>());
+        }
+        finally
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+        }
     }
 
     private static ModuleDecl CreateCrossModuleDep(string moduleName) => new()

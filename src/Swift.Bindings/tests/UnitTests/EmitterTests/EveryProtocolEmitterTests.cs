@@ -1313,6 +1313,21 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitWitnessTableGetter_AlsoExportsExistentialSizeAccessor()
+    {
+        // The C# proxy checks the container shape it fills against the shape Swift reads, and can
+        // only do that if the wrapper reports MemoryLayout<any P>.size. Emitting the accessor from
+        // the same method as the witness getter keeps the exported set and the P/Invoke-declared
+        // set (which the proxy gates on the same fact) from drifting apart.
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitWitnessTableGetter(protocolDecl);
+
+        Assert.Contains("@_cdecl(\"Get_EveryProtocol_TestProtocol_ExistentialSize\")", output);
+        Assert.Contains("public func getEveryProtocolTestProtocolExistentialSize() -> Int", output);
+        Assert.Contains("MemoryLayout<any TestModule.TestProtocol>.size", output);
+    }
+
+    [Fact]
     public void EmitTypeMetadataGetter_GeneratesCdeclExport()
     {
         var stringWriter = new StringWriter();

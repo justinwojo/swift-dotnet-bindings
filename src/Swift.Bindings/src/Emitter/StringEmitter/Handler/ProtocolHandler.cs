@@ -1171,7 +1171,35 @@ namespace BindingsGeneration
                 // through the child's body via Swift cross-extension witness resolution;
                 // this just gates the C# interface declaration so it compiles.
                 var newModifier = ChildRefinesInheritedProperty(propertyDecl, protocolContext) ? "new " : "";
-                csWriter.WriteLine($"{newModifier}{csharpTypeName} {propertyName} {accessors}");
+                var setterAvailability = AvailabilityHelpers.SelectSetterAnnotations(propertyDecl);
+                // A setter introduced after its property is exported at the later floor, so the
+                // `set` accessor carries its own [SupportedOSPlatform] and the property attribute
+                // (already written above) keeps the getter's. Advertising the whole property at the
+                // older floor would leave a window where a consumer sees no CA1416 diagnostic and
+                // the setter's weak-linked symbol is null. Auto-accessor shorthand cannot carry an
+                // accessor attribute, so the declaration expands to an accessor block only here.
+                if (hasSetter
+                    && AvailabilityAttributeEmitter.SetterFloorIsStricterThanProperty(
+                        propertyDecl.AvailabilityAnnotations, setterAvailability))
+                {
+                    csWriter.WriteLine($"{newModifier}{csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    if (hasGetter)
+                        csWriter.WriteLine("get;");
+                    // No CA1416 pragma: an interface accessor has no body, so there is no
+                    // call for the analyzer to flag inside it.
+                    AvailabilityAttributeEmitter.EmitSetterAccessorAvailability(
+                        csWriter, propertyDecl.AvailabilityAnnotations, setterAvailability,
+                        emitCa1416Suppression: false);
+                    csWriter.WriteLine("set;");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                else
+                {
+                    csWriter.WriteLine($"{newModifier}{csharpTypeName} {propertyName} {accessors}");
+                }
             }
         }
 

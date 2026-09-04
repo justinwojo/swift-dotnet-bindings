@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift.Runtime;
 using SwiftBindingsTestLib;
@@ -88,64 +89,103 @@ public class AutoWrappedDelegateTests : TestBase
     }
 
     /// <summary>
-    /// Weak-store lifetime contract under GC (Design B2): a plain C# impl
-    /// auto-wrapped into a Swift <c>weak var delegate</c> slot is NOT kept alive
-    /// by the C# impl. Holding the impl reachable does not anchor the Swift-side
-    /// existential, so after GC the weak slot clears and <c>fire()</c> routes
-    /// through "no slot" (<c>LastNotifiedSlot == 0</c>).
+    /// Weak-store lifetime contract under GC: a plain C# implementation assigned into a Swift
+    /// <c>weak var delegate</c> slot stays reachable through collections for exactly as long as
+    /// the consumer holds the implementation, and no longer.
     ///
     /// <para>
-    /// This is the deliberate inverse of the old behaviour. Pre-B2 the auto-wrap
-    /// cache + <c>SwiftObjectRegistry.RegisterStrong</c> rooted the proxy forever,
-    /// so a dropped/GC'd impl still routed fire() correctly — at the cost of
-    /// leaking one proxy per <c>(impl, protocol)</c> pair for the process
-    /// lifetime. B2 roots the impl <em>from</em> Swift liveness (a strong
-    /// handle-keyed GCHandle in <c>ProxyLifetimeTracker</c>), never the proxy/
-    /// existential from impl liveness — a strong impl→proxy link would recreate
-    /// exactly the uncollectable cross-boundary cycle B2 exists to break. So the
-    /// auto-wrapped proxy is registered only weakly; once nothing strongly holds
-    /// it, GC collects it, its finalizer releases the construction <c>+1</c> (R0),
-    /// EveryProtocol deinits, and Swift zeroes the weak reference.
-    /// </para>
-    ///
-    /// <para>
-    /// Asserting <c>LastNotifiedSlot == 0</c> here is a meaningful regression
-    /// guard: if a strong impl→proxy link (or <c>RegisterStrong</c>) is ever
-    /// reintroduced, the proxy would survive GC, the weak slot would still
-    /// resolve, and this would flip back to slot 1 — flagging the return of the
-    /// leak. The complementary positive case — dispatch SURVIVES GC when Swift
-    /// strongly retains the existential — lives in
+    /// A <c>weak</c> slot takes no retain, so nothing on the Swift side can decide the carrier's
+    /// lifetime; the implementation object the consumer is holding is the only reference whose
+    /// lifetime matches what the declaration promises. Both halves are asserted here, because
+    /// each alone can pass under a broken model: a design that anchors the carrier to some
+    /// longer-lived peer passes the "still dispatching" half while leaking, and a design that
+    /// anchors it to nothing passes the "goes nil" half while breaking every Apple delegate.
+    /// The complementary positive case — dispatch surviving a dropped implementation because
+    /// Swift STRONGLY retains the existential — lives in
     /// <c>ProxyLifetimeTests.TestStrongSwiftRetainSurvivesImplGc</c>.
     /// </para>
     /// </summary>
-    public void TestWeakSwiftStoreIsNotALifetimeAnchor()
+    public void TestWeakSwiftStoreFollowsTheImplLifetime()
     {
         var monitor = new AutoWrappedMonitor();
-        var impl = new AutoWrappedDelegateImpl();
-        // Assign into the WEAK `delegate` slot only — no strong Swift retain. The
-        // auto-wrapped proxy is weakly cached + weakly registered and is rooted by
-        // nothing once the setter call returns.
-        monitor.Delegate = impl;
+        var implRef = AssignWeakAndDispatchWhileHoldingImpl(monitor);
 
-        // Collect from a worker thread so a stale conservative reference to the
-        // transient proxy in this frame cannot falsely keep it alive.
+        // The implementation is now unreferenced by any live frame; the monitor is not.
         ForceGCThorough();
 
-        // The proxy was collected, R0 released, EveryProtocol deinit'd, and Swift
-        // zeroed `weak var delegate`. fire() still runs (counter increments) but
-        // finds no delegate, so it records slot 0 and never reaches the impl.
-        monitor.Fire();
-        monitor.Fire();
+        AssertFalse(implRef.IsAlive,
+            "the implementation is collectable once the consumer drops it — a receiver the consumer still holds is not an anchor");
 
-        AssertEqual(2, monitor.LastFiredValue, "Both fires ran (counter=2) even with the weak slot cleared");
+        monitor.Fire();
+        AssertEqual(2, monitor.LastFiredValue, "fire() still ran (counter=2) with the weak slot cleared");
         AssertEqual(0, monitor.LastNotifiedSlot,
-            "Weak Swift store is not a lifetime anchor: the auto-wrapped proxy was collected, so fire() routed through no slot (0)");
-        AssertFalse(impl.WasCalled, "No dispatch reached the impl once the pure-weak proxy was collected");
+            "the weak slot read nil after the implementation was collected, so fire() routed through no slot (0)");
 
-        // Keep impl reachable across the GC above to prove the point precisely:
-        // a LIVE C# impl does NOT keep a pure-weak auto-wrapped Swift delegate
-        // alive — B2 roots impl from Swift, not Swift from impl.
+        GC.KeepAlive(monitor);
+    }
+
+    /// <summary>
+    /// Assigns a fresh implementation into the monitor's weak slot, proves dispatch works
+    /// across a collection while it is held, and returns only a weak handle — so on return
+    /// nothing in any live frame references the implementation.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private WeakReference AssignWeakAndDispatchWhileHoldingImpl(AutoWrappedMonitor monitor)
+    {
+        var impl = new AutoWrappedDelegateImpl();
+        // Assign into the WEAK `delegate` slot only — no strong Swift retain anywhere.
+        monitor.Delegate = impl;
+
+        // Collect from a worker thread so a stale conservative reference to the transient
+        // carrier in this frame cannot falsely keep it alive.
+        ForceGCThorough();
+
+        monitor.Fire();
+
+        AssertEqual(1, monitor.LastFiredValue, "fire() ran (counter=1)");
+        AssertEqual(1, monitor.LastNotifiedSlot,
+            "the weak slot still dispatches after a full collection while the consumer holds the implementation");
+        AssertTrue(impl.WasCalled, "dispatch reached the implementation the consumer is holding");
+
+        return new WeakReference(impl);
+    }
+
+    /// <summary>
+    /// The same implementation assigned to BOTH a <c>weak</c> and a strong slot of the same
+    /// protocol. The two sinks have opposite ownership, so each gets its own carrier — and
+    /// because the strong slot's carrier roots the implementation, the weak slot reads non-nil
+    /// too, matching what plain Swift does when a live object sits in both a weak and a strong
+    /// property. Neither slot may crash, and neither may steal the other's carrier.
+    /// </summary>
+    public void TestSameImplInWeakAndStrongSlotsGetsIndependentCarriers()
+    {
+        // Drain first so an earlier test's carrier still on the finalization queue is not counted
+        // in the baseline and then freed before the live reading.
+        ForceGCThorough();
+        var baseline = SwiftLeakCensus.Report().ProxyImplRoots;
+
+        var monitor = new AutoWrappedMonitor();
+        var impl = new AutoWrappedDelegateImpl();
+        monitor.Delegate = impl;
+        monitor.StrongDelegate = impl;
+
+        ForceGCThorough();
+
+        var withBothSlots = SwiftLeakCensus.Report().ProxyImplRoots;
+        AssertTrue(withBothSlots >= baseline + 2,
+            $"one carrier per sink, not a shared one (baseline={baseline}, both slots={withBothSlots})");
+
+        monitor.FireStrong();
+        AssertEqual(2, monitor.LastNotifiedSlot, "the strong slot dispatched");
+        AssertTrue(impl.WasCalled, "the strong slot reached the implementation");
+
+        monitor.Fire();
+        AssertEqual(1, monitor.LastNotifiedSlot,
+            "the weak slot still reads non-nil while the strong slot keeps the implementation alive");
+
+        TestLogger.Info($"[AutoWrapped] weak+strong carriers: baseline={baseline}, both={withBothSlots}");
         GC.KeepAlive(impl);
+        GC.KeepAlive(monitor);
     }
 
     /// <summary>

@@ -685,7 +685,15 @@ namespace BindingsGeneration
                                 }
                             }
                             AddParameter(
-                                new MarshalledType.Existential(containerType, publicType) { ProxyClassName = proxyClassName },
+                                new MarshalledType.Existential(containerType, publicType)
+                                {
+                                    ProxyClassName = proxyClassName,
+                                    // Non-retaining storage takes no reference on the conformer box,
+                                    // so an auto-wrapped carrier has to follow the caller's own
+                                    // implementation instead of Swift's liveness. Recorded here
+                                    // because the call-argument renderer sees only the parameter.
+                                    ConsumerOwnsCarrier = NonRetainingSinkLane.ConsumerOwnsCarrier(_env.MethodDecl, argument),
+                                },
                                 csName);
                         }
                     }

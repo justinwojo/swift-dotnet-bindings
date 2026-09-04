@@ -1526,6 +1526,84 @@ public class SwiftABIParserTests
         Assert.Equal("17.4", iOS.IntroducedVersion);
     }
 
+    /// <summary>
+    /// An ABI accessor node carries introduced versions and nothing else — there is no
+    /// per-accessor deprecation, obsoletion or message to read. So the accessor override must
+    /// be field-scoped: the introduced version moves to the accessor's, every other field on
+    /// that platform stays the property's. Replacing the whole record instead makes a setter
+    /// that silently loses the property's deprecation/obsoletion while the getter keeps it —
+    /// the consumer then sees no [ObsoletedOSPlatform] and no message on the one accessor.
+    /// </summary>
+    [Theory]
+    // Deprecation (and its message) survives an accessor that only tightens the intro.
+    [InlineData("18.0", null, "use the async form")]
+    // Obsoletion survives.
+    [InlineData(null, "19.0", null)]
+    // Both, plus a message.
+    [InlineData("18.0", "19.0", "gone in 19")]
+    public void MergeAccessorAvailability_AccessorOverridesIntroducedOnly_KeepsPropertyDeprecationFields(
+        string? deprecated, string? obsoleted, string? message)
+    {
+        var propertyAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", deprecated, obsoleted, false, false, message, "replacement"),
+        };
+        var setterAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(propertyAvail, setterAvail);
+
+        var iOS = Assert.Single(merged!, a => a.Platform == "iOS");
+        Assert.Equal("17.0", iOS.IntroducedVersion);
+        Assert.Equal(deprecated, iOS.DeprecatedVersion);
+        Assert.Equal(obsoleted, iOS.ObsoletedVersion);
+        Assert.Equal(message, iOS.Message);
+        Assert.Equal("replacement", iOS.Renamed);
+    }
+
+    [Fact]
+    public void MergeAccessorAvailability_PlatformOnlyThePropertyDeclares_KeepsEveryField()
+    {
+        // The accessor tightens iOS alone; the property's tvOS record — deprecation, message
+        // and all — must arrive untouched, not just its introduced version.
+        var propertyAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null),
+            new("tvOS", "16.0", "18.0", "19.0", false, false, "tv message", null),
+        };
+        var setterAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(propertyAvail, setterAvail);
+
+        var tvOS = Assert.Single(merged!, a => a.Platform == "tvOS");
+        Assert.Equal("16.0", tvOS.IntroducedVersion);
+        Assert.Equal("18.0", tvOS.DeprecatedVersion);
+        Assert.Equal("19.0", tvOS.ObsoletedVersion);
+        Assert.Equal("tv message", tvOS.Message);
+    }
+
+    [Fact]
+    public void MergeAccessorAvailability_PlatformOnlyTheAccessorDeclares_IsCarriedThrough()
+    {
+        // No property record to inherit from: the accessor's own entry is the whole answer.
+        var setterAvail = new List<AvailabilityAnnotation>
+        {
+            new("watchOS", "10.0", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(
+            new List<AvailabilityAnnotation> { new("iOS", "16.0", null, null, false, false, null, null) },
+            setterAvail);
+
+        var watchOS = Assert.Single(merged!, a => a.Platform == "watchOS");
+        Assert.Equal("10.0", watchOS.IntroducedVersion);
+    }
+
     #endregion
 
     #region Tuple Detection Tests

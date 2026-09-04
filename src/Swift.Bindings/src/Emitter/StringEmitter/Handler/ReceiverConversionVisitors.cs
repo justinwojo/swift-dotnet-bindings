@@ -155,35 +155,109 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// True when a receiver parameter's ABI carrier is a reference-backed collection wrapper
-    /// (SwiftArray/SwiftDictionary/SwiftSet) that must be materialized through NewFromPayload rather
-    /// than Unsafe.Read. The top-level projection KIND is the reliable discriminator.
+    /// How a reverse-dispatch receiver must read one borrowed Swift value slot. The Swift conformance
+    /// passes every receiver argument by address: it copies the value into its own local and
+    /// deinitializes that local once the receiver returns, so the read has to suit the ABI carrier the
+    /// parameter projects to and must leave the source slot untouched.
     /// </summary>
-    internal sealed class ReceiverParamNeedsObjectMarshalVisitor : IProjectionVisitor<bool>
+    internal enum ReceiverSlotReadKind
     {
-        public bool Visit(ArrayProjection p) => true;
-        public bool Visit(DictionaryProjection p) => true;
-        public bool Visit(SetProjection p) => true;
+        /// <summary>
+        /// The proxy-local <c>MarshalFromSwift&lt;T&gt;</c> (a plain <c>Unsafe.Read&lt;T&gt;</c>) is sound:
+        /// the carrier is a blittable value whose C# layout matches Swift's, so a byte-for-byte read
+        /// carries no managed reference and no ARC obligation.
+        /// </summary>
+        RawRead,
 
-        public bool Visit(StringProjection p) => false;
-        public bool Visit(BlittableProjection p) => false;
-        public bool Visit(BoolProjection p) => false;
-        public bool Visit(SimpleEnumProjection p) => false;
-        public bool Visit(ClassProjection p) => false;
-        public bool Visit(NonFrozenStructProjection p) => false;
-        public bool Visit(FrozenWithMemoryProjection p) => false;
-        public bool Visit(DataProjection p) => false;
-        public bool Visit(OptionalProjection p) => false;
-        public bool Visit(ExistentialProjection p) => false;
-        public bool Visit(ClosureProjection p) => false;
-        public bool Visit(AsyncProjection p) => false;
-        public bool Visit(ObjCBridgedProjection p) => false;
-        public bool Visit(ObjCBridgeableProjection p) => false;
-        public bool Visit(ObjCRootedClassProjection p) => false;
-        public bool Visit(NativeRemappedProjection p) => false;
-        public bool Visit(TupleProjection p) => false;
-        public bool Visit(DateProjection p) => false;
-        public bool Visit(ResultProjection p) => false;
-        public bool Visit(KeyPathProjection p) => false;
+        /// <summary>
+        /// <c>SwiftMarshal.MarshalFromSwiftObject&lt;T&gt;</c>: the carrier is a reference-backed
+        /// <c>ISwiftObject</c> container wrapper whose <c>NewFromPayload</c> takes its own owned copy of
+        /// the payload, leaving the borrowed slot intact.
+        /// </summary>
+        ObjectMarshal,
+
+        /// <summary>
+        /// <c>SwiftMarshal.MarshalCopiedValueFromSlot&lt;T&gt;</c>: either the carrier is a managed
+        /// wrapper class whose payload has to be value-witness-copied out of the borrowed slot before
+        /// the slot dies, or it is a C# enum whose Swift discriminator is narrower than the C# backing
+        /// type. A raw read of the first reinterprets Swift value bytes as a managed object reference;
+        /// a raw read of the second over-reads past the discriminator into the neighbouring value.
+        /// </summary>
+        CopiedValue,
+    }
+
+    /// <summary>
+    /// Decides, per projection kind, how a receiver parameter's borrowed ABI slot must be read. The
+    /// top-level projection KIND is the reliable discriminator, and the visitor is compile-time
+    /// exhaustive so a new <c>ITypeProjection</c> forces an explicit ownership decision here.
+    /// </summary>
+    internal sealed class ReceiverSlotReadKindVisitor : IProjectionVisitor<ReceiverSlotReadKind>
+    {
+        // Reference-backed ISwiftObject containers: NewFromPayload copies the storage reference out
+        // under its own retain, so the borrowed slot's own reference stays balanced.
+        public ReceiverSlotReadKind Visit(ArrayProjection p) => ReceiverSlotReadKind.ObjectMarshal;
+        public ReceiverSlotReadKind Visit(DictionaryProjection p) => ReceiverSlotReadKind.ObjectMarshal;
+        public ReceiverSlotReadKind Visit(SetProjection p) => ReceiverSlotReadKind.ObjectMarshal;
+        // SwiftString: the method-parameter and property-setter sites intercept strings upstream and
+        // emit this very read, so keeping the residual sites (subscript index/value) on the same call
+        // gives every receiver site one string read shape.
+        public ReceiverSlotReadKind Visit(StringProjection p) => ReceiverSlotReadKind.ObjectMarshal;
+
+        // Blittable values: the C# layout matches Swift's, with no managed reference and no ARC.
+        public ReceiverSlotReadKind Visit(BlittableProjection p) => ReceiverSlotReadKind.RawRead;
+        public ReceiverSlotReadKind Visit(BoolProjection p) => ReceiverSlotReadKind.RawRead;
+        // Swift Date crosses as a bare Double (seconds relative to the reference date).
+        public ReceiverSlotReadKind Visit(DateProjection p) => ReceiverSlotReadKind.RawRead;
+        // Existential containers are fixed-layout blittable structs (or a bare pointer for an ObjC
+        // existential) whose words the receiver takes as-is — the one carrier that must NOT be copied
+        // through its own type metadata.
+        public ReceiverSlotReadKind Visit(ExistentialProjection p) => ReceiverSlotReadKind.RawRead;
+        // Closure parameters are expanded into (function pointer, context) machine words and are
+        // intercepted upstream; any residual read is of a blittable closure-data struct.
+        public ReceiverSlotReadKind Visit(ClosureProjection p) => ReceiverSlotReadKind.RawRead;
+        // Async is a return-side shape; it never produces a receiver parameter slot.
+        public ReceiverSlotReadKind Visit(AsyncProjection p) => ReceiverSlotReadKind.RawRead;
+        // ObjC-bridged/bridgeable values cross as one ObjC pointer word and are bridged after the read.
+        public ReceiverSlotReadKind Visit(ObjCBridgedProjection p) => ReceiverSlotReadKind.RawRead;
+        public ReceiverSlotReadKind Visit(ObjCBridgeableProjection p) => ReceiverSlotReadKind.RawRead;
+
+        // A C# `enum : int` whose Swift discriminator occupies fewer bytes. The runtime read consults
+        // the enum's Swift metadata and reads exactly the Swift width instead of pulling four bytes out
+        // of a one-byte slot and taking three bytes of the neighbouring value with it.
+        public ReceiverSlotReadKind Visit(SimpleEnumProjection p) => ReceiverSlotReadKind.CopiedValue;
+
+        // Managed wrapper classes. Reading these bitwise reinterprets Swift's first payload word as a
+        // managed object reference. Plain classes are additionally intercepted upstream by the borrowed
+        // class copy-out; the arms here keep every remaining receiver site honest.
+        public ReceiverSlotReadKind Visit(ClassProjection p) => ReceiverSlotReadKind.CopiedValue;
+        public ReceiverSlotReadKind Visit(ObjCRootedClassProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // Non-frozen structs AND associated-value enums both project here, as adopting wrappers. The
+        // adopting handle is why the copy-out cannot construct straight over the slot: the wrapper
+        // would take ownership of, and later free, Swift's own storage.
+        public ReceiverSlotReadKind Visit(NonFrozenStructProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // Frozen structs carrying reference fields, projected as a copying wrapper class.
+        public ReceiverSlotReadKind Visit(FrozenWithMemoryProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // Foundation value wrappers project to their Swift-side wrapper type, which is a managed class
+        // whenever the underlying Swift value is non-frozen.
+        public ReceiverSlotReadKind Visit(DataProjection p) => ReceiverSlotReadKind.CopiedValue;
+        public ReceiverSlotReadKind Visit(NativeRemappedProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // The ABI carrier is always the SwiftOptional wrapper class, even where the inner value is
+        // nil-pointer-optimized, so the tagged carrier is never bitwise-readable. Optional-of-class and
+        // optional-of-ObjC-bridgeable-value are intercepted upstream by their own coupled reads.
+        public ReceiverSlotReadKind Visit(OptionalProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // SwiftResult is a copying ISwiftObject wrapper class.
+        public ReceiverSlotReadKind Visit(ResultProjection p) => ReceiverSlotReadKind.CopiedValue;
+        // A key path is a managed handle-derived class, so a bitwise read produces a bogus reference.
+        // The runtime copy-out has no key-path arm, which surfaces as a diagnosable throw rather than
+        // the silent corruption a raw read produces.
+        public ReceiverSlotReadKind Visit(KeyPathProjection p) => ReceiverSlotReadKind.CopiedValue;
+
+        // A tuple is only bitwise-readable when every element is. One wrapper-class element (a tuple
+        // carrying a String or a non-frozen struct) makes the whole read a managed reinterpretation, so
+        // defer to the runtime tuple walk, which copies each element out of the borrowed slot.
+        public ReceiverSlotReadKind Visit(TupleProjection p) =>
+            p.ElementProjections.All(e => e.Accept(new ReceiverSlotReadKindVisitor()) == ReceiverSlotReadKind.RawRead)
+                ? ReceiverSlotReadKind.RawRead
+                : ReceiverSlotReadKind.CopiedValue;
     }
 }

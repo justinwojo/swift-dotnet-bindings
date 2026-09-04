@@ -3320,6 +3320,175 @@ public class ProtocolHandlerOutputTests
         Assert.DoesNotContain("func_handleWith_0", csOutput);
     }
 
+    private static List<AvailabilityAnnotation> IntroducedOn(string platform, string version)
+        => new() { new(platform, version, null, null, false, false, null, null) };
+
+    /// <summary>
+    /// A protocol at iOS 16 with a get/set requirement whose SETTER is introduced at iOS 17 —
+    /// the shape Swift produces for a get-only requirement later made settable.
+    /// </summary>
+    private static ProtocolDecl CreateStaggeredSetterProtocol(ModuleDecl moduleDecl)
+    {
+        var property = new PropertyDecl
+        {
+            Name = "setting",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "setting_Get",
+                        MangledName = "$sGet",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        IsSynthesizedAccessor = false
+                    }
+                },
+                new SetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "setting_Set",
+                        MangledName = "$sSet",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            CreateArgument("newValue", new NamedTypeSpec("Swift.Int"), moduleDecl)
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        IsSynthesizedAccessor = false
+                    }
+                }
+            },
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            AvailabilityAnnotations = IntroducedOn("iOS", "16.0"),
+            SetterAvailabilityAnnotations = IntroducedOn("iOS", "17.0")
+        };
+
+        return new ProtocolDecl
+        {
+            Name = "StaggeredSetter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaggeredSetter"),
+            MangledName = "$s10TestModule15StaggeredSetterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl> { property },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            AvailabilityAnnotations = IntroducedOn("iOS", "16.0")
+        };
+    }
+
+    private static int IndexAfter(string source, string needle, int from)
+    {
+        var idx = source.IndexOf(needle, from, StringComparison.Ordinal);
+        Assert.True(idx >= 0, $"expected '{needle}' at or after offset {from} in the emitted output");
+        return idx;
+    }
+
+    private static int CountOccurrences(string source, string needle)
+    {
+        var count = 0;
+        for (var i = source.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = source.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+        return count;
+    }
+
+    [Fact]
+    public void Emit_SetterIntroducedAfterProperty_GatesTheInterfaceSetAccessorOnly()
+    {
+        var (csOutput, _) = EmitProtocol(
+            CreateStaggeredSetterProtocol(CreateModuleDecl("TestModule")), CreateTypeDatabase());
+
+        var interfaceIdx = IndexAfter(csOutput, "public interface IStaggeredSetter", 0);
+        var getIdx = IndexAfter(csOutput, "get;", interfaceIdx);
+        var setIdx = IndexAfter(csOutput, "set;", getIdx);
+
+        // The interface itself keeps the protocol's floor…
+        Assert.Contains("ios16.0", csOutput.Substring(0, interfaceIdx));
+        // …the property and its getter add nothing…
+        Assert.DoesNotContain("ios17.0", csOutput.Substring(interfaceIdx, getIdx - interfaceIdx));
+        // …and only the `set` accessor advertises the setter's later floor.
+        Assert.Contains("ios17.0", csOutput.Substring(getIdx, setIdx - getIdx));
+
+        // A bodiless interface accessor has no backing call to suppress, so no pragma leaks in.
+        Assert.DoesNotContain(
+            "#pragma warning disable CA1416", csOutput.Substring(interfaceIdx, setIdx - interfaceIdx));
+    }
+
+    [Fact]
+    public void Emit_SetterIntroducedAfterProperty_InterfaceProxyAndPInvokeAgreeOnTheSetterFloor()
+    {
+        var (csOutput, _) = EmitProtocol(
+            CreateStaggeredSetterProtocol(CreateModuleDecl("TestModule")), CreateTypeDatabase());
+
+        const string setterFloor = "SupportedOSPlatform(\"ios17.0\")";
+
+        // Walk 1 — the interface requirement's `set;` accessor.
+        var interfaceAttr = IndexAfter(csOutput, setterFloor, 0);
+        var interfaceSet = IndexAfter(csOutput, "set;", interfaceAttr);
+
+        // Walk 2 — the proxy's `set` accessor.
+        var proxyAttr = IndexAfter(csOutput, setterFloor, interfaceSet);
+        var proxySet = IndexAfter(csOutput, "_csharpImpl.Setting = value;", proxyAttr);
+
+        // Walk 3 — the P/Invoke naming the @_cdecl setter forwarder, which Swift exports at the
+        // setter's floor. If this walk kept the property's floor the attribute a consumer sees
+        // would disagree with the symbol's actual availability.
+        var pinvokeAttr = IndexAfter(csOutput, setterFloor, proxySet);
+        IndexAfter(csOutput, "EntryPoint = \"SBW_StaggeredSetter_set_setting_0\"", pinvokeAttr);
+
+        // Those three are the whole consumer-facing surface for the setter floor — in particular
+        // the getter walk still carries the property's floor.
+        Assert.Equal(3, CountOccurrences(csOutput, setterFloor));
+    }
+
+    [Fact]
+    public void Emit_SetterIntroducedAfterProperty_ProxySetterGuardsAtRuntime()
+    {
+        var (csOutput, _) = EmitProtocol(
+            CreateStaggeredSetterProtocol(CreateModuleDecl("TestModule")), CreateTypeDatabase());
+
+        // Below the setter's floor the Swift-backed path would reach a setter forwarder that is
+        // not exported yet, so the accessor throws rather than relying on CA1416 alone.
+        var setterIdx = IndexAfter(csOutput, "SupportedOSPlatform(\"ios17.0\")",
+            IndexAfter(csOutput, "public int Setting", 0));
+        var implAssign = IndexAfter(csOutput, "_csharpImpl.Setting = value;", setterIdx);
+        var setterHead = csOutput.Substring(setterIdx, implAssign - setterIdx);
+
+        Assert.Contains("global::System.PlatformNotSupportedException", setterHead);
+        Assert.Contains("17", setterHead);
+    }
+
     private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase)
     {
         return EmitProtocol(protocolDecl, typeDatabase, TypeHandlerContext.Empty);

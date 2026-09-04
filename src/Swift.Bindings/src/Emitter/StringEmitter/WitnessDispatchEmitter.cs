@@ -51,29 +51,51 @@ public class WitnessDispatchEmitter
     private readonly ModuleEmissionContext _emissionContext;
 
     /// <summary>
-    /// Availability heredoc prefix for the protocol currently being emitted. Computed once per
-    /// protocol at the top of <see cref="EmitWitnessDispatchFunctions"/> and consumed by every
-    /// accessor-emitting method so each top-level @_cdecl function gets @available
-    /// annotations matching the protocol's platform requirements. Empty string when the
-    /// protocol has no availability constraints.
+    /// Availability of a top-level <c>@_cdecl</c> accessor whose body dispatches
+    /// <paramref name="member"/> on an existential of <paramref name="protocolDecl"/>: the
+    /// protocol's own availability (plus any enclosing type's) merged with the member's.
     /// </summary>
-    private string _currentAvailabilityPrefix = string.Empty;
+    /// <remarks>
+    /// The member's half is load-bearing, not decoration. A requirement introduced after the
+    /// protocol that declares it is invisible inside a function whose availability context is
+    /// only the protocol's floor. If a protocol extension supplies a same-signature default —
+    /// how a shipped protocol gains a requirement without breaking conformers — Swift resolves
+    /// the call in that narrower context to the extension member instead: a static call to the
+    /// default, never a witness-table dispatch, with no error and no warning. The conformer's
+    /// implementation is simply never reached. Declaring the accessor at the merged floor keeps
+    /// the requirement visible so the call binds to the witness table.
+    /// </remarks>
+    private static IReadOnlyList<AvailabilityAnnotation>? MemberAvailability(BaseDecl member, ProtocolDecl protocolDecl)
+        => WrapperEmitterHelpers.MergeAvailability(member.AvailabilityAnnotations, protocolDecl);
 
     /// <summary>
-    /// Raw availability annotations for the protocol currently being emitted.
-    /// Used for non-heredoc emissions via direct writer.WriteLine calls.
+    /// <see cref="MemberAvailability"/> rendered as a heredoc prefix (one <c>@available</c> line
+    /// per platform, indented to the accessor heredocs' body indent).
     /// </summary>
-    private IReadOnlyList<AvailabilityAnnotation>? _currentAvailabilityAnnotations;
+    private static string MemberAvailabilityPrefix(BaseDecl member, ProtocolDecl protocolDecl)
+        => WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            MemberAvailability(member, protocolDecl), "            ");
+
+    /// <summary>
+    /// Availability for a property SETTER accessor. The preference order between the
+    /// setter-specific annotations and the property's own is
+    /// <see cref="AvailabilityHelpers.SelectSetterAnnotations"/> — shared with the C# side (setter
+    /// P/Invoke, proxy <c>set</c> accessor, interface <c>set</c> accessor) so the attribute a
+    /// consumer sees names the same floor this forwarder is exported at.
+    /// </summary>
+    internal static IReadOnlyList<AvailabilityAnnotation>? SetterAvailability(PropertyDecl property, ProtocolDecl protocolDecl)
+        => WrapperEmitterHelpers.MergeAvailability(
+            AvailabilityHelpers.SelectSetterAnnotations(property), protocolDecl);
 
     /// <summary>
     /// Emits <c>@available(...)</c> lines directly to <paramref name="writer"/> immediately
     /// before a non-heredoc top-level @_cdecl declaration. Used by accessor methods that
     /// emit their function header through individual writer.WriteLine calls rather than a
-    /// single heredoc. No-op when the current protocol has no availability constraints.
+    /// single heredoc. No-op when neither the member nor the protocol is constrained.
     /// </summary>
-    private void EmitAvailabilityAttributes(SwiftWriter writer)
+    private static void EmitAvailabilityAttributes(SwiftWriter writer, BaseDecl member, ProtocolDecl protocolDecl)
     {
-        WrapperEmitterHelpers.EmitSwiftAvailability(writer, _currentAvailabilityAnnotations);
+        WrapperEmitterHelpers.EmitSwiftAvailability(writer, MemberAvailability(member, protocolDecl));
     }
 
     /// <summary>
@@ -167,11 +189,6 @@ public class WitnessDispatchEmitter
         }
 
         var moduleQualifiedName = protocolDecl.SwiftTypeName!.ModuleQualifiedName;
-
-        _currentAvailabilityAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
-            protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
-        _currentAvailabilityPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
-            _currentAvailabilityAnnotations, "            ");
 
         // Track method indices for overload disambiguation (matching ProtocolProxyEmitter pattern)
         int methodIndex = 0;
@@ -1426,13 +1443,16 @@ public class WitnessDispatchEmitter
     /// Used by blittable and collection property getters (identical structure, different Swift type).
     /// <paramref name="swiftTypeName"/> must be a valid Swift type for both
     /// <c>UnsafeMutablePointer&lt;T&gt;</c> and <c>assumingMemoryBound(to: T.self)</c>.
+    /// <paramref name="availabilityPrefix"/> carries the caller's merged property+protocol
+    /// availability (see <see cref="MemberAvailability"/>); this helper has no decl in scope
+    /// to derive it from.
     /// </summary>
     private void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
-        string moduleQualifiedName, string propertyName, string swiftTypeName, bool needsMainActor = false,
-        bool needsMutableBinding = false)
+        string moduleQualifiedName, string propertyName, string swiftTypeName, string availabilityPrefix,
+        bool needsMainActor = false, bool needsMutableBinding = false)
     {
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = availabilityPrefix;
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
@@ -1461,7 +1481,7 @@ public class WitnessDispatchEmitter
 
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = MemberAvailabilityPrefix(property, protocolDecl);
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         // Member-access name for the Swift source: recover the original Swift identifier
         // (the parser rewrites C#-keyword names like `class` to `_class`) and backtick-escape
@@ -1506,7 +1526,8 @@ public class WitnessDispatchEmitter
             // real module-qualified Swift type so generic parameters survive and value types that
             // merely project to a primitive (e.g. Foundation.Date → double) keep their true type.
             var swiftReturnType = GetSwiftBlittableTypeName(property.SwiftTypeSpec);
-            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, swiftMemberName, swiftReturnType, needsMainActor, needsMutableBinding);
+            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, swiftMemberName, swiftReturnType,
+                MemberAvailabilityPrefix(property, protocolDecl), needsMainActor, needsMutableBinding);
         }
     }
 
@@ -1516,7 +1537,8 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "set", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            SetterAvailability(property, protocolDecl), "            ");
         // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
         var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
@@ -1584,7 +1606,7 @@ public class WitnessDispatchEmitter
         // Build Swift return type
         var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer" : "";
 
-        EmitAvailabilityAttributes(writer);
+        EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1654,7 +1676,7 @@ public class WitnessDispatchEmitter
         {
             var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
 
-            var avail = _currentAvailabilityPrefix;
+            var avail = MemberAvailabilityPrefix(method, protocolDecl);
             if (isStringReturn)
             {
                 // String return: free SBW_Utf8Slice + buffer
@@ -1715,7 +1737,7 @@ public class WitnessDispatchEmitter
         // Return type: UnsafeMutableRawPointer? for value-returning (nil = error), Void for void
         var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer?" : "";
 
-        EmitAvailabilityAttributes(writer);
+        EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1797,7 +1819,7 @@ public class WitnessDispatchEmitter
         if (hasReturn)
         {
             var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
-            var avail = _currentAvailabilityPrefix;
+            var avail = MemberAvailabilityPrefix(method, protocolDecl);
 
             if (isStringReturn)
             {
@@ -1902,7 +1924,7 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
-        EmitAvailabilityAttributes(writer);
+        EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1983,7 +2005,7 @@ public class WitnessDispatchEmitter
         var freeTypeSelf = swiftTypeName.StartsWith("any ", StringComparison.Ordinal)
             ? $"({swiftTypeName}).self"
             : $"{swiftTypeName}.self";
-        var avail = _currentAvailabilityPrefix;
+        var avail = MemberAvailabilityPrefix(method, protocolDecl);
 
         writer.WriteLines($$"""
             {{avail}}@_cdecl("{{freeSymbol}}")
@@ -2055,7 +2077,7 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
-        EmitAvailabilityAttributes(writer);
+        EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -2142,7 +2164,7 @@ public class WitnessDispatchEmitter
         var swiftParamsString = string.Join(", ", swiftParams);
 
         // Struct return always returns void (result written into buffer)
-        EmitAvailabilityAttributes(writer);
+        EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}) {{");
         writer.Indent++;
@@ -2207,7 +2229,7 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = MemberAvailabilityPrefix(property, protocolDecl);
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
@@ -2237,7 +2259,7 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = MemberAvailabilityPrefix(property, protocolDecl);
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
@@ -2282,7 +2304,7 @@ public class WitnessDispatchEmitter
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = MemberAvailabilityPrefix(property, protocolDecl);
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
@@ -2292,7 +2314,7 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
-        EmitAvailabilityAttributes(writer);
+        EmitAvailabilityAttributes(writer, property, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}(_ containerPtr: UnsafeRawPointer){swiftReturnDecl} {{");
         writer.Indent++;
@@ -2346,7 +2368,7 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
-        var avail = _currentAvailabilityPrefix;
+        var avail = MemberAvailabilityPrefix(property, protocolDecl);
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
@@ -2392,7 +2414,8 @@ public class WitnessDispatchEmitter
         bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         // See EmitPropertyGetterAccessor: emit the original, keyword-escaped Swift member name.
         var swiftMemberName = NameProvider.ParserNameToSwift(property);
-        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, swiftMemberName, swiftCollectionType, needsMainActor, needsMutableBinding);
+        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, swiftMemberName, swiftCollectionType,
+            MemberAvailabilityPrefix(property, protocolDecl), needsMainActor, needsMutableBinding);
     }
 
     /// <summary>

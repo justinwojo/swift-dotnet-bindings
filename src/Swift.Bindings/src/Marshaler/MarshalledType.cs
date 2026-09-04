@@ -26,6 +26,14 @@ public abstract record MarshalledType
     public sealed record Existential(string ContainerType, string PublicType) : MarshalledType
     {
         public string? ProxyClassName { get; init; }
+
+        /// <summary>
+        /// True when this argument is a property setter's value and the storage behind it does not
+        /// retain (<c>weak</c>/<c>unowned</c>), so the auto-wrap fallback must build a
+        /// consumer-owned carrier. The call-argument renderer is handed only the parameter, never
+        /// the owning member, so the sink's ownership has to ride along with the marshalled type.
+        /// </summary>
+        public bool ConsumerOwnsCarrier { get; init; }
     }
 
     /// <summary>Existential protocol type marshalled via ref (pointer) for @_cdecl wrappers.</summary>
