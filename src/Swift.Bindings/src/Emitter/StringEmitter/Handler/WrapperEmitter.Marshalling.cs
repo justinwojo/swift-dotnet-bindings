@@ -411,13 +411,32 @@ namespace BindingsGeneration
                         // buffer via DangerousGetHandle instead, pinned via SafeHandlePin.
                         //
                         // Only where Swift dereferences that address: a @_cdecl wrapper (handled
-                        // above), the Optional-pointer out-buffer wrapper, a native thunk, an async
-                        // bridge. On pure direct dispatch the P/Invoke slot holds the Optional's own
-                        // value, and a buffer address is never zero — so passing one there would make
-                        // `nil` arrive as a present value whose contents are the buffer's own bytes.
-                        // Those shapes are one word wide by then (a wider one either took the carrier
-                        // arm above or was refused by the emission floor), so the value arm below is
-                        // both correct and complete for them.
+                        // above), the Optional-pointer out-buffer wrapper, a free-function or
+                        // wrapper-library entry, an async bridge. On pure direct dispatch the
+                        // P/Invoke slot holds the Optional's own value, and a buffer address is never
+                        // zero — so passing one there would make `nil` arrive as a present value
+                        // whose contents are the buffer's own bytes. Those shapes are one word wide
+                        // by then (a wider one either took the carrier arm above or was refused by
+                        // the emission floor), so the value arm below is both correct and complete
+                        // for them.
+                        //
+                        // Every shape that reaches here is a Swift-source frame, which takes its
+                        // parameter borrowed — so no ownership transfer is emitted, unlike the arms
+                        // on either side. The one member of the width oracle's set that would
+                        // instead CONSUME the value is the native assembly thunk, which introduces
+                        // no frame and passes the accessor's @owned convention straight back to this
+                        // caller; it also dereferences nothing, so an address handed to it would be
+                        // wrong twice over. It never gets one: everything IsLargeOptionalParam calls
+                        // large is refused by the thunk's parameter-lowering gate, because a payload
+                        // that gains a tag byte lowers to two register slots (declined as
+                        // multi-slot) and every other payload has no lowering at all, after which
+                        // the fallback resolves the spec to Swift.Optional's own record — a frozen
+                        // STRUCT, neither of the two shapes (class, frozen simple enum) that
+                        // fallback admits. The single-slot Optional the thunk does accept,
+                        // Optional<class>, is exactly the one IsLargeOptionalParam declines to call
+                        // large. Pinned by
+                        // NativeThunkEmitterTests.ShouldEmitThunk_SetterValueIsLargeOptional_ReturnsFalse;
+                        // if that goes red, this arm needs a hand-over before the thunk reaches it.
                         else if (_env.MethodDecl.IsAccessor
                                  && DirectOptionalAbi.UsesSwiftSideCarrier(_env.MethodDecl)
                                  && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
