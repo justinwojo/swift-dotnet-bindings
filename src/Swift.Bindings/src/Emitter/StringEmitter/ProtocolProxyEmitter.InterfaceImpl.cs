@@ -1046,13 +1046,20 @@ public partial class ProtocolProxyEmitter
         // and version the proxy class already declares.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(writer, property, protocolDecl, emitObsolete: false);
 
-        // [SupportedOSPlatform] is compile-time only (CA1416). Below the member's floor the Swift
-        // forwarder this accessor calls is weak-linked to null, so a consumer who suppresses the
-        // diagnostic gets an uncatchable native fault at pc=0 instead of an exception. Guard the
-        // accessor at the same merged floor the attributes advertise, and only where the member
-        // raises the floor above the proxy class's own — a member that adds nothing is already
-        // covered by the class-level gate. The prefix carries the accessor bodies' relative indent
-        // so it can lead the first statement of a raw-string body.
+        // [SupportedOSPlatform] is compile-time only (CA1416), so nothing stops a consumer who
+        // suppresses the diagnostic from calling below the member's floor. What that call meets
+        // depends on where the forwarder's callee lives. Over an OS framework the symbol behind
+        // the forwarder is weak-linked and resolves to null on an older OS, so the call lands on
+        // a null function pointer and faults natively, where no managed catch can reach it. Over
+        // a library that ships inside the app the forwarder and its witness are both defined, so
+        // the call would have gone through — but Swift's own rule is that a requirement
+        // introduced after its protocol is callable only above its own floor, and the witness
+        // body is free to touch APIs from that same OS version. We apply the floor uniformly and
+        // accept the cost: on an in-app library a below-floor call that happened to work now
+        // throws instead. Guard at the same merged floor the attributes advertise, and only where
+        // the member raises the floor above the proxy class's own — a member that adds nothing is
+        // already covered by the class-level gate. The prefix carries the accessor bodies'
+        // relative indent so it can lead the first statement of a raw-string body.
         const string accessorBodyIndent = "    ";
         var getterGuardPrefix = AvailabilityAttributeEmitter.BuildStricterFloorGuardPrefix(
             property.AvailabilityAnnotations, protocolDecl,
@@ -1676,10 +1683,12 @@ public partial class ProtocolProxyEmitter
 
         writer.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
 
-        // Same runtime floor check the property accessors carry: [SupportedOSPlatform] is a
-        // compile-time analyzer hint, so below the member's floor a consumer who suppresses it
-        // would otherwise reach a witness forwarder whose weak-linked symbol is null. One guard at
-        // body entry covers every dispatch shape this method can take.
+        // Same runtime floor check the property accessors carry, for the same reason:
+        // [SupportedOSPlatform] is a compile-time analyzer hint, so below the member's floor a
+        // consumer who suppresses it would otherwise reach a witness forwarder that is either
+        // weak-linked to null (over an OS framework) or defined but calling a witness free to
+        // touch APIs from its own OS version (over a library shipped in the app). Refuse the call
+        // in both shapes. One guard at body entry covers every dispatch shape this method can take.
         var methodGuard = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
             method.AvailabilityAnnotations, protocolDecl, $"{protocolDecl.Name}.{methodName}");
         if (methodGuard != null)

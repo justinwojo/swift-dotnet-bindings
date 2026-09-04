@@ -1030,6 +1030,22 @@ public class AvailabilityAttributeEmitterTests
     }
 
     [Fact]
+    public void BuildStricterFloorGuardStatement_MessageNamesTheFloorAndAWayForward()
+    {
+        // The exception is the first thing a consumer sees when a call lands below the floor, so
+        // it has to say which member, which floor, and what to do — not just that it failed.
+        var guard = AvailabilityAttributeEmitter.BuildStricterFloorGuardStatement(
+            Intro("iOS", "17.0"), CreateDecl(Intro("iOS", "16.0")), "IProto.Newer");
+
+        Assert.NotNull(guard);
+        Assert.Contains("IProto.Newer", guard);
+        Assert.Contains("iOS 17.0", guard);
+        // Points at both remedies: an OS version check at the call site, or a higher app minimum.
+        Assert.Contains("OperatingSystem.Is", guard);
+        Assert.Contains("minimum OS", guard);
+    }
+
+    [Fact]
     public void BuildStricterFloorGuardPrefix_NoGuard_IsEmptySoTheBodyIsUnchanged()
     {
         Assert.Equal(

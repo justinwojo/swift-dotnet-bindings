@@ -212,7 +212,11 @@ internal static class AvailabilityAttributeEmitter
     /// <c>@_cdecl</c> wrapper body calls it unconditionally, so the call lands on a null function
     /// pointer and SIGSEGVs (pc=0) — a native fault that no C# <c>try/catch</c> can intercept.
     /// Throwing a managed exception BEFORE the P/Invoke converts that uncatchable crash into a
-    /// catchable, self-explanatory error. The guard uses the platform-agnostic
+    /// catchable, self-explanatory error. The null-symbol case is what a binding over an OS
+    /// framework hits; when the Swift library ships inside the app the symbol is defined and the
+    /// call would resolve, but the floor still holds — the body behind it is free to use APIs
+    /// from its own OS version — so the guard is applied on the declared floor rather than on a
+    /// per-binding-shape guess. The guard uses the platform-agnostic
     /// <c>OperatingSystem.IsOSPlatform</c>/<c>IsOSPlatformVersionAtLeast</c> APIs (which cover
     /// every Apple platform uniformly, including visionOS) and only fires on a platform that is
     /// explicitly floored — platforms covered by Swift's trailing <c>*</c> are left unrestricted,
@@ -258,6 +262,20 @@ internal static class AvailabilityAttributeEmitter
     /// and that window is exactly what this guards. The THROWN condition still uses the full merged
     /// floor, not just the added part, so the exception message names the real requirement.</para>
     ///
+    /// <para>What the guard prevents depends on where the Swift forwarder's callee lives. In a
+    /// binding over an OS framework, the symbol behind the forwarder is weak-linked and resolves
+    /// to null below the floor, so a below-floor call lands on a null function pointer and faults
+    /// natively — nothing a managed <c>try/catch</c> can intercept. In a binding over a library
+    /// that ships inside the app, the forwarder and the witness it calls are both defined, so the
+    /// call would have gone through; the floor still holds because Swift's own rule is that a
+    /// requirement introduced after its protocol is callable only above its own floor, and the
+    /// witness body may use APIs from that same OS version. The floor is applied uniformly rather
+    /// than per binding shape, and the accepted cost is that on an in-app library a below-floor
+    /// call that happened to work now throws instead.</para>
+    ///
+    /// <para>The message names the required floor and the remedy, since the exception is what the
+    /// consumer sees first.</para>
+    ///
     /// <para>Rendered as a single statement (rather than through
     /// <see cref="EmitRuntimeAvailabilityGuard"/>) so it can be interpolated into an accessor body
     /// that is written as one raw-string block.</para>
@@ -277,7 +295,10 @@ internal static class AvailabilityAttributeEmitter
 
         var floors = string.Join(" / ", guarded.Select(g =>
             $"{(PlatformDisplayNames.TryGetValue(g.platform, out var disp) ? disp : g.platform)} {g.version}"));
-        var message = $"{apiDescription} is not available on this OS version; it requires {floors} or later.";
+        var message =
+            $"{apiDescription} was introduced after the protocol that declares it and requires {floors} or later. " +
+            "Call it behind an OS version check (OperatingSystem.IsOSPlatformVersionAtLeast, or a per-platform " +
+            "helper such as OperatingSystem.IsIOSVersionAtLeast), or raise the app's minimum OS version.";
 
         return $"if ({BuildBelowFloorCondition(guarded)}) throw new global::System.PlatformNotSupportedException(" +
             $"\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\");";
