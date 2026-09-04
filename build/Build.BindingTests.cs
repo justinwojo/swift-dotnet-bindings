@@ -1014,6 +1014,14 @@ partial class Build
         {
             RejectSkipBuildWithActiveSmokeFlags();
 
+            // --mono-aot only re-flavors the physical-device app build; it has no meaning on any
+            // other lane. Silently ignoring it would hand back a green NativeAOT (or simulator) run
+            // under the name of a runtime that never ran.
+            if (MonoAot && !Device)
+                throw new Exception(
+                    "--mono-aot selects the Mono full-AOT runtime for the PHYSICAL DEVICE app build, so it "
+                    + "requires --device. Run `nuke binding-tests --device --mono-aot`.");
+
             // The opt-in heavyweight legs (--mixed-pack, --mixed-direct, --appstore-hygiene) and
             // --compile-only are mutually exclusive: --compile-only is a no-app-build compile-check
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.

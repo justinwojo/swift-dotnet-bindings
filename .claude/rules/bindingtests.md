@@ -14,6 +14,7 @@ paths:
 | `nuke binding-tests --compile-only` | Compile gate only — no app build, no tests |
 | `nuke binding-tests --strict` | Fail on non-zero generator exit (compose with any mode) |
 | `nuke binding-tests --device` | Compile + run on physical iPhone (NativeAOT) |
+| `nuke binding-tests --device --mono-aot` | Compile + run on physical iPhone under **Mono full-AOT** — the .NET-for-iOS default device runtime (what a MAUI app ships). Opt-in; requires `--device` |
 | `nuke binding-tests --macos` | Compile + run on macOS |
 | `nuke binding-tests --catalyst` | Compile + run on Mac Catalyst |
 | `nuke binding-tests --tvos` | Compile + run on tvOS Simulator |

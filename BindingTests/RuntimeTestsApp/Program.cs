@@ -18,7 +18,7 @@ namespace RuntimeTestsApp;
 public class Application
 {
     /// <summary>
-    /// Target platform: simulator (Mono JIT) or device (NativeAOT).
+    /// Target platform: simulator (Mono JIT), device/NativeAOT, or device/Mono full-AOT.
     /// </summary>
     internal static TestPlatform Platform { get; private set; } = TestPlatform.Simulator;
 
@@ -60,6 +60,7 @@ public class Application
                 Platform = effectiveArgs[i + 1].ToLowerInvariant() switch
                 {
                     "device" => TestPlatform.Device,
+                    "device-monoaot" => TestPlatform.DeviceMonoAot,
                     _ => TestPlatform.Simulator
                 };
                 i++;
@@ -321,6 +322,9 @@ public class MainViewController : UIViewController
 
         TestLogger.Info("=== RUNTIME TESTS ===");
         TestLogger.Info($"Platform: {platform}");
+        // Machine-readable runtime-flavor line. The host gate cross-checks it against the lane it
+        // launched, so a bundle built for one runtime can never be reported under the other's name.
+        TestLogger.Info($"Runtime flavor: {TestBase.RuntimeFlavorDescription}");
         if (Application.ClassFilter != null)
             TestLogger.Info($"Class filter: {Application.ClassFilter}");
         if (Application.ExcludeClasses.Count > 0)

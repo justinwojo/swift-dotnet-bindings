@@ -1,5 +1,5 @@
 {
-  "git_sha": "9772e256",
+  "git_sha": "314ff213",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -989,7 +989,7 @@
       "crash": 0
     },
     "device": {
-      "pass": 3442,
+      "pass": 3527,
       "fail": 0,
       "skip": 27,
       "crash": 0
@@ -1023,9 +1023,15 @@
       "fail": 0,
       "skip": 37,
       "crash": 0
+    },
+    "device_monoaot": {
+      "pass": 3523,
+      "fail": 0,
+      "skip": 31,
+      "crash": 0
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 17467
+    "swift_bindings_unit_pass_floor": 17496
   }
 }

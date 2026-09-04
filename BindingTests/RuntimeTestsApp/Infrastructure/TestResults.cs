@@ -260,15 +260,32 @@ public class TestResults
 }
 
 /// <summary>
-/// Target platform for test execution.
+/// Target platform for test execution. This is the <b>build flavor</b> the harness launched, not a
+/// guess about the live runtime — runtime-detected classification lives in <c>TestBase</c>
+/// (<c>IsMonoJitRuntime</c>, <c>IsMonoAotRuntime</c>).
 /// </summary>
 public enum TestPlatform
 {
     /// <summary>iOS Simulator (Mono JIT).</summary>
     Simulator,
 
-    /// <summary>Physical device (NativeAOT).</summary>
-    Device
+    /// <summary>
+    /// Physical device, NativeAOT (<c>dotnet publish -c Release -r ios-arm64 -p:PublishAot=true</c>).
+    /// The CLI-flag-keyed <see cref="SkipOnDeviceAttribute"/> is scoped to THIS value only: its
+    /// skips are about the NativeAOT Release app, not about being on a phone.
+    /// </summary>
+    Device,
+
+    /// <summary>
+    /// Physical device, Mono full-AOT (<c>dotnet build -c Debug -r ios-arm64</c>, no PublishAot) —
+    /// the .NET-for-iOS default device runtime, and the one a MAUI app ships on unless its author
+    /// opts into PublishAot. Distinct from both siblings: it is Mono (so the runtime-detected
+    /// Mono skips apply, exactly as they do on the Simulator) but it is AOT-compiled and trimmed
+    /// (so AOT reflection/trimming behavior applies, as under NativeAOT), and it is a Debug build
+    /// (so <c>[Conditional("DEBUG")]</c> code is live, unlike the NativeAOT Release app).
+    /// Selected by <c>nuke binding-tests --device --mono-aot</c>.
+    /// </summary>
+    DeviceMonoAot
 }
 
 
@@ -324,6 +341,12 @@ public class SkipOnSimulatorAttribute : Attribute
 /// - A NativeAOT-applicable RuntimeLimitations.Limitation (currently only
 ///   NonBlittableCallConvSwiftRejection — the registry has no NativeAOT-only entries)
 /// - A specific generator bug that only manifests on NativeAOT (prefixed with "Generator bug:")
+///
+/// Scoped to <see cref="TestPlatform.Device"/> only — NOT to the Mono full-AOT device lane
+/// (<see cref="TestPlatform.DeviceMonoAot"/>), which is also a phone but a different runtime and a
+/// Debug build. Every reason this attribute admits is a NativeAOT (or NativeAOT-Release) property,
+/// so applying it there would blanket-suppress tests that have no reason to fail. A test that fails
+/// only under device Mono full-AOT is a bug to fix, not a skip to widen.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class SkipOnDeviceAttribute : Attribute

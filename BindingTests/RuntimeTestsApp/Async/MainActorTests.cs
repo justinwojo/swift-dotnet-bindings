@@ -142,6 +142,9 @@ public class MainActorTests : TestBase
 
     // The guard is [Conditional("DEBUG")] in Swift.Runtime; the Simulator app builds Debug, so it is
     // active here, but the NativeAOT device app builds Release and compiles the guard out entirely.
+    // The Mono full-AOT device lane (--device --mono-aot) builds Debug, so the guard IS live there
+    // and this test runs — [SkipOnDevice] is scoped to the NativeAOT lane precisely so it isn't
+    // suppressed on a lane where it works.
     [SkipOnDevice("MainActorGuard is [Conditional(\"DEBUG\")]; the device app is a Release build with the guard compiled out, so an off-main-thread call does not throw.")]
     public void TestMainActorGuard_OffMainThread_Throws()
     {
