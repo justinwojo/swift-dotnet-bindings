@@ -19,7 +19,78 @@ One of these fixes changes what already-compiling code does.
 
 ## Consumer-owned delegates: what happens when the implementation goes away
 
-<!-- W1: fill in lane-B degraded-callback behaviour -->
+When you assign a C# object into a Swift `weak`, `unowned` or `unowned(unsafe)` property, nothing on
+the Swift side keeps it alive — that is what the annotation asks for. Your application is the only
+owner, and if you stop referencing the object, the garbage collector may collect it.
+
+Swift, meanwhile, may still call. A framework that takes a delegate through a `weak` property often
+also holds it somewhere else for the duration of a piece of work: an internal observer array, a
+closure captured by a queued block, an operation already in flight. Through that other reference the
+Swift object keeps calling the conformance long after your own reference is gone. A callback can
+also simply race a drop on another thread.
+
+Previously a callback arriving in that state stopped the process. It now degrades instead, following
+what Swift itself does with a `nil` weak delegate:
+
+| The requirement returns | The degraded call gives Swift |
+|---|---|
+| `Void` | nothing — the call is dropped |
+| An optional | `nil` |
+| `Bool` | `false` |
+| An integer or floating-point type | `0` |
+| `String` | `""` |
+| `Array`, `Set`, `Dictionary` | the empty collection |
+| A frozen value type with no reference fields | its zeroed value |
+| A closure | `nil` |
+| `async throws` | a thrown error your `await` observes |
+
+Delegates assigned into ordinary **strong** Swift properties are unaffected. Swift holds those for as
+long as it holds the conformance, so a missing implementation there still indicates something has
+gone wrong internally and is still reported loudly.
+
+### Finding out that it happened
+
+A degraded callback is quiet by design, which makes "my delegate stopped firing" hard to explain. So
+the first time a given conformance degrades, the runtime writes a line through `System.Diagnostics.Trace`
+and raises `ProxyDegradation.ImplCollected`. Later callbacks on the same conformance stay silent, so a
+per-frame delegate will not fill a log.
+
+```csharp
+Swift.Runtime.ProxyDegradation.ImplCollected += (_, e) =>
+    Console.WriteLine($"Swift called {e.Member} on a collected implementation (0x{e.Handle:X})");
+```
+
+`ProxyDegradation.ReportCount` gives the number of conformances that have reported so far, which is
+convenient to assert on in a test.
+
+### Two shapes that still stop
+
+**A synchronous `throws` requirement cannot report the error.** Its reverse-dispatch entry point
+returns a value and carries no error slot, so a degraded synchronous `throws` call comes back as the
+identity value for its return type, exactly like a non-throwing one. Only `async throws` requirements,
+which resume a continuation, have somewhere to put a failure.
+
+**Some return types have no value to synthesize.** A non-optional class or existential has no null to
+give; an enumeration's zeroed form is a real case, but a specific one your code never chose, and
+silently returning it would be worse than saying so; a resilient (non-frozen) struct such as
+`Foundation.URL` gives no assurance that zeroed bytes are a valid instance. For those, a degraded
+callback still stops the process, with a message naming the member, the conformance, and the fix:
+
+> Swift called '…' on a C# implementation that was already collected, and the requirement returns
+> '…' — a type with no value this binding can synthesize on the caller's behalf. … Keep a reference
+> to the implementation for as long as the Swift side may call it. This is a lifetime mistake in
+> application code, not a binding defect.
+
+The element type of a collection is not part of this: an empty `[any P]` needs no element, so it is
+synthesized like any other empty array.
+
+### The remedy
+
+Degradation keeps a lifetime mistake from taking the process down; it does not make the callbacks
+arrive. If you want them to keep arriving, hold a reference to the implementation for as long as the
+Swift side may call it — a field on the owning view controller, view model, or service is usually the
+right place. Assigning into a `weak` Swift property and keeping no reference of your own means asking
+for the object to be collected.
 
 ## Reported issues fixed
 
