@@ -332,16 +332,14 @@ recorded here — the session docs are not the record.
   greens are false (compile-clean, runtime-broken). Baselines are ratcheted honestly in both
   directions with the reason recorded. No session may "fix" a red by weakening a gate.
 - **D-R3 — two waves, separate session folders.** Wave 1 = Stages 0–3 (minimum viable resilience),
-  planned in full in the wave-1 session folder (executed; archived at
-  `/Users/wojo/Dev/SB-Backup-Docs/2026-07-sessions-cleanup/`). Wave 2 = Stages 4–7,
+  planned in full in the wave-1 session folder (executed; session docs removed after closeout). Wave 2 = Stages 4–7,
   whose session docs are **authored by wave 1's closeout session** from landed reality (folder
   `…-wave2/`), because their real shape depends on what Stages 1–3 actually build. Each wave is one
   session-runner invocation.
 - **D-R4 — program-start baselines** (post corpus-fixes close-out, commit `a3a3f79e`): unit tests
   **14,772/0**; BindingTests sim **3238 pass / 0 crash** (+6 known-environmental LiveActivity
-  fails); corpus **39/120 green** (2026-07 sweep). `nuke validate`'s baseline is stale by a routed
-  decision (see `not-planned.md`) and is **not** a program gate; the corpus-sweep harness at
-  `/Users/wojo/Dev/internal-binding-testing/corpus-sweep/` is the sweep instrument.
+  fails); corpus **39/120 green** (2026-07 sweep). `nuke validate` is **not** a program gate;
+  the `internal-binding-testing` corpus-sweep harness is the sweep instrument.
 
 ### Owner decisions (2026-07-19, wave-2 scope review)
 

@@ -42,8 +42,8 @@ For each issue file:
 
 After filing, link the dotnet/runtime issue numbers back into:
 - `src/docs/roadmap.md` (Blocked — Confirmed Upstream Only section)
-- `/Users/wojo/.claude/projects/-Users-wojo-Dev-swift-bindings/memory/feedback_mono_jit_blame.md` (the authoritative confirmed-issues list)
-- `/Users/wojo/Dev/swift-interop-repro/README.md` (Reproduced Issues table)
+- `feedback_mono_jit_blame.md` (the authoritative confirmed-issues list)
+- the `swift-interop-repro` sibling repo README (Reproduced Issues table)
 
 ---
 

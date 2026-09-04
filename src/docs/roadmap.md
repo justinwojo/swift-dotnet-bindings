@@ -42,19 +42,14 @@ Standing framing, extracted from the 0.18.0 regression (16 red corpus cells behi
 
 ---
 
-## Pending for the 0.19.0 release notes
+## Pending agreed work
 
-**Colliding overloads are renamed from their labels/types — a source-breaking change for consumers.** The overload resolver stopped disambiguating with a numeric suffix and now derives a name from the Swift argument labels, falling back to parameter types; a member that nothing distinguishes is refused outright rather than emitted twice. Consequence: a member that previously bound as `Foo`/`Foo2` may now bind under a different name entirely, and **neither** overload necessarily keeps the bare name — when two overloads are indistinguishable by C# arity, which one "owns" the short name would itself be declaration-order-dependent, the instability the change set out to remove.
+Small leftovers we already committed to, not a new program.
 
-Scale, measured off the resolver's own `OverloadRenames` records across the `swift-dotnet-packages` corpus: **91 renames over 21 distinct member names in 8 packages** — MusicKit 28, Stripe 17, RealityFoundation 12, TipKit 12, Lottie 8, RoomPlan 7, LiveCommunicationKit 5, Nuke 2 (67 label-derived, 24 type-derived). Representative shapes:
-
-| Was | Is now |
-|---|---|
-| `MusicItemCollection.Index` / `.Index2` | `.IndexAfter` / `.IndexBefore` |
-| `MusicItemCollection.FormIndex` / `.FormIndex2` | `.FormIndexAfter` / `.FormIndexBefore` |
-| `MeshResource.GeneratePlane` / `.GeneratePlane2` | `.GeneratePlaneWidthHeightCornerRadius` / `.GeneratePlaneWidthDepthCornerRadius` |
-
-The release notes need an explicit upgrade section calling this out; consumers get a compile error, not a silent behaviour change, so the guidance is "rebuild and follow the CS0117/CS1061/CS1501 to the new name". Two things worth deciding while writing them: whether the longest label-derived names (`GeneratePlaneWidthHeightCornerRadius`) are the ergonomics we want to publish, and whether this warrants raising the `RuntimeContract` floor — it is source-breaking for consumers, but there is no evidence it breaks the module-init↔runtime dispatch contract the floor actually guards.
+| Item | Notes |
+|------|-------|
+| **Document the `net10.0-*` floor (issue #45)** | The requester went looking for the .NET-version constraint in MSBuild and could not find it. State `net10.0-*` only as policy on the repo README requirements line (and FAQ / Platform Compatibility). The floor lives in the generator's hardcoded TFMs (`PlatformInfoFactory.cs`), not in the SDK targets. The net9 lane itself stays declined: no ABI blocker, but a supported lane doubles the Mono/NativeAOT matrix for a runtime that leaves support 2026-11-10. |
+| **SWIFTBIND010 condition vs message (issue #45)** | `Sdk.targets` error *message* names the four `net10.0-*` TFMs, but the *condition* only checks `_SwiftBindingPlatformUnsupported` (platform-substring match — `net9.0-ios` passes). A net9 project sails past 010 and fails later on the generator's hardcoded `net10.0-ios` output TFM. Make the condition also gate on the .NET version, or reword the message to match the condition — either way the first error a declined user hits must name the net10 floor. |
 
 ---
 
@@ -64,14 +59,14 @@ Real capability gaps with an active incremental trajectory — closed shape-by-s
 
 | Item | Notes |
 |------|-------|
-| **UnsupportedClosure remaining shapes** | ~600 skips (approximate, per the validation baseline `build/baselines/validation-baseline.json` `skip_metrics` — the #5 skip reason at ~8.2% of skipped members; re-read the baseline for the current figure. The earlier "~188" was a stale undercount.) Already reduced via setter-only closure properties and the async-closure bridge (throwing 0–4 args — `ClosureHandler.MaxAsyncThrowingClosureArity` — with primitive or `Swift.String` returns, plus a zero-arg `Foundation.Data` return; non-throwing 0–4 args with primitive returns only). Remaining are generic params, nested closures, and async-closure shapes outside the supported arg/return matrix (e.g., arg-bearing `Data` returns, non-throwing `Data` returns). One carve-out inside "nested closures": a root, non-failable, non-generic, non-ObjC-rooted, non-isolated class initializer with no defaulted parameters and *sync* nested closures now binds as a real C# constructor via `NestedClosureBridge`. Failable, throwing, async, struct and enum nested-closure constructors, and every `MethodClosureBridge` constructor, are still refused — see `not-planned.md` § Emitter — closures & async. |
+| **UnsupportedClosure remaining shapes** | ~609 skips (per the validation baseline `build/baselines/validation-baseline.json` `skip_metrics`; re-read the baseline for the current figure. The earlier "~188" was a stale undercount.) Already reduced via setter-only closure properties and the async-closure bridge (throwing 0–4 args — `ClosureHandler.MaxAsyncThrowingClosureArity` — with primitive or `Swift.String` returns, plus a zero-arg `Foundation.Data` return; non-throwing 0–4 args with primitive returns only). Remaining are generic params, nested closures, and async-closure shapes outside the supported arg/return matrix (e.g., arg-bearing `Data` returns, non-throwing `Data` returns). One carve-out inside "nested closures": a root, non-failable, non-generic, non-ObjC-rooted, non-isolated class initializer with no defaulted parameters and *sync* nested closures now binds as a real C# constructor via `NestedClosureBridge`. Failable, throwing, async, struct and enum nested-closure constructors, and every `MethodClosureBridge` constructor, are still refused — see `not-planned.md` § Emitter — closures & async. |
 | **Cross-module dependency-graph closure (deep-stack ecosystems)** | The 2026-07 fresh-conversion corpus soak (50/120 honest-green) located the remaining corpus green-count leverage in **dependency-graph closure, not further emitter hardening**: convert-stage failures + cross-module fact resolution + named-missing-input dependency closures together are ~65% of reds, concentrated in deep-stack multi-module ecosystems (TCA / `swift-*` packages) where a primary needs many in-run sibling bindings resolved before it compiles. Incremental trajectory (not scheduled; closed shape-by-shape as a consumer names a specific ecosystem): strengthen the converter's import-closure production (internal-target product synthesis — see `not-planned.md` § Ingestion) and the generator's cross-module fact resolution so a multi-module package closes its sibling graph. Consistent with the input-poor posture: this is a real demand-gated trajectory, not a broad internal sweep. |
 
 ---
 
 ## Blocked (Confirmed Upstream Only)
 
-These are the **only** confirmed upstream issues. There are exactly 5 — issues 1–4 are reproduced in the standalone repro at `/Users/wojo/Dev/swift-interop-repro/`; issue 5 is proven upstream via a pure-managed A/B substitution inside BindingTests (standalone reduction still pending, owner files it). If a crash doesn't match one of these, it's our bug. See `feedback_mono_jit_blame.md` for the full investigation checklist.
+These are the **only** confirmed upstream issues. There are exactly 5 — issues 1–4 are reproduced in the standalone `swift-interop-repro` sibling repo; issue 5 is proven upstream via a pure-managed A/B substitution inside BindingTests (standalone reduction still pending, owner files it). If a crash doesn't match one of these, it's our bug. See `feedback_mono_jit_blame.md` for the full investigation checklist.
 
 | Filing | Issue | Blocked By |
 |--------|-------|-----------|
@@ -90,18 +85,18 @@ These are the **only** confirmed upstream issues. There are exactly 5 — issues
 
 ## Not Worth Addressing
 
-Counts are from `build/baselines/validation-baseline.json` `skip_metrics.skip_reasons` (baseline frozen 2026-06-28) — re-read the baseline for current figures rather than trusting this table.
+Counts are from `build/baselines/validation-baseline.json` `skip_metrics.skip_reasons` (`git_sha` `9772e256`) — re-read the baseline for current figures rather than trusting this table.
 
 | Skip Reason | Count | Why Not |
 |-------------|------:|---------|
-| @_spi / internal members (`ModuleInternal`) | ~874 | Correct behavior — private API should not be bound |
+| @_spi / internal members (`ModuleInternal`) | ~1095 | Correct behavior — private API should not be bound |
 | Synthesized Codable | ~971 | .NET consumers use own serialization (`System.Text.Json`, etc.) |
-| AnyTypeFallback (`Any`, `[Any]`, `Optional<Any>`, ObjC delegate protocols, PAT subscripts) | ~420 | PAT classification + by-design Swift `Any` + ObjC protocols + cross-library — fully architecturally-deferred. In-scope single-module gaps measure 0 hits. |
-| Unsupported signatures (associated types, bare generics) | ~1420 | Swift patterns with no C# equivalent |
-| Generic protocol constraints / PATs | ~392 | Architecturally blocked by associated type erasure |
-| SwiftUI/Combine dependencies | ~177 | Framework boundary — consumers use SwiftUI bridge instead (`SwiftUIConstraint` + `SwiftUIView`) |
-| Unsupported existential (opaque generics) | ~95 | Fundamental limitation of Swift's type system vs C# generics |
-| UnsatisfiedGenericConstraint (remaining) | ~272 | Fundamental type system constraints, not relaxable gates |
+| AnyTypeFallback (`Any`, `[Any]`, `Optional<Any>`, ObjC delegate protocols, PAT subscripts) | ~418 | PAT classification + by-design Swift `Any` + ObjC protocols + cross-library — fully architecturally-deferred. In-scope single-module gaps measure 0 hits. |
+| Unsupported signatures (associated types, bare generics) | ~1418 | Swift patterns with no C# equivalent |
+| Generic protocol constraints / PATs | ~394 | Architecturally blocked by associated type erasure |
+| SwiftUI/Combine dependencies | ~178 | Framework boundary — consumers use SwiftUI bridge instead (`SwiftUIConstraint` + `SwiftUIView`) |
+| Unsupported existential (opaque generics) | ~101 | Fundamental limitation of Swift's type system vs C# generics |
+| UnsatisfiedGenericConstraint (remaining) | ~263 | Fundamental type system constraints, not relaxable gates |
 
 ---
 
@@ -110,9 +105,9 @@ Counts are from `build/baselines/validation-baseline.json` `skip_metrics.skip_re
 `nuke validate` exists because we needed a quick "are these libraries still
 working?" sanity sweep while the generator was changing rapidly. The long-term
 goal has always been to make BindingTests the durable, sole gate. The 0.10.0
-release cycle is the first concrete investment toward that — it lands the
-Layer B `--skip-surface` ratchet over the BindingTests corpus and tightens it
-in-bundle as fixes ship.
+release cycle landed the first concrete investment toward that — the Layer B
+`--skip-surface` ratchet over the BindingTests corpus, tightened in-bundle as
+fixes ship.
 
 **Retirement criterion**: validate is officially decorative when a full `nuke
 validate` run surfaces no bug that BindingTests didn't already catch *across
