@@ -130,6 +130,19 @@
          decides which leg owns it is pinned here rather than re-derived at each. BCL-only string
          work, AOT-clean. -->
     <Compile Include="../../../../build/Models/SharedUdidRouting.cs" Link="Models/SharedUdidRouting.cs" />
+    <!-- Link-compile the device runtime-flavor gate. The two physical-device lanes (NativeAOT and
+         Mono full-AOT) share a bundle id, an install path and a test suite, and are separated only
+         by an MSBuild property; if that property stops taking effect the run still goes green and
+         reports a NativeAOT result under the Mono lane's name. The judgement over the app's own
+         runtime banner is the thing that must not drift, and it is testable here without a phone.
+         BCL-only string/regex work with its own `#nullable enable`, AOT-clean. -->
+    <Compile Include="../../../../build/Models/DeviceRuntimeFlavorGate.cs" Link="Models/DeviceRuntimeFlavorGate.cs" />
+    <!-- Link-compile the platform-label ⇒ baseline-key mapping. It is the single point at which a
+         runtime-test lane becomes graded: an unmapped label makes CompareRuntimeBaseline return
+         early ("skipping comparison"), which is a silent pass rather than a failure. That fail-open
+         shape means a lane shipped without a floor is invisible, so the tests here assert every
+         shipping label resolves AND that both committed baseline files carry its entry. BCL-only. -->
+    <Compile Include="../../../../build/Models/RuntimeBaselinePlatformKey.cs" Link="Models/RuntimeBaselinePlatformKey.cs" />
     <!-- Link-compile the runtime-test app's OWN results writer so the run-identity token is tested
          as a round trip — writer stamps it, harness-side JsonlTestResults reads it back — instead of
          two hand-copied string literals that could drift apart. That token is what proves a JSONL

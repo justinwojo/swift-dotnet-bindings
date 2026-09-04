@@ -54,6 +54,30 @@
     <type fullname="SwiftBindingsTestLib.SwiftInterop.AvailabilityGatedProtocolF2Proxy" preserve="all" />
   </assembly>
 
+  <!-- Attribute types the SDK's default link-attributes XML instructs the trimmer to remove
+       EVERY INSTANCE of, on the reasoning that they are compile-time-only. That reasoning does
+       not hold here: several runtime tests reflect on exactly these attributes to prove what the
+       GENERATOR emitted onto the binding — AvailabilityPropagationTests reads [SupportedOSPlatform]
+       and [Obsolete] off generated members, and ValueProviderPatternTests asserts the ABSENCE of
+       [Obsolete] on a DIM default. With the instances stripped, the present-tense assertions fail
+       and the absent-tense one passes vacuously, so the suite would report a generator regression
+       that never happened. Keeping the attribute TYPE keeps its instances (the override the
+       trimmer's own IL2045 diagnostic prescribes), so the tests read the emitted metadata.
+
+       Only the Mono full-AOT device lane runs ILLink over this app — the simulator sets
+       MtouchLink=None and the NativeAOT lane links with ILC, which does not apply the removal —
+       so this block is what that lane needs and a no-op cost on the others. -->
+  <assembly fullname="System.Private.CoreLib">
+    <type fullname="System.ObsoleteAttribute" />
+    <type fullname="System.Runtime.Versioning.SupportedOSPlatformAttribute" />
+    <type fullname="System.Runtime.Versioning.UnsupportedOSPlatformAttribute" />
+    <!-- EntryPointCallConvPairingTests walks every generated P/Invoke's [LibraryImport] to pair
+         its entry point with the declared calling convention — the check that catches a
+         CallConvSwift/CallConvCdecl mismatch before it becomes a device crash. Stripped
+         instances would make that walk find nothing and pass over an empty set. -->
+    <type fullname="System.Runtime.InteropServices.LibraryImportAttribute" />
+  </assembly>
+
   <!-- Swift.Runtime + System.ValueTuple roots are NOT defined here. They live in
        src/Swift.Runtime/src/ILLink.Descriptors.xml (the single source of truth for
        trimmer-sensitive Swift.Runtime surface) and are consumed by this project via

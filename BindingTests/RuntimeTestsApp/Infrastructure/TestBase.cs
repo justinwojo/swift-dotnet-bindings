@@ -33,8 +33,45 @@ public abstract class TestBase
     /// recognizes the Simulator (via its "simulator" RID check) but misses <c>maccatalyst-*</c>
     /// RIDs, so Catalyst is added via <see cref="OperatingSystem.IsMacCatalyst"/>.
     /// </summary>
-    private static readonly bool IsMonoJitRuntime =
+    internal static readonly bool IsMonoJitRuntime =
         Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime || OperatingSystem.IsMacCatalyst();
+
+    /// <summary>
+    /// True when the current process runs on <b>Mono full-AOT on a physical Apple device</b> — the
+    /// .NET-for-iOS default device runtime (rid <c>ios-arm64</c>/<c>tvos-arm64</c>, no
+    /// <c>PublishAot</c>), reached by <c>nuke binding-tests --device --mono-aot</c>.
+    ///
+    /// <para>It is a third runtime, not a synonym for either neighbour:</para>
+    /// <list type="bullet">
+    ///   <item>It IS Mono, so <see cref="IsMonoJitRuntime"/> is also true here and every
+    ///   runtime-detected Mono skip applies exactly as it does on the Simulator.</item>
+    ///   <item>It is NOT the Simulator: no JIT, the app is AOT-compiled and ILLink-trimmed, so
+    ///   AOT/trimming reflection behavior applies the way it does under NativeAOT.</item>
+    ///   <item>It is NOT NativeAOT: the CLI-flag-keyed <c>[SkipOnDevice]</c> skips (which describe
+    ///   the NativeAOT Release app) deliberately do not apply — see
+    ///   <see cref="TestPlatform.DeviceMonoAot"/>.</item>
+    /// </list>
+    ///
+    /// <para>Detected at runtime rather than from the <c>--platform</c> flag, so it stays honest if
+    /// the harness ever launches the wrong bundle: it requires the live runtime to report Mono AND
+    /// a non-simulator, non-Catalyst Apple RID. <c>SwiftRuntimeInfo.IsMonoRuntime</c> can only
+    /// answer this correctly because the app injects the build-time
+    /// <c>Swift.Runtime.IsNativeAot</c> AppContext switch (see RuntimeTestsApp.csproj); without it
+    /// the heuristic cannot tell device Mono full-AOT from NativeAOT.</para>
+    /// </summary>
+    internal static readonly bool IsMonoAotRuntime =
+        Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime
+        && !OperatingSystem.IsMacCatalyst()
+        && !RuntimeInformation.RuntimeIdentifier.Contains("simulator", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// One-line runtime-flavor banner the host gate reads back out of the app's console output to
+    /// confirm the lane it launched is the lane that actually ran.
+    /// </summary>
+    internal static string RuntimeFlavorDescription =>
+        $"IsMonoRuntime={Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime}, " +
+        $"IsNativeAotRuntime={Swift.Runtime.SwiftRuntimeInfo.IsNativeAotRuntime}, " +
+        $"IsMonoAot={IsMonoAotRuntime}, Rid={RuntimeInformation.RuntimeIdentifier}";
 
     protected TestBase(TestResults results)
     {
@@ -105,8 +142,8 @@ public abstract class TestBase
                 await RunTestMethodAsync(method);
             }
 
-            // On device (NativeAOT), yield to the iOS run loop periodically.
-            if (platform == TestPlatform.Device)
+            // On a physical device (either runtime), yield to the iOS run loop periodically.
+            if (platform is TestPlatform.Device or TestPlatform.DeviceMonoAot)
                 Foundation.NSRunLoop.Current.RunUntil(Foundation.NSDate.FromTimeIntervalSinceNow(0.001));
         }
     }

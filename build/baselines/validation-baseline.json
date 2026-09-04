@@ -989,9 +989,15 @@
       "crash": 0
     },
     "device": {
-      "pass": 3442,
+      "pass": 3527,
       "fail": 0,
       "skip": 27,
+      "crash": 0
+    },
+    "device_monoaot": {
+      "pass": 3523,
+      "fail": 0,
+      "skip": 31,
       "crash": 0
     },
     "macos": {
@@ -1026,6 +1032,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 17466
+    "swift_bindings_unit_pass_floor": 17496
   }
 }

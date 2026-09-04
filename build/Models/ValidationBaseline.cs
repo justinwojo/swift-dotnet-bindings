@@ -52,6 +52,14 @@ public record ValidationBaseline
         [JsonPropertyName("device")]
         public RuntimeTestsPlatformCounts? Device { get; init; }
 
+        // Physical-device Mono full-AOT cell (the .NET-for-iOS default runtime, built by
+        // `nuke binding-tests --device --mono-aot`). Tracked separately from the NativeAOT
+        // "device" key because the two lanes have different skip sets — the runtime-detected
+        // Mono skips apply here and the NativeAOT-Release-shaped ones do not — so a shared
+        // floor would either under-gate one lane or false-regress the other.
+        [JsonPropertyName("device_monoaot")]
+        public RuntimeTestsPlatformCounts? DeviceMonoAot { get; init; }
+
         [JsonPropertyName("macos")]
         public RuntimeTestsPlatformCounts? MacOS { get; init; }
 

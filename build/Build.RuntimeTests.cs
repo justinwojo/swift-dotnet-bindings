@@ -82,6 +82,13 @@ partial class Build
     readonly bool Sim;
     [Parameter("Run on physical iOS device (NativeAOT)")]
     readonly bool Device;
+    // The .NET-for-iOS DEFAULT device runtime is Mono full-AOT, not NativeAOT: a plain
+    // `dotnet build -c Debug -r ios-arm64` (no PublishAot) is what a MAUI app ships unless the
+    // author opts into PublishAot. That is the runtime most real consumers are on, and until this
+    // flag existed no gate in this repo ran it — the device lane only ever exercised NativeAOT.
+    // Composes with --device; opt-in because it is a second full device build + install + run.
+    [Parameter("With --device: build the device app under Mono full-AOT (the .NET-for-iOS default) instead of NativeAOT")]
+    readonly bool MonoAot;
     [Parameter("Run on macOS")]
     readonly bool Macos;
     [Parameter("Run on macOS for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)")]
@@ -1028,15 +1035,37 @@ partial class Build
     }
 
     // ============================================================
-    // Physical iOS device runtime gate (NativeAOT).
+    // Physical iOS device runtime gate.
+    //
+    // Two runtimes share this pipeline — they need byte-identical native inputs (device-slice
+    // xcframework, device wrappers, device bridge), so only the managed app build and the app
+    // bundle we install differ:
+    //
+    //   * default        — NativeAOT: `dotnet publish -c Release -r ios-arm64` (PublishAot=true),
+    //                      bundle at bin/Release/net10.0-ios/ios-arm64/.
+    //   * --mono-aot     — Mono full-AOT: `dotnet build -c Debug -r ios-arm64` with PublishAot
+    //                      suppressed, bundle at bin/Debug/net10.0-ios/ios-arm64/. This is the
+    //                      .NET-for-iOS default device runtime (what a MAUI app ships) and mirrors
+    //                      the swift-dotnet-packages `build-test-app --device` (no --aot) lane.
+    //
+    // The two lanes therefore never share a bin/ or obj/ tree, and AssertDeviceAppFlavor checks the
+    // bundle we are about to install structurally so a stale artifact from the other lane cannot
+    // masquerade as this one.
+    //
     // Device path has its OWN wrapper build step, separate from simulator.
     // Invoked by the consolidated BindingTests target when --device is set.
     // ============================================================
 
+    /// <summary>MSBuild property that suppresses PublishAot on the ios-arm64 device build.</summary>
+    const string DeviceMonoAotProperty = "SwiftBindingsDeviceMonoAot";
+
     void RunDevicePlatform()
     {
+            var monoAot = MonoAot;
+            var laneLabel = monoAot ? "Device/MonoAOT" : "Device/NativeAOT";
+
             Log.Information("=========================================");
-            Log.Information(" BindingTests Runtime Tests (Device)");
+            Log.Information(" BindingTests Runtime Tests (Device — {Lane})", monoAot ? "Mono full-AOT" : "NativeAOT");
             Log.Information("=========================================");
 
             // Step 0: Find connected device
@@ -1070,30 +1099,119 @@ partial class Build
                 AssertDeviceSliceExists();
             }
 
+            // Configuration is the lane separator: NativeAOT publishes Release, Mono full-AOT builds
+            // Debug, so the two lanes never share a bin/ or obj/ tree for the same RID.
+            var configuration = monoAot ? "Debug" : "Release";
+
             if (!SkipBuild)
             {
-                // Publish NativeAOT (takes several minutes)
-                // Uses the unified RuntimeTestsApp project with -r ios-arm64 (activates device conditionals)
-                Log.Information("--- Publishing RuntimeTestsApp (NativeAOT, ios-arm64) ---");
-                Log.Information("This may take several minutes (ILCompiler + code signing)...");
-                DotNetPublish(s => s
-                    .SetProject(BindingTestsDir / "RuntimeTestsApp")
-                    .SetConfiguration("Release")
-                    .SetRuntime("ios-arm64")
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                if (monoAot)
+                {
+                    // Mono full-AOT: a plain device BUILD with PublishAot suppressed. Property choice
+                    // is taken from swift-dotnet-packages `BuildTestAppDevice` (build/Build.TestApp.cs)
+                    // so the two repos exercise the same runtime: `dotnet build -c Debug
+                    // -p:RuntimeIdentifier=ios-arm64` and nothing else — no MtouchUseLlvm, no
+                    // UseInterpreter, no explicit AOT switch. .NET for iOS AOT-compiles a device build
+                    // by default (the platform forbids JIT), so the default IS Mono full-AOT.
+                    // SwiftBindingsDeviceMonoAot is ours: it tells RuntimeTestsApp.csproj not to turn
+                    // the ios-arm64 RID into a NativeAOT build, and it feeds the runtime-flavor
+                    // AppContext switch the SDK injects for real consumers.
+                    Log.Information("--- Building RuntimeTestsApp (Mono full-AOT, ios-arm64) ---");
+                    Log.Information("This may take several minutes (Mono AOT + code signing)...");
+                    DotNetBuild(s => s
+                        .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
+                        .SetConfiguration(configuration)
+                        .SetProperty("RuntimeIdentifier", "ios-arm64")
+                        .SetProperty(DeviceMonoAotProperty, "true")
+                        .SetVerbosity(DotNetVerbosity.quiet));
+                }
+                else
+                {
+                    // Publish NativeAOT (takes several minutes)
+                    // Uses the unified RuntimeTestsApp project with -r ios-arm64 (activates device conditionals)
+                    Log.Information("--- Publishing RuntimeTestsApp (NativeAOT, ios-arm64) ---");
+                    Log.Information("This may take several minutes (ILCompiler + code signing)...");
+                    DotNetPublish(s => s
+                        .SetProject(BindingTestsDir / "RuntimeTestsApp")
+                        .SetConfiguration(configuration)
+                        .SetRuntime("ios-arm64")
+                        .SetVerbosity(DotNetVerbosity.quiet));
+                }
             }
 
-            // Locate app bundle
+            // Locate app bundle. Both lanes produce `RuntimeTestsApp.app` under an `ios-arm64` RID
+            // directory; the configuration segment is what tells them apart, so it is part of the
+            // filter rather than an afterthought.
             var appSearchDir = BindingTestsDir / "RuntimeTestsApp" / "bin";
             var appPath = Directory.GetDirectories(appSearchDir, "RuntimeTestsApp.app",
                     SearchOption.AllDirectories)
-                .Where(d => d.Contains("Release") && d.Contains("ios-arm64"))
+                .Where(d => d.Contains(configuration) && d.Contains("ios-arm64"))
                 .FirstOrDefault()
-                ?? throw new Exception("App bundle not found after publish");
+                ?? throw new Exception(
+                    $"App bundle not found after {(monoAot ? "build" : "publish")} " +
+                    $"(expected a {configuration}/ios-arm64 RuntimeTestsApp.app under {appSearchDir})");
             Log.Information("App bundle: {Path}", appPath);
 
+            AssertDeviceAppFlavor(appPath, monoAot);
+
             // Install + run on device
-            RunOnDevice(device, appPath);
+            RunOnDevice(device, appPath, monoAot, laneLabel);
+    }
+
+    /// <summary>
+    /// Structural anti-masquerade check on the device app bundle we are about to install: a Mono
+    /// full-AOT bundle ships its managed assemblies (the runtime loads IL/AOT images at launch), a
+    /// NativeAOT bundle does not (everything is compiled into the native executable). Both lanes
+    /// build to the same bundle id, so without this a stale bundle — or a lane whose PublishAot
+    /// suppression silently stopped working — would install, run, and be reported under the wrong
+    /// runtime's name. Cheap, and it fails the run before the device is touched.
+    /// </summary>
+    void AssertDeviceAppFlavor(string appPath, bool monoAot)
+    {
+        var managedAssembly = Path.Combine(appPath, "RuntimeTestsApp.dll");
+        var hasManagedAssemblies = File.Exists(managedAssembly);
+        var expectedFlavor = monoAot ? "Mono full-AOT" : "NativeAOT";
+
+        if (monoAot && !hasManagedAssemblies)
+            throw new Exception(
+                $"--mono-aot built {appPath} but the bundle carries no managed RuntimeTestsApp.dll — " +
+                "that is a NativeAOT bundle shape. The PublishAot suppression " +
+                $"(-p:{DeviceMonoAotProperty}=true) did not take effect; refusing to report a " +
+                "NativeAOT run as Mono full-AOT.");
+
+        if (!monoAot && hasManagedAssemblies)
+            throw new Exception(
+                $"The NativeAOT device lane produced {appPath} with a managed RuntimeTestsApp.dll — " +
+                "that is a Mono bundle shape. Refusing to report a Mono run as NativeAOT.");
+
+        Log.Information("Device app flavor verified: {Flavor} (managed assemblies {Present})",
+            expectedFlavor, hasManagedAssemblies ? "present" : "absent");
+    }
+
+    /// <summary>
+    /// Reads the app's own "Runtime flavor: …" banner back out of the device console output and
+    /// fails when it disagrees with the lane that was launched. The banner reports what
+    /// <c>SwiftRuntimeInfo</c> resolved in-process, which is the value that actually selects the
+    /// interop dispatch path — so this is the check that the Mono lane really ran Mono. A run that
+    /// never printed the banner is left alone: that is a launch/crash story the surrounding
+    /// recovery loop already classifies, and failing here would mask it.
+    /// </summary>
+    static void AssertDeviceRuntimeFlavorMatchesLane(string output, bool monoAot, string laneLabel)
+    {
+        var verdict = DeviceRuntimeFlavorGate.Judge(output, monoAot);
+        var banner = DeviceRuntimeFlavorGate.ExtractBanner(output);
+
+        switch (verdict)
+        {
+            case DeviceRuntimeFlavorGate.Verdict.NoEvidence:
+                return;
+            case DeviceRuntimeFlavorGate.Verdict.Mismatch:
+                throw new Exception(
+                    DeviceRuntimeFlavorGate.MismatchMessage(laneLabel, banner!, monoAot));
+            default:
+                Log.Information("{Lane}: live runtime flavor confirmed ({Body})", laneLabel, banner);
+                return;
+        }
     }
 
     // Simple record to avoid depending on DeviceCtl.PhysicalDevice in the target body
@@ -1904,9 +2022,20 @@ partial class Build
     // Shared Helpers: Device Execution
     // ============================================================
 
-    void RunOnDevice(PhysicalDeviceInfo device, string appPath)
+    /// <param name="monoAot">
+    /// True for the Mono full-AOT lane. It selects the <c>--platform</c> value handed to the app,
+    /// which is what decides whether the NativeAOT-specific skips apply — they must NOT apply here,
+    /// this process is Mono. See <c>TestPlatform.DeviceMonoAot</c>.
+    /// </param>
+    /// <param name="laneLabel">
+    /// Result/report label ("Device/NativeAOT" or "Device/MonoAOT"). Only "Device/NativeAOT" is a
+    /// known key for the runtime baseline comparison and the ABI grid, so the Mono lane reports its
+    /// own counts without touching (or being graded against) the NativeAOT floors.
+    /// </param>
+    void RunOnDevice(PhysicalDeviceInfo device, string appPath, bool monoAot = false,
+        string laneLabel = "Device/NativeAOT")
     {
-        Log.Information("--- Running on physical device ---");
+        Log.Information("--- Running on physical device ({Lane}) ---", laneLabel);
 
         // Load test inventory for crash recovery (unified project — same manifest for sim + device)
         var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
@@ -1949,7 +2078,10 @@ partial class Build
             // refuses any file that doesn't carry this token.
             var runToken = NewRunToken();
 
-            var args = new List<string> { "--platform", "device", "--run-token", runToken };
+            var args = new List<string>
+            {
+                "--platform", monoAot ? "device-monoaot" : "device", "--run-token", runToken
+            };
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
             if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
@@ -1969,8 +2101,14 @@ partial class Build
             // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
             // all, so crash recovery has nothing to recover and would blind-exclude an innocent class.
             // This is the exact path the six-CoreDeviceError-10002 run took.
-            if (ShouldRetryLauncherAbort(result, "Device/NativeAOT", ref launchAbortCount))
+            if (ShouldRetryLauncherAbort(result, laneLabel, ref launchAbortCount))
                 continue;
+
+            // The app got far enough to print its banner — cross-check the runtime it actually
+            // resolved against the lane we asked for. The structural bundle check
+            // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
+            // with it on the phone, which is the claim the report ultimately makes.
+            AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
 
             // Try to retrieve JSONL results from device sandbox
             JsonlTestResults? runResults = null;
@@ -2107,7 +2245,7 @@ partial class Build
         }
 
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
-        ReportRuntimeTestResult(lastResult!, "Device/NativeAOT", finalJsonl);
+        ReportRuntimeTestResult(lastResult!, laneLabel, finalJsonl);
     }
 
     // ============================================================
@@ -2597,18 +2735,10 @@ partial class Build
         var baseline = ValidationBaseline.Load(BaselinePath);
         var runtimeBaseline = baseline.RuntimeTests;
 
-        // Determine which platform baseline to compare
-        var platformKey = platform.ToLowerInvariant() switch
-        {
-            "simulator" => "simulator",
-            "device/nativeaot" or "device" => "device",
-            "macos" => "macos",
-            "macos x64" => "macos_x64",
-            "mac catalyst" => "maccatalyst",
-            "mac catalyst x64" => "maccatalyst_x64",
-            "tvos simulator" => "tvos_simulator",
-            _ => null
-        };
+        // Determine which platform baseline to compare. The label⇒key mapping lives in a BCL-only
+        // model so the unit tests can prove every shipping lane resolves to a seeded baseline entry
+        // — an unmapped label falls through to the early return below, which is a silent pass.
+        var platformKey = RuntimeBaselinePlatformKey.Resolve(platform);
 
         if (platformKey == null || runtimeBaseline == null)
         {
@@ -2620,6 +2750,7 @@ partial class Build
         {
             "simulator" => runtimeBaseline.Simulator,
             "device" => runtimeBaseline.Device,
+            "device_monoaot" => runtimeBaseline.DeviceMonoAot,
             "macos" => runtimeBaseline.MacOS,
             "macos_x64" => runtimeBaseline.MacOSX64,
             "maccatalyst" => runtimeBaseline.MacCatalyst,
@@ -2737,6 +2868,7 @@ partial class Build
                 {
                     "simulator" => runtimeBaseline with { Simulator = newCounts },
                     "device" => runtimeBaseline with { Device = newCounts },
+                    "device_monoaot" => runtimeBaseline with { DeviceMonoAot = newCounts },
                     "macos" => runtimeBaseline with { MacOS = newCounts },
                     "macos_x64" => runtimeBaseline with { MacOSX64 = newCounts },
                     "maccatalyst" => runtimeBaseline with { MacCatalyst = newCounts },

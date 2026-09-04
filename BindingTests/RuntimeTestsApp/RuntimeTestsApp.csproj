@@ -23,7 +23,14 @@
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
     <!-- CA1418: 'visionos' missing from the .NET 10.0.107 analyzer's KnownPlatforms list
          on the plain net10.0-ios TFM. See the matching note in CompileCheck.csproj. -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- IL2121: "unused UnconditionalSuppressMessage". The suppressions it names live in
+         Swift.Runtime and are load-bearing for ILC, which analyses those generic reflection paths
+         differently from ILLink. Only the Mono full-AOT device lane runs ILLink over this app, and
+         there they read as unused — so the diagnostic is a disagreement between two trimmers about
+         product code that is correct for both, and the repo-wide TreatWarningsAsErrors would
+         otherwise turn it into a build break on that lane alone. Deleting the suppressions to
+         satisfy it would red the NativeAOT lane instead. -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104;IL2121</NoWarn>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
@@ -35,15 +42,50 @@
     <MtouchLink>None</MtouchLink>
   </PropertyGroup>
 
-  <!-- Device (NativeAOT): PublishAot + code signing.
-       Activated when publishing with -r ios-arm64 (Build.RuntimeTests.cs RunDevicePlatform path). -->
+  <!-- Device: code signing is common to both device runtimes; PublishAot is what selects between
+       them. Activated when building/publishing with -r ios-arm64 (Build.RuntimeTests.cs
+       RunDevicePlatform path).
+
+       Default (NativeAOT)  — `dotnet publish -c Release -r ios-arm64`.
+       $(SwiftBindingsDeviceMonoAot)=true (Mono full-AOT) — `dotnet build -c Debug -r ios-arm64`,
+       set by the `mono-aot` flag on the `nuke binding-tests` device lane. This is the .NET-for-iOS
+       DEFAULT device
+       runtime: a device build AOT-compiles by default (iOS forbids JIT), so simply not asking for
+       PublishAot yields Mono full-AOT. It is the runtime a MAUI app ships on unless the author
+       opts into PublishAot, and it is a different runtime from both the simulator's Mono and
+       NativeAOT. Same property choice as swift-dotnet-packages `BuildTestAppDevice`. -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
-    <PublishAot>true</PublishAot>
-    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+    <PublishAot Condition="'$(SwiftBindingsDeviceMonoAot)' != 'true'">true</PublishAot>
+    <PublishAotUsingRuntimePack Condition="'$(SwiftBindingsDeviceMonoAot)' != 'true'">true</PublishAotUsingRuntimePack>
     <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
     <CodesignProvision>Wildcard Dev</CodesignProvision>
     <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
   </PropertyGroup>
+
+  <!-- Runtime-flavor AppContext switch — the SAME build-time truth the Runtime package injects for
+       every real consumer (src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets,
+       _SwiftBindingsInjectRuntimeFlavorSwitch). That file ships in buildTransitive/ and so flows
+       across PackageReference only; this app consumes Swift.Runtime by ProjectReference, so it must
+       inject the switch itself.
+
+       Without it, SwiftRuntimeInfo falls back to its heuristic, which cannot tell Mono full-AOT on a
+       DEVICE (rid ios-arm64, no Mono.Runtime type, IsDynamicCodeSupported=false) from NativeAOT and
+       defaults to NativeAOT. On the Mono full-AOT lane that misclassification would enable direct
+       static-virtual generic dispatch and abort Mono at jit-info.c:918 — i.e. the lane would crash
+       for a reason that has nothing to do with the bindings under test. Injected for BOTH device
+       flavors (and harmlessly for the simulator/mac legs, where it agrees with the heuristic) so
+       there is one resolution rule rather than two. -->
+  <Target Name="_RuntimeTestsAppInjectRuntimeFlavorSwitch"
+          BeforeTargets="GenerateBuildRuntimeConfigurationFiles;GenerateRuntimeConfigurationFiles">
+    <PropertyGroup>
+      <_RuntimeTestsAppIsNativeAot Condition="'$(PublishAot)' == 'true'">true</_RuntimeTestsAppIsNativeAot>
+      <_RuntimeTestsAppIsNativeAot Condition="'$(_RuntimeTestsAppIsNativeAot)' == ''">false</_RuntimeTestsAppIsNativeAot>
+    </PropertyGroup>
+    <ItemGroup>
+      <RuntimeHostConfigurationOption Include="Swift.Runtime.IsNativeAot"
+                                      Value="$(_RuntimeTestsAppIsNativeAot)" />
+    </ItemGroup>
+  </Target>
 
   <!-- TrimmerRoots: only needed for NativeAOT device builds.
        Source generator eliminates reflection for test discovery, but Swift.Runtime types

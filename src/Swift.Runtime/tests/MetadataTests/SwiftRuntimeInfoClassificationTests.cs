@@ -171,6 +171,25 @@ public class SwiftRuntimeInfoClassificationTests
             isNativeAot: false, monoDetected: true, isAppleMobileRid: false));
     }
 
+    [Fact]
+    public void DeviceMonoFullAot_EndToEnd_ClassifiesAsMonoNotNativeAot()
+    {
+        // The exact input shape of the `nuke binding-tests --device --mono-aot` lane, and of any
+        // MAUI app on a physical iPhone that did not opt into PublishAot — which is the default.
+        // rid ios-arm64, no Mono.Runtime type (.NET 10+ Mono AOT has none), IsDynamicCodeSupported
+        // false (the platform forbids JIT), and the build-time switch injected as false. Every
+        // heuristic input here is identical to NativeAOT's; the switch is the only thing that tells
+        // them apart, so this chains both resolvers rather than testing either in isolation.
+        var isNativeAot = SwiftRuntimeInfo.ResolveIsNativeAot(
+            switchPresent: true, switchValue: false,
+            monoDetected: false, isSimulatorRid: false, isDynamicCodeSupported: false);
+        Assert.False(isNativeAot);
+
+        Assert.True(SwiftRuntimeInfo.ResolveIsMono(
+            isNativeAot, monoDetected: false,
+            isAppleMobileRid: SwiftRuntimeInfo.IsAppleMobileRid("ios-arm64")));
+    }
+
     // ── IsAppleMobileRid: Apple non-desktop RIDs are Mono territory ──────────────
 
     [Theory]
