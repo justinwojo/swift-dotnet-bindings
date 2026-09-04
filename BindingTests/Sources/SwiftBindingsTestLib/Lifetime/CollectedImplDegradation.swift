@@ -206,6 +206,52 @@ public class CollectedSyncThrowingDelegateHost {
     }
 }
 
+// MARK: F1 — the requirement that hands back a closure
+
+/// The requirement shape whose degraded answer cannot be a zero: a non-optional closure.
+///
+/// Swift receives the reverse-dispatched result as a (function pointer, context) pair and wraps
+/// it into a real `() -> Void` it can call. There is no `nil` to bind for a non-optional closure,
+/// so a degraded call has to hand back a callable pair — the closure that does nothing, which is
+/// the identity value of this shape and the closure analogue of the calls Swift drops on a `nil`
+/// weak delegate. The host below calls what it gets back, so a degraded result that was not
+/// callable would show up here rather than in a later, unrelated frame.
+public protocol ReverseCollectedClosureDelegate: AnyObject {
+    /// A live implementation returns a closure that records having been fired.
+    func makeTick() -> () -> Void
+}
+
+/// F1 for the closure-returning requirement: same `weak` slot plus private strong reference.
+public class CollectedClosureDelegateHost {
+    public weak var weakDelegate: (any ReverseCollectedClosureDelegate)?
+
+    private var retained: [any ReverseCollectedClosureDelegate] = []
+
+    public init() {}
+
+    public func retainDelegateInternally() {
+        if let delegate = weakDelegate {
+            retained.append(delegate)
+        }
+    }
+
+    public var retainsDelegateInternally: Bool {
+        return !retained.isEmpty
+    }
+
+    /// Dispatches the closure-returning requirement from the private strong reference and then
+    /// CALLS what came back, which is where a malformed pair would surface. Returns `0` once the
+    /// returned closure has been called and `-1` when nothing is privately retained; whether the
+    /// call reached managed code is observed on the managed side, since the returned closure is
+    /// silent by construction when it is the degraded one.
+    public func invokeAndFireFromRetained() -> Int32 {
+        guard let delegate = retained.first else { return -1 }
+        let tick = delegate.makeTick()
+        tick()
+        return 0
+    }
+}
+
 // MARK: F2 — a callback in flight while the consumer drops
 
 /// Reverse-dispatch protocol for the in-flight race. A live implementation returns

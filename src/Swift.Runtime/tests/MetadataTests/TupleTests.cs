@@ -370,6 +370,50 @@ public class TupleTests : IClassFixture<TupleTests.TestFixture>
         }
     }
 
+    /// <summary>
+    /// A payload-less Swift enum with a handful of cases is stored in ONE byte, while the C# enum
+    /// projecting it has a four-byte underlying type. Registered against Swift's UInt8 metadata in
+    /// the test below to stand in for exactly that width mismatch.
+    /// </summary>
+    private enum NarrowSwiftEnum
+    {
+        First = 0,
+        Second = 1,
+        Third = 2,
+    }
+
+    [Fact]
+    public unsafe void MarshalToSwift_TupleWithNarrowEnumElement_WritesOnlyTheSwiftWidth()
+    {
+        // The enum arm of the tuple element writer has one route into it: MarshalToSwift dispatches
+        // a ValueTuple to the tuple writer, which is the arm's sole caller. It reads the element's
+        // own metadata for the width, so the enum has to be registered the way a generated module
+        // initializer registers a payload-less enum — an unregistered one throws before reaching it.
+        TypeMetadata.RegisterMetadata(typeof(NarrowSwiftEnum), TypeMetadata.GetTypeMetadataOrThrow<byte>());
+
+        var tupleMetadata = TypeMetadata.GetTypeMetadataOrThrow<(NarrowSwiftEnum, int)>();
+        var size = (int)tupleMetadata.Size;
+        var buffer = stackalloc byte[size];
+        var span = new Span<byte>(buffer, size);
+        span.Fill(0xAA);
+
+        var written = SwiftMarshal.MarshalToSwift((NarrowSwiftEnum.Third, 0x11223344), ref span);
+
+        Assert.Equal(size, written);
+        Assert.Equal((byte)2, buffer[0]);
+        // The bytes behind a one-byte discriminator are Swift's padding, not the enum's: writing the
+        // C# underlying width instead of the Swift one would have cleared them, and on a tuple whose
+        // next element started inside that span it would have cleared the element itself.
+        Assert.Equal((byte)0xAA, buffer[1]);
+        Assert.Equal((byte)0xAA, buffer[2]);
+        Assert.Equal((byte)0xAA, buffer[3]);
+        Assert.Equal(0x11223344, *(int*)(buffer + 4));
+
+        var roundTripped = SwiftMarshal.MarshalFromSwift<(NarrowSwiftEnum, int)>((IntPtr)buffer);
+        Assert.Equal(NarrowSwiftEnum.Third, roundTripped.Item1);
+        Assert.Equal(0x11223344, roundTripped.Item2);
+    }
+
     [Fact]
     public unsafe void MarshalToSwift_BlittableValueType_RoundTrip()
     {

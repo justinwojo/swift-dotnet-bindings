@@ -2028,9 +2028,12 @@ partial class Build
     /// this process is Mono. See <c>TestPlatform.DeviceMonoAot</c>.
     /// </param>
     /// <param name="laneLabel">
-    /// Result/report label ("Device/NativeAOT" or "Device/MonoAOT"). Only "Device/NativeAOT" is a
-    /// known key for the runtime baseline comparison and the ABI grid, so the Mono lane reports its
-    /// own counts without touching (or being graded against) the NativeAOT floors.
+    /// Result/report label ("Device/NativeAOT" or "Device/MonoAOT"). The label is what
+    /// <c>RuntimeBaselinePlatformKey.Resolve</c> maps to a baseline key, and the two lanes map to
+    /// SEPARATE keys — <c>device</c> and <c>device_monoaot</c> — in both baseline stores, so each is
+    /// graded and auto-ratcheted against its own floors and neither can move the other's. Their skip
+    /// sets differ (the CLI-flag-keyed NativeAOT skips do not apply to the Mono lane), which is why
+    /// they cannot share one. The ABI grid still declares the NativeAOT lane only.
     /// </param>
     void RunOnDevice(PhysicalDeviceInfo device, string appPath, bool monoAot = false,
         string laneLabel = "Device/NativeAOT")

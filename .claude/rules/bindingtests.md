@@ -51,14 +51,14 @@ Investigate degraded features: check `binding-report.json`, search generated bin
   - **Default** (no attribute) — runs on both simulator and device
   - **`[Skip("reason")]`** — always skipped (generator bugs, missing entry points)
   - **`[SkipOnSimulator("reason")]`** — skipped on simulator/CLI simulator mode, runs on device
-  - **`[SkipOnDevice("reason")]`** — skipped on device, runs on simulator
+  - **`[SkipOnDevice("reason")]`** — skipped on the NativeAOT device lane only (`--platform device`); it describes the Release/NativeAOT app, so it does NOT apply to the Mono full-AOT device lane (`--device --mono-aot`), which runs the test
   - **`[SkipOnMonoJit("reason")]`** — method-level only; skipped wherever the process runs on Mono
   - **`[SkipOnCatalystX64("reason")]`** — method-level only; skipped on Mac Catalyst x64
   - **`[Slow]`** — stress tests, always runs
   - **`[MonoJitCrash]`** — DEPRECATED, do not use. Diagnose the root cause; use a targeted `[SkipOn*]` only for confirmed platform/runtime limitations, otherwise fix the generator/runtime bug or use `[Skip]` with a specific bug reason.
 - Properties return `SwiftString` (call `.ToString()`); methods return `string` directly
 - `--class-filter NAME` runs only the named test class (exact match, case-insensitive)
-- `--platform simulator|device` selects execution mode (default: simulator)
+- `--platform simulator|device|device-monoaot` selects execution mode (default: simulator). `device` is the NativeAOT device lane, `device-monoaot` the Mono full-AOT one; the value is what decides which CLI-flag-keyed skips apply, and each lane is graded against its own baseline entry
 - iOS args: use `NSProcessInfo.ProcessInfo.Arguments` (not `Main(string[] args)`)
 - Main-queue: use `NSRunLoop.Current.RunUntil(NSDate)` instead of `Thread.Sleep()`
 - RuntimeTestsApp needs `IncludeSwiftBindingsRuntimeNative=false` in csproj
@@ -70,7 +70,7 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - **NEVER use `[MonoJitCrash]`** — if a test crashes under Mono, diagnose the root cause first. Most historical "Mono crashes" were generator/runtime bugs. If the crash matches a confirmed upstream limitation, use the narrowest current attribute (`[SkipOnMonoJit]`, `[SkipOnCatalystX64]`, `[SkipOnSimulator]`, or `[SkipOnDevice]`) with a specific reason; otherwise fix it or use `[Skip("specific bug description")]` for a known project bug.
 - **ALL runtime crashes are guilty-until-proven-innocent**: The same skepticism applies to ALL crash classifications, not just `[MonoJitCrash]`. Before labeling anything "upstream Mono" or "upstream NativeAOT", verify the generated C# P/Invoke matches the Swift @_cdecl wrapper exactly: calling convention (`CallConvCdecl` vs `CallConvSwift`), parameter count, parameter types, library name, entry point. Most "upstream" crashes turn out to be wrapper connection bugs.
 - **Confirmed upstream issues** are documented in `src/docs/Future/upstream-issues-README.md` (filing guide) with one file per filed issue at `src/docs/Future/upstream-issue-*.md`. Current filed issues: Issue 1 (Mono JIT async assertion), Issue 2 (non-blittable CallConvSwift rejection), Issue 3 (Mono `Set.insert` DONE_BLOCKING), and Issue 4 (Mono Catalyst x64 instability). The `SwiftSelf<SafeHandle>` async-lifetime item is tracked as a non-standalone note. Everything else has been our bug. The authoritative confirmed-issues list lives in memory at `feedback_mono_jit_blame.md`; consult it before classifying any crash as upstream.
-- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[SkipOnSimulator("reason")]` (skipped on simulator mode, runs on device), `[SkipOnDevice("reason")]` (skipped on device, runs on simulator mode), `[SkipOnMonoJit("reason")]` (method-level Mono runtime skip), `[SkipOnCatalystX64("reason")]` (method-level Mac Catalyst x64 skip), `[Slow]` (stress tests)
+- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[SkipOnSimulator("reason")]` (skipped on simulator mode, runs on device), `[SkipOnDevice("reason")]` (skipped on the NativeAOT device lane only — the Mono full-AOT device lane runs it), `[SkipOnMonoJit("reason")]` (method-level, runtime-detected: fires wherever the process is Mono — simulator, Catalyst, **and** the Mono full-AOT device lane), `[SkipOnCatalystX64("reason")]` (method-level Mac Catalyst x64 skip), `[Slow]` (stress tests)
 - Optional array on frozen struct → "Not enough bits" layout mismatch → `[Skip]`
 - SafeHandle arg through CallConvSwift → non-blittable error → `[Skip("SafeHandle non-blittable in CallConvSwift")]`
 - Class inheritance+protocol → entry points not exported from dylib → `[Skip]`

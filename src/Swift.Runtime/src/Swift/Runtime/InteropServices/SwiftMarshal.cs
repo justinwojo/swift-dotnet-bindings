@@ -1527,11 +1527,16 @@ public static class SwiftMarshal
             {
                 unsafe
                 {
-                    int caseValue = swiftSize switch
+                    // Read unsigned. A discriminator is an unsigned index into the case list, so a
+                    // signed read of the top half of a width (case 0x8000 of a 2-byte enum, say)
+                    // sign-extends to a negative value and names a case that does not exist. This
+                    // matches ReadDiscriminator, which the tuple/container element path uses for the
+                    // same bytes.
+                    ulong caseValue = swiftSize switch
                     {
                         1 => ((byte*)swiftSource)[0],
-                        2 => *(short*)swiftSource,
-                        _ => *(int*)swiftSource,
+                        2 => *(ushort*)swiftSource,
+                        _ => *(uint*)swiftSource,
                     };
                     return (T)Enum.ToObject(typeof(T), caseValue);
                 }

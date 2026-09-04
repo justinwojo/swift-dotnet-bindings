@@ -301,6 +301,72 @@ public class CollectedImplDegradationTests : TestBase
         GC.KeepAlive(host);
     }
 
+    /// <summary>
+    /// The requirement shape with no nil to hand back. Swift receives the reverse-dispatched
+    /// result as a (function pointer, context) pair and wraps it into a real <c>() -&gt; Void</c>;
+    /// for a NON-optional closure the zeroed pair is not a value of the type, and Swift traps on
+    /// the null function pointer — which would turn a collected implementation into a process kill
+    /// on the lane whose whole point is that it does not kill the process. So the degraded exit
+    /// hands back the identity closure of the shape: a callable pair whose calls do nothing, the
+    /// closure analogue of the calls Swift drops on a <c>nil</c> weak delegate. The fixture calls
+    /// what it got back, so a pair Swift could not call would surface here.
+    /// </summary>
+    public void TestCollectedImplDegradesAClosureReturningRequirementToANoOpClosure()
+    {
+        var host = new CollectedClosureDelegateHost();
+        var implRef = AssignClosureAndRetainInternally(host);
+
+        ForceGc();
+
+        AssertFalse(implRef.IsAlive, "the consumer's implementation is collectable once they drop it");
+        AssertTrue(host.RetainsDelegateInternally, "Swift still holds its private strong reference");
+
+        var reportsBefore = ProxyDegradation.ReportCount;
+        var ticksBefore = CollectedClosureDelegateImpl.TickCalls;
+
+        var result = host.InvokeAndFireFromRetained();
+
+        AssertTrue(result != -1,
+            "the fixture dispatched through its private strong reference, so -1 would mean the fixture lost the delegate rather than the binding degrading");
+        AssertEqual(0, result,
+            "Swift wrapped the degraded pair into a closure and called it — a null function pointer would have trapped inside Swift instead of returning here");
+        AssertEqual(ticksBefore, CollectedClosureDelegateImpl.TickCalls,
+            "the closure that came back does nothing, rather than reaching a collected implementation");
+        AssertEqual(reportsBefore + 1, ProxyDegradation.ReportCount,
+            "the degraded closure-returning callback reported itself exactly once");
+
+        TestLogger.Info("[CollectedImpl] closure-returning requirement degraded to a callable no-op and reported once");
+        GC.KeepAlive(host);
+    }
+
+    /// <summary>
+    /// Positive control for the closure-returning requirement: while the consumer still holds
+    /// their implementation, the closure Swift gets back runs the managed body, so the degraded
+    /// assertion above cannot pass on a fixture whose closure never ran at all.
+    /// </summary>
+    public void TestLiveImplReturnsARunnableClosure()
+    {
+        var host = new CollectedClosureDelegateHost();
+        var impl = new CollectedClosureDelegateImpl();
+        host.WeakDelegate = impl;
+        host.RetainDelegateInternally();
+
+        ForceGc();
+
+        var reportsBefore = ProxyDegradation.ReportCount;
+        var ticksBefore = CollectedClosureDelegateImpl.TickCalls;
+
+        AssertEqual(0, host.InvokeAndFireFromRetained(), "the fixture dispatched and fired the returned closure");
+        AssertEqual(ticksBefore + 1, CollectedClosureDelegateImpl.TickCalls,
+            "the closure Swift called reached the live implementation's body");
+        AssertEqual(reportsBefore, ProxyDegradation.ReportCount,
+            "a live implementation degrades nothing and reports nothing");
+
+        TestLogger.Info("[CollectedImpl] live closure-returning requirement handed back a running closure");
+        GC.KeepAlive(impl);
+        GC.KeepAlive(host);
+    }
+
     // ---- F2: the drop lands while a callback is already in flight ----------
 
     /// <summary>
@@ -310,9 +376,13 @@ public class CollectedImplDegradationTests : TestBase
     /// callback, the consumer drops and collects, then Swift is released and makes the call — so
     /// the race is exercised on every run instead of occasionally.
     ///
-    /// <para>Both outcomes are legitimate (the collector may or may not have taken the
-    /// implementation by then); what is not legitimate is the process dying, so the assertion is
-    /// that a result came back at all and that it is one of the two.</para>
+    /// <para>The collection is as deterministic here as in the tests above: the parked frame is
+    /// pure Swift, holding a strong reference to the conformer BOX and none to the managed
+    /// implementation, and the implementation was created and dropped on a thread that has since
+    /// exited. So this asserts the whole outcome rather than a survival range — the implementation
+    /// is gone before the call is released, the call answers with the degraded value, and the
+    /// carrier reports once. An in-flight frame must not buy the callback a live implementation
+    /// the consumer no longer has, and it must not turn the degradation into a crash.</para>
     /// </summary>
     public void TestCallbackInFlightSurvivesTheConsumerDroppingTheImpl()
     {
@@ -326,15 +396,21 @@ public class CollectedImplDegradationTests : TestBase
         // The callback is parked inside itself; drop and collect underneath it.
         ForceGc();
 
+        AssertFalse(implRef.IsAlive,
+            "the parked callback holds the conformer box, not the implementation, so the consumer's drop still collects it");
+
+        var reportsBefore = ProxyDegradation.ReportCount;
         host.AllowCallbackToProceed();
         var result = host.WaitForCallbackResult();
 
         AssertTrue(result != -1,
             "the fixture's private strong reference was in place for the whole callback, so -1 would mean the fixture, not the binding, lost the delegate");
-        AssertTrue(result == 5023 || result == 0,
-            $"an in-flight callback either dispatched normally (5023) or degraded to the default (0); it never took the process down (got {result})");
+        AssertEqual(0, result,
+            "the in-flight callback degraded to the return type's identity value rather than dispatching into a collected implementation or taking the process down");
+        AssertEqual(reportsBefore + 1, ProxyDegradation.ReportCount,
+            "the degraded in-flight callback reported itself, which is the only signal the consumer gets");
 
-        TestLogger.Info($"[CollectedImpl] in-flight callback returned {result} after the consumer dropped the implementation (alive={implRef.IsAlive})");
+        TestLogger.Info($"[CollectedImpl] in-flight callback degraded to {result} after the consumer dropped the implementation");
         GC.KeepAlive(host);
     }
 
@@ -409,6 +485,20 @@ public class CollectedImplDegradationTests : TestBase
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference AssignClosureAndRetainInternally(CollectedClosureDelegateHost host)
+    {
+        WeakReference? implRef = null;
+        RunOnRetiredThread(() =>
+        {
+            var impl = new CollectedClosureDelegateImpl();
+            host.WeakDelegate = impl;
+            host.RetainDelegateInternally();
+            implRef = new WeakReference(impl);
+        });
+        return implRef!;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference AssignRaceAndRetainInternally(RaceDelegateHost host)
     {
         WeakReference? implRef = null;
@@ -466,6 +556,21 @@ internal sealed class CollectedThrowingDelegateImpl : IReverseCollectedThrowingD
 internal sealed class CollectedSyncThrowingDelegateImpl : IReverseCollectedSyncThrowingDelegate
 {
     public int ComputeNow(int value) => value + 6000;
+}
+
+/// <summary>
+/// Implementation for the closure-returning requirement. The closure it vends captures nothing
+/// and counts on a static, so firing it does not itself keep the implementation alive — the
+/// degraded test's assertion that the counter did NOT move is about the closure Swift got back,
+/// not about what the closure happens to reference.
+/// </summary>
+internal sealed class CollectedClosureDelegateImpl : IReverseCollectedClosureDelegate
+{
+    private static int s_tickCalls;
+
+    internal static int TickCalls => Volatile.Read(ref s_tickCalls);
+
+    public Action MakeTick() => static () => Interlocked.Increment(ref s_tickCalls);
 }
 
 /// <summary>Implementation for the in-flight race.</summary>

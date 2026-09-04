@@ -1279,6 +1279,172 @@ public class ProtocolProxyEmitterTests
         Assert.DoesNotContain("global::System.Array.Empty<", receiverBody);
     }
 
+    [Fact]
+    public void EmitProxyClass_NonOptionalPointerReturn_KeepsTheUnsatisfiableTerminal()
+    {
+        // A Swift pointer projects to System.IntPtr, and `default(IntPtr)` is the null address. But a
+        // non-optional UnsafeMutablePointer excludes null from its inhabitants — Swift is entitled to
+        // dereference whatever the getter returns — so the zeroed form is a well-formed bit pattern
+        // that is NOT a value of the type. Handing it back would turn a collected implementation into
+        // a null dereference inside Swift, which is a worse outcome than saying so out loud.
+        var pointer = new NamedTypeSpec("Swift.UnsafeMutablePointer");
+        pointer.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocolDecl = CreateProtocolWithProperty("PointerReturnProto", "buffer", hasGetter: true,
+            hasSetter: false, pointer);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_buffer_get(");
+
+        Assert.Contains("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.DoesNotContain("var __degraded = default(System.IntPtr)", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_OptionalPointerReturn_StillDegradesToNil()
+    {
+        // The control for the arm above. `UnsafeMutablePointer<Int>?` is a DIFFERENT type whose nil
+        // IS an inhabitant (Swift spells it with the same null representation), so the refusal must
+        // be keyed on the pointer being non-optional, not on pointers as a family.
+        var pointer = new NamedTypeSpec("Swift.UnsafeMutablePointer");
+        pointer.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var optionalPointer = new NamedTypeSpec("Swift.Optional");
+        optionalPointer.GenericParameters.Add(pointer);
+        var protocolDecl = CreateProtocolWithProperty("OptionalPointerReturnProto", "buffer", hasGetter: true,
+            hasSetter: false, optionalPointer);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_buffer_get(");
+
+        Assert.DoesNotContain("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.Contains("var __degraded = default(", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NonOptionalClosureGetter_ConsumerOwnedArmAnswersANoOpClosure()
+    {
+        // A non-optional `() -> Void` requirement has no nil to bind: the Swift side of the getter
+        // reads the function-pointer word and traps when it is null. Handing back the zeroed buffer
+        // would make a collected implementation kill the process on the lane whose whole purpose is
+        // that it does not. The identity value of `() -> Void` is the closure that does nothing, and
+        // the receiver already owns one: its own thunk, which returns immediately on a zero context.
+        var protocolDecl = CreateProtocolWithProperty("ClosureGetterProto", "onTick", hasGetter: true,
+            hasSetter: false, EscapingVoidClosure());
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_onTick_get(");
+
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+        Assert.True(report >= 0 && failFast > report, "the terminal branches on the carrier lane");
+
+        var degradedArm = receiverBody.Substring(report, failFast - report);
+        Assert.Contains("*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&_PropClosureThunk_onTick;", degradedArm);
+        Assert.Contains("return buf;", degradedArm);
+        // The context word stays zero (AllocZeroed), which is what makes the thunk a no-op.
+        Assert.DoesNotContain("buf + IntPtr.Size", degradedArm);
+    }
+
+    [Fact]
+    public void EmitProxyClass_OptionalClosureGetter_ConsumerOwnedArmAnswersNil()
+    {
+        // The control. An `Optional` closure slot DOES have a nil, and the zeroed buffer already is
+        // it, so this arm must keep handing back the untouched buffer — writing a live function
+        // pointer here would turn a collected implementation into a closure the consumer never set.
+        var optionalClosure = new NamedTypeSpec("Swift.Optional");
+        optionalClosure.GenericParameters.Add(new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty));
+        var protocolDecl = CreateProtocolWithProperty("OptionalClosureGetterProto", "onTick", hasGetter: true,
+            hasSetter: false, optionalClosure);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_onTick_get(");
+
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+        Assert.True(report >= 0 && failFast > report, "the terminal branches on the carrier lane");
+
+        var degradedArm = receiverBody.Substring(report, failFast - report);
+        Assert.DoesNotContain("delegate* unmanaged[Cdecl]", degradedArm);
+        Assert.Contains("return buf;", degradedArm);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClosureReturningMethod_ConsumerOwnedArmAnswersANoOpClosure()
+    {
+        // Same shape on the method receiver, which is a separate emit site. The gate admits only a
+        // NON-optional `() -> Void` return here, so there is no nil arm to preserve.
+        var protocolDecl = CreateSimpleProtocol("ClosureMethodProto");
+        var method = CreateMethodDecl("makeTick");
+        method.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "",
+            PrivateName = "",
+            SwiftTypeSpec = EscapingVoidClosure(),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        protocolDecl.Methods.Add(method);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_makeTick_0(");
+
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+        Assert.True(report >= 0 && failFast > report, "the terminal branches on the carrier lane");
+
+        var degradedArm = receiverBody.Substring(report, failFast - report);
+        Assert.Contains("*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&_MethodClosureThunk_makeTick_0;", degradedArm);
+        Assert.Contains("return buf;", degradedArm);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SiblingFanoutAllMiss_PropertySetter_TakesTheTwoLaneTerminal()
+    {
+        // A fan-out receiver that exhausts every candidate proxy is in exactly the same state as a
+        // no-sibling receiver whose single resolve returned null: no live implementation. The setter
+        // fan-out used to fall off the end of its lookup chain instead — reaching the UCO envelope's
+        // catch-all with no diagnostic and no lane split, so a consumer-owned carrier neither
+        // reported nor visibly dropped the write.
+        var protocolDecl = CreateProtocolWithProperty("SetterFanOutProto", "flag", hasGetter: false,
+            hasSetter: true, new NamedTypeSpec("Swift.Bool"));
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "flag", siblingHasSetter: true);
+        var receiverBody = ExtractReceiverBody(output, "private static void Receive_flag_set(");
+
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+        Assert.True(report >= 0, "the all-siblings-missed setter reports the degradation");
+        Assert.True(failFast > report, "…and the Swift-rooted arm still fails fast on the other side of the branch");
+        Assert.Contains("across the primary proxy and all sibling proxies", receiverBody);
+        Assert.Contains("return;", receiverBody.Substring(report, failFast - report));
+    }
+
+    [Fact]
+    public void EmitProxyClass_SiblingFanoutAllMiss_ClosureGetter_TakesTheTwoLaneTerminal()
+    {
+        // The closure getter's fan-out fell through to a bare `return buf;` — a zeroed pair with no
+        // report on either lane, which on a non-optional slot is the null function pointer Swift
+        // traps on. It takes the same terminal as its no-sibling twin, degraded value included.
+        var protocolDecl = CreateProtocolWithProperty("ClosureFanOutProto", "onTick", hasGetter: true,
+            hasSetter: false, EscapingVoidClosure());
+        var output = EmitProxyClassWithPropertySibling(protocolDecl, "onTick");
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_onTick_get(");
+
+        var report = receiverBody.IndexOf("global::Swift.Runtime.ProxyDegradation.ReportCollectedImpl(handle,", StringComparison.Ordinal);
+        var failFast = receiverBody.IndexOf("throw global::Swift.Runtime.SwiftClosureMarshaller.FailFastDeadProxyImpl(", StringComparison.Ordinal);
+        Assert.True(report >= 0 && failFast > report, "the all-siblings-missed closure getter branches on the lane");
+        Assert.Contains("across the primary proxy and all sibling proxies", receiverBody);
+        Assert.Contains("*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&_PropClosureThunk_onTick;",
+            receiverBody.Substring(report, failFast - report));
+    }
+
+    /// <summary>
+    /// An <c>@escaping () -&gt; Void</c> closure — the only shape the reverse-dispatch closure path
+    /// accepts (<c>EveryProtocolEmitter.IsDispatchableClosureShape</c> requires the escaping
+    /// attribute on a bare closure; an <c>Optional</c> closure is escaping by construction).
+    /// </summary>
+    private static ClosureTypeSpec EscapingVoidClosure()
+    {
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return closure;
+    }
+
     /// <summary>
     /// Slices out one receiver function body: from its definition up to the next
     /// <c>[UnmanagedCallersOnly]</c> attribute (i.e. the start of the following receiver).

@@ -3410,6 +3410,40 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_TupleTryGetWithWrapperBackedElement_ReleasesThatElementAtItsOwnOffset()
+    {
+        // The copying arm is per ELEMENT, not per TryGet: a tuple payload reaches each element
+        // through its own offset into the same enum copy, so a wrapper-backed element there needs
+        // the same balancing release as a single payload does — taken with the ELEMENT's witness at
+        // the ELEMENT's offset, because its siblings own their slots independently and may be on
+        // the adopt arm (or be trivial and own nothing). Missing it leaks one retain per extraction
+        // exactly as in the single-payload case, and destroying the whole enum copy instead would
+        // over-release whichever sibling had already handed its +1 to a wrapper.
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        // (wrapper-backed struct, trivial Int): one element on the copying arm, one owning nothing.
+        failedCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("ImagePipeline.ImageResponse"),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The copy into the wrapper-owned heap buffer, read from the element's offset…
+        Assert.Contains("InitializeWithCopy(_value0_heap, enumCopy + (int)offset0", csOutput);
+        // …and the release of that same slot with that element's own witness table.
+        Assert.Contains("Destroy(enumCopy + (int)offset0, _value0_meta)", csOutput);
+        // The whole-copy release belongs to the single-payload shape; here it would take out the
+        // trivial sibling's slot as well as the one already released above.
+        Assert.DoesNotContain("Destroy(enumCopy, metadata)", csOutput);
+    }
+
+    [Fact]
     public void Emit_TryGetWithClassPayload_DoesNotReleaseTheEnumCopysReference()
     {
         // Control for the release above: a class payload takes the ADOPT arm — the enum copy's

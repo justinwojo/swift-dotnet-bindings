@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Swift.Runtime;
 using Xunit;
 
@@ -133,6 +134,52 @@ public class ProxyDegradationTests
         finally
         {
             ProxyDegradation.ImplCollected -= Throwing;
+            ProxyDegradation.Forget(handle);
+        }
+    }
+
+    [Fact]
+    public void ReportCollectedImpl_AThrowingSubscriberDoesNotSuppressTheOnesBehindIt()
+    {
+        // Subscribers are independent diagnostics — an application's own logger and, say, a test
+        // probe. Invoking the multicast delegate as one call stops at the first exception, so a
+        // single badly-written handler would silently take out every handler registered after it
+        // AND make the call report `false` on the call that actually claimed the latch, which no
+        // later call can re-claim. Each subscriber gets its own guard, and the return value is
+        // decided by the latch alone.
+        var handle = NewHandle();
+        var secondRan = false;
+        void Throwing(object? sender, SwiftProxyImplCollectedEventArgs args)
+        {
+            if (args.Handle == handle)
+                throw new InvalidOperationException("subscriber blew up");
+        }
+        void Second(object? sender, SwiftProxyImplCollectedEventArgs args)
+        {
+            if (args.Handle == handle)
+                Volatile.Write(ref secondRan, true);
+        }
+
+        ProxyDegradation.ImplCollected += Throwing;
+        ProxyDegradation.ImplCollected += Second;
+        try
+        {
+            var before = ProxyDegradation.ReportCount;
+
+            Assert.True(ProxyDegradation.ReportCollectedImpl(handle, "IFoo.Bar()"));
+
+            Assert.True(Volatile.Read(ref secondRan),
+                "the subscriber registered after the throwing one still ran");
+            Assert.True(ProxyDegradation.ReportCount >= before + 1,
+                "the carrier's report still counted");
+            // The latch was claimed, so the carrier stays silent from here — the throw did not
+            // leave it in a state where a later callback would report a second time.
+            Assert.False(ProxyDegradation.ReportCollectedImpl(handle, "IFoo.Bar()"));
+        }
+        finally
+        {
+            ProxyDegradation.ImplCollected -= Throwing;
+            ProxyDegradation.ImplCollected -= Second;
             ProxyDegradation.Forget(handle);
         }
     }

@@ -395,8 +395,12 @@ public class SkipOnCatalystX64Attribute : Attribute
 /// Marks tests that crash specifically under the <b>Mono</b> runtime (the upstream
 /// <c>!ji-&gt;async</c> JIT assertion at <c>jit-info.c:918</c>, a.k.a. "Issue 1", fired during a
 /// signal-handler unwind through a CallConvSwift frame). Skipped wherever the process runs on
-/// Mono — iOS/tvOS Simulator <b>and</b> Mac Catalyst — and runs everywhere else: macOS (CoreCLR)
-/// and physical device (NativeAOT), neither of which can hit a Mono assertion.
+/// Mono — iOS/tvOS Simulator, Mac Catalyst, <b>and</b> the Mono full-AOT device lane
+/// (<c>--device --mono-aot</c>), which is Mono on a phone and so satisfies the same runtime
+/// predicate. It runs everywhere else: macOS (CoreCLR) and the NativeAOT device lane, neither of
+/// which can hit a Mono assertion. Note the asymmetry with the CLI-flag-keyed
+/// <see cref="SkipOnDeviceAttribute"/>, which the Mono full-AOT device lane does NOT honor: that
+/// one names the Release/NativeAOT app, this one names the runtime.
 ///
 /// This is distinct from <see cref="SkipOnSimulatorAttribute"/>, which is keyed off the
 /// <c>--platform simulator</c> CLI flag. The harness passes <c>--platform simulator</c> for the

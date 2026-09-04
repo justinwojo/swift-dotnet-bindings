@@ -1,5 +1,5 @@
 {
-  "git_sha": "f79b5575",
+  "git_sha": "9f82d85b",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -124,7 +124,7 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 232568,
+        "lines": 232586,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -984,19 +984,19 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 3550,
+      "pass": 3556,
       "fail": 0,
       "skip": 41,
       "crash": 0
     },
     "device": {
-      "pass": 3564,
+      "pass": 3570,
       "fail": 0,
       "skip": 27,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 3560,
+      "pass": 3566,
       "fail": 0,
       "skip": 31,
       "crash": 0
@@ -1033,6 +1033,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 17519
+    "swift_bindings_unit_pass_floor": 17527
   }
 }

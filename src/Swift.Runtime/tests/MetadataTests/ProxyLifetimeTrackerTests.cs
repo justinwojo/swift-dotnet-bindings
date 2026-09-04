@@ -468,6 +468,37 @@ public class ProxyLifetimeTrackerTests
     }
 
     [Fact]
+    public void OnEveryProtocolDeinit_DropsTheDegradationReportLatch()
+    {
+        using var scope = SwiftExitGuardTestScope.Enter(processExiting: false);
+
+        var impl = new MockImpl();
+        var handle = NewMockHandle();
+        try
+        {
+            ProxyLifetimeTracker.Track(impl, handle);
+
+            // This carrier has already reported a degraded callback, so it is latched silent.
+            Assert.True(ProxyDegradation.ReportCollectedImpl(handle, "IMockFace.Ping()"));
+            Assert.False(ProxyDegradation.ReportCollectedImpl(handle, "IMockFace.Ping()"));
+
+            // Deinit must clear the degradation latch as well as the roots. Handle values come from
+            // the allocator and are recycled, so a new conformer box landing on this address would
+            // otherwise inherit "already reported" and its own first degradation would be silent —
+            // the one diagnostic that makes a stopped delegate discoverable, lost for that carrier.
+            ProxyLifetimeTracker.OnEveryProtocolDeinitCore(handle);
+
+            Assert.True(ProxyDegradation.ReportCollectedImpl(handle, "IMockFace.Ping()"));
+        }
+        finally
+        {
+            ProxyDegradation.Forget(handle);
+            ProxyLifetimeTracker.DropForTest(handle);
+            GC.KeepAlive(impl);
+        }
+    }
+
+    [Fact]
     public void OnEveryProtocolDeinit_UnknownHandle_IsNoOp()
     {
         using var scope = SwiftExitGuardTestScope.Enter(processExiting: false);

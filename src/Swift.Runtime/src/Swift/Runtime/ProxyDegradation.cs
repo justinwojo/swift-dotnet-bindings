@@ -78,8 +78,9 @@ public static class ProxyDegradation
     /// <summary>
     /// Raised the first time a consumer-owned carrier degrades a reverse-dispatch callback because its
     /// implementation had been collected. Handlers run on whichever thread Swift called in on — including
-    /// a Swift-owned queue — and must not throw; an exception from a handler is swallowed (the callback is
-    /// mid-way across a native boundary where a managed throw would abort the process).
+    /// a Swift-owned queue — and must not throw; an exception from a handler is caught and dropped (the
+    /// callback is mid-way across a native boundary where a managed throw would abort the process). Each
+    /// subscriber is invoked under its own guard, so one that throws does not stop the ones behind it.
     /// </summary>
     public static event EventHandler<SwiftProxyImplCollectedEventArgs>? ImplCollected;
 
@@ -97,26 +98,52 @@ public static class ProxyDegradation
     /// </summary>
     /// <param name="handle">The conformer-box handle Swift dispatched through.</param>
     /// <param name="member">The protocol member Swift called.</param>
-    /// <returns><c>true</c> when this call was the one that reported.</returns>
+    /// <returns>
+    /// <c>true</c> when this call was the one that claimed the carrier's report latch — that answer is
+    /// decided by the latch alone, so it stays <c>true</c> even if a trace listener or an
+    /// <see cref="ImplCollected"/> subscriber throws while the diagnostic is being delivered.
+    /// </returns>
     public static bool ReportCollectedImpl(IntPtr handle, string member)
     {
+        if (!s_reported.TryAdd(handle, 0))
+            return false;
+
+        Interlocked.Increment(ref s_reportCount);
+
+        // Everything below is best-effort delivery of a diagnostic. The latch above already decided
+        // this call is the reporting one, so no failure past this point may change that answer or
+        // stop a later step: a subscriber that throws must not silence the subscriber behind it, and
+        // a managed exception must not unwind across the native receiver boundary that called us.
         try
         {
-            if (!s_reported.TryAdd(handle, 0))
-                return false;
-
-            Interlocked.Increment(ref s_reportCount);
-            var message = BuildMessage(handle, member);
-            System.Diagnostics.Trace.WriteLine(message);
-            ImplCollected?.Invoke(null, new SwiftProxyImplCollectedEventArgs(handle, member));
-            return true;
+            System.Diagnostics.Trace.WriteLine(BuildMessage(handle, member));
         }
         catch
         {
-            // A diagnostic must never be the reason a callback fails; and a managed exception cannot
-            // unwind across the native receiver boundary that called us.
-            return false;
+            // A trace listener threw. The event below is the other half of the diagnostic.
         }
+
+        var handlers = ImplCollected;
+        if (handlers is not null)
+        {
+            var args = new SwiftProxyImplCollectedEventArgs(handle, member);
+            // Walked one subscriber at a time rather than through the combined delegate: a multicast
+            // invoke stops at the first exception, so one badly-written handler would hide every
+            // handler registered after it.
+            foreach (var entry in handlers.GetInvocationList())
+            {
+                try
+                {
+                    ((EventHandler<SwiftProxyImplCollectedEventArgs>)entry)(null, args);
+                }
+                catch
+                {
+                    // Documented contract: a handler must not throw. One that does is isolated here.
+                }
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -1032,10 +1032,16 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         if (!IsValueTupleType(typeof(T)))
             throw new ArgumentException($"Type {typeof(T).Name} is not a ValueTuple type");
 
-        if (TryGetTypeMetadata<T>(out var result))
+        // Takes the resolution-failure overload so the reason the lookup failed — an element type with
+        // no registered metadata, a missing descriptor symbol — travels out as the inner exception
+        // instead of being replaced by a message that only names the tuple, the same way
+        // GetTypeMetadataOrThrow surfaces it.
+        if (TryGetTypeMetadata<T>(out var result, out var resolutionFailure))
             return result.Value;
 
-        throw new SwiftRuntimeException($"Unable to get tuple type metadata for {typeof(T).Name}");
+        throw resolutionFailure is null
+            ? new SwiftRuntimeException($"Unable to get tuple type metadata for {typeof(T).Name}")
+            : new SwiftRuntimeException($"Unable to get tuple type metadata for {typeof(T).Name}", resolutionFailure);
     }
 
     /// <summary>

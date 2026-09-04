@@ -558,6 +558,10 @@ public partial class ProtocolProxyEmitter
                             EmitSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, assignmentExpr);
                             siblingIdx++;
                         }
+                        // Every proxy lookup missed — the same "no live implementation" state the
+                        // no-sibling path resolves to, so it takes the same two-lane terminal.
+                        EmitSiblingFanOutTerminal(writer, protocolDecl, $"{pascalPropertyName} setter",
+                            VoidDegradation(writer));
                         EmitUcoGuardCloseFailFast(writer);
                         writer.Indent--;
                         writer.WriteLine("}");
@@ -640,6 +644,10 @@ public partial class ProtocolProxyEmitter
                         EmitClosureSetterLookupHit(writer, siblingIface, $"s{idx}", isOptional, pascalPropertyName, delegateType, invokerClassName);
                         idx++;
                     }
+                    // Every proxy lookup missed — the same "no live implementation" state the
+                    // no-sibling path resolves to, so it takes the same two-lane terminal.
+                    EmitSiblingFanOutTerminal(writer, protocolDecl, $"{pascalPropertyName} setter",
+                        VoidDegradation(writer));
                 }
                 EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
@@ -667,7 +675,8 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
                 if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter", ClosureBufferDegradation(writer));
+                    EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalPropertyName} getter",
+                        ClosureBufferDegradation(writer, isOptional, getterThunkName));
                     EmitClosureGetterBody(writer, pascalPropertyName, nullableDelegateType, getterThunkName, implVar: "impl");
                     writer.WriteLine("return buf;");
                 }
@@ -681,7 +690,10 @@ public partial class ProtocolProxyEmitter
                         EmitClosureGetterLookupHit(writer, siblingIface, $"s{idx}", pascalPropertyName, nullableDelegateType, getterThunkName);
                         idx++;
                     }
-                    writer.WriteLine("return buf;");
+                    // Every proxy lookup missed. Same two-lane split as the no-sibling path — the fan-out
+                    // exhausting its candidates is the identical "no live implementation" state.
+                    EmitSiblingFanOutTerminal(writer, protocolDecl, $"{pascalPropertyName} getter",
+                        ClosureBufferDegradation(writer, isOptional, getterThunkName));
                 }
                 EmitUcoGuardCloseFailFast(writer);
                 writer.Indent--;
@@ -747,7 +759,10 @@ public partial class ProtocolProxyEmitter
         // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
         // path returns the same shape (mirrors Shape 3's getter).
         writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
-        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalMethodName}()", ClosureBufferDegradation(writer));
+        // The gate admits only a non-optional `() -> Void` return, so the degraded exit must hand Swift a
+        // callable pair rather than the zeroed buffer — see ClosureBufferDegradation.
+        EmitResolveImplOrDegrade(writer, interfaceName, protocolDecl, $"{pascalMethodName}()",
+            ClosureBufferDegradation(writer, isOptional: false, returnedThunkName));
         writer.WriteLine($"{delegateType}? _del = impl.{pascalMethodName}();");
         writer.WriteLine("if (_del is null)");
         writer.Indent++;
@@ -1074,6 +1089,9 @@ public partial class ProtocolProxyEmitter
                             EmitSubscriptSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs);
                             siblingIdx++;
                         }
+                        // Every proxy lookup missed — the same "no live implementation" state the
+                        // no-sibling path resolves to, so it takes the same two-lane terminal.
+                        EmitSiblingFanOutTerminal(writer, protocolDecl, "subscript setter", VoidDegradation(writer));
                     }
 
                     EmitUcoGuardCloseFailFast(writer);
@@ -1558,8 +1576,11 @@ public partial class ProtocolProxyEmitter
     /// post-resolution synchronous escape (a marshal fault, or an impl that throws before returning its
     /// <c>Task</c>) into a box error-resume, so the Swift task is not abandoned; the NON-throwing path
     /// has no Swift error channel and FailFasts such an escape instead. A dead-proxy resolve (no live C#
-    /// impl for the handle) is a Design B2 lifetime violation on BOTH paths and FailFasts the process
-    /// before the box is touched — it is deliberately NOT converted into a box error-resume.
+    /// impl for the handle) splits on the carrier's lane, like every other receiver: a Swift-rooted carrier
+    /// FailFasts before the box is touched, since its root is strong for as long as Swift holds the proxy;
+    /// a consumer-owned carrier degrades, resuming the continuation box with the collected-implementation
+    /// error on the <c>throws</c> shape and with the return type's identity value otherwise — or keeping the
+    /// hard terminal when that type has no synthesizable value.
     /// <see cref="EveryProtocolEmitter.EmitsRealAsyncWitness"/> gates this to the plain value shape
     /// (non-inout blittable-primitive params + return), so the arg loop is the simple
     /// materialize-and-pass form with no closure/inout/string/ObjC arms.
@@ -2875,12 +2896,28 @@ public partial class ProtocolProxyEmitter
         => ReceiverDegradation.Degrade(() => writer.WriteLine("return;"));
 
     /// <summary>
-    /// A receiver whose slot returns a closure pair: the zeroed 16-byte <c>buf</c> the live path already
-    /// allocates IS the "no closure" value Swift reads as <c>nil</c>, so the degraded exit hands back the
-    /// same buffer the <c>_del is null</c> arm does.
+    /// A receiver whose slot returns a closure pair, degraded to the identity closure of its own shape.
+    /// <para>For an <c>Optional</c> closure slot the zeroed 16-byte <c>buf</c> the live path already
+    /// allocated IS the value Swift reads as <c>nil</c>, so the degraded exit hands back the same buffer
+    /// the <c>_del is null</c> arm does.</para>
+    /// <para>A NON-optional slot has no nil to bind: the Swift side of the getter reads the function-pointer
+    /// word and traps when it is null, so returning the zeroed buffer would turn a collected implementation
+    /// into a process kill on the lane whose whole point is that it does not kill the process. The dispatchable
+    /// closure shape is <c>() -&gt; Void</c>, whose identity value is the closure that does nothing — so the
+    /// degraded exit writes the receiver's own thunk into the function-pointer word and leaves the context word
+    /// zero. That thunk returns immediately on a zero context, so Swift wraps a well-formed closure of the
+    /// requirement's type whose calls are dropped: the closure analogue of the calls Swift drops on a
+    /// <c>nil</c> weak delegate.</para>
     /// </summary>
-    private static ReceiverDegradation ClosureBufferDegradation(CSharpWriter writer)
-        => ReceiverDegradation.Degrade(() => writer.WriteLine("return buf;"));
+    /// <param name="isOptional">Whether the slot's Swift type is <c>Optional</c> of the closure.</param>
+    /// <param name="thunkName">The receiver's own cdecl closure thunk, used as the no-op function pointer.</param>
+    private static ReceiverDegradation ClosureBufferDegradation(CSharpWriter writer, bool isOptional, string thunkName)
+        => ReceiverDegradation.Degrade(() =>
+        {
+            if (!isOptional)
+                writer.WriteLine($"*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&{thunkName};");
+            writer.WriteLine("return buf;");
+        });
 
     /// <summary>
     /// Builds the degraded exit for a receiver that marshals a VALUE back to Swift. Synthesizes the return
@@ -2935,6 +2972,17 @@ public partial class ProtocolProxyEmitter
     {
         expression = string.Empty;
         if (returnSpec == null)
+            return false;
+
+        // A Swift pointer projects to System.IntPtr, whose `default` is the null address — and a
+        // non-optional UnsafePointer/UnsafeMutablePointer/UnsafeRawPointer/OpaquePointer excludes
+        // null from its inhabitants, so Swift is entitled to dereference whatever comes back. That
+        // makes zero a well-formed bit pattern that is NOT a value of the type: the one blittable
+        // carrier whose zeroed form the arms below would wrongly accept. Refused here, before the
+        // projection is consulted, because the projection has already erased the pointer-ness.
+        // The OPTIONAL pointer is a different type whose nil IS an inhabitant, and it is spelled
+        // Optional<...> rather than a pointer name, so it still degrades to nil below.
+        if (returnSpec is NamedTypeSpec pointerSpec && AppleFrameworkRegistry.IsPointerType(pointerSpec.Name))
             return false;
 
         var projection = s_projectionFactory.Project(returnSpec, BuildDegradationProjectionContext());
