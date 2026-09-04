@@ -146,7 +146,13 @@ public class NonRetainingSinkRootingTests : TestBase
         ForceGc();
         var afterMany = SwiftLeakCensus.Report().ProxyImplRoots;
 
-        AssertTrue(afterMany <= afterFirst,
+        // A "<=" here would pass on a census that reads zero for everything, which is exactly what
+        // an inert or mis-wired probe looks like. The first reading has to prove a carrier exists
+        // before the second reading can mean anything, and the invariant is that the count is
+        // UNCHANGED — not merely not-worse.
+        AssertTrue(afterFirst > 0,
+            $"the first assignment minted a carrier the census can actually see (first={afterFirst})");
+        AssertEqual(afterFirst, afterMany,
             $"re-assigning the same implementation does not accumulate carriers (first={afterFirst}, after 8 more={afterMany})");
         AssertEqual(2013, harness.InvokeWeak(value: 13),
             "the reused carrier still dispatches (13 + 2000)");

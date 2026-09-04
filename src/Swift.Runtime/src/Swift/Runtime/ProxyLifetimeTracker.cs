@@ -66,13 +66,14 @@ namespace Swift.Runtime;
 /// </summary>
 public static class ProxyLifetimeTracker
 {
-    // handle -> GCHandle on the user's C# impl, freed in OnEveryProtocolDeinitCore (Swift's last
-    // retain). Its KIND encodes who owns whom: a Normal handle for a retaining Swift sink (the
-    // impl lives for exactly as long as Swift holds the EveryProtocol — see Track), a long weak
-    // handle for a non-retaining sink where the consumer's impl owns the carrier instead (see
-    // TrackConsumerOwned). Either kind resolves through Target, and either is freed by deinit, so
-    // every other member here is kind-agnostic.
-    private static readonly ConcurrentDictionary<IntPtr, GCHandle> s_implRoots = new();
+    // handle -> the impl root, freed in OnEveryProtocolDeinitCore (Swift's last retain). The root's
+    // KIND encodes who owns whom: a Normal handle for a retaining Swift sink (the impl lives for
+    // exactly as long as Swift holds the EveryProtocol — see Track), a long weak handle for a
+    // non-retaining sink where the consumer's impl owns the carrier instead (see TrackConsumerOwned).
+    // Either kind resolves through Target and either is freed by deinit, so the bookkeeping is
+    // kind-agnostic; the recorded lane is read only by IsConsumerOwnedCarrier, which is what lets a
+    // reverse-dispatch receiver tell an invariant violation from a legal collected-delegate state.
+    private static readonly ConcurrentDictionary<IntPtr, ImplRoot> s_implRoots = new();
 
     // handle -> per-handle R0 state. The atomic Released flag serializes the proxy's Dispose
     // path against its finalizer so SwiftReleaseTrampoline.Release runs exactly once per handle.
@@ -131,11 +132,12 @@ public static class ProxyLifetimeTracker
         if (!s_entries.TryAdd(handle, entry))
             throw new InvalidOperationException($"Handle {handle.ToString($"X{IntPtr.Size * 2}")} is already tracked");
 
-        var implRoot = GCHandle.Alloc(impl, rootKind);
+        var implRoot = new ImplRoot(GCHandle.Alloc(impl, rootKind),
+            consumerOwned: rootKind == GCHandleType.WeakTrackResurrection);
         if (!s_implRoots.TryAdd(handle, implRoot))
         {
             // Roll back the entry write so a subsequent Track/NotifyDeinit sees no leftover state.
-            implRoot.Free();
+            implRoot.Root.Free();
             s_entries.TryRemove(handle, out _);
             throw new InvalidOperationException($"Handle {handle.ToString($"X{IntPtr.Size * 2}")} is already tracked");
         }
@@ -145,16 +147,36 @@ public static class ProxyLifetimeTracker
     /// Resolves the C# implementation rooted for <paramref name="handle"/>, viewed as
     /// <typeparamref name="T"/>. This is the reverse-dispatch entry point: receiver thunks call
     /// <c>ResolveImpl&lt;IFace&gt;(handle)</c> instead of locating a (possibly already-collected)
-    /// proxy. Returns <c>null</c> only if the impl is no longer rooted — which, in the canonical
-    /// pattern, cannot happen while Swift references the proxy (the receiver's loud backstop
-    /// treats a null here as a hard invariant violation).
+    /// proxy.
+    /// <para>A <c>null</c> result means different things on the two lanes, which is why the receiver's
+    /// terminal consults <see cref="IsConsumerOwnedCarrier"/> before deciding what to do about it. On a
+    /// <see cref="Track"/>ed (Swift-rooted) carrier the root is strong for exactly as long as Swift holds
+    /// the box, so a null resolve cannot happen and is treated as a hard invariant violation. On a
+    /// <see cref="TrackConsumerOwned"/> carrier the root is weak by design and a null resolve is the
+    /// ordinary "the consumer dropped their delegate while Swift still holds the conformer" state.</para>
     /// </summary>
     public static T? ResolveImpl<T>(IntPtr handle) where T : class
     {
-        if (handle != IntPtr.Zero && s_implRoots.TryGetValue(handle, out var implRoot) && implRoot.IsAllocated)
-            return implRoot.Target as T;
+        if (handle != IntPtr.Zero && s_implRoots.TryGetValue(handle, out var implRoot) && implRoot.Root.IsAllocated)
+            return implRoot.Root.Target as T;
         return null;
     }
+
+    /// <summary>
+    /// True when <paramref name="handle"/>'s carrier was published through
+    /// <see cref="TrackConsumerOwned"/> — i.e. the implementation was assigned into a non-retaining
+    /// Swift slot and nothing on the Swift side roots it. Reverse-dispatch receivers ask this when
+    /// <see cref="ResolveImpl{T}"/> comes back null: on this lane a collected implementation is a legal
+    /// state the callback degrades through (see <see cref="ProxyDegradation"/>), while on the
+    /// Swift-rooted lane it is the invariant violation the loud backstop exists for.
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>false</c> for an untracked handle. That is deliberate: a handle with no root at all is
+    /// not a live consumer-owned carrier whose delegate merely went away — it is a box being dispatched
+    /// after its own teardown, which stays on the loud path.
+    /// </remarks>
+    public static bool IsConsumerOwnedCarrier(IntPtr handle)
+        => handle != IntPtr.Zero && s_implRoots.TryGetValue(handle, out var implRoot) && implRoot.ConsumerOwned;
 
     /// <summary>
     /// Releases the construction <c>+1</c> (R0) on <paramref name="handle"/>'s EveryProtocol.
@@ -221,10 +243,13 @@ public static class ProxyLifetimeTracker
             // strong root. By the time deinit fires the proxy has already released R0 (that is what
             // drove the retain to zero), so the R0 entry is normally already gone; scrub it anyway
             // so a never-disposed entry does not linger.
-            if (s_implRoots.TryRemove(handle, out var implRoot) && implRoot.IsAllocated)
-                implRoot.Free();
+            if (s_implRoots.TryRemove(handle, out var implRoot) && implRoot.Root.IsAllocated)
+                implRoot.Root.Free();
 
             SwiftObjectRegistry.Unregister(handle);
+            // The once-per-carrier degradation latch is keyed by this handle; drop it so a recycled
+            // handle value does not inherit an already-reported state from the box that just died.
+            ProxyDegradation.Forget(handle);
 
             if (s_entries.TryRemove(handle, out var entry))
                 Interlocked.Exchange(ref entry.Released, 1);
@@ -260,8 +285,8 @@ public static class ProxyLifetimeTracker
         var dropped = false;
         if (s_implRoots.TryRemove(handle, out var implRoot))
         {
-            if (implRoot.IsAllocated)
-                implRoot.Free();
+            if (implRoot.Root.IsAllocated)
+                implRoot.Root.Free();
             dropped = true;
         }
         if (s_entries.TryRemove(handle, out var entry))
@@ -270,6 +295,28 @@ public static class ProxyLifetimeTracker
             dropped = true;
         }
         return dropped;
+    }
+
+    /// <summary>
+    /// The per-handle impl root: the <see cref="GCHandle"/> that keeps (or merely observes) the user's
+    /// implementation, plus the lane it was published on. Carrying the lane alongside the handle — rather
+    /// than inferring it from the handle's kind, which <see cref="GCHandle"/> does not expose — is what
+    /// lets a reverse-dispatch receiver decide whether a null resolve is an invariant violation or the
+    /// ordinary collected-delegate state.
+    /// </summary>
+    private readonly struct ImplRoot
+    {
+        public ImplRoot(GCHandle root, bool consumerOwned)
+        {
+            Root = root;
+            ConsumerOwned = consumerOwned;
+        }
+
+        /// <summary>Strong for a Swift-rooted carrier, long-weak for a consumer-owned one.</summary>
+        public GCHandle Root { get; }
+
+        /// <summary>True when the carrier was published through <see cref="TrackConsumerOwned"/>.</summary>
+        public bool ConsumerOwned { get; }
     }
 
     /// <summary>
