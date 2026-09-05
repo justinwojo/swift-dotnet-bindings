@@ -118,6 +118,16 @@ public record IndirectResultSetup
     /// The value is a C# expression of type <c>int</c> (e.g. <c>"nint.Size * 2"</c>).
     /// </summary>
     public string? StackAllocByteCount { get; init; }
+
+    /// <summary>
+    /// When true, <see cref="CleanupCode"/> reads a <c>_cdeclResultLive</c> flag that the emitter
+    /// declares alongside <c>_cdeclBuf</c> and sets only after the Swift call returned without
+    /// error. Required whenever the cleanup runs a value-witness <c>Destroy</c> over the buffer:
+    /// on a throwing exit Swift never initializes the indirect result, so the buffer still holds
+    /// the uninitialized bytes <c>NativeMemory.Alloc</c> handed back, and destroying those
+    /// dereferences garbage. Cleanups that only free the storage don't need the flag.
+    /// </summary>
+    public bool TracksResultLive { get; init; }
 }
 
 /// <summary>

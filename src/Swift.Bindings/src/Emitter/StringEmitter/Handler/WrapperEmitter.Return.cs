@@ -1050,12 +1050,10 @@ namespace BindingsGeneration
         /// </summary>
         private bool TryEmitReturnViaProjection(CSharpWriter csWriter, ArgumentDecl returnArg)
         {
-            if (returnArg.SwiftTypeSpec.IsEmptyTuple) return false;
-            if (_requiresSwiftAsync) return false;
-            if (_env.MethodDecl.IsAccessor) return false;
-            if (_env.ClosureHandler.IsClosure(returnArg)) return false;
-            if (_env.TupleHandler.IsTuple(returnArg)) return false;
-            if (returnArg.IsGeneric) return false;
+            // Shared with the indirect-result buffer cleanup, which has to know whether this body
+            // consumes the wire value or hands the raw carrier back — see ReturnAppliesProjection.
+            if (!MethodMarshalPlanBuilder.ReturnAppliesProjection(_env, returnArg, _requiresSwiftAsync))
+                return false;
 
             var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
                 _env.NewProjectionContext(isParameter: false, genericContext: _genericContext, parentTypeDecl: _env.ParentDecl as TypeDecl));

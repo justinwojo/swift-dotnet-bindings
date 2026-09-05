@@ -327,6 +327,157 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Balances an <b>owned</b> Swift indirect result (<c>@out</c> / <c>sret</c>) buffer against the
+    /// carrier's <b>declared</b> <see cref="PayloadConstructionSemantics"/>, and reports whether the
+    /// caller still has to free the buffer's storage. This is the return-side sibling of
+    /// <see cref="CleanupTemporary"/>: the seam that a generated wrapper's <c>finally</c> calls instead
+    /// of re-deriving "does <c>NewFromPayload</c> adopt or copy?" from the carrier's Swift declaration
+    /// shape. Deriving it structurally (non-frozen struct / complex enum ⇒ adopts) is wrong for any
+    /// carrier that declares <see cref="PayloadConstructionSemantics.Copy"/> while presenting as a
+    /// non-frozen struct — a hand-written supplement projection, for instance — and the mistake is
+    /// silent: the buffer is never freed and the <c>+1</c> Swift wrote into it is never released.
+    /// <list type="bullet">
+    /// <item><b>Class slot</b> (checked before the declared semantics, and only when
+    /// <paramref name="metadata"/> confirms a class): the buffer is one word holding a Swift object
+    /// pointer the seam already read out, so the storage is dead and holds no value to destroy —
+    /// <see langword="true"/> to free it. See <see cref="IsIndirectClassSlot"/> for why neither the
+    /// declaration nor the C# shape alone can answer this.</item>
+    /// <item><b>Adopt</b>: the wrapper's SafeHandle took the buffer and its <c>+1</c>. Nothing to do;
+    /// returns <see langword="false"/> so the caller leaves the storage alone.</item>
+    /// <item><b>Copy</b>: the wrapper made its own <c>+1</c>, orphaning the buffer's — value-witness
+    /// <c>Destroy</c>, then <see langword="true"/> so the caller frees the dead storage.</item>
+    /// <item><b>Move</b>: the wrapper bitwise-took the <c>+1</c> — no <c>Destroy</c> (it would
+    /// over-release the now-shared reference); <see langword="true"/> to free the dead storage.</item>
+    /// <item><b>Inline</b>: the value was read out by value, so the buffer still holds the only
+    /// <c>+1</c>. <c>Destroy</c> it when <paramref name="valueEscapesSeam"/> is <see langword="false"/>
+    /// (the marshalled value is fully consumed before this call — e.g. already converted to a managed
+    /// array); skip the destroy when the value escapes, since the escaping copy aliases the same
+    /// payload and destroying it here would hand the caller a dangling reference. Either way
+    /// <see langword="true"/>, so the storage is freed.</item>
+    /// </list>
+    /// The method never throws: an unresolvable carrier degrades to <see langword="false"/> (leave the
+    /// buffer untouched — the pre-existing behaviour, a leak) rather than risking a double-free or a
+    /// use-after-free, and a throw out of a <c>finally</c> would replace the in-flight exception.
+    /// </summary>
+    /// <param name="buffer">The indirect-result buffer. <see cref="IntPtr.Zero"/> returns <see langword="false"/>.</param>
+    /// <param name="carrierType">
+    /// The managed carrier the buffer was marshalled into — the type whose declared semantics govern.
+    /// Callers in generic wrapper methods pass <c>typeof(T)</c> rather than instantiating a generic
+    /// helper here, so no fresh generic instantiation is forced inside a <c>finally</c> (the Mono JIT
+    /// native-wrapper hazard <see cref="DestroyWireBufferRetains(IntPtr, TypeMetadata)"/> documents).
+    /// The parameter deliberately carries no <c>DynamicallyAccessedMembers</c> annotation: those callers
+    /// pass an <b>un-annotated</b> generic parameter of the generated wrapper type, so requiring it here
+    /// would flow an IL2087 onto every open generic in every binding. The annotation is re-applied one
+    /// frame in, where a trimmed-away declaration surfaces as a caught throw rather than a bad free.
+    /// </param>
+    /// <param name="metadata">
+    /// Value-witness metadata for the payload, resolved by the caller through the cached
+    /// <see cref="TypeMetadata.TryGetTypeMetadata{T}(out TypeMetadata?)"/>. <see langword="null"/> or invalid
+    /// skips the <c>Destroy</c> step (the storage is still freed for the freeing arms).
+    /// </param>
+    /// <param name="valueEscapesSeam">
+    /// Whether the marshalled value outlives this call. Only consulted for the
+    /// <see cref="PayloadConstructionSemantics.Inline"/> arm, where the managed value aliases the
+    /// buffer's payload instead of owning a copy of it.
+    /// </param>
+    /// <returns><see langword="true"/> when the caller must free the buffer's storage.</returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "The declaration this resolves is preserved for consumers by the shipped ILLink.Descriptors.xml — the per-binding descriptor delivered in buildTransitive/ for generator-emitted open generics, or Swift.Runtime's own embedded+rooted descriptor for Runtime-owned ISwiftObject types. A carrier whose declaration is genuinely absent throws out of the reflection backstop and is caught below, degrading to the pre-existing leak rather than to a mis-classified free")]
+    public static bool ReleaseIndirectResultValue(
+        IntPtr buffer,
+        Type carrierType,
+        TypeMetadata? metadata,
+        bool valueEscapesSeam)
+    {
+        if (buffer == IntPtr.Zero || carrierType is null)
+            return false;
+
+        // A genuine Swift CLASS does not arrive in the indirect result the way a value does: the
+        // buffer is a one-word SLOT holding the object pointer, and the marshal seam reads that
+        // word out and hands the REFERENCE to the wrapper. So the wrapper adopts the reference,
+        // never the buffer — the storage is dead the moment the word has been read, and there is
+        // nothing in it to value-witness destroy (the +1 moved into the wrapper's handle).
+        // Generated class carriers declare Adopt, which describes what happened to the reference;
+        // taking that at face value here would answer "the wrapper owns the buffer" and strand one
+        // native allocation per call. The test below is exactly the one the return emitter uses to
+        // decide it is reading a class slot, so the two cannot disagree about a given carrier.
+        // Every value-semantics carrier that declares Copy or Move — SwiftArray/Set/Dictionary/
+        // Optional/Result/ClosedRange/String and the Apple supplement's URL, URLRequest,
+        // AttributedString, Measurement, Token — is a C# class implementing ISwiftStruct, so the
+        // ISwiftStruct exclusion keeps all of them on the declared-semantics arms below. The
+        // SwiftUI value wrappers are the shape that exclusion misses (sealed classes, no
+        // ISwiftStruct, but a Swift STRUCT underneath that they adopt), which is why the check
+        // also demands metadata that says Class.
+        if (IsIndirectClassSlot(carrierType, metadata))
+            return true;
+
+        PayloadConstructionSemantics semantics;
+        try
+        {
+            semantics = GetPayloadSemanticsForType(carrierType);
+        }
+        catch
+        {
+            // Unresolvable carrier (unregistered + reflection backstop miss). Degrade to the
+            // pre-existing "leave it alone" behaviour: leaking is recoverable, freeing a buffer
+            // an adopting SafeHandle owns is not.
+            return false;
+        }
+
+        switch (semantics)
+        {
+            case PayloadConstructionSemantics.Adopt:
+                return false;
+
+            case PayloadConstructionSemantics.Copy:
+                DestroyIfResolved(buffer, metadata);
+                return true;
+
+            case PayloadConstructionSemantics.Move:
+                return true;
+
+            case PayloadConstructionSemantics.Inline:
+                if (!valueEscapesSeam)
+                    DestroyIfResolved(buffer, metadata);
+                return true;
+
+            default:
+                return false;
+        }
+
+        static void DestroyIfResolved(IntPtr buffer, TypeMetadata? metadata)
+        {
+            if (metadata is not { IsValid: true } resolved)
+            {
+                ReleasePathDiagnostics.OnWireDestroySkippedInvalid();
+                return;
+            }
+            DestroyWireBufferRetains(buffer, resolved);
+        }
+    }
+
+    /// <summary>
+    /// Whether an indirect-result buffer for <paramref name="carrierType"/> is a one-word class
+    /// slot rather than storage holding a Swift value. A reference-type <see cref="ISwiftObject"/>
+    /// that is not an <see cref="ISwiftStruct"/> is <i>usually</i> a Swift class, whose buffer holds
+    /// the object pointer the marshal seam reads out — but the C# shape alone does not settle it:
+    /// the hand-written SwiftUI value wrappers (<c>Color</c>, <c>Font</c>, <c>Image</c>, <c>Text</c>,
+    /// <c>Animation</c>, <c>AnyView</c>, <c>EdgeInsets</c>) are sealed classes <i>without</i>
+    /// <see cref="ISwiftStruct"/> that wrap a Swift <b>struct</b> and <b>adopt</b> the buffer. Freeing
+    /// one of those is a use-after-free, so the runtime <see cref="TypeMetadata.Kind"/> is the
+    /// deciding witness — the same discriminator
+    /// <see cref="MarshalMovedValueFromSlot{T}(void*, TypeMetadata)"/> uses to tell the two apart.
+    /// Unresolvable metadata answers <see langword="false"/>, which sends the carrier to the declared
+    /// semantics and, for a class, degrades to the pre-existing leak rather than to a bad free.
+    /// </summary>
+    internal static bool IsIndirectClassSlot(Type carrierType, TypeMetadata? metadata)
+        => !carrierType.IsValueType
+           && typeof(ISwiftObject).IsAssignableFrom(carrierType)
+           && !typeof(ISwiftStruct).IsAssignableFrom(carrierType)
+           && metadata is { IsValid: true } resolved
+           && resolved.Kind == TypeMetadataKind.Class;
+
+    /// <summary>
     /// Marshals an <b>owned</b> by-value Swift struct out of a caller-owned temporary into a
     /// managed wrapper, then releases the temporary's value-witness retains. Used for the direct
     /// (by-value register) return of a frozen-with-memory struct: the C# local holds an

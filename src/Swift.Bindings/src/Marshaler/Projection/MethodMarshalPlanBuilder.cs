@@ -48,6 +48,32 @@ internal class MethodMarshalPlanBuilder
     }
 
     /// <summary>
+    /// The single predicate for "does the emitted return apply its type projection?" — i.e. does the
+    /// method body CONSUME the wire value into a managed representation (<c>…ToByteArray()</c>,
+    /// <c>…ToArray()</c>, …) before the finally runs, or does it hand the raw carrier back to a caller
+    /// that reads it afterwards?
+    ///
+    /// That distinction is what decides whether the indirect-result cleanup may release the value in
+    /// the buffer: an accessor emits a private seam returning the raw carrier and its public property
+    /// applies the projection OUTSIDE this method, so releasing there would be a use-after-free, while
+    /// a projected return leaves nothing aliasing the buffer.
+    ///
+    /// <see cref="WrapperEmitter"/>'s return emission and the buffer-cleanup decision below must agree
+    /// on this, so they read it from here rather than each re-deriving the gate. The projection-resolves
+    /// check is NOT part of it: each caller already has the projection in hand at its own call site.
+    /// </summary>
+    internal static bool ReturnAppliesProjection(MethodEnvironment env, ArgumentDecl returnArg, bool requiresSwiftAsync)
+    {
+        if (returnArg.SwiftTypeSpec.IsEmptyTuple) return false;
+        if (requiresSwiftAsync) return false;
+        if (env.MethodDecl.IsAccessor) return false;
+        if (env.ClosureHandler.IsClosure(returnArg)) return false;
+        if (env.TupleHandler.IsTuple(returnArg)) return false;
+        if (returnArg.IsGeneric) return false;
+        return true;
+    }
+
+    /// <summary>
     /// Builds the complete SyncMethodPlan.
     /// </summary>
     internal SyncMethodPlan BuildSyncPlan()
@@ -797,6 +823,10 @@ internal class MethodMarshalPlanBuilder
                 // Decomposed Optional: conditionally freed — the return emitter sets _cdeclBuf = null
                 // when NewFromPayload takes ownership (Some case). Use conditional free.
                 string? cleanupCode;
+                // Set by every arm whose cleanup runs a value-witness Destroy: those must not fire on
+                // a throwing exit, where Swift never initialized the indirect result and the buffer
+                // still holds NativeMemory.Alloc's uninitialized bytes.
+                bool tracksResultLive = false;
                 bool isDecomposedOptional = _env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
                     OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase);
@@ -861,20 +891,71 @@ internal class MethodMarshalPlanBuilder
                             // for a generic-param wire type (e.g. SwiftOptional<TValue>) that shifts
                             // Mono JIT native-wrapper generation and can SIGSEGV (jit-info.c:918).
                             var wireType = returnProjection.MarshalFromSwiftType;
-                            cleanupCode = $"if (TypeMetadata.TryGetTypeMetadata<{wireType}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+                            cleanupCode = $"if (_cdeclResultLive && TypeMetadata.TryGetTypeMetadata<{wireType}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+                            tracksResultLive = true;
+                        }
+                        else if (returnProjection is DataProjection)
+                        {
+                            // Consumed-inline carriers: Foundation.Data is a FROZEN struct, so it misses
+                            // both the copy-out whitelist above and the non-frozen arm below — yet its
+                            // managed carrier declares Inline, meaning NewFromPayload is a bitwise read
+                            // that ALIASES the wire buffer. A payload past Data's inline threshold lives
+                            // in a separate heap allocation the buffer holds the only reference to, so
+                            // freeing the buffer's words without a value-witness Destroy orphans that
+                            // allocation on every call.
+                            //
+                            // Whether the seam MAY destroy it is exactly "was the value consumed here?".
+                            // A projected return copies the bytes into a byte[] inside the try, leaving
+                            // nothing aliasing the buffer; an accessor skips the projection and hands the
+                            // raw carrier to its public property, which reads the payload AFTER this
+                            // finally — destroying there would be a use-after-free. So the flag follows
+                            // the return emitter's own projection gate rather than being assumed.
+                            //
+                            // Membership is a whitelist for the same reason the copy-out one above is: a
+                            // projection qualifies only if the buffer genuinely holds a Swift value of
+                            // the alloc type (not a bridged Utf8Slice or an ObjC pointer) AND the
+                            // projection consumes it. Check both before adding a sibling here.
+                            bool dataValueEscapes = !ReturnAppliesProjection(_env, returnArg, _requiresSwiftAsync);
+                            cleanupCode =
+                                $"if (!_cdeclResultLive) {{ NativeMemory.Free(_cdeclBuf); }} " +
+                                $"else {{ TypeMetadata.TryGetTypeMetadata<{allocTypeName}>(out var _ownedResultMeta); " +
+                                $"if (global::Swift.Runtime.InteropServices.SwiftMarshal.ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof({allocTypeName}), _ownedResultMeta, valueEscapesSeam: {(dataValueEscapes ? "true" : "false")})) {{ NativeMemory.Free(_cdeclBuf); }} }}";
+                            tracksResultLive = true;
                         }
                         else if (returnNts.HasModule() &&
                             _env.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(returnNts), out var returnTypeRecord))
                         {
                             // Non-frozen structs / complex enums (that are NOT copy-out projections):
-                            // NewFromPayload ADOPTS the buffer pointer into the SafeHandle (ownership
-                            // transfer); it frees the buffer on dispose, so don't free or destroy here.
+                            // the GENERATED carriers for this shape have their NewFromPayload ADOPT the
+                            // buffer pointer into the SafeHandle, and the SafeHandle frees it on dispose.
+                            // But that is a property of the carrier's NewFromPayload, not of the Swift
+                            // declaration's shape — a hand-written supplement projection can present as a
+                            // non-frozen struct and still declare Copy (its NewFromPayload allocates its
+                            // own buffer and InitializeWithCopy's into it). Nulling the cleanup on the
+                            // shape alone leaks the whole buffer AND orphans the +1 Swift wrote into it
+                            // for every such carrier, silently. So emit the declared-semantics seam
+                            // instead and let the carrier's own PayloadConstructionSemantics decide:
+                            // Adopt leaves the buffer alone (identical to the old behaviour), Copy
+                            // destroys then frees, Move/Inline free.
                             bool isNonFrozenStruct = returnTypeRecord.Kind == TypeRecordKind.Struct &&
                                 !MarshallingHelpers.IsTypeFrozen(returnTypeRecord);
                             bool isComplexEnum = returnTypeRecord.Kind == TypeRecordKind.Enum &&
                                 !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
                             if (isNonFrozenStruct || isComplexEnum)
-                                cleanupCode = null;
+                            {
+                                // Resolve metadata through the cached TryGetTypeMetadata and pass the
+                                // carrier as a typeof() rather than a generic type argument: a fresh
+                                // generic instantiation inside a (possibly generic) wrapper method's
+                                // finally shifts Mono JIT native-wrapper generation and can SIGSEGV.
+                                // A throwing exit never wrote the result, so no carrier adopted the
+                                // buffer and its bytes are still uninitialized: free the storage
+                                // outright rather than asking a carrier that was never constructed.
+                                cleanupCode =
+                                    $"if (!_cdeclResultLive) {{ NativeMemory.Free(_cdeclBuf); }} " +
+                                    $"else {{ TypeMetadata.TryGetTypeMetadata<{allocTypeName}>(out var _ownedResultMeta); " +
+                                    $"if (global::Swift.Runtime.InteropServices.SwiftMarshal.ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof({allocTypeName}), _ownedResultMeta, valueEscapesSeam: true)) {{ NativeMemory.Free(_cdeclBuf); }} }}";
+                                tracksResultLive = true;
+                            }
                         }
                     }
                 }
@@ -888,7 +969,21 @@ internal class MethodMarshalPlanBuilder
                     && TypeSpecHelpers.IsGenericTypeParameter(gpNts.Name)
                     && _genericContext.TryResolve(gpNts.Name, out var csGenericParamName))
                 {
-                    cleanupCode = $"if (!typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({csGenericParamName}))) NativeMemory.Free(_cdeclBuf);";
+                    // The concrete T is only known at run time, so this is the one arm that CANNOT
+                    // classify at emit time — which is exactly what the declared-semantics seam is for.
+                    // Testing ISwiftStruct assignability instead answers a different question: it is
+                    // true for carriers that ADOPT (leave the buffer alone, correct) but ALSO for
+                    // copy-out carriers such as SwiftArray/SwiftResult, whose NewFromPayload copies into
+                    // its own buffer — for those the old check leaked the whole wire buffer AND orphaned
+                    // the +1 Swift wrote into it. The seam preserves every previously-correct outcome
+                    // (Adopt: no free; a non-Swift T resolves to Inline: free, no destroy) and fixes the
+                    // copy-out ones. valueEscapesSeam is true because MarshalFromSwift<T> hands the
+                    // marshalled value straight back to the caller.
+                    cleanupCode =
+                        $"if (!_cdeclResultLive) {{ NativeMemory.Free(_cdeclBuf); }} " +
+                        $"else {{ TypeMetadata.TryGetTypeMetadata<{csGenericParamName}>(out var _ownedResultMeta); " +
+                        $"if (global::Swift.Runtime.InteropServices.SwiftMarshal.ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof({csGenericParamName}), _ownedResultMeta, valueEscapesSeam: true)) {{ NativeMemory.Free(_cdeclBuf); }} }}";
+                    tracksResultLive = true;
                 }
 
                 return new IndirectResultSetup
@@ -896,7 +991,8 @@ internal class MethodMarshalPlanBuilder
                     IsConstructor = false,
                     ReturnTypeName = allocTypeName,
                     AllocationCode = allocCode,
-                    CleanupCode = cleanupCode
+                    CleanupCode = cleanupCode,
+                    TracksResultLive = tracksResultLive && cleanupCode != null
                 };
             }
 
@@ -946,6 +1042,9 @@ internal class MethodMarshalPlanBuilder
             // the finally block can free it. Non-frozen structs and complex enums transfer
             // ownership to SwiftSafeHandle — don't free for those.
             string? swiftIndirectCleanup = "NativeMemory.Free(_cdeclBuf);";
+            // Mirrors the @_cdecl path: set by any arm whose cleanup value-witness Destroys, so the
+            // destroy is skipped on a throwing exit where the result was never written.
+            bool swiftIndirectTracksResultLive = false;
             var returnArg2 = _env.MethodDecl.CSSignature.First();
 
             // Optional<any P> direct CallConvSwift sret: the Swift function writes the
@@ -1002,17 +1101,40 @@ internal class MethodMarshalPlanBuilder
                     // generic DestroyWireBufferRetains<wireType> in a generic wrapper's finally forces
                     // a new generic instantiation that can crash Mono JIT (jit-info.c:918).
                     var wireType2 = returnProjection2.MarshalFromSwiftType;
-                    swiftIndirectCleanup = $"if (TypeMetadata.TryGetTypeMetadata<{wireType2}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+                    swiftIndirectCleanup = $"if (_cdeclResultLive && TypeMetadata.TryGetTypeMetadata<{wireType2}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+                    swiftIndirectTracksResultLive = true;
+                }
+                else if (returnProjection2 is DataProjection)
+                {
+                    // See the @_cdecl arm: a frozen, Inline-declared carrier the projection consumes.
+                    // The escape flag follows the return emitter's projection gate — an accessor seam
+                    // hands the raw carrier out and must not have its payload released here.
+                    bool dataValueEscapes2 = !ReturnAppliesProjection(_env, returnArg2, _requiresSwiftAsync);
+                    var dataCarrierType2 = _wrapperSignature.ReturnType;
+                    swiftIndirectCleanup =
+                        $"if (!_cdeclResultLive) {{ NativeMemory.Free(_cdeclBuf); }} " +
+                        $"else {{ TypeMetadata.TryGetTypeMetadata<{dataCarrierType2}>(out var _ownedResultMeta); " +
+                        $"if (global::Swift.Runtime.InteropServices.SwiftMarshal.ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof({dataCarrierType2}), _ownedResultMeta, valueEscapesSeam: {(dataValueEscapes2 ? "true" : "false")})) {{ NativeMemory.Free(_cdeclBuf); }} }}";
+                    swiftIndirectTracksResultLive = true;
                 }
                 else if (returnNts2.HasModule() &&
                     _env.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(returnNts2), out var returnTypeRecord2))
                 {
+                    // See the @_cdecl arm: adopt-vs-copy is the carrier's DECLARED contract, not a
+                    // consequence of the Swift declaration being a non-frozen struct / complex enum.
                     bool isNonFrozenStruct2 = returnTypeRecord2.Kind == TypeRecordKind.Struct &&
                         !MarshallingHelpers.IsTypeFrozen(returnTypeRecord2);
                     bool isComplexEnum2 = returnTypeRecord2.Kind == TypeRecordKind.Enum &&
                         !returnTypeRecord2.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
                     if (isNonFrozenStruct2 || isComplexEnum2)
-                        swiftIndirectCleanup = null;
+                    {
+                        var carrierType2 = _wrapperSignature.ReturnType;
+                        swiftIndirectCleanup =
+                            $"if (!_cdeclResultLive) {{ NativeMemory.Free(_cdeclBuf); }} " +
+                            $"else {{ TypeMetadata.TryGetTypeMetadata<{carrierType2}>(out var _ownedResultMeta); " +
+                            $"if (global::Swift.Runtime.InteropServices.SwiftMarshal.ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof({carrierType2}), _ownedResultMeta, valueEscapesSeam: true)) {{ NativeMemory.Free(_cdeclBuf); }} }}";
+                        swiftIndirectTracksResultLive = true;
+                    }
                 }
             }
             // Bare generic parameter return (same runtime check as @_cdecl path above).
@@ -1021,7 +1143,13 @@ internal class MethodMarshalPlanBuilder
                 && TypeSpecHelpers.IsGenericTypeParameter(gpNts2.Name)
                 && _genericContext.TryResolve(gpNts2.Name, out var csGenericParamName2))
             {
-                swiftIndirectCleanup = $"if (!typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({csGenericParamName2}))) NativeMemory.Free(_cdeclBuf);";
+                // See the @_cdecl arm: ISwiftStruct assignability conflates adopt with copy-out, so a
+                // SwiftArray/SwiftResult T leaked the buffer and orphaned its +1. Ask the carrier.
+                swiftIndirectCleanup =
+                    $"if (!_cdeclResultLive) {{ NativeMemory.Free(_cdeclBuf); }} " +
+                    $"else {{ TypeMetadata.TryGetTypeMetadata<{csGenericParamName2}>(out var _ownedResultMeta); " +
+                    $"if (global::Swift.Runtime.InteropServices.SwiftMarshal.ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof({csGenericParamName2}), _ownedResultMeta, valueEscapesSeam: true)) {{ NativeMemory.Free(_cdeclBuf); }} }}";
+                swiftIndirectTracksResultLive = true;
             }
 
             return new IndirectResultSetup
@@ -1033,7 +1161,8 @@ internal class MethodMarshalPlanBuilder
                     _cdeclBuf = NativeMemory.Alloc((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size);
                     var {{_env.SyntheticLocals.SwiftIndirectResult}} = new SwiftIndirectResult(_cdeclBuf);
                     """,
-                CleanupCode = swiftIndirectCleanup
+                CleanupCode = swiftIndirectCleanup,
+                TracksResultLive = swiftIndirectTracksResultLive && swiftIndirectCleanup != null
             };
         }
     }

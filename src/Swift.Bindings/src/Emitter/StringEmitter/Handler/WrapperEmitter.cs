@@ -905,12 +905,14 @@ namespace BindingsGeneration
             EmitOptionalReturnBuffer(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitCdeclResultLiveMarker(csWriter, afterErrorCheck: false);
             EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitConsumedNonCopyableSelfCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
             EmitObjCExistentialConformerKeepAlive(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
+            EmitCdeclResultLiveMarker(csWriter, afterErrorCheck: true);
             EmitReturnMethod(csWriter);
             EmitRawBufferFixedEnd(csWriter);
 
@@ -1648,6 +1650,39 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine("void* _cdeclBuf = null;");
             }
+            if (ir?.TracksResultLive == true)
+            {
+                // Reads in the finally, so it lives beside _cdeclBuf outside the try.
+                csWriter.WriteLine("bool _cdeclResultLive = false;");
+            }
+        }
+
+        /// <summary>
+        /// Marks the indirect-result buffer as holding an initialized Swift value, so the cleanup knows
+        /// whether its value-witness <c>Destroy</c> has a value to destroy: on a throwing exit Swift
+        /// leaves the buffer holding whatever <c>NativeMemory.Alloc</c> handed back. Emitted only when
+        /// the plan's cleanup reads the flag (<see cref="IndirectResultSetup.TracksResultLive"/>), so
+        /// plans with a free-only cleanup don't carry a dead local.
+        ///
+        /// Placement is per-phase because the two facts that make the buffer live arrive at different
+        /// points. For a non-throwing method the P/Invoke returning IS the whole condition, so the mark
+        /// goes immediately after the call — every post-call step (writeback, keep-alives, consumed-value
+        /// cleanups) can throw, and a mark placed after them would let the finally raw-free an already
+        /// initialized buffer and orphan its <c>+1</c>. For a throwing method the buffer is live only
+        /// once the error check has passed, so the mark has to wait for it; a post-call step that throws
+        /// before the check is then still reported as not-live, which leaks rather than destroying a
+        /// buffer Swift may never have written. That residual is the safe side of the trade.
+        /// </summary>
+        /// <param name="afterErrorCheck">
+        /// True at the post-error-check call site, false at the post-P/Invoke one. Exactly one of the
+        /// two emits, decided by whether the method carries a Swift error check.
+        /// </param>
+        private void EmitCdeclResultLiveMarker(CSharpWriter csWriter, bool afterErrorCheck)
+        {
+            if (_env.MethodDecl.IsConstructor) return;
+            if (_syncPlan?.IndirectResultMethod?.TracksResultLive != true) return;
+            if (afterErrorCheck != (_syncPlan.SwiftError != null)) return;
+            csWriter.WriteLine("_cdeclResultLive = true;");
         }
 
         /// <summary>

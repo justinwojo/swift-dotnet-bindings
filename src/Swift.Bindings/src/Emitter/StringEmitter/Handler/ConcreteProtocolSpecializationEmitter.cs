@@ -1891,6 +1891,25 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // (no extra retain); the carrier word is raw-freed below in finally.
                 csWriter.WriteLine($"return SwiftMarshal.MarshalOwnedClassFromSlot<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
             }
+            else if (returnProjectionSuffix.Length > 0)
+            {
+                // An inline-struct carrier (Foundation.Data today) read out by value: the marshalled
+                // C# struct is a bitwise view of the buffer, so the +1 Swift initialized the buffer
+                // with (Data's out-of-line __DataStorage, for a payload past the inline threshold)
+                // still belongs to the buffer. Freeing the buffer alone releases nothing.
+                //
+                // The projection suffix converts the value into an owned managed representation
+                // (byte[]), so the Swift value is fully consumed here and the buffer can be
+                // released — but WHETHER it must be is the carrier's declared
+                // PayloadConstructionSemantics, not something to re-derive from the return shape:
+                // the seam destroys for a by-value (Inline) or copying carrier and leaves an
+                // adopting one alone. The storage free stays with the finally below.
+                csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName});");
+                csWriter.WriteLine($"var {resultLocalName}Projected = {resultLocalName}{returnProjectionSuffix};");
+                csWriter.WriteLine($"TypeMetadata.TryGetTypeMetadata<{csReturnMarshalType}>(out var {resultLocalName}Meta);");
+                csWriter.WriteLine($"SwiftMarshal.ReleaseIndirectResultValue({resultPtrName}, typeof({csReturnMarshalType}), {resultLocalName}Meta, valueEscapesSeam: false);");
+                csWriter.WriteLine($"return {resultLocalName}Projected;");
+            }
             else
             {
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");

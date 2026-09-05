@@ -210,6 +210,42 @@ public struct Data : ISwiftObject
     public static implicit operator global::Foundation.NSData(Data data) => data.ToNSData();
 #endif
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// No-op, deliberately: a <see cref="Data"/> value is a <b>non-owning view</b> of a Swift
+    /// <c>Foundation.Data</c>, so there is nothing for it to release.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The ownership model this type declares.</b> <see cref="Data"/> declares
+    /// <see cref="PayloadConstructionSemantics.Inline"/>, and its <c>NewFromPayload</c> is a bitwise
+    /// read (<c>this = *(Data*)handle</c>) of the two words Swift wrote — the flags word and the
+    /// out-of-line <c>__DataStorage</c> reference for any payload past the inline threshold. That
+    /// read takes no retain, so the value it produces <em>aliases</em> a payload that belongs to
+    /// whatever produced it: the indirect-result buffer the marshal seam allocated, the enclosing
+    /// Swift value a borrowed slot read it out of, or the <c>+1</c> a Swift initializer returned by
+    /// value. A copy of a <see cref="Data"/> is another alias of that same payload, not a second
+    /// owner — the struct is freely copied by every C# assignment and argument pass, and it has no
+    /// retain to make copies independent with.</para>
+    /// <para>So releasing belongs to the producer, at the seam that knows how the value was
+    /// produced — and only a seam that <em>consumes</em> the value can release it. An indirect
+    /// result whose body applies the projection (a method or global function returning
+    /// <c>byte[]</c>) has copied the bytes out before its <c>finally</c> runs, so it releases the
+    /// payload through <c>SwiftMarshal.ReleaseIndirectResultValue</c>. An <b>accessor</b> seam does
+    /// not: a property emits a private getter that hands the raw <see cref="Data"/> back and a
+    /// public property that projects it afterwards, so the value outlives the getter's cleanup and
+    /// that cleanup frees only the buffer's storage — releasing the payload there would hand the
+    /// property a freed allocation. Making this method destructive instead — value-witness
+    /// <c>Destroy</c>ing <see cref="_object"/> — would release payloads this value only borrows
+    /// (the borrowed-slot and embedded-buffer reads above), and would fire once per copy. It is
+    /// not a matter of adding a null guard: the type cannot tell an owning value from an alias,
+    /// because nothing in the two words says which it is.</para>
+    /// <para>The consequence to be aware of: a <see cref="Data"/> that reaches managed code
+    /// <em>without</em> passing a consuming seam — the accessor-getter shape above, a value
+    /// returned by value from a Swift initializer such as <see cref="FromByteArray"/>, or read out
+    /// of a borrowed carrier and kept — holds a payload nothing will release. Giving those a home
+    /// needs a decision on what a
+    /// <see cref="Data"/> copy means (an owning handle with a real <see cref="IDisposable"/>
+    /// contract, or a projection that never surfaces the raw value), not a destructive
+    /// <c>Dispose</c> bolted onto the alias model.</para>
+    /// </remarks>
     public void Dispose() { }
 }

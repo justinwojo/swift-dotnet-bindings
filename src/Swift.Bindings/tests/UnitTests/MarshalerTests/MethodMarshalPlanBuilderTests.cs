@@ -195,11 +195,15 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void IndirectResult_CdeclNonFrozenStructReturn_CleanupCodeIsNull()
+    public void IndirectResult_CdeclNonFrozenStructReturn_CleanupDefersToDeclaredSemantics()
     {
-        // @_cdecl property getter returning non-frozen struct must NOT free the payload
-        // buffer. NewFromPayload takes ownership of the buffer pointer — freeing it causes
-        // use-after-free. CleanupCode must be null so no NativeMemory.Free is emitted.
+        // A @_cdecl property getter returning a non-frozen struct writes an OWNED value into
+        // the buffer. Whether the caller may free that buffer is not derivable from the
+        // struct's shape: it depends on what the managed carrier's NewFromPayload did, which
+        // the carrier DECLARES via PayloadConstructionSemantics. An adopting carrier keeps the
+        // buffer (freeing it is a use-after-free); a copying carrier leaves both the buffer and
+        // the value inside it for the caller to release. The builder must therefore emit a
+        // cleanup that asks the runtime, not a null that assumes adoption for every shape.
         var moduleDecl = CreateModuleDecl();
         var structDecl = new StructDecl
         {
@@ -247,14 +251,134 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+        var cleanup = plan.IndirectResultMethod!.CleanupCode;
+        Assert.NotNull(cleanup);
+        Assert.Contains("ReleaseIndirectResultValue", cleanup!);
+        // The free is conditional on what the runtime reports, never unconditional.
+        Assert.Contains("NativeMemory.Free(_cdeclBuf);", cleanup);
+        // Destroying an uninitialized buffer on a throwing exit is the hazard the flag exists
+        // for, so a cleanup that can Destroy must be gated on the value having been produced.
+        Assert.True(plan.IndirectResultMethod.TracksResultLive);
+        Assert.Contains("_cdeclResultLive", cleanup);
+    }
+
+    [Theory]
+    // A method's emitted body applies the projection (…ToByteArray()) inside the try, so the
+    // Swift value is fully consumed before the finally runs and the seam owes it a destroy.
+    [InlineData(false, "valueEscapesSeam: false")]
+    // An accessor emits a private getter returning the RAW carrier plus a public property that
+    // projects it afterwards, so the value outlives the cleanup. Destroying there would hand the
+    // property a freed payload — a use-after-free, not a leak fix.
+    [InlineData(true, "valueEscapesSeam: true")]
+    public void IndirectResult_CdeclDataReturn_EscapeFlagFollowsWhetherTheBodyConsumesTheValue(
+        bool isAccessor, string expectedFlag)
+    {
+        // Foundation.Data is a FROZEN carrier that nonetheless owns an out-of-line payload for
+        // anything past its inline threshold, so it lands in neither the copy-out whitelist nor
+        // the non-frozen arm — but it declares Inline, and an Inline carrier's buffer still holds
+        // the only +1 when the marshalled value was consumed at the seam. Freeing the storage
+        // without a value-witness destroy orphans that payload once per call.
+        var moduleDecl = CreateModuleDecl();
+        var method = new MethodDecl
+        {
+            Name = isAccessor ? "payload_Get" : "makePayload",
+            MangledName = isAccessor ? "SBW_TestModule_Loader_payload_Get" : "SBW_TestModule_Loader_makePayload",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = isAccessor,
+            UsesCdeclPropertyWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Foundation.Data"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = CreateClassDecl("Loader", moduleDecl),
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Loader");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("Swift.Foundation.Data", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        var cleanup = plan.IndirectResultMethod!.CleanupCode;
+        Assert.NotNull(cleanup);
+        Assert.Contains("ReleaseIndirectResultValue", cleanup!);
+        Assert.Contains(expectedFlag, cleanup);
+        // Destroying an uninitialized buffer on a throwing exit is the hazard the flag exists for.
+        Assert.True(plan.IndirectResultMethod.TracksResultLive);
+        Assert.Contains("_cdeclResultLive", cleanup);
     }
 
     [Fact]
-    public void IndirectResult_CdeclComplexEnumReturn_CleanupCodeIsNull()
+    public void IndirectResult_BareGenericReturn_StillFreesTheBufferWhenTheRuntimeSaysSo()
     {
-        // @_cdecl method returning complex enum must NOT free the payload buffer.
-        // NewFromPayload takes ownership — same as non-frozen struct.
+        // The bare-generic arm is the one that cannot classify at emit time, so the seam decides
+        // at run time — including for a genuine Swift CLASS, whose indirect result is a one-word
+        // slot the return emission dereferences and whose storage is therefore dead on return.
+        // The runtime answers that with "free it", and the answer is only worth anything if the
+        // emitted cleanup still contains the free to perform. Pin both halves of the shape here:
+        // the seam is consulted, and its true answer reaches a NativeMemory.Free — otherwise a
+        // future edit could drop the free at the caller boundary and every seam-level test would
+        // stay green while each call stranded one native allocation.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Box", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "unwrap",
+            MangledName = "SBW_TestModule_Box_unwrap",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("T"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl(
+                    "T", "T",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance>())
+            },
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        classDecl.Methods.Add(method);
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Box");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("T", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        var cleanup = plan.IndirectResultMethod!.CleanupCode;
+        Assert.NotNull(cleanup);
+        Assert.Contains("ReleaseIndirectResultValue((IntPtr)_cdeclBuf, typeof(T)", cleanup!);
+        Assert.Contains("NativeMemory.Free(_cdeclBuf);", cleanup);
+        // The metadata comes from the cached lookup rather than a fresh generic instantiation:
+        // materializing one inside a generic wrapper's finally is the Mono JIT native-wrapper
+        // hazard, so the arm must stay on TryGetTypeMetadata<T> + typeof(T).
+        Assert.Contains("TypeMetadata.TryGetTypeMetadata<T>(out var _ownedResultMeta)", cleanup);
+        Assert.True(plan.IndirectResultMethod.TracksResultLive);
+        Assert.Contains("_cdeclResultLive", cleanup);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclComplexEnumReturn_CleanupDefersToDeclaredSemantics()
+    {
+        // Complex enums reach managed code through the same owned-buffer contract as
+        // non-frozen structs, so they follow the same declared-semantics release.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Parser", moduleDecl);
         var method = new MethodDecl
@@ -286,7 +410,10 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+        var cleanup = plan.IndirectResultMethod!.CleanupCode;
+        Assert.NotNull(cleanup);
+        Assert.Contains("ReleaseIndirectResultValue", cleanup!);
+        Assert.True(plan.IndirectResultMethod.TracksResultLive);
     }
 
     [Fact]
@@ -1809,10 +1936,11 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void IndirectResult_NonCdeclNonFrozenStructReturn_CleanupCodeIsNull()
+    public void IndirectResult_NonCdeclNonFrozenStructReturn_CleanupDefersToDeclaredSemantics()
     {
-        // Non-cdecl SwiftIndirectResult for non-frozen struct: NewFromPayload takes
-        // ownership of the buffer pointer — must NOT free (same as @_cdecl path).
+        // Non-cdecl SwiftIndirectResult carries the same owned value as the @_cdecl path, so it
+        // asks the carrier's declared semantics rather than assuming NewFromPayload adopted the
+        // buffer. The two paths must not drift: one ownership rule, followed everywhere.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = new MethodDecl
@@ -1842,14 +1970,16 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+        var cleanup = plan.IndirectResultMethod!.CleanupCode;
+        Assert.NotNull(cleanup);
+        Assert.Contains("ReleaseIndirectResultValue", cleanup!);
+        Assert.True(plan.IndirectResultMethod.TracksResultLive);
     }
 
     [Fact]
-    public void IndirectResult_NonCdeclComplexEnumReturn_CleanupCodeIsNull()
+    public void IndirectResult_NonCdeclComplexEnumReturn_CleanupDefersToDeclaredSemantics()
     {
-        // Non-cdecl SwiftIndirectResult for complex enum: NewFromPayload takes
-        // ownership of the buffer pointer — must NOT free.
+        // Complex enum on the non-cdecl path: same owned-buffer contract, same declared release.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Parser", moduleDecl);
         var method = new MethodDecl
@@ -1880,7 +2010,10 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+        var cleanup = plan.IndirectResultMethod!.CleanupCode;
+        Assert.NotNull(cleanup);
+        Assert.Contains("ReleaseIndirectResultValue", cleanup!);
+        Assert.True(plan.IndirectResultMethod.TracksResultLive);
     }
 
     [Fact]
