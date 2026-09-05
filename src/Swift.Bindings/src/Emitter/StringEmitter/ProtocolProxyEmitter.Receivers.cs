@@ -928,20 +928,14 @@ public partial class ProtocolProxyEmitter
                     var subscriptDegradation = BuildValueReturnDegradation(writer, subscript.ReturnTypeSpec,
                         BuildSubscriptGetterConversion, subscriptIsString);
 
-                    // Unmarshal index parameters once — same indexes used for every sibling lookup.
-                    // P0: use ABI types for MarshalFromSwift.
+                    // Unmarshal index parameters once — the same `index{i}` locals feed the direct
+                    // `impl[...]` call and every sibling-fallback lookup below. An index is an ordinary
+                    // receiver INPUT, so it goes through the shared pipeline (nil-preserving optional
+                    // conversion included) rather than handing the raw ABI carrier to the indexer.
                     for (int i = 0; i < subscript.IndexParameters.Count; i++)
                     {
                         var param = subscript.IndexParameters[i];
-                        var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
-                        if (IsStringTypeSpec(param.SwiftTypeSpec))
-                            writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
-                        // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
-                        // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
-                        else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string indexClassCopyOut)
-                            writer.WriteLine($"var index{i} = {indexClassCopyOut};");
-                        else
-                            writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
+                        EmitReceiverArgumentRead(writer, param.SwiftTypeSpec, $"arg{i}", $"rawIndex{i}", $"index{i}");
                     }
 
                     if (siblingFallbacks == null || siblingFallbacks.Count == 0)
@@ -1058,19 +1052,13 @@ public partial class ProtocolProxyEmitter
                         }
                     }
 
-                    // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
+                    // Unmarshal index parameters — same shared input pipeline as the getter's indices
+                    // and as method parameters, so an optional index keeps Swift's nil distinct from a
+                    // present zero. The `index{i}` locals feed the direct call and the sibling fallbacks.
                     for (int i = 0; i < subscript.IndexParameters.Count; i++)
                     {
                         var param = subscript.IndexParameters[i];
-                        var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
-                        if (IsStringTypeSpec(param.SwiftTypeSpec))
-                            writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
-                        // Issue #40: a Swift-class index arrives as the address of a borrowed slot;
-                        // copy it out (deref + ObjC-aware retain) instead of Unsafe.Read-ing the heap pointer.
-                        else if (GetReceiverClassCopyOutExpr($"arg{i}", param.SwiftTypeSpec) is string setterIndexClassCopyOut)
-                            writer.WriteLine($"var index{i} = {setterIndexClassCopyOut};");
-                        else
-                            writer.WriteLine($"var index{i} = {GetReceiverRawMaterialization(paramTypeName, $"arg{i}", param.SwiftTypeSpec)};");
+                        EmitReceiverArgumentRead(writer, param.SwiftTypeSpec, $"arg{i}", $"rawIndex{i}", $"index{i}");
                     }
 
                     var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
@@ -1336,7 +1324,6 @@ public partial class ProtocolProxyEmitter
         int argIndex = 0;
         foreach (var param in nonEmptyParams)
         {
-            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
 
@@ -1381,51 +1368,12 @@ public partial class ProtocolProxyEmitter
                     writer.WriteLine($"{delegateType} {argName} = {invVar}.Invoke;");
                 }
             }
-            // String parameter: the local MarshalFromSwift<SwiftString> helper uses Unsafe.Read<T>
-            // which can't construct a managed SwiftString from raw Swift memory (16-byte value).
-            // Use the runtime's SwiftMarshal.MarshalFromSwift which calls NewFromPayload.
-            else if (IsStringTypeSpec(param.SwiftTypeSpec))
-            {
-                writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(rawArg{argIndex});");
-                writer.WriteLine($"var {argName} = {rawArgName}.ToString();");
-            }
-            // Issue #40: a Swift-class (or Optional<class>) param arrives as the address of a
-            // borrowed slot holding the heap pointer (the Swift thunk passes &{param}Copy). Copy it out
-            // via the runtime helper (deref + ObjC-aware retain + NewFromPayload). The local
-            // Unsafe.Read<T> would reinterpret the heap pointer as a managed reference and SIGSEGV.
-            else if (GetReceiverClassCopyOutExpr($"rawArg{argIndex}", param.SwiftTypeSpec) is string classCopyOut)
-            {
-                writer.WriteLine($"var {argName} = {classCopyOut};");
-            }
-            // Dictionaries need special handling in receiver context: the interface declares
-            // IDictionary<K,V> (parameter form), but projection produces .AsProjected()
-            // which returns IReadOnlyDictionary<K,V> (return form). IReadOnlyDictionary doesn't
-            // implement IDictionary, so we must use .ToDictionary() for eager materialization.
-            else if (GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec) is string receiverDictConversion)
-            {
-                writer.WriteLine($"var {rawArgName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
-                writer.WriteLine($"var {argName} = {receiverDictConversion};");
-            }
-            // Optional ObjC-bridgeable VALUE param (URL?): the Swift thunk borrows the bridged NSObject and
-            // passes one optional ObjC pointer word (nil = 0x0), so read a bare IntPtr and +0-bridge it —
-            // NOT the default two-word SwiftOptional<IntPtr> carrier. Mirror of the property-setter arm.
-            else if (TryGetReceiverOptionalObjCBridgeableValueRead(param.SwiftTypeSpec, $"rawArg{argIndex}", rawArgName, out var objcOptMarshal, out var objcOptConv))
-            {
-                writer.WriteLine($"var {rawArgName} = {objcOptMarshal};");
-                writer.WriteLine($"var {argName} = {objcOptConv};");
-            }
+            // Every other shape goes through the shared input pipeline (string read, class copy-out,
+            // dictionary materialization, optional ObjC-bridgeable value read, discriminator-aware
+            // optional conversion, plain raw read) — the same pipeline subscript indices use.
             else
             {
-                var setterConversion = GetReceiverSetterConversion(rawArgName, param.SwiftTypeSpec);
-                if (setterConversion != null)
-                {
-                    writer.WriteLine($"var {rawArgName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
-                    writer.WriteLine($"var {argName} = {setterConversion};");
-                }
-                else
-                {
-                    writer.WriteLine($"var {argName} = {GetReceiverRawMaterialization(paramTypeName, $"rawArg{argIndex}", param.SwiftTypeSpec)};");
-                }
+                EmitReceiverArgumentRead(writer, param.SwiftTypeSpec, $"rawArg{argIndex}", rawArgName, argName);
             }
             argNames.Add(argName);
             argModifiers.Add(param.IsInOut ? "ref " : "");
@@ -2104,6 +2052,77 @@ public partial class ProtocolProxyEmitter
     /// wrappers and enums through the runtime borrowed copy-out, and only genuinely blittable carriers
     /// keep the local fast path.
     /// </summary>
+    /// <summary>
+    /// Reads ONE borrowed incoming receiver slot into an idiomatic managed local — the shared
+    /// conversion pipeline every reverse-dispatch INPUT position goes through: a method parameter, a
+    /// subscript index, and (via its own call site, which additionally owns the string/closure arms)
+    /// a setter value. Emits either one line (<paramref name="varName"/> alone, when the ABI carrier
+    /// already IS the idiomatic type) or two (<paramref name="rawVarName"/> holding the ABI carrier,
+    /// then <paramref name="varName"/> holding the converted value).
+    /// <para>Threading every input through here is what keeps <c>Optional</c> honest. A raw
+    /// <c>SwiftOptional&lt;T&gt;</c> handed straight to the managed callee takes that type's
+    /// <c>implicit operator T?</c>, which is declared on an unconstrained <c>T</c> and is therefore
+    /// just <c>T</c> in IL: for a value-typed inner a <c>.none</c> arrives as <c>default(T)</c> widened
+    /// into a <c>Nullable&lt;T&gt;</c> whose <c>HasValue</c> is TRUE, so Swift's <c>nil</c> reaches the
+    /// implementation as a present zero. The conversion this pipeline applies branches on the carrier's
+    /// own case tag instead (see <see cref="GetReceiverOptionalSetterConversion"/>).</para>
+    /// <para>Closure and <c>inout</c> shapes are NOT handled here: they need per-call-site state (a
+    /// closure's invoke-thunk entry point, the <c>ref</c> modifier) and stay at the method-parameter
+    /// site that owns them.</para>
+    /// </summary>
+    private void EmitReceiverArgumentRead(CSharpWriter writer, TypeSpec? typeSpec, string slotExpr,
+        string rawVarName, string varName)
+    {
+        var abiTypeName = GetCSharpTypeName(typeSpec, forAbiMarshalling: true);
+
+        // String: the local MarshalFromSwift<T> is a bare Unsafe.Read and can't construct a managed
+        // SwiftString out of Swift's 16-byte value — go through the runtime's object read.
+        if (typeSpec is not null && IsStringTypeSpec(typeSpec))
+        {
+            writer.WriteLine($"var {rawVarName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>({slotExpr});");
+            writer.WriteLine($"var {varName} = {rawVarName}.ToString();");
+            return;
+        }
+
+        // Issue #40: a Swift-class (or Optional<class>) argument arrives as the address of a borrowed
+        // slot holding the heap pointer; copy it out (deref + ObjC-aware retain) instead of
+        // Unsafe.Read-ing that pointer as a managed reference.
+        if (GetReceiverClassCopyOutExpr(slotExpr, typeSpec) is string classCopyOut)
+        {
+            writer.WriteLine($"var {varName} = {classCopyOut};");
+            return;
+        }
+
+        // Dictionaries: the interface slot is IDictionary<K,V> (parameter form) while the projection
+        // produces IReadOnlyDictionary<K,V>, so materialize eagerly.
+        if (GetReceiverDictionaryConversion(rawVarName, typeSpec) is string dictConversion)
+        {
+            writer.WriteLine($"var {rawVarName} = {GetReceiverRawMaterialization(abiTypeName, slotExpr, typeSpec)};");
+            writer.WriteLine($"var {varName} = {dictConversion};");
+            return;
+        }
+
+        // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes): one optional ObjC pointer
+        // word (nil = 0x0), NOT the two-word SwiftOptional<IntPtr> carrier.
+        if (TryGetReceiverOptionalObjCBridgeableValueRead(typeSpec, slotExpr, rawVarName,
+                out var objcOptMarshal, out var objcOptConv))
+        {
+            writer.WriteLine($"var {rawVarName} = {objcOptMarshal};");
+            writer.WriteLine($"var {varName} = {objcOptConv};");
+            return;
+        }
+
+        var conversion = GetReceiverSetterConversion(rawVarName, typeSpec);
+        if (conversion != null)
+        {
+            writer.WriteLine($"var {rawVarName} = {GetReceiverRawMaterialization(abiTypeName, slotExpr, typeSpec)};");
+            writer.WriteLine($"var {varName} = {conversion};");
+            return;
+        }
+
+        writer.WriteLine($"var {varName} = {GetReceiverRawMaterialization(abiTypeName, slotExpr, typeSpec)};");
+    }
+
     private string GetReceiverRawMaterialization(string abiTypeName, string slotExpr, TypeSpec? typeSpec)
     {
         const string Marshal = "global::Swift.Runtime.InteropServices.SwiftMarshal";
@@ -3003,8 +3022,12 @@ public partial class ProtocolProxyEmitter
                 return true;
             // Frozen value types and primitives: `default` is the zeroed form, which for these carriers
             // is a value Swift reads as 0 / false / an all-zero frozen struct. A generic parameter is
-            // excluded — its layout (and whether zeroed bytes inhabit it) is unknown at emission.
-            case BlittableProjection blittable when !blittable.IsGenericParameter:
+            // excluded — its layout (and whether zeroed bytes inhabit it) is unknown at emission — and
+            // so is any aggregate whose zeroed bytes are not PROVEN to inhabit the type: blittability
+            // says how the value crosses the boundary, not that all-zero is a value of it (see
+            // <see cref="IsZeroInhabitedValueType"/>).
+            case BlittableProjection blittable when !blittable.IsGenericParameter
+                    && IsZeroInhabitedValueType(returnSpec):
                 expression = $"default({blittable.PublicType})";
                 return true;
             case ArrayProjection array:
@@ -3027,6 +3050,72 @@ public partial class ProtocolProxyEmitter
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Whether the ZEROED form of <paramref name="spec"/> is certainly an inhabitant of the Swift type —
+    /// the question <c>BlittableProjection</c> does NOT answer. Blittability establishes that the value
+    /// crosses the boundary as raw bytes; it says nothing about whether all-zero bytes are a value the
+    /// Swift side may use. A <c>@frozen</c> struct holding a non-optional <c>UnsafeRawPointer</c> is
+    /// perfectly blittable and its zeroed form is a null pointer the Swift caller is entitled to
+    /// dereference — the aggregate form of the bare-pointer return already refused above.
+    /// <para>The field model consulted is the one the generator already keeps for frozen structs:
+    /// <see cref="TypeRecord.AbiFieldLayout"/>, the per-stored-field classification (<c>i</c>nteger /
+    /// <c>f</c>loat / <c>b</c>ool / <c>p</c>ointer, with byte widths) computed once at parse time from
+    /// the struct's stored properties and flattened THROUGH nested frozen structs — so a pointer buried
+    /// in a nested aggregate shows up as a <c>p</c> fragment in the outer struct's own string, and one
+    /// scan covers the whole recursion. Nothing else in the emitter models a struct's fields (a
+    /// <c>TypeRecord</c> carries no property list), so this reuses that model rather than inventing a
+    /// second one.</para>
+    /// <para>The rule is deliberately fail-closed. Accepted: a numeric primitive scalar (whose zero is
+    /// the language's own zero), an empty frozen struct (no field to be wrong about), and a frozen
+    /// struct whose every flattened field is numeric or bool. Refused: anything carrying a
+    /// <c>p</c> field, and anything whose layout could not be classified at all — including a struct
+    /// holding an <c>Optional</c> pointer, whose nil IS an inhabitant but which the field classifier
+    /// declines to encode. Refusing there costs a degraded answer the type could have given; accepting
+    /// on an unproven layout would hand Swift bytes that are not a value.</para>
+    /// </summary>
+    private bool IsZeroInhabitedValueType(TypeSpec? spec)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+
+        // Defense in depth: the caller already refuses a bare non-optional pointer return by name, and
+        // a pointer can never be reached through the record arms below (it has no TypeRecord).
+        if (AppleFrameworkRegistry.IsPointerType(named.Name))
+            return false;
+
+        // Numeric primitive scalars — Int/UInt/the fixed widths/Float/Double/CGFloat — plus the
+        // Foundation typealiases that project straight onto a C# primitive (TimeInterval → double).
+        // Their zero is the language's own zero. Bool never reaches here (BoolProjection).
+        if (CdeclParamMapper.IsBlittablePrimitiveSwiftType(named.Name) ||
+            MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(named.Name))
+            return true;
+
+        if (!_typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(named.Name), out var record) &&
+            !_typeDatabase.TryGetTypeRecord(named, out record))
+            return false;
+        if (record is null || record.Kind != TypeRecordKind.Struct ||
+            !record.Flags.HasFlag(TypeRecordFlags.Frozen))
+            return false;
+
+        if (string.IsNullOrEmpty(record.AbiFieldLayout))
+        {
+            // No layout string means either an EMPTY frozen struct (nothing to zero wrongly — the
+            // parser emits no fragments for a struct with no stored instance properties) or a struct
+            // whose fields could not be classified. Only the measured-empty case is provable.
+            return record.InlineSize is 0;
+        }
+
+        foreach (var fragment in record.AbiFieldLayout!.Split(','))
+        {
+            var field = fragment.Trim();
+            // 'p' is a pointer or class-reference field — the one class whose zero is not a value.
+            // An unrecognised fragment is not proof of anything, so it refuses too.
+            if (field.Length == 0 || (field[0] != 'i' && field[0] != 'f' && field[0] != 'b'))
+                return false;
+        }
+        return true;
     }
 
     private ProjectionContext BuildDegradationProjectionContext()

@@ -45,7 +45,7 @@ what Swift itself does with a `nil` weak delegate:
 | An integer or floating-point type | `0` |
 | `String` | `""` |
 | `Array`, `Set`, `Dictionary` | the empty collection |
-| A frozen value type with no reference fields | its zeroed value |
+| A frozen value type made only of integers, floating-point values and booleans, at any nesting depth | its zeroed value |
 | An optional closure | `nil` |
 | A non-optional closure | a closure of the requirement's own type that does nothing when called |
 | `async throws` | a thrown error your `await` observes |
@@ -80,9 +80,10 @@ which resume a continuation, have somewhere to put a failure.
 give; an enumeration's zeroed form is a real case, but a specific one your code never chose, and
 silently returning it would be worse than saying so; a non-optional Swift pointer
 (`UnsafePointer`, `UnsafeMutablePointer`, `UnsafeRawPointer`, `OpaquePointer`) excludes the null
-address from its values, so Swift is entitled to dereference whatever comes back; a resilient
-(non-frozen) struct such as `Foundation.URL` gives no assurance that zeroed bytes are a valid
-instance. For those, a degraded
+address from its values, so Swift is entitled to dereference whatever comes back, and a frozen
+struct that carries such a pointer or a class reference in any of its fields is refused for the same
+reason; a resilient (non-frozen) struct such as `Foundation.URL` gives no assurance that zeroed
+bytes are a valid instance. For those, a degraded
 callback still stops the process, with a message naming the member, the conformance, and the fix:
 
 > Swift called '…' on a C# implementation that was already collected, and the requirement returns

@@ -1318,6 +1318,76 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_FrozenStructWithPointerField_KeepsTheUnsatisfiableTerminal()
+    {
+        // The nested form of the arm above. A frozen struct is blittable, so the whole aggregate
+        // crosses the boundary as bytes — but blittability describes TRANSPORT, not inhabitance. A
+        // struct holding a non-optional UnsafeRawPointer has no all-zero value: Swift may load through
+        // that field the moment it receives the struct, so zeroing it is a null dereference with an
+        // extra hop. The refusal must reach through the aggregate, not stop at its outer type.
+        RegisterFrozenStruct("TestModule.PointerHolder", "p8");
+        var protocolDecl = CreateProtocolWithProperty("PointerHolderProto", "holder", hasGetter: true,
+            hasSetter: false, new NamedTypeSpec("TestModule.PointerHolder"));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_holder_get(");
+
+        Assert.Contains("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.DoesNotContain("var __degraded = default(", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_FrozenStructWithNestedPointerField_KeepsTheUnsatisfiableTerminal()
+    {
+        // One level down. The parser flattens a nested frozen struct into its parent's field layout,
+        // so a pointer buried inside a member aggregate surfaces as a 'p' fragment on the OUTER type —
+        // which is exactly what makes a recursive answer possible from the emitter's type record. If
+        // this goes green, the check started reading only the outer struct's own declared fields.
+        RegisterFrozenStruct("TestModule.InnerPointerHolder", "p8");
+        RegisterFrozenStruct("TestModule.OuterHolder", "i8,p8");
+        var protocolDecl = CreateProtocolWithProperty("OuterHolderProto", "holder", hasGetter: true,
+            hasSetter: false, new NamedTypeSpec("TestModule.OuterHolder"));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_holder_get(");
+
+        Assert.Contains("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.DoesNotContain("var __degraded = default(", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_NumericOnlyFrozenStruct_StillDegradesToZero()
+    {
+        // The positive control that keeps the two arms above from swallowing the common case. Every
+        // field here is a numeric scalar whose zero is the language's own zero, so the all-zero
+        // aggregate IS a value of the type and the consumer-owned lane can still answer with it
+        // instead of killing the process.
+        RegisterFrozenStruct("TestModule.Extent", "i8,f8");
+        var protocolDecl = CreateProtocolWithProperty("ExtentProto", "extent", hasGetter: true,
+            hasSetter: false, new NamedTypeSpec("TestModule.Extent"));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_extent_get(");
+
+        Assert.DoesNotContain("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.Contains("var __degraded = default(", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_FrozenStructWithUnclassifiedLayout_KeepsTheUnsatisfiableTerminal()
+    {
+        // The fail-closed edge. When the parser could not classify every stored field it persists NO
+        // layout at all, so the emitter knows nothing about the contents — and "I could not tell" must
+        // read as "not proven", never as "no pointers found". A struct whose size was never measured
+        // (InlineSize absent) cannot claim the empty-struct exemption either.
+        RegisterFrozenStruct("TestModule.OpaqueAggregate", abiFieldLayout: null);
+        var protocolDecl = CreateProtocolWithProperty("OpaqueAggregateProto", "value", hasGetter: true,
+            hasSetter: false, new NamedTypeSpec("TestModule.OpaqueAggregate"));
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_value_get(");
+
+        Assert.Contains("global::Swift.Runtime.ProxyDegradation.FailFastUnsatisfiableReturn(", receiverBody);
+        Assert.DoesNotContain("var __degraded = default(", receiverBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_NonOptionalClosureGetter_ConsumerOwnedArmAnswersANoOpClosure()
     {
         // A non-optional `() -> Void` requirement has no nil to bind: the Swift side of the getter
@@ -5604,6 +5674,98 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_SubscriptGetterReceiver_OptionalIndex_PreservesNil()
+    {
+        // A subscript index is an ordinary receiver INPUT and must go through the same conversion a
+        // method parameter does. Handing the raw `SwiftOptional<int>` carrier to the managed indexer
+        // takes that type's `implicit operator T?`, which is declared on an unconstrained T and so is
+        // just T in IL: a `.none` becomes `default(int)` widened into an `int?` whose HasValue is
+        // TRUE, and Swift's nil reaches the implementation as a present 0 that no callee can tell
+        // apart from a real index. The conversion has to branch on the carrier's own case tag.
+        RegisterSwiftOptional();
+        RegisterSwiftInt32();
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var protocol = CreateSimpleProtocol("OptionalIndexReadProto");
+        protocol.Subscripts.Add(OptionalIndexSubscript(optionalInt));
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static IntPtr Receive_subscript_0_get(");
+
+        Assert.Contains("Swift.SwiftOptionalCases.None", body);
+        Assert.Contains("(int?)null", body);
+        // The raw carrier must not be what the indexer sees.
+        Assert.DoesNotContain("var index0 = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalCopiedValueFromSlot<SwiftOptional<int>>", body);
+        Assert.Contains("impl[index0]", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptSetterReceiver_OptionalIndex_PreservesNil()
+    {
+        // Same defect, second emit site. The setter's VALUE already ran through the conversion
+        // pipeline while its INDEX did not, so the two halves of one subscript disagreed about what
+        // nil means. Both accessors read an index the same way or a round-trip through the subscript
+        // cannot hold.
+        RegisterSwiftOptional();
+        RegisterSwiftInt32();
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var protocol = CreateSimpleProtocol("OptionalIndexWriteProto");
+        protocol.Subscripts.Add(OptionalIndexSubscript(optionalInt));
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_subscript_0_set(");
+
+        Assert.Contains("Swift.SwiftOptionalCases.None", body);
+        Assert.Contains("(int?)null", body);
+        Assert.DoesNotContain("var index0 = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalCopiedValueFromSlot<SwiftOptional<int>>", body);
+        Assert.Contains("impl[index0] =", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SubscriptReceiver_NonOptionalIndex_StaysADirectRead()
+    {
+        // The control. A plain Int32 index carries no case tag and needs no conversion, so routing
+        // indices through the shared pipeline must not add one — the pipeline's job is to apply the
+        // conversion a type actually asks for, not to wrap every index.
+        RegisterSwiftInt32();
+        var protocol = CreateSimpleProtocol("PlainIndexProto");
+        protocol.Subscripts.Add(OptionalIndexSubscript(new NamedTypeSpec("Swift.Int32")));
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static IntPtr Receive_subscript_0_get(");
+
+        Assert.DoesNotContain("Swift.SwiftOptionalCases.None", body);
+        Assert.Contains("var index0 = ", body);
+        Assert.Contains("impl[index0]", body);
+    }
+
+    // A one-index Int-returning subscript with both accessors, keyed on the supplied index type.
+    private static SubscriptDecl OptionalIndexSubscript(TypeSpec indexTypeSpec) => new()
+    {
+        Name = "subscript",
+        MangledName = "$s10TestModuleP9subscriptOptionalKey",
+        ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+        IndexParameters = new List<ArgumentDecl>
+        {
+            new()
+            {
+                Name = "key", PrivateName = "key",
+                SwiftTypeSpec = indexTypeSpec,
+                IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
+            }
+        },
+        IsStatic = false,
+        Accessors = new List<AccessorDecl>
+        {
+            new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+            new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+        },
+        ParentDecl = null,
+        ModuleDecl = null
+    };
+
+    [Fact]
     public void EmitProxyClass_PropertySetter_ObjCBridgedType_UsesGetNSObjectConversion()
     {
         // ObjC bridged property setter: MarshalFromSwift<IntPtr> + GetNSObject conversion
@@ -6993,6 +7155,30 @@ public class ProtocolProxyEmitterTests
                 MetadataAccessor = "$sSSSWsMA",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    /// <summary>
+    /// Registers a frozen struct with an explicit ABI field layout — the recursively flattened,
+    /// comma-separated per-field classification the parser computes and persists (<c>i</c>/<c>f</c>/
+    /// <c>b</c>/<c>p</c> plus a byte width). Passing <c>null</c> models the parser declining to
+    /// classify some field, which is how an unmodellable aggregate reaches the emitter.
+    /// </summary>
+    private void RegisterFrozenStruct(string moduleQualifiedName, string abiFieldLayout)
+    {
+        var lastDot = moduleQualifiedName.LastIndexOf('.');
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                    moduleQualifiedName.Substring(0, lastDot), moduleQualifiedName.Substring(lastDot + 1)),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                AbiFieldLayout = abiFieldLayout
             })
         });
     }
