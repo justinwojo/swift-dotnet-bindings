@@ -599,6 +599,26 @@ namespace BindingsGeneration
                     // The factory-namespace key this member claims, if it takes the recovery path —
                     // carried out to the shape recording below so the guard can read its optional tail.
                     string? reservedFactoryKey = null;
+                    // A NON-failable init whose projected constructor signature is shared with a
+                    // label-differing sibling emits as a static `CreateWith{Labels}` factory instead of
+                    // being dropped. Resolved from the whole type body (not from what the walk has emitted
+                    // so far) so the outcome does not depend on declaration order, and applied BEFORE the
+                    // occupancy check so the factory reserves the signature it will actually occupy. Unlike
+                    // the failable lane's `TryCreate…`, this factory carries no trailing `out`, so its C#
+                    // signature is an ordinary `Name(params)` and belongs in the same key namespace every
+                    // other member uses — a natural method of the same name and inputs really would be a
+                    // CS0111 duplicate of it.
+                    string? initFactoryName = null;
+                    if (methodDecl.IsConstructor && !methodDecl.IsFailable && !methodDecl.IsAsync &&
+                        OverloadNameDisambiguator.ForConstructor(methodDecl, typeDatabase) is { } ctorFactory)
+                    {
+                        int initFactoryParen = projectedKey.IndexOf('(');
+                        if (initFactoryParen > 0)
+                        {
+                            initFactoryName = ctorFactory.FactoryName;
+                            reservedKey = initFactoryName + projectedKey.Substring(initFactoryParen);
+                        }
+                    }
                     if (!emittedProjectedSignatures.Add(reservedKey))
                     {
                         if (methodDecl.IsConstructor)
@@ -650,18 +670,16 @@ namespace BindingsGeneration
                             }
                             else
                             {
-                                // Real constructors can't be renamed — skip as before. The other
-                                // overload that owns this projected key was already emitted in
-                                // the same class body, so writing a `// Unsupported: method
-                                // 'init' — C# signature collides…` comment into csWriter here
-                                // would land directly above whatever is emitted next and read
-                                // as if it applied to that working member. Record the skip in
-                                // report.json (the audit trail) but suppress the source-level
-                                // comment — a collision-suppressed unsupported annotation landing above a
-                                // working member would
-                                // mislead readers.
-                                _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
-                                ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
+                                // Getting here means the static-factory recovery above did not apply or its
+                                // name was itself already taken — a real constructor cannot be renamed, so
+                                // the member is dropped as before. The overload that owns this projected key
+                                // was already emitted in the same class body, so writing a `// Unsupported:
+                                // method 'init' — C# signature collides…` comment into csWriter here would
+                                // land directly above whatever is emitted next and read as if it applied to
+                                // that working member. Record the skip in report.json (the audit trail) but
+                                // suppress the source-level comment, which would mislead readers.
+                                _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {reservedKey}");
+                                ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {reservedKey}");
                                 continue;
                             }
                         }
@@ -718,9 +736,13 @@ namespace BindingsGeneration
                     // ambiguity question about the wrong signature — fail-open if the count comes out
                     // higher, fail-closed (a valid overload declined) if lower.
                     int reservedRequiredCount = OverloadAmbiguityGuard.RequiredCountFor(methodDecl, typeDatabase, projectedKey);
-                    var claimedKey = disambiguatedNameInput == null
-                        ? projectedKey
-                        : GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames, nameOverride: disambiguatedNameInput);
+                    // A recovered init factory reserved its own name's key, not the constructor's, so the
+                    // shape must be recorded under the key it actually holds.
+                    var claimedKey = initFactoryName != null
+                        ? reservedKey
+                        : disambiguatedNameInput == null
+                            ? projectedKey
+                            : GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger, siblingPropertyNames, nameOverride: disambiguatedNameInput);
                     OverloadAmbiguityGuard.RecordReservation(reservedOverloadShapes, claimedKey, reservedRequiredCount);
                     // A recovered failable init claims a SECOND key, in the factory namespace, and the
                     // overload producer re-keys its trims into that same namespace. Leaving it unshaped
@@ -738,6 +760,9 @@ namespace BindingsGeneration
                         // FB-1b: a recovered colliding failable init emits under a label-disambiguated
                         // static-factory name; null leaves the emitter's default "TryCreate".
                         env.FailableFactoryName = failableFactoryName;
+                        // A colliding non-failable init emits as a label-named static factory rather than a
+                        // constructor; null leaves the ordinary constructor emission.
+                        env.InitFactoryName = initFactoryName;
                         // Scenario A: a derived override of one collision-suffixed base overload
                         // must adopt the ancestor slot's emitted name (resolved by full Swift selector,
                         // labels included) — otherwise it recomputes a suffix-free name from its own
@@ -1294,12 +1319,42 @@ namespace BindingsGeneration
             MethodDecl failableInit, MethodDecl? winner, string projectedKey,
             Dictionary<string, int> projectedKeyCollisionCounts)
         {
+            var suffix = BuildFactoryLabelSuffix(failableInit, winner);
+            if (suffix.Length > 0)
+                return $"TryCreateWith{suffix}";
+
+            // Pathological fallback: no usable distinguishing label (e.g. all positional/synthesized).
+            // Take the next free numeric suffix on the shared per-body counter so the name is still unique
+            // and never collapses onto the winner's "TryCreate".
+            var next = (projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0) + 1;
+            projectedKeyCollisionCounts[projectedKey] = next;
+            return $"TryCreate{next + 1}";
+        }
+
+        /// <summary>
+        /// The PascalCase concatenation of an initializer's usable external argument labels — the one
+        /// naming core BOTH init-recovery lanes share. The failable lane renders it as
+        /// <c>TryCreateWith{suffix}</c>; the non-failable lane renders it as <c>CreateWith{suffix}</c>.
+        /// Positional (<c>_</c>), empty-tuple and compiler-synthesized labels contribute nothing, so an
+        /// entirely positional initializer yields an empty string — which is exactly the signal both
+        /// lanes need: there is no label to name this member by.
+        ///
+        /// <para><paramref name="winner"/> is the failable lane's winner-relative trim: a label the
+        /// winner also carries at the same position does not distinguish the sibling from it. The
+        /// non-failable lane passes null and takes every usable label, deliberately: a family-relative
+        /// trim makes a member's public name depend on which siblings happen to exist, so adding one
+        /// initializer upstream would rename another's factory. Keeping the full label set makes the
+        /// name a pure function of the member's own Swift signature (the same property
+        /// <see cref="OverloadNameDisambiguator"/> holds for method overloads).</para>
+        /// </summary>
+        internal static string BuildFactoryLabelSuffix(MethodDecl init, MethodDecl? winner = null)
+        {
             var sb = new System.Text.StringBuilder();
             var winnerArgs = winner?.CSSignature;
             // CSSignature[0] is the return type; real parameters start at index 1.
-            for (int i = 1; i < failableInit.CSSignature.Count; i++)
+            for (int i = 1; i < init.CSSignature.Count; i++)
             {
-                var arg = failableInit.CSSignature[i];
+                var arg = init.CSSignature[i];
                 if (arg.SwiftTypeSpec == null || arg.SwiftTypeSpec.IsEmptyTuple)
                     continue;
                 var label = arg.GetSwiftName();
@@ -1312,16 +1367,7 @@ namespace BindingsGeneration
                 if (label.Length > 1)
                     sb.Append(label.Substring(1));
             }
-
-            if (sb.Length > 0)
-                return $"TryCreateWith{sb}";
-
-            // Pathological fallback: no usable distinguishing label (e.g. all positional/synthesized).
-            // Take the next free numeric suffix on the shared per-body counter so the name is still unique
-            // and never collapses onto the winner's "TryCreate".
-            var next = (projectedKeyCollisionCounts.TryGetValue(projectedKey, out var seeded) ? seeded : 0) + 1;
-            projectedKeyCollisionCounts[projectedKey] = next;
-            return $"TryCreate{next + 1}";
+            return sb.ToString();
         }
 
 

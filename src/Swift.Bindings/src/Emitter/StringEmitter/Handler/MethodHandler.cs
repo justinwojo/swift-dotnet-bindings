@@ -776,6 +776,21 @@ namespace BindingsGeneration
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, ctorFallbackInfo, context.GetEmissionContext());
 
+            // A non-failable initializer whose projected constructor signature is shared with a
+            // label-differing sibling is recovered as a static factory. The name resolver already declined
+            // the parent shapes that cannot host one, but the indirect-result arrangement is an emitter-side
+            // fact it cannot see: a shape with no terminal expression would leave the factory's result local
+            // unassigned, i.e. a compile error in the generated binding. Fall back to the pre-existing
+            // outcome for those — the earlier claimant keeps the constructor and this member is recorded as
+            // a duplicate signature — rather than emitting something that will not build.
+            if (methodEnv.InitFactoryName != null && !wrapperEmitter.CanEmitInitFactory())
+            {
+                _logger.LogDebug($"Skipping constructor '{methodEnv.MethodDecl.Name}': its projected C# signature collides with a sibling initializer and this parent shape cannot host a static factory.");
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.DuplicateSignature,
+                    "Projected C# constructor signature collides with a sibling initializer, and this type's result convention has no static-factory form to recover it under.");
+                return;
+            }
+
             // C2: Emit Swift typed error extractor for ALL throwing constructors
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
             wrapperEmitter.EmitTypedErrorExtractor(swiftWriter);
@@ -809,6 +824,17 @@ namespace BindingsGeneration
                     {
                         wrapperEmitter.EmitOptionalTagHelperPInvoke(csWriter);
                     }
+                }
+                else if (methodEnv.InitFactoryName != null)
+                {
+                    // Recorded here rather than at name resolution, so the ledger describes what was
+                    // actually emitted (the pre-gate above can still send a member back to the skip path).
+                    if (OverloadNameDisambiguator.ForConstructor(methodEnv.MethodDecl, methodEnv.TypeDatabase) is { } recovery)
+                    {
+                        OverloadNameDisambiguator.RecordConstructorFactoryRecovery(
+                            methodEnv.MethodDecl, recovery.FactoryName, recovery.Outcome);
+                    }
+                    wrapperEmitter.EmitInitFactory(csWriter);
                 }
                 else
                 {

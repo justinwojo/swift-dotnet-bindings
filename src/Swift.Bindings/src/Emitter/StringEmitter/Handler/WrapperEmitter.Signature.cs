@@ -33,6 +33,12 @@ namespace BindingsGeneration
             // Use the resolved C# type name (may be renamed for nested type collision avoidance)
             var constructorName = GetResolvedTypeName();
 
+            if (_emittingInitFactory)
+            {
+                EmitSignatureInitFactory(csWriter, accessModifier);
+                return;
+            }
+
             // A constructor is emitted under the type's own name; CSharpMethodName holds only the
             // internal dedup identity for it. Record the emitted name so the API manifest keys the
             // member a consumer can actually call.

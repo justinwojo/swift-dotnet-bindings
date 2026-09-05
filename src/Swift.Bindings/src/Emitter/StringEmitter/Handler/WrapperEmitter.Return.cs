@@ -49,6 +49,12 @@ namespace BindingsGeneration
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
         private void EmitReturnConstructor(CSharpWriter csWriter)
         {
+            if (_emittingInitFactory)
+            {
+                EmitReturnInitFactory(csWriter);
+                return;
+            }
+
             // ObjC-rooted: P/Invoke call is in the static helper (CreateSwiftInstance_...),
             // constructor body just needs DangerousRelease() to balance MAUI's retain.
             if (_env.ParentDecl is ClassDecl cd && cd.IsObjCRooted)

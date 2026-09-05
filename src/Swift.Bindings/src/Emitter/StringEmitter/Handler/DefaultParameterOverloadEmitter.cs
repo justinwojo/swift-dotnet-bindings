@@ -264,6 +264,10 @@ public static class DefaultParameterOverloadEmitter
             // FB-1b: a recovered colliding failable init emits under a label-disambiguated factory name
             // (e.g. TryCreateWithMessengerPageId); its default-arg trimmed overloads must share that name.
             overloadEnv.FailableFactoryName = env.FailableFactoryName;
+            // Same for a recovered colliding NON-failable init: the primary emitted as a static
+            // `CreateWith{Labels}` factory, so its trimmed overloads must be factories of that name too —
+            // otherwise they would emit as constructors and re-create the collision the recovery resolved.
+            overloadEnv.InitFactoryName = env.InitFactoryName;
             overloadEnv.EmissionContext = env.EmissionContext;
 
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
@@ -418,6 +422,17 @@ public static class DefaultParameterOverloadEmitter
                     int factoryParen = projectedKey.IndexOf('(');
                     if (factoryParen > 0)
                         projectedKey = "failable-factory:" + overloadEnv.FailableFactoryName + projectedKey.Substring(factoryParen);
+                }
+                // A recovered colliding NON-failable init's trimmed overloads likewise emit under the
+                // factory name rather than the ctor name the key builder rebuilds. This lane stays in the
+                // ORDINARY key namespace (unlike the failable one): its factory carries no trailing `out`,
+                // so `CreateWithHost(string)` really can duplicate a natural method of that name and inputs,
+                // and hiding it in a private namespace would fail open on exactly that CS0111.
+                if (overloadEnv.InitFactoryName != null)
+                {
+                    int initFactoryParen = projectedKey.IndexOf('(');
+                    if (initFactoryParen > 0)
+                        projectedKey = overloadEnv.InitFactoryName + projectedKey.Substring(initFactoryParen);
                 }
                 prepared.Add(new PreparedOverload
                 {
@@ -601,7 +616,14 @@ public static class DefaultParameterOverloadEmitter
             var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo, emissionContext);
             if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)
             {
-                wrapperEmitter.EmitConstructor(csWriter);
+                // A trimmed overload of a recovered colliding init must stay a factory of the same name —
+                // emitting it as a constructor would re-create the very collision the recovery resolved.
+                // The parent shape and result convention are the primary's, which already cleared
+                // CanEmitInitFactory, so there is no second gate to apply here.
+                if (overloadEnv.InitFactoryName != null)
+                    wrapperEmitter.EmitInitFactory(csWriter);
+                else
+                    wrapperEmitter.EmitConstructor(csWriter);
             }
             else if (overloadDecl.IsConstructor && overloadDecl.IsFailable)
             {

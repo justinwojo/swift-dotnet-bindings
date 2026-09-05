@@ -295,6 +295,21 @@ namespace BindingsGeneration
         public string? FailableFactoryName { get; set; }
 
         /// <summary>
+        /// When non-null, the C# static-factory name a NON-failable initializer emits under instead of a
+        /// constructor, because its projected constructor signature is shared with a sibling initializer
+        /// that differs only by argument label. Two such inits are different operations, so keeping one
+        /// and dropping the other deletes half the type's construction surface; the loser (or, when no
+        /// member owns the plain constructor, every member of the family) is recovered as
+        /// <c>CreateWith{Labels}</c>.
+        ///
+        /// <para>Distinct from <see cref="FailableFactoryName"/>: that lane's factories carry a trailing
+        /// <c>out</c> parameter, so they can never collide with an ordinary method and live in their own
+        /// key namespace. An init factory's signature is exactly <c>Name(params)</c>, so it is reserved in
+        /// the same projected-signature namespace every other member uses.</para>
+        /// </summary>
+        public string? InitFactoryName { get; set; }
+
+        /// <summary>
         /// Gets the C# method name, resolving any collisions with property names and applying the
         /// overload resolver's disambiguated base name when one was assigned.
         /// </summary>

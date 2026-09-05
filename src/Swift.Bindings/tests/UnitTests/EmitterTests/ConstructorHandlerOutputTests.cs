@@ -742,20 +742,15 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_TwoConstructorsCollidingOnProjectedKey_SecondSkipped_NoUnsupportedComment()
+    public void Emit_TwoConstructorsCollidingOnProjectedKey_BothRecovered_NoUnsupportedComment()
     {
         // Two Swift constructors with different argument labels project to the same C#
         // constructor signature (labels are stripped from the projected dedup key,
-        // parameter types are kept). The first one wins emission; the second hits the
-        // constructor branch in IHandler.HandleBaseDecl's projected-key collision check.
-        //
-        // C# can't disambiguate constructors with a numeric suffix (constructors don't
-        // have names), so the second one is skipped. We must record the skip in
-        // report.json (audit trail) but NOT write a `// Unsupported: method 'init' (C#
-        // signature collides …)` comment to the C# source — that comment would land
-        // directly above whatever the emitter writes next and read as if it applied to
-        // the working overload that *did* emit
-        // (e.g. a constructor like `AnimationKeypath(IEnumerable<string>)`).
+        // parameter types are kept). Both are recovered as label-named static factories, so
+        // nothing is dropped — and in particular no `// Unsupported: method 'init' (C#
+        // signature collides …)` comment is written to the C# source. That comment would land
+        // directly above whatever the emitter writes next and read as if it applied to the
+        // member that follows, so its absence is asserted independently of the recovery.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);
@@ -774,29 +769,23 @@ public class ConstructorHandlerOutputTests
 
         var csOutput = EmitClass(parentDecl, typeDatabase);
 
-        // First constructor emits successfully.
-        Assert.Contains("public Widget(", csOutput);
+        // Neither initializer is fully positional, so neither owns the bare constructor slot:
+        // both bind, each under the label that distinguishes it.
+        Assert.Contains("static Widget CreateWithA(", csOutput);
+        Assert.Contains("static Widget CreateWithB(", csOutput);
 
-        // Second constructor's collision must NOT produce a `// Unsupported: method 'init' …`
-        // comment. The audit trail lives in report.json (ReportCollector); the C# source
-        // must stay clean so the comment doesn't misattribute to the next emitted member.
         Assert.DoesNotContain("// Unsupported: method 'init'", csOutput);
     }
 
     [Fact]
-    public void Emit_TwoConstructorsCollidingOnProjectedKey_LoserRecordedAsDuplicateSignature_NoDuplicateCtor()
+    public void Emit_TwoConstructorsCollidingOnProjectedKey_BothRecoveredAsFactories_NoDuplicateCtor()
     {
-        // Collision-safety pin for the non-failable constructor projected-key collision.
-        // The winner emits exactly one `public Widget(...)`; the loser is dropped WITHOUT
-        // producing a second `public Widget(long)` (which would be CS0111), and the drop is
-        // recorded in report.json as a DuplicateSignature skip so it is a documented,
-        // grep-able completeness limitation rather than a silent disappearance.
-        //
-        // Recovering the loser as a static factory (e.g. `static Widget CreateWithB(long)`)
-        // is a separate, device-gated design task: it is a new non-failable constructor →
-        // static-factory ABI emission path, distinct from the failable TryCreate/async
-        // CreateAsync paths, and constructor marshalling is where NativeAOT-only crashes
-        // surface — so it must land with a `--device` BindingTests leg, not sim-only.
+        // Collision-safety pin for the non-failable constructor projected-key collision. Both
+        // initializers survive as static factories, the drop that used to be recorded as a
+        // DuplicateSignature skip is gone, and the rename is recorded in report.json's
+        // disambiguation ledger instead — which is the lane the compile gate's overload-name
+        // policy reads. Neither member may emit a `public Widget(long)`: two of those would be
+        // CS0111, and one would silently make a re-ordered interface pick which init "wins".
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);
@@ -819,12 +808,57 @@ public class ConstructorHandlerOutputTests
         ReportCollector.Reset();
         Assert.NotNull(report);
 
-        // Exactly one constructor emits — the second is not a duplicate `public Widget(` (no CS0111).
-        Assert.Equal(1, CountOccurrences(csOutput, "public Widget("));
+        // No constructor at all — every member of this family is label-named.
+        Assert.Equal(0, CountOccurrences(csOutput, "public Widget("));
+        Assert.Equal(1, CountOccurrences(csOutput, "static Widget CreateWithA("));
+        Assert.Equal(1, CountOccurrences(csOutput, "static Widget CreateWithB("));
 
-        // The dropped overload is recorded as a DuplicateSignature skip (documented, not silent).
-        Assert.Contains(report.SkippedItems,
+        // Nothing is dropped any more...
+        Assert.DoesNotContain(report.SkippedItems,
             i => i.Name == "init" && i.Reason == SkipReason.DuplicateSignature);
+        // ...and both recoveries are visible to the overload-name policy, under names that
+        // are not a bare numeric suffix.
+        Assert.Contains(report.OverloadRenames, r => r.EmittedName == "CreateWithA");
+        Assert.Contains(report.OverloadRenames, r => r.EmittedName == "CreateWithB");
+    }
+
+    [Fact]
+    public void Emit_CollidingConstructors_PositionalMemberKeepsTheConstructor_RegardlessOfDeclarationOrder()
+    {
+        // Ownership of the bare constructor slot is decided by CONTENT — the one fully
+        // positional initializer takes it — not by which member the interface happens to
+        // declare first. The labeled init is declared FIRST here, so an order-based rule would
+        // hand it `public Widget(long)` and make a re-ordered `.swiftinterface` silently
+        // re-point every existing `new Widget(x)` call at the other Swift initializer.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);
+
+        CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("labeled", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+        CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                // An empty label with a real private name is Swift's `init(_ value: Int)`.
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = string.Empty,
+                    PrivateName = "value",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            });
+
+        var csOutput = EmitClass(parentDecl, typeDatabase);
+
+        Assert.Equal(1, CountOccurrences(csOutput, "public Widget("));
+        Assert.Contains("static Widget CreateWithLabeled(", csOutput);
     }
 
     [Fact]

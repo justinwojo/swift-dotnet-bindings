@@ -38,6 +38,17 @@ internal readonly record struct OverloadNameAssignment(
 }
 
 /// <summary>
+/// One colliding non-failable initializer's recovery: the static-factory name it emits under instead of
+/// the plain constructor, and which rung of the ladder produced that name. Unlike
+/// <see cref="OverloadNameAssignment"/> this carries a FINISHED C# name rather than a Swift-level base
+/// name — a constructor has no shaper pass to feed (its C# name is the type's), so the factory name is
+/// built directly and used verbatim.
+/// </summary>
+internal readonly record struct ConstructorFactoryAssignment(
+    string FactoryName,
+    OverloadNameOutcome Outcome);
+
+/// <summary>
 /// Assigns content-derived C# names to Swift overloads that collide on the projected C# key.
 ///
 /// The rule this replaces gave the bare name to the first-declared overload and numbered the rest
@@ -114,7 +125,8 @@ internal static class OverloadNameDisambiguator
     private static Dictionary<MethodDecl, OverloadNameAssignment> ComputeForTypeBody(TypeDecl parent, ITypeDatabase typeDatabase)
     {
         // Mirrors the emission loop's structural filters: accessors never take an overload name,
-        // constructors cannot be renamed (a projected-key collision skips them instead), and a
+        // constructors cannot be renamed (they resolve through the constructor lane below, which recovers
+        // a projected-key collision as a static factory rather than assigning a method name), and a
         // primary-signature duplicate never reaches the projected-collision block at all, so it must
         // not pad a family with a member that does not emit. The loop ALSO applies the member
         // validation pipeline; that is not reproduced here (the validator has no access to it), so a
@@ -298,6 +310,247 @@ internal static class OverloadNameDisambiguator
 
         return result;
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Constructor lane.
+    //
+    // Two Swift initializers that differ only by argument label — init(paymentIntentClientSecret:
+    // configuration:) alongside init(setupIntentClientSecret:configuration:) — project to ONE C#
+    // constructor signature. They are different operations, not redundant overloads, so dropping the
+    // second (which is what a projected-key collision used to do) silently deletes half the type's
+    // construction surface. A constructor cannot be renamed, but a STATIC FACTORY can, which is the
+    // same recovery the failable lane already makes for init? — here without the Optional.
+    //
+    // OWNERSHIP POLICY, and why it is content-based rather than declaration-ordered. The plain
+    // constructor slot goes to the family's single FULLY POSITIONAL initializer — the one whose Swift
+    // signature carries no argument label to name a factory by, so a factory name could only be
+    // invented for it. Zero such members (an all-labeled family, which is the common shape) or more
+    // than one means NOBODY owns the constructor and every member of the family emits as a factory.
+    // "First-declared keeps the constructor" was rejected: the two colliding initializers are
+    // interchangeable at the C# call site but NOT in behaviour, so re-ordering the upstream
+    // .swiftinterface would silently re-point `new PaymentSheet(secret, config)` at the other Swift
+    // init — a semantic change with no compile error anywhere. Content-based ownership makes the
+    // outcome a function of the members' own signatures, exactly as the method ladder above is, and it
+    // is the same rule: the bare name belongs to the member that has nothing else it could be called.
+    //
+    // Every name is likewise a pure function of the member's OWN labels (no family-relative trimming),
+    // so inserting a third initializer upstream cannot rename the two that were already shipped.
+    // ---------------------------------------------------------------------------------------------
+
+    private static readonly Dictionary<MethodDecl, ConstructorFactoryAssignment> EmptyFactoryMap =
+        new(ReferenceEqualityComparer.Instance);
+
+    private static readonly ConditionalWeakTable<TypeDecl, Dictionary<MethodDecl, ConstructorFactoryAssignment>> _ctorFactoryCache = new();
+
+    /// <summary>
+    /// The static-factory name a colliding non-failable initializer emits under, or null when it keeps
+    /// the plain constructor (uncontested, the family's positional owner, or a family the ladder could
+    /// not separate — which stays on the pre-existing first-claimant-wins + DuplicateSignature path).
+    /// </summary>
+    public static ConstructorFactoryAssignment? ForConstructor(MethodDecl init, ITypeDatabase typeDatabase)
+        => ConstructorFactoriesForTypeBody(init.ParentDecl as TypeDecl, typeDatabase).TryGetValue(init, out var a)
+            ? a
+            : null;
+
+    /// <summary>Init-factory assignments for one type body. Memoized per <paramref name="parent"/>.</summary>
+    public static IReadOnlyDictionary<MethodDecl, ConstructorFactoryAssignment> ConstructorFactoriesForTypeBody(
+        TypeDecl? parent, ITypeDatabase typeDatabase)
+    {
+        if (parent == null)
+            return EmptyFactoryMap;
+        return _ctorFactoryCache.GetValue(parent, p => ComputeConstructorFactories(p, typeDatabase));
+    }
+
+    /// <summary>
+    /// Whether a parent type's constructors can be recovered as static factories at all.
+    ///
+    /// <para>A factory has to hand back a finished instance from a STATIC body, so it needs a
+    /// terminal that does not write instance state. A class has one (the internal handle-adopting
+    /// constructor, which takes the Swift init's +1 exactly as <c>_handle = new SwiftClassHandle&lt;…&gt;(…)</c>
+    /// does) and so does a frozen blittable struct (the value is simply returned). A non-frozen struct
+    /// and a frozen struct projected as a class do NOT: their constructor's indirect-result setup
+    /// allocates into the <c>_payload</c> instance field BEFORE the call, and the handle-taking
+    /// constructor of a frozen-struct-as-class COPIES its buffer rather than adopting it, so a factory
+    /// built on it would leak the source's +1. Those shapes keep the pre-existing behaviour — the
+    /// first claimant emits as the constructor and the rest are skipped — rather than trading a
+    /// dropped member for a leaking one.</para>
+    /// </summary>
+    internal static bool SupportsInitFactoryRecovery(TypeDecl parent, ITypeDatabase typeDatabase)
+    {
+        switch (parent)
+        {
+            case ClassDecl:
+                return true;
+            case StructDecl structDecl:
+                if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var record))
+                    return false;
+                return MarshallingHelpers.IsTypeFrozen(record) && !MarshallingHelpers.RequiresMemoryManagement(record);
+            default:
+                return false;
+        }
+    }
+
+    private static Dictionary<MethodDecl, ConstructorFactoryAssignment> ComputeConstructorFactories(
+        TypeDecl parent, ITypeDatabase typeDatabase)
+    {
+        var empty = new Dictionary<MethodDecl, ConstructorFactoryAssignment>(ReferenceEqualityComparer.Instance);
+        if (!SupportsInitFactoryRecovery(parent, typeDatabase))
+            return empty;
+
+        // Mirrors the emission loop's structural filters (see ComputeForTypeBody): a primary-signature
+        // duplicate never reaches the projected-collision block, so it must not pad a family with a
+        // member that does not emit. Failable inits belong to the TryCreate lane and async inits emit
+        // as CreateAsync factories through the method path, so neither contends for this slot.
+        var primarySeen = new HashSet<string>(StringComparer.Ordinal);
+        var inits = new List<(MethodDecl Init, string ProjectedKey)>();
+        // A recovered factory is an ordinary static method — same name shape, same parameter list, no
+        // trailing `out` to keep it apart (which is what makes the failable lane's separate namespace
+        // safe). So a candidate name has to clear the type's other members' projected signatures too,
+        // or the recovery would emit CS0111 against a real method.
+        var siblingKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in parent.Methods)
+        {
+            if (m.IsAccessor || m.IsSubscriptAccessor)
+                continue;
+            if (!m.IsConstructor)
+            {
+                siblingKeys.Add(BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase, null, siblingPropertyNames: null));
+                continue;
+            }
+            if (m.IsFailable || m.IsAsync)
+                continue;
+            if (!primarySeen.Add(BaseHandler.GetMethodSignatureKey(m, typeDatabase, null)))
+                continue;
+            inits.Add((m, BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase, null, siblingPropertyNames: null)));
+        }
+
+        return ResolveConstructorFactories(inits, siblingKeys);
+    }
+
+    /// <summary>
+    /// Resolves one type body's colliding non-failable initializer families into static-factory names.
+    /// Pure over its inputs (no type database, no emission state) so the policy is directly testable.
+    /// A family the ladder cannot separate is simply absent from the result, which leaves it on the
+    /// pre-existing first-claimant-wins path.
+    /// </summary>
+    public static Dictionary<MethodDecl, ConstructorFactoryAssignment> ResolveConstructorFactories(
+        IReadOnlyList<(MethodDecl Init, string ProjectedKey)> inits,
+        IReadOnlySet<string> siblingProjectedKeys)
+    {
+        var result = new Dictionary<MethodDecl, ConstructorFactoryAssignment>(ReferenceEqualityComparer.Instance);
+
+        var families = new Dictionary<string, List<MethodDecl>>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (var (init, projectedKey) in inits)
+        {
+            if (!families.TryGetValue(projectedKey, out var list))
+            {
+                families[projectedKey] = list = new List<MethodDecl>();
+                order.Add(projectedKey);
+            }
+            list.Add(init);
+        }
+
+        foreach (var key in order)
+        {
+            var family = families[key];
+            if (family.Count < 2)
+                continue;
+
+            int paren = key.IndexOf('(');
+            if (paren <= 0)
+                continue;
+            var parameterPortion = key[paren..];
+
+            // Bare-slot ownership: the single fully positional initializer, if there is exactly one.
+            MethodDecl? owner = null;
+            int positionalCount = 0;
+            foreach (var m in family)
+            {
+                if (BaseHandler.BuildFactoryLabelSuffix(m).Length != 0)
+                    continue;
+                positionalCount++;
+                owner ??= m;
+            }
+            if (positionalCount != 1)
+                owner = null;
+            // Two positional siblings differ only by a Swift type the projection erases; neither has a
+            // label, so neither can be named apart on the label rung and both would want the same
+            // constructor. Leave the whole family alone rather than invent names for it.
+            if (positionalCount > 1)
+                continue;
+
+            var discriminands = new List<MethodDecl>(family.Count);
+            foreach (var m in family)
+            {
+                if (!ReferenceEquals(m, owner))
+                    discriminands.Add(m);
+            }
+            if (discriminands.Count == 0)
+                continue;
+
+            // Same two rungs as the method ladder, and chosen per-FAMILY for the same reason: assigning
+            // member-by-member would hand the label rung to whichever sibling the walk reached first.
+            var labelNames = discriminands
+                .Select(m => "CreateWith" + BaseHandler.BuildFactoryLabelSuffix(m))
+                .ToList();
+            var typeNames = discriminands
+                .Select(m => "Create" + BuildTypeDerivedNameInput(m, string.Empty))
+                .ToList();
+
+            var chosen = FactoryRungFits(labelNames, parameterPortion, siblingProjectedKeys) ? labelNames
+                : FactoryRungFits(typeNames, parameterPortion, siblingProjectedKeys) ? typeNames
+                : null;
+            if (chosen == null)
+                continue;
+
+            var outcome = ReferenceEquals(chosen, labelNames)
+                ? OverloadNameOutcome.LabelDerived
+                : OverloadNameOutcome.TypeDerived;
+            for (int i = 0; i < discriminands.Count; i++)
+            {
+                result[discriminands[i]] = new ConstructorFactoryAssignment(chosen[i], outcome);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool FactoryRungFits(
+        IReadOnlyList<string> factoryNames,
+        string parameterPortion,
+        IReadOnlySet<string> siblingProjectedKeys)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var name in factoryNames)
+        {
+            // "Create" / "CreateWith" mean the rung produced no discriminating token at all.
+            if (name.Length == 0 || name == "Create" || name == "CreateWith")
+                return false;
+            var key = name + parameterPortion;
+            if (siblingProjectedKeys.Contains(key) || !seen.Add(key))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Publishes an init→factory decision to the same ledger the method ladder writes to, so the ship
+    /// gate sees it. The natural name is the constructor's C# spelling — the type's own name — because
+    /// that is the name the member would carry uncontested; running the method-name shaper over the
+    /// Swift spelling <c>init</c> would record a name nothing ever emits.
+    ///
+    /// <para>Called from the emission site, not from name resolution: a parent shape whose result
+    /// convention the emitter cannot express as a factory falls back to the duplicate-signature skip, and
+    /// a ledger written at resolution time would then advertise a member that never emitted.</para>
+    /// </summary>
+    public static void RecordConstructorFactoryRecovery(MethodDecl init, string factoryName, OverloadNameOutcome outcome)
+        => ReportCollector.RecordOverloadRenamed(
+            init.ParentDecl?.Name ?? "<module>",
+            DescribeSwiftSignature(init),
+            init.ParentDecl?.Name ?? "init",
+            factoryName,
+            outcome.ToString());
 
     private static bool RungFits(
         IReadOnlyList<MethodDecl> discriminands,

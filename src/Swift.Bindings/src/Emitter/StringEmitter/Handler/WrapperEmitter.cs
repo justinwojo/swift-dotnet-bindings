@@ -468,6 +468,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            EmitConstructorCore(csWriter);
+        }
+
+        /// <summary>
+        /// The non-ObjC-rooted constructor body. Shared verbatim with the static-factory recovery for a
+        /// label-colliding initializer (<see cref="EmitInitFactory"/>): the marshalling, the call and the
+        /// cleanup are identical, and only the declaration line and the terminal — an instance-field write
+        /// versus a returned local — differ, which the three factory-aware hooks below handle.
+        /// </summary>
+        private void EmitConstructorCore(CSharpWriter csWriter)
+        {
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
             bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations || HasCdeclTupleClassKeepAlive;
@@ -504,6 +515,7 @@ namespace BindingsGeneration
             // Always emit — SwiftError 'ref' requires pre-declaration even without try-finally.
             EmitDeclarationsForAllocations(csWriter);
             EmitExistentialHeapDeclarations(csWriter);
+            EmitInitFactoryResultDeclaration(csWriter);
 
             if (needsTryFinally)
             {
@@ -541,6 +553,7 @@ namespace BindingsGeneration
             EmitReturnConstructor(csWriter);
             EmitRawBufferFixedEnd(csWriter);
             EmitDisposeScopeRegistration(csWriter);
+            EmitInitFactoryReturn(csWriter);
 
             // Add cleanup in finally block for generics and closures
             if (needsTryFinally)
@@ -563,6 +576,36 @@ namespace BindingsGeneration
         /// DangerousRelease() to balance NSObject's retain.
         /// </summary>
         private void EmitObjCRootedConstructor(CSharpWriter csWriter)
+        {
+            EmitObjCRootedStaticHelper(csWriter);
+
+            // Now emit the public constructor that calls the helper
+            EmitFallbackAttribute(csWriter);
+            // The marshalling that discovers a CONSUME degrade ran in the static helper above, but the
+            // member a consumer names is this public constructor — so the marker is captured around it,
+            // not the helper.
+            var preSignatureCheckpoint = csWriter.Checkpoint();
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
+            EmitSafetyObsolete(csWriter);
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
+            EmitMainActorMemberAnnotation(csWriter);
+            EmitSignatureConstructor(csWriter);
+            EmitBodyStart(csWriter);
+            // No main-thread guard here: the Swift init already ran inside the static helper called
+            // from `: base(helper(...))` above, so the guard lives at the top of that helper instead.
+            EmitReturnConstructor(csWriter); // Emits DangerousRelease()
+            EmitBodyEnd(csWriter);
+            AssertRawBufferFixedDepthZero();
+            InjectConsumeDegradedMarker(csWriter, preSignatureCheckpoint);
+        }
+
+        /// <summary>
+        /// Emits the ObjC-rooted <c>CreateSwiftInstance_…</c> static helper — the whole P/Invoke call
+        /// sequence, ending in an <c>ObjCRuntime.NativeHandle</c>. Both the public constructor (which
+        /// invokes it from its <c>: base(...)</c> initializer) and the static-factory recovery for a
+        /// label-colliding initializer are thin tails on top of it.
+        /// </summary>
+        private void EmitObjCRootedStaticHelper(CSharpWriter csWriter)
         {
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
@@ -672,25 +715,6 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
             ApplyAbiFloorTombstone(csWriter, abiFloorHelperBodyCheckpoint);
-
-            // Now emit the public constructor that calls the helper
-            EmitFallbackAttribute(csWriter);
-            // The marshalling that discovers a CONSUME degrade ran in the static helper above, but the
-            // member a consumer names is this public constructor — so the marker is captured around it,
-            // not the helper.
-            var preSignatureCheckpoint = csWriter.Checkpoint();
-            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
-            EmitSafetyObsolete(csWriter);
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
-            EmitMainActorMemberAnnotation(csWriter);
-            EmitSignatureConstructor(csWriter);
-            EmitBodyStart(csWriter);
-            // No main-thread guard here: the Swift init already ran inside the static helper called
-            // from `: base(helper(...))` above, so the guard lives at the top of that helper instead.
-            EmitReturnConstructor(csWriter); // Emits DangerousRelease()
-            EmitBodyEnd(csWriter);
-            AssertRawBufferFixedDepthZero();
-            InjectConsumeDegradedMarker(csWriter, preSignatureCheckpoint);
         }
 
         /// <summary>
@@ -1837,7 +1861,7 @@ namespace BindingsGeneration
                 // ObjC-rooted classes use NSObject lifecycle, not DisposeScope
                 if (classDecl.IsObjCRooted)
                     return;
-                csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+                csWriter.WriteLine($"Swift.Runtime.SwiftDisposeScope.TryRegister({InitFactoryInstanceExpression});");
                 return;
             }
 
@@ -1846,7 +1870,7 @@ namespace BindingsGeneration
                 if (!structDecl.IsFrozen)
                 {
                     // Non-frozen struct: always projected as class (heap-backed)
-                    csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+                    csWriter.WriteLine($"Swift.Runtime.SwiftDisposeScope.TryRegister({InitFactoryInstanceExpression});");
                     return;
                 }
 
@@ -1854,7 +1878,7 @@ namespace BindingsGeneration
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
-                    csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+                    csWriter.WriteLine($"Swift.Runtime.SwiftDisposeScope.TryRegister({InitFactoryInstanceExpression});");
                 }
                 // Else: frozen blittable struct → C# struct, no registration
             }
