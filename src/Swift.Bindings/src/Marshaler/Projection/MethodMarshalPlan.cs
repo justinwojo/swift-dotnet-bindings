@@ -166,6 +166,15 @@ public record SyncMethodPlan
     /// <summary>Declaration lines emitted before the try block (TypeMetadata, IntPtr, GCHandle).</summary>
     public IReadOnlyList<string> DeclarationLines { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Closure GCHandle / ownership-transfer declarations, kept out of <see cref="DeclarationLines"/>
+    /// so an emitter can place them at a wider scope than the rest. Async wrappers must: their
+    /// foreground <c>try</c> is opened before the marshalling and closed by the return emitter, whose
+    /// <c>catch</c> frees any handle whose ownership never crossed into Swift — unreachable (CS0103)
+    /// if the declaration sits inside that try. Sync wrappers emit both lanes at the same point.
+    /// </summary>
+    public IReadOnlyList<string> ClosureHandleDeclarationLines { get; init; } = Array.Empty<string>();
+
     /// <summary>Generic argument marshalling lines emitted inside the try block (stackalloc + MarshalToSwift).</summary>
     public IReadOnlyList<string> GenericArgumentMarshallingLines { get; init; } = Array.Empty<string>();
 

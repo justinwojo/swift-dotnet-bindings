@@ -186,6 +186,45 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Frees the GCHandle of any @_cdecl-marshalled escaping closure whose ownership never
+        /// crossed into Swift, from the async foreground <c>catch</c>.
+        /// <para>
+        /// On the success path the Swift wrapper builds an <c>_SBClosureCtx</c> ARC box around the
+        /// handle before launching its detached task, and Swift's release of the adapted closure
+        /// frees it — exactly once. If the launch itself threw (an unresolvable entry point, or a
+        /// conversion of a later parameter), that box was never constructed, so the handle is still
+        /// ours and would otherwise root the caller's delegate forever. The <c>Transferred</c> flag
+        /// set immediately after the P/Invoke is what separates the two.
+        /// </para>
+        /// <para>
+        /// Only the cdecl escaping arm is emitted: a non-escaping closure and a legacy
+        /// <c>SwiftClosureData</c> closure both make an async method ineligible for the @_cdecl
+        /// async wrapper (<see cref="WrapperValidation.IsAsyncCdeclBridgeableSyncClosure"/>), and an
+        /// async method without that wrapper is skipped rather than emitted, so neither shape can
+        /// reach this catch. Baseline async closures own their own bridge and declare no handle
+        /// here. @convention(c) closures ride a [ThreadStatic] slot the trailing finally restores.
+        /// </para>
+        /// </summary>
+        private void EmitAsyncClosureHandleFaultCleanup(CSharpWriter csWriter)
+        {
+            var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(arg)!;
+                if (!_env.MethodDecl.HasCdeclClosureMarshalling ||
+                    !_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) ||
+                    !_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount) ||
+                    _env.ClosureHandler.IsAsyncClosure(closureTypeSpec) ||
+                    !WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, arg.SwiftTypeSpec, _env.ClosureHandler))
+                    continue;
+                var csName = NameProvider.GetCSharpParameterName(arg);
+                if (UsesConventionCThreadStaticSlot(arg, closureTypeSpec, closureParamCount))
+                    continue;
+                csWriter.WriteLine($"if (!{csName}Transferred && {csName}Handle.IsAllocated) {csName}Handle.Free();");
+            }
+        }
+
+        /// <summary>
         /// Emits the return statement for the method.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -211,6 +250,7 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLines(foregroundCleanup);
                 csWriter.WriteLine("handle.Free();");
+                EmitAsyncClosureHandleFaultCleanup(csWriter);
                 // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
                 // Reclaim any WINDOW A cancellation tombstone left for this id (no-op if none).
                 csWriter.WriteLine($"{AsyncCallbackPrefix}SBW_UnregisterTask(_sbwCancelKey);");

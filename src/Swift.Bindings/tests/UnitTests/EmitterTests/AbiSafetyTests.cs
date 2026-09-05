@@ -3268,9 +3268,17 @@ public class AbiSafetyTests
     public void IsSkippedWrapperDirectPInvoke_AsyncWithClosureParam_ReturnsTrue()
     {
         // Async + closure param: closure ownership transfer needs the destroy-thunk projection
-        // that only the cdecl-wrapped path plumbs through. Mirrors the SilgenName trampoline
-        // pinned-test fixture (Fetcher.fetchWithCallback). The legacy @_silgen_name +
+        // that only the cdecl-wrapped path plumbs through. The legacy @_silgen_name +
         // CallConvSwift trampoline cannot bridge a Swift async to a cdecl callback.
+        //
+        // This predicate guards the LEGACY fallback specifically — it answers "given that the
+        // cdecl wrapper was declined, should this be skipped rather than direct-P/Invoked?" — so
+        // it stays true for every async closure shape, including the escaping one built here.
+        // Which shapes actually reach it is a separate decision: an effectively-escaping sync
+        // closure is now promoted onto the cdecl (funcPtr, context) carrier and never falls here
+        // (SilgenNameTrampolineTests.Async_WithEscapingClosureParam_RidesCdeclPointerPairCarrier),
+        // while a non-escaping one does
+        // (SilgenNameTrampolineTests.Async_WithNonEscapingClosureParam_StillSkippedAsAbiUnsafe).
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

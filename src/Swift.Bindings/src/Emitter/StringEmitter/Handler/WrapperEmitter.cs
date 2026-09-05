@@ -80,6 +80,9 @@ namespace BindingsGeneration
         // The live async C# callback-plumbing path. The Swift @_cdecl half is emitted by
         // WrapperEmitter.Async.EmitAsync; the C# callback half by _asyncHarness.EmitAsyncWrapper.
         private readonly AsyncHarnessEmitter _asyncHarness;
+        // Set once EmitClosureHandleDeclarations has written the closure GCHandle locals, so the
+        // async pre-try emission and the ordinary declaration block can't declare them twice.
+        private bool _closureHandleDeclarationsEmitted;
         // Tracks existential container heap allocations for cleanup in the finally block.
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
         // OwnsVar is the name of the runtime owns-bit local (non-null only for the EC1 GetOrCreate
@@ -903,6 +906,12 @@ namespace BindingsGeneration
             // heap declarations above, this must precede EmitAsync so the local stays at the outer scope
             // and remains reachable in the trailing finally (where the slot is restored) for async methods.
             EmitConventionCSlotSaveDeclarations(csWriter, NeedsTryFinallyForMethod());
+            // Same scope hazard as the existential heaps above, for the closure GCHandle locals:
+            // EmitAsync opens the foreground try and EmitReturnMethod writes its catch, which frees
+            // any handle whose ownership never crossed into the Swift wrapper. Declared inside that
+            // try they would be unreachable from the catch (CS0103).
+            if (_requiresSwiftAsync)
+                EmitClosureHandleDeclarations(csWriter);
             EmitAsync(csWriter, swiftWriter);
             EmitOpaqueReturnWrapper(swiftWriter);
             EmitTypedErrorExtractor(swiftWriter);
@@ -1191,6 +1200,23 @@ namespace BindingsGeneration
         private void EmitDeclarationsForAllocations(CSharpWriter csWriter)
         {
             foreach (var line in _syncPlan.DeclarationLines)
+                csWriter.WriteLine(line);
+            EmitClosureHandleDeclarations(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the closure GCHandle / ownership-transfer declarations, once per member. Async
+        /// wrappers call this directly BEFORE <see cref="EmitAsync"/> so the locals outlive the
+        /// foreground try whose catch frees an untransferred handle; the later
+        /// <see cref="EmitDeclarationsForAllocations"/> call then no-ops for them. Sync wrappers get
+        /// them from that call, at the same point as every other pre-try declaration.
+        /// </summary>
+        private void EmitClosureHandleDeclarations(CSharpWriter csWriter)
+        {
+            if (_closureHandleDeclarationsEmitted)
+                return;
+            _closureHandleDeclarationsEmitted = true;
+            foreach (var line in _syncPlan.ClosureHandleDeclarationLines)
                 csWriter.WriteLine(line);
         }
 

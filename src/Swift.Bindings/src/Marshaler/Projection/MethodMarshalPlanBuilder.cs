@@ -87,6 +87,7 @@ internal class MethodMarshalPlanBuilder
             IndirectResultMethod = BuildIndirectResultSetup(isConstructor: false),
             OptionalReturnBuffer = BuildOptionalReturnBufferSetup(),
             DeclarationLines = BuildDeclarationLines(),
+            ClosureHandleDeclarationLines = BuildClosureHandleDeclarationLines(),
             GenericArgumentMarshallingLines = BuildGenericArgumentMarshallingLines(),
             GenericInoutWritebackLines = BuildGenericInoutWritebackLines(),
             WitnessTableStatements = BuildWitnessTableStatements(),
@@ -361,6 +362,18 @@ internal class MethodMarshalPlanBuilder
                 lines.Add($"void* _tupleResult{i}Buf = null;");
             }
         }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// Builds the closure GCHandle / ownership-transfer declarations. Split out of
+    /// <see cref="BuildDeclarationLines"/> because the async wrapper has to place these at a wider
+    /// scope than the rest — see <see cref="MethodMarshalPlan.ClosureHandleDeclarationLines"/>.
+    /// </summary>
+    private IReadOnlyList<string> BuildClosureHandleDeclarationLines()
+    {
+        var lines = new List<string>();
 
         // Declare GCHandle variables for escaping closures. The gate mirrors the
         // assignment site in WrapperEmitter.Marshalling.EmitClosureMarshalling:

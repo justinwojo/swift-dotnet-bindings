@@ -45,6 +45,21 @@ extension PExtClosureProtocol {
     public func dropMatching(where shouldDrop: (PExtClosureItem) throws -> Bool) rethrows {
         _ = try shouldDrop(PExtClosureItem(value: seed))
     }
+
+    // Optional callback followed by a non-optional trailing parameter, on the protocol
+    // extension path. An `Optional<Closure>` occupies TWO C ABI words wherever it is passed
+    // (function pointer + context); this emitter's parameter renderer has a closure arm only
+    // for a BARE closure, so an Optional one fell through to a single `UnsafeRawPointer` while
+    // the C# P/Invoke — whose closure classifier does look through Optional — passed the
+    // two-word carrier. Both sides compiled and every later argument, `trailing` and the
+    // receiver included, shifted by a register.
+    //
+    // The shape has no carrier on this path, so the member is deliberately left unbound rather
+    // than bound wrongly; this stays as the corpus-level negative control for that decision.
+    public func sumWithOptionalCallback(_ callback: ((PExtClosureItem) -> Void)?, trailing: Int32) -> Int32 {
+        callback?(PExtClosureItem(value: seed))
+        return seed + trailing
+    }
 }
 
 /// Closure argument for `dropMatching(where:)`. It has to be a class: the protocol-extension

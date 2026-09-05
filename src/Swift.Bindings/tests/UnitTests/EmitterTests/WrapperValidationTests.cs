@@ -590,7 +590,152 @@ public class ParentModuleInternalGateTests
         Assert.True(WrapperValidation.HasUnbridgeableAsyncThrowingClosureBeforeEmission(Env(method, typeDb)));
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // Non-async closure parameters on an async method (IsAsyncCdeclBridgeableSyncClosure)
+    //
+    // These closures are NOT the CheckedContinuation bridge's business — they are
+    // ordinary callbacks (progress blocks and the like) that happen to sit on an async
+    // member. They ride the same (funcPtr, context) pointer pair the synchronous @_cdecl
+    // closure wrapper uses, and the predicate below is the ONE place that decides so:
+    // eligibility consults it to allow the promotion, and the async Swift wrapper
+    // consults it to emit the pair plus the adapter. If those two ever answered
+    // differently, the C# P/Invoke and the @_cdecl signature would disagree on how many
+    // C ABI words the parameter occupies — silent register corruption of every later
+    // argument, not a compile error.
+    //
+    // The classification runs through GetClosureTypeSpec, which sees an Optional<Closure>
+    // as well as a bare one; keying it on `p.SwiftTypeSpec is ClosureTypeSpec` is exactly
+    // what let optional callbacks fall through to an improvised carrier.
+    // ────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void IsAsyncCdeclBridgeableSyncClosure_OptionalClosure_True()
+    {
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, OptionalOf(SyncVoidClosure(escaping: false)));
+
+        Assert.True(WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(
+            Env(method, typeDb), method.CSSignature[1]));
+    }
+
+    [Fact]
+    public void IsAsyncCdeclEligible_AsyncMethod_OptionalClosureParam_True()
+    {
+        // The promotion verdict must agree with the carrier verdict: an optional callback
+        // is bridgeable, so the method may take the async @_cdecl wrapper.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, OptionalOf(SyncVoidClosure(escaping: false)));
+
+        Assert.True(WrapperValidation.IsAsyncCdeclEligible(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void IsAsyncCdeclBridgeableSyncClosure_BareEscapingClosure_True()
+    {
+        // An explicitly @escaping callback outlives the @_cdecl call the same way an
+        // optional one does, so it takes the same carrier rather than a second mechanism.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, SyncVoidClosure(escaping: true));
+
+        Assert.True(WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(
+            Env(method, typeDb), method.CSSignature[1]));
+        Assert.True(WrapperValidation.IsAsyncCdeclEligible(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void IsAsyncCdeclBridgeableSyncClosure_BareNonEscapingClosure_False()
+    {
+        // The escaping requirement is the load-bearing half. The async wrapper hands the
+        // adapter to a detached Task, so the closure runs AFTER the @_cdecl function has
+        // returned; only an effectively-escaping closure gets the Swift-ARC owner token
+        // that keeps the GCHandle alive that long. A non-escaping one would be freed by
+        // the C# wrapper the moment the call returned and the Task would invoke a freed
+        // delegate — so the member stays honestly unpromoted instead.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, SyncVoidClosure(escaping: false));
+
+        Assert.False(WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(
+            Env(method, typeDb), method.CSSignature[1]));
+        Assert.False(WrapperValidation.IsAsyncCdeclEligible(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void IsAsyncCdeclEligible_OptionalBaselineAsyncClosure_False()
+    {
+        // The CheckedContinuation bridge is keyed on a BARE closure on both sides — the
+        // Swift wrapper's baseline filter and the (context, startFunc) P/Invoke pair. An
+        // Optional wrapper around the same shape has no carrier in either mechanism, so it
+        // must not claim eligibility through the baseline arms.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, OptionalOf(BaselineNonThrowingClosure()));
+
+        Assert.False(WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(
+            Env(method, typeDb), method.CSSignature[1]));
+        Assert.False(WrapperValidation.IsAsyncCdeclEligible(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void IsAsyncCdeclEligible_BareBaselineAsyncClosure_StillBridged()
+    {
+        // Positive control for the arm above: the bare baseline async closure keeps its
+        // CheckedContinuation route, and does NOT get reclassified onto the pointer-pair
+        // carrier.
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, BaselineNonThrowingClosure());
+
+        Assert.False(WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(
+            Env(method, typeDb), method.CSSignature[1]));
+        Assert.True(WrapperValidation.IsAsyncCdeclEligible(Env(method, typeDb)));
+    }
+
+    [Fact]
+    public void IsAsyncCdeclBridgeableSyncClosure_NonClosureParameter_False()
+    {
+        var (module, typeDb) = XcframeworkEnv();
+        var parent = PublicClass("Host", module);
+        var method = AsyncMethodWithParam("run", parent, module, new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(
+            Env(method, typeDb), method.CSSignature[1]));
+    }
+
     // --- minimal decl factories (local to keep the gate test self-contained) ---
+
+    /// <summary>`() -&gt; ()` — an ordinary non-async callback, optionally `@escaping`.</summary>
+    private static ClosureTypeSpec SyncVoidClosure(bool escaping)
+    {
+        var spec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        if (escaping)
+            spec.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return spec;
+    }
+
+    /// <summary>`T?` as the parser renders it: `Swift.Optional` with one generic argument.</summary>
+    private static NamedTypeSpec OptionalOf(TypeSpec inner)
+        => new NamedTypeSpec("Swift.Optional", inner);
+
+    private static MethodDecl AsyncMethodWithParam(string name, BaseDecl parent, ModuleDecl module, TypeSpec paramType)
+    {
+        var method = SyncMethod(name, parent, module);
+        method.IsAsync = true;
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = paramType,
+            Name = "handler",
+            PrivateName = "handler",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = module
+        });
+        return method;
+    }
 
     /// <summary>`file: Swift.StaticString = #file` — the canonical debug default parameter.</summary>
     private static ArgumentDecl DebugFileParameter(ModuleDecl module)

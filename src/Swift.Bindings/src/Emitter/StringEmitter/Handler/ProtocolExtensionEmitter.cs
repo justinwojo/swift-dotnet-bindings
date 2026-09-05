@@ -906,6 +906,20 @@ public static class ProtocolExtensionEmitter
                     var inner = namedType.GenericParameters[0];
                     if (inner is NamedTypeSpec innerNamed && innerNamed.ContainsGenericParameters)
                         return false;
+                    // Optional<Closure> has no carrier on this path. A closure crosses the
+                    // boundary as a function pointer PLUS a context word, and the C# P/Invoke
+                    // for a synthesized extension member renders exactly that (a by-value
+                    // two-word SwiftClosureData), while this emitter's parameter renderer has
+                    // no closure arm for an Optional and falls through to the ordinary
+                    // one-word `UnsafeRawPointer` + `assumingMemoryBound(to: Optional<...>)`
+                    // treatment. The two signatures then disagree on register count, which
+                    // shifts every later argument (including the receiver) and dereferences a
+                    // function pointer as if it were memory — silent corruption that compiles
+                    // cleanly on both sides. The bare-closure shape is handled by the separate
+                    // protocol-extension closure bridge, which the Optional never reaches, so
+                    // the honest answer here is to leave the member unbound.
+                    if (inner is ClosureTypeSpec)
+                        return false;
                     return IsCdeclCompatibleType(inner, typeDatabase);
                 }
                 return false; // Generic types not handled above

@@ -611,18 +611,19 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void Async_WithClosureParam_NoConversion_SkippedAsAbiUnsafe()
+    public void Async_WithEscapingClosureParam_RidesCdeclPointerPairCarrier()
     {
-        // An async method whose signature carries a non-baseline closure parameter is rejected
-        // by HasCdeclCompatibleFunctionShape (no @_cdecl wrapper produced). Previously the
-        // legacy path emitted an `@_silgen_name` Swift trampoline plus a CallConvSwift P/Invoke
-        // into Swift's async ABI — genuinely ABI-unsafe at runtime: closure ownership transfer
-        // needs the destroy-thunk projection that lives only on the cdecl-wrapped path.
-        // WrapperValidation.IsSkippedWrapperDirectPInvoke recognises this shape
-        // (async + closure param) and skips the method with an
-        // "ABI-unsafe direct call" diagnostic instead of emitting a working-looking-but-broken
-        // API. The mirror unit-level test lives in
-        // AbiSafetyTests.IsSkippedWrapperDirectPInvoke_AsyncWithClosureParam_ReturnsTrue.
+        // An effectively-escaping synchronous closure on an async method rides the SAME
+        // (funcPtr, context) carrier the synchronous @_cdecl closure wrapper already uses: a pair
+        // of `UnsafeMutableRawPointer?` on the Swift side reconstituted into a native closure by
+        // the adapter, and a pair of `IntPtr` on the C# side. That carrier is what the old skip
+        // was missing — closure ownership transfer needs the owner token that only the
+        // cdecl-wrapped path plumbs through, and the async wrapper now builds it before handing
+        // the adapter to the detached Task, so the delegate outlives the @_cdecl return.
+        //
+        // The register count is the load-bearing assertion, not the presence of a wrapper: a
+        // by-value two-word SwiftClosureData on the C# side against a one-word raw pointer on the
+        // Swift side compiles on both sides and shifts every later argument.
         var typeDatabase = CreateAsyncTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
@@ -639,12 +640,155 @@ public class SilgenNameTrampolineTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
+        Assert.Contains("@_cdecl", swiftOutput);
+        Assert.DoesNotContain("@_silgen_name", swiftOutput);
+        Assert.Contains("callbackFuncPtr", swiftOutput);
+        Assert.Contains("callbackContext", swiftOutput);
+        // Both sides agree on the two-word carrier; neither falls back to the by-value struct
+        // (C#) or a single raw pointer dereferenced as a closure (Swift).
+        Assert.Contains("callbackFuncPtr", csOutput);
+        Assert.Contains("callbackContext", csOutput);
+        Assert.DoesNotContain("SwiftClosureData", csOutput);
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+    }
+
+    [Fact]
+    public void Async_WithNonEscapingClosureParam_StillSkippedAsAbiUnsafe()
+    {
+        // Negative control for the carrier above. A genuinely non-escaping closure has no owner
+        // token: the C# wrapper's `finally` frees the GCHandle the moment the @_cdecl call
+        // returns, and the async wrapper's detached Task would then invoke a freed delegate. So
+        // the escaping requirement in IsAsyncCdeclBridgeableSyncClosure keeps this shape off the
+        // cdecl path, it falls through to the legacy @_silgen_name + CallConvSwift trampoline,
+        // and WrapperValidation.IsSkippedWrapperDirectPInvoke skips it with an "ABI-unsafe direct
+        // call" diagnostic rather than emitting a working-looking-but-broken API. The
+        // predicate-level mirror lives in
+        // AbiSafetyTests.IsSkippedWrapperDirectPInvoke_AsyncWithClosureParam_ReturnsTrue.
+        var typeDatabase = CreateAsyncTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("fetchWithCallback", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"), isAsync: true, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
         // Skip path: no Swift trampoline, no C# P/Invoke, an Unsupported comment in C#.
         Assert.DoesNotContain("@_silgen_name", swiftOutput);
         Assert.DoesNotContain("@_cdecl", swiftOutput);
         Assert.DoesNotContain("CallConvSwift", csOutput);
         Assert.Contains("// Unsupported:", csOutput);
         Assert.Contains("ABI-unsafe", csOutput);
+    }
+
+    [Fact]
+    public void Async_WithOptionalClosureParam_FreesGCHandleFromTheForegroundCatch()
+    {
+        // The carrier's ownership contract, asserted on the one path that needed new emission.
+        // An instance async method gets no `finally` (NeedsTryFinallyForMethod early-outs for it),
+        // so the foreground `catch` is the ONLY C# free when the call faults before the P/Invoke
+        // handed ownership to Swift's _SBClosureCtx box; on the success path the box frees the
+        // GCHandle exactly once and the `Transferred` flag keeps C# from racing it. The handle
+        // declaration therefore has to sit ABOVE the `try` — declared inside, the emitted cleanup
+        // would not even compile (CS0103) — so the hoist is asserted alongside the free-once line.
+        var typeDatabase = CreateAsyncTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        var method = CreateMethodDecl("fetchWithCallback", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"), isAsync: true, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onComplete", optionalClosure, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("GCHandle.Alloc", csOutput);
+        Assert.Contains("bool onCompleteTransferred = false;", csOutput);
+        Assert.Contains("onCompleteTransferred = true;", csOutput);
+        Assert.Contains(
+            "if (!onCompleteTransferred && onCompleteHandle.IsAllocated) onCompleteHandle.Free();",
+            csOutput);
+
+        // Order, anchored at the declaration (a bare IndexOf("try") would find the emitted callback
+        // thunk's own try, which precedes the method body): declaration, then the foreground try it
+        // was hoisted above, then the cleanup inside that try's catch.
+        var handleDeclIndex = csOutput.IndexOf("GCHandle onCompleteHandle = default;", StringComparison.Ordinal);
+        Assert.True(handleDeclIndex >= 0, "the closure GCHandle declaration must be emitted");
+        var tryIndex = csOutput.IndexOf("try", handleDeclIndex, StringComparison.Ordinal);
+        var cleanupIndex = csOutput.IndexOf(
+            "if (!onCompleteTransferred && onCompleteHandle.IsAllocated) onCompleteHandle.Free();",
+            StringComparison.Ordinal);
+        Assert.True(tryIndex >= 0,
+            "the GCHandle must be declared above the async foreground try, or the catch-emitted cleanup is out of scope");
+        Assert.True(tryIndex < cleanupIndex, "the cleanup belongs inside the try/catch, not ahead of it");
+    }
+
+    [Fact]
+    public void Async_ClosureAndTrailingParamSharingAnExternalLabel_KeepsEachParamOnItsOwnCarrier()
+    {
+        // Swift lets two parameters share one external label — `func repeatedLabel(x callback:
+        // ((Int) -> Void)?, x trailing: Int) async -> Int` typechecks, with `callback` and
+        // `trailing` as the distinct internal bindings. So the wrapper emitter cannot correlate a
+        // parameter with the bridged-closure set by external label: the plain trailing Int would
+        // match the closure entry and get widened into a second (funcPtr, context) pair against a
+        // C# side that passes one scalar word, and two closures sharing a label would collapse
+        // onto one entry. Only the trailing parameter's own binding may name its carrier.
+        var typeDatabase = CreateAsyncTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("repeatedLabel", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"), isAsync: true, throws: false,
+            methodType: MethodType.Instance);
+        // Shared external label `x`, distinct internal bindings.
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = closureType,
+            Name = "x",
+            PrivateName = "callback",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        });
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            Name = "x",
+            PrivateName = "trailing",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // The closure — and only the closure — carries the two-word pair on both sides.
+        Assert.Contains("callbackFuncPtr", swiftOutput);
+        Assert.Contains("callbackContext", swiftOutput);
+        Assert.Contains("callbackFuncPtr", csOutput);
+        Assert.Contains("callbackContext", csOutput);
+        Assert.DoesNotContain("trailingFuncPtr", swiftOutput);
+        Assert.DoesNotContain("trailingContext", swiftOutput);
+        Assert.DoesNotContain("trailingFuncPtr", csOutput);
+        Assert.DoesNotContain("trailingContext", csOutput);
     }
 
     #endregion

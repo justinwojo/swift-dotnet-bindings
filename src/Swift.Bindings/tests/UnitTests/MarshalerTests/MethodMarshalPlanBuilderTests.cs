@@ -928,17 +928,27 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void DeclarationLines_NonAsyncClosureParam_DeclaresGCHandle()
+    public void ClosureHandleDeclarationLines_NonAsyncClosureParam_DeclaresGCHandle()
     {
         // Baseline for the closure declaration gate: a plain `(Int32) -> Void`
         // parameter takes the legacy thunked GCHandle path. The pre-declaration
         // is required so the finally block can free the handle.
+        //
+        // The closure handle declarations live on their OWN lane rather than in the general
+        // DeclarationLines because the async wrapper has to hoist them ABOVE its try block: the
+        // handle is transferred to Swift inside the try, so the fault path's catch — which runs
+        // outside that scope — cannot otherwise see `callbackHandle`/`callbackTransferred` to
+        // free an untransferred handle. The sync path emits both lanes together at the same
+        // point, so the split is invisible there.
         var closureSpec = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32") }),
             TupleTypeSpec.Empty);
         var plan = BuildClosureParamPlan("acceptCallback", closureSpec, "callback");
 
-        Assert.Contains("GCHandle callbackHandle = default;", plan.DeclarationLines);
+        Assert.Contains("GCHandle callbackHandle = default;", plan.ClosureHandleDeclarationLines);
+        // The lane is a split, not a duplicate: the general lane must not also carry it, or the
+        // sync path (which emits both) would declare the same local twice.
+        Assert.DoesNotContain("GCHandle callbackHandle = default;", plan.DeclarationLines);
     }
 
     [Fact]
@@ -955,7 +965,7 @@ public class MethodMarshalPlanBuilderTests
         // ClosureHandler.IsSupportedClosure now rejects it, the enclosing member is skipped/tombstoned
         // (SkipReason.UnsupportedClosure), and the plan builder's IsSupportedClosure gate emits no
         // marshalling declarations for it. (The positive legacy-GCHandle-declaration guard lives in
-        // DeclarationLines_NonAsyncClosureParam_DeclaresGCHandle.)
+        // ClosureHandleDeclarationLines_NonAsyncClosureParam_DeclaresGCHandle.)
         var closureSpec = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[]
             {
@@ -969,7 +979,10 @@ public class MethodMarshalPlanBuilderTests
         };
         var plan = BuildClosureParamPlan("setConfirmHandler", closureSpec, "handler");
 
+        // Both lanes: closure handle declarations were split onto their own list, so asserting
+        // only the general one would pass vacuously.
         Assert.DoesNotContain(plan.DeclarationLines, l => l.Contains("GCHandle handlerHandle"));
+        Assert.DoesNotContain(plan.ClosureHandleDeclarationLines, l => l.Contains("GCHandle handlerHandle"));
     }
 
     [Fact]
@@ -989,6 +1002,7 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildClosureParamPlan("setHandler", closureSpec, "handler");
 
         Assert.DoesNotContain(plan.DeclarationLines, l => l.Contains("GCHandle handlerHandle"));
+        Assert.DoesNotContain(plan.ClosureHandleDeclarationLines, l => l.Contains("GCHandle handlerHandle"));
     }
 
     [Fact]
@@ -1007,6 +1021,7 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildClosureParamPlan("setFactory", closureSpec, "factory");
 
         Assert.DoesNotContain(plan.DeclarationLines, l => l.Contains("GCHandle factoryHandle"));
+        Assert.DoesNotContain(plan.ClosureHandleDeclarationLines, l => l.Contains("GCHandle factoryHandle"));
     }
 
     private static SyncMethodPlan BuildClosureParamPlan(

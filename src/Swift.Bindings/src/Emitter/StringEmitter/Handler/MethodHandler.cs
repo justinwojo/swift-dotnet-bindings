@@ -1511,6 +1511,17 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.MangledName);
                 methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
                 methodEnv.PromoteSymbol(cdeclSymbol);
+
+                // Same flag the synchronous @_cdecl promotion sets: it is what makes
+                // HasCdeclClosureMarshalling true, which routes every closure param through the
+                // (funcPtr, context) pointer pair instead of the legacy by-value SwiftClosureData.
+                // SwiftClosureData is a 2-word struct that only lines up when the P/Invoke calls a
+                // real Swift function with CallConvSwift; against a @_cdecl wrapper the Swift side
+                // declares a single pointer, so the two signatures disagree on register count.
+                // Baseline async closures are unaffected — every consumer of this flag tests them
+                // on an earlier branch and routes them through the (context, startFunc) bridge.
+                if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
+                    methodEnv.MethodDecl.HasClosureParams = true;
             }
 
             // Log when a method in xcframework mode has no wrapper or thunk.

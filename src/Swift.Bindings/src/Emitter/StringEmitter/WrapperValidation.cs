@@ -830,7 +830,17 @@ public static class WrapperValidation
             // bypasses below: AnyClass.Type? would otherwise be widened to UnsafeRawPointer
             // by the async wrapper and the body would still try to render the bare metatype.
             if (IsMetatypeTypeIncludingOptional(p.SwiftTypeSpec)) return false;
-            if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+            // Closure params are classified through GetClosureTypeSpec, which sees BOTH a bare
+            // ClosureTypeSpec and an Optional<Closure> (a NamedTypeSpec "Swift.Optional" whose
+            // single generic argument is the closure). Reading `p.SwiftTypeSpec is ClosureTypeSpec`
+            // alone let every Optional<Closure> fall through to the unconditional `return true`
+            // below, so the method claimed async-@_cdecl eligibility and the two emitters then
+            // improvised incompatible carriers for it — the C# P/Invoke passed a 2-word
+            // SwiftClosureData by value while the Swift @_cdecl declared a 1-word UnsafeRawPointer
+            // and dereferenced it as Optional<closure>, shifting every later register-passed
+            // argument (including self).
+            var closureSpec = env.ClosureHandler.GetClosureTypeSpec(p);
+            if (closureSpec != null)
             {
                 // Baseline async closures (throwing + non-throwing) are bridged
                 // by the async wrapper via a CheckedContinuation. The throwing
@@ -838,11 +848,19 @@ public static class WrapperValidation
                 // uses `try await` inside the catch harness). The non-throwing
                 // baseline only requires the outer method to be async — the
                 // adapter uses plain `await`.
-                if (env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec))
-                    return decl.Throws;
-                if (env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureSpec))
-                    return true;
-                return false;
+                //
+                // That adapter is keyed on a BARE closure parameter on both sides
+                // (WrapperEmitter.Async's baselineAsyncClosureParams filter and the
+                // (context, startFunc) P/Invoke pair), so an Optional<asyncClosure> has
+                // no carrier at all and must not claim eligibility through these arms.
+                if (p.SwiftTypeSpec is ClosureTypeSpec)
+                {
+                    if (env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec))
+                        return decl.Throws;
+                    if (env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureSpec))
+                        return true;
+                }
+                return IsAsyncCdeclBridgeableSyncClosure(env, p);
             }
             if (IsNestedFrozenStructParam(p, env.TypeDatabase)) return false;
             // Frozen blittable struct params are supported in async via heap allocation
@@ -851,6 +869,52 @@ public static class WrapperValidation
             // ExistentialContainer1 heap allocation — see CdeclParamMapper.
             return true;
         });
+    }
+
+    /// <summary>
+    /// Whether a NON-async closure parameter (bare or <c>Optional&lt;Closure&gt;</c>) on an async
+    /// method can ride the same <c>(funcPtr, context)</c> carrier the synchronous <c>@_cdecl</c>
+    /// closure wrapper already uses — a pair of <c>UnsafeMutableRawPointer?</c> on the Swift side
+    /// reconstituted into a native Swift closure by
+    /// <see cref="ClosureEmitter.GetSwiftClosureAdapterCode"/>, and a pair of <c>IntPtr</c> on the
+    /// C# side (<c>MarshalledType.CdeclClosureFuncPtr</c> / <c>CdeclClosureContext</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the ONE definition of that carrier's applicability on the async path:
+    /// <see cref="IsAsyncCdeclEligible"/> calls it to decide whether the method may be promoted at
+    /// all, and the async Swift wrapper emitter calls it to decide whether to emit the pointer pair
+    /// plus the adapter. Splitting the two would let the P/Invoke and the <c>@_cdecl</c> signature
+    /// disagree on register count, which is silent register corruption rather than a compile error.
+    /// </para>
+    /// <para>
+    /// The escaping requirement is load-bearing and is what keeps genuinely non-escaping closures
+    /// out: the async wrapper hands the adapter to a detached <c>Task</c>, so the closure is
+    /// invoked AFTER the <c>@_cdecl</c> function has returned. Only an effectively-escaping closure
+    /// gets the Swift-ARC <c>_SBClosureCtx</c> owner token that keeps the GCHandle alive until
+    /// Swift releases the adapter; a non-escaping one is freed by the C# wrapper's <c>finally</c>
+    /// the moment the call returns, and the Task would then invoke a freed delegate.
+    /// <c>Optional&lt;Closure&gt;</c> is always effectively escaping, so every optional callback
+    /// qualifies.
+    /// </para>
+    /// </remarks>
+    public static bool IsAsyncCdeclBridgeableSyncClosure(MethodEnvironment env, ArgumentDecl arg)
+    {
+        var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+        if (spec == null)
+            return false;
+        // Async closures belong to the CheckedContinuation bridge, not this carrier.
+        if (env.ClosureHandler.IsAsyncClosure(spec))
+            return false;
+        if (!env.ClosureHandler.IsSupportedClosure(spec))
+            return false;
+        // @convention(c) closures are a single raw function pointer on both sides and never
+        // reach the funcPtr+context carrier. Count optional closures too, matching the
+        // closureParamCount every other RequiresThunk call site computes.
+        var closureParamCount = env.MethodDecl.CSSignature.Skip(1).Count(env.ClosureHandler.IsClosure);
+        if (!env.ClosureHandler.RequiresThunk(spec, env.EmissionSymbol, closureParamCount))
+            return false;
+        return IsEffectivelyEscaping(spec, arg.SwiftTypeSpec, env.ClosureHandler);
     }
 
     private static bool HasUnbridgeableAsyncThrowingClosure(MethodEnvironment env, bool usesCdeclMethodWrapper)

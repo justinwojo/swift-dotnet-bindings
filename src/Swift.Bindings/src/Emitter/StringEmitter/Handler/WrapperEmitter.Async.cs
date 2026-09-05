@@ -918,12 +918,47 @@ namespace BindingsGeneration
             // sibling user param. Captured by the projection lambda.
             var asyncSiblings = CdeclParamMapper.CollectSiblingBindingNames(_env.MethodDecl.CSSignature.Skip(1));
 
+            // Non-async closure params — bare @escaping AND Optional<Closure> — ride the same
+            // (funcPtr, context) pointer pair the synchronous @_cdecl closure wrapper uses, so the
+            // async path adds no carrier of its own. The gate is shared with
+            // WrapperValidation.IsAsyncCdeclEligible: a param it admits here is exactly a param the
+            // C# side widened into MarshalledType.CdeclClosureFuncPtr + CdeclClosureContext, and a
+            // param it rejects made the whole method ineligible for async @_cdecl promotion (so it
+            // is reported as a skip rather than emitted against a mismatched signature).
+            var syncClosureParams = usesCdecl
+                ? _env.MethodDecl.CSSignature.Skip(1)
+                    .Where(p => WrapperValidation.IsAsyncCdeclBridgeableSyncClosure(_env, p))
+                    .ToList()
+                : new List<ArgumentDecl>();
+            // Adapter construction lines, emitted with the other pre-Task reads: the adapter must
+            // exist before `Task {}` so the task body can capture it.
+            var syncClosureAdapterLines = new List<string>();
+            // Swift binding name per bridged closure param. The FuncPtr/Context params, the adapter
+            // variable and the call-site reference all derive from this one string so they cannot
+            // drift apart. Built off the same PrivateName-or-Name raw label the sibling set was
+            // collected from, so the self-exclusion inside BuildSwiftBindingName lines up.
+            //
+            // Keyed by PARAMETER IDENTITY, not by `Name`: `Name` is the external Swift label, and
+            // Swift permits two parameters to share one (`f(x callback: ((Int32) -> Void)?, x
+            // trailing: Int32)` typechecks). A label-keyed map both collides two closures onto one
+            // entry and makes an unrelated later parameter that happens to share the label match
+            // the closure arm. ArgumentDecl is a `record`, so value equality would collide equally
+            // shaped siblings — reference identity is the only stable key.
+            var syncClosureBindingNames =
+                new Dictionary<ArgumentDecl, string>(ReferenceEqualityComparer.Instance);
+            foreach (var scp in syncClosureParams)
+            {
+                var scpRawLabel = !string.IsNullOrEmpty(scp.PrivateName) ? scp.PrivateName : scp.Name;
+                syncClosureBindingNames[scp] =
+                    CdeclParamMapper.BuildSwiftBindingName(scpRawLabel, asyncSiblings);
+            }
+
             var methodParams = _env.MethodDecl.CSSignature
                 .Skip(1)
                 .Select(p =>
                 {
                     // Check if this is a non-frozen parameter that needs UnsafeRawPointer
-                    if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
+                    if (nonFrozenParams.Any(nfp => ReferenceEquals(nfp, p)))
                     {
                         return usesCdecl ? $"_ {p.Name}: UnsafeRawPointer" : $"{p.Name}: UnsafeRawPointer";
                     }
@@ -936,7 +971,7 @@ namespace BindingsGeneration
                     // be constructed BEFORE Task {} so the task can capture it — raw pointers
                     // are non-Sendable in Swift 6. The adapter closure itself is built inside
                     // Task {} via adapterSetupCode before the try-await call.
-                    if (baselineAsyncClosureParams.Any(bp => bp.Name == p.Name))
+                    if (baselineAsyncClosureParams.Any(bp => ReferenceEquals(bp, p)))
                     {
                         cdeclReconstructionLines.Add(ClosureEmitter.BuildAsyncClosureHandoffInit(p.Name));
                         // Per-arity @convention(c) startFunc: args widen the middle of the signature
@@ -962,6 +997,34 @@ namespace BindingsGeneration
                              + $"_ {p.Name}StartFunc: @convention(c) "
                              + $"({sig}) -> Void";
                     }
+                    // Non-async closure param on a @_cdecl async wrapper — bare @escaping or
+                    // Optional<Closure>. Widen to the same (funcPtr, context) pointer pair the
+                    // synchronous @_cdecl closure wrapper uses and rebuild a native Swift closure
+                    // from it, so the C# P/Invoke and this signature agree word for word. Emitted
+                    // ahead of the `p.SwiftTypeSpec is ClosureTypeSpec` arm below (which declares a
+                    // native Swift closure and is only reachable on the non-cdecl @_silgen_name
+                    // path) and ahead of the @_cdecl catchall (which would lower an
+                    // Optional<Closure> to a single UnsafeRawPointer and dereference the incoming
+                    // function-pointer word as an Optional<closure>).
+                    if (syncClosureBindingNames.TryGetValue(p, out var syncClosureName))
+                    {
+                        var syncClosureSpec = _env.ClosureHandler.GetClosureTypeSpec(p)!;
+                        bool syncClosureIsOptional = _env.ClosureHandler.IsOptionalClosure(p.SwiftTypeSpec);
+                        // Always true here: IsAsyncCdeclBridgeableSyncClosure admits only
+                        // effectively-escaping closures, because the adapter is captured by the
+                        // detached Task and invoked after this @_cdecl has already returned.
+                        bool syncClosureIsEscaping = WrapperValidation.IsEffectivelyEscaping(
+                            syncClosureSpec, p.SwiftTypeSpec, _env.ClosureHandler);
+                        if (syncClosureIsEscaping)
+                            ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, _emissionContext);
+                        syncClosureAdapterLines.AddRange(ClosureEmitter.GetSwiftClosureAdapterCode(
+                            syncClosureName, syncClosureSpec, _env.ClosureHandler,
+                            syncClosureIsOptional, syncClosureIsEscaping,
+                            swiftWriter, _emissionContext,
+                            _env.MethodDecl.ModuleDecl?.Name ?? "SwiftBindings"));
+                        return $"_ {syncClosureName}FuncPtr: UnsafeMutableRawPointer?, "
+                             + $"_ {syncClosureName}Context: UnsafeMutableRawPointer?";
+                    }
                     // For closure parameters in async wrappers, closures are captured by Task {}
                     // which requires @escaping (outlives function) and @Sendable (concurrency safety).
                     if (p.SwiftTypeSpec is ClosureTypeSpec)
@@ -980,7 +1043,7 @@ namespace BindingsGeneration
                         return $"{p.Name}: {swiftType}";
                     }
                     // Large Optional params: accept UnsafeRawPointer, dereference before Task {}
-                    if (largeOptionalParams.Any(lop => lop.Name == p.Name))
+                    if (largeOptionalParams.Any(lop => ReferenceEquals(lop, p)))
                     {
                         return usesCdecl ? $"_ {p.Name}: UnsafeRawPointer" : $"{p.Name}: UnsafeRawPointer";
                     }
@@ -1066,6 +1129,18 @@ namespace BindingsGeneration
                 hasReadCode = true;
             }
 
+            // Rebuild the native Swift closure from the (funcPtr, context) pair BEFORE Task {} —
+            // the task body captures `_adapted_{name}`, so the adapter has to already exist, and
+            // the raw pointers it is built from are non-Sendable and must not cross into the task.
+            if (syncClosureAdapterLines.Count > 0)
+            {
+                var syncClosureSetup = string.Join("\n        ", syncClosureAdapterLines);
+                readCode = readCode.Length > 0
+                    ? readCode + "\n        " + syncClosureSetup
+                    : syncClosureSetup;
+                hasReadCode = true;
+            }
+
             // Generate argument list for the actual Swift method call
             var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
                 .Select(p =>
@@ -1086,15 +1161,25 @@ namespace BindingsGeneration
 
                     // For baseline async-throwing closure params, the adapter closure built
                     // inside Task {} substitutes for the original closure arg at the call site.
-                    if (baselineAsyncClosureParams.Any(bp => bp.Name == p.Name))
+                    if (baselineAsyncClosureParams.Any(bp => ReferenceEquals(bp, p)))
                     {
                         // Provenance-aware call label (canonical builder) — preserves labels that
                         // genuinely begin with '_' (e.g. _self) and backtick-escapes keywords.
                         var label = CdeclParamMapper.BuildSwiftCallArgLabel(p);
                         return $"{label}{ClosureEmitter.GetAdaptedClosureVarName(p.Name)}";
                     }
+                    // Bridged non-async closure param: pass the adapter rebuilt from the
+                    // (funcPtr, context) pair, never the raw pointers.
+                    if (syncClosureBindingNames.TryGetValue(p, out var syncClosureCallName))
+                    {
+                        var label = CdeclParamMapper.BuildSwiftCallArgLabel(p);
+                        // @autoclosure params forward the value by calling the adapted closure.
+                        var autoClosureSuffix =
+                            _env.ClosureHandler.GetClosureTypeSpec(p)!.IsAutoClosure ? "()" : "";
+                        return $"{label}_adapted_{syncClosureCallName}{autoClosureSuffix}";
+                    }
                     // For non-frozen params, use the captured value
-                    if (nonFrozenParams.Any(nfp => nfp.Name == p.Name))
+                    if (nonFrozenParams.Any(nfp => ReferenceEquals(nfp, p)))
                     {
                         // Provenance-aware call label (canonical builder) — preserves labels that
                         // genuinely begin with '_' (e.g. _self) and backtick-escapes keywords.
@@ -1102,7 +1187,7 @@ namespace BindingsGeneration
                         return $"{label}{p.Name}Value";
                     }
                     // For large optional params, use the deref'd value
-                    if (largeOptionalParams.Any(lop => lop.Name == p.Name))
+                    if (largeOptionalParams.Any(lop => ReferenceEquals(lop, p)))
                     {
                         // Provenance-aware call label (canonical builder) — preserves labels that
                         // genuinely begin with '_' (e.g. _self) and backtick-escapes keywords.
