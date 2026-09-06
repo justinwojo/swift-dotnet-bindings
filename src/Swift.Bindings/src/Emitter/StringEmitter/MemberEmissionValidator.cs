@@ -983,6 +983,20 @@ public static class MemberEmissionValidator
             }
         }
 
+        // Direct-lane closure argument ABI. Swift hands a loadable closure argument to the callback
+        // BY VALUE, exploded into registers; the direct CallConvSwift trampoline reconstructs the
+        // value from those registers for the shapes whose register schema is modelled. A shape
+        // outside that set would still compile — the trampoline would simply read the wrong memory
+        // and fault somewhere else — so it is rejected here instead, which is the only point that
+        // can see it. Shapes on the @_cdecl and bridge lanes are untouched.
+        if (ClosureEmitter.HasUnmodelledDirectLaneClosureParam(
+                method, closureHandler, typeDatabase, out var directLaneShape))
+        {
+            skipDetails = $"Closure parameter passes '{directLaneShape}' by value in registers, " +
+                "a lowering the direct callback does not model.";
+            return SkipReason.UnsupportedClosure;
+        }
+
         // B21 (return position): Methods returning a closure (throwing OR non-throwing) whose
         // param/return shapes cannot be reduced to void* by ClosureEmitter.GetSwiftInvokeArgExpression
         // / the received-return fallback produce broken C# (CS1503/CS0029/CS0019 cannot-convert

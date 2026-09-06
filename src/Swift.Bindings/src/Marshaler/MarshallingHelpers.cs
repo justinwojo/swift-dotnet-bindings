@@ -529,6 +529,35 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when a class allocating initializer is reached by a direct CallConvSwift P/Invoke
+        /// and therefore has to supply the hidden self register itself.
+        ///
+        /// Swift lowers <c>__allocating_init</c> on a class as <c>@convention(method)</c> over
+        /// <c>@thick Self.Type</c>: the emitted body calls <c>swift_allocObject</c> with the metadata
+        /// pointer taken straight out of the swiftself register. A P/Invoke that omits it allocates
+        /// the instance over whatever happens to be in that register — the object's header carries a
+        /// garbage isa, so construction and field reads appear to work while the eventual
+        /// <c>swift_release</c> jumps through a bogus metadata destructor and faults.
+        ///
+        /// Only the direct lane needs this. Every wrapper lane (<c>@_cdecl</c> wrapper, free-function
+        /// wrapper, native thunk, async bridge) reaches the initializer from Swift source, where the
+        /// compiler materialises the metatype at the call. Generic parents are excluded: their
+        /// allocating inits are reached through the specialized-metatype accessor path, which threads
+        /// metadata through its own argument list.
+        /// </summary>
+        public static bool RequiresAllocatingInitMetatypeSelf(MethodEnvironment env)
+        {
+            if (!env.MethodDecl.IsConstructor) return false;
+            if (env.ParentDecl is not ClassDecl { IsGeneric: false }) return false;
+            if (env.MethodDecl.IsAsync) return false;
+            if (env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.UsesCdeclMethodWrapper) return false;
+            if (env.MethodDecl.UsesFreeFunctionWrapper || env.MethodDecl.UsesNativeThunk) return false;
+            if (env.MethodDecl.UsesWrapperLibrary) return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// True for non-cdecl sync returns of multi-element tuples where every top-level element
         /// is a bare generic type parameter. Such tuples are uniformly address-only in Swift's
         /// ABI and use split @out registers — one per element (x0, x1, …) rather than a single

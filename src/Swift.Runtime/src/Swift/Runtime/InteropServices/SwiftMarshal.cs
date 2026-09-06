@@ -847,6 +847,14 @@ public static class SwiftMarshal
             && classMd.Value.Kind == TypeMetadataKind.Class)
         {
             IntPtr classPointer = *(IntPtr*)source;
+
+            // A class-reference slot holding zero is Optional<Class>.none — Swift spends the null
+            // pointer as the Optional's extra inhabitant, and a live instance can never sit there.
+            // Building a wrapper over it instead hands the caller a non-null object whose handle is
+            // null, so a `Result<Payload?, Error>.success(nil)` reads back as a present payload.
+            if (classPointer == IntPtr.Zero)
+                return default!;
+
             Arc.UnknownObjectRetain(classPointer);
             return MarshalFromSwift<T>(classPointer);
         }

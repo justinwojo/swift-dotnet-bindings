@@ -184,6 +184,51 @@ public class WrapperPathResultHost {
     }
 }
 
+/// Callback arguments Swift passes BY VALUE, exploded into registers, rather than by address.
+///
+/// A `String` occupies two words, `String?` the same two with the second doubling as the
+/// discriminator (so the empty string and `nil` are only distinguishable if that word is read), and
+/// an optional container a single word that is zero for `.none`. Constructor position keeps them on
+/// the direct callback: the method-closure bridge never claims initializers, and the bridge is the
+/// path that would otherwise hand the callback a pointer it made itself and hide the convention.
+public class WrapperPathValueHost {
+    /// Readable after construction, so a test can confirm the receiver survives the callback that
+    /// ran inside its own initializer rather than only that the callback fired.
+    public let deliveredCode: Int32
+
+    /// Two-word `String` FOLLOWED by a further argument, so the second argument can only arrive
+    /// intact if the string's second word is accounted for rather than skipped. Mode 0 delivers the
+    /// empty string, whose words are both still meaningful.
+    ///
+    /// The array is what keeps the pair off the `@convention(c)` adapter — a lone `String` argument
+    /// is C-compatible and would be handed over as a pointer the adapter made itself.
+    public init(textMode: Int32, completion: @escaping (String, [Double]) -> Void) {
+        deliveredCode = textMode
+        completion(textMode == 0 ? "" : "by-value-\(textMode)", [1.5, 2.5])
+    }
+
+    /// `String?` in SECOND position, after a one-word argument. Mode 0 delivers `nil`, mode 1 the
+    /// empty string — the pair that separates a real value from the absent case, since both have a
+    /// zero first word and only the second tells them apart.
+    public init(optionalTextMode: Int32, completion: @escaping ([Double], String?) -> Void) {
+        deliveredCode = optionalTextMode
+        switch optionalTextMode {
+        case 0:
+            completion([1.5, 2.5], nil)
+        case 1:
+            completion([1.5, 2.5], "")
+        default:
+            completion([1.5, 2.5], "opt-\(optionalTextMode)")
+        }
+    }
+
+    /// `[Double]?` — one word, zero for `.none`.
+    public init(optionalValuesMode: Int32, completion: @escaping ([Double]?) -> Void) {
+        deliveredCode = optionalValuesMode
+        completion(optionalValuesMode == 0 ? nil : [1.5, 2.5, 3.5])
+    }
+}
+
 // MARK: - Collection-shaped callback arguments and returns
 
 public class CollectionCallbackHost {

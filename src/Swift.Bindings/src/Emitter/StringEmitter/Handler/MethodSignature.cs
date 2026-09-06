@@ -303,6 +303,10 @@ namespace BindingsGeneration
                 // Use .Handle to extract the IntPtr. Same pattern as TypeMetadata fix.
                 { Type: MarshalledType.Simple("IntPtr") } when parameter.Name.EndsWith("PWT")
                     => $"{parameter.Name}.Handle",
+                // Self register supplied by the emitter rather than by a call-site local — the
+                // allocating-init metatype is the only user today.
+                { Type: MarshalledType.SwiftSelfUntypedType, CallExpression: { } selfExpression }
+                    => selfExpression,
                 _ => parameter.Name
             };
         }
@@ -1104,6 +1108,12 @@ namespace BindingsGeneration
                 {
                     pInvokeSignature.HandleSwiftError();
                 }
+
+                // Class allocating initializers reached directly through CallConvSwift carry the
+                // hidden @thick Self.Type in the self register. It sits outside the cdecl phase
+                // contract on purpose: no wrapper lane declares it, and the register — not the
+                // argument position — is what the callee reads.
+                pInvokeSignature.HandleAllocatingInitMetatypeSelf();
 
                 _pInvokeSignature = pInvokeSignature.Build();
             }

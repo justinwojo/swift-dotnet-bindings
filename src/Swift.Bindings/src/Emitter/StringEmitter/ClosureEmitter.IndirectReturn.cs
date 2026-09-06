@@ -53,6 +53,9 @@ public static partial class ClosureEmitter
             {
                 var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
                 parameters.Add($"{paramType} arg{argIndex}");
+                // Direct lane: a loadable argument arrives exploded across registers, so declare the
+                // words past the first as their own parameters.
+                AppendDirectLaneExtraWordParameters(parameters, arg, argIndex, closureHandler, useCdecl);
             }
             argTypes.Add(arg);
             argIndex++;
@@ -220,13 +223,14 @@ public static partial class ClosureEmitter
         // uninitialized storage. A managed exception escaping into native Swift also aborts
         // the process. Wrap the body so any unhandled exception becomes a controlled FailFast
         // BEFORE Swift touches the buffer.
+        var argPrologue = BuildDirectLaneWordBufferPrologue(closureTypeSpec, closureHandler, useCdecl);
         csWriter.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe void {{callbackName}}({{parametersString}})
             {
                 try
                 {
-                    var del = {{extractCall}};
+                    {{argPrologue}}var del = {{extractCall}};
                     var result = del({{invokeArgsString}});
 
                     {{marshalBlock}}
@@ -276,7 +280,7 @@ public static partial class ClosureEmitter
         // For Cdecl indirect return, build a Cdecl-based function pointer type
         var funcPtrType = useCdecl
             ? BuildIndirectReturnCdeclFunctionPointerType(closureTypeSpec, closureHandler)
-            : closureHandler.GetPInvokeFunctionPointerTypeWithIndirectReturn(closureTypeSpec);
+            : BuildIndirectReturnSwiftFunctionPointerType(closureTypeSpec, closureHandler);
 
         // Add context parameter to the function pointer type
         var funcPtrTypeWithContext = useCdecl
@@ -284,6 +288,30 @@ public static partial class ClosureEmitter
             : AddContextToFunctionPointerType(funcPtrType);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
+    }
+
+    /// <summary>
+    /// Builds the direct-lane (<c>CallConvSwift</c>) function pointer type for an indirect-return
+    /// callback. Mirrors <see cref="EmitIndirectReturnCallback"/>'s parameter expansion, including the
+    /// extra registers a loadable argument arrives in — the reverse trampoline and the pointer type
+    /// that names it have to agree on arity. This deliberately does NOT reuse
+    /// <c>ClosureHandler.GetPInvokeFunctionPointerTypeWithIndirectReturn</c>: that one types the
+    /// FORWARD direction (C# invoking a closure Swift handed back), where the argument words are
+    /// supplied by the caller rather than declared as parameters.
+    /// </summary>
+    private static string BuildIndirectReturnSwiftFunctionPointerType(
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler)
+    {
+        var types = new List<string> { "void*" }; // indirect result buffer
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            types.Add(GetCallbackParameterType(arg, closureHandler));
+            AppendDirectLaneExtraWordTypes(types, arg, closureHandler, useCdecl: false);
+        }
+
+        types.Add("void");
+        return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
     }
 
     /// <summary>

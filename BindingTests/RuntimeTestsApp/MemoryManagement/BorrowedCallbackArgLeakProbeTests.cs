@@ -52,20 +52,32 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        InvokeBorrowedResults(1000);
+        int successes = InvokeBorrowedResults(1000);
         DrainFinalizers();
 
+        // The leak assertion is only worth anything if the wrapper was built over the real value:
+        // a wrapper reconstructed from the wrong address owns no embedded ref, so it has nothing to
+        // leak and would report clean no matter what the finalizer did. Reading the discriminator
+        // out of every borrowed wrapper is what forecloses that vacuous pass.
+        AssertEqual(1000, successes,
+            $"every borrowed SwiftResult must arrive as the success arm Swift sent, got {successes}/1000");
         LifetimeTracker.AssertNoLeaks("borrowed SwiftResult Copy-wrapper callback arg must not leak the InitializeWithCopy buffer + embedded ref");
-        TestLogger.Info("borrowed SwiftResult callback arg: 1000 invocations released their embedded ref");
+        TestLogger.Info("borrowed SwiftResult callback arg: 1000 invocations read their case and released their embedded ref");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void InvokeBorrowedResults(int count)
+    private static int InvokeBorrowedResults(int count)
     {
         // Read-and-discard the borrowed Copy-wrapper without disposing — cleanup is the wrapper
         // finalizer's responsibility (the declared Copy semantics keep it; the old borrowed path
         // suppressed it and leaked the copy).
-        TestLibFunctions.InvokeWithBorrowedTrackedResult(count, r => { _ = r; });
+        int successes = 0;
+        TestLibFunctions.InvokeWithBorrowedTrackedResult(count, r =>
+        {
+            if (r.IsSuccess)
+                successes++;
+        });
+        return successes;
     }
 
     /// <summary>
@@ -78,17 +90,28 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        InvokeBorrowedArrays(1000);
+        long observedElements = InvokeBorrowedArrays(1000);
         DrainFinalizers();
 
+        // Swift sends a one-element array each time. Counting the elements out of every borrowed
+        // wrapper is what makes the leak assertion below mean something: a wrapper built over the
+        // wrong address holds no retain on the CoW storage, so it cannot leak the element and would
+        // report clean whatever the finalizer did.
+        AssertEqual(1000L, observedElements,
+            $"every borrowed SwiftArray must arrive carrying its one element, saw {observedElements} across 1000 invocations");
         LifetimeTracker.AssertNoLeaks("borrowed SwiftArray Copy-wrapper callback arg must not leak the InitializeWithCopy CoW-storage retain");
-        TestLogger.Info("borrowed SwiftArray callback arg: 1000 invocations released their element ref");
+        TestLogger.Info("borrowed SwiftArray callback arg: 1000 invocations read their element and released the storage retain");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void InvokeBorrowedArrays(int count)
+    private static long InvokeBorrowedArrays(int count)
     {
-        TestLibFunctions.InvokeWithBorrowedTrackedArray(count, arr => { _ = arr; });
+        long observedElements = 0;
+        TestLibFunctions.InvokeWithBorrowedTrackedArray(count, arr =>
+        {
+            observedElements += arr.Count;
+        });
+        return observedElements;
     }
 
     /// <summary>

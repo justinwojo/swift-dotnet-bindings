@@ -660,6 +660,16 @@ public class MemberValidationPipeline
             return ValidationResult.Skip(SkipReason.UnsupportedClosure,
                 "Property has a closure nested inside a collection (Array/Set/Dictionary); a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
 
+        // Direct-lane closure-callback argument ABI — the property mirror of the method gate.
+        // A settable closure property hands the closure to Swift through a reverse CallConvSwift
+        // trampoline; Swift passes a loadable callback argument by value in registers, and a shape
+        // whose explosion this generator does not model would be read as an address.
+        if (ClosureEmitter.HasUnmodelledDirectLaneClosureAccessorArg(
+                propertyDecl, new ClosureHandler(_typeDatabase), _typeDatabase, out var propertyDirectLaneShape))
+            return ValidationResult.Skip(SkipReason.UnsupportedClosure,
+                $"Closure-typed property setter passes '{propertyDirectLaneShape}' by value in registers, " +
+                "a lowering the direct callback does not model.");
+
         // Constrained-extension multi-specialization conflict — see
         // MemberEmissionValidator.CanEmitProperty for the full rationale. PropertyHandler.Emit
         // routes through this pipeline (not CanEmitProperty), so the gate must be repeated here
@@ -826,6 +836,16 @@ public class MemberValidationPipeline
             subscriptDecl.IndexParameters.Any(p => ClosureHandler.ContainsClosureNestedInCollection(p.SwiftTypeSpec)))
             return ValidationResult.Skip(SkipReason.UnsupportedClosure,
                 "Subscript has a closure nested inside a collection (Array/Set/Dictionary) in its element type or an index parameter; a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
+
+        // Direct-lane closure-callback argument ABI — the subscript mirror of the method gate. An
+        // index parameter travels into Swift on both accessors and the element type does so on the
+        // setter, each through a reverse CallConvSwift trampoline whose loadable arguments arrive in
+        // registers rather than behind an address.
+        if (ClosureEmitter.HasUnmodelledDirectLaneClosureAccessorArg(
+                subscriptDecl, new ClosureHandler(_typeDatabase), out var subscriptDirectLaneShape))
+            return ValidationResult.Skip(SkipReason.UnsupportedClosure,
+                $"Subscript closure parameter passes '{subscriptDirectLaneShape}' by value in registers, " +
+                "a lowering the direct callback does not model.");
 
         // ── Tuple index parameters / tuple returns with any non-primitive element ──
         // The subscript path P/Invokes the raw dispatch thunk directly: there is no @_cdecl

@@ -1113,6 +1113,24 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Adds the hidden <c>@thick Self.Type</c> self register for a class allocating initializer
+        /// that is called directly through CallConvSwift. The metatype is what
+        /// <c>swift_allocObject</c> allocates from, so leaving the register undefined produces an
+        /// instance whose isa is garbage — it survives construction and faults on release.
+        /// </summary>
+        public void HandleAllocatingInitMetatypeSelf()
+        {
+            if (!MarshallingHelpers.RequiresAllocatingInitMetatypeSelf(_env))
+                return;
+
+            var selfTypeName = GetResolvedParentTypeName();
+            _parameters.Add(new Parameter(
+                MarshalledType.SwiftSelfUntyped,
+                "_metatypeSelf",
+                CallExpression: $"new SwiftSelf((void*)SwiftObjectHelper<{selfTypeName}>.GetTypeMetadata().Handle)"));
+        }
+
+        /// <summary>
         /// Handles the SwiftError parameter of the method.
         /// </summary>
         public void HandleSwiftError()

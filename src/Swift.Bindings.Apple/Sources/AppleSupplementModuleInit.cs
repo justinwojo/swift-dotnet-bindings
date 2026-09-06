@@ -10,12 +10,11 @@ namespace Swift;
 /// <summary>
 /// Registers NewFromPayload factories for non-generic hand-rolled Apple-package ISwiftObject types
 /// (Foundation.Data, Foundation.URL, Foundation.URLRequest, Foundation.AttributedString,
-/// SwiftUI.Text). On NativeAOT the trimmer may strip explicit interface implementations;
-/// registering here keeps them alive and populates the factory cache before any marshalling
-/// call. Runtime cannot perform this registration (would require a circular package
+/// Foundation.AnyError, SwiftUI.Text). On NativeAOT the trimmer may strip explicit interface
+/// implementations; registering here keeps them alive and populates the factory cache before any
+/// marshalling call. Runtime cannot perform this registration (would require a circular package
 /// dependency). Generic types (Measurement&lt;T&gt;, ManagedSettings.Token&lt;T&gt;) self-register
-/// per closed instantiation via a static readonly field. Foundation.AnyError uses its own
-/// static-constructor metadata registration.
+/// per closed instantiation via a static readonly field.
 /// </summary>
 internal static class AppleSupplementFactoryRegistration
 {
@@ -29,6 +28,11 @@ internal static class AppleSupplementFactoryRegistration
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.URLRequest>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.AttributedString>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.SwiftUI.Text>();
+        // AnyError carries CallConvSwift P/Invoke members, so it is excluded from the embedded
+        // linker descriptor (preserve="methods" on such a type crashes ILC). Without a registered
+        // factory the marshal seam falls to reflection, and ILC has already trimmed the method —
+        // reading SwiftResult<T, AnyError>.Failure then throws instead of producing the error.
+        SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.AnyError>();
 
         // Pre-register each reference-type Apple-supplement ISwiftObject's declared payload-construction
         // semantics (Finding 11) so the unconstrained marshal seam reads its ownership contract from the

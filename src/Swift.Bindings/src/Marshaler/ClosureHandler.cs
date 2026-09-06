@@ -8,7 +8,7 @@ namespace BindingsGeneration;
 /// It provides methods to detect closure arguments and translate them to appropriate
 /// C# delegate types or function pointers.
 /// </summary>
-public class ClosureHandler
+public partial class ClosureHandler
 {
     private readonly ITypeDatabase _typeDatabase;
     private readonly TupleHandler _tupleHandler;

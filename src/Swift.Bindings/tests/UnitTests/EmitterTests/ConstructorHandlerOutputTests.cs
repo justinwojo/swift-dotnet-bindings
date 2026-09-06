@@ -157,6 +157,47 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_ClassConstructor_PassesThickMetatypeInTheSelfRegister()
+    {
+        // A class allocating initializer is @convention(method) over @thick Self.Type: the
+        // metatype arrives in the self register and is the metadata swift_allocObject
+        // allocates the instance from. Leaving it unset hands the allocator whatever the
+        // register happened to hold, so the object is built with a garbage isa and the crash
+        // lands later, on the first release.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl);
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        // Pin the contract, not merely the presence of the words: the metatype must be a declared
+        // P/Invoke parameter typed SwiftSelf (which is what puts it in the self register rather than
+        // in the next general-purpose argument register) on a CallConvSwift import, and the call must
+        // pass this class's own metadata into it.
+        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Contains("SwiftSelf _metatypeSelf)", csOutput);
+        Assert.Contains(
+            "new SwiftSelf((void*)SwiftObjectHelper<Animal>.GetTypeMetadata().Handle)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StructConstructor_DoesNotPassMetatypeSelf()
+    {
+        // The positive control for the gate above. A struct initializer returns its value
+        // directly and allocates nothing, so it carries no metatype — adding one here would
+        // shift every argument the callee reads.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl);
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.DoesNotContain("GetTypeMetadata()", csOutput);
+    }
+
+    [Fact]
     public void Emit_ClassConstructorWithEnumParam_UsesIntPtrInPInvoke()
     {
         // Class constructors should handle enum parameters the same as struct constructors.

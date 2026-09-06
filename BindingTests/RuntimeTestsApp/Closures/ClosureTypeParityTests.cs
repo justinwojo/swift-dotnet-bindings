@@ -32,14 +32,13 @@ namespace RuntimeTestsApp.Closures;
 /// assertion; the payload checks are what separates a working bridge from one that merely does not
 /// abort.</para>
 ///
-/// <para>Eight of these carry a <c>Skip</c> naming a <b>different</b> defect on the same path: the
-/// direct <c>CallConvSwift</c> bridge declares every callback argument as <c>void* arg0</c>, but
-/// Swift passes a loadable argument by value in registers rather than by address. Those shapes now
-/// reach their delegate — the parity half is what this class proves — and then read the payload word
-/// as though it were the payload's address. The tests are left written and skipped rather than
-/// deleted: they are the standing red flag for that defect, and the method-closure-bridge siblings
-/// (<c>BridgePath*</c>, which get a real pointer) run and pass beside them, which is what localises
-/// it to the direct bridge.</para>
+/// <para>The same shapes are also the coverage for the direct bridge's ARGUMENT convention. Swift
+/// hands a loadable closure argument over BY VALUE, exploded into registers, not by address — a
+/// <c>Result&lt;Class?, any Error&gt;</c> as a payload word plus a tag byte, an <c>[Double]</c> as
+/// its storage pointer, a <c>String</c> as two words — so the trampoline rebuilds the value from
+/// those registers. The method-closure-bridge siblings (<c>BridgePath*</c>) reach the same Swift
+/// shapes through a pointer the bridge makes itself, so a failure confined to one side localises the
+/// fault to that side's convention.</para>
 /// </summary>
 public class ClosureTypeParityTests : TestBase
 {
@@ -59,33 +58,24 @@ public class ClosureTypeParityTests : TestBase
         Action<SwiftResult<SwiftOptional<ExistentialContainer0>, AnyError>> completion)
         => new WrapperPathResultHost(anyMode, completion);
 
-    // The `Skip` reason repeated below, kept in one place so the eight tests it gates cannot drift
-    // apart. It describes a SECOND defect on the same path, independent of the delegate-type parity
-    // this class covers, and the tests stay written so they turn green the moment it is fixed.
-    private const string DirectBridgeArgAbi =
-        "Direct CallConvSwift closure bridge models every callback argument as a pointer (void* arg0), "
-        + "but Swift passes a loadable argument BY VALUE in registers: a (Result<Class?, any Error>) -> Void "
-        + "closure is called with x0 = the payload word and x1 = the enum tag, an ([Double]) -> Void closure "
-        + "with x0 = the array's storage pointer. Reading arg0 as the address of the value then dereferences "
-        + "the payload itself. Separate from the delegate-type parity under test here, which these shapes do "
-        + "reach and pass; the argument ABI is what stops them.";
-
     // ─── Result<Optional<Class>, any Error> on the wrapper-emitter path ───
     //
     // Constructor position is what puts these on the ordinary wrapper-emitter closure path: the
     // method-closure bridge never claims initializers, and the bridge is internally consistent (it
     // computes both halves itself), so an instance method would not reach the divergence at all.
     //
-    // That is also why these five are the ones the argument ABI blocks: the method-closure bridge
-    // hands its callback a pointer it created itself (an `Action<IntPtr>` adapter over a Swift-side
-    // `withUnsafePointer`), so the `BridgePath*` tests below observe the same Swift shapes soundly.
-    // The split is the evidence that the argument defect belongs to the direct bridge alone.
+    // These also exercise the direct callback's ARGUMENT convention, which is the other half of what
+    // must be right for them to pass: Swift hands a loadable argument over by value in registers
+    // (a `Result<Class?, any Error>` as payload word + tag byte, an `[Double]` as its storage
+    // pointer), so the trampoline reconstructs the value from those registers rather than treating
+    // the first one as its address. The `BridgePath*` tests below reach the same Swift shapes through
+    // the method-closure bridge, which hands its callback a pointer it made itself — so a failure
+    // here with those green localises the fault to the direct callback.
 
     /// <summary>
     /// Success arm carrying a bound class: exactly one callback, a readable payload, and a receiver
     /// still usable once the callback that ran during its own initializer has returned.
     /// </summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestWrapperPathResultSuccessWithPayload()
     {
         int calls = 0;
@@ -122,7 +112,6 @@ public class ClosureTypeParityTests : TestBase
     /// Success arm carrying <c>nil</c> — the Optional-inside-Result arm. Distinguishing it from the
     /// case above is what proves the success value is read rather than assumed present.
     /// </summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestWrapperPathResultSuccessWithNilPayload()
     {
         int calls = 0;
@@ -153,7 +142,6 @@ public class ClosureTypeParityTests : TestBase
     /// description off it — rather than only observing that the failure case arrived — is the
     /// assertion that matters here.
     /// </summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestWrapperPathResultFailure()
     {
         int calls = 0;
@@ -188,7 +176,6 @@ public class ClosureTypeParityTests : TestBase
     /// The exact reported shape — an opaque <c>Any?</c> success arm, which resolves to an existential
     /// carrier rather than a bound class and reaches the same delegate type by a different route.
     /// </summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestWrapperPathAnyResultSuccess()
     {
         int calls = 0;
@@ -215,7 +202,6 @@ public class ClosureTypeParityTests : TestBase
     }
 
     /// <summary>Failure arm of the <c>Any?</c> variant.</summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestWrapperPathAnyResultFailure()
     {
         int calls = 0;
@@ -416,7 +402,6 @@ public class ClosureTypeParityTests : TestBase
     /// <c>([Double]) -> Void</c>. Swift builds the array and hands it to the C# lambda; reading the
     /// elements is what shows the carrier arrived intact rather than as a mis-cast delegate.
     /// </summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestArrayCallbackArgument()
     {
         using var host = new CollectionCallbackHost();
@@ -436,7 +421,6 @@ public class ClosureTypeParityTests : TestBase
     }
 
     /// <summary>The struct-element variant of the same argument shape.</summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestStructArrayCallbackArgument()
     {
         using var host = new CollectionCallbackHost();
@@ -464,7 +448,6 @@ public class ClosureTypeParityTests : TestBase
     /// <c>SwiftString</c> rather than a <c>string</c> because the carrier looks its keys up through a
     /// Swift Hashable witness, which exists for <c>SwiftString</c> and not for <c>System.String</c>.
     /// </summary>
-    [Skip(DirectBridgeArgAbi)]
     public void TestDictionaryCallbackArgument()
     {
         using var host = new CollectionCallbackHost();
@@ -487,6 +470,144 @@ public class ClosureTypeParityTests : TestBase
         AssertEqual(2, count, $"Expected 2 entries, got {count}");
         AssertEqual(1, a, $"Expected counts[\"a\"] == 1, got {a}");
         AssertEqual(2, b, $"Expected counts[\"b\"] == 2, got {b}");
+    }
+
+    // ─── Multi-word by-value callback arguments ───
+    //
+    // A `String` occupies TWO registers, so the argument after it only lands where the callback
+    // expects if the second word is declared too. These fixtures put a string beside a container in
+    // both orders, which is also what keeps them off the @convention(c) adapter: a lone string
+    // argument is C-compatible and would arrive as a pointer the adapter built.
+    //
+    // The delegates are explicitly typed because the three initializers differ only in their
+    // delegate type, which a lambda's inferred shape cannot disambiguate.
+
+    /// <summary>
+    /// <c>(String, [Double]) -> Void</c>. Mode 1 sends a non-empty string; the array following it is
+    /// the argument that moves if the string's second word is unaccounted for.
+    /// </summary>
+    public void TestByValueStringThenArrayCallbackArguments()
+    {
+        int calls = 0;
+        string? text = null;
+        int count = -1;
+        double total = 0;
+
+        Action<string, SwiftArray<double>> completion = (s, values) =>
+        {
+            calls++;
+            text = s;
+            count = values.Count;
+            foreach (var value in values)
+                total += value;
+        };
+
+        using var host = new WrapperPathValueHost(1, completion);
+
+        AssertEqual(1, calls, $"Expected exactly one callback, got {calls}");
+        AssertEqual("by-value-1", text, $"Expected the string to survive by value, got '{text}'");
+        AssertEqual(2, count, $"Expected the trailing array to carry 2 values, got {count}");
+        AssertApproxEqual(4.0, total, message: $"Expected 1.5 + 2.5 = 4.0, got {total}");
+        AssertEqual(1, host.DeliveredCode, $"Expected DeliveredCode 1, got {host.DeliveredCode}");
+    }
+
+    /// <summary>
+    /// The empty string, whose first word is zero. Distinguishing it from the absent case below is
+    /// what shows both words are read rather than the first one tested for null.
+    /// </summary>
+    public void TestByValueEmptyStringCallbackArgument()
+    {
+        int calls = 0;
+        string? text = null;
+
+        Action<string, SwiftArray<double>> completion = (s, values) =>
+        {
+            calls++;
+            text = s;
+        };
+
+        using var host = new WrapperPathValueHost(0, completion);
+
+        AssertEqual(1, calls, $"Expected exactly one callback, got {calls}");
+        AssertEqual(string.Empty, text, $"Expected the empty string, got '{text}'");
+    }
+
+    /// <summary>
+    /// <c>([Double], String?) -> Void</c> — the two-word value in SECOND position, so its words start
+    /// after the preceding argument's. Mode 2 delivers a real string.
+    /// </summary>
+    public void TestByValueArrayThenOptionalStringCallbackArguments()
+    {
+        int calls = 0;
+        int count = -1;
+        string? text = "unset";
+
+        Action<SwiftArray<double>, string?> completion = (values, s) =>
+        {
+            calls++;
+            count = values.Count;
+            text = s;
+        };
+
+        using var host = new WrapperPathValueHost(2, completion);
+
+        AssertEqual(1, calls, $"Expected exactly one callback, got {calls}");
+        AssertEqual(2, count, $"Expected the leading array to carry 2 values, got {count}");
+        AssertEqual("opt-2", text, $"Expected the trailing optional string, got '{text}'");
+    }
+
+    /// <summary>
+    /// <c>nil</c> and the empty string through the same <c>String?</c> argument. Both have a zero
+    /// first word, so only the discriminator word separates them — the pair is the assertion.
+    /// </summary>
+    public void TestByValueOptionalStringNilAndEmptyAreDistinct()
+    {
+        bool sawNil = false;
+        bool sawEmpty = false;
+
+        Action<SwiftArray<double>, string?> observeNil = (values, s) => sawNil = s == null;
+        using (var none = new WrapperPathValueHost(0, observeNil))
+        {
+            AssertEqual(0, none.DeliveredCode, $"Expected DeliveredCode 0, got {none.DeliveredCode}");
+        }
+
+        Action<SwiftArray<double>, string?> observeEmpty = (values, s) => sawEmpty = s == string.Empty;
+        using (var empty = new WrapperPathValueHost(1, observeEmpty))
+        {
+            AssertEqual(1, empty.DeliveredCode, $"Expected DeliveredCode 1, got {empty.DeliveredCode}");
+        }
+
+        AssertTrue(sawNil, "Expected the absent case to arrive as null");
+        AssertTrue(sawEmpty, "Expected the empty string to arrive as a present, empty value");
+    }
+
+    /// <summary>
+    /// <c>([Double]?) -> Void</c> — one word, zero for the absent case. Both arms run so a callback
+    /// that always sees one of them cannot pass.
+    /// </summary>
+    public void TestByValueOptionalArrayCallbackArgument()
+    {
+        int seenCount = -1;
+        bool sawNull = false;
+
+        Action<SwiftArray<double>?> observeSome = values =>
+        {
+            if (values != null)
+                seenCount = values.Count;
+        };
+        using (var some = new WrapperPathValueHost(1, observeSome))
+        {
+            AssertEqual(1, some.DeliveredCode, $"Expected DeliveredCode 1, got {some.DeliveredCode}");
+        }
+
+        Action<SwiftArray<double>?> observeNone = values => sawNull = values == null;
+        using (var none = new WrapperPathValueHost(0, observeNone))
+        {
+            AssertEqual(0, none.DeliveredCode, $"Expected DeliveredCode 0, got {none.DeliveredCode}");
+        }
+
+        AssertEqual(3, seenCount, $"Expected the present array to carry 3 values, got {seenCount}");
+        AssertTrue(sawNull, "Expected the absent case to arrive as null");
     }
 
     // ─── Collection-shaped callback RETURNS ───

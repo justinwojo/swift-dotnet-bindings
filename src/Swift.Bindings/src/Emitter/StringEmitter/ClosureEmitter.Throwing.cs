@@ -54,6 +54,9 @@ public static partial class ClosureEmitter
             {
                 var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
                 parameters.Add($"{paramType} arg{argIndex}");
+                // Direct lane: a loadable argument arrives exploded across registers, so declare the
+                // words past the first as their own parameters.
+                AppendDirectLaneExtraWordParameters(parameters, arg, argIndex, closureHandler, useCdecl);
             }
             argTypes.Add(arg);
             argIndex++;
@@ -160,6 +163,7 @@ public static partial class ClosureEmitter
         // aborts the process (SIGABRT). Convert it into a Swift error in *errorOut; the
         // Swift adapter rethrows it on the Swift side. The cooperative IsFailure path is
         // unchanged.
+        var argPrologue = BuildDirectLaneWordBufferPrologue(closureTypeSpec, closureHandler, useCdecl);
         csWriter.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
@@ -167,7 +171,7 @@ public static partial class ClosureEmitter
                 var del = {{extractCall}};
                 try
                 {
-                    var swiftResult = del({{invokeArgsString}});
+                    {{argPrologue}}var swiftResult = del({{invokeArgsString}});
                     if (swiftResult.IsFailure)
                     {
                         // Cooperative failure: the delegate produced a SwiftError.

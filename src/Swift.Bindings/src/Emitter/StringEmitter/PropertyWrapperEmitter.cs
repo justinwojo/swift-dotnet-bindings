@@ -776,7 +776,7 @@ public static class PropertyWrapperEmitter
     /// Returns true when a property on a generic parent type can be wrapped via @_cdecl
     /// using protocol-based type erasure.
     /// </summary>
-    private static bool CanEmitGenericClassPropertyWrapper(
+    internal static bool CanEmitGenericClassPropertyWrapper(
         PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
     {
         // Static properties don't need self-based erasure, but static dispatch

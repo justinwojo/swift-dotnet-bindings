@@ -84,6 +84,9 @@ public static partial class ClosureEmitter
             {
                 var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
                 parameters.Add($"{paramType} arg{argIndex}");
+                // Direct lane: a loadable argument arrives exploded across registers, so declare the
+                // words past the first as their own parameters.
+                AppendDirectLaneExtraWordParameters(parameters, arg, argIndex, closureHandler, useCdecl);
             }
             argTypes.Add(arg);
             argIndex++;
@@ -198,13 +201,14 @@ public static partial class ClosureEmitter
         // return a value". The trailing `throw;` gives the catch a definite terminator; it is
         // unreachable at runtime (FailFast already aborted) and type-agnostic, so it works for
         // both void and value-returning callbacks.
+        var argPrologue = BuildDirectLaneWordBufferPrologue(closureTypeSpec, closureHandler, useCdecl);
         csWriter.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
                 try
                 {
-                    var del = {{extractCall}};
+                    {{argPrologue}}var del = {{extractCall}};
                     {{returnStatement}}
                 }
                 catch (global::System.Exception __ex)
@@ -886,6 +890,16 @@ public static partial class ClosureEmitter
         var callbackType = GetCallbackParameterType(typeSpec, closureHandler);
         if (callbackType == "void*" && typeSpec is NamedTypeSpec namedType)
         {
+            // On the direct lane a loadable argument arrives BY VALUE in registers, so the value's
+            // memory image lives in the trampoline's own parameters (rebuilt into a stack buffer by
+            // the emitted prologue for multi-word shapes) rather than at the address arg0 happens to
+            // hold. Every arm below that marshals FROM AN ADDRESS reads it from here so the exploded
+            // and genuinely-indirect cases share one marshalling path; the arms that treat the
+            // register as the value itself (pointers, class references) keep the literal parameter.
+            var valueAddress = DirectLaneArgAddress(typeSpec, argIndex, closureHandler, useCdecl);
+            var isExploded = !useCdecl &&
+                closureHandler.ClassifyDirectClosureArg(typeSpec).Abi == DirectClosureArgAbi.ExplodedWords;
+
             if (TypeDatabaseExtensions.IsPointerType(namedType))
             {
                 // Pointer types (OpaquePointer, UnsafeRawPointer, etc.) are void* in the callback
@@ -903,7 +917,16 @@ public static partial class ClosureEmitter
                 namedType.GenericParameters.Count == 1 &&
                 namedType.GenericParameters[0] is NamedTypeSpec optInnerStr &&
                 WitnessDispatchEmitter.IsStringType(optInnerStr))
-                return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString() : null";
+            {
+                // Optional<String> is String's own extra-inhabitant encoding, not a nullable pointer:
+                // the SECOND word carries the discriminator and is zero only for .none. Every real
+                // String — the empty string included — has a non-zero second word, so testing the
+                // first word (or the register as a pointer) reports .none for a valid empty string.
+                var stringNoneTest = isExploded
+                    ? $"arg{argIndex}_w1 == null"
+                    : $"arg{argIndex} == null";
+                return $"{stringNoneTest} ? null : SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>({valueAddress}).ToString()";
+            }
 
             // Optional<Foundation.Data>: same shape as the top-level Foundation.Data
             // path — projected delegate type is "byte[]?" but byte[] has no Swift metadata.
@@ -920,6 +943,19 @@ public static partial class ClosureEmitter
                 // invoker references Swift.Foundation.Data with no project ref.
                 AppleSupplementReferences.Record("Foundation.Data", "ClosureEmitter.InvokeArg:OptionalFoundationData");
                 return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
+            }
+
+            // Optional<Array/Dictionary/Set/ContiguousArray> arriving by value: the register IS the
+            // container's buffer reference, and Swift spells .none as a zero word. Marshalling the
+            // zero word instead of testing it yields a live wrapper over a null buffer, which reads
+            // as "an empty collection was delivered" rather than "nothing was". An empty container
+            // is a non-zero shared singleton, so the test separates absent from empty.
+            if (isExploded && closureHandler.IsOptionalSingleWordContainerArg(namedType))
+            {
+                var containerType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+                var containerMarshal = closureHandler.BorrowedCallbackArgMarshal(
+                    typeSpec, containerType, valueAddress, nonNullObjCBridge: true);
+                return $"arg{argIndex} != null ? {containerMarshal} : null";
             }
 
             // Optional<Class>: void* → null check → MarshalCallbackArg or null
@@ -965,18 +1001,22 @@ public static partial class ClosureEmitter
                 return $"arg{argIndex} != null ? ({innerType}?)SwiftMarshal.MarshalCallbackArg<{innerType}>(new IntPtr(arg{argIndex})) : null";
             }
 
-            // Optional<NumericPrimitive>: full Optional on heap → SwiftMarshal.MarshalOptionalFromSwift<T>
+            // Optional<NumericPrimitive>: the @_cdecl adapter hands over a heap Optional's address,
+            // while the direct lane delivers the same memory image in registers — the payload word
+            // followed by a tag byte, rebuilt into the stack buffer valueAddress points at. Both
+            // reach MarshalOptionalFromSwift<T> the same way because the image is identical; only
+            // where it lives differs.
             if (IsOptionalValueParam(namedType, closureHandler))
             {
                 var inner = namedType.GenericParameters[0];
                 var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
-                return $"SwiftMarshal.MarshalOptionalFromSwift<{innerType}>(new IntPtr(arg{argIndex}))";
+                return $"SwiftMarshal.MarshalOptionalFromSwift<{innerType}>({valueAddress})";
             }
 
             // String parameter: System.String has no Swift metadata, so MarshalFromSwift<string> fails.
             // Marshal as SwiftString (which implements ISwiftObject) and convert to string.
             if (WitnessDispatchEmitter.IsStringType(namedType))
-                return $"SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
+                return $"SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>({valueAddress}).ToString()";
 
             // Foundation.Data → byte[] projection: TranslateTypeSpecToCSharp projects
             // Foundation.Data to byte[], but byte[] has no Swift metadata, so the default
@@ -987,7 +1027,7 @@ public static partial class ClosureEmitter
             {
                 // Same supplement-reference bypass as the Optional<Foundation.Data> arm above.
                 AppleSupplementReferences.Record("Foundation.Data", "ClosureEmitter.InvokeArg:FoundationData");
-                return $"SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray()";
+                return $"SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>({valueAddress}).ToByteArray()";
             }
 
             // ObjC-bridgeABLE value type carrying an explicit native remap (Foundation.URL →
@@ -1038,7 +1078,7 @@ public static partial class ClosureEmitter
             // is correct because they are never surfaced to the user for Dispose.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
             return closureHandler.BorrowedCallbackArgMarshal(
-                typeSpec, delegateType, $"new IntPtr(arg{argIndex})", nonNullObjCBridge: true);
+                typeSpec, delegateType, valueAddress, nonNullObjCBridge: true);
         }
 
         // Well-known protocol wrapping (e.g., any Swift.Error → AnyError)
@@ -1221,6 +1261,7 @@ public static partial class ClosureEmitter
             else
             {
                 types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
+                AppendDirectLaneExtraWordTypes(types, arg, closureHandler, useCdecl);
             }
         }
 
@@ -1248,6 +1289,7 @@ public static partial class ClosureEmitter
             else
             {
                 types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
+                AppendDirectLaneExtraWordTypes(types, arg, closureHandler, useCdecl);
             }
         }
 
