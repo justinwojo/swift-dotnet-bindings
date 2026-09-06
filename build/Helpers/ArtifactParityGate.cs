@@ -299,9 +299,7 @@ public static class ArtifactParityGate
             if (braceClose < 0) continue;
             var body = csSource.Substring(braceOpen, braceClose - braceOpen + 1);
 
-            var bm = BufferStruct.Match(body);
-            if (!bm.Success) continue;
-            var bOpen = body.IndexOf('{', bm.Index + bm.Length - 1);
+            var bOpen = FindOwnBufferBrace(body);
             if (bOpen < 0) continue;
             var bClose = MatchingBrace(body, bOpen);
             if (bClose < 0) continue;
@@ -364,6 +362,40 @@ public static class ArtifactParityGate
             if (!result.ContainsKey(name))
                 result[name] = stems;
         return result;
+    }
+
+    /// <summary>
+    /// Index of the opening brace of the host type's OWN <c>Buffer</c> — the first
+    /// <c>struct Buffer</c> declared directly in <paramref name="body"/> (brace depth 1),
+    /// skipping any Buffer that belongs to a type nested inside the host. Returns -1 when the
+    /// host declares none. <paramref name="body"/> starts at the host's own opening brace, so a
+    /// direct member sits at depth 1 and a member of a nested type at depth 2 or deeper.
+    /// A host projected with an opaque payload has no Buffer of its own yet can still nest a
+    /// Buffer-backed type; attributing that inner Buffer to the host compares the nested type's
+    /// fields against the OUTER struct's ABI stored properties and reports a layout divergence
+    /// that does not exist.
+    /// </summary>
+    private static int FindOwnBufferBrace(string body)
+    {
+        foreach (Match bm in BufferStruct.Matches(body))
+        {
+            if (BraceDepthBefore(body, bm.Index) != 1) continue;
+            var bOpen = body.IndexOf('{', bm.Index + bm.Length - 1);
+            if (bOpen >= 0) return bOpen;
+        }
+        return -1;
+    }
+
+    /// <summary>Brace nesting depth of <paramref name="s"/> immediately before <paramref name="index"/>.</summary>
+    private static int BraceDepthBefore(string s, int index)
+    {
+        var depth = 0;
+        for (var i = 0; i < index && i < s.Length; i++)
+        {
+            if (s[i] == '{') depth++;
+            else if (s[i] == '}') depth--;
+        }
+        return depth;
     }
 
     private static readonly Regex BufferStruct = new(@"\bstruct\s+Buffer\b\s*\{", RegexOptions.Compiled);

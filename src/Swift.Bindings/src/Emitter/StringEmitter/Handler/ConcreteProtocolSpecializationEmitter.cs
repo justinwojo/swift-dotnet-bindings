@@ -33,6 +33,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
     internal const int MaxCsmCartesianProductSize = 10_000;
 
     /// <summary>
+    /// P/Invoke parameter type for every native-backed receiver or argument a CSM overload
+    /// forwards. Declaring the parameter as a <see cref="System.Runtime.InteropServices.SafeHandle"/>
+    /// rather than a raw <c>IntPtr</c> hands the lifetime to the <c>LibraryImport</c> marshaller,
+    /// which brackets the call with <c>DangerousAddRef</c>/<c>DangerousRelease</c> and throws
+    /// <see cref="System.ObjectDisposedException"/> before the call when the handle is already
+    /// closed. Without it, a raw <c>DangerousGetHandle()</c> extraction lets a concurrent
+    /// <c>Dispose()</c> free the native storage while the callee is still dereferencing it, and
+    /// hands an already-disposed argument to Swift instead of rejecting it (<c>GC.KeepAlive</c>
+    /// cannot prevent either, since neither is a reachability problem). This is the same mechanism
+    /// the ordinary method emitter uses — see <c>MethodSignature</c>'s <c>SafeHandle</c> parameter
+    /// type and its <c>{name}.Payload</c> call argument — so both emitters lease one way.
+    /// </summary>
+    internal const string LeasedSafeHandleType = "global::System.Runtime.InteropServices.SafeHandle";
+
+    /// <summary>
     /// Returns the number of cartesian-product pairings that would be enumerated for
     /// <paramref name="specParams"/>, clamped to <see cref="long.MaxValue"/> on overflow.
     /// Used to short-circuit CSM-async emission for pathologically large products
@@ -1288,9 +1303,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // Payload is safe here: the pairing preflight (ClassifyConformerStructurally)
                         // rejects every UsesHandleAccessor conformer, so only pure-Swift classes —
                         // which always expose a public Payload SafeHandle — reach this arm.
+                        // Typed as SafeHandle so the marshaller leases it (see LeasedSafeHandleType).
                         publicParams.Add($"{conformerCsType} {csName}");
-                        pinvokeParams.Add($"IntPtr {csName}");
-                        callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                        pinvokeParams.Add($"{LeasedSafeHandleType} {csName}");
+                        callArgs.Add($"{csName}.Payload");
                         break;
                     case ConformerCategory.RawBuffer:
                         // byte[] / [UInt8]: pin via fixed(byte*), pass (ptr, length).
@@ -1321,11 +1337,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         needsUnsafe = true;
                         break;
                     default:
-                        // Frozen and non-frozen structs: pass via IntPtr.
-                        // Even frozen structs are C# classes with SafeHandle, not blittable structs.
+                        // Frozen and non-frozen structs: pass the payload SafeHandle.
+                        // Even frozen structs are C# classes with SafeHandle, not blittable structs
+                        // (the blittable-value-struct projection is rejected at preflight), so the
+                        // leased SafeHandle parameter applies here too.
                         publicParams.Add($"{conformerCsType} {csName}");
-                        pinvokeParams.Add($"IntPtr {csName}");
-                        callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                        pinvokeParams.Add($"{LeasedSafeHandleType} {csName}");
+                        callArgs.Add($"{csName}.Payload");
                         break;
                 }
             }
@@ -1364,10 +1382,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     {
                         var csType = ResolvePublicCSharpType(arg.SwiftTypeSpec, typeDatabase);
                         publicParams.Add($"{csType} {csName}");
-                        pinvokeParams.Add($"IntPtr {csName}");
-                        // SwiftHandle is an explicit interface impl on generated ISwiftObject
-                        // types, so access via an ISwiftObject cast.
-                        callArgs.Add($"((global::Swift.Runtime.ISwiftObject){csName}).SwiftHandle");
+                        // ClassifyParam routes every ObjC-bridged/rooted and native-remapped type
+                        // away from PayloadHandle, so what reaches here is a pure-Swift class, a
+                        // complex non-generic enum or a non-frozen struct — all of which project to
+                        // a C# wrapper over a public Payload SafeHandle. Pass that SafeHandle so the
+                        // marshaller leases it (see LeasedSafeHandleType).
+                        pinvokeParams.Add($"{LeasedSafeHandleType} {csName}");
+                        callArgs.Add($"{csName}.Payload");
                         break;
                     }
                     case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
@@ -1392,15 +1413,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     }
                     case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
                     {
-                        // Swift KeyPath family — the C# wrapper IS the SafeHandle, so the
-                        // P/Invoke argument is DangerousGetHandle() with no .Payload hop
-                        // (Payload returns `this`). Mirrors KeyPathProjection.GetParameterPlan.
-                        // The public C# type is built explicitly because the KeyPath family
-                        // has no TypeRecord — ResolvePublicCSharpType's fallback would drop
-                        // the `Swift.` qualifier.
+                        // Swift KeyPath family — the C# wrapper IS the SafeHandle, so the argument
+                        // is forwarded directly with no .Payload hop (Payload returns `this`).
+                        // Mirrors KeyPathProjection.GetParameterPlan. The public C# type is built
+                        // explicitly because the KeyPath family has no TypeRecord —
+                        // ResolvePublicCSharpType's fallback would drop the `Swift.` qualifier.
                         publicParams.Add($"{BuildKeyPathPublicCSharpType((NamedTypeSpec)arg.SwiftTypeSpec, typeDatabase)} {csName}");
-                        pinvokeParams.Add($"IntPtr {csName}");
-                        callArgs.Add($"{csName}.DangerousGetHandle()");
+                        pinvokeParams.Add($"{LeasedSafeHandleType} {csName}");
+                        callArgs.Add(csName);
                         break;
                     }
                     case MethodClosureBridge.ParamAbiCategory.NativeRemapped
@@ -1458,26 +1478,41 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Self parameter
         if (!isStatic)
         {
-            pinvokeParams.Add("IntPtr self_");
+            // The receiver is native-backed storage exactly like the arguments above, and a
+            // concurrent Dispose() on it frees that storage under the running call. Lease it the
+            // same way whenever the parent projects to a Payload SafeHandle; ObjC-rooted and
+            // native-remapped parents keep the raw IntPtr because their pointer lives behind
+            // NSObject.Handle and there is no SafeHandle to lease.
+            bool leaseSelf = ParentExposesPayloadSafeHandle(parentTypeDecl, typeDatabase);
+            pinvokeParams.Add(leaseSelf ? $"{LeasedSafeHandleType} self_" : "IntPtr self_");
             if (isExtension)
             {
                 // Extension-method path: receiver is an explicit `this {ConcreteParent} self`
-                // first public parameter. Source the P/Invoke self-arg via the ISwiftObject
-                // cast since `SwiftHandle` is an explicit interface impl on the generated
-                // type, not a public member.
+                // first public parameter. `Payload` is the public SafeHandle on the generated
+                // wrapper; the ISwiftObject cast is the unleased fallback for the handle-accessor
+                // flavors, where `SwiftHandle` is an explicit interface impl rather than a
+                // public member.
                 var concreteParentCs = BuildConcreteParentCsharpName(parentTypeDecl, pairing, typeDatabase);
                 publicParams.Insert(0, $"this {concreteParentCs} self");
-                callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+                callArgs.Add(leaseSelf
+                    ? "self.Payload"
+                    : "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
             }
             else
             {
-                // Class self-arg: route through the class's own GetSwiftHandle() accessor rather
-                // than a raw private field. The field name is not uniform across class flavors —
-                // an ObjC-rooted class (NSObject subclass) has no `_handle` field (its handle IS
-                // NSObject.Handle), while a pure Swift class keeps `_handle`. GetSwiftHandle() is
-                // emitted for BOTH (returning Handle vs _handle.DangerousGetHandle() respectively)
-                // and is IntPtr-typed, so it forwards self uniformly.
-                var selfExpr = isClass ? "GetSwiftHandle()" : "_payload.DangerousGetHandle()";
+                // In-body self-arg. The backing field name is not uniform across flavors — a
+                // class keeps `_handle`, a struct/enum keeps `_payload`, and an ObjC-rooted class
+                // has neither (its handle IS NSObject.Handle). The leased path therefore reads a
+                // class's public `Payload` property (its field is `_handle`, so there is nothing
+                // shorter to name) and a struct/enum host's `_payload` field directly — the same
+                // SafeHandle instance `Payload` returns, so both forms lease identically. The
+                // unleased path keeps the IntPtr-typed GetSwiftHandle() accessor that is emitted
+                // for ObjC-rooted classes too.
+                string selfExpr;
+                if (leaseSelf)
+                    selfExpr = isClass ? "Payload" : "_payload";
+                else
+                    selfExpr = isClass ? "GetSwiftHandle()" : "_payload.DangerousGetHandle()";
                 callArgs.Add(selfExpr);
             }
         }
@@ -1500,7 +1535,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // return the closed parent type, e.g. `GenericContainer<SongItem>`.
             csReturnType = isExtension
                 ? BuildConcreteParentCsharpName(parentTypeDecl, pairing, typeDatabase)
-                : parentTypeDecl.Name;
+                : ResolveParentCSharpTypeRef(parentTypeDecl, typeDatabase);
         }
         else if (!isVoidReturn)
         {
@@ -3455,11 +3490,70 @@ public static partial class ConcreteProtocolSpecializationEmitter
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         ITypeDatabase typeDatabase)
     {
+        var parentName = ResolveParentCSharpTypeRef(parentTypeDecl, typeDatabase);
         var parentEntries = pairing.Where(p => p.Param.IsParentGeneric).ToList();
-        if (parentEntries.Count == 0) return parentTypeDecl.Name;
+        if (parentEntries.Count == 0) return parentName;
 
         var args = parentEntries.Select(p => ResolveConformerCSharpTypeRef(p.Conformer, typeDatabase));
-        return $"{parentTypeDecl.Name}<{string.Join(", ", args)}>";
+        return $"{parentName}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>
+    /// True when the CSM host's parent type projects to a C# wrapper that exposes a public
+    /// <c>Payload</c> SafeHandle — every pure-Swift class, non-frozen struct, complex enum and
+    /// frozen-struct-projected-as-class. False for the handle-accessor flavors: an ObjC-rooted
+    /// class carries its pointer as <c>NSObject.Handle</c> and emits no <c>Payload</c> (see
+    /// <c>ClassHandler</c>'s ObjC-boundary branch), and a native-remapped type has no Swift
+    /// payload at all. This is the receiver-side counterpart of the same
+    /// <c>NativeTypeName != null || UsesHandleAccessor</c> oracle
+    /// <see cref="ClassifyConformerStructurally"/> applies to argument conformers.
+    /// </summary>
+    private static bool ParentExposesPayloadSafeHandle(
+        TypeDecl parentTypeDecl,
+        ITypeDatabase typeDatabase)
+    {
+        if (parentTypeDecl is ClassDecl classDecl && classDecl.IsObjCRooted)
+            return false;
+        if (parentTypeDecl.SwiftTypeName != null &&
+            typeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out var record) &&
+            (record.NativeTypeName != null || MarshallingHelpers.UsesHandleAccessor(record)))
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the C# type-reference name of the CSM host's PARENT type as it is actually
+    /// declared. The counterpart of <see cref="ResolveConformerCSharpTypeRef"/> for the
+    /// receiver/constructed side, and gated on the same condition.
+    ///
+    /// <para><see cref="TypeDecl.Name"/> is the raw Swift leaf name, which is wrong as a C#
+    /// type reference for a NESTED parent in two independent ways. First, the nested-type
+    /// rename pre-pass (<see cref="NameProvider.PrecomputeNestedTypeRenames"/>) renames a
+    /// nested type that collides with a sibling member of its enclosing type — Swift
+    /// <c>Player.Queue</c> is declared as C# <c>Player.QueueInfo</c> when <c>Player</c> also
+    /// exposes a <c>Queue</c> property — so the raw leaf names a type that does not exist, or
+    /// worse, an unrelated type of the same name that happens to be visible in the namespace.
+    /// Second, even without a rename, the bare leaf is resolved by C# name lookup from inside
+    /// the nested type's own body, where an INHERITED member of the same name (a base class's
+    /// nested <c>Queue</c>) shadows it: that binds silently to the wrong type rather than
+    /// failing to compile, and the constructed value is then typed as the base. Re-resolving
+    /// through the type record's <see cref="CSharpTypeName.FullyQualifiedName"/> pins the
+    /// exact declaring type in both cases.</para>
+    ///
+    /// <para>Flat (top-level) parents are never collision-renamed and cannot be shadowed by an
+    /// inherited nested name, so they keep the bare leaf and emit byte-identical output.</para>
+    /// </summary>
+    internal static string ResolveParentCSharpTypeRef(
+        TypeDecl parentTypeDecl,
+        ITypeDatabase typeDatabase)
+    {
+        if (parentTypeDecl.SwiftTypeName != null &&
+            parentTypeDecl.SwiftTypeName.ModuleQualifiedName.Split('.').Length > 2 &&
+            typeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out var record))
+        {
+            return record.CSharpTypeName.FullyQualifiedName;
+        }
+        return parentTypeDecl.Name;
     }
 
     /// <summary>

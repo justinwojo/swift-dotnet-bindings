@@ -21,18 +21,17 @@ public class ConcreteSpecializationEngineTests
     private static ITypeDatabase CreateEmptyTypeDatabase() => new EmptyTypeDatabase();
 
     [Fact]
-    public void EmitConcreteSpecializations_ClassInstanceMethod_SelfArgUsesGetSwiftHandle_NotHandleField()
+    public void EmitConcreteSpecializations_PureSwiftClassInstanceMethod_SelfArgIsLeasedPayload()
     {
-        // Shape B regression (DGCharts ChartDataSet, ChartData): a concrete protocol-generic
-        // specialization emitted DIRECTLY on a class (not via an extension) forwards `self` to the
-        // @_cdecl P/Invoke. The pre-fix code hardcoded the private field name
-        // `_handle.DangerousGetHandle()`, but no `_handle` field exists on an ObjC-rooted class
-        // (NSObject subclass — its handle IS NSObject.Handle), so that self-arg is a CS0103. The
-        // fix routes through the class's own `GetSwiftHandle()` accessor, which every generated
-        // class flavor emits (pure-Swift → `_handle.DangerousGetHandle()`, ObjC-rooted → `Handle`)
-        // and which is IntPtr-typed — so it forwards self uniformly. `some Collection<String>` on a
-        // class (the CollectionHost shape) specializes to `Swift.SwiftArray<Swift.SwiftString>` and
-        // exercises the class self-arg path.
+        // A concrete protocol-generic specialization emitted DIRECTLY on a class (not via an
+        // extension) forwards `self` to the @_cdecl P/Invoke. A pure-Swift class exposes its
+        // handle as the public `Payload` SafeHandle, so self is forwarded as that SafeHandle and
+        // the LibraryImport marshaller leases it for the duration of the call (AddRef/Release, and
+        // ObjectDisposedException if it is already closed) — the same mechanism the ordinary
+        // method emitter uses. It must never be the private `_handle` field (a CS0103 on class
+        // flavors that don't declare one) nor a raw IntPtr snapshot, which a concurrent Dispose()
+        // could free mid-call. `some Collection<String>` on a class (the CollectionHost shape)
+        // specializes to `Swift.SwiftArray<Swift.SwiftString>` and exercises the class self-arg.
         var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
         db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
         var engine = new ConcreteSpecializationEngine(db);
@@ -49,8 +48,39 @@ public class ConcreteSpecializationEngineTests
 
         // The specialized overload must be emitted (guards against a silent no-op test).
         Assert.Contains("public string JoinItems(Swift.SwiftArray<Swift.SwiftString> items)", cs);
-        // Self forwarded via the uniform accessor...
+        // The P/Invoke declares self as a SafeHandle, which is what makes the marshaller lease it.
+        Assert.Contains("global::System.Runtime.InteropServices.SafeHandle self_", cs);
+        // ...and the call forwards the public accessor, never the private field or a raw pointer.
+        Assert.DoesNotContain("_handle.DangerousGetHandle()", cs);
+        Assert.DoesNotContain("IntPtr self_", cs);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ObjCRootedClassInstanceMethod_SelfArgUsesGetSwiftHandle()
+    {
+        // Shape B regression (DGCharts ChartDataSet, ChartData): an ObjC-rooted class has no
+        // `_handle` field and no `Payload` SafeHandle at all — its handle IS `NSObject.Handle` —
+        // so the specialized self-arg keeps the IntPtr `GetSwiftHandle()` accessor that every
+        // class flavor emits. There is no SafeHandle to lease on this flavor; forwarding a
+        // SafeHandle here would be a CS1061, so the leased shape must NOT be applied blindly.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        var engine = new ConcreteSpecializationEngine(db);
+        var typeDecl = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        typeDecl.IsObjCRooted = true;
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+
+        Assert.Contains("public string JoinItems(Swift.SwiftArray<Swift.SwiftString> items)", cs);
         Assert.Contains("GetSwiftHandle()", cs);
+        Assert.Contains("IntPtr self_", cs);
         // ...never the raw private field, which does not exist on an ObjC-rooted class.
         Assert.DoesNotContain("_handle.DangerousGetHandle()", cs);
     }
@@ -3710,6 +3740,76 @@ public class ConcreteSpecializationEngineTests
         method.ParentDecl = classDecl;
         return classDecl;
     }
+
+    // ==================== ResolveParentCSharpTypeRef ====================
+
+    [Fact]
+    public void ResolveParentCSharpTypeRef_NestedRenamedParent_ReturnsLiveCSharpName()
+    {
+        // A nested type whose C# projection was renamed by the nested-type-collision pre-pass
+        // (a sibling property projecting to the same name) is only reachable under its post-rename
+        // name. The parent's raw Swift declaration name is stale by then, so a specialized
+        // constructor factory emitted INSIDE that renamed class must declare the live name as its
+        // return type — otherwise it names a type that either does not exist or is a different
+        // type that happens to be visible in scope, and the mismatch compiles silently.
+        var db = new ResolvingTypeDatabase();
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestLib.DerivedVault.Token");
+        db.Register(parentSwiftName, "TestLib", "DerivedVault.TokenInfo");
+        var parentDecl = CreateBareClass("Token", parentSwiftName);
+
+        var resolved = ConcreteProtocolSpecializationEmitter.ResolveParentCSharpTypeRef(parentDecl, db);
+
+        Assert.Equal("TestLib.DerivedVault.TokenInfo", resolved);
+    }
+
+    [Fact]
+    public void ResolveParentCSharpTypeRef_FlatParent_KeepsBareDeclarationName()
+    {
+        // A top-level parent is emitted inside its own class body, where the bare leaf name is
+        // both correct and unambiguous, and it is never renamed by the nested-type pre-pass. It
+        // must keep the bare name so the emitted output for the overwhelmingly common case is
+        // unchanged.
+        var db = new ResolvingTypeDatabase();
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestLib.SealedKey");
+        db.Register(parentSwiftName, "TestLib", "SealedKey");
+        var parentDecl = CreateBareClass("SealedKey", parentSwiftName);
+
+        var resolved = ConcreteProtocolSpecializationEmitter.ResolveParentCSharpTypeRef(parentDecl, db);
+
+        Assert.Equal("SealedKey", resolved);
+    }
+
+    [Fact]
+    public void ResolveParentCSharpTypeRef_NestedParentWithoutRecord_FallsBackToDeclarationName()
+    {
+        // No type record means no live name to read; falling back to the declaration name keeps
+        // the resolver total rather than throwing during emission.
+        var db = new ResolvingTypeDatabase();
+        var parentDecl = CreateBareClass(
+            "Token", SwiftTypeName.FromModuleQualifiedName("TestLib.DerivedVault.Token"));
+
+        var resolved = ConcreteProtocolSpecializationEmitter.ResolveParentCSharpTypeRef(parentDecl, db);
+
+        Assert.Equal("Token", resolved);
+    }
+
+    private static ClassDecl CreateBareClass(string name, SwiftTypeName swiftTypeName)
+        => new ClassDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = swiftTypeName,
+            MangledName = "",
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            AvailabilityAnnotations = null,
+            IsFinal = true,
+        };
 
     // ==================== SubstitutePairingGenericsInTypeSpec ====================
 

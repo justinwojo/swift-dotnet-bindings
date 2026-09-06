@@ -123,6 +123,57 @@ public struct CollisionVault {
     }
 }
 
+/// Collision-renamed nested type on the *parent* side of a CSM constructor — the mirror image of
+/// `CollisionVault` above, which only renames the CONFORMER. `DerivedVault` exposes both a `token`
+/// property and a nested `Token` type, so the nested type is renamed to `TokenInfo`; `Token` then
+/// hosts its OWN generic initializer, so the specializer emits the `From{Conformer}` static
+/// factories *inside* the renamed class. Those factories return the enclosing type, and the return
+/// type must be the post-rename C# name: naming the parent from the raw Swift declaration name
+/// emits `static Token FromFlatKeyMaterial(...)` inside `class TokenInfo`, which either fails to
+/// resolve or silently binds to an unrelated `Token` visible in scope. Nothing in the conformer
+/// fixtures covers this — there the renamed name appears as a PARAMETER type, resolved through a
+/// different code path than the factory's return type.
+///
+/// Deliberately NOT `@frozen`: the host is only here to give the renamed nested type a same-named
+/// sibling property to collide with and a round-trip surface to hand the factory result to, and an
+/// opaque payload keeps that surface off the frozen-struct Buffer blit. A frozen host whose stored
+/// field is itself a reference-bearing frozen struct is sized one pointer wide in the emitted Buffer
+/// mirror instead of the field's true inline size, so such a host would make this fixture assert the
+/// nested-name resolution through a layout path that mis-sizes the copy — an unrelated failure
+/// dressed up as this one.
+public struct DerivedVault {
+    // Same property/type clash shape as CollisionVault: the property's type IS the nested type,
+    // so the pre-pass renames the TYPE (`Token` -> `TokenInfo`) and leaves the property alone.
+    public let token: Token
+
+    // The host is handed its token through a static factory rather than an `init(token:)` on
+    // purpose. A Swift initializer takes its parameters `@owned` — the callee consumes the +1 and
+    // the caller must transfer one — while a plain function takes them `@guaranteed`. The emitted
+    // direct-call constructor passes a reference-bearing frozen struct as a bitwise copy of the
+    // caller's payload with no ownership transfer, so a token carrying a heap-allocated (>15-byte)
+    // Swift string is released once by the host and once by the caller's own wrapper: a refcount
+    // underflow that corrupts the heap and surfaces much later as a SIGSEGV in an unrelated
+    // value-witness destroy. Existing fixtures never tripped it because their strings are short
+    // enough to be inline and unretained. This fixture is about nested-type NAME resolution, so it
+    // takes the `@guaranteed` path and leaves that ownership defect to be fixed on its own terms
+    // rather than asserting through it.
+    public static func holding(_ token: Token) -> DerivedVault { DerivedVault(token) }
+
+    private init(_ token: Token) { self.token = token }
+
+    @frozen
+    public struct Token {
+        public let descriptor: String
+
+        /// The CSM constructor whose emitted factories live inside the renamed `TokenInfo` class.
+        public init<K: NestedKeyMaterial>(deriving key: K) {
+            self.descriptor = "derived-token[\(key.material)]"
+        }
+
+        public init(descriptor: String) { self.descriptor = descriptor }
+    }
+}
+
 /// Error surfaced by the throwing generic initializers below.
 public enum SealError: Error { case rejected }
 

@@ -190,6 +190,51 @@ public class NestedConformerSpecializationTests : TestBase
             "KeyVaultBox<CollisionVault.EntryInfo>.Describe extension");
     }
 
+    // --- Collision-renamed PARENT: DerivedVault.Token is renamed to TokenInfo, and that renamed
+    // type hosts its OWN generic initializer, so the From{Conformer} factories are emitted inside
+    // it and return the enclosing type. Naming that return type from the raw Swift declaration
+    // name emits `static Token From…()` inside `class TokenInfo`, which resolves to a different
+    // type or to nothing at all. The conformer fixtures above never reach this: there the renamed
+    // name is a PARAMETER type, resolved through a different path than the factory return type.
+
+    public void TestDerivedVaultToken_FactoryReturnsRenamedParentType()
+    {
+        using var key = new SwiftBindingsTestLib.FlatKeyMaterial(tag: "d1");
+
+        // The `TokenInfo` annotation is the assertion: it fails to compile if the factory's
+        // declared return type is anything but the post-rename parent type.
+        SwiftBindingsTestLib.DerivedVault.TokenInfo token =
+            SwiftBindingsTestLib.DerivedVault.TokenInfo.FromSwiftBindingsTestLibFlatKeyMaterial(key);
+
+        using (token)
+        {
+            AssertEqual("derived-token[flat:d1]", token.Descriptor,
+                "DerivedVault.TokenInfo.From(FlatKeyMaterial) factory round-trip");
+        }
+    }
+
+    public void TestDerivedVaultToken_FactoryResultFeedsRenamedProperty()
+    {
+        using var key = new SwiftBindingsTestLib.CollisionVault.EntryInfo(tag: "d2");
+        using var token =
+            SwiftBindingsTestLib.DerivedVault.TokenInfo.FromSwiftBindingsTestLibCollisionVaultEntry(key);
+
+        // The vault's `token` property is typed with the renamed nested type, so a factory whose
+        // static type were the pre-rename name could not be handed to it.
+        using var vault = SwiftBindingsTestLib.DerivedVault.Holding(token);
+        AssertEqual("derived-token[collision-entry:d2]", vault.Token.Descriptor,
+            "factory result round-trips through the renamed-nested-type property");
+    }
+
+    public void TestDerivedVaultToken_FactoryFromTwoLevelNestedConformer()
+    {
+        using var key = new SwiftBindingsTestLib.KeyVault.Agreement.PublicKey(tag: "d3");
+        using var token =
+            SwiftBindingsTestLib.DerivedVault.TokenInfo.FromSwiftBindingsTestLibKeyVaultAgreementPublicKey(key);
+        AssertEqual("derived-token[agree-pub:d3]", token.Descriptor,
+            "renamed-parent factory over a two-level-nested conformer");
+    }
+
     // --- Shape 2 (throwing): generic THROWING initializer — the exact CryptoKit HPKE
     // Sender/Recipient init shape (`init<K: …>(…) throws`). ThrowingSealedBox is NON-frozen so
     // it projects as a C# class with an opaque payload, matching HPKE.Sender/Recipient — the

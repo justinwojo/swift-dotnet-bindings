@@ -333,6 +333,104 @@ public class ArtifactParityGateTests
     }
 
     [Fact]
+    public void ParseCsBufferStems_OpaqueHostNestingABufferType_ClaimsNoBufferForTheHost()
+    {
+        // A host projected with an opaque payload declares no Buffer of its own, but may nest a
+        // Buffer-backed type. Reading the first `struct Buffer` anywhere in the host body hands
+        // the NESTED type's layout to the OUTER name.
+        const string cs = """
+            public partial class Outer : ISwiftObject, ISwiftStruct, IDisposable
+            {
+                public partial class Inner : ISwiftObject, ISwiftStruct, IDisposable
+                {
+                    public struct Buffer {
+                        private IntPtr descriptor_0_;
+                        private IntPtr descriptor_1_;
+                    }
+                }
+            }
+            """;
+        Assert.DoesNotContain("Outer", ArtifactParityGate.ParseCsBufferStems(cs).Keys);
+    }
+
+    [Fact]
+    public void ParseCsBufferStems_HostWithOwnAndNestedBuffer_ReadsItsOwn()
+    {
+        const string cs = """
+            public partial class Outer : ISwiftObject, ISwiftStruct, IDisposable
+            {
+                public struct Buffer {
+                    private IntPtr inner_;
+                }
+                public partial class Inner : ISwiftObject, ISwiftStruct, IDisposable
+                {
+                    public struct Buffer {
+                        private IntPtr descriptor_0_;
+                        private IntPtr descriptor_1_;
+                    }
+                }
+            }
+            """;
+        Assert.Equal(new[] { "inner" }, ArtifactParityGate.ParseCsBufferStems(cs)["Outer"]);
+    }
+
+    [Fact]
+    public void ParseCsBufferStems_NestedBufferDeclaredFirst_StillReadsTheHostsOwn()
+    {
+        // Same shape as above with the declaration order reversed, so the host's own Buffer is no
+        // longer the first one in its body. Selection has to key on nesting depth rather than
+        // position for the answer to be stable under either order.
+        const string cs = """
+            public partial class Outer : ISwiftObject, ISwiftStruct, IDisposable
+            {
+                public partial class Inner : ISwiftObject, ISwiftStruct, IDisposable
+                {
+                    public struct Buffer {
+                        private IntPtr descriptor_0_;
+                        private IntPtr descriptor_1_;
+                    }
+                }
+                public struct Buffer {
+                    private IntPtr inner_;
+                }
+            }
+            """;
+        Assert.Equal(new[] { "inner" }, ArtifactParityGate.ParseCsBufferStems(cs)["Outer"]);
+    }
+
+    [Fact]
+    public void StructArity_OpaqueHostNestingABufferType_NoFalseViolation()
+    {
+        // The outer struct's sole stored property is the nested type; the outer projection is
+        // opaque so it mirrors no layout at all. Crediting it with the nested Buffer reports the
+        // nested type's field as an outer non-instance prop AND the outer's real field as missing.
+        const string cs = """
+            public partial class Outer : ISwiftObject, ISwiftStruct, IDisposable
+            {
+                public partial class Inner : ISwiftObject, ISwiftStruct, IDisposable
+                {
+                    public struct Buffer {
+                        private IntPtr descriptor_0_;
+                        private IntPtr descriptor_1_;
+                    }
+                }
+            }
+            """;
+        const string abi = """
+            { "ABIRoot": { "children": [
+              { "declKind": "Struct", "name": "Outer", "children": [
+                { "kind": "Var", "name": "inner", "hasStorage": true }
+              ]},
+              { "declKind": "Struct", "name": "Inner", "children": [
+                { "kind": "Var", "name": "descriptor", "hasStorage": true }
+              ]}
+            ]}}
+            """;
+        var findings = ArtifactParityGate.ComputeFindings(cs, "", abi, Libs(), Set());
+        Assert.Empty(findings.StructArity);
+    }
+
+    [Fact]
     public void ParseCsDirectStructStems_ReadsInlineLayoutFields_ByNoteMarker()
     {
         // A direct value-type struct keeps its backing fields inline (no nested Buffer),
