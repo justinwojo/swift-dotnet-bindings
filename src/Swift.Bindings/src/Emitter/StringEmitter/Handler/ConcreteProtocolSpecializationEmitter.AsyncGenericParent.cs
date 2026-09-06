@@ -1035,7 +1035,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
             pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
             pinvokeParams.Add($"nint {csName}Utf8Len");
         }
-        pinvokeParams.Add("IntPtr self_");
+        // The receiver's native storage is read exactly once, synchronously: the Swift wrapper
+        // copies `self_.pointee` into a local BEFORE it launches the Task, and the Task captures
+        // that copy by value (retaining its reference fields), so nothing reads through this
+        // pointer after the entry returns. What the entry does need is for the storage to still be
+        // there when it runs — a Dispose() racing the call from another thread frees it under the
+        // copy. Declaring the slot as SafeHandle makes the marshaller lease the handle across the
+        // synchronous call, which is exactly the interval that has to be covered; a lease spanning
+        // the awaited task would pin storage no one reads. ObjC-rooted and native-remapped parents
+        // keep the raw IntPtr because their pointer lives behind NSObject.Handle with no SafeHandle
+        // to lease.
+        bool leaseSelf = ParentExposesPayloadSafeHandle(parentTypeDecl, typeDatabase);
+        pinvokeParams.Add(leaseSelf ? $"{LeasedSafeHandleType} self_" : "IntPtr self_");
         pinvokeParams.Add(isVoid
             ? "delegate* unmanaged[Cdecl]<IntPtr, void> completion"
             : "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> completion");
@@ -1198,7 +1209,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
             callArgs.Add($"(IntPtr)__{bareName}Ptr");
             callArgs.Add($"(nint)__{bareName}Utf8.Length");
         }
-        callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+        // Matches the self_ slot declared above: the public SafeHandle on the generated wrapper for
+        // the leased form, and the ISwiftObject cast as the unleased fallback for the
+        // handle-accessor flavors, where SwiftHandle is an explicit interface impl.
+        callArgs.Add(leaseSelf
+            ? "self.Payload"
+            : "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
         callArgs.Add(successCallbackField);
         if (throws) callArgs.Add(errorCallbackField);
         callArgs.Add($"global::System.Runtime.InteropServices.GCHandle.ToIntPtr({handleName})");

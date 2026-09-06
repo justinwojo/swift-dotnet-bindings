@@ -1613,7 +1613,8 @@ public static class ExistentialContainerFactory
     /// </remarks>
     public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(
         TProtocol value,
-        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
+        bool classBoundCarrier = false)
         where TProtocol : class
     {
         // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
@@ -1621,7 +1622,7 @@ public static class ExistentialContainerFactory
         // payload; a premature R0 release would have it read freed memory. See
         // CreateOwnedClassCarrier for the full rationale.
         var container = GetOrCreate(value, wrapFallback, out bool ownsContainer, out object? keepAlive);
-        var carrier = MintOrDonateExistential1(container, ownsContainer);
+        var carrier = MintOrDonateExistential1(container, ownsContainer, classBoundCarrier);
         GC.KeepAlive(keepAlive);
         return carrier;
     }
@@ -1638,23 +1639,72 @@ public static class ExistentialContainerFactory
     /// collection element is balanced exactly as a proxy-backed one (the over-release fix still
     /// applies). Mirrors <see cref="GetOrCreate{TProtocol}(TProtocol)"/>.
     /// </summary>
-    public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(TProtocol value)
+    public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(
+        TProtocol value,
+        bool classBoundCarrier = false)
         where TProtocol : class
     {
         // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
         // see CreateOwnedExistential1(value, wrapFallback) for the full rationale.
         var container = GetOrCreate(value, out bool ownsContainer, out object? keepAlive);
-        var carrier = MintOrDonateExistential1(container, ownsContainer);
+        var carrier = MintOrDonateExistential1(container, ownsContainer, classBoundCarrier);
         GC.KeepAlive(keepAlive);
         return carrier;
     }
 
-    private static unsafe ExistentialContainer1 MintOrDonateExistential1(ExistentialContainer1 container, bool ownsContainer)
+    /// <summary>
+    /// Consumer-owned-lane sibling of
+    /// <see cref="CreateOwnedExistential1{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, bool)"/>,
+    /// for the one member shape that asks both questions at once: a setter whose storage does NOT
+    /// retain (<c>unowned var d: any P</c>) but whose lowered new-value parameter is still
+    /// <c>@owned</c>, reached over an arm with no borrowing Swift frame.
+    /// </summary>
+    /// <remarks>
+    /// The two facts are orthogonal and both have to hold. The lane decides who ROOTS the carrier:
+    /// a non-retaining sink takes no reference on the conformer box, so the memo behind
+    /// <see cref="GetOrCreateConsumerOwned{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool, out object)"/>
+    /// ties the carrier's life to the caller's implementation instead of to Swift's liveness. The
+    /// mint supplies the ONE count the setter's <c>@owned</c> convention releases: without it that
+    /// release lands on the proxy's sole construction <c>+1</c> and the box dies while the consumer
+    /// still holds their implementation. With it, the setter's release balances the mint, the memo's
+    /// reference keeps the carrier alive for as long as the implementation does, and the Swift slot
+    /// clears exactly when the implementation is dropped — which is what the declaration promises.
+    /// </remarks>
+    public static unsafe ExistentialContainer1 CreateOwnedExistential1ConsumerOwned<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
+        bool classBoundCarrier = false)
+        where TProtocol : class
+    {
+        var container = GetOrCreateConsumerOwned(value, wrapFallback, out bool ownsContainer, out object? keepAlive);
+        var carrier = MintOrDonateExistential1(container, ownsContainer, classBoundCarrier);
+        GC.KeepAlive(keepAlive);
+        return carrier;
+    }
+
+    private static unsafe ExistentialContainer1 MintOrDonateExistential1(
+        ExistentialContainer1 container,
+        bool ownsContainer,
+        bool classBoundCarrier = false)
     {
         if (ownsContainer)
         {
             // Boxable conformer: a fresh +1 already lives in the container — donate it to the array's
             // __owned consume.
+            return container;
+        }
+
+        if (classBoundCarrier)
+        {
+            // A class-constrained protocol's carrier is the two-word [classRef][witnessTable] layout
+            // widened into these five words, so words 2..4 are zeros the widening wrote rather than an
+            // inline payload and its type metadata. The opaque existential value witness below would
+            // read them as both; the layout's whole +1 lives on word 0, which is exactly what
+            // MintOrDonateClassCarrier retains for the narrowed carrier. Retain in place and hand back
+            // the same bytes the borrowed arm would have passed, now owning one count.
+            var classRef = container.Payload0;
+            if (classRef != IntPtr.Zero)
+                Arc.UnknownObjectRetain(classRef);
             return container;
         }
 
@@ -1684,7 +1734,7 @@ public static class ExistentialContainerFactory
 
     /// <summary>
     /// Owned (+1) C#→Swift mint for an EC2+ COMPOSITION existential (<c>any P &amp; Q…</c>), the
-    /// multi-protocol sibling of <see cref="CreateOwnedExistential1{TProtocol}(TProtocol)"/>. Emitted
+    /// multi-protocol sibling of <see cref="CreateOwnedExistential1{TProtocol}(TProtocol, bool)"/>. Emitted
     /// by <c>ExistentialProjection.GetOwnedParameterElementConversion</c> at every C#→Swift owned
     /// hand-off of a composition existential (reverse-dispatch getter/method returns, closure returns).
     /// <para>

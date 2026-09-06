@@ -601,6 +601,81 @@ public class CalleeArgumentOwnershipTests
         Assert.Equal(1, CountOccurrences(csOutput, "UnknownObjectRetain"));
     }
 
+    /// <summary>
+    /// The same consuming convention on a value carrier. A resilient struct travels by pointer into
+    /// an <c>@in</c> slot the callee destroys, and the pointer it is handed is the managed
+    /// wrapper's own buffer — so the destroy releases whatever reference fields that buffer holds
+    /// while the wrapper still owns them. The transfer is a value-witness copy into the slot rather
+    /// than a retain, because a struct's references are the witness's business, not ARC's directly.
+    /// </summary>
+    [Fact]
+    public void DirectInitializer_ResilientStructArgument_IsHandedOver()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionResilientStruct("Box", moduleDecl, typeDatabase);
+
+        var (csOutput, _) = EmitConstructor(
+            CreateEmissionConstructor(parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("box", moduleDecl, "Box")),
+            typeDatabase);
+
+        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.Retain"));
+        // A struct is not an ARC-managed object: retaining its wrapper handle would count the
+        // wrong thing and leave the fields inside it untouched.
+        Assert.DoesNotContain("UnknownObjectRetain", csOutput);
+    }
+
+    /// <summary>
+    /// Borrowing control on the same carrier and the same type. An ordinary <c>func</c> reads
+    /// through the pointer and destroys nothing, so a copy minted here is a reference no one
+    /// releases — the leak that mirrors the over-release above.
+    /// </summary>
+    [Fact]
+    public void DirectMethod_ResilientStructArgument_IsBorrowed()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionResilientStruct("Box", moduleDecl, typeDatabase);
+
+        var (csOutput, _) = EmitMethod(
+            CreateEmissionMethod("inspect", parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("box", moduleDecl, "Box")),
+            typeDatabase);
+
+        Assert.Contains("CallConvSwift", csOutput);
+        Assert.DoesNotContain("OwnedArgument.Retain", csOutput);
+    }
+
+    /// <summary>
+    /// A struct whose layout is not frozen, so it is carried by a managed wrapper over an opaque
+    /// buffer and reaches Swift as a pointer into that buffer.
+    /// </summary>
+    private static StructDecl CreateEmissionResilientStruct(
+        string name,
+        ModuleDecl moduleDecl,
+        TypeDatabase typeDatabase)
+    {
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}");
+        var structDecl = CreateEmissionStruct(name, moduleDecl);
+        structDecl.IsFrozen = false;
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: swiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct,
+            })
+        });
+
+        return structDecl;
+    }
+
     private static (string csOutput, string swiftOutput) EmitConstructor(MethodDecl methodDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

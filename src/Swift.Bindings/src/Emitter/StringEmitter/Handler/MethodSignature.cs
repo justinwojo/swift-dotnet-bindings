@@ -232,12 +232,33 @@ namespace BindingsGeneration
                 // requiring the caller to construct the hidden {Protocol}Proxy manually.
                 // The interface check uses the unqualified type name so cross-module dependency
                 // protocols (e.g., "OtherModule.IFoo") are recognized along with same-module ones.
-                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when containerType == "Swift.Runtime.ExistentialContainer1" && IsExistentialInterfacePublicType(publicType) =>
-                    existentialType.ProxyClassName != null
-                        ? $"Swift.Runtime.ExistentialContainerFactory.{NonRetainingSinkLane.FactoryMethodName(existentialType.ConsumerOwnsCarrier, hasProxyClass: true)}<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v{NonRetainingSinkLane.ProxyOwnershipArgument(existentialType.ConsumerOwnsCarrier)}))"
-                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name})",
-                { Type: MarshalledType.Existential(var containerType, var publicType) } =>
-                    $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){parameter.Name}).GetExistentialContainer()",
+                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when IsArity1ExistentialContainer(containerType, existentialType) && IsExistentialInterfacePublicType(publicType) =>
+                    NarrowToClassCarrier(
+                        existentialType,
+                        existentialType.ProxyClassName != null
+                            ? $"Swift.Runtime.ExistentialContainerFactory.{NonRetainingSinkLane.FactoryMethodName(existentialType.ConsumerOwnsCarrier, hasProxyClass: true, existentialType.HandedOverToCallee)}<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v{NonRetainingSinkLane.ProxyOwnershipArgument(existentialType.ConsumerOwnsCarrier)}){ClassBoundMintArgument(existentialType)})"
+                            : $"Swift.Runtime.ExistentialContainerFactory.{NonRetainingSinkLane.FactoryMethodName(existentialType.ConsumerOwnsCarrier, hasProxyClass: false, existentialType.HandedOverToCallee)}<{publicType}>({parameter.Name}{ClassBoundMintArgument(existentialType)})"),
+                // Composition (EC2+) carriers, handed to a callee that releases them. The only C#
+                // type implementing a composition interface is a Swift-vended proxy whose
+                // GetExistentialContainer() BORROWS its stored bytes, so passing them unchanged
+                // aliases the proxy's sole +1 and the callee's release over-releases it. The mint is
+                // the same value-witness InitializeWithCopy the borrowed arm below skips.
+                //
+                // Arity-1 carriers are deliberately NOT routed here even when handed over. The
+                // arity-generic mint picks its metadata from the container's word count alone, and a
+                // well-known one-word carrier (a boxed `any Error`, say) does not lay its remaining
+                // words out the way that metadata's value witness reads them; EC0 (bare Any) carries
+                // no witness table at all and is excluded by the shared ownership gate. Both keep the
+                // borrowed form below until their own carrier-specific retain is wired up.
+                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType }
+                    when existentialType.HandedOverToCallee
+                        && !containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal)
+                        && ExistentialHandler.IsOwnedExistentialContainerType(containerType) =>
+                    $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{publicType}, {containerType}>({parameter.Name})",
+                { Type: MarshalledType.Existential(var containerType, _) existentialType } =>
+                    NarrowToClassCarrier(
+                        existentialType,
+                        $"((Swift.Runtime.ISwiftExistentialConvertible<{WireSourceContainerType(containerType, existentialType)}>){parameter.Name}).GetExistentialContainer()"),
                 // @_cdecl existential: pass pointer to pinned container
                 { Type: MarshalledType.CdeclExistential(_, _) } =>
                     $"{parameter.Name}Ptr",
@@ -325,6 +346,50 @@ namespace BindingsGeneration
             var unqualified = lastDot < 0 ? publicType : publicType[(lastDot + 1)..];
             return unqualified.Length > 1 && unqualified[0] == 'I' && char.IsUpper(unqualified[1]);
         }
+
+        /// <summary>
+        /// Renders the trailing argument that tells the owned-existential mint the carrier holds a
+        /// class-constrained protocol's two-word layout widened into the wire container, so the +1
+        /// is a retain on word 0 rather than an opaque value-witness copy over words the widening
+        /// zeroed. Empty for every other shape, including every borrowed call site, so the argument
+        /// appears only where the ownership question is actually asked.
+        /// </summary>
+        private static string ClassBoundMintArgument(MarshalledType.Existential existentialType)
+            => existentialType.HandedOverToCallee && existentialType.ClassBoundArity1
+                ? ", classBoundCarrier: true"
+                : string.Empty;
+
+        /// <summary>
+        /// True when the parameter's wire container is the single-protocol carrier — either the
+        /// five-word opaque container or, for a class-constrained protocol, the two-word class
+        /// carrier the direct call declares in its place. Both are built by the same
+        /// arity-1 factories, so they share the call-argument arm.
+        /// </summary>
+        private static bool IsArity1ExistentialContainer(string containerType, MarshalledType.Existential existentialType)
+            => containerType == "Swift.Runtime.ExistentialContainer1" || existentialType.ClassBoundArity1;
+
+        /// <summary>
+        /// The container type the factories and the proxy's own
+        /// <c>ISwiftExistentialConvertible</c> conformance speak in. A class-constrained
+        /// parameter's wire type is the two-word carrier, but everything upstream of the call still
+        /// produces the opaque container, so the source expression keeps the opaque type and is
+        /// narrowed at the boundary.
+        /// </summary>
+        private static string WireSourceContainerType(string containerType, MarshalledType.Existential existentialType)
+            => existentialType.ClassBoundArity1 ? "Swift.Runtime.ExistentialContainer1" : containerType;
+
+        /// <summary>
+        /// Narrows an opaque single-protocol container down to the two-word
+        /// <c>[classRef][witnessTable]</c> value a class-constrained protocol existential is on the
+        /// wire. Swift passes <c>any P</c> where <c>P</c> is <c>AnyObject</c>-constrained as a
+        /// loadable pair in registers, not as the five-word opaque container by reference, so the
+        /// call argument has to be the pair. The narrowing moves no ownership: whatever count the
+        /// source expression minted (or borrowed) rides on word 0 into the callee.
+        /// </summary>
+        private static string NarrowToClassCarrier(MarshalledType.Existential existentialType, string containerExpression)
+            => existentialType.ClassBoundArity1
+                ? $"Swift.Runtime.ClassExistentialContainer1.FromExistentialContainer1({containerExpression})"
+                : containerExpression;
     }
 
     /// <summary>

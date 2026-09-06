@@ -39,9 +39,21 @@ internal static class NonRetainingSinkLane
     /// The <c>ExistentialContainerFactory</c> entry point for the chosen lane. The consumer-owned
     /// entry point only exists for the auto-wrap fallback, so a site without a proxy class stays on
     /// the default one: with nothing to wrap there is no carrier for the lane to re-root.
+    ///
+    /// <para><paramref name="handedOverToCallee"/> selects the owned (<c>+1</c>) sibling of the
+    /// chosen lane, for a callee that RELEASES the container it was handed. The two questions are
+    /// orthogonal — who roots the carrier, and whether the callee consumes one count of it — so the
+    /// lane survives the owned form: the consumer-owned lane's memo and strong proxy back-edge are
+    /// exactly what a non-retaining sink needs whether or not its setter also consumes.</para>
     /// </summary>
-    internal static string FactoryMethodName(bool consumerOwnsCarrier, bool hasProxyClass)
-        => consumerOwnsCarrier && hasProxyClass ? "GetOrCreateConsumerOwned" : "GetOrCreate";
+    internal static string FactoryMethodName(bool consumerOwnsCarrier, bool hasProxyClass, bool handedOverToCallee = false)
+        => (consumerOwnsCarrier && hasProxyClass, handedOverToCallee) switch
+        {
+            (true, true) => "CreateOwnedExistential1ConsumerOwned",
+            (true, false) => "GetOrCreateConsumerOwned",
+            (false, true) => "CreateOwnedExistential1",
+            (false, false) => "GetOrCreate",
+        };
 
     /// <summary>
     /// True when <paramref name="argumentDecl"/> is the value of <paramref name="methodDecl"/>'s

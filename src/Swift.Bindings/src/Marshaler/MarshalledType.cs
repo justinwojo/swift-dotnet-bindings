@@ -34,6 +34,34 @@ public abstract record MarshalledType
         /// the owning member, so the sink's ownership has to ride along with the marshalled type.
         /// </summary>
         public bool ConsumerOwnsCarrier { get; init; }
+
+        /// <summary>
+        /// True when the callee RELEASES this argument — an initializer's value parameter or a
+        /// setter's new value reached over an arm with no borrowing Swift frame in between. The
+        /// container the call site renders inline otherwise aliases a <c>+1</c> somebody else owns
+        /// (the auto-wrapped proxy's sole construction reference, or a Swift-vended proxy's stored
+        /// bytes), so the callee's release takes a count that was never transferred.
+        ///
+        /// <para>Recorded on the marshalled type for the same reason
+        /// <see cref="ConsumerOwnsCarrier"/> is: the call-argument renderer is handed only the
+        /// parameter, never the owning member, so the callee's ownership convention has to ride
+        /// along with the wire shape.</para>
+        /// </summary>
+        public bool HandedOverToCallee { get; init; }
+
+        /// <summary>
+        /// True when the single protocol behind this existential is class-constrained, so the value
+        /// on the wire is the two-word <c>[classRef][witnessTable]</c> pair Swift passes in
+        /// registers rather than the five-word opaque container.
+        ///
+        /// <para>Two consequences, both on the direct call: the declared parameter type is the
+        /// two-word carrier (the opaque container would hand the callee a pointer to the caller's
+        /// buffer where it expects the object), and an owned hand-over mints its +1 as a retain on
+        /// word 0 — copying through the opaque existential value witness would read the words
+        /// outside the pair as an inline payload and its type metadata. The bytes upstream of the
+        /// call are still the opaque container, so the argument is narrowed at the boundary.</para>
+        /// </summary>
+        public bool ClassBoundArity1 { get; init; }
     }
 
     /// <summary>Existential protocol type marshalled via ref (pointer) for @_cdecl wrappers.</summary>

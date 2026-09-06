@@ -684,8 +684,19 @@ namespace BindingsGeneration
                                     _env.EmissionContext?.RecordConsumeDegradedMember(_env.MethodDecl);
                                 }
                             }
+                            // A class-constrained single protocol is NOT the five-word opaque
+                            // container on the wire: Swift lowers `any P` where P is
+                            // AnyObject-constrained to a loadable [classRef][witnessTable] pair
+                            // passed in two registers. Declaring the opaque container here hands
+                            // the callee a pointer to the caller's buffer where it expects the
+                            // object itself. The wrapper arm above is unaffected — it passes a
+                            // pointer to the container by construction.
+                            bool classBoundArity1 = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList);
+                            var wireContainerType = classBoundArity1
+                                ? "Swift.Runtime.ClassExistentialContainer1"
+                                : containerType;
                             AddParameter(
-                                new MarshalledType.Existential(containerType, publicType)
+                                new MarshalledType.Existential(wireContainerType, publicType)
                                 {
                                     ProxyClassName = proxyClassName,
                                     // Non-retaining storage takes no reference on the conformer box,
@@ -693,6 +704,17 @@ namespace BindingsGeneration
                                     // implementation instead of Swift's liveness. Recorded here
                                     // because the call-argument renderer sees only the parameter.
                                     ConsumerOwnsCarrier = NonRetainingSinkLane.ConsumerOwnsCarrier(_env.MethodDecl, argument),
+                                    // An initializer's value parameter and a setter's new value are
+                                    // lowered @owned: the callee releases the container it was handed.
+                                    // This arm renders the container inline as a call argument, so
+                                    // there is no marshalling statement to carry the transfer — the
+                                    // fact travels on the type and the renderer picks the owned mint.
+                                    HandedOverToCallee = CalleeArgumentOwnership.IsHandedOverToCallee(_env.MethodDecl, argument),
+                                    // The upstream factories still produce the opaque container, so
+                                    // the owned mint has to retain word 0 instead of running the
+                                    // opaque value witness over words the class layout never fills;
+                                    // the renderer narrows that container to the pair above.
+                                    ClassBoundArity1 = classBoundArity1,
                                 },
                                 csName);
                         }

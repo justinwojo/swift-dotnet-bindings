@@ -1359,6 +1359,44 @@ public class ConcreteSpecializationEngineTests
         Assert.Contains("if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }", swift);
     }
 
+    /// <summary>
+    /// The receiver's native storage is read synchronously — the Swift wrapper copies
+    /// <c>self_.pointee</c> into a local before it launches its Task — but the managed side used to
+    /// hand that pointer over as a raw <c>IntPtr</c> snapshot taken before the call. Nothing then
+    /// held the receiver's handle for the duration of the entry, so a <c>Dispose()</c> on another
+    /// thread could run the value witness destroy while the wrapper was mid-read. Declaring the
+    /// parameter as a <c>SafeHandle</c> puts the P/Invoke marshaller's lease around the call, which
+    /// is exactly as long as anyone reads through the pointer.
+    /// </summary>
+    [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncMethod_SelfArgIsLeasedForTheSynchronousEntry()
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncMethod(
+            "Producer", "produce", "SwiftBindingsTestLib.AsyncBagItem", "Swift.Int");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            csWriter, swiftWriter, typeDecl, db, new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+
+        // The receiver crosses as a leased handle, and the argument is the live SafeHandle rather
+        // than a value read out of it before the call.
+        Assert.Contains("global::System.Runtime.InteropServices.SafeHandle self_", cs);
+        Assert.Contains("self.Payload", cs);
+        // The unleased snapshot must be gone from every specialization entry.
+        Assert.DoesNotContain("IntPtr self_", cs);
+    }
+
     [Fact]
     public void EmitConcreteSpecializations_ParentOnlyAsyncMethod_PreCancelledTokenShortCircuitsWithoutLaunch()
     {

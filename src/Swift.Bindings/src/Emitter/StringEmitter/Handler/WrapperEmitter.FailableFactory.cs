@@ -170,7 +170,7 @@ namespace BindingsGeneration
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
             EmitExistentialContainerMarshalling(csWriter);
-            EmitConsumedClassArgumentHandOvers(csWriter);
+            EmitConsumedArgumentHandOvers(csWriter);
             EmitProtocolWitnessTables(csWriter);
 
             EmitArrayOwnershipRetain(csWriter);

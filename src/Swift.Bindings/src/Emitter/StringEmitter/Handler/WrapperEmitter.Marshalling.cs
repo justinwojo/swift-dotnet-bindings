@@ -247,7 +247,7 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Hands class-typed consumed arguments to the callee at +1.
+        /// Hands the consumed arguments that need no marshalling to the callee at +1.
         ///
         /// <para>A plain class argument needs no marshalling: the P/Invoke slot is the object's own
         /// payload handle, so the call site renders it as <c>{name}.Payload</c> and no arm above ever
@@ -262,13 +262,19 @@ namespace BindingsGeneration
         /// indices <c>@owned</c> alongside the new value, and an initializer consumes each of its
         /// value parameters, so a class in any of those slots needs the same retain.</para>
         ///
-        /// <para>Only the class arm is transferred here. The same <c>SafeHandle</c> slot also carries
-        /// a non-frozen struct, whose +1 lives in the payload buffer rather than in a refcount, so it
-        /// hands over by marking the payload consumed — the arm above it — and a retain there would
-        /// be meaningless. Every other consumed argument is either trivially copyable, with no count
-        /// to transfer, or already routed through an arm that models its ownership.</para>
+        /// <para>The same <c>SafeHandle</c> slot also carries a NON-FROZEN struct, which is
+        /// address-only across the ABI and travels as the pointer read off the caller's own wrapper.
+        /// A consuming callee takes over the contents at that address, so borrowing them costs the
+        /// struct's reference-typed fields a count nobody transferred — and the caller's wrapper
+        /// destroys the same value again when it is disposed. Its transfer is the value-witness copy
+        /// rather than a refcount bump, because the <c>+1</c> to hand over lives in whatever the
+        /// payload buffer references (a class field, a large <c>String</c>'s storage) and only the
+        /// value witness knows where. Donating off the wrapper is not available here either: the
+        /// parameter is a live object the consumer handed in, whose own destroy must stay armed.
+        /// Every other consumed argument is either trivially copyable, with no count to transfer, or
+        /// already routed through an arm that models its ownership.</para>
         /// </summary>
-        private void EmitConsumedClassArgumentHandOvers(CSharpWriter csWriter)
+        private void EmitConsumedArgumentHandOvers(CSharpWriter csWriter)
         {
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
@@ -287,15 +293,32 @@ namespace BindingsGeneration
                 if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec)
                     continue;
 
-                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
-                if (!_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record)
-                    || record.Kind != TypeRecordKind.Class)
+                // A bound generic reaches the callee through the marshalling above, which spells its
+                // own transfer; its record also names the UNBOUND type, which would not name a
+                // metadata source that compiles here.
+                if (namedSpec.GenericParameters.Count > 0)
                     continue;
 
-                // Pinned across the retain and the call that follows it, so the handle cannot be
-                // finalized between reading the pointer and Swift's entry.
-                csWriter.WriteLine($"using SafeHandlePin {csName}OwnedPin = new SafeHandlePin({csName}.Payload);");
-                csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}OwnedPin.Handle);");
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
+                if (!_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
+                    continue;
+
+                if (record.Kind == TypeRecordKind.Class)
+                {
+                    // Pinned across the retain and the call that follows it, so the handle cannot be
+                    // finalized between reading the pointer and Swift's entry.
+                    csWriter.WriteLine($"using SafeHandlePin {csName}OwnedPin = new SafeHandlePin({csName}.Payload);");
+                    csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}OwnedPin.Handle);");
+                }
+                else if (record.Kind == TypeRecordKind.Struct)
+                {
+                    // Value-witness copy discarded without a destroy: the copy's retains stay
+                    // outstanding on the value at the caller's own address, so the pointer the
+                    // P/Invoke passes arrives carrying the count the callee releases. Retain pins the
+                    // handle itself for the duration of the copy.
+                    csWriter.WriteLine(
+                        $"global::Swift.Runtime.OwnedArgument.Retain<{record.CSharpTypeName}>({csName}.Payload);");
+                }
             }
         }
 
