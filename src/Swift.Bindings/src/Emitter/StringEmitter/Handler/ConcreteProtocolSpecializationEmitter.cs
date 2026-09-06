@@ -1238,6 +1238,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string resultPtrName = syntheticScope.Reserve("resultPtr");
         string resultLocalName = syntheticScope.Reserve("_result");
         string errorPtrName = syntheticScope.Reserve("errorPtr");
+        string resultPtrOwnedName = syntheticScope.Reserve("resultPtrOwned");
 
         // Pins: each entry is a C# fixed-statement "fixed (byte* _pfoo = foo)" that must
         // wrap the pinvoke call. InlineSwiftStruct uses `&param` directly (unmanaged
@@ -1792,24 +1793,29 @@ public static partial class ConcreteProtocolSpecializationEmitter
             else if (needsResultPtrOwnershipTransfer)
             {
                 // NativeMemory.Alloc matches the allocator that SwiftSafeHandle.ReleaseHandle
-                // frees with (NativeMemory.Free). Don't wrap in try/finally — the returned
-                // SafeHandle owns the buffer. The (IntPtr)(void*) cast requires an unsafe
+                // frees with (NativeMemory.Free). The (IntPtr)(void*) cast requires an unsafe
                 // context; methods taking only handle/blittable args aren't marked unsafe,
                 // so wrap the alloc in a local unsafe block.
+                //
+                // Ownership of this buffer moves to the returned SafeHandle at the marshal call
+                // and nowhere earlier, so the finally below frees it on every path that does NOT
+                // reach that handoff — a Swift error, and, crucially, an exception raised before
+                // native code is even entered (the SafeHandle marshaller rejects a disposed
+                // argument with ObjectDisposedException between this allocation and the call).
+                // The flag, rather than a bare catch, keeps the success path's handoff intact:
+                // once the handle owns the buffer, freeing it here would be a double free.
                 csWriter.WriteLine($"IntPtr {resultPtrName};");
                 csWriter.WriteLine($"unsafe {{ {resultPtrName} = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>()); }}");
+                csWriter.WriteLine($"bool {resultPtrOwnedName} = false;");
             }
             else
             {
                 // Struct constructor or other alloc+free case.
                 csWriter.WriteLine($"IntPtr {resultPtrName} = global::System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnMarshalType}>());");
             }
-            if (!needsResultPtrOwnershipTransfer)
-            {
-                csWriter.WriteLine("try");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-            }
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
         }
 
         // Prelude locals (byte[] allocations for Utf8Slice params) must precede the
@@ -1834,23 +1840,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // The result of `ThrowSwiftError` is unreachable — the call throws — so using it
         // inline as the return expression is unsafe.
         //
-        // Ownership-transfer returns (needsResultPtrOwnershipTransfer) have no try/finally
-        // guarding the NativeMemory.Alloc — the returned SafeHandle takes ownership on
-        // success. On the error path, however, ThrowSwiftError aborts before MarshalFromSwift
-        // runs, so the buffer would leak. Free it explicitly on that path.
-        string errorCheck;
-        if (!throws)
-        {
-            errorCheck = string.Empty;
-        }
-        else if (needsResultPtrOwnershipTransfer)
-        {
-            errorCheck = $"if ({errorPtrName} != IntPtr.Zero) {{ unsafe {{ global::System.Runtime.InteropServices.NativeMemory.Free((void*){resultPtrName}); }} SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError); }}";
-        }
-        else
-        {
-            errorCheck = $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);";
-        }
+        // The ownership-transfer arm needs no special free here: ThrowSwiftError aborts before
+        // the marshal call sets the ownership flag, so the finally below reclaims the buffer on
+        // this path exactly as it does on every other pre-handoff throw.
+        string errorCheck = throws
+            ? $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);"
+            : string.Empty;
 
         if (isConstructor)
         {
@@ -1890,6 +1885,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
                     csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrName});");
                     csWriter.WriteLine($"return {resultLocalName};");
+                }
+                else if (needsResultPtrOwnershipTransfer)
+                {
+                    EmitOwnershipTransferReturn(csWriter, csReturnType, string.Empty, resultPtrName, resultLocalName, resultPtrOwnedName);
                 }
                 else
                 {
@@ -1944,6 +1943,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 csWriter.WriteLine($"TypeMetadata.TryGetTypeMetadata<{csReturnMarshalType}>(out var {resultLocalName}Meta);");
                 csWriter.WriteLine($"SwiftMarshal.ReleaseIndirectResultValue({resultPtrName}, typeof({csReturnMarshalType}), {resultLocalName}Meta, valueEscapesSeam: false);");
                 csWriter.WriteLine($"return {resultLocalName}Projected;");
+            }
+            else if (needsResultPtrOwnershipTransfer)
+            {
+                EmitOwnershipTransferReturn(csWriter, csReturnMarshalType, returnProjectionSuffix, resultPtrName, resultLocalName, resultPtrOwnedName);
             }
             else
             {
@@ -2004,17 +2007,49 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine("}");
         }
 
-        if ((needsResultPtr || isStringReturn) && !needsResultPtrOwnershipTransfer)
+        if (needsResultPtr || isStringReturn)
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine($"finally {{ global::System.Runtime.InteropServices.Marshal.FreeHGlobal({resultPtrName}); }}");
+            csWriter.WriteLine(needsResultPtrOwnershipTransfer
+                ? $"finally {{ if (!{resultPtrOwnedName}) {{ unsafe {{ global::System.Runtime.InteropServices.NativeMemory.Free((void*){resultPtrName}); }} }} }}"
+                : $"finally {{ global::System.Runtime.InteropServices.Marshal.FreeHGlobal({resultPtrName}); }}");
         }
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
         method.MarkEmitted();
+    }
+
+    /// <summary>
+    /// Emits the return of an indirect result whose buffer the returned SafeHandle adopts.
+    /// The marshal call is the ownership handoff, so the flag flips immediately after it and
+    /// before the return — the enclosing finally frees the buffer while the flag is still
+    /// false (any throw between the allocation and the handoff, including the SafeHandle
+    /// marshaller's pre-native rejection of a disposed argument) and leaves it alone once the
+    /// handle owns it. Emitting the marshal call inline in the `return` would leave nowhere to
+    /// record the handoff.
+    ///
+    /// The flag is as precise as a call site can be: the adoption happens inside the marshal
+    /// call, so a throw AFTER the SafeHandle is constructed but before that call returns (the
+    /// dispose-scope registration failing to grow its list, i.e. an allocation failure) would be
+    /// seen here as a pre-handoff throw and reclaim a buffer the handle also owns. Closing that
+    /// last sliver needs a marshal entry point that consumes the buffer and reports adoption, not
+    /// a flag at the call site; until then the always-reachable leak this replaces — one Dispose()
+    /// on an argument is enough — is the failure worth preventing.
+    /// </summary>
+    private static void EmitOwnershipTransferReturn(
+        CSharpWriter csWriter,
+        string csMarshalType,
+        string returnProjectionSuffix,
+        string resultPtrName,
+        string resultLocalName,
+        string resultPtrOwnedName)
+    {
+        csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csMarshalType}>({resultPtrName});");
+        csWriter.WriteLine($"{resultPtrOwnedName} = true;");
+        csWriter.WriteLine($"return {resultLocalName}{returnProjectionSuffix};");
     }
 
     // ─── Classification helpers ──────────────────────────────────────

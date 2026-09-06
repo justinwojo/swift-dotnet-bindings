@@ -199,6 +199,75 @@ public class CsmArgumentLeaseTests : TestBase
 
     #endregion
 
+    #region Ownership-transfer return, rejected before the native call
+
+    /// <summary>
+    /// A specialized factory whose result travels through an indirect-result buffer that the
+    /// RETURNED handle adopts allocates that buffer BEFORE the call. If an argument is already
+    /// disposed, the <c>SafeHandle</c> marshaller throws before native code is entered — no handle
+    /// ever takes the buffer, so the emitted factory has to reclaim it itself on that path.
+    ///
+    /// What this test can and cannot observe: the byte-level leak is not deterministically visible
+    /// from managed code (the buffer comes from <c>NativeMemory.Alloc</c>, which exposes no
+    /// allocation counter, and resident-size sampling is far too noisy at 16-byte granularity).
+    /// What it does pin is the half a unit test cannot: that the rejection really happens on the
+    /// pre-native side of the boundary — the Swift body never runs — which is what makes the free
+    /// the caller's responsibility in the first place. The emitter unit tests carry the matching
+    /// assertion that the emitted factory frees on exactly that path.
+    /// </summary>
+    public void TestDisposedArgumentRejectedBeforeOwnershipTransferReturn()
+    {
+        LeaseGateReset();
+        var material = new LeasedRefMaterial(token: "gone");
+        material.Dispose();
+
+        AssertThrows<ObjectDisposedException>(
+            () => LeasedResultBox.FromSwiftBindingsTestLibLeasedRefMaterial(material),
+            "disposed conformer argument is rejected before the ownership-transfer factory calls Swift");
+        AssertEqual(0, LeaseGateEntryCount(), "no specialized Swift body ran for the rejected ownership-transfer factory");
+    }
+
+    /// <summary>Same rejection through the non-frozen-struct conformer arm of the same factory.</summary>
+    public void TestDisposedStructArgumentRejectedBeforeOwnershipTransferReturn()
+    {
+        LeaseGateReset();
+        var material = new LeasedValueMaterial(token: "gone");
+        material.Dispose();
+
+        AssertThrows<ObjectDisposedException>(
+            () => LeasedResultBox.FromSwiftBindingsTestLibLeasedValueMaterial(material),
+            "disposed struct conformer argument is rejected before the ownership-transfer factory calls Swift");
+        AssertEqual(0, LeaseGateEntryCount(), "no specialized Swift body ran for the rejected struct ownership-transfer factory");
+    }
+
+    /// <summary>
+    /// The success half of the same factory: the result must reach the caller intact through the
+    /// buffer the returned handle adopts, and the handle must still own it afterwards. Same
+    /// observability limit as the rejection tests — managed code cannot count native frees — so
+    /// what is asserted is what is visible: the value round-trips, the Swift body ran, and the
+    /// handle releases on Dispose. Reclaiming the buffer unconditionally in the emitted factory
+    /// instead of only on the pre-handoff paths would free it out from under this handle, which
+    /// shows up here as a crash or a corrupted read rather than as a failed assertion; the
+    /// single-reclaim-site assertion lives in the emitter unit tests.
+    /// </summary>
+    public void TestOwnershipTransferReturnRoundTripsAndReleasesOnce()
+    {
+        LeaseGateReset();
+        using var material = new LeasedRefMaterial(token: "ok");
+
+        var box = LeasedResultBox.FromSwiftBindingsTestLibLeasedRefMaterial(material);
+        AssertEqual("boxed[ref:ok]", box.Descriptor, "ownership-transfer factory round-trips its result through the adopted buffer");
+        AssertEqual(1, LeaseGateEntryCount(), "the specialized Swift body ran exactly once");
+
+        // The handle owns the buffer from the marshal call onward; disposing it is the single free.
+        box.Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => { _ = box.Descriptor; },
+            "the returned handle owns the transferred buffer and releases it on Dispose");
+    }
+
+    #endregion
+
     #region GC pressure
 
     /// <summary>

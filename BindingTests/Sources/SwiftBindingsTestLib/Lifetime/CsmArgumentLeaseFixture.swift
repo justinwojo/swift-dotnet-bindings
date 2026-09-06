@@ -124,6 +124,22 @@ public struct LeaseProbe {
     }
 }
 
+/// NON-frozen struct host with a generic initializer, so its specialized `From{Conformer}`
+/// factories return through the indirect-result buffer that the RETURNED handle adopts —
+/// the ownership-transfer shape, the one return arm whose buffer is not reclaimed by the
+/// caller on the success path. Everything between the buffer's allocation and that handoff can
+/// still throw without a handle ever taking it: most importantly the `SafeHandle` marshaller,
+/// which rejects a disposed argument before native code is entered. The gate call lets a test
+/// prove the rejection happened on that side of the boundary.
+public struct LeasedResultBox {
+    public let descriptor: String
+
+    public init<M: LeasedMaterial>(sealing material: M) {
+        leaseGateHold()
+        self.descriptor = "boxed[\(material.material)]"
+    }
+}
+
 /// CLASS receiver: the specialized overload forwards `self` from the class's ARC payload.
 public final class LeaseProbeRef {
     public let realm: String

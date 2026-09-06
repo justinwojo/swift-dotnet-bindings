@@ -870,6 +870,116 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_OwnershipTransferReturn_ThrowBeforeHandoffFreesResultBuffer()
+    {
+        // The ownership-transfer arm allocates the indirect-result buffer with NativeMemory.Alloc
+        // and hands it to the returned SafeHandle at the marshal call. Everything between those two
+        // points can throw WITHOUT the handle ever adopting the buffer — most importantly the
+        // [LibraryImport] marshaller, which rejects a disposed SafeHandle argument with
+        // ObjectDisposedException before native code is entered, so the throw happens after the
+        // allocation and before Swift ever runs. The arm previously had no try/finally at all (only
+        // an inline free on the Swift-error path), so every such rejection leaked the buffer.
+        //
+        // Behaviour asserted, not formatting: the allocation is guarded, the reclaim is conditioned
+        // on ownership NOT having transferred, and the flag flips only after the marshal call.
+        var cs = EmitOwnershipTransferFactory();
+
+        Assert.Contains("NativeMemory.Alloc", cs);
+        Assert.Contains("finally", cs);
+
+        int allocAt = cs.IndexOf("NativeMemory.Alloc", System.StringComparison.Ordinal);
+        int tryAt = cs.IndexOf("try", allocAt, System.StringComparison.Ordinal);
+        int callAt = cs.IndexOf("SBW_CSM_", allocAt, System.StringComparison.Ordinal);
+        int marshalAt = cs.IndexOf("MarshalFromSwift", allocAt, System.StringComparison.Ordinal);
+        int finallyAt = cs.IndexOf("finally", marshalAt, System.StringComparison.Ordinal);
+        int freeAt = cs.IndexOf("NativeMemory.Free", finallyAt, System.StringComparison.Ordinal);
+
+        Assert.True(tryAt > allocAt && tryAt < callAt && callAt < marshalAt,
+            $"The specialized call must run inside a try opened after the allocation.\n{cs}");
+        Assert.True(freeAt > finallyAt,
+            $"The buffer must be reclaimed from the finally, not only on the Swift-error path.\n{cs}");
+
+        // The reclaim is conditional on THE ownership flag, and that flag starts out false outside
+        // the guarded region — an unconditional finally free would double-free the buffer the
+        // returned SafeHandle now owns, and a flag that started true would reclaim nothing.
+        var flagDecl = System.Text.RegularExpressions.Regex.Match(cs, @"bool (\w+) = false;");
+        Assert.True(flagDecl.Success, $"The arm must declare an ownership flag initialized false.\n{cs}");
+        string flag = flagDecl.Groups[1].Value;
+        Assert.True(flagDecl.Index > allocAt && flagDecl.Index < tryAt,
+            $"The ownership flag must be declared after the allocation and before the try.\n{cs}");
+
+        string finallyClause = cs.Substring(finallyAt, cs.IndexOf('\n', freeAt) - finallyAt);
+        Assert.Contains($"if (!{flag})", finallyClause);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_OwnershipTransferReturn_SuccessPathKeepsHandoffAndFreesOnce()
+    {
+        // The success-path handoff must survive the leak fix: the flag flips AFTER the marshal call
+        // (so a throw inside the marshal still reclaims) and BEFORE the return, and the buffer is
+        // reclaimed from exactly one place. The Swift-error path used to free inline; with the
+        // finally in place that inline free would be a double free, so it must be gone.
+        var cs = EmitOwnershipTransferFactory();
+
+        int allocAt = cs.IndexOf("NativeMemory.Alloc", System.StringComparison.Ordinal);
+        int callAt = cs.IndexOf("SBW_CSM_", allocAt, System.StringComparison.Ordinal);
+        int marshalAt = cs.IndexOf("MarshalFromSwift", System.StringComparison.Ordinal);
+        int returnAt = cs.IndexOf("return ", marshalAt, System.StringComparison.Ordinal);
+        int throwErrorAt = cs.IndexOf("ThrowSwiftError", System.StringComparison.Ordinal);
+
+        Assert.True(marshalAt >= 0 && returnAt > marshalAt,
+            $"The marshal call must be captured into a local ahead of the return.\n{cs}");
+
+        // The whole point of the flag is WHERE it flips: after the handoff the marshal call
+        // performs, and before the return. Flipping it earlier — anywhere at or before the P/Invoke
+        // — would silence the finally for exactly the pre-native rejection this guards against.
+        string flag = System.Text.RegularExpressions.Regex.Match(cs, @"bool (\w+) = false;").Groups[1].Value;
+        Assert.False(string.IsNullOrEmpty(flag), $"The arm must declare an ownership flag.\n{cs}");
+        int flagSetAt = cs.IndexOf($"{flag} = true;", System.StringComparison.Ordinal);
+        Assert.True(callAt > allocAt && callAt < marshalAt,
+            $"The specialized call must run between the allocation and the marshal.\n{cs}");
+        Assert.True(flagSetAt > marshalAt && flagSetAt < returnAt,
+            $"Ownership must be recorded after the marshal handoff and before the return.\n{cs}");
+
+        // Exactly one reclaim site, and it is not on the error-check line.
+        int freeCount = System.Text.RegularExpressions.Regex.Matches(cs, "NativeMemory\\.Free").Count;
+        Assert.True(freeCount == 1, $"Expected a single reclaim site, found {freeCount}.\n{cs}");
+
+        int errorLineStart = cs.LastIndexOf('\n', throwErrorAt) + 1;
+        string errorLine = cs.Substring(errorLineStart, cs.IndexOf('\n', throwErrorAt) - errorLineStart);
+        Assert.DoesNotContain("NativeMemory.Free", errorLine);
+    }
+
+    /// <summary>
+    /// Emits a throwing generic constructor on a NON-frozen struct host — the shape whose
+    /// indirect result buffer transfers to the returned SafeHandle (`needsResultPtrOwnershipTransfer`).
+    /// The host record is registered without <c>TypeRecordFlags.Frozen</c>, which is what puts the
+    /// return on that arm.
+    /// </summary>
+    private static string EmitOwnershipTransferFactory()
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.Outer.Inner");
+        db.Register(conformerTypeName, "TestLib", "Outer.Inner");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Box"), "TestLib", "Box");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.Outer.Inner", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithProtocolConstrainedConstructor(
+            "Box", "TestLib.Processable", throws: true);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), typeDecl, db,
+            new ModuleEmissionContext(), engine, NullLogger.Instance);
+
+        return csOutput.ToString();
+    }
+
+    [Fact]
     public void FindSpecializableMethods_ParentOnlyPlainMethod_ReturnsParentSpecs()
     {
         // Parent-only CSM: `Bag<T: Processable>.attach(text: String)`.
