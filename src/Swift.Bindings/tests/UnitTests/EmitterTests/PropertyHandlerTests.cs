@@ -218,10 +218,173 @@ public class PropertyHandlerTests
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
         Assert.Contains("public virtual int Count", csOutput);
-        Assert.Contains("get => (int)Count_Get();", csOutput);
+        // The narrowed getter reports a value it cannot represent rather than wrapping it, and the
+        // report names the lossless companion so a caller knows where to read it whole.
+        Assert.Contains("NativeIntegerNarrowing.ToInt32(Count_Get(), \"Count\", \"CountNative\")", csOutput);
+        // Widening on the way in is lossless, so the setter keeps its plain cast.
         Assert.Contains("set => Count_Set((nint)value);", csOutput);
         Assert.Contains("public nint Count_Get()", csOutput);
         Assert.Contains("public void Count_Set(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NarrowedNativeIntProperty_EmitsNativeWidthCompanion()
+    {
+        // Every narrowed accessor is accompanied by a sibling that carries the value at its
+        // declared width, so a consumer whose value does not fit `int` still has a way to read
+        // and write it.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("public nint CountNative", csOutput);
+        // The companion reads and writes the same accessors as the primary, without the conversion.
+        Assert.Contains("get => Count_Get();", csOutput);
+        Assert.Contains("set => Count_Set(value);", csOutput);
+        Assert.Equal("CountNative", property.EmittedNativeWidthCSharpName);
+    }
+
+    [Fact]
+    public void Emit_NarrowedNativeIntProperty_GetterOnly_CompanionIsGetterOnly()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: false);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("public nint CountNative", csOutput);
+        Assert.DoesNotContain("set => Count_Set", csOutput);
+    }
+
+    [Fact]
+    public void ChooseNativeWidthCompanionName_NoContention_TakesTheSuffixedName()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        classDecl.Properties.Add(
+            CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true));
+
+        var chosen = NativeIntOverloadEmitter.ChooseNativeWidthCompanionName(classDecl, "Count", typeDatabase);
+
+        Assert.Equal("CountNative", chosen);
+    }
+
+    [Fact]
+    public void ChooseNativeWidthCompanionName_WhenSiblingHoldsTheName_StepsAside()
+    {
+        // A Swift library is free to declare `countNative` itself. The companion has to route
+        // through the same sibling-name set every other emitted member does rather than shadow it.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        classDecl.Properties.Add(
+            CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true));
+        classDecl.Properties.Add(
+            CreateEmittablePropertyDecl(classDecl, moduleDecl, "countNative", "Swift.String", hasGetter: true, hasSetter: false));
+
+        var chosen = NativeIntOverloadEmitter.ChooseNativeWidthCompanionName(classDecl, "Count", typeDatabase);
+
+        Assert.Equal("CountNative2", chosen);
+    }
+
+    [Fact]
+    public void ChooseNativeWidthCompanionName_WhenTheEnclosingTypeHoldsTheName_StepsAside()
+    {
+        // A member may not repeat its enclosing type's name (CS0542), so a type that happens to be
+        // named for the companion of one of its own properties has to be stepped around like any
+        // other occupant — the alternative does not compile.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("CountNative", moduleDecl);
+        classDecl.Properties.Add(
+            CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true));
+
+        var chosen = NativeIntOverloadEmitter.ChooseNativeWidthCompanionName(classDecl, "Count", typeDatabase);
+
+        Assert.NotEqual("CountNative", chosen);
+        Assert.Equal("CountNative2", chosen);
+    }
+
+    [Fact]
+    public void ChooseNativeWidthCompanionName_ManyOccupiedCandidates_KeepsLookingRatherThanGivingUp()
+    {
+        // The numeric bump used to stop at nine, which silently dropped the companion on a type
+        // holding that many contenders — the one property that needs a lossless read most.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        classDecl.Properties.Add(
+            CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true));
+        classDecl.Properties.Add(
+            CreateEmittablePropertyDecl(classDecl, moduleDecl, "countNative", "Swift.String", hasGetter: true, hasSetter: false));
+        for (int i = 2; i <= 12; i++)
+        {
+            classDecl.Properties.Add(CreateEmittablePropertyDecl(
+                classDecl, moduleDecl, $"countNative{i}", "Swift.String", hasGetter: true, hasSetter: false));
+        }
+
+        var chosen = NativeIntOverloadEmitter.ChooseNativeWidthCompanionName(classDecl, "Count", typeDatabase);
+
+        Assert.Equal("CountNative13", chosen);
+    }
+
+    [Theory]
+    [InlineData("int", "ToInt32")]
+    [InlineData("int?", "ToInt32")]
+    [InlineData("uint", "ToUInt32")]
+    [InlineData("uint?", "ToUInt32")]
+    public void BuildCheckedNarrowingExpression_NarrowedIntegerTypes_RouteThroughTheReportingHelper(
+        string narrowedType, string expectedHelper)
+    {
+        var expression = NativeIntOverloadEmitter.BuildCheckedNarrowingExpression(
+            narrowedType, "Count_Get()", "Count", "CountNative");
+
+        Assert.NotNull(expression);
+        Assert.Contains($"NativeIntegerNarrowing.{expectedHelper}(Count_Get(), \"Count\", \"CountNative\")", expression);
+    }
+
+    [Fact]
+    public void BuildCheckedNarrowingExpression_NonIntegerTarget_DeclinesRatherThanInventingAConversion()
+    {
+        Assert.Null(NativeIntOverloadEmitter.BuildCheckedNarrowingExpression(
+            "string", "Label_Get()", "Label", nativeMemberName: null));
+    }
+
+    [Fact]
+    public void BuildCheckedNarrowingExpression_WithoutACompanion_StillReports()
+    {
+        // Not every narrowing site has a lossless sibling to point at: a protocol proxy reads a
+        // requirement declared on the interface, which carries no companion accessor today. The
+        // helper has to stay usable there — a report the caller can see beats a wrapped value —
+        // and its message says why no companion is named rather than naming nothing.
+        var expression = NativeIntOverloadEmitter.BuildCheckedNarrowingExpression(
+            "int", "value", "Count", nativeMemberName: null);
+
+        Assert.NotNull(expression);
+        Assert.Contains("NativeIntegerNarrowing.ToInt32(value, \"Count\")", expression);
+    }
+
+    [Fact]
+    public void Emit_NonNarrowedProperty_EmitsNoNativeWidthCompanion()
+    {
+        // A property whose emitted type already carries every value the Swift one can hold loses
+        // nothing on the way out, so there is nothing to accompany.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "label", "Swift.String", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.DoesNotContain("LabelNative", csOutput);
+        Assert.DoesNotContain("NativeIntegerNarrowing", csOutput);
+        Assert.Null(property.EmittedNativeWidthCSharpName);
     }
 
     [Fact]

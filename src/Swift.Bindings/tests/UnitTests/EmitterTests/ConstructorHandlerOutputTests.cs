@@ -850,12 +850,17 @@ public class ConstructorHandlerOutputTests
         ReportCollector.Reset();
         Assert.NotNull(report);
 
-        // No constructor at all — every member of this family is label-named. That includes the
-        // native-int convenience sugar: a factory-recovered init has no constructor to chain to, so
-        // emitting `public Widget(int) : this((nint)…)` here would name one the type never declares.
+        // No constructor at all — every member of this family is label-named. That constrains the
+        // native-int convenience sugar too: a factory-recovered init has no constructor to chain to,
+        // so emitting `public Widget(int) : this((nint)…)` here would name one the type never
+        // declares. The sugar still reaches this lane, under the factory's own name — each recovered
+        // init gets the pointer-width member plus an int-taking forwarder that delegates to it, so a
+        // caller passing an idiomatic 32-bit literal does not have to cast on the factory lane only.
         Assert.Equal(0, CountOccurrences(csOutput, "public Widget("));
-        Assert.Equal(1, CountOccurrences(csOutput, "static Widget CreateWithA("));
-        Assert.Equal(1, CountOccurrences(csOutput, "static Widget CreateWithB("));
+        Assert.Equal(2, CountOccurrences(csOutput, "static Widget CreateWithA("));
+        Assert.Equal(2, CountOccurrences(csOutput, "static Widget CreateWithB("));
+        Assert.Contains("=> CreateWithA((nint)", csOutput);
+        Assert.Contains("=> CreateWithB((nint)", csOutput);
 
         // Nothing is dropped any more...
         Assert.DoesNotContain(report.SkippedItems,

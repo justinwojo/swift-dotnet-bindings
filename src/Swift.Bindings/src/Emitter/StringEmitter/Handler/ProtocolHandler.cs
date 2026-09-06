@@ -1794,7 +1794,9 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits a DIM (Default Interface Method) overload with narrowed nint→int params.
-        /// E.g.: nint Skip(nint count); → DIM: int Skip(int count) => (int)Skip((nint)count);
+        /// E.g.: nint Skip(nint count); → DIM: nint Skip(int count) => Skip((nint)count);
+        /// Only parameters narrow; the return keeps its native width, matching the convenience
+        /// overloads emitted for concrete types.
         /// Proxy classes inherit DIMs automatically.
         /// </summary>
         internal void TryEmitInterfaceMethodNintOverload(
@@ -1823,6 +1825,14 @@ namespace BindingsGeneration
                 if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                     continue;
                 if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+                // An inout native-int param never narrows — the same rule the concrete-type overload
+                // follows. inout is input AND output, so a narrowed view would truncate on the way back
+                // out, and a forwarder cannot pass the `(nint)x` rvalue cast by `ref` anyway. Leaving it
+                // in the conversion set spells `Foo(int x) => Foo((nint)x)` against a `ref nint` primary,
+                // which does not compile. It falls through to the pass-through arm below, which keeps
+                // both the parameter's `ref` and its native type.
+                if (arg.IsInOut)
                     continue;
                 if (arg.SwiftTypeSpec is NamedTypeSpec ns && NativeIntOverloadEmitter.TryGetAbiWideningType(ns, out var nativeType))
                 {
@@ -1910,9 +1920,9 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // inout params are never nint-narrowed (NativeIntOverloadEmitter skips them),
-                    // so they fall here — preserve `ref` on both the DIM signature and its forward
-                    // to the primary interface method, which is also `ref`.
+                    // inout params are never nint-narrowed (skipped above, as on the concrete-type
+                    // path), so they fall here — preserve `ref` on both the DIM signature and its
+                    // forward to the primary interface method, which is also `ref`.
                     var inoutModifier = arg.IsInOut ? "ref " : "";
                     var typeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
                     paramParts.Add($"{inoutModifier}{typeName} {paramName}");

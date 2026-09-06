@@ -8,7 +8,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Synthesizes the bitwise surface a Swift <c>OptionSet</c> gets for free on the Swift side —
 /// <c>|</c>, <c>&amp;</c>, <c>^</c>, <c>~</c> and a <c>Contains</c> membership test — purely in C#
-/// over the type's own emitted <c>RawValue</c> property and <c>rawValue:</c> initializer.
+/// over the type's own emitted raw-value accessor and <c>rawValue:</c> initializer.
 ///
 /// Swift's operators here come from protocol extensions on <c>SetAlgebra</c>/<c>OptionSet</c>, so
 /// they carry no ABI symbols of their own and nothing in the parsed surface can be bound directly.
@@ -90,13 +90,19 @@ public static class OptionSetOperatorEmitter
         if (!typeDatabase.TryGetTypeRecord(rawValueProperty.SwiftTypeSpec, out var rawTypeRecord))
             return;
 
-        // The property is emitted with the narrowed type (Swift `Int` → `int`), so that is what
-        // reading `RawValue` yields on the left of every expression below.
-        var rawCSharpType = NativeIntOverloadEmitter.NarrowNativeIntType(rawTypeRecord.CSharpTypeName.FullyQualifiedName);
+        // A pointer-width raw value (Swift `Int`/`UInt`) is narrowed on the public property and its
+        // accessor reports rather than truncates anything above `int`/`uint` range — reading it here
+        // would make every operator throw for an option declared above bit 31. So these bodies read
+        // the lossless companion when the property pass placed one, and only fall back to the
+        // narrowed property when it could not.
+        var nativeRawValueName = rawValueProperty.EmittedNativeWidthCSharpName;
+        var rawValueName = nativeRawValueName ?? rawValueProperty.EmittedCSharpName!;
+        var declaredRawCSharpType = rawTypeRecord.CSharpTypeName.FullyQualifiedName;
+        var rawCSharpType = nativeRawValueName is not null
+            ? declaredRawCSharpType
+            : NativeIntOverloadEmitter.NarrowNativeIntType(declaredRawCSharpType);
         if (!IntegralRawTypes.Contains(rawCSharpType))
             return;
-
-        var rawValueName = rawValueProperty.EmittedCSharpName!;
 
         // The initializer has to have survived emission too — `new T(raw)` is the only way these
         // bodies can produce a value. CSSignature[0] is the return type, so a single-argument
@@ -110,19 +116,14 @@ public static class OptionSetOperatorEmitter
         if (rawValueInitializer is null)
             return;
 
-        // Initializer parameters are NOT narrowed the way properties are, so even for that one
-        // Swift type the argument is wider than what `RawValue` returns (Swift `Int` → `nint`
-        // parameter but `int` property). The `new` expression therefore casts to the PARAMETER's
-        // type, not the property's: handing `new T(...)` an `int` and letting C# widen it
-        // implicitly makes the call ambiguous with the projection's own `T(SwiftHandle)`
-        // constructor, which an `int` also reaches (standard conversion to the handle's underlying
-        // integer, then one user-defined conversion) — CS0121, and only where the two differ.
-        //
-        // Reading through the narrowed property means an option declared above bit 31 of a Swift
-        // `Int`/`UInt` raw value is already gone before it reaches these bodies. That loss belongs
-        // to the property projection, not to this synthesis: the hand-written combination a
-        // consumer would otherwise write over the same `RawValue` truncates identically.
-        var initArgCSharpType = rawTypeRecord.CSharpTypeName.FullyQualifiedName;
+        // Initializer parameters are NOT narrowed the way properties are, so the argument is the
+        // declared width (Swift `Int` → `nint` parameter). The `new` expression casts to the
+        // PARAMETER's type explicitly rather than letting C# widen implicitly: an implicit widening
+        // makes the call ambiguous with the projection's own `T(SwiftHandle)` constructor, which an
+        // `int` also reaches (standard conversion to the handle's underlying integer, then one
+        // user-defined conversion) — CS0121, and only where the two differ. On the companion path
+        // above the operand is already this width, so the cast is a no-op that keeps one shape.
+        var initArgCSharpType = declaredRawCSharpType;
         if (!IntegralRawTypes.Contains(initArgCSharpType))
             return;
 

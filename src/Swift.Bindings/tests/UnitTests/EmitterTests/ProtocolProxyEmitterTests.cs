@@ -4545,13 +4545,16 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_NintDispatch_CastsFromNint()
     {
-        // F1: InterfaceImpl dispatch should cast: (int)MarshalFromSwift<nint>(ptr)
+        // F1: InterfaceImpl dispatch narrows the pointer-width ABI value to the interface's int.
         RegisterSwiftInt();
         var protocolDecl = CreateProtocolWithProperty("DispatchProto", "position", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int"));
         var output = EmitProxyClass(protocolDecl);
 
-        // Dispatch getter should narrow from nint to int
-        Assert.Contains("(int)MarshalFromSwift<nint>", output);
+        // The narrowing reports a value it cannot represent rather than wrapping it, exactly as a
+        // concrete type's own narrowed property does — the proxy is reading the same Swift Int.
+        Assert.Contains("NativeIntegerNarrowing.ToInt32(MarshalFromSwift<nint>(resultPtr)", output);
+        Assert.Contains("\"Position\"", output);
+        Assert.DoesNotContain("(int)MarshalFromSwift<nint>", output);
     }
 
     [Fact]

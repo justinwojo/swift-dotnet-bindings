@@ -73,6 +73,58 @@ public class InoutStructDispatchTests : TestBase
         AssertApproxEqual(101.0, result.X, 0.0001, "C# conformer mutation written back through inout");
         AssertApproxEqual(202.0, result.Y, 0.0001, "C# conformer mutation written back through inout");
     }
+
+    /// <summary>
+    /// A requirement pairing an <c>inout Int</c> with a plain <c>Int</c>. The plain parameter gets
+    /// the 32-bit convenience overload; the <c>inout</c> one keeps its pointer width and its
+    /// <c>ref</c>, because it carries a value back out and because a cast rvalue cannot be passed
+    /// by reference at all. Calling with a bare <c>3</c> is what picks the convenience overload.
+    /// </summary>
+    public void TestInoutNativeIntRequirement_NarrowsOnlyTheByValueParameter()
+    {
+        using var advancer = new SteppingAdvancer();
+        ICursorAdvancer contract = advancer;
+
+        nint cursor = 5;
+        contract.Advance(ref cursor, 3);
+        AssertEqual((nint)8, cursor, "cursor advanced through the 32-bit convenience overload");
+
+        // Past the 32-bit window, through the pointer-width member the convenience overload
+        // forwards to — the value the narrowed view could not have carried.
+        long twoToThe32 = 4294967296L;
+        nint wideStep = (nint)twoToThe32;
+        contract.Advance(ref cursor, wideStep);
+        AssertEqual((nint)(8 + twoToThe32), cursor, "cursor advanced at native width");
+    }
+
+    /// <summary>
+    /// Reverse dispatch (Swift → C#) is not what this checks; the point is that a hand-written C#
+    /// conformer satisfies the requirement by declaring only the pointer-width member, and still
+    /// answers a narrowed call through the interface's default implementation.
+    /// </summary>
+    public void TestInoutNativeIntRequirement_CSharpConformerInheritsTheNarrowedOverload()
+    {
+        ICursorAdvancer contract = new CSharpCursorAdvancer();
+
+        nint cursor = 100;
+        contract.Advance(ref cursor, 7);
+
+        AssertEqual((nint)107, cursor, "C# conformer reached through the narrowed default implementation");
+    }
+}
+
+/// <summary>
+/// Hand-written conformer of the generated <c>ICursorAdvancer</c>. It implements only the
+/// pointer-width member: the narrowed sibling is a default implementation on the interface, so
+/// declaring it here would be redundant, and a version of it that dropped <c>ref</c> would not
+/// compile against this signature.
+/// </summary>
+internal sealed class CSharpCursorAdvancer : ICursorAdvancer
+{
+    public void Advance(ref nint cursor, nint step)
+    {
+        cursor += step;
+    }
 }
 
 /// <summary>

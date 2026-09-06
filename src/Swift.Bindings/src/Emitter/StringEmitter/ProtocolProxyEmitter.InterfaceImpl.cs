@@ -1110,10 +1110,24 @@ public partial class ProtocolProxyEmitter
                 // Use the dispatch emitter's canonical blittable type for marshalling,
                 // not the interface-projected type which may differ (e.g. Swift.AnyType)
                 var marshalType = dispatchEmitter.GetBlittableCSharpType(property.SwiftTypeSpec) ?? csharpTypeName;
-                // F1: If property type is narrowed (int/uint), MarshalFromSwift returns nint/nuint — add cast.
-                var returnExpr = marshalType != csharpTypeName
-                    ? $"({csharpTypeName})MarshalFromSwift<{marshalType}>(resultPtr)"
-                    : $"MarshalFromSwift<{marshalType}>(resultPtr)";
+                // F1: If property type is narrowed (int/uint), MarshalFromSwift returns nint/nuint — convert.
+                // A native-int narrowing goes through the reporting conversion, matching what a
+                // concrete type's own property does; any other marshal/interface type mismatch
+                // (Swift.AnyType and friends) keeps the plain cast it always had.
+                var marshalCall = $"MarshalFromSwift<{marshalType}>(resultPtr)";
+                string returnExpr;
+                if (marshalType == csharpTypeName)
+                {
+                    returnExpr = marshalCall;
+                }
+                else
+                {
+                    returnExpr = NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedPropType)
+                        && narrowedPropType == csharpTypeName
+                        ? NativeIntOverloadEmitter.BuildCheckedNarrowingExpression(
+                            csharpTypeName, marshalCall, propertyName, nativeMemberName: null) ?? $"({csharpTypeName}){marshalCall}"
+                        : $"({csharpTypeName}){marshalCall}";
+                }
 
                 writer.WriteLines($$"""
                     get

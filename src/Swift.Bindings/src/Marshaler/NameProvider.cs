@@ -1377,7 +1377,28 @@ public static class NameProvider
             set.Add(GetFinalMemberName(GetPropertyName(property, typeDecl.Name), propertyRenames));
         foreach (var nestedType in typeDecl.Types)
             set.Add(GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
+        AddNativeWidthCompanionNames(typeDecl, set);
         return set;
+    }
+
+    /// <summary>
+    /// Adds the native-width companion accessors already placed on <paramref name="typeDecl"/>'s
+    /// narrowed properties to <paramref name="names"/>. A companion is a public property like any
+    /// other, so a method projecting onto its name is a CS0102 duplicate; feeding it into the
+    /// sibling set is what makes the existing <c>Foo</c>→<c>FooMethod</c> rename cover it.
+    /// </summary>
+    /// <remarks>
+    /// Reads the emission-time stamp rather than re-deriving a name, so it only reports companions
+    /// the property pass actually wrote — one it declined to place (because every candidate name was
+    /// taken) reserves nothing. Callers must therefore build their sibling set after that pass.
+    /// </remarks>
+    public static void AddNativeWidthCompanionNames(TypeDecl typeDecl, HashSet<string> names)
+    {
+        foreach (var property in typeDecl.Properties)
+        {
+            if (property.EmittedNativeWidthCSharpName is { Length: > 0 } companion)
+                names.Add(companion);
+        }
     }
 
     /// <summary>

@@ -970,16 +970,32 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
         }
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
+
+        // A narrowed property gets a lossless companion reading the same storage at Swift's own
+        // pointer width, so a value the narrow accessor now refuses to truncate is still reachable.
+        // Skipped for an override: the Swift accessor this delegates to already goes through the
+        // class dispatch thunk, so the companion the declaring level emitted returns the derived
+        // value for a derived instance, and re-declaring it here would only shadow that.
+        string? nativeCompanionName = null;
+        if (isNarrowedNint && nativePropertyType != null &&
+            !dispatchModifier.StartsWith("override", StringComparison.Ordinal) &&
+            !dispatchModifier.StartsWith("sealed override", StringComparison.Ordinal) &&
+            propertyDecl.ParentDecl is TypeDecl companionParent)
+        {
+            nativeCompanionName = NativeIntOverloadEmitter.ChooseNativeWidthCompanionName(
+                companionParent, propertyName, propertyEnv.TypeDatabase);
+        }
+
         csWriter.WriteLine($"public {staticModifier}{dispatchModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
         var getter = accessorsToEmit.OfType<GetAccessorDecl>().FirstOrDefault();
+        var helperPrefixForGetter = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
         if (getter != null)
         {
-            var helperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
             EmitGetter(csWriter, getter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,
-                isNarrowedNint, csTypeName, helperPrefix);
+                isNarrowedNint, csTypeName, helperPrefixForGetter, propertyName, nativeCompanionName);
         }
 
         var setter = accessorsToEmit.OfType<SetAccessorDecl>().FirstOrDefault();
@@ -991,6 +1007,38 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
+
+        if (nativeCompanionName != null)
+        {
+            csWriter.WriteLine();
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// <see cref=\"{propertyName}\"/> at the pointer width Swift declares it with.");
+            csWriter.WriteLine("/// </summary>");
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine($"/// Swift's <c>Int</c>/<c>UInt</c> are pointer-width, so <see cref=\"{propertyName}\"/> narrows on a");
+            csWriter.WriteLine("/// 64-bit target and throws <see cref=\"global::System.OverflowException\"/> for a value it cannot");
+            csWriter.WriteLine("/// represent. This accessor reads the same storage without narrowing.");
+            csWriter.WriteLine("/// </remarks>");
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
+            csWriter.WriteLine($"public {staticModifier}{nativePropertyType} {nativeCompanionName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            // Re-emitted through the same accessor bodies with narrowing switched off, so the
+            // companion can only ever be the public property's body minus the conversion.
+            if (getter != null)
+            {
+                EmitGetter(csWriter, getter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,
+                    isNarrowedNint: false, narrowedTypeName: null, helperPrefixForGetter);
+            }
+            if (setter != null)
+            {
+                EmitSetter(csWriter, setter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,
+                    isNarrowedNint: false, nativePropertyType: null);
+            }
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            propertyDecl.MarkEmittedNativeWidthCSharpName(nativeCompanionName);
+        }
 
         // CS0535 fix: When a property was CS0542-renamed (e.g., DatabaseValue → DatabaseValueValue),
         // any conformance interface that declares the original name (DatabaseValue) won't be satisfied.
@@ -1025,6 +1073,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         emissionCtx.RecordApiManifestEntry(
             ModuleEmissionContext.BuildPropertyApiManifestKey(propertyDecl.ParentDecl, name, typeDatabase),
             symbol);
+        // The native-width companion is public surface bound to the same accessors, so the retarget
+        // gate sees it the same way; dropping it would let the companion disappear unnoticed.
+        if (propertyDecl.EmittedNativeWidthCSharpName is { Length: > 0 } companionName)
+        {
+            emissionCtx.RecordApiManifestEntry(
+                ModuleEmissionContext.BuildPropertyApiManifestKey(propertyDecl.ParentDecl, companionName, typeDatabase),
+                symbol);
+        }
     }
 
     /// <summary>
@@ -1124,9 +1180,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// </summary>
     private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
         bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null,
-        bool isNarrowedNint = false, string? narrowedTypeName = null, string helperPrefix = "")
+        bool isNarrowedNint = false, string? narrowedTypeName = null, string helperPrefix = "",
+        string? propertyName = null, string? nativeCompanionName = null)
     {
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
+
+        // The narrowing conversion reports what it cannot represent rather than dropping the high
+        // bits of a pointer-width Swift value. Building it once here keeps the three getter body
+        // shapes below (projected-with-disposal, projected, passthrough) on one policy.
+        string Narrow(string expression) =>
+            NativeIntOverloadEmitter.BuildCheckedNarrowingExpression(
+                narrowedTypeName ?? string.Empty, expression, propertyName ?? propertyDecl.Name, nativeCompanionName)
+            ?? $"({narrowedTypeName})({expression})";
 
         // Existential/optional-existential properties: accessor methods already handle
         // proxy wrapping/unwrapping via WrapperEmitter.Return — just delegate directly
@@ -1204,18 +1269,21 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
             if (conv != null)
             {
-                // F1: Wrap projection getter conversion with narrowing cast.
+                // F1: Wrap projection getter conversion with the narrowing conversion.
                 // For Optional<nint>, projection returns ((nint?)MethodName()) but property is int?.
                 if (isNarrowedNint)
                 {
                     if (requiresDisposal)
                     {
                         var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
-                        csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return ({narrowedTypeName})({usingConv}); }}");
+                        // The disposal-variant conversion comes from the same projection that just
+                        // produced a non-null `conv`, so it is non-null here for the same reason the
+                        // un-narrowed branch below interpolates it directly.
+                        csWriter.WriteLine($"get {{ using var __ret = {methodName}(); return {Narrow(usingConv!)}; }}");
                     }
                     else
                     {
-                        csWriter.WriteLine($"get => ({narrowedTypeName})({conv});");
+                        csWriter.WriteLine($"get => {Narrow(conv)};");
                     }
                 }
                 else
@@ -1245,9 +1313,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return;
             }
         }
-        // F1: Passthrough path — narrow nint→int with explicit cast
+        // F1: Passthrough path — narrow nint→int through the reporting conversion
         if (isNarrowedNint)
-            csWriter.WriteLine($"get => ({narrowedTypeName}){methodName}();");
+            csWriter.WriteLine($"get => {Narrow($"{methodName}()")};");
         else
             csWriter.WriteLine($"get => {methodName}();");
     }

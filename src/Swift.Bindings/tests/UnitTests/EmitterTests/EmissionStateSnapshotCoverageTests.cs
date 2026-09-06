@@ -144,11 +144,13 @@ public class EmissionStateSnapshotCoverageTests
 
         // Properties carry the same pair of stamps, and the name stamp is what the module database's
         // rename ledger reads — a stamp surviving a discarded render would advertise a member the
-        // retry never wrote.
+        // retry never wrote. The native-width companion's name is a third such stamp: it is fed
+        // back into the sibling-name set, so a stale one pushes an unrelated member off its name.
         foreach (var property in AllProperties(module))
         {
             property.MarkEmitted();
             property.MarkEmittedCSharpName("Dirtied");
+            property.MarkEmittedNativeWidthCSharpName("DirtiedNative");
         }
 
         Assert.NotEqual(before, DescribeDeclState(module));
@@ -316,5 +318,6 @@ public class EmissionStateSnapshotCoverageTests
             $"|wrapperLib={m.UsesWrapperLibrary}|args={string.Join(",", m.CSSignature.Select(a => a.Name))}")
         + Environment.NewLine
         + string.Join(Environment.NewLine, AllProperties(module).Select(p =>
-            $"{p.Name}|emitted={p.WasEmitted}|csharp={p.EmittedCSharpName ?? "<null>"}")));
+            $"{p.Name}|emitted={p.WasEmitted}|csharp={p.EmittedCSharpName ?? "<null>"}" +
+            $"|native={p.EmittedNativeWidthCSharpName ?? "<null>"}")));
 }

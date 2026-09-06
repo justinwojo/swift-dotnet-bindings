@@ -41,3 +41,26 @@ public func driveMutator(_ mutator: any PointMutator, startX: Double, startY: Do
     mutator.mutate(&point)
     return point
 }
+
+// MARK: - Inout native-int requirement beside a narrowable sibling
+//
+// A protocol requirement that pairs an `inout Int` with a plain `Int` is where the interface's
+// convenience overload has to make a distinction the concrete-type path already makes: the plain
+// parameter may be offered at 32 bits, the `inout` one may not. It is both input and output, so a
+// narrowed view would truncate the value on the way back out, and the forwarder cannot pass a cast
+// rvalue by reference at all. Getting that wrong yields a default implementation that drops `ref`
+// against a `ref`-taking requirement, and the whole binding stops compiling.
+
+/// Advances a caller-owned cursor by a step — the `inout Int` + `Int` pairing.
+public protocol CursorAdvancer: AnyObject {
+    func advance(_ cursor: inout Int, by step: Int)
+}
+
+/// Swift conformer for forward dispatch: adds the step to the cursor in place.
+public final class SteppingAdvancer: CursorAdvancer {
+    public init() {}
+
+    public func advance(_ cursor: inout Int, by step: Int) {
+        cursor += step
+    }
+}

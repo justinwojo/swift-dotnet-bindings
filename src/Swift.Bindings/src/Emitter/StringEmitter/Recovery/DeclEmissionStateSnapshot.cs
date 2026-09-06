@@ -189,7 +189,8 @@ internal sealed class DeclEmissionStateSnapshot
             return;
         }
 
-        properties.Add(new PropertyState(property, property.WasEmitted, property.EmittedCSharpName));
+        properties.Add(new PropertyState(
+            property, property.WasEmitted, property.EmittedCSharpName, property.EmittedNativeWidthCSharpName));
 
         if (property.Accessors is not null)
         {
@@ -464,12 +465,15 @@ internal sealed class DeclEmissionStateSnapshot
         private readonly PropertyDecl _target;
         private readonly bool _wasEmitted;
         private readonly string? _emittedCSharpName;
+        private readonly string? _emittedNativeWidthCSharpName;
 
-        public PropertyState(PropertyDecl target, bool wasEmitted, string? emittedCSharpName)
+        public PropertyState(PropertyDecl target, bool wasEmitted, string? emittedCSharpName,
+            string? emittedNativeWidthCSharpName)
         {
             _target = target;
             _wasEmitted = wasEmitted;
             _emittedCSharpName = emittedCSharpName;
+            _emittedNativeWidthCSharpName = emittedNativeWidthCSharpName;
         }
 
         public void Restore()
@@ -479,6 +483,10 @@ internal sealed class DeclEmissionStateSnapshot
             // the module database's rename ledger, so a stamp left over from a discarded render
             // would advertise a member the retry never emitted.
             _target.RestoreEmittedCSharpName(_emittedCSharpName);
+            // Same reasoning for the native-width companion: sibling-name sets reserve it, so a
+            // leftover stamp would push an unrelated method to a disambiguated name for a companion
+            // accessor the retry never wrote.
+            _target.RestoreEmittedNativeWidthCSharpName(_emittedNativeWidthCSharpName);
         }
     }
 

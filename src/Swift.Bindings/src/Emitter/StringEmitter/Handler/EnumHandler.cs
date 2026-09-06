@@ -554,6 +554,8 @@ namespace BindingsGeneration
             // to the renamed name to disambiguate, not one projecting to the pre-rename name.
             foreach (var nestedType in enumDecl.Types)
                 propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
+            // The native-width companions the property pass just placed are properties too.
+            NameProvider.AddNativeWidthCompanionNames(enumDecl, propertyNames);
 
             // Include case-derived names to prevent method collisions
             foreach (var caseName in emittedCaseConstructorNames)
@@ -775,6 +777,8 @@ namespace BindingsGeneration
             var propertyNames = new HashSet<string>(enumDecl.Properties.Where(p => p.IsStatic).Select(p =>
                 NameProvider.GetFinalMemberName(
                     NameProvider.GetPropertyName(p, enumDecl.Name), propertyRenames)));
+            // The native-width companions the property pass just placed are properties too.
+            NameProvider.AddNativeWidthCompanionNames(enumDecl, propertyNames);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static).ToList(), conductor, typeDatabase, childContext, propertyNames);
 
             // Emit concrete protocol specializations (e.g., func seal<T: DataProtocol>(_ message: T, ...))

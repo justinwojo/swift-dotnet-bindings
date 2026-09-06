@@ -33,19 +33,28 @@ internal static class NativeIntOverloadEmitter
         // `: this(...)` rather than delegating in an expression body — but the parameter analysis,
         // the dedup and the attribute inheritance are shared with the method path below.
         //
-        // Several constructor flavours have no constructor to chain to: a failable `init?`/`init!`
-        // emits as a static TryCreate factory, an async init as a static CreateAsync factory, and an
-        // init whose projected signature collided with a sibling's is recovered under a label-named
-        // `CreateWith{Labels}` static factory. A parent that is not a type (a module-level function)
-        // has no constructor at all. In every one of those the `: this(...)` chain below would name a
-        // constructor the type never declares, so the convenience sugar is not emitted — the primary
-        // member still binds, and C#'s own implicit int→nint conversion keeps an int call site legal.
+        // An initializer does not always emit as a constructor. A failable `init?`/`init!` emits as a
+        // static `TryCreate…` factory with a trailing `out` result, and an init whose projected
+        // signature collided with a sibling's is recovered under a label-named `CreateWith{Labels}`
+        // static factory. Each gets the same convenience treatment under its own shape, so all three
+        // initializer flavours agree about which range a consumer may pass. An async init (a static
+        // `CreateAsync` factory) is out on the async gate below, and a parent that is not a type (a
+        // module-level function) has no initializer at all.
         bool isConstructorOverload = methodDecl.IsConstructor;
         if (methodDecl.IsAccessor || methodDecl.IsAsync)
             return;
-        if (isConstructorOverload &&
-            (methodDecl.IsFailable || methodEnv.InitFactoryName != null || methodDecl.ParentDecl is not TypeDecl))
-            return;
+        var ctorShape = default(ConstructorEmissionShape);
+        if (isConstructorOverload)
+        {
+            if (methodDecl.ParentDecl is not TypeDecl)
+                return;
+            ctorShape = methodDecl.IsFailable
+                ? new ConstructorEmissionShape(ConstructorEmissionKind.FailableFactory,
+                    methodEnv.FailableFactoryName ?? DefaultFailableFactoryName)
+                : methodEnv.InitFactoryName is { } initFactory
+                    ? new ConstructorEmissionShape(ConstructorEmissionKind.InitFactory, initFactory)
+                    : new ConstructorEmissionShape(ConstructorEmissionKind.Constructor, null);
+        }
         if (methodDecl.IsMissingExportedSymbol)
             return;
 
@@ -93,27 +102,37 @@ internal static class NativeIntOverloadEmitter
         if (conversions.Count == 0)
             return;
 
-        // A constructor is emitted under the type's own name, not under CSharpMethodName (which
-        // for an init holds only the internal dedup identity).
+        // A plain constructor is emitted under the type's own name, not under CSharpMethodName (which
+        // for an init holds only the internal dedup identity); a recovered init emits under its
+        // factory's name instead.
         var constructorName = isConstructorOverload
-            ? NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase)
+            ? ctorShape.FactoryName ?? NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase)
             : null;
 
-        // Dedup: check if this overload signature already exists
+        // Dedup: check if this overload signature already exists.
+        //
+        // A failable factory keys into the "failable-factory:" namespace the rest of the emitter
+        // reserves it under, not the plain method namespace: its declaration carries a trailing
+        // `out` result the key's parameter list does not spell, so `TryCreate(int)` in the shared
+        // namespace would read as a collision with an unrelated `TryCreate(int)` method — and one
+        // of the two, both legal C#, would be silently dropped.
+        var keyName = isConstructorOverload && ctorShape.Kind == ConstructorEmissionKind.FailableFactory
+            ? $"failable-factory:{constructorName}"
+            : constructorName;
         if (methodEnv.EmittedProjectedSignatures != null)
         {
-            var overloadKey = BuildOverloadKey(methodEnv, conversions, constructorName);
+            var overloadKey = BuildOverloadKey(methodEnv, conversions, keyName);
             if (!methodEnv.EmittedProjectedSignatures.Add(overloadKey))
                 return;
         }
 
         // A sibling init already declaring the narrowed shape (e.g. `init(n: Int32)` next to
         // `init(n: UInt)`) would be duplicated by this overload — CS0111, which the projected-key
-        // set above cannot see because the sibling never passed through this emitter. Constructors
-        // are the exposed case: they all share one C# name, so any two of them on a type contest
-        // the same signature.
+        // set above cannot see because the sibling never passed through this emitter. Initializers
+        // are the exposed case: every one that lands on the same C# member name (the type's own, or
+        // one factory name) contests the same signature.
         if (isConstructorOverload &&
-            ConstructorOverloadCollidesWithSibling(methodEnv, conversions))
+            ConstructorOverloadCollidesWithSibling(methodEnv, conversions, ctorShape))
         {
             return;
         }
@@ -134,9 +153,20 @@ internal static class NativeIntOverloadEmitter
         // A constructor has no C# return type; its CSSignature[0] carries Self, which must not be
         // projected as one.
         bool hasReturn = !isConstructorOverload && !returnTypeSpec.IsEmptyTuple;
-        string returnType = hasReturn
-            ? new SignatureHandler(methodEnv).GetWrapperSignature().ReturnType
-            : "void";
+        var primarySignature = new SignatureHandler(methodEnv).GetWrapperSignature();
+        string returnType = hasReturn ? primarySignature.ReturnType : "void";
+
+        // The primary's own parameter declarations, keyed by the name both sides derive from the
+        // same argument. Every parameter this overload does not narrow is copied from here for the
+        // same reason the return type is: the local projection below carries no parent decl and no
+        // generic context, so a container over the parent's generic parameter (an `[Element]`
+        // alongside an `Int`) degrades to the AnyType placeholder and composes a name no compiler
+        // resolves, while the primary spells the real type. The builder may split one Swift argument
+        // into two C# ones (a UTF-8 pointer and its length, a decomposed optional), which simply
+        // leaves that name unmatched and falls back to the local projection.
+        var primaryParameters = new Dictionary<string, Parameter>(StringComparer.Ordinal);
+        foreach (var primaryParam in primarySignature.Parameters)
+            primaryParameters.TryAdd(primaryParam.Name, primaryParam);
 
         // If even the primary could not project the return, there is no real type to borrow.
         // Emitting the sugar overload anyway would either fabricate an unresolvable placeholder
@@ -156,6 +186,10 @@ internal static class NativeIntOverloadEmitter
             var arg = csSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                 continue;
+            // Swift's zero-sized Void carries no value and the primary declares no parameter for it,
+            // so neither may this forwarder — declaring one would change the arity it forwards with.
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
 
             var paramName = NameProvider.GetCSharpParameterName(arg);
             var conv = conversions.Find(c => c.index == i);
@@ -174,12 +208,25 @@ internal static class NativeIntOverloadEmitter
                     callArgs.Add($"({conv.nativeType}){paramName}");
                 }
             }
+            else if (primaryParameters.TryGetValue(paramName, out var primaryParam))
+            {
+                // Non-narrowed param — declared exactly as the primary declares it, modifier and all,
+                // so the forwarder cannot disagree with the member it forwards to.
+                // The forwarder calls the public primary member, so the argument is the parameter
+                // itself under whatever modifier its declaration carries — no marshalling here.
+                var primaryModifier = string.IsNullOrWhiteSpace(primaryParam.modifier)
+                    ? string.Empty
+                    : primaryParam.modifier.Trim() + " ";
+                paramParts.Add(primaryParam.SignatureString());
+                callArgs.Add($"{primaryModifier}{paramName}");
+            }
             else
             {
-                // Non-narrowed param — forward as-is, preserving inout as `ref`. For an inout
-                // native-int param, force the native type (nint/nuint) so the forwarder matches the
-                // primary's `ref nint` signature; ResolveType could otherwise idiomatically narrow it
-                // to int and produce a CS1503 ref-type mismatch against the primary.
+                // No matching parameter on the primary (the builder expanded this argument into
+                // several). Fall back to the local projection, preserving inout as `ref`. For an
+                // inout native-int param, force the native type (nint/nuint) so the forwarder
+                // matches the primary's `ref nint` signature; ResolveType could otherwise
+                // idiomatically narrow it to int and produce a CS1503 ref-type mismatch.
                 var refModifier = arg.IsInOut ? "ref " : "";
                 string typeName;
                 if (arg.IsInOut && arg.SwiftTypeSpec is NamedTypeSpec inoutNs &&
@@ -194,6 +241,13 @@ internal static class NativeIntOverloadEmitter
 
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);
+
+        // Same reasoning as the return-type guard above, one axis over: a parameter that could not
+        // be projected leaves the placeholder's name in the signature, which does not compile —
+        // and with a generic argument attached it does not even name a generic type. Dropping the
+        // convenience overload costs sugar; emitting it costs the whole binding.
+        if (paramStr.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
+            return;
 
         // The primary member's own static decision, so a module-level free function (MethodType.Instance,
         // parent is the module) gets a static overload a consumer calling through the type name can reach.
@@ -218,7 +272,31 @@ internal static class NativeIntOverloadEmitter
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
 
         // Emit the overload
-        if (isConstructorOverload)
+        if (isConstructorOverload && ctorShape.Kind != ConstructorEmissionKind.Constructor)
+        {
+            // The recovered lanes emit as static factories, so the forwarder delegates in an
+            // expression body the way a method's does rather than chaining with `: this(...)`.
+            var factoryTypeName = NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase);
+            if (methodDecl.ParentDecl is TypeDecl factoryParent && factoryParent.IsGeneric)
+                factoryTypeName += GenericTypeEmitter.GetGenericParameterList(factoryParent);
+
+            if (ctorShape.Kind == ConstructorEmissionKind.InitFactory)
+            {
+                csWriter.WriteLine($"public static {factoryTypeName} {constructorName}({paramStr}) => {constructorName}({argsStr});");
+            }
+            else
+            {
+                // The failable factory reports success through the return and hands the instance back
+                // in a trailing `out`. The forwarder declares its own name for that parameter, chosen
+                // clear of the names its own parameters took.
+                var resultName = ChooseFailableFactoryResultName(csSignature);
+                var separator = paramParts.Count > 0 ? ", " : string.Empty;
+                csWriter.WriteLine(
+                    $"public static bool {constructorName}({paramStr}{separator}out {factoryTypeName} {resultName}) " +
+                    $"=> {constructorName}({argsStr}{separator}out {resultName});");
+            }
+        }
+        else if (isConstructorOverload)
         {
             csWriter.WriteLine($"public {constructorName}({paramStr}) : this({argsStr}) {{ }}");
         }
@@ -232,13 +310,58 @@ internal static class NativeIntOverloadEmitter
         }
     }
 
+    /// <summary>The name a failable initializer's static factory takes when nothing disambiguated it.</summary>
+    private const string DefaultFailableFactoryName = "TryCreate";
+
+    /// <summary>Which C# member shape an initializer is emitted under.</summary>
+    private enum ConstructorEmissionKind
+    {
+        /// <summary>A plain constructor, named after the type.</summary>
+        Constructor,
+
+        /// <summary>A static factory recovering a non-failable init whose signature collided.</summary>
+        InitFactory,
+
+        /// <summary>A static <c>TryCreate…</c> factory with a trailing <c>out</c> result.</summary>
+        FailableFactory,
+    }
+
+    /// <summary>An initializer's emitted member shape: its lane, and the factory name where it has one.</summary>
+    private readonly record struct ConstructorEmissionShape(ConstructorEmissionKind Kind, string? FactoryName);
+
     /// <summary>
-    /// True when the narrowed constructor signature this emitter is about to write is already
-    /// declared by another init on the same type.
+    /// Classifies which C# member an initializer on this type emits as, from the declaration alone.
+    /// The factory-recovery answer comes from the resolver that decided it, memoized per type body,
+    /// so it does not depend on whether the sibling has been emitted yet.
     /// </summary>
+    private static ConstructorEmissionShape ClassifyConstructorEmission(MethodDecl init, ITypeDatabase typeDatabase)
+    {
+        if (init.IsFailable)
+            return new ConstructorEmissionShape(ConstructorEmissionKind.FailableFactory, null);
+        return OverloadNameDisambiguator.ForConstructor(init, typeDatabase) is { } recovery
+            ? new ConstructorEmissionShape(ConstructorEmissionKind.InitFactory, recovery.FactoryName)
+            : new ConstructorEmissionShape(ConstructorEmissionKind.Constructor, null);
+    }
+
+    /// <summary>
+    /// True when the narrowed initializer signature this emitter is about to write is already
+    /// declared by another init emitting under the same C# member name on the same type.
+    /// </summary>
+    /// <remarks>
+    /// Only siblings in the same lane can contest the signature: a recovered <c>CreateWith…</c>
+    /// factory and a <c>TryCreate…</c> factory are separate members from the type's constructor and
+    /// from each other, so counting them as constructor occupants would suppress a legitimate
+    /// convenience overload. Within the init-factory lane the resolver's own factory names separate
+    /// them further. The failable lane is compared name-blind — the name a failable init's factory
+    /// settles on is decided in the type's dedup pass, which this emitter cannot re-run — so it can
+    /// decline an overload two differently-named factories would have had room for. Declining costs
+    /// only the convenience overload; the primary factory still binds and an <c>int</c> argument
+    /// still widens implicitly at the call site.
+    /// </remarks>
     private static bool ConstructorOverloadCollidesWithSibling(
         MethodEnvironment methodEnv,
-        List<(int index, string nativeType, string convType, bool isOptional)> conversions)
+        List<(int index, string nativeType, string convType, bool isOptional)> conversions,
+        ConstructorEmissionShape shape)
     {
         var methodDecl = methodEnv.MethodDecl;
         if (methodDecl.ParentDecl is not TypeDecl parentType)
@@ -248,20 +371,44 @@ internal static class NativeIntOverloadEmitter
 
         foreach (var sibling in parentType.Methods)
         {
-            if (!sibling.IsConstructor || sibling.IsFailable || sibling.IsAsync)
+            if (!sibling.IsConstructor || sibling.IsAsync)
                 continue;
             if (ReferenceEquals(sibling, methodDecl) || sibling.MangledName == methodDecl.MangledName)
+                continue;
+
+            var siblingEmission = ClassifyConstructorEmission(sibling, methodEnv.TypeDatabase);
+            if (siblingEmission.Kind != shape.Kind)
+                continue;
+            if (shape.Kind == ConstructorEmissionKind.InitFactory &&
+                !string.Equals(siblingEmission.FactoryName, shape.FactoryName, StringComparison.Ordinal))
                 continue;
 
             // The sibling's own emitted parameter list, read through the same projection. Its
             // native-int params are NOT narrowed here (the primary keeps nint/nuint) — but its
             // convenience overload would be, and that one is caught by the projected-key set.
+            // The failable lane's trailing `out` result is on both sides, so it is left out.
             var siblingShape = BuildNarrowedParameterShape(methodEnv, sibling, conversions: null);
             if (siblingShape.SequenceEqual(narrowedShape, StringComparer.Ordinal))
                 return true;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Picks the failable-factory forwarder's <c>out</c> parameter name, stepping around any
+    /// parameter of its own that already took it. Mirrors the primary factory's own rule.
+    /// </summary>
+    private static string ChooseFailableFactoryResultName(IReadOnlyList<ArgumentDecl> csSignature)
+    {
+        var taken = new HashSet<string>(
+            csSignature.Skip(1).Select(NameProvider.GetCSharpParameterName), StringComparer.Ordinal);
+        var resultName = "result";
+        if (taken.Contains(resultName))
+            resultName = "__resultOut";
+        for (var i = 1; taken.Contains(resultName); i++)
+            resultName = $"__resultOut{i}";
+        return resultName;
     }
 
     /// <summary>
@@ -278,6 +425,10 @@ internal static class NativeIntOverloadEmitter
         {
             var arg = decl.CSSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            // Neither sibling declares a parameter for Swift's zero-sized Void, so counting one
+            // here would let two initializers that really do collide in C# look distinct.
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
 
             var conv = conversions?.Find(c => c.index == i) ?? default;
@@ -511,6 +662,102 @@ internal static class NativeIntOverloadEmitter
     };
 
     /// <summary>
+    /// The suffix appended to a narrowed property's name to form its lossless companion accessor
+    /// (<c>SizeLimit</c> → <c>SizeLimitNative</c>). One constant so the emitter that places the
+    /// companion and the sibling-name sets that reserve it can never drift.
+    /// </summary>
+    public const string NativeWidthSuffix = "Native";
+
+    /// <summary>
+    /// Picks the C# name for the lossless companion accessor placed next to a narrowed property,
+    /// or null when every candidate is already occupied on the type.
+    /// </summary>
+    /// <remarks>
+    /// The candidate is the property's own emitted name plus <see cref="NativeWidthSuffix"/>. It is
+    /// checked against the same sibling set the method dedup loop reserves (properties after their
+    /// renames, plus emitted nested-type leaves), the case constructors an enum contributes, the
+    /// enclosing type's own emitted name (a member may not repeat it — CS0542), and the companions
+    /// already placed on this type — so two narrowed properties named <c>foo</c> and <c>fooNative</c>
+    /// cannot both land on <c>FooNative</c>. Methods are not consulted here and do not need to be:
+    /// they are named after the properties pass, from a sibling set this companion joins, so a method
+    /// projecting onto the companion's name takes the existing rename instead. A numeric bump follows
+    /// the enum <c>Value</c>-suffix recovery's shape and keeps stepping until it lands clear; the
+    /// occupied set is finite, so it always does.
+    /// </remarks>
+    public static string? ChooseNativeWidthCompanionName(
+        TypeDecl typeDecl, string propertyName, ITypeDatabase typeDatabase)
+    {
+        var taken = new HashSet<string>(
+            NameProvider.BuildSiblingMemberNames(typeDecl, typeDatabase), StringComparer.Ordinal);
+
+        foreach (var property in typeDecl.Properties)
+        {
+            if (property.EmittedNativeWidthCSharpName is { Length: > 0 } companion)
+                taken.Add(companion);
+        }
+
+        if (typeDecl is EnumDecl enumDecl)
+        {
+            var caseNameMap = NameProvider.ComputeCaseNameMap(enumDecl.Cases);
+            foreach (var enumCase in enumDecl.Cases)
+                taken.Add(NameProvider.GetCaseName(enumCase.Name, caseNameMap));
+        }
+
+        // A member may not carry its enclosing type's name (CS0542), which a type named for the
+        // companion suffix would otherwise walk straight into: `CountNative.count` narrows to
+        // `Count` and would ask for a `CountNative` member on `CountNative`.
+        taken.Add(NameProvider.GetEmittedParentTypeName(typeDecl, typeDatabase));
+
+        // A property name is PascalCase, so it never needs the verbatim '@' escape; drop one anyway
+        // rather than emit it in the middle of a compound identifier if a future naming rule adds it.
+        var baseName = $"{propertyName.TrimStart('@')}{NativeWidthSuffix}";
+        if (!taken.Contains(baseName))
+            return baseName;
+
+        // One more step than there are occupants guarantees a free candidate, so the companion is
+        // never dropped for want of a name on a type that simply has many members.
+        for (int suffix = 2; suffix <= taken.Count + 2; suffix++)
+        {
+            var candidate = $"{baseName}{suffix}";
+            if (!taken.Contains(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Builds the read expression for a narrowed native-int accessor: the runtime conversion that
+    /// reports an out-of-range value instead of dropping its high bits. Returns null when
+    /// <paramref name="narrowedTypeName"/> is not one of the four narrowed native-int type names,
+    /// leaving the caller on its own (non-narrowing) path.
+    /// </summary>
+    /// <param name="narrowedTypeName">The narrowed C# type name ("int", "uint", "int?", "uint?").</param>
+    /// <param name="expression">The native-width expression to convert.</param>
+    /// <param name="memberName">The C# member the value is read through, for the message.</param>
+    /// <param name="nativeMemberName">The lossless companion accessor's name, when one was emitted.</param>
+    public static string? BuildCheckedNarrowingExpression(
+        string narrowedTypeName, string expression, string memberName, string? nativeMemberName)
+    {
+        var method = narrowedTypeName switch
+        {
+            "int" or "int?" => "ToInt32",
+            "uint" or "uint?" => "ToUInt32",
+            _ => null,
+        };
+        if (method is null)
+            return null;
+
+        // Both names are C# identifiers by construction (they are emitted member names), so a plain
+        // quoted literal needs no escaping. The '@' a keyword-escaped identifier carries is dropped
+        // for the message, which is prose rather than code.
+        static string Literal(string identifier) => $"\"{identifier.TrimStart('@')}\"";
+
+        var companionArg = nativeMemberName is { Length: > 0 } ? $", {Literal(nativeMemberName)}" : string.Empty;
+        return $"global::Swift.Runtime.NativeIntegerNarrowing.{method}({expression}, {Literal(memberName)}{companionArg})";
+    }
+
+    /// <summary>
     /// For plain Swift.Int/Swift.UInt, returns the ABI widening type ("nint"/"nuint").
     /// Used in receiver getters to widen narrowed int/uint back to nint/nuint for MarshalToSwiftBuffer.
     /// Returns false for Optional variants (their implicit widening in SwiftOptional.NewSome handles it).
@@ -565,6 +812,10 @@ internal static class NativeIntOverloadEmitter
         {
             var arg = methodDecl.CSSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            // Skipped in the emitted signature and by the shared projected-key builder alike, so
+            // the reserved key names the same parameter list the declaration does.
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
 
             var conv = conversions.Find(c => c.index == i);

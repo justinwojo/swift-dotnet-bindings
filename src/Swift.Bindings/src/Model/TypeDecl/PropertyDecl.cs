@@ -103,6 +103,32 @@ namespace BindingsGeneration
         public void RestoreEmittedCSharpName(string? csharpName) => EmittedCSharpName = csharpName;
 
         /// <summary>
+        /// The C# name of the lossless native-width companion accessor emitted alongside this
+        /// property when its Swift <c>Int</c>/<c>UInt</c> type was narrowed to <c>int</c>/<c>uint</c>
+        /// on the public surface. Null for every property that was not narrowed, and for a narrowed
+        /// property whose companion name could not be placed without colliding.
+        ///
+        /// <para>Later emission steps that need the full 64-bit value rather than the idiomatic
+        /// narrow one — the synthesized OptionSet bitwise operators, for instance — read this name,
+        /// and the sibling-name sets that shape method renames reserve it.</para>
+        /// </summary>
+        public string? EmittedNativeWidthCSharpName { get; private set; }
+
+        /// <summary>
+        /// Records the C# name of the native-width companion accessor. The emission-time mutation
+        /// entry point for <see cref="EmittedNativeWidthCSharpName"/>.
+        /// </summary>
+        public void MarkEmittedNativeWidthCSharpName(string csharpName) => EmittedNativeWidthCSharpName = csharpName;
+
+        /// <summary>
+        /// Puts <see cref="EmittedNativeWidthCSharpName"/> back to a previously captured value, null
+        /// included. The verify-recover rollback's counterpart to
+        /// <see cref="RestoreEmittedCSharpName"/>: a companion name left over from a discarded
+        /// render would reserve an identifier the retry never wrote.
+        /// </summary>
+        public void RestoreEmittedNativeWidthCSharpName(string? csharpName) => EmittedNativeWidthCSharpName = csharpName;
+
+        /// <summary>
         /// Whether this property is marked @_spi (System Programming Interface).
         /// @_spi members on public types are only visible to SPI consumers and should not
         /// appear in generated bindings.

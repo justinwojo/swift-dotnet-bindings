@@ -79,10 +79,13 @@ public class KeyPathRouteCTests : TestBase
     {
         RouteC_SortTracker.Reset();
         var req = new RouteC_GenericRequest<RouteC_Album>();
+        // A Swift `hashValue` routinely fills all 64 bits, so it is read through the native-width
+        // sibling: the narrowed accessor would report the value as unrepresentable rather than
+        // hand back a truncated one, and two truncated hashes could also collide.
         req.Sort(RouteC_AlbumSortBagKeyPaths.Title, ascending: true);
-        var titleHash = (long)RouteC_SortTracker.LastKeyPathHash;
+        var titleHash = (long)RouteC_SortTracker.LastKeyPathHashNative;
         req.Sort(RouteC_AlbumSortBagKeyPaths.Year, ascending: true);
-        var yearHash = (long)RouteC_SortTracker.LastKeyPathHash;
+        var yearHash = (long)RouteC_SortTracker.LastKeyPathHashNative;
         AssertTrue(titleHash != yearHash,
             $"distinct KeyPaths produce distinct hashes (title={titleHash}, year={yearHash})");
     }

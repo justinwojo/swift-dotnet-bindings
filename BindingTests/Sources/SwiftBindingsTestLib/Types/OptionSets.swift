@@ -76,6 +76,9 @@ public struct PermissionMask: OptionSet {
     public static let readData = PermissionMask(rawValue: 1 << 0)
     public static let writeData = PermissionMask(rawValue: 1 << 1)
     public static let share = PermissionMask(rawValue: 1 << 2)
+    /// Above bit 31, so this option only survives if the set's bitwise operators and membership
+    /// test read the raw value at its native width rather than through a 32-bit accessor.
+    public static let auditTrail = PermissionMask(rawValue: 1 << 40)
 }
 
 // MARK: - OptionSet Helper
@@ -97,6 +100,7 @@ public func describePermissionMask(_ mask: PermissionMask) -> String {
     if mask.contains(.readData) { parts.append("readData") }
     if mask.contains(.writeData) { parts.append("writeData") }
     if mask.contains(.share) { parts.append("share") }
+    if mask.contains(.auditTrail) { parts.append("auditTrail") }
     return parts.joined(separator: ", ")
 }
 

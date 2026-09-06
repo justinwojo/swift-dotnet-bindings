@@ -116,3 +116,48 @@ public func makeEmptySlicedSeries() -> SlicedSeries<CollectibleCoin> {
     ]
     return SlicedSeries(storage: backing.dropFirst(2))
 }
+
+// MARK: - A generic initializer mixing a container over the type's own parameter with an Int
+//
+// `OffsetWindow` keeps its base out of the initializer, which leaves one pairing uncovered:
+// an element array next to an `Int`. That pairing is what reaches the native-int convenience
+// overload — the `Int` is why the overload exists, and the array is what the overload has to
+// name. Deriving the array's C# type without the enclosing type's generic context in scope
+// yields the placeholder projection, which composes an identifier no compiler resolves, and
+// the whole binding then fails over a member that is only sugar.
+
+/// Window whose base arrives through the initializer, so the signature carries an element
+/// array and an `Int` together.
+public struct BasedWindow<Element: CollectibleItem>: RandomAccessCollection {
+    private let storage: [Element]
+    private let windowStart: Int
+
+    public init(items: [Element], base: Int) {
+        self.storage = items
+        self.windowStart = base
+    }
+
+    /// Reads back the `Int` that entered through the same signature the array did.
+    public var windowBase: Int { windowStart }
+
+    // Collection requirements — Index = Int via typealias inference.
+    public var startIndex: Int { windowStart }
+    public var endIndex: Int { windowStart + storage.count }
+    public subscript(position: Int) -> Element {
+        precondition(position >= startIndex && position < endIndex, "BasedWindow index out of range")
+        return storage[position - windowStart]
+    }
+    public func index(after i: Int) -> Int { i + 1 }
+    public func index(before i: Int) -> Int { i - 1 }
+}
+
+/// Two-element window based at 40, built on the Swift side so a consumer can compare a
+/// C#-constructed window against one whose base never crossed the boundary.
+public func makeBasedWindow(firstId: String, secondId: String, base: Int) -> BasedWindow<CollectibleCoin> {
+    return BasedWindow(
+        items: [
+            CollectibleCoin(collectibleId: firstId),
+            CollectibleCoin(collectibleId: secondId),
+        ],
+        base: base)
+}

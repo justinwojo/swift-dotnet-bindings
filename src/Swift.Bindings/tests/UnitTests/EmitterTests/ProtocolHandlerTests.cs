@@ -620,6 +620,42 @@ public class ProtocolHandlerTests
         Assert.DoesNotContain("private ", output);
     }
 
+    [Fact]
+    public void DimOverload_InOutNativeIntParam_IsNotNarrowed()
+    {
+        // An inout native-int param cannot take the narrowed view: it carries a value back out, so a
+        // 32-bit window would truncate the result, and `ref` cannot bind the `(nint)x` rvalue the
+        // forwarder would have to pass. With a narrowable sibling present the DIM is still worth
+        // emitting — the sibling narrows, the inout param stays `ref nint` and is forwarded as-is.
+        var method = CreateMethodDeclWithTwoParams("advance",
+            ("cursor", new NamedTypeSpec("Swift.Int")),
+            ("step", new NamedTypeSpec("Swift.Int")));
+        method.CSSignature[1].IsInOut = true;
+
+        var output = EmitDimOverload(method);
+
+        // The test database spells the native int as System.IntPtr, which is the same type `nint`
+        // names; what matters is that the parameter keeps its pointer width and its `ref`.
+        Assert.Contains("ref System.IntPtr cursor", output);
+        Assert.Contains("ref cursor", output);
+        Assert.Contains("int step", output);
+        Assert.Contains("(nint)step", output);
+        Assert.DoesNotContain("(nint)cursor", output);
+    }
+
+    [Fact]
+    public void DimOverload_OnlyNarrowableParamIsInOut_EmitsNothing()
+    {
+        // Nothing left to narrow once the inout param is excluded, so there is no convenience
+        // overload to offer — the same outcome the concrete-type emitter reaches.
+        var method = CreateMethodDeclWithNintParam("advance", "cursor", "Swift.Int");
+        method.CSSignature[1].IsInOut = true;
+
+        var output = EmitDimOverload(method);
+
+        Assert.Equal(string.Empty, output);
+    }
+
     private string EmitDimOverload(MethodDecl method)
     {
         var typeDb = CreateDimTypeDatabase();

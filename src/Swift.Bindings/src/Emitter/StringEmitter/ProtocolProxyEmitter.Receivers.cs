@@ -505,6 +505,16 @@ public partial class ProtocolProxyEmitter
                     // F1: Narrow nint/nuint ABI value to int/uint for property assignment.
                     // Plain nint: value is nint (MarshalFromSwift<nint>) → (int)value.
                     // Optional<nint>: returnConversion is "((nint?)value)" → (int?)((nint?)value).
+                    //
+                    // This one stays a plain cast, unlike every other narrowing on the read side.
+                    // The body it lands in is an [UnmanagedCallersOnly] receiver Swift calls
+                    // directly, closed by the fail-fast guard: an exception raised here cannot
+                    // unwind into Swift, so it takes the process down instead of reaching anyone who
+                    // could act on it. Truncating a value a C# implementation is about to store in
+                    // its own field is a smaller harm than aborting the app on a Swift-side write,
+                    // and the interface's declared int/uint type is what leaves the caller no wider
+                    // slot to put it in. Widening this surface belongs to the interface projection,
+                    // not to the receiver.
                     if (!isObjCOptRead && classCopyOut == null && NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
                         assignmentExpr = $"({narrowedType}){assignmentExpr}";
 

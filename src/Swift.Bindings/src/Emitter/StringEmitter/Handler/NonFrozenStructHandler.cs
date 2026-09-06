@@ -341,6 +341,8 @@ namespace BindingsGeneration
                 // to the renamed name to disambiguate, not one projecting to the pre-rename name.
                 foreach (var nestedType in structDecl.Types)
                     propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
+                // The native-width companions the property pass just placed are properties too.
+                NameProvider.AddNativeWidthCompanionNames(structDecl, propertyNames);
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 

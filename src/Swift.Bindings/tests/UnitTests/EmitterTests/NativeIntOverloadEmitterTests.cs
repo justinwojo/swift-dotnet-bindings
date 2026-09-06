@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -138,9 +139,11 @@ public class NativeIntOverloadEmitterTests
     }
 
     [Fact]
-    public void TryEmitOverload_FailableConstructor_Skips()
+    public void TryEmitOverload_FailableConstructor_EmitsForwardingTryCreateOverload()
     {
-        // A failable init emits as a static TryCreate factory, so there is no constructor to chain to.
+        // A failable init emits as a static TryCreate factory rather than a constructor. It is
+        // still an initializer, so it must offer the same idiomatic 32-bit entry point the plain
+        // constructor lane does — forwarding, since there is no constructor to chain to.
         var method = CreateMethod("init", MethodType.Instance,
             returnType: TupleTypeSpec.Empty,
             ("count", "Swift.Int"));
@@ -149,7 +152,90 @@ public class NativeIntOverloadEmitterTests
 
         var output = EmitMethodOverload(method);
 
+        Assert.Contains(
+            "public static bool TryCreate(int count, out TestClass result) => TryCreate((nint)count, out result);",
+            output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_FailableConstructor_UsesDisambiguatedFactoryName()
+    {
+        // A failable init whose TryCreate signature collided is recovered under a label-suffixed
+        // factory name; the convenience overload has to be declared on THAT name, or it forwards
+        // to a member that does not exist.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("limit", "Swift.Int"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+
+        var output = EmitMethodOverload(method, env => env.FailableFactoryName = "TryCreateWithLimit");
+
+        Assert.Contains(
+            "public static bool TryCreateWithLimit(int limit, out TestClass result) => TryCreateWithLimit((nint)limit, out result);",
+            output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_FailableConstructor_NoParameters_EmitsNothing()
+    {
+        // Nothing narrows, so there is no second entry point to offer — and a bare
+        // `TryCreate(out TestClass)` would be a duplicate of the primary factory.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("name", "Swift.String"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+
+        var output = EmitMethodOverload(method);
+
         Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_RecoveredInitFactory_EmitsForwardingStaticOverload()
+    {
+        // A non-failable init whose constructor signature was taken emits as a static
+        // `CreateWith…` factory. Same argument: the recovered lane gets the same range.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("threshold", "Swift.Int"));
+        method.IsConstructor = true;
+
+        var output = EmitMethodOverload(method, env => env.InitFactoryName = "CreateWithThreshold");
+
+        Assert.Contains(
+            "public static TestClass CreateWithThreshold(int threshold) => CreateWithThreshold((nint)threshold);",
+            output);
+        // A factory returns an instance; it must not be emitted as a constructor chain.
+        Assert.DoesNotContain(": this(", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_RecoveredInitFactory_DoesNotCollideWithConstructorSibling()
+    {
+        // The recovered factory and the type's constructor are different members, so a sibling
+        // constructor with the same narrowed parameter list must not suppress the factory's
+        // convenience overload — that would leave one lane reachable with an int and the other not.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("threshold", "Swift.Int"));
+        method.IsConstructor = true;
+
+        var sibling = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int32")) with
+        { MangledName = "$s10TestModule9TestClassC5countACs5Int32V_tcfc" };
+        sibling.IsConstructor = true;
+
+        var parentType = (ClassDecl)method.ParentDecl!;
+        sibling.ParentDecl = parentType;
+        parentType.Methods.Add(method);
+        parentType.Methods.Add(sibling);
+
+        var output = EmitMethodOverload(method, env => env.InitFactoryName = "CreateWithThreshold");
+
+        Assert.Contains("CreateWithThreshold(int threshold)", output);
     }
 
     [Fact]
@@ -579,6 +665,36 @@ public class NativeIntOverloadEmitterTests
     }
 
     [Fact]
+    public void TryEmitOverload_NonNarrowedParam_DeclaredExactlyAsThePrimaryDeclaresIt()
+    {
+        // The forwarder repeats every parameter it does not narrow, so those spellings come from
+        // the primary's own signature rather than a second, independent derivation. A second
+        // derivation runs without the enclosing declaration in scope, which is how a parameter
+        // whose type depends on that context ends up spelled as the placeholder — and a signature
+        // carrying the placeholder is declined outright, so the success path is worth pinning
+        // alongside the decline.
+        var method = CreateMethod("setName", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("name", "Swift.String"),
+            ("index", "Swift.Int"));
+
+        var typeDb = CreateTypeDatabase();
+        var env = new MethodEnvironment(method, typeDb);
+        var primary = new SignatureHandler(env).GetWrapperSignature();
+        Assert.False(primary.ContainsPlaceholder);
+        var primaryNameParam = primary.Parameters.Single(p => p.Name == "name");
+
+        var writer = new StringWriter();
+        NativeIntOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+        var output = writer.ToString();
+
+        Assert.NotEmpty(output);
+        Assert.Contains(primaryNameParam.SignatureString(), output);
+        Assert.Contains("int index", output);
+        Assert.DoesNotContain(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, output);
+    }
+
+    [Fact]
     public void TryEmitOverload_OrdinaryNintParam_ReturnMatchesPrimarySignature()
     {
         // Overload return type is taken from the primary's GetWrapperSignature(), not a
@@ -968,12 +1084,13 @@ public class NativeIntOverloadEmitterTests
         };
     }
 
-    private static string EmitMethodOverload(MethodDecl method)
+    private static string EmitMethodOverload(MethodDecl method, Action<MethodEnvironment>? configure = null)
     {
         var typeDb = CreateTypeDatabase();
         var writer = new StringWriter();
         var csWriter = new CSharpWriter(writer);
         var env = new MethodEnvironment(method, typeDb);
+        configure?.Invoke(env);
         NativeIntOverloadEmitter.TryEmitOverload(csWriter, env);
         return writer.ToString();
     }

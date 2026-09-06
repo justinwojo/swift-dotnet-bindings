@@ -417,6 +417,8 @@ namespace BindingsGeneration
                 // to the renamed name to disambiguate, not one projecting to the pre-rename name.
                 foreach (var nestedType in classDecl.Types)
                     propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
+                // The native-width companions the property pass just placed are properties too.
+                NameProvider.AddNativeWidthCompanionNames(classDecl, propertyNames);
                 // An ObjC-rooted class inherits Microsoft.iOS NSObject instance properties (Handle,
                 // Description, …). A Swift method projected to one of those names shadows the
                 // inherited property (CS0108) and breaks later property reads (CS0428). Seed the
