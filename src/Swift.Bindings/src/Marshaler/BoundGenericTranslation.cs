@@ -69,7 +69,10 @@ internal static class BoundGenericTranslation
 
     /// <summary>
     /// Translates a bound-generic <see cref="NamedTypeSpec"/> to its full C# type name with generic
-    /// arguments — the body shared by the closure and tuple element translators.
+    /// arguments — the tuple element translator's body. (The closure lane no longer calls this: a
+    /// bound generic inside a closure signature is spelled by <see cref="BoundGenericsHandler"/>,
+    /// the same translator the method-closure-bridge lane uses, so an interface and its conformer
+    /// agree on the string.)
     /// </summary>
     /// <param name="typeDatabase">The type database used to resolve the base record.</param>
     /// <param name="existentialHandler">The caller's existential handler, used to translate
@@ -78,11 +81,11 @@ internal static class BoundGenericTranslation
     /// <param name="translateGenericArgument">The caller's element-translation delegate, applied to
     /// each non-existential generic argument so nested arguments pick up the caller's own rules.</param>
     /// <param name="mapEmptyTupleArgumentToSwiftVoid">When <c>true</c>, an empty-tuple generic
-    /// argument maps to <c>Swift.SwiftVoid</c> (the closure path); when <c>false</c>, it flows through
+    /// argument maps to <c>Swift.SwiftVoid</c>; when <c>false</c>, it flows through
     /// <paramref name="translateGenericArgument"/> like any other argument (the tuple path).</param>
     /// <param name="bareGenericSafetyNet">When <c>true</c>, a base type that resolved to a bare
     /// generic C# name with no translated arguments falls back to AnyType rather than emitting an
-    /// argument-less generic name (CS0305) — the closure path's guard; the tuple path omits it.</param>
+    /// argument-less generic name (CS0305); the tuple path omits it.</param>
     internal static string TranslateBoundGenericToCSharp(
         ITypeDatabase typeDatabase,
         ExistentialHandler existentialHandler,

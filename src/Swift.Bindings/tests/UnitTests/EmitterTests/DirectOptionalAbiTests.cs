@@ -465,6 +465,148 @@ public class DirectOptionalAbiTests
             new MethodEnvironment(method, typeDb)));
     }
 
+    [Theory]
+    [InlineData("Swift.Array")]
+    [InlineData("Swift.Set")]
+    public void Floor_BareObjCBridgeableContainerParam_Fires(string containerName)
+    {
+        // The optionality of the container is not what the refusal is about. A bare [URL] is the
+        // same one-word native storage, rendered through the same conversion — an NSArray handle
+        // where Swift's own array belongs — and it reaches the direct arm through the most
+        // ordinary shapes there are: a plain method parameter, a subscript setter's new value.
+        // A floor that fires only on the optional spelling leaves those making the live wrong call.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking(
+                "store",
+                Generic(containerName, new NamedTypeSpec("TestModule.BridgeableElement")),
+                parent,
+                moduleDecl),
+            typeDb);
+
+        Assert.True(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+        Assert.True(WrapperValidation.IsAbiFloorTombstoned(env));
+    }
+
+    [Fact]
+    public void Floor_BareObjCBridgeableDictionaryParam_Fires()
+    {
+        // Dictionary has two type arguments and bridges on its VALUE element; it must be asked
+        // the same question as the single-argument containers rather than falling through the
+        // walk as "not a container".
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var dictionary = new NamedTypeSpec("Swift.Dictionary");
+        dictionary.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictionary.GenericParameters.Add(new NamedTypeSpec("TestModule.BridgeableElement"));
+        var env = new MethodEnvironment(MethodTaking("store", dictionary, parent, moduleDecl), typeDb);
+
+        Assert.True(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+    }
+
+    [Fact]
+    public void Floor_BareObjCBridgeableContainerReturn_Fires()
+    {
+        // Return side of the bare shape — a subscript getter over [URL] on the direct arm. The
+        // getter reads Swift's own array storage back through the NSArray conversion and takes
+        // ownership of an object that never existed, exactly like its optional sibling.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodReturning(
+                "fetch",
+                Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement")),
+                parent,
+                moduleDecl),
+            typeDb);
+
+        Assert.True(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+        Assert.True(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void Floor_BareObjCBridgeableContainerAccessor_TombstonesWithoutMarker()
+    {
+        // A subscript setter is a synthesized accessor. The floor still replaces its body with a
+        // throw, but the declaration marker must stay off the PRIVATE accessor: the public
+        // indexer's `set => Subscript_Set(...)` would otherwise call an error-severity member and
+        // the generated binding would stop compiling. The public indexer therefore carries no
+        // marker at all — the same deferral every accessor-side refusal already observes.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var setter = MethodTaking(
+            "subscript_Set",
+            Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement")),
+            parent,
+            moduleDecl);
+        setter.IsAccessor = true;
+        var env = new MethodEnvironment(setter, typeDb);
+
+        Assert.True(WrapperValidation.IsAbiFloorTombstoned(env));
+        Assert.Null(WrapperValidation.GetNonBlittableCallConvSwiftIssue(env));
+    }
+
+    [Fact]
+    public void Marker_BareObjCBridgeableContainerMethod_ExplainsRepresentationNotWidth()
+    {
+        // The bare container's slot is exactly one word wide, so the marker must blame the
+        // rendering, not a truncation the consumer would then search for in vain.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking(
+                "store",
+                Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement")),
+                parent,
+                moduleDecl),
+            typeDb);
+
+        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
+
+        Assert.NotNull(issue);
+        Assert.Equal(WrapperValidation.UncallableAbiDiagnosticId, issue!.Value.DiagnosticId);
+        Assert.Contains("bridge to Objective-C", issue.Value.Message);
+        Assert.DoesNotContain("wider than the single machine word", issue.Value.Message);
+    }
+
+    [Fact]
+    public void Floor_BareNativeElementContainerParam_DoesNotFire()
+    {
+        // The negative control for the bare arm: [String] renders as a native SwiftArray, crosses
+        // as Swift's own storage, and must keep binding on the direct path. A floor keyed on
+        // "is a container" instead of "bridges to a Foundation object" would take it too.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var env = new MethodEnvironment(
+            MethodTaking("store", Generic("Swift.Array", new NamedTypeSpec("Swift.String")), parent, moduleDecl),
+            typeDb);
+
+        Assert.False(WrapperValidation.HasForeignObjectRenderedDirectDispatch(env));
+        Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(env));
+    }
+
+    [Fact]
+    public void Floor_BareObjCBridgeableContainerWithCdeclWrapper_DoesNotFire()
+    {
+        // The bare shape is the common one in real libraries — `func load(_ urls: [URL])` — and
+        // nearly all of them have a @_cdecl wrapper, which is the boundary the NSArray rendering
+        // is correct at. The wrapper's presence must clear the refusal, or every such member in
+        // the corpus tombstones.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var method = MethodTaking(
+            "store",
+            Generic("Swift.Array", new NamedTypeSpec("TestModule.BridgeableElement")),
+            parent,
+            moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+
+        Assert.False(WrapperValidation.HasForeignObjectRenderedDirectDispatch(
+            new MethodEnvironment(method, typeDb)));
+        Assert.False(WrapperValidation.IsAbiFloorTombstoned(new MethodEnvironment(method, typeDb)));
+    }
+
     [Fact]
     public void Floor_OptionalClosureParam_DoesNotFire()
     {

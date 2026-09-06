@@ -218,21 +218,29 @@ public class OptionalProjection : ITypeProjection
         // The container is bridged to an ObjC collection (NSArray/NSDictionary/NSSet) on the Swift side.
         if (_innerProjection.UsesObjCContainerBridge)
         {
-            var innerPlan = _innerProjection.GetParameterPlan($"{paramName}Val");
-            var bridgeSetup = new List<MarshalStatement>();
-            var someBody = new List<MarshalStatement>();
-            someBody.AddRange(innerPlan.SetupStatements);
-            someBody.Add(new MarshalStatement.Line(
-                $"{paramName}Buffer = {innerPlan.PInvokeExpression};"));
+            if (_innerProjection is not IObjCContainerBridgeOwnerSource bridgedContainer)
+                throw new InvalidOperationException(
+                    $"{_innerProjection.GetType().Name} crosses as a bridged ObjC collection but does not expose its owning wrapper; an optional over it cannot keep the collection alive across the call.");
 
-            bridgeSetup.Add(new MarshalStatement.Line($"IntPtr {paramName}Buffer = IntPtr.Zero;"));
-            bridgeSetup.Add(new MarshalStatement.Block(
-                $"if ({paramName} is {{ }} {paramName}Val)", someBody));
+            // The owning wrapper is declared at method scope, guarded on the value being present,
+            // so it lives until the call returns. Declaring it inside an `if (x is { } xVal)` block
+            // and copying the handle out would dispose the wrapper — and release the collection —
+            // at the block's end, leaving the call (and the hand-over below) a freed pointer.
+            var owner = bridgedContainer.BuildObjCBridgeOwner(paramName, sourceIsNullable: true);
+            var bridgeSetup = new List<MarshalStatement>(owner.Setup)
+            {
+                new MarshalStatement.Line(
+                    $"IntPtr {paramName}Buffer = {owner.Name} is null ? IntPtr.Zero : {owner.Name}.Handle;")
+            };
 
             return new MarshalPlan
             {
                 SetupStatements = bridgeSetup,
-                PInvokeExpression = $"{paramName}Buffer"
+                PInvokeExpression = $"{paramName}Buffer",
+                // The handle is borrowed from the wrapper above, which releases it after the call;
+                // a consuming callee needs its own +1 first. Null-tolerant, so the absent case
+                // (a zero buffer) hands over nothing.
+                OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
             };
         }
 

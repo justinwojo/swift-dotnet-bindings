@@ -47,15 +47,17 @@ public class ClosureTypeParityTests : TestBase
     // The two `WrapperPathResultHost` initializers differ only in their delegate type, so a bare
     // lambda cannot pick one. Spelling the delegate type at a single helper apiece also keeps these
     // tests honest: they bind against the type the PUBLIC signature declares, which is exactly the
-    // half that used to disagree with the trampoline.
+    // half that used to disagree with the trampoline. Every closure-argument lane spells the
+    // failure arm as the raw one-witness existential carrier, so the error is read through
+    // AnyError over that container rather than arriving already boxed.
     private static WrapperPathResultHost Payload(
         int mode,
-        Action<SwiftResult<ParityPayload?, AnyError>> completion)
+        Action<SwiftResult<SwiftOptional<ParityPayload>, ExistentialContainer1>> completion)
         => new WrapperPathResultHost(mode, completion);
 
     private static WrapperPathResultHost Any(
         int anyMode,
-        Action<SwiftResult<SwiftOptional<ExistentialContainer0>, AnyError>> completion)
+        Action<SwiftResult<SwiftOptional<ExistentialContainer0>, ExistentialContainer1>> completion)
         => new WrapperPathResultHost(anyMode, completion);
 
     // ─── Result<Optional<Class>, any Error> on the wrapper-emitter path ───
@@ -91,10 +93,10 @@ public class ClosureTypeParityTests : TestBase
                 if (result.IsSuccess)
                 {
                     sawSuccess = true;
-                    var payload = result.Success;
-                    if (payload != null)
+                    if (result.Success.HasValue)
                     {
-                        label = payload.Label;
+                        using var payload = result.Success.Value;
+                        label = payload!.Label;
                         magnitude = payload.Magnitude;
                     }
                 }
@@ -126,7 +128,7 @@ public class ClosureTypeParityTests : TestBase
                 if (result.IsSuccess)
                 {
                     sawSuccess = true;
-                    payloadWasNull = result.Success == null;
+                    payloadWasNull = !result.Success.HasValue;
                 }
             }
         });
@@ -156,8 +158,8 @@ public class ClosureTypeParityTests : TestBase
                 if (result.IsFailure)
                 {
                     sawFailure = true;
-                    using var error = result.Failure;
-                    description = error?.LocalizedDescription;
+                    var error = new AnyError(result.Failure);
+                    description = error.LocalizedDescription;
                 }
             }
         });
@@ -216,8 +218,8 @@ public class ClosureTypeParityTests : TestBase
                 if (result.IsFailure)
                 {
                     sawFailure = true;
-                    using var error = result.Failure;
-                    description = error?.LocalizedDescription;
+                    var error = new AnyError(result.Failure);
+                    description = error.LocalizedDescription;
                 }
             }
         });

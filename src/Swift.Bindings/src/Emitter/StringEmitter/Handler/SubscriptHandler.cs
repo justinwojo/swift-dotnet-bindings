@@ -41,6 +41,47 @@ namespace BindingsGeneration
         ///
         /// Returns null when the subscript passes these gates, otherwise the skip reason.
         /// </summary>
+        /// <summary>
+        /// Shapes a C# indexer cannot take at all, decided on the declaration alone: an accessor
+        /// that is <c>async</c> or <c>throws</c> (an indexer accessor has no effectful form — an
+        /// indexer emitted over one would call the effectful entry point synchronously, an ABI
+        /// mismatch that compiles), an accessor carrying debug-default parameters, or an opaque
+        /// (<c>some P</c>) element type. The emitter's accessor preflight refuses the same set;
+        /// this is the single definition, and it is consulted by the conformance validator and
+        /// the protocol interface gate as well, so a conforming type can never keep an
+        /// <c>: IProtocol</c> whose indexer the emitter then drops (CS0535).
+        /// </summary>
+        internal static bool HasUnemittableAccessorShape(SubscriptDecl subscriptDecl, out string details)
+        {
+            foreach (var accessor in subscriptDecl.Accessors)
+            {
+                if (accessor.Method.IsAsync)
+                {
+                    details = "Subscript accessor is async; a C# indexer has no async accessor form.";
+                    return true;
+                }
+                if (accessor.Method.Throws)
+                {
+                    details = "Subscript accessor throws; a C# indexer has no throwing accessor form.";
+                    return true;
+                }
+                if (DefaultParameterOverloadEmitter.HasDebugParameters(accessor.Method))
+                {
+                    details = "Subscript accessor carries debug-default parameters.";
+                    return true;
+                }
+            }
+
+            if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
+            {
+                details = "Subscript element type is an opaque result type.";
+                return true;
+            }
+
+            details = string.Empty;
+            return false;
+        }
+
         internal static SkipReason? TryPlanIndexer(
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
@@ -68,6 +109,12 @@ namespace BindingsGeneration
             {
                 skipDetails = "Static subscripts cannot be emitted as C# indexers.";
                 return SkipReason.StaticProtocolMember;
+            }
+
+            if (HasUnemittableAccessorShape(subscriptDecl, out var accessorDetails))
+            {
+                skipDetails = accessorDetails;
+                return SkipReason.UnsupportedSignature;
             }
 
             // Subscripts referencing unsupported modules (SwiftUI, Combine) unless registered in the
@@ -284,15 +331,13 @@ namespace BindingsGeneration
                     // OptionalPointerWrapperEmitter now supports instance subscripts, so large Optional
                     // params/returns are allowed through for instance accessors. Static subscripts
                     // with large optionals are still blocked (emitter only handles instance syntax).
-                    bool hasOpaqueReturn = accessor.Method.CSSignature.Count > 0 &&
-                        accessor.Method.CSSignature[0].SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
+                    // The declaration-decidable refusals (async/throwing accessor, debug-default
+                    // parameters, opaque element) already ran inside TryPlanIndexer; only the
+                    // static-large-optional check needs the accessor environment.
                     bool isStaticWithLargeOptional = accessor.Method.MethodType == MethodType.Static &&
                         (accessorEnv.BoundGenericsHandler.HasLargeOptionalParams(accessor.Method) ||
                          accessorEnv.BoundGenericsHandler.IsLargeOptionalReturn(accessor.Method));
-                    if (DefaultParameterOverloadEmitter.HasDebugParameters(accessor.Method) ||
-                        hasOpaqueReturn ||
-                        isStaticWithLargeOptional ||
-                        accessor.Method.IsAsync)
+                    if (isStaticWithLargeOptional)
                     {
                         allAccessorsValid = false;
                         break;

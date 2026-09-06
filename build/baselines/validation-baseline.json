@@ -990,13 +990,13 @@
       "crash": 0
     },
     "device": {
-      "pass": 3643,
+      "pass": 3687,
       "fail": 0,
       "skip": 27,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 3566,
+      "pass": 3677,
       "fail": 0,
       "skip": 31,
       "crash": 0
@@ -1033,6 +1033,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 17797
+    "swift_bindings_unit_pass_floor": 17848
   }
 }

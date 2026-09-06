@@ -42,8 +42,16 @@ import Foundation
 /// for `static Analyzer.label`; the pairing would deserialize cleanly and fall back to
 /// the single TBD-symbol oracle, which is the mismatch the handshake exists to reject.
 ///
+/// v6: `asyncAccessorMembers` now also carries subscript keys, spelled
+/// `Type.Path.subscript(label:…)` (with the `"static "` prefix for a type-level
+/// subscript). A subscript getter has the same async blind spot a property getter has,
+/// and a v5 host paired with a v6 consumer emits no subscript keys at all — so every
+/// `subscript { get async }` would silently fall back to the single TBD-symbol oracle
+/// and, when that is silent too, be emitted as a synchronous indexer over an async entry
+/// point. Pinning the version turns the stale host into a "rebuild the host binary" error.
+///
 /// On the .NET side, see `InterfaceFactsJson.SchemaVersion` — values must match.
-let kSchemaVersion = 5
+let kSchemaVersion = 6
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

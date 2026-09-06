@@ -199,6 +199,69 @@ public class ThrowingClosureSimplificationTests
         Assert.DoesNotContain("SwiftResult<SwiftString,", output);
     }
 
+    [Fact]
+    public void CollectionArgument_SimplifiedDelegateArgumentsMatchTheWrappedDelegate()
+    {
+        // (Set<String>) throws -> Void. The wrapper lambda hands its arguments straight through to
+        // the simplified delegate, so the Action's argument list must be the wrapped Func's argument
+        // list verbatim; the two are spelled by different code paths and a disagreement is a CS1503
+        // in the consumer's binding rather than anything a generator test of one half would see.
+        var setOfString = new NamedTypeSpec("Swift.Set");
+        setOfString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var closureSpec = new ClosureTypeSpec
+        {
+            Arguments = setOfString,
+            ReturnType = TupleTypeSpec.Empty,
+            Throws = true,
+        };
+        var method = CreateMethodWithClosure("registerMigration", "migrate", closureSpec);
+        var output = EmitOverload(method);
+
+        var simplified = System.Text.RegularExpressions.Regex.Match(output, @"Action<(.+?)> migrate\)");
+        var wrapped = System.Text.RegularExpressions.Regex.Match(output, @"Func<(.+?), Swift\.SwiftResult<Swift\.SwiftVoid, SwiftError>> _wrapped_migrate");
+        Assert.True(simplified.Success, output);
+        Assert.True(wrapped.Success, output);
+        Assert.Equal(wrapped.Groups[1].Value, simplified.Groups[1].Value);
+    }
+
+    [Fact]
+    public void ModuleLevelFunction_SimplifiedOverloadIsStatic()
+    {
+        // A free function carries MethodType.Instance yet is emitted static on the module's holder
+        // class. The convenience overload has to make the same call: an instance overload next to a
+        // static primary compiles, and no consumer calling through the type name can reach it.
+        var method = CreateMethodWithThrowingClosure("callThrowingVoid", "callback", hasClosureReturn: false);
+        var module = new ModuleDecl
+        {
+            Name = "TestModule",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+        };
+        method.ParentDecl = module;
+        method.ModuleDecl = module;
+        module.Methods.Add(method);
+
+        var output = EmitOverload(method);
+
+        Assert.Contains("public static ", output);
+        Assert.DoesNotContain("public void CallThrowingVoid", output);
+    }
+
+    [Fact]
+    public void InstanceMethod_SimplifiedOverloadIsNotStatic()
+    {
+        var method = CreateMethodWithThrowingClosure("doWork", "action", hasClosureReturn: false);
+        var output = EmitOverload(method);
+
+        Assert.Contains("public void DoWork", output);
+        Assert.DoesNotContain("public static ", output);
+    }
+
     #region Helper Methods
 
     private string EmitOverload(MethodDecl method)

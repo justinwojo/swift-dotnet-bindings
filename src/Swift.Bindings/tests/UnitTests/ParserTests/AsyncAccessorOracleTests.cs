@@ -37,6 +37,7 @@ public class AsyncAccessorOracleTests
     private const string PixelsGetterSymbol = "$s10TestModule8AnalyzerV6RegionV6pixelss5Int32Vvg";
     private const string StaticLabelGetterSymbol = "$s10TestModule8AnalyzerV5labelSSvgZ";
     private const string EventHandlerGetterSymbol = "$s10TestModule5eventV7handlers5Int32Vvg";
+    private const string SubscriptGetterSymbol = "$s10TestModule8AnalyzerVys5Int32VAEcig";
 
     [Fact]
     public void Getter_InterfaceFactAloneSaysAsync_EmptyTbd_MarkedAsync()
@@ -205,6 +206,90 @@ public class AsyncAccessorOracleTests
             "The C#-escaped spelling is not the fact key shape and must not match.");
     }
 
+    // ─── Subscript accessors ───
+
+    /// <summary>
+    /// A subscript getter has the same blind spot as a property getter: its ABI mangling is a plain
+    /// <c>…cig</c> with no async marker. Leaving the flag false makes an async getter look like a
+    /// synchronous one, and a synchronous-looking getter is emitted as a C# indexer over a direct
+    /// P/Invoke aimed at an async entry point — which compiles and mismatches the ABI on the first
+    /// read. The TBD probe that answers for properties has to answer for subscripts too.
+    /// </summary>
+    [Fact]
+    public void SubscriptGetter_TbdProbeSaysAsync_MarkedAsync()
+    {
+        using var fixture = CreateFixture(
+            tbdSymbols: new HashSet<string> { SubscriptGetterSymbol + "Tu" },
+            asyncAccessorMembers: new HashSet<string>());
+
+        Assert.True(GetSubscriptGetter(fixture).Method.IsAsync,
+            "A `{getter}Tu` symbol beside the subscript getter must mark the accessor async.");
+    }
+
+    [Fact]
+    public void SubscriptGetter_NoAsyncSymbol_StaysSynchronous()
+    {
+        // The control: the same getter with only its own symbol in the TBD is synchronous, so the
+        // marking above is attributable to the Tu sibling and not to every subscript being flagged.
+        using var fixture = CreateFixture(
+            tbdSymbols: new HashSet<string> { SubscriptGetterSymbol },
+            asyncAccessorMembers: new HashSet<string>());
+
+        var getter = GetSubscriptGetter(fixture);
+
+        Assert.False(getter.Method.IsAsync);
+        Assert.False(getter.Method.Throws);
+    }
+
+    [Fact]
+    public void SubscriptGetter_ThrowingNode_MarkedThrowing()
+    {
+        // `subscript { get throws }` IS marked in the ABI JSON — the accessor node carries
+        // `throwing` — and that fact must reach the accessor decl the same way it does for a
+        // property, so the indexer planner can refuse a getter that needs an error out-parameter.
+        using var fixture = CreateFixture(
+            tbdSymbols: new HashSet<string> { SubscriptGetterSymbol },
+            asyncAccessorMembers: new HashSet<string>(),
+            subscriptGetterThrows: true);
+
+        Assert.True(GetSubscriptGetter(fixture).Method.Throws);
+    }
+
+    /// <summary>
+    /// The second oracle for a subscript: the .swiftinterface fact keyed by the subscript's
+    /// printed spelling. With the TBD silent (only the getter's own symbol present), the fact alone
+    /// must mark the accessor — that is what makes the two oracles independent rather than a
+    /// property-only redundancy.
+    /// </summary>
+    [Fact]
+    public void SubscriptGetter_InterfaceFactSaysAsync_MarkedAsync()
+    {
+        using var fixture = CreateFixture(
+            tbdSymbols: new HashSet<string> { SubscriptGetterSymbol },
+            asyncAccessorMembers: new HashSet<string> { "Analyzer.subscript(_:)" });
+
+        Assert.True(GetSubscriptGetter(fixture).Method.IsAsync,
+            "The .swiftinterface subscript key must mark the accessor async without a TBD sibling.");
+    }
+
+    /// <summary>
+    /// The key is exact: a different label arity, the type-level namespace, or a nested type's
+    /// namesake must not spill onto this instance subscript.
+    /// </summary>
+    [Theory]
+    [InlineData("Analyzer.subscript(_:_:)")]
+    [InlineData("static Analyzer.subscript(_:)")]
+    [InlineData("Analyzer.Region.subscript(_:)")]
+    [InlineData("subscript(_:)")]
+    public void SubscriptGetter_UnrelatedInterfaceFactKey_StaysSynchronous(string key)
+    {
+        using var fixture = CreateFixture(
+            tbdSymbols: new HashSet<string> { SubscriptGetterSymbol },
+            asyncAccessorMembers: new HashSet<string> { key });
+
+        Assert.False(GetSubscriptGetter(fixture).Method.IsAsync);
+    }
+
     #region Test Helpers
 
     private static GetAccessorDecl GetEventHandlerGetter(ParserFixture fixture)
@@ -227,6 +312,13 @@ public class AsyncAccessorOracleTests
         var analyzer = fixture.Result.ModuleDecl.Types.Single(t => t.Name == "Analyzer");
         var property = analyzer.Properties.Single(p => p.Name == "label" && p.IsStatic);
         return property.Accessors.OfType<GetAccessorDecl>().Single();
+    }
+
+    private static GetAccessorDecl GetSubscriptGetter(ParserFixture fixture)
+    {
+        var analyzer = fixture.Result.ModuleDecl.Types.Single(t => t.Name == "Analyzer");
+        var subscript = Assert.Single(analyzer.Subscripts);
+        return subscript.Accessors.OfType<GetAccessorDecl>().Single();
     }
 
     private static GetAccessorDecl GetNestedPixelsGetter(ParserFixture fixture)
@@ -254,7 +346,8 @@ public class AsyncAccessorOracleTests
     /// </summary>
     private static ParserFixture CreateFixture(
         HashSet<string> tbdSymbols,
-        HashSet<string> asyncAccessorMembers)
+        HashSet<string> asyncAccessorMembers,
+        bool subscriptGetterThrows = false)
     {
         var labelProperty = CreatePropertyNode(
             name: "label",
@@ -278,7 +371,8 @@ public class AsyncAccessorOracleTests
 
         var analyzerNode = CreateNode(kind: "TypeDecl", declKind: "Struct", name: "Analyzer",
             mangledName: "$s10TestModule8AnalyzerV");
-        analyzerNode.Children = new[] { labelProperty, staticLabelProperty, regionNode };
+        var subscriptNode = CreateSubscriptNode(SubscriptGetterSymbol, subscriptGetterThrows);
+        analyzerNode.Children = new[] { labelProperty, staticLabelProperty, regionNode, subscriptNode };
 
         var handlerProperty = CreatePropertyNode(
             name: "handler",
@@ -336,6 +430,28 @@ public class AsyncAccessorOracleTests
         property.Children = new[] { CreateTypeNominalNode(typeName) };
         property.Accessors = new[] { getter };
         return property;
+    }
+
+    /// <summary>
+    /// <c>subscript(_ index: Int32) -&gt; Int32</c> with one explicit getter node. The ABI JSON's
+    /// subscript getter carries no async marker any more than a property getter does, so the same
+    /// two oracles answer: the TBD sibling symbol and the swiftinterface fact keyed by the printed
+    /// spelling <c>Analyzer.subscript(_:)</c>.
+    /// </summary>
+    private static Node CreateSubscriptNode(string getterMangledName, bool getterThrows)
+    {
+        var getter = CreateNode(kind: "Function", declKind: "Accessor", name: "subscript",
+            mangledName: getterMangledName);
+        getter.AccessorKind = "get";
+        getter.throwing = getterThrows;
+        getter.Children = new[] { CreateTypeNominalNode("Int32"), CreateTypeNominalNode("Int32") };
+
+        var subscript = CreateNode(kind: "Subscript", declKind: "Subscript", name: "subscript",
+            mangledName: getterMangledName + "p");
+        subscript.PrintedName = "subscript(_:)";
+        subscript.Children = new[] { CreateTypeNominalNode("Int32"), CreateTypeNominalNode("Int32") };
+        subscript.Accessors = new[] { getter };
+        return subscript;
     }
 
     private static Node CreateTypeNominalNode(string name)

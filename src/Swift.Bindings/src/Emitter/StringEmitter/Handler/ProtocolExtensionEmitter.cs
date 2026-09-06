@@ -2383,18 +2383,7 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static IReadOnlySet<string> BuildSiblingPropertyNames(
         TypeDecl conformingType, ITypeDatabase typeDatabase)
-    {
-        var propertyRenames = NameProvider.ComputePropertyRenames(conformingType, typeDatabase);
-        var set = new HashSet<string>(conformingType.Properties.Select(p =>
-            NameProvider.GetFinalMemberName(
-                NameProvider.GetPropertyName(p, conformingType.Name), propertyRenames)));
-        // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
-        // leaf so a renamed nested type (e.g. Entry → EntryInfo) forces a method projecting
-        // to the renamed name to disambiguate, not one projecting to the pre-rename name.
-        foreach (var nestedType in conformingType.Types)
-            set.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
-        return set;
-    }
+        => NameProvider.BuildSiblingMemberNames(conformingType, typeDatabase);
 
     /// <summary>
     /// Builds a synthetic MethodDecl that the existing MethodHandler → PInvokeEmitter pipeline

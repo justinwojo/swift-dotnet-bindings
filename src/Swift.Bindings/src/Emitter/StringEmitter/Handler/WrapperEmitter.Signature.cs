@@ -507,10 +507,7 @@ namespace BindingsGeneration
         /// from different expressions, and a free function emitted <c>static</c> while the report
         /// called it an instance member.
         /// </summary>
-        private bool EmitsStatic =>
-            _env.MethodDecl.MethodType == MethodType.Static
-            || _env.ParentDecl is ModuleDecl
-            || (_env.MethodDecl.IsConstructor && _env.MethodDecl.IsAsync);
+        private bool EmitsStatic => _env.EmitsStatic;
 
         /// <summary>
         /// Returns true if this method's return type was recorded as a silent tombstone

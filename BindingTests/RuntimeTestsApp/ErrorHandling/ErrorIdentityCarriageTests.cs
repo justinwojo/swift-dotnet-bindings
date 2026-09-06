@@ -146,12 +146,11 @@ public class ErrorIdentityCarriageTests : TestBase
     /// </summary>
     public void TestReversePathCarriesManagedExceptionType()
     {
-        // The ergonomic Action overload (catch-and-mint path) is an instance method on Functions;
-        // the raw Func<SwiftResult<…>> overload is static. Explicitly typing the local also avoids
-        // overload ambiguity (a throw-expression lambda is convertible to both).
-        var functions = new SwiftBindingsTestLib.Functions();
+        // The ergonomic Action overload (catch-and-mint path) is static on Functions like the raw
+        // Func<SwiftResult<…>> primary it wraps. Explicitly typing the local avoids overload
+        // ambiguity (a throw-expression lambda is convertible to both).
         Action thrower = () => throw new InvalidOperationException("reverse-boom");
-        var recoveredType = functions.RecoverManagedExceptionType(thrower);
+        var recoveredType = TestLibFunctions.RecoverManagedExceptionType(thrower);
         TestLogger.Info($"Swift recovered managed exception type: \"{recoveredType}\"");
         AssertEqual("System.InvalidOperationException", recoveredType,
             "Swift must recover the originating CLR type name from userInfo");
@@ -163,9 +162,8 @@ public class ErrorIdentityCarriageTests : TestBase
     /// </summary>
     public void TestReversePathCarriesManagedExceptionMessage()
     {
-        var functions = new SwiftBindingsTestLib.Functions();
         Action thrower = () => throw new InvalidOperationException("reverse-boom");
-        var recoveredMessage = functions.RecoverManagedExceptionMessage(thrower);
+        var recoveredMessage = TestLibFunctions.RecoverManagedExceptionMessage(thrower);
         TestLogger.Info($"Swift recovered managed exception message: \"{recoveredMessage}\"");
         AssertTrue(recoveredMessage.Contains("reverse-boom"),
             $"Swift must recover the exception message, got: {recoveredMessage}");
@@ -177,9 +175,8 @@ public class ErrorIdentityCarriageTests : TestBase
     /// </summary>
     public void TestReversePathDistinguishesExceptionType()
     {
-        var functions = new SwiftBindingsTestLib.Functions();
         Action thrower = () => throw new NotSupportedException("nope");
-        var recoveredType = functions.RecoverManagedExceptionType(thrower);
+        var recoveredType = TestLibFunctions.RecoverManagedExceptionType(thrower);
         AssertEqual("System.NotSupportedException", recoveredType,
             "Distinct exception type must round-trip distinctly");
     }
@@ -190,9 +187,8 @@ public class ErrorIdentityCarriageTests : TestBase
     /// </summary>
     public void TestReversePathNoThrow()
     {
-        var functions = new SwiftBindingsTestLib.Functions();
         Action noop = () => { };
-        var result = functions.RecoverManagedExceptionType(noop);
+        var result = TestLibFunctions.RecoverManagedExceptionType(noop);
         AssertEqual("<no-throw>", result,
             "A non-throwing closure must hit the no-throw branch");
     }

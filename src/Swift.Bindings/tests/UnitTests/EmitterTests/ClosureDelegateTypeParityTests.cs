@@ -237,4 +237,130 @@ public class ClosureDelegateTypeParityTests
 
         Assert.True(handler.IsSupportedClosure(Closure(Named("Swift.Int32"), Named("Swift.Int32"))));
     }
+
+    // ─── Closure-argument spelling vs. the bound-generic translator ───
+
+    private const string FoundationData = "Foundation.Data";
+
+    /// <summary>
+    /// The same database the delegate-parity cases use, plus the stdlib containers and a Foundation
+    /// module, so a <c>Result&lt;Data, Error&gt;</c> argument resolves the way a real binding
+    /// resolves it instead of collapsing to <c>AnyType</c> on both sides.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithFoundation()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        RegisterPrimitive(swiftModule, "Swift.Int32", "System", "Int32");
+        RegisterPrimitive(swiftModule, "Swift.Double", "System", "Double");
+        RegisterPrimitive(swiftModule, "Swift.String", "Swift", "SwiftString");
+        RegisterStdlib(swiftModule, "Swift.Optional", "SwiftOptional", "$sSqMa", TypeRecordKind.Struct);
+        RegisterStdlib(swiftModule, "Swift.Array", "SwiftArray", "$sSaMa", TypeRecordKind.Struct);
+        RegisterStdlib(swiftModule, "Swift.Result", "SwiftResult", "$ss6ResultOMa", TypeRecordKind.Enum);
+        // `Swift.Error` is deliberately NOT registered: a real database resolves it through the
+        // well-known-error strategy rather than a module record, and that is the path whose
+        // existential spelling the failure arm below pins.
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(PayloadClass),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ParityPayload"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(PayloadClass),
+                MetadataAccessor = "$s10TestModule13ParityPayloadCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(FoundationData),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(FoundationData),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        return typeDatabase;
+    }
+
+    private static void RegisterStdlib(ModuleTypeDatabase module, string swiftName, string csharpName, string metadataAccessor, TypeRecordKind kind)
+        => module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(swiftName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", csharpName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                MetadataAccessor = metadataAccessor,
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = kind
+            });
+
+    /// <summary>
+    /// The failure arm the way the parser spells it: the ABI JSON carries <c>any Swift.Error</c>, which
+    /// lands as a one-protocol existential list rather than a bare nominal name.
+    /// </summary>
+    private static ProtocolListTypeSpec AnyError()
+        => new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+
+    public static IEnumerable<object[]> BoundGenericClosureArguments()
+    {
+        yield return new object[] { Named("Swift.Result", Named("Swift.Optional", Named(PayloadClass)), AnyError()) };
+        yield return new object[] { Named("Swift.Result", Named(PayloadClass), AnyError()) };
+        yield return new object[] { Named("Swift.Result", Named(FoundationData), AnyError()) };
+        yield return new object[] { Named("Swift.Result", Named("Swift.Int32"), AnyError()) };
+        yield return new object[] { Named("Swift.Result", Named("Swift.Int32"), Named("Swift.Error")) };
+        yield return new object[] { Named("Swift.Array", Named("Swift.Double")) };
+        yield return new object[] { Named("Swift.Array", Named("Swift.String")) };
+    }
+
+    /// <summary>
+    /// A protocol requirement's closure parameter and the conforming type's method parameter are
+    /// spelled by two different callers, and a conformer whose method signature differs from the
+    /// interface by so much as an error-arm spelling fails with CS0535. Both callers must therefore
+    /// produce one string for a bound-generic argument, and that string is the bound-generic
+    /// translator's — the closure lane has no spelling of its own.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(BoundGenericClosureArguments))]
+    public void BoundGenericClosureArgument_SpelledExactlyAsTheBoundGenericTranslatorSpellsIt(NamedTypeSpec argument)
+    {
+        var typeDatabase = CreateTypeDatabaseWithFoundation();
+
+        var closureLane = new ClosureHandler(typeDatabase).TranslateTypeSpecToCSharp(argument);
+        var boundGenericLane = new BoundGenericsHandler(typeDatabase)
+            .TranslateBoundGenericTypeToCSharp(argument, GenericContext.Empty);
+
+        Assert.False(string.IsNullOrWhiteSpace(boundGenericLane));
+        Assert.DoesNotContain("AnyType", boundGenericLane);
+        Assert.Equal(boundGenericLane, closureLane);
+    }
+
+    /// <summary>
+    /// The non-vacuous half of the parity check: the shared spelling of a <c>Result</c>'s failure
+    /// arm is the raw one-witness existential carrier, which is what the stored delegate actually
+    /// receives. Pinning it here keeps the parity test from passing because both lanes drifted to
+    /// the same wrong answer.
+    /// </summary>
+    [Fact]
+    public void ResultClosureArgument_FailureArm_IsTheExistentialCarrier()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFoundation();
+        var argument = Named("Swift.Result", Named(FoundationData), AnyError());
+
+        var spelling = new ClosureHandler(typeDatabase).TranslateTypeSpecToCSharp(argument);
+
+        Assert.Contains("SwiftResult<", spelling);
+        Assert.Contains("Swift.Foundation.Data", spelling);
+        Assert.Contains("Swift.Runtime.ExistentialContainer1", spelling);
+        Assert.DoesNotContain("AnyError", spelling);
+    }
 }

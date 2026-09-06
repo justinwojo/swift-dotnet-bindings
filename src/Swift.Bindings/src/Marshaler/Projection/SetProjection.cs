@@ -16,7 +16,7 @@ namespace BindingsGeneration;
 ///   a List or array would silently dedupe inside the Swift wrapper.
 /// Return direction: MarshalFromSwift + ToHashSet with element conversion lambda.
 /// </summary>
-public class SetProjection : ITypeProjection
+public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 {
     private readonly ITypeProjection _elementProjection;
     private readonly bool _isParameter;
@@ -323,7 +323,7 @@ public class SetProjection : ITypeProjection
             : MarshallingHelpers.FormatObjCBridgeCall(
                 _elementProjection.PublicType, nsObjHandleExpr, nonNull: true);
 
-    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)
     {
         // For nested containers (e.g., Set<[URL]>), inner elements need recursive conversion
         // to their ObjC collection counterparts before wrapping in the outer NSSet.
@@ -342,17 +342,31 @@ public class SetProjection : ITypeProjection
             arrayExpr = ObjCLeafElementArrayExpr(paramName);
         }
 
-        var setup = new List<MarshalStatement>
+        var ownerName = $"{paramName}NSSet";
+        return new ObjCContainerBridgeOwner(
+            new List<MarshalStatement>
+            {
+                ObjCContainerBridgeOwner.Declare(
+                    "Foundation.NSSet", ownerName,
+                    $"new Foundation.NSSet({arrayExpr})", paramName, sourceIsNullable)
+            },
+            ownerName);
+    }
+
+    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    {
+        var owner = BuildObjCBridgeOwner(paramName, sourceIsNullable: false);
+        var setup = new List<MarshalStatement>(owner.Setup)
         {
-            new MarshalStatement.Line(
-                $"using var {paramName}NSSet = new Foundation.NSSet({arrayExpr});"),
-            new MarshalStatement.Line(
-                $"IntPtr {paramName}Buffer = {paramName}NSSet.Handle;")
+            new MarshalStatement.Line($"IntPtr {paramName}Buffer = {owner.Name}.Handle;")
         };
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buffer"
+            PInvokeExpression = $"{paramName}Buffer",
+            // The bridged NSSet handle is borrowed: the `using` wrapper releases it after the
+            // call, so a consuming callee needs a +1 handed over first.
+            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
         };
     }
 

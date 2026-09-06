@@ -273,6 +273,27 @@ public class CompletionHandlerDetectorTests
     }
 
     [Fact]
+    public void CompletionHandler_FreeFunction_TaskOverloadIsStatic()
+    {
+        // A free function is emitted static on the module's holder class; its Task overload has to be
+        // too, or it is an instance member no consumer calling through the type name can reach.
+        var csOutput = GenerateMethodWithCompletionHandler(
+            new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty), freeFunction: true);
+
+        Assert.Contains("static async Task<", csOutput);
+    }
+
+    [Fact]
+    public void CompletionHandler_InstanceMethod_TaskOverloadIsNotStatic()
+    {
+        var csOutput = GenerateMethodWithCompletionHandler(
+            new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty));
+
+        Assert.Contains("async Task<", csOutput);
+        Assert.DoesNotContain("static async", csOutput);
+    }
+
+    [Fact]
     public void CompletionHandler_ErrorOnly_EmitsErrorBranch()
     {
         var optionalError = new NamedTypeSpec("Swift.Optional");
@@ -719,7 +740,7 @@ public class CompletionHandlerDetectorTests
     /// Generates the full C# output for a method with a completion handler closure,
     /// returning the output string for assertion.
     /// </summary>
-    private static string GenerateMethodWithCompletionHandler(ClosureTypeSpec closureSpec)
+    private static string GenerateMethodWithCompletionHandler(ClosureTypeSpec closureSpec, bool freeFunction = false)
     {
         // Mark as escaping (completion handlers are escaping closures)
         if (!closureSpec.IsEscaping)
@@ -729,6 +750,8 @@ public class CompletionHandlerDetectorTests
 
         var moduleDecl = CreateModuleDecl();
         var parentDecl = CreateParentDecl(moduleDecl);
+        // A free function's parent is the module itself; it still carries MethodType.Instance.
+        BaseDecl owner = freeFunction ? moduleDecl : parentDecl;
 
         var closureParam = new ArgumentDecl
         {
@@ -737,7 +760,7 @@ public class CompletionHandlerDetectorTests
             PrivateName = "completion",
             IsInOut = false,
             IsGeneric = false,
-            ParentDecl = parentDecl,
+            ParentDecl = owner,
             ModuleDecl = moduleDecl
         };
 
@@ -750,7 +773,7 @@ public class CompletionHandlerDetectorTests
                 PrivateName = string.Empty,
                 IsInOut = false,
                 IsGeneric = false,
-                ParentDecl = parentDecl,
+                ParentDecl = owner,
                 ModuleDecl = moduleDecl
             },
             closureParam
@@ -759,12 +782,12 @@ public class CompletionHandlerDetectorTests
         var methodDecl = new MethodDecl
         {
             Name = "loadData",
-            MangledName = "$s10TestModule8PipelineC8loadDatayyXEF",
+            MangledName = freeFunction ? "$s10TestModule8loadDatayyXEF" : "$s10TestModule8PipelineC8loadDatayyXEF",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = csSignature,
             GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = parentDecl,
+            ParentDecl = owner,
             ModuleDecl = moduleDecl,
             Throws = false,
             IsAsync = false,

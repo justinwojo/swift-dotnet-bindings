@@ -187,6 +187,47 @@ public class ConstructorFactoryNameTests
         }
     }
 
+    [Fact]
+    public void ResolveConstructorFactories_LabelNameOwnedByASiblingProperty_IsNotEmittedAgainstIt()
+    {
+        // A C# type cannot hold a property and a method of one name (CS0102), and no parameter list
+        // keeps them apart — so a label rung whose name a sibling PROPERTY owns is refused outright, not
+        // just when a sibling method carries the same projected signature. Both initializers erase to
+        // one C# parameter type, so the type rung has nothing to tell them apart with either: the family
+        // stays unrecovered rather than emitting `CreateWithFoo` against the property.
+        var foo = Init(("foo", "Swift.Int32"));
+        var bar = Init(("bar", "Swift.Int32"));
+        var siblingMembers = new HashSet<string>(StringComparer.Ordinal) { "CreateWithFoo" };
+
+        var map = OverloadNameDisambiguator.ResolveConstructorFactories(
+            new[] { (foo, "ctor(int)"), (bar, "ctor(int)") },
+            new HashSet<string>(StringComparer.Ordinal),
+            siblingMembers);
+
+        Assert.Empty(map);
+    }
+
+    [Fact]
+    public void ResolveConstructorFactories_SiblingMemberNamesThatDoNotCollide_LeaveTheLabelRungInPlace()
+    {
+        // The control for the refusal above: the same family next to a property whose name is not one
+        // the label rung would produce recovers exactly as it does with no sibling members at all.
+        var foo = Init(("foo", "Swift.Int32"));
+        var bar = Init(("bar", "Swift.Int32"));
+        var siblingMembers = new HashSet<string>(StringComparer.Ordinal) { "Unrelated" };
+
+        var map = OverloadNameDisambiguator.ResolveConstructorFactories(
+            new[] { (foo, "ctor(int)"), (bar, "ctor(int)") },
+            new HashSet<string>(StringComparer.Ordinal),
+            siblingMembers);
+
+        Assert.Equal(2, map.Count);
+        Assert.Equal("CreateWithFoo", map[foo].FactoryName);
+        Assert.Equal("CreateWithBar", map[bar].FactoryName);
+        Assert.All(map.Values, v => Assert.Equal(OverloadNameOutcome.LabelDerived, v.Outcome));
+        AssertNoNumericSuffix(map);
+    }
+
     private static MethodDecl Init(params (string label, string type)[] labels)
     {
         var sig = new List<ArgumentDecl> { InitArg(string.Empty, "()") }; // CSSignature[0] = return

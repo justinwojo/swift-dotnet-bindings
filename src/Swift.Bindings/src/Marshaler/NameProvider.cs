@@ -1360,6 +1360,27 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// The emitted names a type's properties and nested types occupy — the set the method dedup loop
+    /// threads into the projected-key builders so a method projecting to a property's name takes the
+    /// <c>Foo</c>→<c>FooMethod</c> rename, and the set any other member-naming decision (a recovered
+    /// constructor factory, a protocol-extension forwarder) must clear as well. A C# type cannot hold
+    /// a method and a property or nested type of one name (CS0102), so a candidate method name that
+    /// only cleared the sibling METHODS' projected signatures would still collide here. Properties
+    /// contribute their final name after <see cref="ComputePropertyRenames"/>; nested types contribute
+    /// their EMITTED leaf (a renamed <c>Entry</c>→<c>EntryInfo</c> reserves <c>EntryInfo</c>).
+    /// </summary>
+    public static IReadOnlySet<string> BuildSiblingMemberNames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        var propertyRenames = ComputePropertyRenames(typeDecl, typeDatabase);
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in typeDecl.Properties)
+            set.Add(GetFinalMemberName(GetPropertyName(property, typeDecl.Name), propertyRenames));
+        foreach (var nestedType in typeDecl.Types)
+            set.Add(GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
+        return set;
+    }
+
+    /// <summary>
     /// Computes property renames for a type declaration to resolve property/nested-type name collisions.
     /// Returns a dictionary mapping original member name → renamed name.
     /// When a property's return type IS the colliding nested type, the nested type is renamed instead

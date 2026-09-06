@@ -81,13 +81,20 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   where a v5 consumer asks for <c>static Analyzer.label</c>: the pairing deserializes
 ///   cleanly and falls back to the single TBD-symbol oracle, which is precisely the silent
 ///   mismatch the handshake exists to reject.</item>
+/// <item><b>v6</b> — <c>asyncAccessorMembers</c> now also carries subscript keys, spelled
+///   <c>Type.Path.subscript(label:…)</c> (with the <c>"static "</c> prefix for a type-level
+///   subscript). A subscript getter has the same async blind spot a property getter has, and
+///   a v5 host paired with a v6 consumer emits no subscript keys at all — every
+///   <c>subscript { get async }</c> would silently fall back to the single TBD-symbol oracle
+///   and, when that is silent too, be emitted as a synchronous indexer over an async entry
+///   point. Pinning the version makes the stale host binary fail fast instead.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 5;
+    public const int ExpectedSchemaVersion = 6;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

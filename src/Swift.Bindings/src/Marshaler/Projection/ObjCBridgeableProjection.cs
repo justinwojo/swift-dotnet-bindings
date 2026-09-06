@@ -127,10 +127,8 @@ public class ObjCBridgeableProjection : ITypeProjection
             // The handle is read off an object the caller keeps owning — its own wrapper, or the
             // managed wrapper around the constant group's global NSString — so against a callee that
             // consumes its argument the pointer would arrive at +0 and the callee's release would
-            // take a count nobody transferred. Retained isa-dispatched, since an NSObject-backed
-            // bridge needs objc_retain rather than swift_retain, and null-tolerant so a zero handle
-            // stays a no-op. Ignored on every borrowing call.
-            OwnedHandOverStatement = $"global::Swift.Runtime.Arc.UnknownObjectRetain({paramName}Handle);"
+            // take a count nobody transferred.
+            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Handle")
         };
     }
 

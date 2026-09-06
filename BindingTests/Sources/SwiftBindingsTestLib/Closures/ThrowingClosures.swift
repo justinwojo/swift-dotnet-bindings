@@ -43,6 +43,21 @@ public func callThrowingVoid(_ callback: @escaping () throws -> Void) -> Bool {
     }
 }
 
+/// Accepts a throwing closure whose argument is a Swift collection. The simplified `Action<…>`
+/// overload hands the collection to the caller's delegate untouched, so its argument must be
+/// spelled exactly as the primary delegate's is; a `Set<String>` argument is the shape where the
+/// two spellings used to come from different translators. Returns the element count Swift
+/// handed over, or -1 when the callback threw.
+public func callThrowingWithSetParam(_ callback: @escaping (Set<String>) throws -> Void) -> Int32 {
+    let members: Set<String> = ["alpha", "beta", "gamma"]
+    do {
+        try callback(members)
+        return Int32(members.count)
+    } catch {
+        return -1
+    }
+}
+
 /// Accepts a throwing closure returning Bool.
 /// Tests the special bool marshalling path in throwing callbacks.
 public func callThrowingBool(_ callback: @escaping (Int32) throws -> Bool) -> Bool {

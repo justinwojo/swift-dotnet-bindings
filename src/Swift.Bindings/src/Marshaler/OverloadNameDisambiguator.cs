@@ -407,6 +407,10 @@ internal static class OverloadNameDisambiguator
         // trailing `out` to keep it apart (which is what makes the failable lane's separate namespace
         // safe). So a candidate name has to clear the type's other members' projected signatures too,
         // or the recovery would emit CS0111 against a real method.
+        // …and the type's property and nested-type names, which a method name cannot share either
+        // (CS0102). The same set is threaded into the sibling keys so a method the dedup loop renames
+        // away from a property (`Foo`→`FooMethod`) is keyed here under the name it actually emits.
+        var siblingMemberNames = NameProvider.BuildSiblingMemberNames(parent, typeDatabase);
         var siblingKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var m in parent.Methods)
         {
@@ -414,17 +418,17 @@ internal static class OverloadNameDisambiguator
                 continue;
             if (!m.IsConstructor)
             {
-                siblingKeys.Add(BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase, null, siblingPropertyNames: null));
+                siblingKeys.Add(BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase, null, siblingMemberNames));
                 continue;
             }
             if (m.IsFailable || m.IsAsync)
                 continue;
             if (!primarySeen.Add(BaseHandler.GetMethodSignatureKey(m, typeDatabase, null)))
                 continue;
-            inits.Add((m, BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase, null, siblingPropertyNames: null)));
+            inits.Add((m, BaseHandler.GetProjectedCSharpMethodKey(m, typeDatabase, null, siblingMemberNames)));
         }
 
-        return ResolveConstructorFactories(inits, siblingKeys);
+        return ResolveConstructorFactories(inits, siblingKeys, siblingMemberNames);
     }
 
     /// <summary>
@@ -433,9 +437,14 @@ internal static class OverloadNameDisambiguator
     /// A family the ladder cannot separate is simply absent from the result, which leaves it on the
     /// pre-existing first-claimant-wins path.
     /// </summary>
+    /// <param name="inits">The type's emitting non-failable initializers with their projected keys.</param>
+    /// <param name="siblingProjectedKeys">The projected signatures of the type's other methods.</param>
+    /// <param name="siblingMemberNames">The emitted names of the type's properties and nested types,
+    /// which a factory name must clear regardless of its parameter list (CS0102).</param>
     public static Dictionary<MethodDecl, ConstructorFactoryAssignment> ResolveConstructorFactories(
         IReadOnlyList<(MethodDecl Init, string ProjectedKey)> inits,
-        IReadOnlySet<string> siblingProjectedKeys)
+        IReadOnlySet<string> siblingProjectedKeys,
+        IReadOnlySet<string>? siblingMemberNames = null)
     {
         var result = new Dictionary<MethodDecl, ConstructorFactoryAssignment>(ReferenceEqualityComparer.Instance);
 
@@ -498,8 +507,8 @@ internal static class OverloadNameDisambiguator
                 .Select(m => "Create" + BuildTypeDerivedNameInput(m, string.Empty))
                 .ToList();
 
-            var chosen = FactoryRungFits(labelNames, parameterPortion, siblingProjectedKeys) ? labelNames
-                : FactoryRungFits(typeNames, parameterPortion, siblingProjectedKeys) ? typeNames
+            var chosen = FactoryRungFits(labelNames, parameterPortion, siblingProjectedKeys, siblingMemberNames) ? labelNames
+                : FactoryRungFits(typeNames, parameterPortion, siblingProjectedKeys, siblingMemberNames) ? typeNames
                 : null;
             if (chosen == null)
                 continue;
@@ -519,13 +528,18 @@ internal static class OverloadNameDisambiguator
     private static bool FactoryRungFits(
         IReadOnlyList<string> factoryNames,
         string parameterPortion,
-        IReadOnlySet<string> siblingProjectedKeys)
+        IReadOnlySet<string> siblingProjectedKeys,
+        IReadOnlySet<string>? siblingMemberNames)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in factoryNames)
         {
             // "Create" / "CreateWith" mean the rung produced no discriminating token at all.
             if (name.Length == 0 || name == "Create" || name == "CreateWith")
+                return false;
+            // A property or nested type owns its bare name outright; no parameter list keeps a
+            // method apart from it.
+            if (siblingMemberNames?.Contains(name) == true)
                 return false;
             var key = name + parameterPortion;
             if (siblingProjectedKeys.Contains(key) || !seen.Add(key))

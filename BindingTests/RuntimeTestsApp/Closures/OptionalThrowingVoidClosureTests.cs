@@ -216,8 +216,11 @@ public class OptionalThrowingVoidClosureTests : TestBase
     // a Swift error — no CallConvSwift frame, so no Issue-1 surface.
     public void TestRunWithOptionalModifier_DelegateThrows_GracefulFault()
     {
-        var result = TestLibFunctions.RunWithOptionalModifier(
-            5, _cfg => throw new InvalidOperationException("cs-boom-optmodifier"));
+        // Typed as the primary's delegate: a throw-expression lambda converts to both the primary and
+        // its Action convenience sibling, and this test targets the primary's boundary.
+        Func<SwiftBindingsTestLib.RequestConfig, Swift.SwiftResult<Swift.SwiftVoid, SwiftError>> thrower =
+            _cfg => throw new InvalidOperationException("cs-boom-optmodifier");
+        var result = TestLibFunctions.RunWithOptionalModifier(5, thrower);
         AssertFalse(result,
             "Throwing C# delegate must surface as a Swift error → Swift catch → false, never SIGABRT");
         TestLogger.Info($"RunWithOptionalModifier(delegate throws) = {result}");

@@ -107,9 +107,33 @@ public class MemberEmissionValidatorTests
 
     private static SubscriptDecl BuildSubscript(
         string mangledName, bool isStatic, TypeSpec returnTypeSpec, TypeSpec indexTypeSpec,
-        bool hasSetter = false)
+        bool hasSetter = false, bool getterIsAsync = false, bool getterThrows = false, bool withGetter = false)
     {
         var accessors = new List<AccessorDecl>();
+        if (withGetter || getterIsAsync || getterThrows)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = "get",
+                    MangledName = mangledName + "g",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, returnTypeSpec),
+                        CreateArgument("index", indexTypeSpec)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                    Throws = getterThrows,
+                    IsAsync = getterIsAsync,
+                    IsSynthesizedAccessor = false
+                }
+            });
+        }
         if (hasSetter)
         {
             accessors.Add(new SetAccessorDecl
@@ -1176,6 +1200,92 @@ public class MemberEmissionValidatorTests
     public void ReferencesUnsupportedModule_SwiftType_ReturnsFalse()
     {
         Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(new NamedTypeSpec("Swift.Int")));
+    }
+
+    #endregion
+
+    #region Subscript accessor shapes a C# indexer cannot carry
+
+    /// <summary>
+    /// A C# indexer has no async accessor form, so a <c>subscript { get async }</c> cannot be an
+    /// indexer at all. The verdict has to come from the decl before any conformance is claimed:
+    /// otherwise the conforming type keeps <c>: IP</c> for a protocol whose indexer it never
+    /// emits (CS0535), or worse, the getter lands on a synchronous P/Invoke aimed at an async
+    /// entry point — which compiles and mismatches the ABI on the first read.
+    /// </summary>
+    [Fact]
+    public void CanEmitSubscript_AsyncGetter_IsSkipped()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var subscript = BuildSubscript(
+            "$sTest_subscript_async_getter",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"),
+            getterIsAsync: true);
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.UnsupportedSignature, result);
+    }
+
+    [Fact]
+    public void CanEmitSubscript_ThrowingGetter_IsSkipped()
+    {
+        // `subscript { get throws }` has the same problem in the other direction: the indexer read
+        // has nowhere to surface the thrown error, and the getter's P/Invoke would need the error
+        // out-parameter a plain indexer getter never declares.
+        var typeDatabase = CreateTypeDatabase();
+        var subscript = BuildSubscript(
+            "$sTest_subscript_throwing_getter",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"),
+            getterThrows: true);
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.UnsupportedSignature, result);
+    }
+
+    [Fact]
+    public void CanEmitSubscript_OpaqueReturn_IsSkipped()
+    {
+        // `subscript -> some P` has an element type the binding cannot name.
+        var typeDatabase = CreateTypeDatabase();
+        var opaqueReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Host") });
+        opaqueReturn.IsOpaque = true;
+        var subscript = BuildSubscript(
+            "$sTest_subscript_opaque_return",
+            isStatic: false,
+            returnTypeSpec: opaqueReturn,
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"),
+            withGetter: true);
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.UnsupportedSignature, result);
+    }
+
+    /// <summary>
+    /// The control for the three refusals above: the same subscript with a plain synchronous,
+    /// non-throwing getter is emittable, so the refusal is attributable to the accessor shape and
+    /// not to a predicate that rejects every subscript carrying an explicit getter.
+    /// </summary>
+    [Fact]
+    public void CanEmitSubscript_PlainGetter_IsEmittable()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var subscript = BuildSubscript(
+            "$sTest_subscript_plain_getter",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"),
+            withGetter: true);
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Null(result);
     }
 
     #endregion

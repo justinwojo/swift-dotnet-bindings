@@ -251,9 +251,15 @@ public class ClosureExistentialTests
     #region Bound generic existentials (Step 2d)
 
     [Fact]
-    public void BoundGenericParam_Existential_KnownProtocol_ReturnsInterface()
+    public void BoundGenericParam_Existential_KnownProtocol_SpelledAsTheContainerCarrier()
     {
-        // SwiftArray<any ImageProcessing> → SwiftArray<IImageProcessing> (not ExistentialContainer1)
+        // [any ImageProcessing] as a closure argument is SwiftArray<ExistentialContainer1>, not
+        // SwiftArray<IImageProcessing>. A SwiftArray<Element> reads and copies its buffer through
+        // Element's Swift metadata, and a proxy interface has none — an interface element can never be
+        // materialized, which is why the Optional arm of this same translator already spells an
+        // existential payload as the container. The bound-generic translator owns the spelling for
+        // both this lane (a protocol requirement's closure) and the conformer's member, so the two
+        // agree and the conformer compiles against its own interface.
         var typeDatabase = CreateTypeDatabaseWithProtocolAndArray("TestModule.ImageProcessing");
         var handler = new ClosureHandler(typeDatabase);
 
@@ -264,14 +270,17 @@ public class ClosureExistentialTests
         var result = handler.TranslateTypeSpecToCSharp(arraySpec);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("IImageProcessing", result);
-        Assert.DoesNotContain("ExistentialContainer", result);
+        Assert.Contains("Swift.Runtime.ExistentialContainer1", result);
+        Assert.DoesNotContain("IImageProcessing", result);
     }
 
     [Fact]
-    public void BoundGenericParam_Existential_UnknownProtocol_ReturnsObject()
+    public void BoundGenericParam_Existential_UnknownProtocol_SpelledAsAnyType()
     {
-        // SwiftArray<any UnknownProtocol> → SwiftArray<object>
+        // [any UnknownProtocol] has no proxy and no container the callback could read, so the element
+        // is the AnyType placeholder — the same spelling the conformer lane produces for it. Neither
+        // it nor an `object` element can be materialized at runtime; the carrier spelling at least
+        // keeps the two lanes on one string.
         var typeDatabase = CreateTypeDatabaseWithArray();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -282,7 +291,8 @@ public class ClosureExistentialTests
         var result = handler.TranslateTypeSpecToCSharp(arraySpec);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("object", result);
+        Assert.Contains("AnyType", result);
+        Assert.DoesNotContain("object", result);
         Assert.DoesNotContain("ExistentialContainer", result);
     }
 

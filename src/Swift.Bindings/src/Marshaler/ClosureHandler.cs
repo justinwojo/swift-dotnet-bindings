@@ -1479,12 +1479,7 @@ public partial class ClosureHandler
     /// well-known runtime types (e.g., AnyError for Swift.Error), or "object" for
     /// unknown protocols. The P/Invoke layer still uses ExistentialContainer.
     /// </summary>
-    /// <param name="inSwiftContainerArgument">True while translating a generic ARGUMENT of a Swift
-    /// container carrier (<c>SwiftArray&lt;T&gt;</c>, <c>SwiftDictionary&lt;K,V&gt;</c>, …). Such an
-    /// argument is not a public spelling the consumer reads — it names the element the carrier
-    /// marshals through Swift TypeMetadata — so a type whose idiomatic C# projection has no Swift
-    /// metadata must fall back to its carrier here.</param>
-    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec, bool isReturnType = false, bool inSwiftContainerArgument = false)
+    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec, bool isReturnType = false)
     {
         // `[String]` in closure RETURN position is the one array shape whose Swift container carrier
         // is not a usable C# type: System.String has no Swift TypeMetadata, so a delegate declared
@@ -1594,16 +1589,10 @@ public partial class ClosureHandler
 
             // Swift.String must project to "string" to match GetIdiomaticCSharpType's output.
             // Without this, closures use SwiftString while interface methods use string → CS0029.
-            // Inside a Swift container carrier the opposite holds. The container marshals its
-            // elements one at a time, and SwiftMarshal has no conversion arm for System.String —
-            // an element write falls through to "Cannot marshal type System.String to Swift" — while
-            // SwiftDictionary additionally resolves its key's Hashable witness from a registry keyed
-            // on SwiftString, not string. (System.String does resolve to Swift.String METADATA, so
-            // the shape compiles and only fails once an element is actually moved.) The element has
-            // to be the carrier the rest of the emitted surface already uses for a Swift String
-            // inside a container.
+            // (Inside a Swift container carrier the element is spelled by the bound-generic
+            // translator above, which keeps the SwiftString carrier the container marshals through.)
             if (MarshallingHelpers.IsSwiftString(namedType))
-                return inSwiftContainerArgument ? "Swift.SwiftString" : "string";
+                return "string";
 
             // Foundation.Data projects to byte[] to match DataProjection's output.
             // Without this, closures use Foundation.NSData while methods use byte[] → CS0029.
@@ -1654,17 +1643,23 @@ public partial class ClosureHandler
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
     {
-        // The bound-generic body is shared with TupleHandler via BoundGenericTranslation. The closure
-        // path maps an empty-tuple argument to Swift.SwiftVoid and keeps the bare-generic CS0305 safety
-        // net; nested arguments recurse through this handler's own delegate translator.
-        return BoundGenericTranslation.TranslateBoundGenericToCSharp(
-            _typeDatabase,
-            _existentialHandler,
-            namedType,
-            translateGenericArgument: genericParam => TranslateTypeSpecToCSharp(genericParam, inSwiftContainerArgument: true),
-            mapEmptyTupleArgumentToSwiftVoid: true,
-            bareGenericSafetyNet: true);
+        // A bound generic inside a closure signature is a Swift container carrier
+        // (SwiftResult<…>, SwiftArray<…>, SwiftDictionary<…>) whose generic arguments name the
+        // elements the carrier marshals through Swift TypeMetadata, not a public spelling the
+        // consumer reads. That spelling is owned by BoundGenericsHandler, which is also what the
+        // method-closure-bridge lane uses for the same argument on a conforming type's member. A
+        // protocol requirement's closure is spelled here while its conformer's is spelled there,
+        // and the two must be one string or the conformer fails CS0535 against its own interface —
+        // so this lane delegates rather than keeping a second derivation that can drift (a
+        // `Result<T, any Error>` failure arm once came out as `AnyError` here and as
+        // `ExistentialContainer1` there).
+        return BoundGenerics.TranslateBoundGenericTypeToCSharp(namedType, GenericContext.Empty);
     }
+
+    private BoundGenericsHandler? _boundGenericsHandler;
+
+    private BoundGenericsHandler BoundGenerics
+        => _boundGenericsHandler ??= new BoundGenericsHandler(_typeDatabase, conformanceGraph: null, CurrentModuleName);
 
     /// <summary>
     /// True when <paramref name="typeSpec"/> is a single class-bound existential (one

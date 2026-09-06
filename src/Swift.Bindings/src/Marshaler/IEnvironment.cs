@@ -329,6 +329,24 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether the emitted member carries the <c>static</c> keyword. One answer for the primary
+        /// signature and every convenience overload written next to it: a module-level free function
+        /// carries <see cref="MethodType.Instance"/> but is emitted static on its holder class, so an
+        /// overload emitter keying on the method type alone writes its overload as an instance member
+        /// that every consumer calling through the type name cannot reach.
+        /// </summary>
+        internal bool EmitsStatic => EmitsStaticMember(MethodDecl, ParentDecl);
+
+        /// <summary>
+        /// Static form of <see cref="EmitsStatic"/> for emitters that hold the declaration and its
+        /// parent without a <see cref="MethodEnvironment"/>.
+        /// </summary>
+        internal static bool EmitsStaticMember(MethodDecl methodDecl, BaseDecl? parentDecl) =>
+            methodDecl.MethodType == MethodType.Static
+            || parentDecl is ModuleDecl
+            || (methodDecl.IsConstructor && methodDecl.IsAsync);
+
+        /// <summary>
         /// Returns true if the method returns its declaring type (fluent/builder pattern).
         /// Self-returning methods skip the "Get" prefix (e.g., "equalTo" → "EqualTo", not "GetEqualTo").
         /// Only applies to non-constructor, non-accessor instance methods.

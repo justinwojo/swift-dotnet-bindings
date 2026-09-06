@@ -2031,6 +2031,9 @@ namespace BindingsGeneration
 
             var paramString = string.Join(", ", overloadParams);
             var accessModifier = NameProvider.GetAccessModifier(methodDecl.IsSynthesizedAccessor);
+            // The primary's own static decision: a free function's Task overload has to be reachable
+            // through the holder type, and a static method's through its type.
+            var staticModifier = methodEnv.EmitsStatic ? "static " : "";
 
             // Build the lambda body based on callback shape
             var callArgs = new List<string>();
@@ -2144,7 +2147,7 @@ namespace BindingsGeneration
                 /// Task-returning overload for <see cref="{{baseMethodName}}"/>.
                 /// </summary>
                 /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
-                {{(safetyAttr != null ? safetyAttr + "\n    " : "")}}{{accessModifier}} async {{taskType}} {{asyncMethodName}}({{paramString}})
+                {{(safetyAttr != null ? safetyAttr + "\n    " : "")}}{{accessModifier}} {{staticModifier}}async {{taskType}} {{asyncMethodName}}({{paramString}})
                 {
                     var tcs = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);
                     var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));

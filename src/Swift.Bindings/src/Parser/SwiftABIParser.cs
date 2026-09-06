@@ -3566,6 +3566,24 @@ namespace BindingsGeneration
                 });
             }
 
+            // The .swiftinterface half of the accessor async oracle (see CreateGetAccessor for
+            // the two-oracle rationale). The walker keys a subscript by the same
+            // `subscript(label:…)` spelling the ABI printedName uses — a parameter contributes its
+            // external label only when it has one, `_` otherwise — so the ABI spelling is the
+            // lookup key as-is; the type path is the Swift-spelled one, and a type-level subscript
+            // carries the `static ` prefix exactly like a type-level property. Two subscripts on
+            // one type that erase to the same spelling share a key, so an async getter on either
+            // marks both: that over-marking only refuses the sibling indexer, whereas under-marking
+            // emits a synchronous indexer over an async entry point.
+            var subscriptAsyncFactKey = parentDecl is TypeDecl asyncSubscriptParentType
+                ? $"{BuildSwiftTypeQualifiedPath(asyncSubscriptParentType)}.{node.PrintedName}"
+                : node.PrintedName;
+            if (node.@static ?? false)
+            {
+                subscriptAsyncFactKey = $"static {subscriptAsyncFactKey}";
+            }
+            var interfaceSaysSubscriptAsync = _facts.AsyncAccessorMembers.Contains(subscriptAsyncFactKey);
+
             var decl = new SubscriptDecl
             {
                 Name = "subscript",
@@ -3573,7 +3591,7 @@ namespace BindingsGeneration
                 ReturnTypeSpec = returnTypeSpec,
                 IndexParameters = indexParameters,
                 IsStatic = node.@static ?? false,
-                Accessors = HandleSubscriptAccessors(node.Accessors, indexParameters, returnTypeSpec, parentDecl, moduleDecl),
+                Accessors = HandleSubscriptAccessors(node.Accessors, indexParameters, returnTypeSpec, parentDecl, moduleDecl, subscriptAsyncFactKey, interfaceSaysSubscriptAsync),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsModuleInternal = IsNodeModuleInternal(node),
@@ -3721,7 +3739,9 @@ namespace BindingsGeneration
             IReadOnlyList<ArgumentDecl> indexParameters,
             TypeSpec returnTypeSpec,
             BaseDecl parentDecl,
-            ModuleDecl moduleDecl)
+            ModuleDecl moduleDecl,
+            string asyncFactKey,
+            bool interfaceSaysAsync)
         {
             var result = new List<AccessorDecl>();
 
@@ -3730,10 +3750,12 @@ namespace BindingsGeneration
                 switch (accessor.AccessorKind)
                 {
                     case "get":
-                        result.Add(CreateSubscriptGetAccessor(accessor, indexParameters, returnTypeSpec, parentDecl, moduleDecl));
+                        result.Add(CreateSubscriptGetAccessor(accessor, indexParameters, returnTypeSpec, parentDecl, moduleDecl,
+                            IsSubscriptAccessorAsync(accessor, asyncFactKey, interfaceSaysAsync)));
                         break;
                     case "set":
-                        result.Add(CreateSubscriptSetAccessor(accessor, indexParameters, returnTypeSpec, parentDecl, moduleDecl));
+                        result.Add(CreateSubscriptSetAccessor(accessor, indexParameters, returnTypeSpec, parentDecl, moduleDecl,
+                            IsSubscriptAccessorAsync(accessor, asyncFactKey, interfaceSaysAsync)));
                         break;
                     case "_modify":
                     case "_read":
@@ -3749,6 +3771,29 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The two accessor async oracles, ORed, for a subscript accessor: the TBD's sibling
+        /// <c>{accessor}Tu</c> / <c>{accessor}TjTu</c> symbol and the .swiftinterface fact keyed by
+        /// the subscript's spelling. Either alone suffices, because each goes silent on its own —
+        /// the TBD when the symbol set is incomplete, the interface when none was supplied — and
+        /// silence is indistinguishable from "synchronous". The effect specifier is get-only in
+        /// Swift, and an effectful getter excludes a setter, so on a setter the interface half is
+        /// always false and the TBD probe answers alone; it is still routed through here so both
+        /// accessors read one decision. A disagreement is logged: it names a broken TBD or a stale
+        /// walker key.
+        /// </summary>
+        private bool IsSubscriptAccessorAsync(Node accessor, string asyncFactKey, bool interfaceSaysAsync)
+        {
+            var tbdSaysAsync = ManglingProbes.IsAsyncAccessor(_demangledTbd.AllSymbols, accessor.MangledName);
+            if (tbdSaysAsync != interfaceSaysAsync)
+            {
+                _logger.LogDebug(
+                    "Async-accessor oracles disagree for '{Key}' ({Mangled}): TBD says {Tbd}, .swiftinterface says {Interface}. Treating the accessor as async.",
+                    asyncFactKey, accessor.MangledName, tbdSaysAsync, interfaceSaysAsync);
+            }
+            return tbdSaysAsync || interfaceSaysAsync;
+        }
+
+        /// <summary>
         /// Creates a getter accessor for a subscript.
         /// </summary>
         private GetAccessorDecl CreateSubscriptGetAccessor(
@@ -3756,7 +3801,8 @@ namespace BindingsGeneration
             IReadOnlyList<ArgumentDecl> indexParameters,
             TypeSpec returnTypeSpec,
             BaseDecl parentDecl,
-            ModuleDecl moduleDecl)
+            ModuleDecl moduleDecl,
+            bool isAsync)
         {
             // Build signature: [0] = return type, [1..n] = index parameters
             var signature = new List<ArgumentDecl>
@@ -3800,8 +3846,14 @@ namespace BindingsGeneration
                 GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                Throws = false,
-                IsAsync = false,
+                // A subscript accessor can be effectful (`get async`, `get throws`) exactly like a
+                // property accessor. `throwing` is in the ABI JSON; async-ness is not, and the
+                // accessor's mangled name carries no marker for it either, so it comes from the same
+                // two oracles a property getter reads (IsSubscriptAccessorAsync). Leaving these false
+                // emits an ordinary indexer whose thunk calls the async entry point synchronously —
+                // an ABI mismatch that compiles.
+                Throws = accessor.throwing ?? false,
+                IsAsync = isAsync,
                 IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
@@ -3818,7 +3870,8 @@ namespace BindingsGeneration
             IReadOnlyList<ArgumentDecl> indexParameters,
             TypeSpec returnTypeSpec,
             BaseDecl parentDecl,
-            ModuleDecl moduleDecl)
+            ModuleDecl moduleDecl,
+            bool isAsync)
         {
             // Build signature: [0] = void (return), [1] = newValue, [2..n] = index parameters
             var signature = new List<ArgumentDecl>
@@ -3869,8 +3922,10 @@ namespace BindingsGeneration
                 GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                Throws = false,
-                IsAsync = false,
+                // Same sources as the getter: `throwing` from the ABI JSON, async-ness from the two
+                // accessor oracles (IsSubscriptAccessorAsync).
+                Throws = accessor.throwing ?? false,
+                IsAsync = isAsync,
                 IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,

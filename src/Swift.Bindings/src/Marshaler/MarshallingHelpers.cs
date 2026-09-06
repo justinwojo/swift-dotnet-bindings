@@ -1055,6 +1055,21 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The hand-over statement every ObjC-bridged parameter plan publishes for a consuming
+        /// callee. The handle these plans pass is read off an object the caller keeps owning — its
+        /// own managed wrapper, or a <c>using</c>-scoped bridged NSArray/NSDictionary/NSSet the
+        /// plan itself built — so it reaches the callee at +0, and a callee that consumes the
+        /// argument (an initializer's or setter's <c>@owned</c> parameter) releases a count nobody
+        /// transferred. Retained isa-dispatched, since an NSObject-rooted payload needs
+        /// <c>objc_retain</c> rather than <c>swift_retain</c>, and null-tolerant so a zero handle
+        /// (an absent Optional) stays a no-op. The render site decides whether to write it, so a
+        /// plan publishes it unconditionally and a borrowing call never sees it. One helper for
+        /// every bridged shape so a container plan cannot drift from its leaf.
+        /// </summary>
+        public static string ObjCHandleHandOverStatement(string handleExpression)
+            => $"global::Swift.Runtime.Arc.UnknownObjectRetain({handleExpression});";
+
+        /// <summary>
         /// Formats the correct ObjC bridge call for a given type, dispatching between
         /// GetNSObject (for NSObject subclasses) and GetINativeObject (for CoreFoundation types).
         /// </summary>

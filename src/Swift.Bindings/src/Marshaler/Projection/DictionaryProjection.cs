@@ -10,7 +10,7 @@ namespace BindingsGeneration;
 /// Parameter direction: FromDictionary + PayloadBuffer, with optional key/value conversion + disposal.
 /// Return direction: MarshalFromSwift + AsProjected with key/value conversion lambdas.
 /// </summary>
-public class DictionaryProjection : ITypeProjection
+public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 {
     private readonly ITypeProjection _keyProjection;
     private readonly ITypeProjection _valueProjection;
@@ -576,30 +576,63 @@ public class DictionaryProjection : ITypeProjection
         return $"global::Swift.Runtime.Arc.UnknownObjectRetain({nsDict}.Handle)";
     }
 
+    public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)
+    {
+        var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
+        var valToNS = ToNSObject(_valueProjection, "kvp.Value");
+        var ownerName = $"{paramName}NSDict";
+
+        // The pairs are materialized once so the key and value arrays come from the same pass
+        // over the dictionary; an IReadOnlyDictionary makes no promise about two enumerations
+        // agreeing on order.
+        if (sourceIsNullable)
+        {
+            return new ObjCContainerBridgeOwner(
+                new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line($"var {paramName}Pairs = {paramName}?.ToArray();"),
+                    ObjCContainerBridgeOwner.Declare(
+                        "Foundation.NSDictionary", ownerName,
+                        $"Foundation.NSDictionary.FromObjectsAndKeys({paramName}Pairs.Select(kvp => {valToNS}).ToArray(), {paramName}Pairs.Select(kvp => {keyToNS}).ToArray())",
+                        $"{paramName}Pairs", sourceIsNullable: true)
+                },
+                ownerName);
+        }
+
+        return new ObjCContainerBridgeOwner(
+            new List<MarshalStatement>
+            {
+                new MarshalStatement.Line(
+                    $"var {paramName}Pairs = {paramName}.ToArray();"),
+                new MarshalStatement.Line(
+                    $"var {paramName}Keys = {paramName}Pairs.Select(kvp => {keyToNS}).ToArray();"),
+                new MarshalStatement.Line(
+                    $"var {paramName}Values = {paramName}Pairs.Select(kvp => {valToNS}).ToArray();"),
+                ObjCContainerBridgeOwner.Declare(
+                    "Foundation.NSDictionary", ownerName,
+                    $"Foundation.NSDictionary.FromObjectsAndKeys({paramName}Values, {paramName}Keys)",
+                    paramName, sourceIsNullable: false)
+            },
+            ownerName);
+    }
+
     /// <summary>
     /// ObjC bridge parameter plan: create NSDictionary from C# key-value pairs.
     /// </summary>
     private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
     {
-        var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
-        var valToNS = ToNSObject(_valueProjection, "kvp.Value");
-        var setup = new List<MarshalStatement>
+        var owner = BuildObjCBridgeOwner(paramName, sourceIsNullable: false);
+        var setup = new List<MarshalStatement>(owner.Setup)
         {
-            new MarshalStatement.Line(
-                $"var {paramName}Pairs = {paramName}.ToArray();"),
-            new MarshalStatement.Line(
-                $"var {paramName}Keys = {paramName}Pairs.Select(kvp => {keyToNS}).ToArray();"),
-            new MarshalStatement.Line(
-                $"var {paramName}Values = {paramName}Pairs.Select(kvp => {valToNS}).ToArray();"),
-            new MarshalStatement.Line(
-                $"using var {paramName}NSDict = Foundation.NSDictionary.FromObjectsAndKeys({paramName}Values, {paramName}Keys);"),
-            new MarshalStatement.Line(
-                $"IntPtr {paramName}Buffer = {paramName}NSDict.Handle;")
+            new MarshalStatement.Line($"IntPtr {paramName}Buffer = {owner.Name}.Handle;")
         };
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buffer"
+            PInvokeExpression = $"{paramName}Buffer",
+            // The bridged NSDictionary handle is borrowed: the `using` wrapper releases it after
+            // the call, so a consuming callee needs a +1 handed over first.
+            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
         };
     }
 

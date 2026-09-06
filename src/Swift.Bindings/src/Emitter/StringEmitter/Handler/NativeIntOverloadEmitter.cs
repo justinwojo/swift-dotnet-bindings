@@ -195,12 +195,9 @@ internal static class NativeIntOverloadEmitter
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);
 
-        // Determine static modifier. A module-level free function carries MethodType.Instance but is
-        // emitted static (its parent is the module, not a type), so keying only on MethodType wrote
-        // the convenience overload as an INSTANCE method on the free-function holder class — it
-        // compiles, and it is unreachable, because every consumer calls the free function through the
-        // type name. Mirror the primary member's own decision.
-        var isStatic = methodDecl.MethodType == MethodType.Static || methodEnv.ParentDecl is ModuleDecl;
+        // The primary member's own static decision, so a module-level free function (MethodType.Instance,
+        // parent is the module) gets a static overload a consumer calling through the type name can reach.
+        var isStatic = methodEnv.EmitsStatic;
         var staticModifier = isStatic ? "static " : "";
 
         // Surface @MainActor isolation on the convenience int/uint forwarder too, keyed on the SAME

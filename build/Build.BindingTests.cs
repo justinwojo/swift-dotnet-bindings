@@ -688,10 +688,11 @@ partial class Build
             EnsureSwiftInterfaceParserBuilt();
 
         // Freshness check, not existence check. A stale generator dll — source edited but
-        // the dll not rebuilt — would otherwise be trusted unconditionally, and every
+        // the dll not rebuilt, or the dll replaced out of band by an incremental build that
+        // contradicted its source — would otherwise be trusted unconditionally, and every
         // binding-tests gate would silently run the OLD generator (the recurring
-        // "stale generator binary masks your edit" footgun). Reuse the same SHA-fingerprint
-        // guard Validation already uses (ComputeSourceFingerprint + a .build-stamp) so that
+        // "stale generator binary masks your edit" footgun). Reuse the same guard Validation
+        // uses (ComputeSourceFingerprint paired with the dll hash in a build stamp) so that
         // editing generator source and running ANY nuke binding-tests variant rebuilds the
         // generator. Keep the generator-only build here — not Validation's heavier
         // generator+runtime+supplement rebuild — so a BindingTests inner-loop run does not
@@ -699,21 +700,22 @@ partial class Build
         // dll so a clean that wipes the dll also wipes the stamp (fail-safe: rebuild).
         var buildStamp = GeneratorDll.Parent / ".bindingtests-generator-stamp";
         var fingerprint = ComputeSourceFingerprint();
-        if (File.Exists(GeneratorDll) &&
-            File.Exists(buildStamp) &&
-            File.ReadAllText(buildStamp).Trim() == fingerprint)
+        if (GeneratorBuildStampIsCurrent(buildStamp, fingerprint))
         {
             return;
         }
 
-        Log.Information("Building generator (source changed or dll missing)...");
+        Log.Information("Building generator (source changed, dll missing, or dll does not match the recorded build)...");
         DotNetBuild(s => s
             .SetProjectFile(GeneratorProject)
             .SetConfiguration("Debug")
+            // The rebuild exists to replace a dll that may contradict its source; it must not
+            // reuse the intermediate outputs that produced that dll.
+            .SetNoIncremental(true)
             .SetVerbosity(DotNetVerbosity.quiet));
 
         Directory.CreateDirectory(buildStamp.Parent);
-        File.WriteAllText(buildStamp, fingerprint);
+        File.WriteAllText(buildStamp, ComputeGeneratorBuildStamp(fingerprint));
     }
 
     // ============================================================

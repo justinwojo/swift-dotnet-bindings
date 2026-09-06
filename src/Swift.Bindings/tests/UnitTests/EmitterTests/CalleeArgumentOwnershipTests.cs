@@ -267,6 +267,171 @@ public class CalleeArgumentOwnershipTests
         Assert.Contains(plan.PInvokeExpression, plan.OwnedHandOverStatement);
     }
 
+    /// <summary>
+    /// An array of ObjC-bridged elements crosses as one bridged container object, and a consuming
+    /// callee releases that object exactly as it would a bare bridged argument. The leaf projection
+    /// above already publishes a hand-over; the container plan has to publish one too, or an
+    /// initializer taking <c>[NSURL]</c> hands the callee a +0 container it then releases.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ObjCBridgedArrayParameterPlan_CarriesAHandOver(bool nested)
+    {
+        ITypeProjection element = new ObjCBridgeableProjection("Foundation.NSUrl");
+        if (nested)
+            element = new ArrayProjection(element, isParameter: true);
+        var projection = new ArrayProjection(element, isParameter: true);
+
+        var plan = projection.GetParameterPlan("urls");
+
+        Assert.NotNull(plan.OwnedHandOverStatement);
+        Assert.Contains("urlsBuffer", plan.OwnedHandOverStatement);
+        Assert.Contains(plan.PInvokeExpression, plan.OwnedHandOverStatement);
+    }
+
+    /// <summary>
+    /// The dictionary and set siblings bridge through the same borrowed <c>using</c> wrapper as the
+    /// array, so they have to publish the same transfer — an initializer taking
+    /// <c>[String: URL]</c> or <c>Set&lt;URL&gt;</c> consumes the bridged container exactly as one
+    /// taking <c>[URL]</c> does. Asserted across every bridged container shape so no sibling can
+    /// drift back to +0 on its own.
+    /// </summary>
+    [Theory]
+    [InlineData("dictionary")]
+    [InlineData("set")]
+    [InlineData("nestedSet")]
+    public void ObjCBridgedDictionaryAndSetParameterPlans_CarryAHandOver(string shape)
+    {
+        ITypeProjection leaf = new ObjCBridgeableProjection("Foundation.NSUrl");
+        ITypeProjection projection = shape switch
+        {
+            "dictionary" => new DictionaryProjection(new StringProjection(), leaf, isParameter: true),
+            "set" => new SetProjection(leaf, isParameter: true),
+            _ => new SetProjection(new ArrayProjection(leaf, isParameter: true), isParameter: true),
+        };
+        Assert.True(projection.UsesObjCContainerBridge);
+
+        var plan = projection.GetParameterPlan("values");
+
+        Assert.NotNull(plan.OwnedHandOverStatement);
+        Assert.Contains("valuesBuffer", plan.OwnedHandOverStatement);
+        Assert.Contains(plan.PInvokeExpression, plan.OwnedHandOverStatement);
+    }
+
+    /// <summary>
+    /// An Optional over a bridged container builds the inner plan inside an <c>if</c> block and
+    /// copies its handle into an outer buffer that is zero when the value is absent. The transfer
+    /// has to be minted on that outer buffer — the inner one is out of scope at the call — and it
+    /// has to follow the inner plan: a container that carries no hand-over gets none here either.
+    /// </summary>
+    [Theory]
+    [InlineData("array")]
+    [InlineData("dictionary")]
+    [InlineData("set")]
+    public void OptionalObjCBridgedContainerParameterPlan_HandsOverTheOuterBuffer(string shape)
+    {
+        ITypeProjection leaf = new ObjCBridgeableProjection("Foundation.NSUrl");
+        ITypeProjection inner = shape switch
+        {
+            "array" => new ArrayProjection(leaf, isParameter: true),
+            "dictionary" => new DictionaryProjection(new StringProjection(), leaf, isParameter: true),
+            _ => new SetProjection(leaf, isParameter: true),
+        };
+        var projection = new OptionalProjection(inner);
+
+        var plan = projection.GetParameterPlan("values");
+
+        Assert.Equal("valuesBuffer", plan.PInvokeExpression);
+        Assert.NotNull(plan.OwnedHandOverStatement);
+        Assert.Contains("(valuesBuffer)", plan.OwnedHandOverStatement);
+        Assert.DoesNotContain("valuesValBuffer", plan.OwnedHandOverStatement);
+    }
+
+    /// <summary>
+    /// The optional plan's collection wrapper must outlive the call: the `using` that owns it sits
+    /// at method scope, guarded on the value being present, and the buffer the call and the
+    /// hand-over read is taken off that same wrapper. A wrapper declared inside a narrower block
+    /// is disposed — and the collection released — before either runs.
+    /// </summary>
+    [Theory]
+    [InlineData("array")]
+    [InlineData("dictionary")]
+    [InlineData("set")]
+    public void OptionalObjCBridgedContainerParameterPlan_OwnerOutlivesTheCall(string shape)
+    {
+        ITypeProjection leaf = new ObjCBridgeableProjection("Foundation.NSUrl");
+        ITypeProjection inner = shape switch
+        {
+            "array" => new ArrayProjection(leaf, isParameter: true),
+            "dictionary" => new DictionaryProjection(new StringProjection(), leaf, isParameter: true),
+            _ => new SetProjection(leaf, isParameter: true),
+        };
+        var plan = new OptionalProjection(inner).GetParameterPlan("values");
+
+        Assert.DoesNotContain(plan.SetupStatements, s => s is MarshalStatement.Block);
+        var owner = Assert.Single(plan.SetupStatements.OfType<MarshalStatement.Using>());
+        Assert.EndsWith("?", owner.Type);
+        Assert.Contains("is null ? null :", owner.InitExpression);
+
+        var buffer = Assert.Single(plan.SetupStatements.OfType<MarshalStatement.Line>(),
+            l => l.Code.StartsWith("IntPtr valuesBuffer"));
+        Assert.Contains($"{owner.Name}.Handle", buffer.Code);
+        Assert.Contains($"{owner.Name} is null ? IntPtr.Zero", buffer.Code);
+        Assert.True(plan.SetupStatements.IndexOf(owner) < plan.SetupStatements.IndexOf(buffer),
+            "the buffer is read off the wrapper, so the wrapper must be declared first");
+    }
+
+    /// <summary>
+    /// The bare and the optional plans read their handle off the same owner declaration, so the
+    /// collection is built the same way on both and neither can drift to a shorter-lived wrapper.
+    /// </summary>
+    [Theory]
+    [InlineData("array")]
+    [InlineData("dictionary")]
+    [InlineData("set")]
+    public void ObjCBridgedContainerParameterPlan_BareAndOptionalShareOneOwner(string shape)
+    {
+        ITypeProjection leaf = new ObjCBridgeableProjection("Foundation.NSUrl");
+        ITypeProjection inner = shape switch
+        {
+            "array" => new ArrayProjection(leaf, isParameter: true),
+            "dictionary" => new DictionaryProjection(new StringProjection(), leaf, isParameter: true),
+            _ => new SetProjection(leaf, isParameter: true),
+        };
+
+        var bare = inner.GetParameterPlan("values");
+        var optional = new OptionalProjection(inner).GetParameterPlan("values");
+
+        var bareOwner = Assert.Single(bare.SetupStatements.OfType<MarshalStatement.Using>());
+        var optionalOwner = Assert.Single(optional.SetupStatements.OfType<MarshalStatement.Using>());
+        Assert.Equal(bareOwner.Name, optionalOwner.Name);
+        Assert.Equal($"{bareOwner.Type}?", optionalOwner.Type);
+        Assert.Equal(bare.OwnedHandOverStatement, optional.OwnedHandOverStatement);
+        Assert.Contains($"IntPtr valuesBuffer = {bareOwner.Name}.Handle;",
+            bare.SetupStatements.OfType<MarshalStatement.Line>().Select(l => l.Code));
+    }
+
+    /// <summary>
+    /// Every bridged shape mints its transfer through one helper, so the retain is the same
+    /// isa-dispatched, null-tolerant call whether the handle came from a leaf wrapper or a
+    /// container the plan built itself.
+    /// </summary>
+    [Fact]
+    public void ObjCBridgedPlans_ShareOneHandOverShape()
+    {
+        var leaf = new ObjCBridgeableProjection("Foundation.NSUrl").GetParameterPlan("v");
+        var array = new ArrayProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true).GetParameterPlan("v");
+
+        Assert.Equal(
+            MarshallingHelpers.ObjCHandleHandOverStatement(leaf.PInvokeExpression),
+            leaf.OwnedHandOverStatement);
+        Assert.Equal(
+            MarshallingHelpers.ObjCHandleHandOverStatement(array.PInvokeExpression),
+            array.OwnedHandOverStatement);
+        Assert.Contains("UnknownObjectRetain", MarshallingHelpers.ObjCHandleHandOverStatement("h"));
+    }
+
     private static MethodDecl CreateSetter(
         TypeSpec valueType,
         WrapperStrategy strategy,

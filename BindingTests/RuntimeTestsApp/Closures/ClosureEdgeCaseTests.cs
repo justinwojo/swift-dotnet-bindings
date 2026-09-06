@@ -83,17 +83,15 @@ public class ClosureEdgeCaseTests : TestBase
 
     public async Task TestPerformActionAsync()
     {
-        // Async overloads for free functions are instance methods on Functions class
-        var functions = new SwiftBindingsTestLib.Functions();
-        await WithTimeout(functions.PerformActionAsync(), DefaultAsyncTimeout);
+        // The Task-returning overload of a free function is static on the holder class, like the
+        // completion-handler primary it wraps.
+        await WithTimeout(TestLibFunctions.PerformActionAsync(), DefaultAsyncTimeout);
         TestLogger.Info("PerformActionAsync completed");
     }
 
     public async Task TestComputeValueAsync()
     {
-        // Async overloads for free functions are instance methods on Functions class
-        var functions = new SwiftBindingsTestLib.Functions();
-        var result = await WithTimeout(functions.ComputeValueAsync(), DefaultAsyncTimeout);
+        var result = await WithTimeout(TestLibFunctions.ComputeValueAsync(), DefaultAsyncTimeout);
         AssertEqual(99, result, "ComputeValueAsync returns 99");
         TestLogger.Info($"ComputeValueAsync = {result}");
     }
@@ -266,6 +264,42 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"CallThrowingBool success = {result}");
     }
 
+    public void TestThrowingWithSetParam_SimplifiedOverloadReceivesTheCollection()
+    {
+        // (Set<String>) throws -> Void through the simplified Action<…> overload. The overload's
+        // wrapper lambda hands the collection argument straight through to this delegate, so the
+        // binding only compiles when the Action's argument is spelled exactly as the primary
+        // delegate's is — a Swift collection argument is the shape where the two used to differ.
+        int seen = -1;
+        bool hasBeta = false;
+        Action<Swift.SwiftSet<Swift.SwiftString>> observe = members =>
+        {
+            seen = members.Count;
+            hasBeta = members.Contains("beta");
+        };
+
+        var result = TestLibFunctions.CallThrowingWithSetParam(observe);
+
+        AssertEqual(3, result, "Swift reports the three members it handed over");
+        AssertEqual(3, seen, "the simplified overload delivered the three-element set");
+        AssertTrue(hasBeta, "the delivered set carries the Swift-side members");
+        TestLogger.Info($"CallThrowingWithSetParam(simplified) = {result}, seen = {seen}");
+    }
+
+    public void TestThrowingWithSetParam_SimplifiedOverloadPropagatesTheThrow()
+    {
+        // A managed exception thrown from the simplified overload's delegate passes through the
+        // wrapper lambda (which only translates SwiftErrorException) to the callback boundary, which
+        // mints a Swift error; Swift's catch then yields the -1 sentinel instead of the member count.
+        Action<Swift.SwiftSet<Swift.SwiftString>> reject = _ =>
+            throw new InvalidOperationException("cs-boom-set");
+
+        var result = TestLibFunctions.CallThrowingWithSetParam(reject);
+
+        AssertEqual(-1, result, "a managed exception thrown from the simplified overload surfaces as the Swift error arm, never SIGABRT");
+        TestLogger.Info($"CallThrowingWithSetParam(simplified, throws) = {result}");
+    }
+
     #endregion
 
     #region Throwing Closures — Graceful Fault (C# delegate throws)
@@ -284,9 +318,12 @@ public class ClosureEdgeCaseTests : TestBase
     // never unwinds into native, so there is no CallConvSwift frame and no Issue-1 surface.
     public void TestThrowingClosure_DelegateThrows_GracefulFault()
     {
-        // () throws -> Int32 — C# delegate throws instead of returning a SwiftResult.
-        var result = TestLibFunctions.CallThrowingClosure(
-            () => throw new InvalidOperationException("cs-boom-int"));
+        // () throws -> Int32 — C# delegate throws instead of returning a SwiftResult. The local is
+        // typed as the primary's delegate: a throw-expression lambda converts to both the primary and
+        // its Action/Func convenience sibling, and this test targets the primary's boundary.
+        Func<Swift.SwiftResult<int, SwiftError>> thrower =
+            () => throw new InvalidOperationException("cs-boom-int");
+        var result = TestLibFunctions.CallThrowingClosure(thrower);
         AssertEqual(-1, result,
             "Throwing C# delegate must surface as a Swift error → Swift catch → sentinel -1, never SIGABRT");
         TestLogger.Info($"CallThrowingClosure(delegate throws) = {result}");
@@ -295,8 +332,9 @@ public class ClosureEdgeCaseTests : TestBase
     public void TestThrowingWithParam_DelegateThrows_GracefulFault()
     {
         // (Int32) throws -> String — non-primitive (String) return, C# delegate throws.
-        var result = TestLibFunctions.CallThrowingWithParam(
-            _ => throw new InvalidOperationException("cs-boom-string"));
+        Func<int, Swift.SwiftResult<string, SwiftError>> thrower =
+            _ => throw new InvalidOperationException("cs-boom-string");
+        var result = TestLibFunctions.CallThrowingWithParam(thrower);
         AssertEqual("error", result,
             "Throwing C# delegate (non-primitive String return) must surface as Swift error → sentinel \"error\", never SIGABRT");
         TestLogger.Info($"CallThrowingWithParam(delegate throws) = {result}");
@@ -308,8 +346,9 @@ public class ClosureEdgeCaseTests : TestBase
         // delegate must produce a Swift error so the adapter rethrows BEFORE .move()-ing the
         // never-written indirect result buffer (no SIGSEGV on uninitialized storage), and the
         // Swift catch returns the sentinel (-1, -1).
-        var result = TestLibFunctions.CallThrowingNonFrozenReturn(
-            () => throw new InvalidOperationException("cs-boom-nonfrozen"));
+        Func<Swift.SwiftResult<SwiftBindingsTestLib.NonFrozenPoint, SwiftError>> thrower =
+            () => throw new InvalidOperationException("cs-boom-nonfrozen");
+        var result = TestLibFunctions.CallThrowingNonFrozenReturn(thrower);
         AssertEqual(-1.0, result.X,
             "Throwing C# delegate (indirect non-frozen return) must surface as Swift error → sentinel (-1,-1).X");
         AssertEqual(-1.0, result.Y,

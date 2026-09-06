@@ -599,7 +599,7 @@ public class TupleHandler
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
     {
-        // The bound-generic body is shared with ClosureHandler via BoundGenericTranslation. The tuple
+        // The bound-generic body lives in BoundGenericTranslation. The tuple
         // path does NOT special-case an empty-tuple argument and omits the bare-generic safety net;
         // nested arguments recurse through this handler's own element translator.
         return BoundGenericTranslation.TranslateBoundGenericToCSharp(

@@ -334,6 +334,12 @@ public class MemberGateEvaluator
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var resolvedModuleDecl = subscript.ModuleDecl ?? moduleDecl;
 
+        // S1: An accessor shape no C# indexer can take (async/throwing accessor, opaque element…).
+        // Same definition the concrete-side planner uses, so the interface never declares an
+        // indexer its conformers are refused.
+        if (SubscriptHandler.HasUnemittableAccessorShape(subscript, out var accessorShapeDetails))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, accessorShapeDetails);
+
         // S2: Leaked associated type reference (e.g., TElement.Element)
         if (MemberEmissionValidator.ContainsAssociatedTypeReference(subscript.ReturnTypeSpec) ||
             subscript.IndexParameters.Any(p => MemberEmissionValidator.ContainsAssociatedTypeReference(p.SwiftTypeSpec)))

@@ -693,6 +693,66 @@ public class SwiftSyntaxInterfaceFactsProducerTests
         finally { File.Delete(path); }
     }
 
+    /// <summary>
+    /// Subscripts are keyed by their printed spelling — a parameter contributes its external label
+    /// only when it has one, <c>_</c> otherwise — so the key matches the ABI JSON's
+    /// <c>printedName</c> as-is. A type-level subscript takes the <c>static</c> prefix, a protocol
+    /// requirement (which carries no access modifier) is still collected, an extension member is
+    /// keyed under the extended type, and a synchronous subscript contributes nothing.
+    /// </summary>
+    [SkippableFact]
+    public void AsyncAccessors_SubscriptKeys()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(AsyncAccessors_SubscriptKeys));
+        var path = WriteTempFile(
+            "import Swift\n" +
+            "public struct Table {\n" +
+            "  public subscript(index: Swift.Int32) -> Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "  public subscript(named name: Swift.String) -> Swift.Int32 {\n" +
+            "    get async throws\n" +
+            "  }\n" +
+            "  public static subscript(_ index: Swift.Int32) -> Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "  public subscript(row: Swift.Int32, column: Swift.Int32) -> Swift.Int32 {\n" +
+            "    get\n" +
+            "    set\n" +
+            "  }\n" +
+            "  public struct Row {\n" +
+            "    public subscript(index: Swift.Int32) -> Swift.Int32 {\n" +
+            "      get async\n" +
+            "    }\n" +
+            "  }\n" +
+            "}\n" +
+            "public protocol Source {\n" +
+            "  subscript(offset: Swift.Int32) -> Swift.Int32 { get async }\n" +
+            "}\n" +
+            "extension Table {\n" +
+            "  public subscript(at a: Swift.Int32, and b: Swift.Int32) -> Swift.Int32 {\n" +
+            "    get async\n" +
+            "  }\n" +
+            "}\n");
+        try
+        {
+            var result = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+            var members = result.Facts.AsyncAccessorMembers;
+            Assert.NotNull(members);
+
+            Assert.Contains("Table.subscript(_:)", members!);
+            Assert.Contains("Table.subscript(named:)", members!);
+            Assert.Contains("static Table.subscript(_:)", members!);
+            Assert.Contains("Table.Row.subscript(_:)", members!);
+            Assert.Contains("Source.subscript(_:)", members!);
+            Assert.Contains("Table.subscript(at:and:)", members!);
+
+            Assert.DoesNotContain("Table.subscript(_:_:)", members!);
+            Assert.DoesNotContain("Table.subscript(index:)", members!);
+        }
+        finally { File.Delete(path); }
+    }
+
     #endregion
 
     #region Helpers

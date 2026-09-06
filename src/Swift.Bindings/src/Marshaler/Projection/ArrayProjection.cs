@@ -10,7 +10,7 @@ namespace BindingsGeneration;
 /// Parameter direction: FromEnumerable + PayloadBuffer, with optional element conversion + disposal.
 /// Return direction: MarshalFromSwift + AsProjected with element conversion lambda.
 /// </summary>
-public class ArrayProjection : ITypeProjection
+public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 {
     private readonly ITypeProjection _elementProjection;
     private readonly bool _isParameter;
@@ -429,47 +429,44 @@ public class ArrayProjection : ITypeProjection
         return $"global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects({arrayExpr}).Handle)";
     }
 
-    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)
     {
         // For nested containers (e.g., [[URL]]), inner elements need recursive conversion
         // to their ObjC collection counterparts before wrapping in the outer NSArray.
-        // Inner wrappers must be materialized for disposal after the P/Invoke call.
+        // Inner wrappers are retained by the outer NSArray — disposing the outer releases
+        // its retain on the inners. No separate inner disposal needed (ObjC ARC handles it).
         var isNestedContainer = _elementProjection is ArrayProjection or DictionaryProjection or SetProjection
             && _elementProjection.UsesObjCContainerBridge;
+        var innerConv = isNestedContainer ? _elementProjection.GetParameterElementConversion("e") : null;
+        var arrayExpr = innerConv != null
+            ? $"{paramName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
+            : ObjCLeafElementArrayExpr(paramName);
 
-        if (isNestedContainer)
-        {
-            var innerConv = _elementProjection.GetParameterElementConversion("e");
-            if (innerConv != null)
+        var ownerName = $"{paramName}NSArray";
+        return new ObjCContainerBridgeOwner(
+            new List<MarshalStatement>
             {
-                // Inner wrappers are retained by the outer NSArray — disposing the outer releases
-                // its retain on the inners. No separate inner disposal needed (ObjC ARC handles it).
-                var setup = new List<MarshalStatement>
-                {
-                    new MarshalStatement.Line(
-                        $"using var {paramName}NSArray = Foundation.NSArray.FromNSObjects({paramName}.Select(e => (Foundation.NSObject){innerConv}).ToArray());"),
-                    new MarshalStatement.Line(
-                        $"IntPtr {paramName}Buffer = {paramName}NSArray.Handle;")
-                };
-                return new MarshalPlan
-                {
-                    SetupStatements = setup,
-                    PInvokeExpression = $"{paramName}Buffer"
-                };
-            }
-        }
+                ObjCContainerBridgeOwner.Declare(
+                    "Foundation.NSArray", ownerName,
+                    $"Foundation.NSArray.FromNSObjects({arrayExpr})", paramName, sourceIsNullable)
+            },
+            ownerName);
+    }
 
-        var setup2 = new List<MarshalStatement>
+    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    {
+        var owner = BuildObjCBridgeOwner(paramName, sourceIsNullable: false);
+        var setup = new List<MarshalStatement>(owner.Setup)
         {
-            new MarshalStatement.Line(
-                $"using var {paramName}NSArray = Foundation.NSArray.FromNSObjects({ObjCLeafElementArrayExpr(paramName)});"),
-            new MarshalStatement.Line(
-                $"IntPtr {paramName}Buffer = {paramName}NSArray.Handle;")
+            new MarshalStatement.Line($"IntPtr {paramName}Buffer = {owner.Name}.Handle;")
         };
         return new MarshalPlan
         {
-            SetupStatements = setup2,
-            PInvokeExpression = $"{paramName}Buffer"
+            SetupStatements = setup,
+            PInvokeExpression = $"{paramName}Buffer",
+            // The bridged NSArray handle is borrowed: the `using` wrapper releases it after
+            // the call, so a consuming callee needs a +1 handed over first.
+            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
         };
     }
 

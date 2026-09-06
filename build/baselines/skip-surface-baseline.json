@@ -1,11 +1,17 @@
 {
-  "git_sha": "970e5c51",
+  "git_sha": "a0941586",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (a closure parameter shape the C wrapper bridge cannot marshal). P/Invoke calling convention may not match Swift ABI",
-      "count": 2
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "ObsoleteSB0001",
+      "reason": "No @_cdecl wrapper or native thunk available (a parameter that is a frozen struct containing another struct). P/Invoke calling convention may not match Swift ABI",
+      "count": 4
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -29,7 +35,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
-      "count": 63
+      "count": 66
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -76,13 +82,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027AsyncSkipPolicyClosure.runAsync\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "reason": "method \u0027AsyncSkipPolicyMethodGeneric.purchaseAsync\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027AsyncSkipPolicyMethodGeneric.purchaseAsync\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "reason": "method \u0027AsyncSkipPolicyNonEscapingClosure.runAsync\u0027 \u2014 parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
       "count": 1
     },
     {
@@ -262,6 +268,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027DerivedVault.Token.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027DescribableBox.Wrap\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
       "count": 1
     },
@@ -413,6 +425,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027InternalHolder.transform\u0027 \u2014 public async/closure/operator member on a @usableFromInline internal parent type with no direct CallConvSwift fallback (Closure-bearing member (closure parameter or return) on a @usableFromInline internal parent type: its closure wrapper must name the internal parent and has no direct CallConvSwift fallback.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027LeasedResultBox.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
     {

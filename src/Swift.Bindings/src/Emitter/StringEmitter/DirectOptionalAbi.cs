@@ -364,6 +364,13 @@ internal static class DirectOptionalAbi
     /// The getter is wrong in the same way and worse: it reads Swift's array storage back as an
     /// <c>NSArray</c> and takes ownership of it.</para>
     ///
+    /// <para>The container's optionality is not part of the question. A bare <c>[URL]</c> is the
+    /// same one-word native storage with no null inhabitant to spare, and the direct path renders
+    /// it through the same conversion: an <c>NSArray</c> handle in the slot, Swift's own storage
+    /// read back as one on return. Refusing only the optional spelling would leave the bare
+    /// method parameter and the bare subscript accessor — the more ordinary shapes — making the
+    /// live wrong call while their optional sibling is honestly refused.</para>
+    ///
     /// <para>Sibling to the bridged-value-type exclusion in <see cref="Classify"/>, one level out:
     /// that one covers a payload that bridges (<c>URL?</c>), this one a container whose ELEMENTS
     /// bridge. Kept here rather than in the classifier because it is not a claim about width —
@@ -373,5 +380,6 @@ internal static class DirectOptionalAbi
     /// its ownership is settled at the call instead.</para>
     /// </summary>
     internal static bool RendersAsForeignObject(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-        => CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase);
+        => CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, typeDatabase)
+           || CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase);
 }

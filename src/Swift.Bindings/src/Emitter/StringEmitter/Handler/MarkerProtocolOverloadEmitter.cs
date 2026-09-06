@@ -113,7 +113,7 @@ namespace BindingsGeneration
 
             var returnSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
             bool isVoidReturn = returnSpec.IsEmptyTuple;
-            bool isStatic = methodDecl.MethodType == MethodType.Static;
+            bool isStatic = MethodEnvironment.EmitsStaticMember(methodDecl, methodDecl.ParentDecl);
             var staticModifier = isStatic ? "static " : "";
 
             // Determine the return type — only void and self-returning methods are supported.

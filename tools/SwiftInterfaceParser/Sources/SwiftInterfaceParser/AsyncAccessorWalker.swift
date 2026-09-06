@@ -28,9 +28,25 @@ import SwiftParser
 ///
 /// EXTRACTION CONTRACT:
 ///
-/// 1. **Decl kinds**: `var`/`let` bindings with an accessor block. `func`, `init`
-///    and `subscript` do not contribute — a `func` derives async from its own
-///    mangled name, and subscript accessors never consult the async probe.
+/// 1. **Decl kinds**: `var`/`let` bindings with an accessor block, and `subscript`
+///    declarations. `func` and `init` do not contribute — they derive async from
+///    their own mangled name. A subscript accessor has the same blind spot as a
+///    property accessor (a plain `…cig` mangling with no `Ya` marker) and the same
+///    TBD-only single point of failure, so it is keyed here as well.
+///
+/// 1b. **Subscript key shape**: `Qualified.Type.Path.subscript(label1:label2:)` —
+///    the same spelling the ABI JSON's `printedName` uses, with the same label rule
+///    the `subscriptLabels` fact applies: a parameter contributes its external label
+///    only when it has one (`subscript(named name: String)` → `named:`), and `_`
+///    otherwise (`subscript(index: Int)` and `subscript(_ i: Int)` both → `_:`). A
+///    type-level (`static`/`class`) subscript carries the `"static "` prefix like a
+///    type-level property. Two subscripts on one type that erase to the same spelling
+///    (`subscript(index: Int)` beside `subscript(key: String)`) share one key, so an
+///    async getter on either marks both: the consumer treats that as a refusal of the
+///    indexer, which is the safe direction — under-marking is the ABI mismatch.
+///    Unlike the `subscriptLabels` walker, there is no access-modifier gate here:
+///    a protocol requirement carries none, and its async subscript is exactly the
+///    shape that must not be dropped.
 ///
 /// 2. **Effect source**: the structured accessor AST
 ///    (`AccessorDeclSyntax.effectSpecifiers?.asyncSpecifier`), scoped to the `get`
@@ -173,6 +189,36 @@ final class AsyncAccessorWalker: SyntaxVisitor {
         return .skipChildren
     }
 
+    // MARK: - Subscripts
+
+    override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard hasAsyncGetter(node.accessorBlock) else { return .skipChildren }
+        let isTypeLevel = node.modifiers.contains { modifier in
+            let text = modifier.name.text
+            return text == "static" || text == "class"
+        }
+        // Same external-label rule as the `subscriptLabels` walker, so the key spells the
+        // subscript exactly as the ABI JSON's `printedName` does.
+        var labels: [String] = []
+        for param in node.parameterClause.parameters {
+            let firstText = Self.unescape(param.firstName.text)
+            if param.secondName != nil && firstText != "_" {
+                guard RegexShape.isWordIdentifier(firstText) else { return .skipChildren }
+                labels.append(firstText)
+            } else {
+                labels.append("_")
+            }
+        }
+        let memberName = "subscript(" + labels.map { "\($0):" }.joined() + ")"
+        guard let key = makeKey(memberName: memberName, isTypeLevel: isTypeLevel) else {
+            return .skipChildren
+        }
+        if !asyncAccessorMembers.contains(key) {
+            asyncAccessorMembers.append(key)
+        }
+        return .skipChildren
+    }
+
     // MARK: - Helpers
 
     /// Pushes a nominal-type frame, or `nil` when the name is not a `\w+` identifier
@@ -197,7 +243,8 @@ final class AsyncAccessorWalker: SyntaxVisitor {
 
     /// Full qualified chain + member name, or `nil` when any enclosing frame is
     /// unrenderable. A module-level property (empty stack) gets a bare key. A
-    /// type-level property is prefixed so it cannot name its instance namesake.
+    /// type-level member is prefixed so it cannot name its instance namesake. The member
+    /// name is a property identifier or a `subscript(label:…)` spelling.
     private func makeKey(memberName: String, isTypeLevel: Bool) -> String? {
         let prefix = isTypeLevel ? "static " : ""
         if scopeStack.isEmpty { return prefix + memberName }
@@ -210,7 +257,7 @@ final class AsyncAccessorWalker: SyntaxVisitor {
         return prefix + parts.joined(separator: ".")
     }
 
-    /// True when the property's `get` accessor carries the `async` effect specifier.
+    /// True when the property's or subscript's `get` accessor carries the `async` effect specifier.
     /// Mirrors `ExtensionsWalker.detectEffectfulGetter`'s structured-AST reading, but
     /// narrowed to `async` — the `throws` half is already carried by the ABI JSON's
     /// `throwing` flag on the accessor node, so a second oracle for it would add a

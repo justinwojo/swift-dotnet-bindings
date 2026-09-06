@@ -121,7 +121,7 @@ internal static class UrlStringConvenienceOverloadEmitter
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);
 
-        var isStatic = methodDecl.MethodType == MethodType.Static;
+        var isStatic = methodEnv.EmitsStatic;
         var staticModifier = isStatic ? "static " : "";
 
         // Carry the primary's @MainActor isolation onto the forwarder, keyed on the identical decision

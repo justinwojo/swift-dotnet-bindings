@@ -596,8 +596,8 @@ public class ComplexProjectionTests
         var plan = proj.GetParameterPlan("urls");
 
         Assert.Equal("urlsBuffer", plan.PInvokeExpression);
-        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("NSArray.FromNSObjects(urls.ToArray())", firstLine.Code);
+        var owner = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
+        Assert.Contains("NSArray.FromNSObjects(urls.ToArray())", owner.InitExpression);
     }
 
     [Fact]
@@ -611,10 +611,10 @@ public class ComplexProjectionTests
         var plan = outerArray.GetParameterPlan("nested");
 
         Assert.Equal("nestedBuffer", plan.PInvokeExpression);
-        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        var owner = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
         // Must apply inner conversion: Select + FromNSObjects for inner arrays
-        Assert.Contains(".Select(e =>", firstLine.Code);
-        Assert.Contains("NSArray.FromNSObjects", firstLine.Code);
+        Assert.Contains(".Select(e =>", owner.InitExpression);
+        Assert.Contains("NSArray.FromNSObjects", owner.InitExpression);
     }
 
     [Fact]
@@ -627,9 +627,9 @@ public class ComplexProjectionTests
         var plan = outerSet.GetParameterPlan("items");
 
         Assert.Equal("itemsBuffer", plan.PInvokeExpression);
-        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Select(e =>", firstLine.Code);
-        Assert.Contains("NSArray.FromNSObjects", firstLine.Code);
+        var owner = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
+        Assert.Contains(".Select(e =>", owner.InitExpression);
+        Assert.Contains("NSArray.FromNSObjects", owner.InitExpression);
     }
 
     [Fact]

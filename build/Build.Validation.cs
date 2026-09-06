@@ -1700,9 +1700,7 @@ partial class Build
         var buildStamp = outputBase / ".build-stamp";
         var fingerprint = ComputeSourceFingerprint();
 
-        if (File.Exists(buildStamp) &&
-            File.ReadAllText(buildStamp).Trim() == fingerprint &&
-            File.Exists(GeneratorDll))
+        if (GeneratorBuildStampIsCurrent(buildStamp, fingerprint))
         {
             Log.Debug("Generator unchanged — skipping build");
         }
@@ -1711,8 +1709,11 @@ partial class Build
             Log.Information("--- Building generator + runtime ---");
             try
             {
+                // --no-incremental: the rebuild exists to replace a dll that may contradict its
+                // source, so it must not be allowed to reuse the intermediate outputs that
+                // produced that dll.
                 ProcessTasks.StartProcess(
-                        "dotnet", $"build \"{GeneratorProject}\" -v quiet",
+                        "dotnet", $"build \"{GeneratorProject}\" -v quiet --no-incremental",
                         logOutput: false)
                     .AssertWaitForExit()
                     .AssertZeroExitCode();
@@ -1737,7 +1738,7 @@ partial class Build
 
                 Log.Information("Generator built");
                 Directory.CreateDirectory(outputBase);
-                File.WriteAllText(buildStamp, fingerprint);
+                File.WriteAllText(buildStamp, ComputeGeneratorBuildStamp(fingerprint));
             }
             catch (Exception ex)
             {
@@ -1791,6 +1792,31 @@ partial class Build
         sha.TransformFinalBlock([], 0, 0);
         return Convert.ToHexString(sha.Hash!).ToLowerInvariant();
     }
+
+    /// <summary>
+    /// The freshness stamp a generator-consuming gate records after building the generator: the
+    /// source fingerprint paired with the SHA256 of the dll that source produced. Comparing the
+    /// source alone trusts whatever dll is on disk once the tree matches — but the dll is also
+    /// written by any raw <c>dotnet build</c>/<c>dotnet test</c> of a project that references the
+    /// generator, and an incremental build there can emit a binary that contradicts its inputs.
+    /// A gate that only checked the source would then regenerate with a binary that does not match
+    /// the tree and report a green that describes the wrong generator. Pairing the dll hash closes
+    /// that: the build is deterministic, so a correct rebuild from unchanged source reproduces the
+    /// recorded hash and does not re-trigger, while a binary that differs from what this source
+    /// produced forces a rebuild. Missing dll ⇒ never current.
+    /// </summary>
+    string ComputeGeneratorBuildStamp(string sourceFingerprint)
+    {
+        if (!File.Exists(GeneratorDll))
+            return sourceFingerprint + "\nmissing";
+        var dllHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(GeneratorDll))).ToLowerInvariant();
+        return sourceFingerprint + "\n" + dllHash;
+    }
+
+    bool GeneratorBuildStampIsCurrent(AbsolutePath buildStamp, string sourceFingerprint) =>
+        File.Exists(GeneratorDll) &&
+        File.Exists(buildStamp) &&
+        File.ReadAllText(buildStamp).Trim() == ComputeGeneratorBuildStamp(sourceFingerprint);
 
     // ============================================================
     // Helper: Transitive dependency closures
