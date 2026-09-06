@@ -314,7 +314,7 @@ internal static class DirectOptionalAbi
     /// is wrong on exactly one arm. The native assembly thunk moves the value through memory yet
     /// owns nothing — it shifts registers and tail-calls the real accessor — so a callee reached
     /// through it still consumes what a Swift-source wrapper would have borrowed. Ownership is
-    /// asked of <see cref="SetterValueOwnership"/> instead.</para>
+    /// asked of <see cref="CalleeArgumentOwnership"/> instead.</para>
     /// </summary>
     internal static bool UsesSwiftSideCarrier(MethodDecl methodDecl)
         => methodDecl.UsesCdeclWrapper

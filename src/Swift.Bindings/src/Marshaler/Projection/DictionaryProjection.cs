@@ -183,7 +183,11 @@ public class DictionaryProjection : ITypeProjection
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buffer"
+            PInvokeExpression = $"{paramName}Buffer",
+            // The container's element storage is a refcounted object; a consuming callee releases
+            // it, so the borrowed count read out of the transient wrapper has to be topped up.
+            OwnedHandOverStatement =
+                $"global::Swift.Runtime.OwnedArgument.Retain<{SwiftContainerGenericType}>({paramName}Swift.Payload);"
         };
     }
 

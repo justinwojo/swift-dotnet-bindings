@@ -52,7 +52,7 @@ internal static class NonRetainingSinkLane
     /// </summary>
     internal static bool ConsumerOwnsCarrier(MethodDecl methodDecl, ArgumentDecl argumentDecl)
         => methodDecl.SinkReferenceOwnership != SwiftReferenceOwnership.Strong
-           && SetterValueOwnership.IsSetterValue(methodDecl, argumentDecl);
+           && CalleeArgumentOwnership.IsSetterNewValue(methodDecl, argumentDecl);
 
     /// <summary>
     /// The same question asked from the property side, for an arm that writes the setter body

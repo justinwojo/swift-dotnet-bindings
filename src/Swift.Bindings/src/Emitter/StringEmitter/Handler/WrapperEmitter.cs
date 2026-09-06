@@ -539,6 +539,7 @@ namespace BindingsGeneration
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
             EmitExistentialContainerMarshalling(csWriter);
+            EmitConsumedClassArgumentHandOvers(csWriter);
 
             if (isGeneric)
             {
@@ -658,6 +659,7 @@ namespace BindingsGeneration
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
             EmitExistentialContainerMarshalling(csWriter);
+            EmitConsumedClassArgumentHandOvers(csWriter);
 
             if (needsTryFinally)
             {
@@ -933,7 +935,7 @@ namespace BindingsGeneration
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
             EmitExistentialContainerMarshalling(csWriter);
-            EmitConsumedClassSetterValueHandOver(csWriter);
+            EmitConsumedClassArgumentHandOvers(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitOptionalReturnBuffer(csWriter);
             EmitRawBufferFixedStart(csWriter);

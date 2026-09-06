@@ -21,6 +21,15 @@ public record MarshalPlan
     /// <summary>Using declarations that wrap the P/Invoke call for disposal.</summary>
     public List<(string Type, string Name)> UsingDeclarations { get; init; } = new();
 
+    /// <summary>
+    /// A statement that hands this parameter's value to the callee at +1, emitted after
+    /// <see cref="SetupStatements"/> and only where the callee's Swift lowering takes the argument
+    /// <c>@owned</c> — an initializer's value parameters and every parameter of a setter, reached
+    /// without an intervening Swift-source frame. Null on plans whose value carries no reference to
+    /// transfer, and ignored on every borrowing call, so a plan can declare it unconditionally.
+    /// </summary>
+    public string? OwnedHandOverStatement { get; init; }
+
     /// <summary>Whether the plan requires an unsafe context.</summary>
     public bool RequiresUnsafe { get; init; }
 

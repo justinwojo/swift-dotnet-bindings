@@ -55,7 +55,12 @@ public class FrozenWithMemoryProjection : ITypeProjection
                 new MarshalStatement.Using(
                     $"PayloadBuffer<{_typeName}.Buffer>", $"{paramName}Disposable", $"{paramName}.PayloadBuffer")
             },
-            PInvokeExpression = $"{paramName}Disposable.Buffer"
+            PInvokeExpression = $"{paramName}Disposable.Buffer",
+            // The lowered buffer carries the wrapper's own references. The wrapper is the caller's
+            // long-lived object and destroys them on Dispose, so a consuming callee needs a count of
+            // its own rather than a share of that one.
+            OwnedHandOverStatement =
+                $"global::Swift.Runtime.OwnedArgument.Retain<{_typeName}>({paramName}.Payload);"
         };
     }
 

@@ -206,76 +206,97 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// True when <paramref name="argumentDecl"/> is the value a Swift setter takes ownership of.
-        /// See <see cref="SetterValueOwnership.IsSetterValue"/> for the <c>@owned</c> lowering this
-        /// reads off the parameter position.
-        /// </summary>
-        private bool IsConsumedSetterValue(ArgumentDecl argumentDecl)
-            => SetterValueOwnership.IsSetterValue(_env.MethodDecl, argumentDecl);
-
-        /// <summary>
         /// True when this argument must be handed to the callee at +1, so the arm marshalling it
         /// emits the transfer and disarms its own destroy.
         ///
         /// <para>Ownership is a property of the callee, not of the C# type, which is why every arm
-        /// that hands a setter value across asks this one question — and asks it of an ownership
-        /// oracle rather than of the Optional-width oracle beside it. A Swift-source wrapper
-        /// borrows its parameter, so transferring there would drop the only release and leak; the
-        /// native assembly thunk introduces no frame at all, so the accessor's <c>@owned</c>
-        /// convention reaches this caller unchanged and the value must be handed over exactly as on
-        /// a direct accessor call.</para>
+        /// that hands a value across asks this one question — and asks it of an ownership oracle
+        /// rather than of the Optional-width oracle beside it. A Swift-source wrapper borrows its
+        /// parameter, so transferring there would drop the only release and leak; the native
+        /// assembly thunk introduces no frame at all, so the callee's <c>@owned</c> convention
+        /// reaches this caller unchanged and the value must be handed over exactly as on a direct
+        /// call.</para>
         /// </summary>
-        private bool ConsumesSetterValueDirectly(ArgumentDecl argumentDecl)
-            => SetterValueOwnership.IsHandedOverToCallee(_env.MethodDecl, argumentDecl);
+        private bool ConsumedByDirectCallee(ArgumentDecl argumentDecl)
+            => CalleeArgumentOwnership.IsHandedOverToCallee(_env.MethodDecl, argumentDecl);
 
         /// <summary>
-        /// Hands a class-typed setter value to the callee at +1.
+        /// Emits the +1 for a consumed argument whose lowered buffer is read out of a wrapper the
+        /// CALLER keeps owning — a frozen-struct parameter, a transient <c>SwiftString</c>, a
+        /// collection or Optional carrier. Passing those bits borrowed to a callee that releases
+        /// them costs the referenced objects a count they never received.
+        ///
+        /// <para>The count is minted on the value in place through its value witness rather than
+        /// donated off the wrapper. Donating (a <c>MarkConsumed</c>) only works where the wrapper is
+        /// an emitter-built temporary; a parameter the consumer handed in is a live object whose own
+        /// destroy must stay armed, and one uniform mechanism spares every arm from having to
+        /// classify which of the two it holds.</para>
+        ///
+        /// <para>Emitted before the call on purpose: should it throw, the value leaks one count
+        /// instead of reaching a consuming callee at +0 and being over-released — the same trade the
+        /// payload-donating arms make.</para>
+        /// </summary>
+        private void EmitOwnedArgumentRetain(
+            CSharpWriter csWriter, ArgumentDecl argumentDecl, string carrierTypeName, string payloadExpression)
+        {
+            if (!ConsumedByDirectCallee(argumentDecl))
+                return;
+
+            csWriter.WriteLine(
+                $"global::Swift.Runtime.OwnedArgument.Retain<{carrierTypeName}>({payloadExpression});");
+        }
+
+        /// <summary>
+        /// Hands class-typed consumed arguments to the callee at +1.
         ///
         /// <para>A plain class argument needs no marshalling: the P/Invoke slot is the object's own
         /// payload handle, so the call site renders it as <c>{name}.Payload</c> and no arm above ever
         /// runs for it. That is exactly why its ownership went unmodelled — the shapes that DO get
         /// marshalled each spell the transfer in their own idiom (a transferring carrier accessor, a
-        /// <c>MarkConsumed</c> on the payload), and a value passed straight through had nowhere to
-        /// say it. Against a callee that consumes its argument, passing the object untouched is an
-        /// under-retain: the strong store takes zero net counts and the object is over-released when
-        /// the slot is next written or the owner is deinitialized.</para>
+        /// value-witness copy, a <c>MarkConsumed</c> on the payload), and a value passed straight
+        /// through had nowhere to say it. Against a callee that consumes its argument, passing the
+        /// object untouched is an under-retain: the strong store takes zero net counts and the object
+        /// is over-released when the slot is next written or the owner is deinitialized.</para>
+        ///
+        /// <para>Every consumed argument is walked, not just the first: a subscript setter takes its
+        /// indices <c>@owned</c> alongside the new value, and an initializer consumes each of its
+        /// value parameters, so a class in any of those slots needs the same retain.</para>
         ///
         /// <para>Only the class arm is transferred here. The same <c>SafeHandle</c> slot also carries
         /// a non-frozen struct, whose +1 lives in the payload buffer rather than in a refcount, so it
         /// hands over by marking the payload consumed — the arm above it — and a retain there would
-        /// be meaningless. Every other setter value is either trivially copyable, with no count to
-        /// transfer, or already routed through an arm that models its ownership.</para>
+        /// be meaningless. Every other consumed argument is either trivially copyable, with no count
+        /// to transfer, or already routed through an arm that models its ownership.</para>
         /// </summary>
-        private void EmitConsumedClassSetterValueHandOver(CSharpWriter csWriter)
+        private void EmitConsumedClassArgumentHandOvers(CSharpWriter csWriter)
         {
-            if (_env.MethodDecl.CSSignature.Count <= 1)
-                return;
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (!ConsumedByDirectCallee(argumentDecl))
+                    continue;
 
-            var argumentDecl = _env.MethodDecl.CSSignature[1];
-            if (!ConsumesSetterValueDirectly(argumentDecl))
-                return;
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 
-            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                // Only the pass-through arm — a parameter the P/Invoke names as a bare SafeHandle
+                // whose call expression is the object's payload. Anything the marshalling above
+                // rewrote into a buffer variable already carried its own transfer.
+                if (!_pInvokeSignature.Parameters.Any(p => p.Name == csName
+                                                           && p.Type is MarshalledType.NonFrozenSafeHandleType))
+                    continue;
 
-            // Only the pass-through arm — a parameter the P/Invoke names as a bare SafeHandle whose
-            // call expression is the object's payload. Anything the marshalling above rewrote into a
-            // buffer variable already carried its own transfer.
-            if (!_pInvokeSignature.Parameters.Any(p => p.Name == csName
-                                                       && p.Type is MarshalledType.NonFrozenSafeHandleType))
-                return;
+                if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec)
+                    continue;
 
-            if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec)
-                return;
+                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
+                if (!_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record)
+                    || record.Kind != TypeRecordKind.Class)
+                    continue;
 
-            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
-            if (!_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record)
-                || record.Kind != TypeRecordKind.Class)
-                return;
-
-            // Pinned across the retain and the call that follows it, so the handle cannot be
-            // finalized between reading the pointer and Swift's entry.
-            csWriter.WriteLine($"using SafeHandlePin {csName}OwnedPin = new SafeHandlePin({csName}.Payload);");
-            csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}OwnedPin.Handle);");
+                // Pinned across the retain and the call that follows it, so the handle cannot be
+                // finalized between reading the pointer and Swift's entry.
+                csWriter.WriteLine($"using SafeHandlePin {csName}OwnedPin = new SafeHandlePin({csName}.Payload);");
+                csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}OwnedPin.Handle);");
+            }
         }
 
         /// <summary>
@@ -328,7 +349,7 @@ namespace BindingsGeneration
                 {
                     var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                    var handedOver = ConsumesSetterValueDirectly(argumentDecl)
+                    var handedOver = ConsumedByDirectCallee(argumentDecl)
                         ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName})"
                         : csName;
                     csWriter.WriteLine($"IntPtr {bufferName} = {handedOver};");
@@ -400,7 +421,7 @@ namespace BindingsGeneration
                             // Setters take their new value at +1 and release it themselves, so the
                             // carrier hands the payload over instead of lending it; anything else
                             // reaching here is an ordinary borrowed argument and keeps its Destroy.
-                            var carrierAccessor = ConsumesSetterValueDirectly(argumentDecl)
+                            var carrierAccessor = ConsumedByDirectCallee(argumentDecl)
                                 ? "GetCarrierBufferTransferring"
                                 : "GetCarrierBuffer";
                             csWriter.WriteLine($"using PayloadBuffer<{accessorCarrier}> {csName}Disposable = {csName}.{carrierAccessor}<{accessorCarrier}>();");
@@ -455,7 +476,7 @@ namespace BindingsGeneration
                             // the payload handle rather than through a typed accessor. Marking
                             // before the call is deliberate: if it throws, the value leaks instead
                             // of being destroyed a second time by a callee that may already own it.
-                            if (ConsumesSetterValueDirectly(argumentDecl))
+                            if (ConsumedByDirectCallee(argumentDecl))
                                 csWriter.WriteLine($"{csName}.Payload.MarkConsumed();");
                         }
                     }
@@ -798,6 +819,13 @@ namespace BindingsGeneration
             {
                 if (MarshallingHelpers.IsSwiftArray(arg.SwiftTypeSpec))
                 {
+                    // A parameter the ownership oracle already recognizes as consumed had its +1
+                    // minted by the marshal plan's hand-over. Repeating it here would leave a second
+                    // count outstanding after the callee consumes one and the transient wrapper
+                    // releases the other — a leak of the array storage on every call.
+                    if (ConsumedByDirectCallee(arg))
+                        continue;
+
                     var csName = NameProvider.GetCSharpParameterName(arg);
                     csWriter.WriteLine($"global::Swift.Runtime.Arc.Retain({csName}Buffer);");
                 }
@@ -855,7 +883,15 @@ namespace BindingsGeneration
                 MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
             {
                 var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");
+                // This bypass reads the handle straight off the managed wrapper, which keeps owning
+                // the object — so against a callee that consumes its argument the pointer arrives at
+                // +0 and the callee's release takes a count nobody transferred. Retained
+                // isa-dispatched, since an NSObject-rooted payload needs objc_retain rather than
+                // swift_retain, and null-tolerant so the nil arm stays IntPtr.Zero.
+                var objCHandleExpression = ConsumedByDirectCallee(argumentDecl)
+                    ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}?.Handle ?? IntPtr.Zero)"
+                    : $"{csName}?.Handle ?? IntPtr.Zero";
+                csWriter.WriteLine($"IntPtr {bufferName} = {objCHandleExpression};");
                 return true;
             }
 
@@ -1021,6 +1057,21 @@ namespace BindingsGeneration
             }
 
             MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
+
+            // Swift takes an initializer's value parameters, and every parameter of a setter,
+            // @owned — the callee releases what it was handed. The plan's setup read the lowered
+            // value out of a wrapper that still owns it, so without this the callee's release takes
+            // a count nobody transferred and the referenced storage dies early. Only on the arms
+            // that reach Swift's own symbol; a Swift-source wrapper frame borrows and mints its own.
+            //
+            // An Optional already routed under Swift's @in convention is the exception: the callee
+            // destroys the buffer's contents itself and the cleanup after the call frees the storage
+            // raw, so the transient's own count is what crosses over. Minting a second one there
+            // leaves it outstanding for good.
+            if (plan.OwnedHandOverStatement is { } handOver
+                && ConsumedByDirectCallee(argumentDecl)
+                && !_inConventionOptionalNames.Contains(csName))
+                csWriter.WriteLine(handOver);
 
             // Foundation.Data ABI decomposition for @_cdecl constructor/method wrappers:
             // Extract two nint words from the 16-byte Swift.Foundation.Data struct (mirrors the
@@ -1577,21 +1628,36 @@ namespace BindingsGeneration
                     var typedEnumCarrier = typeRecord.Flags.HasFlag(TypeRecordFlags.AppleTypedEnum)
                         ? typeRecord.NativeTypeName?.FullyQualifiedName
                         : null;
+                    // Both arms below read a handle off an object the managed side keeps owning, so
+                    // against a callee that consumes its argument the pointer would arrive at +0 and
+                    // the callee's release would take a count nobody transferred — the same
+                    // under-retain the frozen-struct arm below hands over with a value-witness copy.
+                    // Retained isa-dispatched (an NSObject-rooted payload needs objc_retain, not
+                    // swift_retain) and null-tolerant, so the nil arm stays IntPtr.Zero.
+                    bool handsOverObjCHandle = ConsumedByDirectCallee(argumentDecl);
+
                     if (typedEnumCarrier is not null)
                     {
                         var typedEnum = new AppleTypedEnumAdapter(typeRecord.CSharpTypeName.FullyQualifiedName, typedEnumCarrier);
                         csWriter.WriteLine($"var {csName}Constant = {typedEnum.ToCarrier(csName)};");
-                        csWriter.WriteLine($"IntPtr {csName}Handle = {csName}Constant.Handle;");
+                        var constantHandle = handsOverObjCHandle
+                            ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}Constant.Handle)"
+                            : $"{csName}Constant.Handle";
+                        csWriter.WriteLine($"IntPtr {csName}Handle = {constantHandle};");
                         continue;
                     }
 
-                    csWriter.WriteLine($"IntPtr {csName}Handle = {csName}?.Handle ?? IntPtr.Zero;");
+                    var objCHandle = handsOverObjCHandle
+                        ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}?.Handle ?? IntPtr.Zero)"
+                        : $"{csName}?.Handle ?? IntPtr.Zero";
+                    csWriter.WriteLine($"IntPtr {csName}Handle = {objCHandle};");
                     continue;
                 }
 
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
                     csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {csName}Disposable = {csName}.PayloadBuffer;");
+                    EmitOwnedArgumentRetain(csWriter, argumentDecl, typeRecord.CSharpTypeName.ToString(), $"{csName}.Payload");
                 }
             }
 

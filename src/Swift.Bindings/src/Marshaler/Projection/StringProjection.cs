@@ -24,7 +24,12 @@ public class StringProjection : ITypeProjection
                 new MarshalStatement.Using("PayloadBuffer<SwiftString.Buffer>", $"{paramName}Disposable",
                     $"{paramName}Swift.PayloadBuffer")
             },
-            PInvokeExpression = $"{paramName}Disposable.Buffer"
+            PInvokeExpression = $"{paramName}Disposable.Buffer",
+            // A Swift String longer than the inline small-string form keeps its bytes on a
+            // refcounted storage object, so passing the lowered buffer to a consuming callee
+            // borrows a count the transient SwiftString still owns and will release.
+            OwnedHandOverStatement =
+                $"global::Swift.Runtime.OwnedArgument.Retain<SwiftString>({paramName}Swift.Payload);"
         };
     }
 

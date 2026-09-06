@@ -205,7 +205,12 @@ public class OptionalProjection : ITypeProjection
                     new MarshalStatement.Line(
                         $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {ObjCInnerHandleExpression($"{paramName}Val")} : IntPtr.Zero;")
                 },
-                PInvokeExpression = $"{paramName}Buffer"
+                PInvokeExpression = $"{paramName}Buffer",
+                // Same borrow as the Swift-class arm below: the handle belongs to a managed wrapper
+                // that keeps owning the object. Retained isa-dispatched, since an NSObject-rooted
+                // payload needs objc_retain rather than swift_retain.
+                OwnedHandOverStatement =
+                    $"{paramName}Buffer = global::Swift.Runtime.Arc.UnknownObjectRetain({paramName}Buffer);"
             };
         }
 
@@ -244,7 +249,12 @@ public class OptionalProjection : ITypeProjection
                     new MarshalStatement.Line(
                         $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Payload.DangerousGetHandle() : IntPtr.Zero;")
                 },
-                PInvokeExpression = $"{paramName}Buffer"
+                PInvokeExpression = $"{paramName}Buffer",
+                // The pointer was read off a managed wrapper that keeps owning the object, so it
+                // arrives borrowed; a consuming callee releases it and the wrapper releases it
+                // again. Retaining is a no-op on the nil pointer, so the None case is unaffected.
+                OwnedHandOverStatement =
+                    $"{paramName}Buffer = global::Swift.Runtime.Arc.UnknownObjectRetain({paramName}Buffer);"
             };
         }
 
@@ -401,7 +411,11 @@ public class OptionalProjection : ITypeProjection
         return new MarshalPlan
         {
             SetupStatements = setup,
-            PInvokeExpression = $"{paramName}Buffer"
+            PInvokeExpression = $"{paramName}Buffer",
+            // A present payload holding a reference is released by a consuming callee, and the
+            // SwiftOptional the setup just built destroys the same value when it goes out of scope.
+            OwnedHandOverStatement =
+                $"global::Swift.Runtime.OwnedArgument.Retain<SwiftOptional<{optTypeParam}>>({paramName}Swift.Payload);"
         };
     }
 
