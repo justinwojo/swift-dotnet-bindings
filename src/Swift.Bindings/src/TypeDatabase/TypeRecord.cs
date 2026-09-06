@@ -7,6 +7,17 @@ using Swift.Runtime;
 namespace BindingsGeneration;
 
 /// <summary>
+/// A Swift value type's inline layout: the byte <paramref name="Size"/> the type occupies when
+/// stored inline in an aggregate, and the byte <paramref name="Alignment"/> its start offset is
+/// rounded up to. Size is the Swift <c>MemoryLayout.size</c> (NOT stride) — the trailing pad to
+/// stride is reproduced by the next field's alignment round-up, so carrying stride here would
+/// double-count it.
+/// </summary>
+/// <param name="Size">Inline byte size (Swift <c>MemoryLayout.size</c>).</param>
+/// <param name="Alignment">Byte alignment of the type's start offset; always a power of two.</param>
+public readonly record struct DeclaredValueLayout(int Size, int Alignment);
+
+/// <summary>
 /// Represents type's flags.
 /// </summary>
 [Flags]
@@ -273,6 +284,51 @@ public record TypeRecord
     /// Null means unknown — falls back to IntPtr.Size for RequiresMemoryManagement types.
     /// </summary>
     public int? InlineSize { get; init; }
+
+    /// <summary>
+    /// The Swift inline (size, alignment) of this value type DERIVED at parse time by walking its
+    /// own declared stored fields, for the one role <see cref="InlineSize"/> cannot fill
+    /// cross-compile: sizing this type when it is embedded as a stored field of another frozen
+    /// struct's blitted Buffer.
+    ///
+    /// <para>
+    /// Deliberately a separate lane from <see cref="InlineSize"/>. That property is read by the
+    /// register-classification, wrapper-validation and native-thunk gates, which all treat "absent"
+    /// as "decline and route to the indirect path"; back-filling a derived size into it would flip
+    /// those ABI decisions for every cross-compiled module type at once. This value is consulted
+    /// ONLY by the Buffer-field sizing walk, where a missing answer means a silently under-sized
+    /// blit rather than a conservative fallback.
+    /// </para>
+    ///
+    /// <para>
+    /// Null means the layout was never derived for this record (XML-loaded types, Apple-supplement
+    /// synthesizations, foreign records) — the Buffer walk keeps its historical single-pointer
+    /// assumption. A record whose layout was ATTEMPTED and could not be derived instead sets
+    /// <see cref="DeclaredLayoutIndeterminate"/>, which makes the Buffer walk fail closed.
+    /// </para>
+    /// </summary>
+    public DeclaredValueLayout? DeclaredLayout { get; init; }
+
+    /// <summary>
+    /// True when a parse-time derivation of this type's inline layout was attempted and could not
+    /// produce a sound answer (a payload-carrying enum whose spare-bit tag packing is not derivable,
+    /// a field whose own layout is itself indeterminate). Distinct from a null
+    /// <see cref="DeclaredLayout"/> with this flag clear, which means the derivation was never
+    /// attempted. Embedding such a type as a stored field of a frozen struct's Buffer fails closed —
+    /// the containing struct is skipped rather than blitted at a guessed width.
+    /// </summary>
+    public bool DeclaredLayoutIndeterminate { get; init; }
+
+    /// <summary>
+    /// True when this type's inline ALIGNMENT is raised above what its fields require by an
+    /// <c>@_alignment(N)</c> attribute whose N the ABI descriptor never records, or when it stores a
+    /// field of such a type. Tracked apart from <see cref="DeclaredLayoutIndeterminate"/> because it
+    /// invalidates a size that IS known: a Buffer mirrors its fields as whole pointer words, so an
+    /// over-aligned field's offset inside the container — and therefore the container's total width —
+    /// cannot be reproduced even when <see cref="InlineSize"/> or live value-witness metadata reports
+    /// the type's exact size. Embedding such a type in a frozen struct's Buffer fails closed.
+    /// </summary>
+    public bool HasUnknownCustomAlignment { get; init; }
 
     /// <summary>
     /// Compact ABI field layout string describing per-field register classification for ARM64 thunks.

@@ -557,6 +557,21 @@ namespace BindingsGeneration
             if (!typeDatabase.TryGetTypeRecord(fieldTypeSpec, out var fieldRecord))
                 return FrozenFieldLayoutKind.TypedField; // unresolved → fall back to a typed C# field (existing behavior)
 
+            // An over-aligned field breaks the Buffer's layout whatever its size is and whichever arm
+            // would otherwise emit it: the Buffer is packed sequentially at pointer granularity and
+            // cross-compile carries no [StructLayout(Size = …)], so the interior pad Swift inserts
+            // before the field is simply absent and every later field — and the total width — comes
+            // out short. Checked ahead of the memory-management split so a TRIVIAL over-aligned
+            // field (a plain struct or a no-payload enum, which never reaches the reference-managed
+            // resolver) fails closed too, not only a reference-bearing one.
+            if (fieldRecord.HasUnknownCustomAlignment)
+                return FrozenFieldLayoutKind.Indeterminate;
+
+            // Same refusal when the alignment IS recorded and exceeds a pointer word. This arm is
+            // what catches it on the TRIVIAL path, where no size resolver runs at all.
+            if (fieldRecord.DeclaredLayout is { } fieldLayout && fieldLayout.Alignment > IntPtr.Size)
+                return FrozenFieldLayoutKind.Indeterminate;
+
             if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
             {
                 // Reference-managed field (Swift.String is 16 bytes / 2 words but was once mapped to
@@ -666,8 +681,8 @@ namespace BindingsGeneration
 
                 anyOverPaddedOptional |= isOverPaddedOptional;
 
-                int swiftOffset = AlignUp(swiftCursor, swiftAlign);
-                int csOffset = AlignUp(csCursor, csAlign);
+                int swiftOffset = SwiftValueLayout.AlignUp(swiftCursor, swiftAlign);
+                int csOffset = SwiftValueLayout.AlignUp(csCursor, csAlign);
                 if (swiftOffset != csOffset)
                     offsetDiverged = true;
 
@@ -698,7 +713,7 @@ namespace BindingsGeneration
                 case FrozenFieldLayoutKind.IntPtrFields:
                     // Optional<T> / reference-managed field emitted as whole 8-byte IntPtr words.
                     swiftSize = byteSize;
-                    csSize = IntPtr.Size * ((byteSize + IntPtr.Size - 1) / IntPtr.Size);
+                    csSize = SwiftValueLayout.AlignUp(byteSize, IntPtr.Size);
                     csAlign = IntPtr.Size;
                     if (!TryGetSwiftFieldAlignment(fieldTypeSpec, typeDatabase, out swiftAlign))
                         return false;
@@ -753,16 +768,26 @@ namespace BindingsGeneration
             return false; // unknown alignment → caller bails (no skip)
         }
 
-        private static int AlignUp(int value, int alignment)
-            => alignment <= 1 ? value : (value + alignment - 1) / alignment * alignment;
-
         /// <summary>
         /// Emits IntPtr-based backing fields for a frozen struct Buffer field.
         /// Fields larger than one pointer word get numbered suffixes (_0_, _1_, etc.).
         /// </summary>
         private static void EmitIntPtrFields(CSharpWriter csWriter, string fieldName, int fieldSize)
         {
-            int wordCount = (fieldSize + IntPtr.Size - 1) / IntPtr.Size;
+            // A negative width can only come from a corrupt module database, and rounding it up would
+            // land on wordCount <= 1 — i.e. a single pointer standing in for an arbitrary size, the
+            // exact silent under-size this walk exists to prevent. Refuse loudly instead, as the
+            // indeterminate arm above does.
+            if (fieldSize < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Frozen struct Buffer field '{fieldName}' resolved to a negative inline size ({fieldSize}); " +
+                    "the module database entry for its type is not usable.");
+            }
+            // Divide first rather than round the size up with `fieldSize + IntPtr.Size - 1`: that add
+            // wraps negative for a size near int.MaxValue, landing on wordCount <= 1 — one pointer
+            // standing in for an enormous field, which is the silent under-size again.
+            int wordCount = fieldSize / IntPtr.Size + (fieldSize % IntPtr.Size == 0 ? 0 : 1);
             if (wordCount <= 1)
             {
                 csWriter.WriteLine($"private IntPtr {fieldName}_;  // Note: Do not access this field directly - use the property accessors");

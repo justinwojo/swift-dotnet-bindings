@@ -279,6 +279,21 @@ namespace BindingsGeneration
             if (record.InlineSize.HasValue)
                 writer.WriteAttributeString("inlineSize", record.InlineSize.Value.ToString());
 
+            // Inline layout derived from the type's own stored fields, for sizing it as a field of a
+            // downstream module's frozen-struct Buffer. "size:alignment" when derived, "unknown" when
+            // the derivation ran and could not produce a sound answer (which makes a Buffer embedding
+            // this type fail closed); absent when never attempted (which keeps the pointer clamp).
+            if (record.DeclaredLayout is { } declaredLayout)
+                writer.WriteAttributeString("declaredLayout", $"{declaredLayout.Size}:{declaredLayout.Alignment}");
+            else if (record.DeclaredLayoutIndeterminate)
+                writer.WriteAttributeString("declaredLayout", "unknown");
+
+            // An alignment raised by `@_alignment(N)` whose N the ABI descriptor omits. Persisted
+            // separately from declaredLayout because it also invalidates the inlineSize written above:
+            // a downstream Buffer that embeds this type knows its size and still cannot place it.
+            if (record.HasUnknownCustomAlignment)
+                writer.WriteAttributeString("unknownCustomAlignment", "true");
+
             // ABI field layout for ARM64 thunk register decomposition (e.g., "i,f,i,f")
             if (!string.IsNullOrEmpty(record.AbiFieldLayout))
                 writer.WriteAttributeString("abiLayout", record.AbiFieldLayout);

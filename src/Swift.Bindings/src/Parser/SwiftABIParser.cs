@@ -1898,6 +1898,8 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
+                // The descriptor carries the bare presence of `@_alignment(N)`, never N itself.
+                HasCustomAlignment = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Alignment") != -1,
                 MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsSpiProtected = IsNodeSpiProtected(node)
@@ -1967,6 +1969,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
+                HasCustomAlignment = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Alignment") != -1,
                 MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
                 RawValueTypeName = node.EnumRawTypeName,
                 IsModuleInternal = IsNodeModuleInternal(node),

@@ -599,6 +599,267 @@ public class FrozenStructHandlerTests
         Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(s, db));
     }
 
+    #endregion
+
+    #region Nested reference-bearing field sizing (ClassifyFrozenStructField)
+
+    [Fact]
+    public void ClassifyFrozenStructField_NestedReferenceBearingFrozenStruct_ReservesItsRealInlineSize()
+    {
+        // The defect: a stored field whose OWN type is a reference-bearing frozen struct was sized as a
+        // single pointer, so the Buffer mirror reserved 8 bytes for a value Swift lays out as 16 (a
+        // frozen struct holding one Swift.String — MemoryLayout verified). Every blit through that
+        // Buffer then wrote 8 bytes past the allocation. The nested record's parse-time declared layout
+        // is the size source; the field must claim all 16 bytes.
+        var db = new TypeDatabase();
+        var leaf = RegisterNestedLeaf(db, "RefLeaf", new DeclaredValueLayout(16, 8));
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(leaf, db, out int byteSize);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.IntPtrFields, kind);
+        Assert.Equal(16, byteSize);
+    }
+
+    [Fact]
+    public void ClassifyFrozenStructField_OptionalNestedReferenceBearingFrozenStruct_KeepsPayloadWidth()
+    {
+        // Optional over a reference-bearing payload folds nil into a spare inhabitant, so the field is
+        // exactly as wide as the payload — no appended discriminator. Sizing it as one pointer (the old
+        // clamp) under-reserves by half; appending a tag byte would over-reserve and shift the field
+        // after it in a mirror that did not round to words.
+        var db = new TypeDatabase();
+        var leaf = RegisterNestedLeaf(db, "RefLeaf", new DeclaredValueLayout(16, 8));
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(
+            new NamedTypeSpec("Swift.Optional", leaf), db, out int byteSize);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.IntPtrFields, kind);
+        Assert.Equal(16, byteSize);
+    }
+
+    [Fact]
+    public void ClassifyFrozenStructField_NestedIndeterminateRecord_FailsClosed()
+    {
+        // The nested type's own layout derivation ran and could not produce a sound answer. The field
+        // must be reported indeterminate so the containing struct's Buffer projection is skipped,
+        // rather than silently reserving a guessed width.
+        var db = new TypeDatabase();
+        var leaf = RegisterNestedLeaf(db, "OpaqueLeaf", declaredLayout: null, declaredLayoutIndeterminate: true);
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(leaf, db, out _);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.Indeterminate, kind);
+    }
+
+    [Fact]
+    public void ClassifyFrozenStructField_TrivialNestedFrozenStruct_StaysATypedField()
+    {
+        // A nested frozen struct with only trivial fields carries no references, so it is emitted as a
+        // typed C# struct field that already has the right size and alignment. It must not be dragged
+        // onto the IntPtr-word path (which would round its 4-byte alignment up to 8 and shift the
+        // fields after it).
+        var db = new TypeDatabase();
+        var leaf = SwiftTypeName.FromModuleQualifiedName("TestModule.TrivialLeaf");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (leaf, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "TrivialLeaf"),
+                SwiftTypeName = leaf,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen, // no RequiresMemoryManagement — trivial contents
+                Kind = TypeRecordKind.Struct,
+                DeclaredLayout = new DeclaredValueLayout(8, 4),
+            }),
+        });
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(
+            new NamedTypeSpec("TestModule.TrivialLeaf"), db, out _);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.TypedField, kind);
+    }
+
+    [Fact]
+    public void ClassifyFrozenStructField_TrivialFieldWithUnknownCustomAlignment_IsIndeterminate()
+    {
+        // The trivial arm is the one that never consults the reference-managed size resolver, so the
+        // over-alignment has to be caught here or an `@_alignment(16)` struct of two Int32s emits as
+        // an ordinary typed field at a pointer-aligned offset — the interior pad Swift inserts before
+        // it is simply missing, and every later field lands short.
+        var db = new TypeDatabase();
+        var leaf = SwiftTypeName.FromModuleQualifiedName("TestModule.AlignedTrivialLeaf");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (leaf, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AlignedTrivialLeaf"),
+                SwiftTypeName = leaf,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen, // trivial: no RequiresMemoryManagement
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 8, // the size is known and still does not make the field placeable
+                HasUnknownCustomAlignment = true,
+            }),
+        });
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(
+            new NamedTypeSpec("TestModule.AlignedTrivialLeaf"), db, out _);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.Indeterminate, kind);
+    }
+
+    [Fact]
+    public void ClassifyFrozenStructField_TrivialFieldWithRecordedOverAlignment_IsIndeterminate()
+    {
+        // Same refusal when the alignment is RECORDED rather than unknown. The trivial arm runs no
+        // size resolver at all, so a 16-aligned field would otherwise emit as a typed C# field at a
+        // pointer-aligned offset and shorten every field after it.
+        var db = new TypeDatabase();
+        var leaf = SwiftTypeName.FromModuleQualifiedName("TestModule.WideAlignedTrivialLeaf");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (leaf, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "WideAlignedTrivialLeaf"),
+                SwiftTypeName = leaf,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen, // trivial: no RequiresMemoryManagement
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 32,
+                DeclaredLayout = new DeclaredValueLayout(32, 16),
+            }),
+        });
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(
+            new NamedTypeSpec("TestModule.WideAlignedTrivialLeaf"), db, out _);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.Indeterminate, kind);
+    }
+
+    [Fact]
+    public void ClassifyFrozenStructField_TrivialFieldAtPointerAlignment_StaysATypedField()
+    {
+        // Positive control: the ordinary trivial field — a plain struct that aligns to at most a
+        // pointer — must keep its typed C# field, or the two guards above skip every Buffer host.
+        var db = new TypeDatabase();
+        var leaf = SwiftTypeName.FromModuleQualifiedName("TestModule.PlainTrivialLeaf");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (leaf, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PlainTrivialLeaf"),
+                SwiftTypeName = leaf,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16,
+                DeclaredLayout = new DeclaredValueLayout(16, 8),
+            }),
+        });
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(
+            new NamedTypeSpec("TestModule.PlainTrivialLeaf"), db, out _);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.TypedField, kind);
+    }
+
+    [Fact]
+    public void HasIndeterminateBufferLayout_TrivialFieldWithUnknownCustomAlignment_Skips()
+    {
+        // End of that chain: the host must actually be skipped, not merely classified.
+        var db = new TypeDatabase();
+        var leafName = SwiftTypeName.FromModuleQualifiedName("TestModule.AlignedTrivialLeaf");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (leafName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "AlignedTrivialLeaf"),
+                SwiftTypeName = leafName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 8,
+                HasUnknownCustomAlignment = true,
+            }),
+        });
+
+        var host = CreateFrozenStructWithStoredFields(
+            "AlignedHost", ("aligned", new NamedTypeSpec("TestModule.AlignedTrivialLeaf")));
+        RegisterBufferProjectedHost(db, host);
+
+        Assert.True(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+    }
+
+    [Fact]
+    public void HasIndeterminateBufferLayout_NestedIndeterminateInstanceField_Skips()
+    {
+        // End of the fail-closed chain: an un-derivable nested field makes the whole Buffer-projected
+        // host indeterminate, so the host is skipped instead of emitting a mirror of guessed width.
+        var db = new TypeDatabase();
+        var leaf = RegisterNestedLeaf(db, "OpaqueLeaf", declaredLayout: null, declaredLayoutIndeterminate: true);
+        var host = CreateFrozenStructWithStoredFields("Host", ("nested", leaf));
+        RegisterBufferProjectedHost(db, host);
+
+        Assert.True(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+    }
+
+    [Fact]
+    public void HasIndeterminateBufferLayout_NestedDerivedField_DoesNotSkip()
+    {
+        // The positive control for the test above: once the nested record's layout IS derivable, the
+        // host lays out fine and must keep emitting. A fail-closed arm that fired here would delete a
+        // working type from the binding.
+        var db = new TypeDatabase();
+        var leaf = RegisterNestedLeaf(db, "RefLeaf", new DeclaredValueLayout(16, 8));
+        var host = CreateFrozenStructWithStoredFields("Host", ("nested", leaf));
+        RegisterBufferProjectedHost(db, host);
+
+        Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+    }
+
+    /// <summary>
+    /// Registers a nested reference-managed frozen struct (no persisted InlineSize, no live metadata —
+    /// the cross-compile shape) whose only size source is its parse-time declared layout.
+    /// </summary>
+    private static NamedTypeSpec RegisterNestedLeaf(
+        TypeDatabase db, string name, DeclaredValueLayout? declaredLayout, bool declaredLayoutIndeterminate = false)
+    {
+        var swiftName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (swiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = swiftName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                DeclaredLayout = declaredLayout,
+                DeclaredLayoutIndeterminate = declaredLayoutIndeterminate,
+            }),
+        });
+        return new NamedTypeSpec($"TestModule.{name}");
+    }
+
+    private static void RegisterBufferProjectedHost(TypeDatabase db, StructDecl host)
+    {
+        db.AddOutOfModuleTypes(new[]
+        {
+            (host.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", host.Name),
+                SwiftTypeName = host.SwiftTypeName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+    }
+
+    #endregion
+
+    #region Field-shape helpers
+
     private static NamedTypeSpec OptionalOf(string innerSwiftName)
         => new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(innerSwiftName));
 

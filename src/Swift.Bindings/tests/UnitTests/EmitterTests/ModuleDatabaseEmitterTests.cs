@@ -1204,6 +1204,229 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_DeclaredLayout_RoundTripsSizeAndAlignment()
+        {
+            // A frozen struct's derived inline layout is what lets a containing struct's blitted
+            // Buffer reserve the nested field's real width, so both numbers have to survive the
+            // database file — a size that round-trips without its alignment still mis-pads.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, new DeclaredValueLayout(20, 8), out var swiftName);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(new DeclaredValueLayout(20, 8), loaded!.DeclaredLayout);
+                Assert.False(loaded.DeclaredLayoutIndeterminate);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_IndeterminateDeclaredLayout_RoundTripsAsIndeterminate()
+        {
+            // "Derivation ran and failed" must stay distinguishable from "never attempted": the
+            // first makes a containing Buffer fail closed, the second leaves historical behaviour
+            // alone. Collapsing them would either skip working bindings or resurrect the bad guess.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, declaredLayout: null, out var swiftName,
+                    declaredLayoutIndeterminate: true);
+                Assert.Contains("declaredLayout=\"unknown\"", await File.ReadAllTextAsync(path));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Null(loaded!.DeclaredLayout);
+                Assert.True(loaded.DeclaredLayoutIndeterminate);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_NoDeclaredLayout_LoadsAsNeitherDerivedNorIndeterminate()
+        {
+            // A record that never attempted the derivation (a hand-written database, an older
+            // generator's output) writes no attribute at all and must load as the untouched third
+            // state, not as a fail-closed signal that would start skipping existing bindings.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, declaredLayout: null, out var swiftName);
+                Assert.DoesNotContain("declaredLayout", await File.ReadAllTextAsync(path));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Null(loaded!.DeclaredLayout);
+                Assert.False(loaded.DeclaredLayoutIndeterminate);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Theory]
+        [InlineData("-4:8")]     // negative size
+        [InlineData("16:0")]     // zero alignment — align-up would divide by zero
+        [InlineData("16:6")]     // not a power of two
+        [InlineData("16:-8")]    // negative alignment
+        [InlineData("16")]       // missing alignment
+        [InlineData("16:8:4")]   // extra component
+        [InlineData("sixteen:8")]
+        [InlineData("")]
+        [InlineData("2147483647:8")] // a size the round-up arithmetic would wrap negative on
+        [InlineData("16:8192")]      // an alignment far past anything Swift lays out under
+        public async Task LoadModuleDatabase_MalformedDeclaredLayout_IsTreatedAsIndeterminate(string attributeValue)
+        {
+            // A value the arithmetic cannot use has to fail closed rather than be fed into the
+            // align-up math, where a zero or non-power-of-two alignment produces a plausible-looking
+            // but wrong offset instead of an obviously wrong one.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, new DeclaredValueLayout(20, 8), out var swiftName);
+                var xml = await File.ReadAllTextAsync(path);
+                await File.WriteAllTextAsync(path,
+                    xml.Replace("declaredLayout=\"20:8\"", $"declaredLayout=\"{attributeValue}\""));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Null(loaded!.DeclaredLayout);
+                Assert.True(loaded.DeclaredLayoutIndeterminate);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_UnknownCustomAlignment_RoundTripsAlongsideAKnownSize()
+        {
+            // The alignment unknown has to survive into a downstream module's database independently
+            // of the size attributes: a consumer that reads this record knows the type's exact width
+            // and still must refuse to place it in a Buffer.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, new DeclaredValueLayout(16, 8), out var swiftName,
+                    hasUnknownCustomAlignment: true);
+                var xml = await File.ReadAllTextAsync(path);
+                Assert.Contains("unknownCustomAlignment=\"true\"", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.True(loaded!.HasUnknownCustomAlignment);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_NoCustomAlignment_OmitsTheAttributeAndLoadsAsPlaceable()
+        {
+            // The overwhelmingly common case writes nothing, so an older database that predates the
+            // attribute loads with the same meaning a new one does.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, new DeclaredValueLayout(16, 8), out var swiftName);
+                var xml = await File.ReadAllTextAsync(path);
+                Assert.DoesNotContain("unknownCustomAlignment", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.False(loaded!.HasUnknownCustomAlignment);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Theory]
+        [InlineData("1")]
+        [InlineData("yes")]
+        [InlineData("ture")]
+        [InlineData("")]
+        public async Task LoadModuleDatabase_MalformedUnknownCustomAlignment_LoadsAsUnplaceable(string attributeValue)
+        {
+            // The marker is only ever written to say "do not place this type", so a present value the
+            // reader does not recognize — a corrupt database, or a future dialect — has to keep that
+            // meaning. Reading anything-but-"true" as false silently clears the one guard that keeps
+            // an over-aligned type out of a blitted Buffer, which is the opposite of how the
+            // malformed-size sibling above behaves.
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, new DeclaredValueLayout(16, 8), out var swiftName,
+                    hasUnknownCustomAlignment: true);
+                var xml = await File.ReadAllTextAsync(path);
+                await File.WriteAllTextAsync(path,
+                    xml.Replace("unknownCustomAlignment=\"true\"", $"unknownCustomAlignment=\"{attributeValue}\""));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.True(loaded!.HasUnknownCustomAlignment);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task LoadModuleDatabase_ExplicitFalseUnknownCustomAlignment_LoadsAsPlaceable()
+        {
+            // The one present value that clears the marker, so the fail-closed reading above cannot
+            // be mistaken for "any value at all poisons the record".
+            var dir = CreateTempDir();
+            try
+            {
+                var path = EmitWithDeclaredLayout(dir, new DeclaredValueLayout(16, 8), out var swiftName,
+                    hasUnknownCustomAlignment: true);
+                var xml = await File.ReadAllTextAsync(path);
+                await File.WriteAllTextAsync(path,
+                    xml.Replace("unknownCustomAlignment=\"true\"", "unknownCustomAlignment=\"false\""));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.False(loaded!.HasUnknownCustomAlignment);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitWithDeclaredLayout(
+            string dir,
+            DeclaredValueLayout? declaredLayout,
+            out SwiftTypeName swiftName,
+            bool declaredLayoutIndeterminate = false,
+            bool hasUnknownCustomAlignment = false)
+        {
+            var module = new ModuleTypeDatabase("TestModule", "/fake/TestModule.dylib");
+            swiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Host");
+            module.RegisterType(swiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Host"),
+                SwiftTypeName = swiftName,
+                MetadataAccessor = "$s10TestModule4HostVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                DeclaredLayout = declaredLayout,
+                DeclaredLayoutIndeterminate = declaredLayoutIndeterminate,
+                HasUnknownCustomAlignment = hasUnknownCustomAlignment,
+            });
+
+            var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+            Assert.NotNull(path);
+            return path!;
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

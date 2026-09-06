@@ -144,12 +144,13 @@ public class SwiftValueLayoutTests
     }
 
     [Fact]
-    public void TryResolveReferenceFieldSize_NonGenericValueTypeWithoutPersistedSize_KeepsPointerClamp()
+    public void TryResolveReferenceFieldSize_NonGenericValueTypeWithNoLayoutSource_KeepsPointerClamp()
     {
-        // A NON-generic reference-managed value type with no persisted size keeps the historical
-        // single-pointer clamp. There is no per-instantiation ambiguity to fail closed on, so the
-        // surgical fix leaves this path unchanged — preserving behavior for nested non-generic
-        // structs (zero regression).
+        // A NON-generic reference-managed value type with no persisted size, no live metadata, and no
+        // parse-time declared layout at all (an XML-declared or Apple-supplement-synthesized record —
+        // its stored fields were never seen, so no derivation was ever attempted) keeps the historical
+        // single-pointer clamp. This is the third state of the layout lane: absent, not "attempted and
+        // failed", so nothing new is known and behavior is unchanged.
         var record = CreateReferenceTypeRecord("TestModule.Handle", TypeRecordKind.Struct, inlineSize: null);
         var spec = new NamedTypeSpec("TestModule.Handle");
 
@@ -157,6 +158,244 @@ public class SwiftValueLayoutTests
 
         Assert.True(resolved);
         Assert.Equal(IntPtr.Size, byteSize);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_DeclaredLayout_ResolvesTrueInlineSize()
+    {
+        // The defect this lane closes: a stored field whose type is itself a reference-bearing frozen
+        // struct is NOT one pointer. A frozen struct holding a single Swift.String is 16 bytes inline
+        // (MemoryLayout verified), so a Buffer mirror that reserved one 8-byte word for it blitted half
+        // the value and wrote the rest past the allocation. The parse-time declared layout is the only
+        // size source for such a module-local type cross-compile (no VWT metadata, no XML inlineSize).
+        var record = CreateReferenceTypeRecord(
+            "TestModule.RefLeaf", TypeRecordKind.Struct, inlineSize: null,
+            declaredLayout: new DeclaredValueLayout(16, 8));
+        var spec = new NamedTypeSpec("TestModule.RefLeaf");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out int byteSize);
+
+        Assert.True(resolved);
+        Assert.Equal(16, byteSize);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_PersistedInlineSize_WinsOverDeclaredLayout()
+    {
+        // Precedence: a measured/persisted InlineSize (live value-witness metadata, or a hand-stated
+        // XML inlineSize) is ground truth and outranks the derived declared layout, which is only a
+        // reconstruction from the declared stored fields.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.RefLeaf", TypeRecordKind.Struct, inlineSize: 40,
+            declaredLayout: new DeclaredValueLayout(16, 8));
+        var spec = new NamedTypeSpec("TestModule.RefLeaf");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out int byteSize);
+
+        Assert.True(resolved);
+        Assert.Equal(40, byteSize);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_DeclaredLayoutIndeterminate_FailsClosed()
+    {
+        // Derivation ran over the type's own stored fields and could NOT produce a sound answer (a
+        // field of an un-derivable type). A guessed width silently under-allocates the Buffer the blit
+        // writes through, so the field must fail closed and take the containing struct's Buffer
+        // projection out with it — never fall back to the pointer clamp.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.RefLeaf", TypeRecordKind.Struct, inlineSize: null,
+            declaredLayoutIndeterminate: true);
+        var spec = new NamedTypeSpec("TestModule.RefLeaf");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out _);
+
+        Assert.False(resolved);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_GenericInstantiation_FailsClosedDespiteDeclaredLayout()
+    {
+        // The generic fail-closed arm stays ahead of the declared-layout lane. A declared layout is
+        // derived from the bare (argument-stripped) declaration, so it cannot describe a particular
+        // instantiation — reading it here would re-introduce a per-instantiation guess.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.Pair", TypeRecordKind.Struct, inlineSize: null,
+            declaredLayout: new DeclaredValueLayout(16, 8));
+        var spec = new NamedTypeSpec("TestModule.Pair", new NamedTypeSpec("Swift.Int"));
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out _);
+
+        Assert.False(resolved);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_UnknownCustomAlignment_FailsClosedDespitePersistedInlineSize()
+    {
+        // `@_alignment(N)` with N absent from the ABI descriptor: the SIZE here is measured and
+        // correct, and still unusable — the container has to round this field's offset up to an
+        // alignment the emitted pointer-word fields cannot express, so it would sit at the wrong
+        // offset and leave the Buffer short. The guard therefore has to outrank the size sources,
+        // not sit behind them.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.OverAligned", TypeRecordKind.Struct, inlineSize: 8,
+            hasUnknownCustomAlignment: true);
+        var spec = new NamedTypeSpec("TestModule.OverAligned");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out _);
+
+        Assert.False(resolved);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_UnknownCustomAlignment_FailsClosedDespiteDeclaredLayout()
+    {
+        // Same guard on the derived lane: a size derived from the stored fields is just as unplaceable
+        // once the type over-aligns.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.OverAligned", TypeRecordKind.Struct, inlineSize: null,
+            declaredLayout: new DeclaredValueLayout(16, 8),
+            hasUnknownCustomAlignment: true);
+        var spec = new NamedTypeSpec("TestModule.OverAligned");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out _);
+
+        Assert.False(resolved);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_DeclaredLayoutWiderThanAPointer_FailsClosed()
+    {
+        // A Buffer mirrors the field as whole IntPtr words, so it can only start on an 8-byte
+        // boundary. Accepting the size while discarding a 16-byte alignment would place the field at
+        // the wrong offset and shorten the container — refuse it instead. The module-database reader
+        // accepts such an alignment from XML, so this is not a hypothetical value.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.WideAligned", TypeRecordKind.Struct, inlineSize: null,
+            declaredLayout: new DeclaredValueLayout(32, 16));
+        var spec = new NamedTypeSpec("TestModule.WideAligned");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out _);
+
+        Assert.False(resolved);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_DeclaredLayoutAtPointerAlignment_IsHonored()
+    {
+        // Positive control: the ordinary derived shape — every reference-bearing Swift value type
+        // aligns to at most a pointer — must keep resolving, or the guard above deletes the fix.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.RefLeaf", TypeRecordKind.Struct, inlineSize: null,
+            declaredLayout: new DeclaredValueLayout(32, 8));
+        var spec = new NamedTypeSpec("TestModule.RefLeaf");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out int byteSize);
+
+        Assert.True(resolved);
+        Assert.Equal(32, byteSize);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_PersistedInlineSizeWithOverAlignedDeclaredLayout_FailsClosed()
+    {
+        // A record can carry BOTH a measured inlineSize and a declaredLayout — the module database
+        // writes and reads them independently. The measured size is right and the offset is still
+        // wrong, so the alignment refusal has to run ahead of every size source; checking it only
+        // inside the declaredLayout arm would let the inlineSize arm return first and discard it.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.WideAligned", TypeRecordKind.Struct, inlineSize: 32,
+            declaredLayout: new DeclaredValueLayout(32, 16));
+        var spec = new NamedTypeSpec("TestModule.WideAligned");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out _);
+
+        Assert.False(resolved);
+    }
+
+    [Fact]
+    public void TryResolveReferenceFieldSize_NoCustomAlignment_StillHonorsPersistedInlineSize()
+    {
+        // Positive control for the two guards above: the alignment arm must not swallow the ordinary
+        // measured-size path that every reference-bearing field takes.
+        var record = CreateReferenceTypeRecord(
+            "TestModule.RefLeaf", TypeRecordKind.Struct, inlineSize: 16);
+        var spec = new NamedTypeSpec("TestModule.RefLeaf");
+
+        var resolved = SwiftValueLayout.TryResolveReferenceFieldSize(record, spec, out int byteSize);
+
+        Assert.True(resolved);
+        Assert.Equal(16, byteSize);
+    }
+
+    #endregion
+
+    #region Declared layout accumulation (AlignUp / DeclaredLayoutAccumulator)
+
+    [Theory]
+    [InlineData(0, 8, 0)]
+    [InlineData(1, 8, 8)]
+    [InlineData(8, 8, 8)]
+    [InlineData(9, 8, 16)]
+    [InlineData(25, 8, 32)]
+    [InlineData(5, 4, 8)]
+    [InlineData(7, 1, 7)]   // alignment 1 never moves the cursor
+    [InlineData(7, 0, 7)]   // defensive: a zero alignment must not divide by zero
+    public void AlignUp_RoundsOffsetToNextMultiple(int offset, int alignment, int expected)
+    {
+        Assert.Equal(expected, SwiftValueLayout.AlignUp(offset, alignment));
+    }
+
+    [Fact]
+    public void DeclaredLayoutAccumulator_NoFields_IsEmptyAggregate()
+    {
+        // Swift gives an aggregate with no stored fields size 0 and alignment 1.
+        var accumulator = new SwiftValueLayout.DeclaredLayoutAccumulator();
+
+        Assert.Equal(new DeclaredValueLayout(0, 1), accumulator.Result);
+    }
+
+    [Fact]
+    public void DeclaredLayoutAccumulator_MixedNestedShapes_MatchesSwiftMemoryLayout()
+    {
+        // The exact host shape the BindingTests fixture declares, checked against MemoryLayout:
+        //   let leading:  RefLeaf      (16, align 8)  @0
+        //   let optional: RefLeaf?     (16, align 8)  @16  — spare-bit payload, so no appended tag
+        //   let trivial:  TrivialLeaf  ( 8, align 4)  @32
+        //   let sentinel: Int32        ( 4, align 4)  @40
+        // => size 44, alignment 8 (stride 48). A field mis-sized as one pointer shifts everything after it.
+        var accumulator = new SwiftValueLayout.DeclaredLayoutAccumulator();
+        accumulator.Add(new DeclaredValueLayout(16, 8));
+        accumulator.Add(new DeclaredValueLayout(16, 8));
+        accumulator.Add(new DeclaredValueLayout(8, 4));
+        accumulator.Add(new DeclaredValueLayout(4, 4));
+
+        Assert.Equal(new DeclaredValueLayout(44, 8), accumulator.Result);
+    }
+
+    [Fact]
+    public void DeclaredLayoutAccumulator_AccumulatesSizeNotStride()
+    {
+        // A nested aggregate's trailing pad belongs to the NEXT field's alignment round-up, not to the
+        // nested field itself. Accumulating stride (32) instead of size (25) would double-count it and
+        // report 40+8 for a host that MemoryLayout measures at 40.
+        var accumulator = new SwiftValueLayout.DeclaredLayoutAccumulator();
+        accumulator.Add(new DeclaredValueLayout(25, 8)); // nested aggregate: size 25, stride 32
+        accumulator.Add(new DeclaredValueLayout(8, 8));  // lands at 32, not 40
+
+        Assert.Equal(new DeclaredValueLayout(40, 8), accumulator.Result);
+    }
+
+    [Fact]
+    public void DeclaredLayoutAccumulator_AlignmentIsMaxFieldAlignment_AndPadsInteriorFields()
+    {
+        // Int8 @0, then an Int32 that must start at 4 (not 1). Size 8, alignment 4 — the aggregate's
+        // alignment is the maximum of its fields', which is what a containing struct rounds up to.
+        var accumulator = new SwiftValueLayout.DeclaredLayoutAccumulator();
+        accumulator.Add(new DeclaredValueLayout(1, 1));
+        accumulator.Add(new DeclaredValueLayout(4, 4));
+
+        Assert.Equal(new DeclaredValueLayout(8, 4), accumulator.Result);
     }
 
     #endregion
@@ -429,6 +668,59 @@ public class SwiftValueLayoutTests
         Assert.Equal(17, optionalSize); // inner + 1 tag byte (no spare inhabitant) — matches live VWT
     }
 
+    [Fact]
+    public void TryComputeOptionalInlineSize_PayloadEnumInner_MetadataPtrZero_FailsClosed()
+    {
+        // A payload-carrying enum is flagged reference-managed purely because it HAS associated
+        // values, so that flag cannot stand in for spare inhabitants the way it does for a struct
+        // holding a String: `enum E { case x(Int64) }` fills all eight bytes, making E? nine, while
+        // an enum whose payload is a class folds nil into the pointer and stays eight. The
+        // declaration does not say which, so the Optional must fail closed rather than pick one.
+        var (db, optionalSpec) = OptionalOverRegisteredInner(
+            "DetMod.PayloadEnum", inlineSize: 8, referenceBearing: true, kind: TypeRecordKind.Enum);
+
+        var resolved = SwiftValueLayout.TryComputeOptionalInlineSize(
+            optionalSpec, db, out _, out bool indeterminate);
+
+        Assert.False(resolved);
+        Assert.True(indeterminate);
+    }
+
+    [Fact]
+    public void TryComputeOptionalInlineSize_UnderivableStructInner_FailsClosed()
+    {
+        // A struct that stores a payload enum inherits the reference-managed flag from it, so the
+        // spare-bit heuristic would claim inhabitants the enum field may already have spent — the
+        // same doubt as the payload enum itself, one level out. The record says its own layout could
+        // not be derived, and that is the signal: the measured size stands, whether `.none` fits
+        // inside it does not.
+        var (db, optionalSpec) = OptionalOverRegisteredInner(
+            "DetMod.EnumWrapper", inlineSize: 8, referenceBearing: true, layoutIndeterminate: true);
+
+        var resolved = SwiftValueLayout.TryComputeOptionalInlineSize(
+            optionalSpec, db, out _, out bool indeterminate);
+
+        Assert.False(resolved);
+        Assert.True(indeterminate);
+    }
+
+    [Fact]
+    public void TryComputeOptionalInlineSize_NoPayloadEnumInner_StillResolves()
+    {
+        // Scoping control for the refusal above: it is keyed to the reference-managed payload flag,
+        // not to being an enum. A no-payload enum carries no associated values, so nothing about its
+        // spare bits was ever claimed and the deterministic tag-append arm still applies.
+        var (db, optionalSpec) = OptionalOverRegisteredInner(
+            "DetMod.PlainEnum", inlineSize: 1, referenceBearing: false, kind: TypeRecordKind.Enum);
+
+        var resolved = SwiftValueLayout.TryComputeOptionalInlineSize(
+            optionalSpec, db, out int optionalSize, out bool indeterminate);
+
+        Assert.True(resolved);
+        Assert.False(indeterminate);
+        Assert.Equal(2, optionalSize);
+    }
+
     /// <summary>
     /// Builds an <c>Optional&lt;Inner&gt;</c> spec over a struct registered in a fresh
     /// <see cref="TypeDatabase"/> with a persisted <paramref name="inlineSize"/> but NO
@@ -437,7 +729,8 @@ public class SwiftValueLayoutTests
     /// <see cref="TypeRecordFlags.RequiresMemoryManagement"/>, which drives the extra-inhabitant heuristic.
     /// </summary>
     private static (TypeDatabase Db, NamedTypeSpec OptionalSpec) OptionalOverRegisteredInner(
-        string moduleQualifiedInnerName, int inlineSize, bool referenceBearing)
+        string moduleQualifiedInnerName, int inlineSize, bool referenceBearing,
+        TypeRecordKind kind = TypeRecordKind.Struct, bool layoutIndeterminate = false)
     {
         var dotIndex = moduleQualifiedInnerName.IndexOf('.');
         var moduleName = moduleQualifiedInnerName[..dotIndex];
@@ -453,8 +746,9 @@ public class SwiftValueLayoutTests
             SwiftTypeName = swiftName,
             MetadataAccessor = string.Empty,
             Flags = flags,
-            Kind = TypeRecordKind.Struct,
+            Kind = kind,
             InlineSize = inlineSize,
+            DeclaredLayoutIndeterminate = layoutIndeterminate,
         });
         var db = new TypeDatabase();
         db.AddModuleDatabase(module);
@@ -477,7 +771,12 @@ public class SwiftValueLayoutTests
         };
 
     private static TypeRecord CreateReferenceTypeRecord(
-        string moduleQualifiedName, TypeRecordKind kind, int? inlineSize)
+        string moduleQualifiedName,
+        TypeRecordKind kind,
+        int? inlineSize,
+        DeclaredValueLayout? declaredLayout = null,
+        bool declaredLayoutIndeterminate = false,
+        bool hasUnknownCustomAlignment = false)
     {
         var swiftName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
         var flags = TypeRecordFlags.RequiresMemoryManagement;
@@ -491,6 +790,9 @@ public class SwiftValueLayoutTests
             Flags = flags,
             Kind = kind,
             InlineSize = inlineSize,
+            DeclaredLayout = declaredLayout,
+            DeclaredLayoutIndeterminate = declaredLayoutIndeterminate,
+            HasUnknownCustomAlignment = hasUnknownCustomAlignment,
         };
     }
 }

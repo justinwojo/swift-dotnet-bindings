@@ -204,6 +204,25 @@ internal static class SwiftValueLayout
         {
             unsafe { hasExtraInhabitants = innerRecord.SwiftTypeInfo.Value.ValueWitnessTable->HasExtraInhabitants; }
         }
+        else if ((innerRecord.Kind == TypeRecordKind.Enum &&
+                  (innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0) ||
+                 innerRecord.DeclaredLayoutIndeterminate)
+        {
+            // A payload-carrying enum is marked reference-managed on the mere presence of associated
+            // values, so that flag says nothing about spare bits: `enum E { case x(Int64) }` carries
+            // it and still fills all eight bytes, which makes E? nine bytes rather than eight.
+            // Whether the optional tag fits inside the payload depends on spare-bit packing across
+            // every case, which the declaration does not carry — refuse rather than pick one of the
+            // two answers and blit the container at the wrong width.
+            //
+            // The same doubt covers a type whose own layout could not be derived, which a struct
+            // wrapping such an enum is: it inherits the reference-managed flag from the payload it
+            // stores, so the heuristic below would read spare bits into it that its enum field may
+            // have spent. Its SIZE can still be known — a measured inlineSize is authoritative and
+            // was taken above — but whether `.none` fits inside that size is not.
+            indeterminate = true;
+            return false;
+        }
         else
         {
             // Heuristic: reference-bearing types (String, classes, arrays) contain pointers whose
@@ -225,13 +244,40 @@ internal static class SwiftValueLayout
     /// live metadata accessor, yet the true size depends on the arguments
     /// (MemoryLayout&lt;ClosedRange&lt;Int&gt;&gt; = 16 vs &lt;ClosedRange&lt;Float&gt;&gt; = 8).
     /// Guessing a word would mis-size the Buffer and corrupt the heap, so such fields fail closed.
-    /// A class reference is always one pointer regardless of generic arguments, and a non-generic
-    /// reference-managed value type keeps the historical single-pointer assumption (Array/Set/
-    /// Dictionary already carry InlineSize), so neither regresses.
+    /// A class reference is always one pointer regardless of generic arguments.
+    ///
+    /// <para>
+    /// A reference-managed value type — a frozen struct with a stored <c>String</c>/class/array
+    /// field, or a payload-carrying enum — is NOT one pointer. Its true inline width comes from
+    /// <see cref="TypeRecord.DeclaredLayout"/>, derived at parse time from the type's own stored
+    /// fields; when that derivation was attempted and failed
+    /// (<see cref="TypeRecord.DeclaredLayoutIndeterminate"/>) the field fails closed, because a
+    /// guessed width silently under-allocates the Buffer the blit writes through. Records for which
+    /// no derivation was ever attempted (XML entries, Apple-supplement synthesizations) keep the
+    /// historical single-pointer clamp — Array/Set/Dictionary already carry an explicit
+    /// <c>inlineSize</c>, so the common cases do not rely on it.
+    /// </para>
     /// </summary>
     internal static bool TryResolveReferenceFieldSize(TypeRecord record, TypeSpec spec, out int byteSize)
     {
         byteSize = IntPtr.Size;
+
+        // An over-aligned type breaks the Buffer's pointer-word field mirror no matter how well its
+        // SIZE is known: the container has to round the field's offset up to an alignment the emitted
+        // fields cannot express, so both that offset and the container's total width come out short.
+        // Checked ahead of every size source — a measured inlineSize or live value-witness size is
+        // still the right size and still the wrong offset.
+        if (record.HasUnknownCustomAlignment)
+            return false;
+
+        // Same refusal for an alignment that IS recorded but exceeds a pointer word: the Buffer
+        // mirrors the field as whole IntPtr words, so it can only ever start one on an 8-byte
+        // boundary, and a 16-aligned field would land at the wrong offset and shorten the container.
+        // Checked alongside the unknown-alignment guard rather than inside the DeclaredLayout arm
+        // below, because a record loaded from XML can legitimately carry a persisted inlineSize AND a
+        // declaredLayout — the size arms return first and would otherwise discard the alignment.
+        if (record.DeclaredLayout is { } recordedLayout && recordedLayout.Alignment > IntPtr.Size)
+            return false;
 
         if (record.InlineSize.HasValue)
         {
@@ -250,12 +296,87 @@ internal static class SwiftValueLayout
             return true;
         }
         // No persisted size, no live metadata, not a class. A generic value-type instantiation's
-        // size is not derivable here → fail closed. Non-generic reference-managed value types keep
-        // the historical single-pointer clamp (preserves behavior; no per-instantiation ambiguity).
+        // size is not derivable here → fail closed.
         if (spec.ContainsGenericParameters)
             return false;
 
-        return true; // byteSize stays IntPtr.Size — unchanged clamp for non-generic types
+        // Parse-time layout derived from the type's own declared stored fields — the only size
+        // source for a module-local reference-bearing value type cross-compile.
+        if (record.DeclaredLayout is { } declared)
+        {
+            // Alignment was already refused above, so what is left here is placeable at pointer
+            // granularity and its size can be taken at face value.
+            byteSize = declared.Size;
+            return true;
+        }
+        // Derivation ran and could not produce a sound answer → fail closed rather than blit at a
+        // guessed width.
+        if (record.DeclaredLayoutIndeterminate)
+            return false;
+
+        return true; // byteSize stays IntPtr.Size — unchanged clamp for never-derived records
+    }
+
+    /// <summary>
+    /// Upper bounds a persisted declared layout must satisfy to be believed. They are far above any
+    /// real Swift value type (the largest in the corpus is a few hundred bytes, and Swift's own
+    /// maximum alignment is 16) and exist only so a corrupt or hostile module database cannot feed
+    /// the layout arithmetic a value near <see cref="int.MaxValue"/>, where the round-up wraps
+    /// negative and a huge field silently becomes one pointer. Out-of-range values load as
+    /// indeterminate, which fails closed.
+    /// </summary>
+    internal const int MaxDeclaredLayoutSize = 1 << 24;
+
+    /// <inheritdoc cref="MaxDeclaredLayoutSize"/>
+    internal const int MaxDeclaredLayoutAlignment = 1 << 12;
+
+    /// <summary>
+    /// Rounds <paramref name="offset"/> up to the next multiple of <paramref name="alignment"/>.
+    /// The one home of the field-offset round-up used by the declared-layout walk. Computed from the
+    /// remainder rather than <c>offset + alignment - 1</c> so a hostile or corrupt size near
+    /// <see cref="int.MaxValue"/> cannot wrap to a negative offset and silently shrink a Buffer.
+    /// </summary>
+    internal static int AlignUp(int offset, int alignment)
+    {
+        if (alignment <= 1)
+            return offset;
+        int remainder = offset % alignment;
+        return remainder == 0 ? offset : offset + (alignment - remainder);
+    }
+
+    /// <summary>
+    /// Accumulates a Swift value type's inline layout from its stored fields in declaration order —
+    /// Swift never reorders struct fields, so the layout is exactly: align the cursor up to each
+    /// field's alignment, place the field, advance by the field's SIZE (not stride); the aggregate's
+    /// size is the final cursor and its alignment the maximum field alignment.
+    ///
+    /// <para>
+    /// Deliberately accumulates size rather than stride: a nested aggregate's trailing pad is
+    /// reproduced by the NEXT field's alignment round-up, and the outermost size is what a Buffer
+    /// must reserve. Verified against <c>MemoryLayout</c> for the mixed shapes that distinguish the
+    /// two (a 25-byte nested struct followed by an 8-aligned field lands that field at offset 32).
+    /// </para>
+    /// </summary>
+    internal struct DeclaredLayoutAccumulator
+    {
+        private int _cursor;
+        private int _alignment;
+
+        public DeclaredLayoutAccumulator()
+        {
+            _cursor = 0;
+            // An aggregate with no stored fields is 0 bytes with alignment 1, matching Swift.
+            _alignment = 1;
+        }
+
+        public void Add(DeclaredValueLayout field)
+        {
+            _cursor = AlignUp(_cursor, field.Alignment) + field.Size;
+            if (field.Alignment > _alignment)
+                _alignment = field.Alignment;
+        }
+
+        public readonly DeclaredValueLayout Result => new(_cursor, _alignment);
     }
 
     /// <summary>

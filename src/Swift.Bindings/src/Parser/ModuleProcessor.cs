@@ -247,6 +247,13 @@ namespace BindingsGeneration
                 if (propertyDecl.SwiftTypeSpec is ProtocolListTypeSpec)
                     continue;
 
+                // Every same-module type this property stores INLINE has to have a record before this
+                // struct registers, or the container's derived layout and its over-alignment flag are
+                // decided purely by which type happened to be declared first in the module. Run ahead
+                // of the NamedTypeSpec narrowing below, which would otherwise drop a tuple property
+                // whole.
+                PreProcessInlineStoredTypes(propertyDecl.SwiftTypeSpec);
+
                 if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType)
                     continue;
 
@@ -278,6 +285,53 @@ namespace BindingsGeneration
                     }
                     ProcessTypeRecursively(namedPropertyType, nestedDecl);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Registers, ahead of the containing struct, every same-module type that
+        /// <paramref name="spec"/> stores inline. Recurses through <c>Swift.Optional</c> layers and
+        /// tuple elements — both hold their payload inline, and `T?` is spelled
+        /// <c>Swift.Optional&lt;T&gt;</c>, so a same-module payload sits behind a foreign outer name
+        /// that the property walk would never otherwise follow. Idempotent and cycle-safe:
+        /// <see cref="ProcessTypeRecursively"/> returns immediately for an already-processed or
+        /// in-progress type.
+        /// </summary>
+        private void PreProcessInlineStoredTypes(TypeSpec? spec)
+        {
+            switch (spec)
+            {
+                case TupleTypeSpec tuple:
+                    foreach (var element in tuple.Elements)
+                        PreProcessInlineStoredTypes(element);
+                    return;
+
+                case NamedTypeSpec named:
+                    if (named.Name == "Swift.Optional" && named.GenericParameters.Count == 1)
+                    {
+                        PreProcessInlineStoredTypes(named.GenericParameters[0]);
+                        return;
+                    }
+                    // The declarations are keyed by one flat module-qualified name with no generic
+                    // arguments, so a field spelled `Phantom<Int>` or `Outer.Inner` has to be
+                    // normalized to that shape before it can be found — looking the field's own spec
+                    // up misses both, and a payload that is never pre-registered puts the container's
+                    // frozen flag back at the mercy of declaration order.
+                    //
+                    // Membership in the declaration map is the whole test, with no comparison against
+                    // the current module's name: a type this module writes inside an extension of a
+                    // foreign type is spelled under the foreign module yet is declared, and emitted,
+                    // right here. Nothing new is registered by admitting it — every entry in that map
+                    // is processed under this same key by the top-level walk regardless — so the only
+                    // thing this decides is whether a payload is registered before or after the type
+                    // that stores it.
+                    var payloadKey = DeclLookupKey(named);
+                    if (!named.IsAny && _typeDecls.TryGetValue(payloadKey, out var payloadDecl))
+                        ProcessTypeRecursively(payloadKey, payloadDecl);
+                    return;
+
+                default:
+                    return;
             }
         }
 
@@ -420,6 +474,33 @@ namespace BindingsGeneration
                 abiFieldLayout = ComputeAbiFieldLayout(structDecl);
             }
 
+            // Derive the struct's inline (size, alignment) from its own stored fields, so that
+            // embedding it as a field of another frozen struct's blitted Buffer reserves its true
+            // width instead of one pointer. Only a frozen struct has a layout that is knowable from
+            // its declaration; a non-frozen one is opaque.
+            //
+            // A struct whose declaration was in hand and whose layout still could not be derived is
+            // recorded as indeterminate rather than left unmarked. The single-pointer clamp on an
+            // unmarked record exists for records this parser never saw at all — module-database
+            // entries and supplement synthesizations — and a struct that reaches a Buffer field
+            // through a wrapper its container cannot see past (an Optional field leaves the container
+            // frozen, since the container only stores `Swift.Optional`) would otherwise reserve one
+            // pointer for a type of any width. That covers both a struct declared without `@frozen`
+            // and one declared `@frozen` whose flag was cleared because a stored field's type never
+            // resolved or resolved to an opaque struct.
+            DeclaredValueLayout? declaredLayout = null;
+            if ((flags & TypeRecordFlags.Frozen) != 0)
+                declaredLayout = TryComputeDeclaredStructLayout(structDecl);
+
+            bool declaredLayoutIndeterminate = declaredLayout is null;
+
+            // An over-alignment travels with the type wherever it is stored, and it invalidates a size
+            // the Buffer walk may otherwise know exactly (from live metadata or a persisted
+            // inlineSize), so it rides its own flag rather than the declared-layout lane. Recorded for
+            // every struct, frozen or not, and propagated from stored fields so a container of an
+            // over-aligned type is over-aligned too.
+            bool hasUnknownCustomAlignment = CarriesUnknownCustomAlignment(structDecl);
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = structDecl.SwiftTypeName,
@@ -429,6 +510,9 @@ namespace BindingsGeneration
                 Flags = flags,
                 Kind = TypeRecordKind.Struct,
                 InlineSize = inlineSize,
+                DeclaredLayout = declaredLayout,
+                DeclaredLayoutIndeterminate = declaredLayoutIndeterminate,
+                HasUnknownCustomAlignment = hasUnknownCustomAlignment,
                 AbiFieldLayout = abiFieldLayout,
                 ProtocolConformances = BuildDirectProtocolConformances(structDecl.Conformances),
                 AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
@@ -544,6 +628,288 @@ namespace BindingsGeneration
             }
 
             return fields.Count > 0 ? string.Join(",", fields) : null;
+        }
+
+        /// <summary>
+        /// Derives a frozen struct's inline (size, alignment) by walking its stored instance fields in
+        /// declaration order — Swift never reorders them — so that embedding the struct in another
+        /// frozen struct's blitted Buffer reserves its real width rather than a single pointer.
+        /// Returns null when any field's own layout is not derivable, which the caller records as
+        /// indeterminate so a containing Buffer fails closed instead of guessing.
+        ///
+        /// <para>
+        /// Safe to resolve nested field types from the database here: <see cref="ProcessStructProperties"/>
+        /// runs before registration and recursively processes each stored field's type — including the
+        /// payload of a same-module <c>Optional</c> field, whose outer name belongs to the stdlib — so a
+        /// nested struct's own record (and derived layout) already exists. Swift forbids a value type
+        /// from storing itself, so the walk cannot recurse forever. A field type that is still missing
+        /// (a reference cycle broken mid-walk, say) resolves to null and marks this layout
+        /// indeterminate, which is the fail-closed direction.
+        /// </para>
+        /// </summary>
+        /// <summary>
+        /// True when <paramref name="decl"/> declares an <c>@_alignment(N)</c> the ABI descriptor
+        /// does not spell out, or stores something that does. Swift takes a value type's alignment
+        /// as the maximum of what it stores inline — a struct's fields, an enum's associated values
+        /// — so the unknown travels outward: a container of an over-aligned type is itself
+        /// over-aligned, and neither can be mirrored by a Buffer's pointer-word fields.
+        /// </summary>
+        private bool CarriesUnknownCustomAlignment(TypeDecl decl)
+            => DeclCarriesUnknownCustomAlignment(decl, new HashSet<string>(StringComparer.Ordinal));
+
+        /// <summary>
+        /// True when <paramref name="spec"/> stores an over-aligned type inline. Peels every
+        /// <c>Optional</c> layer and walks tuple elements, because both store their payload inline
+        /// and therefore inherit its alignment — stopping at the first layer would let
+        /// <c>Aligned??</c> or <c>(Aligned, Int)</c> leave the container unflagged.
+        ///
+        /// <para>
+        /// Every type is answered from its own declaration as well as from its record, and either
+        /// source alone can carry the answer. The declaration is what makes the walk order-free: a
+        /// record exists only once its type has been registered, so a record-only walk would answer
+        /// "not over-aligned" from a record that simply does not exist yet, and a recursive graph (an
+        /// enum and the struct that stores it) has no order in which every record exists first. The
+        /// declarations are all in hand before any of them is registered. The record is what covers a
+        /// type this module did not write: one from another module has no declaration here, and one
+        /// retained here only to host this module's extension members has a partial one.
+        /// </para>
+        /// </summary>
+        private bool SpecCarriesUnknownCustomAlignment(TypeSpec? spec)
+            => SpecCarriesUnknownCustomAlignment(spec, new HashSet<string>(StringComparer.Ordinal));
+
+        private bool SpecCarriesUnknownCustomAlignment(TypeSpec? spec, HashSet<string> visiting)
+        {
+            switch (spec)
+            {
+                case TupleTypeSpec tuple:
+                    foreach (var element in tuple.Elements)
+                    {
+                        if (SpecCarriesUnknownCustomAlignment(element, visiting))
+                            return true;
+                    }
+                    return false;
+
+                case NamedTypeSpec named:
+                    if (named.Name == "Swift.Optional" && named.GenericParameters.Count == 1)
+                        return SpecCarriesUnknownCustomAlignment(named.GenericParameters[0], visiting);
+
+                    // A specialization stores its type arguments inline wherever the generic type is a
+                    // value type, but the declaration carries only the unbound parameter — walking
+                    // `Box<Aligned>`'s declaration finds `T` and never reaches `Aligned`. Reading the
+                    // arguments here keeps the payload's alignment attached to the specialization.
+                    // Arguments hang off every segment of a nested name, not just the outermost one
+                    // (`Outer<Plain>.Inner<Aligned>` carries one on each), so the whole chain is read.
+                    // A generic that does *not* store its argument inline — a class, a container that
+                    // heaps its elements, a nested type that never mentions its parent's parameter — is
+                    // over-flagged rather than under-flagged, which costs a Buffer projection instead
+                    // of corrupting one.
+                    for (var segment = named; segment is not null; segment = segment.InnerType)
+                    {
+                        foreach (var genericArgument in segment.GenericParameters)
+                        {
+                            if (SpecCarriesUnknownCustomAlignment(genericArgument, visiting))
+                                return true;
+                        }
+                    }
+
+                    // The record is consulted first and only for a positive answer, so it can add
+                    // alignment this walk would otherwise miss without being able to withhold any: a
+                    // type this module declares may have no record yet, and answering "no" from its
+                    // absence is what made the old walk depend on declaration order. It earns its place
+                    // for a foreign type retained here to host this module's extension members, whose
+                    // declaration is a partial view — its stored properties may be absent entirely —
+                    // of a type its own module has already described completely.
+                    if (TryGetTypeRecord(named, out var record) && record.HasUnknownCustomAlignment)
+                        return true;
+
+                    return _typeDecls.TryGetValue(DeclLookupKey(named), out var localDecl) &&
+                           DeclCarriesUnknownCustomAlignment(localDecl, visiting);
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The key under which <paramref name="named"/> would appear in the module's declaration map,
+        /// which stores every type under one flat module-qualified name and no generic arguments. A
+        /// nested type reaches this walk as an outer name carrying an inner chain
+        /// (<c>Outer</c> + <c>.Inner</c>), so a key built from the outer name alone would silently
+        /// answer from the enclosing type's fields instead of the nested type's.
+        /// </summary>
+        private static NamedTypeSpec DeclLookupKey(NamedTypeSpec named)
+        {
+            if (named.InnerType is null)
+                return new NamedTypeSpec(named.Name);
+
+            var flattened = new StringBuilder(named.Name);
+            for (var inner = named.InnerType; inner is not null; inner = inner.InnerType)
+            {
+                flattened.Append('.');
+                flattened.Append(inner.Name);
+            }
+
+            return new NamedTypeSpec(flattened.ToString());
+        }
+
+        /// <summary>
+        /// True when <paramref name="decl"/> is over-aligned itself or stores something that is.
+        /// A type already on the walk contributes nothing further — whatever it stores is being
+        /// examined by the frame that put it there — so re-entering it is a cycle to cut, not an
+        /// answer to trust.
+        /// </summary>
+        private bool DeclCarriesUnknownCustomAlignment(TypeDecl decl, HashSet<string> visiting)
+        {
+            switch (decl)
+            {
+                case StructDecl structDecl:
+                    if (!visiting.Add(structDecl.SwiftTypeName.ModuleQualifiedName))
+                        return false;
+                    if (structDecl.HasCustomAlignment)
+                        return true;
+                    foreach (var propertyDecl in structDecl.Properties)
+                    {
+                        if (propertyDecl.IsStatic || !propertyDecl.HasStorage)
+                            continue;
+                        if (SpecCarriesUnknownCustomAlignment(propertyDecl.SwiftTypeSpec, visiting))
+                            return true;
+                    }
+                    return false;
+
+                case EnumDecl enumDecl:
+                    if (!visiting.Add(enumDecl.SwiftTypeName.ModuleQualifiedName))
+                        return false;
+                    if (enumDecl.HasCustomAlignment)
+                        return true;
+                    foreach (var enumCase in enumDecl.Cases)
+                    {
+                        foreach (var associatedValue in enumCase.AssociatedValues)
+                        {
+                            if (SpecCarriesUnknownCustomAlignment(associatedValue, visiting))
+                                return true;
+                        }
+                    }
+                    return false;
+
+                // A class is stored as one pointer wherever it appears, so its own contents cannot
+                // raise a container's alignment.
+                default:
+                    return false;
+            }
+        }
+
+        private DeclaredValueLayout? TryComputeDeclaredStructLayout(StructDecl structDecl)
+        {
+            // `@_alignment(N)` raises the struct's alignment above what its fields require, which moves
+            // both its own interior padding and the offset it takes inside a container. The ABI
+            // descriptor records only that the attribute is present, so N is unknowable here and a
+            // field walk would under-state the width — decline rather than derive a smaller layout.
+            if (structDecl.HasCustomAlignment)
+            {
+                _logger.LogDebug("Declared layout: '{Type}' declares a custom alignment whose value the ABI descriptor omits — layout marked indeterminate.",
+                    structDecl.Name);
+                return null;
+            }
+
+            var accumulator = new SwiftValueLayout.DeclaredLayoutAccumulator();
+
+            foreach (var propertyDecl in structDecl.Properties)
+            {
+                // Only stored instance properties occupy the value's layout. A static stored property
+                // lives in type metadata, and a computed property has no storage at all.
+                if (propertyDecl.IsStatic || !propertyDecl.HasStorage)
+                    continue;
+
+                if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedType)
+                    return null; // tuple / closure / protocol composition — width not derivable here
+
+                var fieldLayout = TryResolveDeclaredFieldLayout(namedType);
+                if (fieldLayout is null)
+                {
+                    _logger.LogDebug("Declared layout: field '{Field}' (type {FieldType}) in '{Type}' is not derivable — layout marked indeterminate.",
+                        propertyDecl.Name, namedType.Name, structDecl.Name);
+                    return null;
+                }
+
+                accumulator.Add(fieldLayout.Value);
+            }
+
+            return accumulator.Result;
+        }
+
+        /// <summary>
+        /// Resolves one stored field's Swift inline (size, alignment) for
+        /// <see cref="TryComputeDeclaredStructLayout"/>, or null when it is not soundly derivable.
+        /// Declining is always safe: it propagates to an indeterminate containing layout, which makes
+        /// a Buffer that would embed the containing type fail closed.
+        /// </summary>
+        private DeclaredValueLayout? TryResolveDeclaredFieldLayout(NamedTypeSpec fieldType)
+        {
+            // A fixed-width scalar's Swift alignment equals its size (Bool 1, Int16 2, Int32 4, Int64 8).
+            if (SwiftValueLayout.TryGetFixedWidthPrimitiveSize(fieldType, out int primitiveSize))
+                return new DeclaredValueLayout(primitiveSize, primitiveSize);
+
+            if (fieldType.Name == "Swift.Optional" && fieldType.GenericParameters.Count == 1)
+            {
+                if (fieldType.GenericParameters[0] is not NamedTypeSpec innerType)
+                    return null;
+
+                // Optional<fixed-width scalar> gains a discriminator byte (except Bool, which has
+                // spare bit patterns); either way it keeps the payload's alignment.
+                if (SwiftValueLayout.TryGetOptionalPrimitiveInlineSize(innerType, out int optionalSize) &&
+                    SwiftValueLayout.TryGetFixedWidthPrimitiveSize(innerType, out int innerPrimitiveSize))
+                    return new DeclaredValueLayout(optionalSize, innerPrimitiveSize);
+
+                // Optional over a payload that carries pointers — a class reference, or a value type
+                // with a reference field — folds `.none` into the pointer's spare bit patterns and so
+                // keeps the payload's exact size. Every other payload's spare-inhabitant count is not
+                // derivable from the declaration (a struct of a single Bool has 254 of them, a struct
+                // of a single Int32 has none), so decline rather than assume a tag byte.
+                if (!TryGetTypeRecord(innerType, out var innerRecord))
+                    return null;
+                if (innerRecord.Kind != TypeRecordKind.Class &&
+                    (innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0)
+                    return null;
+                return TryResolveDeclaredFieldLayout(innerType);
+            }
+
+            // A remaining generic instantiation's size is a per-argument property the bare record
+            // cannot carry (ClosedRange<Int> is 16 bytes, ClosedRange<Float> 8).
+            if (fieldType.ContainsGenericParameters || fieldType.IsAny)
+                return null;
+
+            if (!TryGetTypeRecord(fieldType, out var record))
+                return null;
+
+            // An `@_alignment(N)` whose N the descriptor omits: the field's own offset inside this
+            // struct is unknowable, so no size for it can be placed correctly. Checked ahead of the
+            // persisted-size arm below, which a record loaded from a module database can reach with
+            // no declaredLayout attribute of its own.
+            if (record.HasUnknownCustomAlignment)
+                return null;
+
+            // A class reference is exactly one pointer, pointer-aligned.
+            if (record.Kind == TypeRecordKind.Class)
+                return new DeclaredValueLayout(IntPtr.Size, IntPtr.Size);
+
+            if (record.Kind != TypeRecordKind.Struct)
+                return null; // enums: see the payload/spare-bit note on RegisterEnumType
+
+            // A nested struct already derived its own layout (ProcessStructProperties ordering).
+            if (record.DeclaredLayout is { } nested)
+                return nested;
+            if (record.DeclaredLayoutIndeterminate)
+                return null;
+
+            // A reference-bearing value type declared outside this module carries its measured width
+            // as inlineSize (Swift.String is 16, AnyHashable 40); such a type contains pointers, so it
+            // is pointer-aligned. A trivial type with only a persisted size has no alignment source
+            // here (an 8-byte struct of two Int32s aligns to 4, not 8), so it declines.
+            if (record.InlineSize is { } persistedSize &&
+                (record.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+                return new DeclaredValueLayout(persistedSize, IntPtr.Size);
+
+            return null;
         }
 
         /// <summary>
@@ -817,6 +1183,20 @@ namespace BindingsGeneration
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = enumDecl.RawValueTypeName,
                 InlineSize = inlineSize,
+                // A payload-carrying enum stored in a frozen struct's Buffer is reference-managed and
+                // is NOT one pointer wide (an `enum { case none; case some(String) }` is 16 bytes,
+                // folded into the payload's spare bits). Its width depends on spare-bit tag packing
+                // across every case payload, which is not derivable from the declaration, so mark it
+                // indeterminate and let the Buffer walk fail closed rather than blit at a guess.
+                // A simple (no-payload) enum is not reference-managed and never takes that path — it
+                // emits as a typed C# enum field — so its derivation is left unattempted.
+                DeclaredLayoutIndeterminate = (flags & TypeRecordFlags.SimpleEnum) == 0,
+                // Same unknowable `@_alignment(N)` as on a struct: it invalidates the measured
+                // inlineSize above for placement purposes, so it rides its own flag. An enum also
+                // takes the alignment of the payloads it stores inline, and the ABI descriptor spells
+                // the attribute out only on the type that declares it — so an enum wrapping an
+                // over-aligned payload looks unannotated and has to inherit the poison explicitly.
+                HasUnknownCustomAlignment = CarriesUnknownCustomAlignment(enumDecl),
                 ProtocolConformances = BuildDirectProtocolConformances(enumDecl.Conformances),
                 AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
                     memberAnnotations: null, startDecl: enumDecl),

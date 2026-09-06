@@ -439,6 +439,43 @@ namespace BindingsGeneration
                     : emittedMetadataPInvokeStr.Equals("true", StringComparison.OrdinalIgnoreCase);
                 string? inlineSizeStr = typeDeclarationNode?.Attributes?["inlineSize"]?.Value;
                 int? inlineSize = inlineSizeStr != null ? int.Parse(inlineSizeStr) : null;
+                // "size:alignment" when the type's inline layout was derived from its own stored
+                // fields, "unknown" when the derivation ran and failed (fail closed downstream),
+                // absent when never attempted (historical pointer clamp downstream).
+                string? declaredLayoutStr = typeDeclarationNode?.Attributes?["declaredLayout"]?.Value;
+                DeclaredValueLayout? declaredLayout = null;
+                bool declaredLayoutIndeterminate = false;
+                if (declaredLayoutStr is not null)
+                {
+                    var layoutParts = declaredLayoutStr.Split(':');
+                    if (layoutParts.Length == 2 &&
+                        int.TryParse(layoutParts[0], out int declaredSize) &&
+                        int.TryParse(layoutParts[1], out int declaredAlignment) &&
+                        // A size is a non-negative byte count and an alignment is a positive power of
+                        // two; anything else would feed the align-up arithmetic values that silently
+                        // produce a wrong offset rather than an obviously wrong one.
+                        declaredSize >= 0 &&
+                        declaredSize <= SwiftValueLayout.MaxDeclaredLayoutSize &&
+                        declaredAlignment > 0 &&
+                        declaredAlignment <= SwiftValueLayout.MaxDeclaredLayoutAlignment &&
+                        (declaredAlignment & (declaredAlignment - 1)) == 0)
+                        declaredLayout = new DeclaredValueLayout(declaredSize, declaredAlignment);
+                    else
+                        // "unknown", or a malformed value a future writer produced: both mean the size
+                        // is not trustworthy, and guessing is what this lane exists to prevent.
+                        declaredLayoutIndeterminate = true;
+                }
+                // An `@_alignment(N)` the ABI descriptor never spelled out. Independent of the size
+                // attributes: it says the type cannot be PLACED, however well its size is known.
+                // An absent attribute means the writer had nothing to say; a value that is present
+                // but not a recognized boolean comes from a corrupt or future-dialect database, and
+                // is read as the poison it was written to carry rather than silently clearing the one
+                // marker that keeps an over-aligned type out of a blitted Buffer — the same
+                // fail-closed reading the malformed-size branch above takes.
+                string? unknownCustomAlignmentAttr =
+                    typeDeclarationNode?.Attributes?["unknownCustomAlignment"]?.Value;
+                bool unknownCustomAlignment = unknownCustomAlignmentAttr is not null &&
+                    !string.Equals(unknownCustomAlignmentAttr, "false", StringComparison.OrdinalIgnoreCase);
                 string? abiFieldLayout = typeDeclarationNode?.Attributes?["abiLayout"]?.Value;
                 string? protocolDescriptorSymbol = typeDeclarationNode?.Attributes?["protocolDescriptorSymbol"]?.Value;
                 var objcEnumCaseNames = ObjCEnumCaseNames.Decode(
@@ -612,6 +649,9 @@ namespace BindingsGeneration
                         ? SwiftTypeName.FromModuleQualifiedName(superclassStr)
                         : null,
                     InlineSize = inlineSize,
+                    DeclaredLayout = declaredLayout,
+                    DeclaredLayoutIndeterminate = declaredLayoutIndeterminate,
+                    HasUnknownCustomAlignment = unknownCustomAlignment,
                     AbiFieldLayout = abiFieldLayout,
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                     ProtocolConformances = protocolConformances,

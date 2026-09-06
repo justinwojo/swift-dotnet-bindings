@@ -98,6 +98,14 @@ namespace BindingsGeneration
         public required bool IsFrozen { get; set; }
 
         /// <summary>
+        /// Whether the enum raises its own alignment past what its payloads require (Swift's
+        /// <c>@_alignment(N)</c>). As on a struct, the ABI descriptor records only that the
+        /// attribute is present, never N, so the offset the enum takes inside a containing value
+        /// is unknown even when its size is measured.
+        /// </summary>
+        public bool HasCustomAlignment { get; set; }
+
+        /// <summary>
         /// Protocol conformances for this enum.
         /// </summary>
         public required List<TypeConformance> Conformances { get; set; }
