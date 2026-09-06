@@ -1193,6 +1193,23 @@ public static class NameProvider
         isSynthesizedAccessor ? "private" : "public";
 
     /// <summary>
+    /// The simple C# name a declaration's parent type is emitted under — the name a constructor
+    /// on that type is written with. Reads the type database's record rather than the Swift name
+    /// so a type renamed to avoid a nested-type collision is honoured, and takes only the last
+    /// segment because a nested record's name is qualified (e.g. <c>NestedOuter.InnerInfo</c>).
+    /// </summary>
+    public static string GetEmittedParentTypeName(BaseDecl parentDecl, ITypeDatabase typeDatabase)
+    {
+        if (parentDecl is TypeDecl typeDecl && typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
+        {
+            var name = record.CSharpTypeName.Name;
+            var lastDot = name.LastIndexOf('.');
+            return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
+        }
+        return parentDecl.Name;
+    }
+
+    /// <summary>
     /// Gets the C# property name for a given Swift property name, converting to PascalCase
     /// and handling reserved keywords and CS0542 (property vs. containing-type) collisions.
     /// Sibling nested-type collisions (CS0102) are resolved via the

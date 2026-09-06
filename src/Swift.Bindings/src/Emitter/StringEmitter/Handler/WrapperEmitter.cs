@@ -1940,16 +1940,6 @@ namespace BindingsGeneration
         /// Falls back to the declaration name if no TypeRecord is found.
         /// </summary>
         private string GetResolvedTypeName()
-        {
-            if (_env.ParentDecl is TypeDecl typeDecl &&
-                _env.TypeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
-            {
-                // TypeRecord Name may be qualified (e.g., "NestedOuter.InnerInfo") — take last segment
-                var name = record.CSharpTypeName.Name;
-                var lastDot = name.LastIndexOf('.');
-                return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
-            }
-            return _env.ParentDecl.Name;
-        }
+            => NameProvider.GetEmittedParentTypeName(_env.ParentDecl, _env.TypeDatabase);
     }
 }

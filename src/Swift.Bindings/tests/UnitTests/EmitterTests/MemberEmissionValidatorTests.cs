@@ -14,56 +14,142 @@ public class MemberEmissionValidatorTests
     #region CanEmitSubscript Tests
 
     [Fact]
-    public void CanEmitSubscript_AlwaysReturnsUnsupportedType()
+    public void CanEmitSubscript_SimpleIntIndexAndReturn_IsEmittable()
     {
-        // Subscripts on concrete types are not yet supported — always returns SkipReason
+        // The shape SubscriptHandler emits as `public nint this[nint index]`. The
+        // validator has to agree, otherwise a protocol carrying this requirement loses
+        // its conformance on a type that in fact satisfies it.
         var typeDatabase = CreateTypeDatabase();
-        var subscript = new SubscriptDecl
-        {
-            Name = "subscript",
-            MangledName = "$sTest_subscript",
-            IsStatic = false,
-            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
-            IndexParameters = new List<ArgumentDecl>
-            {
-                CreateArgument("index", new NamedTypeSpec("Swift.Int"))
-            },
-            Accessors = new List<AccessorDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null
-        };
+        var subscript = BuildSubscript(
+            "$sTest_subscript",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"));
 
-        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out var skipDetails, out _);
+        var result = MemberEmissionValidator.CanEmitSubscript(
+            subscript, typeDatabase, out _, out var projectedReturnTypeName);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedType, result);
-        Assert.Contains("not yet supported", skipDetails);
+        Assert.Null(result);
+        Assert.NotNull(projectedReturnTypeName);
+        Assert.DoesNotContain("AnyType", projectedReturnTypeName);
     }
 
     [Fact]
-    public void CanEmitSubscript_WithAnyTypeIndex_StillReturnsUnsupportedType()
+    public void CanEmitSubscript_StaticSubscript_IsSkipped()
     {
-        // Even with AnyType index, the early return catches it first
+        // Static subscripts have no instance receiver to hang a C# indexer off, so the
+        // emitter drops them; the validator must report the same verdict.
         var typeDatabase = CreateTypeDatabase();
-        var subscript = new SubscriptDecl
-        {
-            Name = "subscript",
-            MangledName = "$sTest_subscript2",
-            IsStatic = false,
-            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
-            IndexParameters = new List<ArgumentDecl>
-            {
-                CreateArgument("key", new NamedTypeSpec("UnknownModule.Foo"))
-            },
-            Accessors = new List<AccessorDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null
-        };
+        var subscript = BuildSubscript(
+            "$sTest_static_subscript",
+            isStatic: true,
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"));
 
         var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
 
-        Assert.NotNull(result);
-        Assert.Equal(SkipReason.UnsupportedType, result);
+        Assert.Equal(SkipReason.StaticProtocolMember, result);
+    }
+
+    [Fact]
+    public void CanEmitSubscript_UnsupportedModuleIndexType_IsSkipped()
+    {
+        // An index parameter from a module the generator does not bind: the indexer is
+        // not emitted, so a conformance requiring this subscript must still be refused.
+        var typeDatabase = CreateTypeDatabase();
+        var subscript = BuildSubscript(
+            "$sTest_subscript2",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            indexTypeSpec: new NamedTypeSpec("SwiftUI.Color"));
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.SwiftUIConstraint, result);
+    }
+
+    [Fact]
+    public void CanEmitSubscript_UnsupportedModuleReturnType_IsSkipped()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var subscript = BuildSubscript(
+            "$sTest_subscript3",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("SwiftUI.Color"),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"));
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.SwiftUIConstraint, result);
+    }
+
+    [Fact]
+    public void CanEmitSubscript_SettableResultReturn_IsSkipped()
+    {
+        // A settable subscript's `newValue` carries the element type in the write direction, and a
+        // C#-constructed SwiftResult has no native payload to marshal outbound — so the concrete
+        // emitter drops the whole indexer over that setter. The validator has to reach the same
+        // verdict from the decl alone: otherwise a protocol carrying this requirement keeps its
+        // `: IP` on a type that never emits the indexer, and the binding fails with CS0535.
+        var typeDatabase = CreateTypeDatabase();
+        var subscript = BuildSubscript(
+            "$sTest_subscript_result_settable",
+            isStatic: false,
+            returnTypeSpec: new NamedTypeSpec("Swift.Result",
+                new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Error")),
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"),
+            hasSetter: true);
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.UnsupportedSignature, result);
+    }
+
+    private static SubscriptDecl BuildSubscript(
+        string mangledName, bool isStatic, TypeSpec returnTypeSpec, TypeSpec indexTypeSpec,
+        bool hasSetter = false)
+    {
+        var accessors = new List<AccessorDecl>();
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = "set",
+                    MangledName = mangledName + "s",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty),
+                        CreateArgument("newValue", returnTypeSpec),
+                        CreateArgument("index", indexTypeSpec)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                    Throws = false,
+                    IsAsync = false,
+                    IsSynthesizedAccessor = false
+                }
+            });
+        }
+
+        return new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = mangledName,
+            IsStatic = isStatic,
+            ReturnTypeSpec = returnTypeSpec,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                CreateArgument("index", indexTypeSpec)
+            },
+            Accessors = accessors,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
     }
 
     #endregion

@@ -210,7 +210,9 @@ internal static class CollectionProjectionEmitter
             LibraryPath = libraryPath,
             EntryPoint = subscriptSymbol,
             MethodName = pinvokeSubscriptName,
-            ReturnType = "void",
+            // Returns the bounds verdict, not the element: -1 when the element was written,
+            // otherwise the collection's element count (see EmitCollectionSwiftWrappers).
+            ReturnType = "nint",
             ParametersString = "IntPtr resultPtr, nint position, IntPtr parentMeta, IntPtr self_",
             CallingConvention = PInvokeCallingConvention.Cdecl,
         });
@@ -348,7 +350,7 @@ internal static class CollectionProjectionEmitter
             {{originAnchor}}
             private protocol {{protocolName}} {
                 static func {{countDispatchName}}(selfPtr: UnsafeRawPointer) -> Int
-                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer)
+                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) -> Int
             }
             """);
 
@@ -359,6 +361,15 @@ internal static class CollectionProjectionEmitter
         // (classes, nested structs with reference fields). Loading obj by value
         // copies Self — for non-move-only structs the compiler handles the reference
         // fields' retain, so this is safe.
+        //
+        // The subscript dispatch checks the position against the collection's own index
+        // range BEFORE evaluating `obj[position]`. Swift's Collection subscript is a
+        // precondition, not a throwing call: an out-of-range position traps the whole
+        // process, which would turn an ordinary managed bounds error on the C# indexer
+        // into a hard crash the consumer cannot catch. Checking here rather than on the
+        // C# side keeps the read to a single native call under a single payload lease.
+        // The return value carries the verdict: -1 means the element was written, any
+        // non-negative value is the collection's element count for the managed message.
         OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(subscriptDecl).Artifact);
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLines($$"""
@@ -367,10 +378,14 @@ internal static class CollectionProjectionEmitter
                     let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
                     return obj.count
                 }
-                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) {
+                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) -> Int {
                     let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
+                    guard position >= obj.startIndex, position < obj.endIndex else {
+                        return obj.count
+                    }
                     let result: {{elementSwiftType}} = obj[position]
                     resultPtr.initializeMemory(as: {{elementSwiftType}}.self, repeating: result, count: 1)
+                    return -1
                 }
             }
             """);
@@ -397,14 +412,16 @@ internal static class CollectionProjectionEmitter
         swiftWriter.WriteLines($$"""
             // Collection subscript @_cdecl wrapper for {{moduleQualifiedName}}.subscript(_:) -> {{elementSwiftType}}.
             // Parent type metadata is supplied by the C# caller (see count wrapper above).
+            // Returns -1 when the element was written to resultPtr, otherwise the collection's
+            // element count — the position was out of range and nothing was written.
             """);
         WrapperEmitterHelpers.EmitCdeclAnnotation(
             swiftWriter, subscriptSymbol, needsMainActor: false,
             availabilityAnnotations: availability);
-        swiftWriter.WriteLine($"public func _sbw_coll_subscript_cdecl_{hash}(_ resultPtr: UnsafeMutableRawPointer, _ position: Int, _ parentMetaPtr: UnsafeRawPointer, _ self_: UnsafeRawPointer) {{");
+        swiftWriter.WriteLine($"public func _sbw_coll_subscript_cdecl_{hash}(_ resultPtr: UnsafeMutableRawPointer, _ position: Int, _ parentMetaPtr: UnsafeRawPointer, _ self_: UnsafeRawPointer) -> Int {{");
         swiftWriter.Indent++;
         swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
-        swiftWriter.WriteLine($"metatype.{subDispatchName}(resultPtr: resultPtr, position: position, selfPtr: self_)");
+        swiftWriter.WriteLine($"return metatype.{subDispatchName}(resultPtr: resultPtr, position: position, selfPtr: self_)");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
     }
@@ -453,7 +470,16 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeMethodName}((IntPtr)__cdeclBuf, (nint)index, __parentMeta.Handle, _payload.DangerousGetHandle());");
+        // The native shim reports the bounds verdict instead of evaluating an out-of-range
+        // Swift subscript (which is a precondition failure, i.e. a process trap the consumer
+        // cannot catch). -1 means the element was written; any other value is the collection's
+        // element count. Throwing here gives the ordinary IReadOnlyList<T> contract.
+        csWriter.WriteLine($"var __bounds = {pinvokeHelperContext.HelperClassName}.{pinvokeMethodName}((IntPtr)__cdeclBuf, (nint)index, __parentMeta.Handle, _payload.DangerousGetHandle());");
+        csWriter.WriteLine("if (__bounds >= 0)");
+        csWriter.Indent++;
+        csWriter.WriteLine("throw new global::System.ArgumentOutOfRangeException(nameof(index), index, "
+            + "$\"Index must be non-negative and less than the collection's element count ({__bounds}).\");");
+        csWriter.Indent--;
         csWriter.WriteLine($"var __element = SwiftMarshal.MarshalFromSwift<{elementCsName}>(new IntPtr(__cdeclBuf));");
         csWriter.WriteLine("if (__element is ISwiftObject __so && __so.SwiftHandle == (IntPtr)__cdeclBuf)");
         csWriter.WriteLine("{");

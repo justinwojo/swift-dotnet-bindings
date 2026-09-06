@@ -26,8 +26,25 @@ internal static class NativeIntOverloadEmitter
     {
         var methodDecl = methodEnv.MethodDecl;
 
-        // Gate: skip constructors, accessors, async, missing symbols
-        if (methodDecl.IsConstructor || methodDecl.IsAccessor || methodDecl.IsAsync)
+        // Constructors take the same convenience overload methods take. Without it an
+        // `init(sizeLimit: UInt)` demands a `nuint` while the `sizeLimit` property that reads it
+        // back is narrowed to `uint`, so the two halves of the same value disagree about which
+        // range a consumer may use. The forwarding shape differs — a constructor chains with
+        // `: this(...)` rather than delegating in an expression body — but the parameter analysis,
+        // the dedup and the attribute inheritance are shared with the method path below.
+        //
+        // Several constructor flavours have no constructor to chain to: a failable `init?`/`init!`
+        // emits as a static TryCreate factory, an async init as a static CreateAsync factory, and an
+        // init whose projected signature collided with a sibling's is recovered under a label-named
+        // `CreateWith{Labels}` static factory. A parent that is not a type (a module-level function)
+        // has no constructor at all. In every one of those the `: this(...)` chain below would name a
+        // constructor the type never declares, so the convenience sugar is not emitted — the primary
+        // member still binds, and C#'s own implicit int→nint conversion keeps an int call site legal.
+        bool isConstructorOverload = methodDecl.IsConstructor;
+        if (methodDecl.IsAccessor || methodDecl.IsAsync)
+            return;
+        if (isConstructorOverload &&
+            (methodDecl.IsFailable || methodEnv.InitFactoryName != null || methodDecl.ParentDecl is not TypeDecl))
             return;
         if (methodDecl.IsMissingExportedSymbol)
             return;
@@ -76,12 +93,29 @@ internal static class NativeIntOverloadEmitter
         if (conversions.Count == 0)
             return;
 
+        // A constructor is emitted under the type's own name, not under CSharpMethodName (which
+        // for an init holds only the internal dedup identity).
+        var constructorName = isConstructorOverload
+            ? NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase)
+            : null;
+
         // Dedup: check if this overload signature already exists
         if (methodEnv.EmittedProjectedSignatures != null)
         {
-            var overloadKey = BuildOverloadKey(methodEnv, conversions);
+            var overloadKey = BuildOverloadKey(methodEnv, conversions, constructorName);
             if (!methodEnv.EmittedProjectedSignatures.Add(overloadKey))
                 return;
+        }
+
+        // A sibling init already declaring the narrowed shape (e.g. `init(n: Int32)` next to
+        // `init(n: UInt)`) would be duplicated by this overload — CS0111, which the projected-key
+        // set above cannot see because the sibling never passed through this emitter. Constructors
+        // are the exposed case: they all share one C# name, so any two of them on a type contest
+        // the same signature.
+        if (isConstructorOverload &&
+            ConstructorOverloadCollidesWithSibling(methodEnv, conversions))
+        {
+            return;
         }
 
         // Determine return type — keep nint/nuint return type as-is for method overloads.
@@ -97,7 +131,9 @@ internal static class NativeIntOverloadEmitter
         // Self-typed or placeholder return it degrades to AnyType and composes nonsense like
         // AnyType<T> for a bound generic, while the primary projects the real type.
         var returnTypeSpec = csSignature[0].SwiftTypeSpec;
-        bool hasReturn = !returnTypeSpec.IsEmptyTuple;
+        // A constructor has no C# return type; its CSSignature[0] carries Self, which must not be
+        // projected as one.
+        bool hasReturn = !isConstructorOverload && !returnTypeSpec.IsEmptyTuple;
         string returnType = hasReturn
             ? new SignatureHandler(methodEnv).GetWrapperSignature().ReturnType
             : "void";
@@ -159,8 +195,12 @@ internal static class NativeIntOverloadEmitter
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);
 
-        // Determine static modifier
-        var isStatic = methodDecl.MethodType == MethodType.Static;
+        // Determine static modifier. A module-level free function carries MethodType.Instance but is
+        // emitted static (its parent is the module, not a type), so keying only on MethodType wrote
+        // the convenience overload as an INSTANCE method on the free-function holder class — it
+        // compiles, and it is unreachable, because every consumer calls the free function through the
+        // type name. Mirror the primary member's own decision.
+        var isStatic = methodDecl.MethodType == MethodType.Static || methodEnv.ParentDecl is ModuleDecl;
         var staticModifier = isStatic ? "static " : "";
 
         // Surface @MainActor isolation on the convenience int/uint forwarder too, keyed on the SAME
@@ -181,7 +221,11 @@ internal static class NativeIntOverloadEmitter
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
 
         // Emit the overload
-        if (hasReturn)
+        if (isConstructorOverload)
+        {
+            csWriter.WriteLine($"public {constructorName}({paramStr}) : this({argsStr}) {{ }}");
+        }
+        else if (hasReturn)
         {
             csWriter.WriteLine($"public {staticModifier}{returnType} {methodName}({paramStr}) => {methodName}({argsStr});");
         }
@@ -189,6 +233,67 @@ internal static class NativeIntOverloadEmitter
         {
             csWriter.WriteLine($"public {staticModifier}void {methodName}({paramStr}) => {methodName}({argsStr});");
         }
+    }
+
+    /// <summary>
+    /// True when the narrowed constructor signature this emitter is about to write is already
+    /// declared by another init on the same type.
+    /// </summary>
+    private static bool ConstructorOverloadCollidesWithSibling(
+        MethodEnvironment methodEnv,
+        List<(int index, string nativeType, string convType, bool isOptional)> conversions)
+    {
+        var methodDecl = methodEnv.MethodDecl;
+        if (methodDecl.ParentDecl is not TypeDecl parentType)
+            return false;
+
+        var narrowedShape = BuildNarrowedParameterShape(methodEnv, methodDecl, conversions);
+
+        foreach (var sibling in parentType.Methods)
+        {
+            if (!sibling.IsConstructor || sibling.IsFailable || sibling.IsAsync)
+                continue;
+            if (ReferenceEquals(sibling, methodDecl) || sibling.MangledName == methodDecl.MangledName)
+                continue;
+
+            // The sibling's own emitted parameter list, read through the same projection. Its
+            // native-int params are NOT narrowed here (the primary keeps nint/nuint) — but its
+            // convenience overload would be, and that one is caught by the projected-key set.
+            var siblingShape = BuildNarrowedParameterShape(methodEnv, sibling, conversions: null);
+            if (siblingShape.SequenceEqual(narrowedShape, StringComparer.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Projects a declaration's parameter list to the C# type names it is emitted with, applying
+    /// the int/uint narrowing described by <paramref name="conversions"/> when one is supplied.
+    /// </summary>
+    private static List<string> BuildNarrowedParameterShape(
+        MethodEnvironment methodEnv,
+        MethodDecl decl,
+        List<(int index, string nativeType, string convType, bool isOptional)>? conversions)
+    {
+        var shape = new List<string>();
+        for (int i = 1; i < decl.CSSignature.Count; i++)
+        {
+            var arg = decl.CSSignature[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+
+            var conv = conversions?.Find(c => c.index == i) ?? default;
+            if (conv != default)
+            {
+                shape.Add(conv.isOptional ? $"{conv.convType}?" : conv.convType);
+                continue;
+            }
+
+            var prefix = arg.IsInOut ? "ref " : "";
+            shape.Add(prefix + ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true));
+        }
+        return shape;
     }
 
     /// <summary>
@@ -449,10 +554,13 @@ internal static class NativeIntOverloadEmitter
         return false;
     }
 
-    private static string BuildOverloadKey(MethodEnvironment methodEnv, List<(int index, string nativeType, string convType, bool isOptional)> conversions)
+    private static string BuildOverloadKey(
+        MethodEnvironment methodEnv,
+        List<(int index, string nativeType, string convType, bool isOptional)> conversions,
+        string? nameOverride = null)
     {
         var methodDecl = methodEnv.MethodDecl;
-        var methodName = methodEnv.CSharpMethodName;
+        var methodName = nameOverride ?? methodEnv.CSharpMethodName;
         var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
 
         var paramTypes = new List<string>();

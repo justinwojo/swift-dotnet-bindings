@@ -76,10 +76,13 @@ public class PostProcessorTableTests
     }
 
     [Fact]
-    public void PostProcessors_NativeIntScope_IsMethodsOnly()
+    public void PostProcessors_NativeIntScope_IsAll()
     {
+        // Constructors need the convenience overload too: an init taking a pointer-width Swift
+        // integer and the narrowed 32-bit property that reads it back must accept the same range,
+        // or a value a consumer can construct with is not a value they can read.
         var ni = MethodHandler.PostProcessors.OfType<NativeIntOverloadPostProcessor>().Single();
-        Assert.Equal(PostProcessorScope.MethodsOnly, ni.Scope);
+        Assert.Equal(PostProcessorScope.All, ni.Scope);
     }
 
     [Fact]

@@ -19,6 +19,138 @@ namespace BindingsGeneration
         private static readonly TypeProjectionFactory s_projectionFactory = new();
 
         /// <summary>
+        /// One index parameter as the indexer will emit it: the projected C# type name and
+        /// the projection whose conversion the indexer body threads the argument through.
+        /// </summary>
+        internal readonly record struct IndexParameterPlan(
+            ArgumentDecl Parameter, string TypeName, ITypeProjection? Projection);
+
+        /// <summary>
+        /// The statically-decidable half of <see cref="EmitSubscripts"/>'s gate chain —
+        /// everything answerable from the decl, the type database and the owning module alone.
+        /// The emission loop runs this first and then continues with the gates that need live
+        /// emission state (accessor marshalling, wrapper signature shape, dedup).
+        ///
+        /// <para><see cref="MemberEmissionValidator.CanEmitSubscript"/> runs exactly this and
+        /// nothing else: it is consulted while the class header is being written, before any
+        /// member has been emitted, so none of the emission-time state exists yet. Sharing one
+        /// predicate is what keeps the conformance decision ("does this type satisfy the
+        /// interface's subscript requirement?") from disagreeing with the indexer the type
+        /// actually emits — the two used to be independent, and the validator's answer was a
+        /// blanket no, which dropped the `: IFoo` from types whose indexer emitted fine.</para>
+        ///
+        /// Returns null when the subscript passes these gates, otherwise the skip reason.
+        /// </summary>
+        internal static SkipReason? TryPlanIndexer(
+            SubscriptDecl subscriptDecl,
+            ITypeDatabase typeDatabase,
+            BoundGenericsHandler boundGenericsHandler,
+            MemberValidationPipeline validationPipeline,
+            string? currentModuleName,
+            out string? skipDetails,
+            out string? returnTypeName,
+            out List<IndexParameterPlan> indexParameters)
+        {
+            skipDetails = null;
+            returnTypeName = null;
+            indexParameters = new List<IndexParameterPlan>();
+
+            // Signature-reaches-internal gate. Runs before projection so a subscript whose
+            // accessors could not be wrapped is dropped here rather than later.
+            var validation = validationPipeline.ValidateSubscriptEmission(subscriptDecl, null);
+            if (!validation.ShouldEmit)
+            {
+                skipDetails = validation.Details ?? "";
+                return validation.Reason ?? SkipReason.Unknown;
+            }
+
+            if (subscriptDecl.IsStatic)
+            {
+                skipDetails = "Static subscripts cannot be emitted as C# indexers.";
+                return SkipReason.StaticProtocolMember;
+            }
+
+            // Subscripts referencing unsupported modules (SwiftUI, Combine) unless registered in the
+            // type database. No scalar carve-out — subscripts marshal through the UTF-8/raw path, not
+            // the LocalizedStringResource-aware @_cdecl wrapper.
+            foreach (var spec in subscriptDecl.IndexParameters
+                         .Select(p => p.SwiftTypeSpec)
+                         .Prepend(subscriptDecl.ReturnTypeSpec))
+            {
+                var unsupported = ValidationRuleSet.ClassifyUnsupportedReference(spec, typeDatabase, out var offending);
+                if (unsupported == ValidationRuleSet.UnsupportedReferenceKind.None)
+                    continue;
+                skipDetails = unsupported == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
+                    ? $"Subscript signature references .NET-unavailable type '{offending}'."
+                    : "Subscript signature references unsupported module.";
+                return ValidationRuleSet.ToSkipReason(unsupported);
+            }
+
+            returnTypeName = ResolveSubscriptTypeName(
+                subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler,
+                isParameter: false, currentModuleName);
+            if (returnTypeName.Contains("AnyType"))
+            {
+                skipDetails = "Subscript return type resolved to AnyType."
+                    + UnresolvedAppleTypes.DescribeSuffix(
+                        new[] { subscriptDecl.ReturnTypeSpec }, typeDatabase, currentModuleName);
+                returnTypeName = null;
+                return SkipReason.AnyTypeFallback;
+            }
+
+            // A setter's `newValue` is the element type travelling in the write direction, so a
+            // settable Result-valued subscript would marshal a C#-constructed SwiftResult outbound
+            // with no native payload behind it. Read-only stays supported — the getter returns a
+            // Result the Swift side actually produced. This mirrors the accessor preflight below
+            // rather than living only there, because the conformance validator runs this plan alone:
+            // letting the plan say yes here keeps a `: IFoo` on a type whose indexer the emitter
+            // then drops, which is a CS0535 in the generated binding rather than a lost conformance.
+            if (subscriptDecl.HasSetter &&
+                boundGenericsHandler.ContainsResultArgument(subscriptDecl.ReturnTypeSpec))
+            {
+                skipDetails = "Settable subscript would marshal a Result outbound through its setter.";
+                returnTypeName = null;
+                return SkipReason.UnsupportedSignature;
+            }
+
+            foreach (var param in subscriptDecl.IndexParameters)
+            {
+                var paramTypeName = ResolveSubscriptTypeName(
+                    param.SwiftTypeSpec, typeDatabase, boundGenericsHandler,
+                    isParameter: true, currentModuleName);
+                if (paramTypeName.Contains("AnyType"))
+                {
+                    skipDetails = "Subscript index parameter resolved to AnyType."
+                        + UnresolvedAppleTypes.DescribeSuffix(
+                            new[] { param.SwiftTypeSpec }, typeDatabase, currentModuleName);
+                    returnTypeName = null;
+                    indexParameters.Clear();
+                    return SkipReason.AnyTypeFallback;
+                }
+
+                // Index parameters whose projections require complex conversion (dictionary,
+                // existential, array, set, optional) are not expressible in the indexer body.
+                // Result is rejected in the parameter direction too: it is read/return-only, so a
+                // Result index would marshal a C#-constructed SwiftResult outbound. Only
+                // StringProjection and NativeRemappedProjection have simple conversions handled
+                // by BuildIndexParamConversions.
+                var paramProj = s_projectionFactory.Project(param.SwiftTypeSpec,
+                    new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = currentModuleName });
+                if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection or SetProjection or ResultProjection)
+                {
+                    skipDetails = "Subscript index parameter requires conversion not supported in indexer body.";
+                    returnTypeName = null;
+                    indexParameters.Clear();
+                    return SkipReason.UnsupportedSignature;
+                }
+
+                indexParameters.Add(new IndexParameterPlan(param, paramTypeName, paramProj));
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Emits subscripts as C# indexers for a concrete type.
         /// </summary>
         public static void EmitSubscripts(
@@ -55,105 +187,26 @@ namespace BindingsGeneration
                 var subOwner = FragmentOwners.ForDecl(subscriptDecl);
                 using var subCsScope = csWriter.BeginFragment(subOwner);
                 using var subSwiftScope = swiftWriter.BeginFragment(subOwner);
-                // Pattern 2 emission-time gate (signature reaches internal). Runs before
-                // projection/dedup so a subscript whose accessors couldn't be wrapped is
-                // dropped silently rather than failing later in wrapper generation.
-                var subscriptValidation = subscriptValidationPipeline.ValidateSubscriptEmission(subscriptDecl, null);
-                if (!subscriptValidation.ShouldEmit)
+                // Statically-decidable gates — shared verbatim with
+                // MemberEmissionValidator.CanEmitSubscript so the conformance decision and the
+                // emitted indexer cannot disagree about which subscripts bind.
+                var planSkip = TryPlanIndexer(
+                    subscriptDecl, typeDatabase, boundGenericsHandler, subscriptValidationPipeline,
+                    currentModuleName, out var planSkipDetails, out var plannedReturnTypeName,
+                    out var indexParameterPlans);
+                if (planSkip != null)
                 {
-                    ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        subscriptValidation.Reason ?? SkipReason.Unknown,
-                        subscriptValidation.Details ?? "");
+                    ReportCollector.RecordMemberSkipped(subscriptDecl, planSkip.Value, planSkipDetails ?? "");
                     continue;
                 }
 
-                // Skip static subscripts (not supported as indexers)
-                if (subscriptDecl.IsStatic)
-                {
-                    ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.StaticProtocolMember, "Static subscripts cannot be emitted as C# indexers.");
-                    continue;
-                }
-
-                // Skip subscripts referencing unsupported modules (SwiftUI, Combine) unless registered in type
-                // database. No scalar carve-out — subscripts marshal through the UTF-8/raw path, not the
-                // LocalizedStringResource-aware @_cdecl wrapper. A net-unavailable type gets the accurate reason.
-                var subscriptUnsupported = ValidationRuleSet.UnsupportedReferenceKind.None;
-                string? subscriptOffending = null;
-                foreach (var spec in subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscriptDecl.ReturnTypeSpec))
-                {
-                    subscriptUnsupported = ValidationRuleSet.ClassifyUnsupportedReference(spec, typeDatabase, out subscriptOffending);
-                    if (subscriptUnsupported != ValidationRuleSet.UnsupportedReferenceKind.None)
-                        break;
-                }
-                if (subscriptUnsupported != ValidationRuleSet.UnsupportedReferenceKind.None)
-                {
-                    ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        ValidationRuleSet.ToSkipReason(subscriptUnsupported),
-                        subscriptUnsupported == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                            ? $"Subscript signature references .NET-unavailable type '{subscriptOffending}'."
-                            : "Subscript signature references unsupported module.");
-                    continue;
-                }
-
-                // Skip if return type or any parameter resolves to AnyType
-                var returnTypeName = ResolveSubscriptTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, isParameter: false, currentModuleName);
-                if (returnTypeName.Contains("AnyType"))
-                {
-                    ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.AnyTypeFallback,
-                        "Subscript return type resolved to AnyType."
-                            + UnresolvedAppleTypes.DescribeSuffix(
-                                new[] { subscriptDecl.ReturnTypeSpec }, typeDatabase, currentModuleName));
-                    continue;
-                }
-
-                bool hasAnyTypeParam = false;
-                // The spec of the parameter that forced the AnyType skip — kept because the loop
-                // breaks on the first offender and the report detail names that specific type.
-                TypeSpec? anyTypeParamSpec = null;
-                bool hasComplexIndexParam = false;
-                var paramInfos = new List<(string typeName, string paramName, ITypeProjection? projection)>();
+                var returnTypeName = plannedReturnTypeName!;
+                // Parameter names are an emission concern (the planner answers types and
+                // projections only), so the dedup pass runs here on the surviving subscript.
                 NameProvider.DeduplicateParameterNamesForParameterList(subscriptDecl.IndexParameters);
-                foreach (var param in subscriptDecl.IndexParameters)
-                {
-                    var paramTypeName = ResolveSubscriptTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, isParameter: true, currentModuleName);
-                    if (paramTypeName.Contains("AnyType"))
-                    {
-                        hasAnyTypeParam = true;
-                        anyTypeParamSpec = param.SwiftTypeSpec;
-                        break;
-                    }
-                    // Skip subscripts with index parameters that have projections requiring
-                    // complex conversion (dictionary, existential, array, set, optional). Result is
-                    // also rejected here: it is read/return-only, so a Result index (the parameter
-                    // direction) would marshal a C#-constructed SwiftResult outbound. Only
-                    // StringProjection and NativeRemappedProjection have simple conversions
-                    // handled by BuildIndexParamConversions.
-                    var paramProj = s_projectionFactory.Project(param.SwiftTypeSpec,
-                        new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = currentModuleName });
-                    if (paramProj is DictionaryProjection or ExistentialProjection or ArrayProjection or OptionalProjection or SetProjection or ResultProjection)
-                    {
-                        hasComplexIndexParam = true;
-                        break;
-                    }
-                    paramInfos.Add((paramTypeName, NameProvider.GetCSharpParameterName(param), paramProj));
-                }
-                if (hasAnyTypeParam)
-                {
-                    ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.AnyTypeFallback,
-                        "Subscript index parameter resolved to AnyType."
-                            + UnresolvedAppleTypes.DescribeSuffix(
-                                new[] { anyTypeParamSpec }, typeDatabase, currentModuleName));
-                    continue;
-                }
-                if (hasComplexIndexParam)
-                {
-                    ReportCollector.RecordMemberSkipped(subscriptDecl,
-                        SkipReason.UnsupportedSignature, "Subscript index parameter requires conversion not supported in indexer body.");
-                    continue;
-                }
+                var paramInfos = indexParameterPlans
+                    .Select(p => (typeName: p.TypeName, paramName: NameProvider.GetCSharpParameterName(p.Parameter), projection: p.Projection))
+                    .ToList();
 
                 // Ahead of the signature-key reservation, so a denied subscript does not hold the key
                 // against an overload that projects to the same indexer signature.

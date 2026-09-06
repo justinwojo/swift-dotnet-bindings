@@ -112,4 +112,38 @@ public class ForecastSeriesTests : TestBase
         AssertEqual("b", ids[1], "LINQ Select[1]");
         AssertEqual("c", ids[2], "LINQ Select[2]");
     }
+
+    public void TestForecastSeries_EmptyCollection_IndexZeroThrows()
+    {
+        // The shape a consumer reaches after a search that matched nothing.
+        // Swift's Collection subscript is a precondition: evaluating obj[0] on an
+        // empty collection traps the whole process. Read through the interface
+        // because that is how a consumer holds it, and an IReadOnlyList<T> is
+        // expected to raise a catchable ArgumentOutOfRangeException here.
+        using var empty = Functions.MakeEmptyForecastSeries();
+        IReadOnlyList<CollectibleCoin> view = empty;
+
+        AssertEqual(0, view.Count, "empty ForecastSeries.Count");
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { using var _ = view[0]; }, "empty series[0] throws");
+    }
+
+    public void TestForecastSeries_OutOfRangeIndices_Throw()
+    {
+        // Negative and Count are the two other ordinary bounds errors. Both are
+        // rejected before the native subscript is evaluated, so neither reaches
+        // Swift's trap. The successful read afterwards is the positive control
+        // that the bounds shim did not break element access.
+        using var series = Functions.MakeForecastSeries(
+            firstId: "a", secondId: "b", thirdId: "c");
+        IReadOnlyList<CollectibleCoin> view = series;
+
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { using var _ = view[-1]; }, "series[-1] throws");
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { using var _ = view[view.Count]; }, "series[Count] throws");
+
+        using var last = view[view.Count - 1];
+        AssertEqual("c", last.CollectibleId, "series[Count - 1] still reads");
+    }
 }

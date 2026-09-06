@@ -284,6 +284,14 @@ public func makeMusicItemBag(firstId: String, secondId: String, thirdId: String)
     ])
 }
 
+/// Empty ARRAY-BACKED collection. A search that matched nothing is the ordinary
+/// way a consumer reaches `collection[0]` on an empty collection; Swift's
+/// Collection subscript is a precondition, so the projected C# indexer has to
+/// turn that into a catchable managed bounds error rather than a process trap.
+public func makeEmptyMusicItemBag() -> MusicItemBag<CollectibleCoin> {
+    return MusicItemBag(items: [])
+}
+
 // MARK: - WeatherKit.Forecast<Element> shape — Collection with PRIVATE backing
 //
 // Regression fixture for Collection with private backing storage. Generic struct
@@ -324,6 +332,13 @@ public func makeForecastSeries(firstId: String, secondId: String, thirdId: Strin
         CollectibleCoin(collectibleId: secondId),
         CollectibleCoin(collectibleId: thirdId),
     ])
+}
+
+/// Empty WITNESS-BACKED collection — the path with no public array to delegate
+/// bounds checking to, so the projection's own native shim is the only thing
+/// standing between `series[0]` on an empty result and a Swift bounds trap.
+public func makeEmptyForecastSeries() -> ForecastSeries<CollectibleCoin> {
+    return ForecastSeries([])
 }
 
 // MARK: - WeatherKit.Forecast<Element> Apple-shape — parent over 3-PWT threshold
@@ -381,6 +396,13 @@ public func makeAppleShapedForecast(
         IdentifiableCoin(identifier: secondId),
         IdentifiableCoin(identifier: thirdId),
     ])
+}
+
+/// Empty witness-backed collection whose Element carries the buffer-mode-ABI PWT
+/// shape — the same bounds question on the branch whose parent metadata accessor
+/// is not thin-mode.
+public func makeEmptyAppleShapedForecast() -> AppleShapedForecast<IdentifiableCoin> {
+    return AppleShapedForecast([])
 }
 
 // MARK: - RealityKit.RealityRenderer.EntityCollection shape — class-bounded sequence param

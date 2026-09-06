@@ -132,6 +132,28 @@ public class MusicItemBagTests : TestBase
         AssertEqual("three", seen[2], "MusicItemBag iteration [2]");
     }
 
+    public void TestMusicItemBag_OutOfRangeIndices_Throw()
+    {
+        // Bounds control for the ARRAY-BACKED projection: this indexer delegates
+        // to the projected Swift.Array, which already raises
+        // ArgumentOutOfRangeException, so an empty/negative/Count read must be a
+        // catchable managed error here exactly as it is on the witness-backed path.
+        using var empty = Functions.MakeEmptyMusicItemBag();
+        IReadOnlyList<CollectibleCoin> emptyView = empty;
+        AssertEqual(0, emptyView.Count, "empty MusicItemBag.Count");
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { var _ = emptyView[0]; }, "empty bag[0] throws");
+
+        using var bag = Functions.MakeMusicItemBag(
+            firstId: "a", secondId: "b", thirdId: "c");
+        IReadOnlyList<CollectibleCoin> view = bag;
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { var _ = view[-1]; }, "bag[-1] throws");
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { var _ = view[view.Count]; }, "bag[Count] throws");
+        AssertEqual("c", view[view.Count - 1].CollectibleId, "bag[Count - 1] still reads");
+    }
+
     public void TestMusicItemBag_FormIndex_InoutOnGenericParent_DoesNotCrash()
     {
         // Round 6: `formIndex(_:offsetBy:)` takes `inout Int` on a generic struct parent.

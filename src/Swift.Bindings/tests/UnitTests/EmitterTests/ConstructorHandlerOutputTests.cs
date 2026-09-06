@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -808,7 +809,9 @@ public class ConstructorHandlerOutputTests
         ReportCollector.Reset();
         Assert.NotNull(report);
 
-        // No constructor at all — every member of this family is label-named.
+        // No constructor at all — every member of this family is label-named. That includes the
+        // native-int convenience sugar: a factory-recovered init has no constructor to chain to, so
+        // emitting `public Widget(int) : this((nint)…)` here would name one the type never declares.
         Assert.Equal(0, CountOccurrences(csOutput, "public Widget("));
         Assert.Equal(1, CountOccurrences(csOutput, "static Widget CreateWithA("));
         Assert.Equal(1, CountOccurrences(csOutput, "static Widget CreateWithB("));
@@ -857,7 +860,15 @@ public class ConstructorHandlerOutputTests
 
         var csOutput = EmitClass(parentDecl, typeDatabase);
 
-        Assert.Equal(1, CountOccurrences(csOutput, "public Widget("));
+        // The positional member owns the bare constructor slot, so exactly one `public Widget(`
+        // declares the primary `nint` signature; the second is its int convenience overload, which
+        // chains to that primary rather than declaring a construction path of its own.
+        var constructorLines = csOutput.Split('\n')
+            .Where(line => line.Contains("public Widget("))
+            .ToList();
+        Assert.Equal(2, constructorLines.Count);
+        Assert.Single(constructorLines, line => !line.Contains(": this("));
+        Assert.Single(constructorLines, line => line.Contains(": this("));
         Assert.Contains("static Widget CreateWithLabeled(", csOutput);
     }
 

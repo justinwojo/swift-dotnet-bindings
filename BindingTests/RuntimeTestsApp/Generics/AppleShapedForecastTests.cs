@@ -110,4 +110,27 @@ public class AppleShapedForecastTests : TestBase
         AssertEqual("b", ids[1], "LINQ Select[1]");
         AssertEqual("c", ids[2], "LINQ Select[2]");
     }
+
+    public void TestAppleShapedForecast_OutOfRangeIndices_Throw()
+    {
+        // Same bounds contract on the branch whose parent metadata accessor is
+        // buffer-mode: an out-of-range read must raise a catchable managed
+        // exception rather than reaching Swift's subscript precondition.
+        using var empty = Functions.MakeEmptyAppleShapedForecast();
+        IReadOnlyList<IdentifiableCoin> emptyView = empty;
+        AssertEqual(0, emptyView.Count, "empty AppleShapedForecast.Count");
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { using var _ = emptyView[0]; }, "empty forecast[0] throws");
+
+        using var forecast = Functions.MakeAppleShapedForecast(
+            firstId: "a", secondId: "b", thirdId: "c");
+        IReadOnlyList<IdentifiableCoin> view = forecast;
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { using var _ = view[-1]; }, "forecast[-1] throws");
+        AssertThrows<ArgumentOutOfRangeException>(
+            () => { using var _ = view[view.Count]; }, "forecast[Count] throws");
+
+        using var last = view[view.Count - 1];
+        AssertEqual("c", last.Identifier.ToString(), "forecast[Count - 1] still reads");
+    }
 }

@@ -98,11 +98,13 @@ namespace BindingsGeneration
 
     /// <summary>
     /// Post-processor for int/uint convenience overloads for nint/nuint parameters.
-    /// Methods only — not constructors or accessors.
+    /// Runs on constructors too: an init taking a native-int parameter and the narrowed property
+    /// that reads it back have to accept the same range, or a value a consumer can construct with
+    /// is not a value they can read. Accessors are excluded inside the emitter's own gate.
     /// </summary>
     internal sealed class NativeIntOverloadPostProcessor : IMethodPostProcessor
     {
-        public PostProcessorScope Scope => PostProcessorScope.MethodsOnly;
+        public PostProcessorScope Scope => PostProcessorScope.All;
 
         public void TryPostProcess(PostProcessorContext context)
         {

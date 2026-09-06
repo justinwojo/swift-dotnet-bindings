@@ -91,12 +91,87 @@ public class NativeIntOverloadEmitterTests
     }
 
     [Fact]
-    public void TryEmitOverload_Constructor_Skips()
+    public void TryEmitOverload_ModuleLevelFunction_IncludesStaticModifier()
     {
+        // A free function carries MethodType.Instance but is emitted static, so an overload keyed
+        // only on MethodType lands as an instance method on the free-function holder class —
+        // compiling, but unreachable through the type name every consumer calls it by.
+        var method = CreateMethod("takeCount", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int"));
+        method.ParentDecl = method.ModuleDecl;
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("public static void TakeCount(int count)", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_Constructor_EmitsChainingIntOverload()
+    {
+        // A constructor taking Swift.Int must accept the same idiomatic range the narrowed
+        // `int` property reading that value back accepts — otherwise a value a consumer can
+        // construct with is not one they can read.
         var method = CreateMethod("init", MethodType.Instance,
             returnType: TupleTypeSpec.Empty,
             ("count", "Swift.Int"));
         method.IsConstructor = true;
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("public TestClass(int count) : this((nint)count) { }", output);
+        // A constructor has no return type to declare and nothing to return.
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_Constructor_UnsignedParam_EmitsUintOverload()
+    {
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("sizeLimit", "Swift.UInt"));
+        method.IsConstructor = true;
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("public TestClass(uint sizeLimit) : this((nuint)sizeLimit) { }", output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_FailableConstructor_Skips()
+    {
+        // A failable init emits as a static TryCreate factory, so there is no constructor to chain to.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Fact]
+    public void TryEmitOverload_ConstructorCollidingWithNarrowedSibling_Skips()
+    {
+        // `init(count: Int32)` already emits `TestClass(int)`; a convenience overload for
+        // `init(count: Int)` would be a second declaration of the same signature (CS0111).
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int"));
+        method.IsConstructor = true;
+
+        var sibling = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int32")) with
+        { MangledName = "$s10TestModule9TestClassC5countACs5Int32V_tcfc" };
+        sibling.IsConstructor = true;
+
+        var parentType = (ClassDecl)method.ParentDecl!;
+        sibling.ParentDecl = parentType;
+        parentType.Methods.Add(method);
+        parentType.Methods.Add(sibling);
 
         var output = EmitMethodOverload(method);
 
@@ -739,6 +814,16 @@ public class NativeIntOverloadEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "UIntPtr"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.UInt"),
                 MetadataAccessor = "$sSuMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });

@@ -853,10 +853,18 @@ public static class MemberEmissionValidator
     }
 
     /// <summary>
-    /// Checks if a subscript can be emitted. Returns null if valid, SkipReason if not.
-    /// NOTE: Subscripts on concrete types (structs/classes/enums) are not yet emitted.
-    /// This validator is used by ProtocolConformanceValidator to reject interfaces
-    /// that require subscripts until we implement SubscriptHandler for concrete types.
+    /// Checks whether a subscript will be emitted as a C# indexer on its concrete parent.
+    /// Returns null when it will, otherwise the reason it is skipped.
+    ///
+    /// <para>This is <see cref="SubscriptHandler.TryPlanIndexer"/> — the statically-decidable
+    /// half of the indexer emission gate chain — and nothing else. It runs while a class header
+    /// is being written, before any member has been emitted, so the emission-time gates
+    /// (accessor marshalling, wrapper signature shape, signature dedup) have no state to run
+    /// against and are deliberately outside the shared predicate. Consulting the emitter's own
+    /// planner rather than re-deriving the answer is what keeps a concrete type's protocol
+    /// conformance from being dropped over a subscript requirement the type in fact satisfies:
+    /// the two used to be independent, and this one answered a blanket "not supported" long
+    /// after SubscriptHandler started emitting indexers on concrete types.</para>
     /// </summary>
     public static SkipReason? CanEmitSubscript(
         SubscriptDecl subscript,
@@ -864,79 +872,20 @@ public static class MemberEmissionValidator
         out string? skipDetails,
         out string? projectedReturnTypeName)
     {
-        skipDetails = null;
-        projectedReturnTypeName = null;
+        // The module the subscript's own parent belongs to — the same oracle SubscriptHandler
+        // derives, so a sibling-module element resolves to the identical projected spelling.
+        var parentType = subscript.ParentDecl as TypeDecl;
+        var currentModuleName = parentType?.SwiftTypeName?.Module ?? parentType?.ModuleDecl?.Name;
 
-        // IMPORTANT: Subscripts on concrete types are not yet emitted.
-        // We have SubscriptDecl in the model, but no SubscriptHandler to emit them.
-        // Until we implement that, subscripts cannot satisfy interface requirements.
-        // Note: Protocol interface subscripts ARE emitted (in ProtocolHandler and ProtocolProxyEmitter),
-        // but concrete type subscripts are NOT emitted yet.
-        // This causes CS0535 errors when a concrete type declares IProtocol but has no subscript impl.
-        // For now, reject subscripts as "not supported" so the validator rejects the interface.
-        skipDetails = "Subscripts on concrete types are not yet supported.";
-        return SkipReason.UnsupportedType;
-
-        // The code below would validate if a subscript COULD be emitted, for future use:
-        #pragma warning disable CS0162 // Unreachable code - keeping for future implementation
-        var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
-
-        // Check return type
-        if (subscript.ReturnTypeSpec != null)
-        {
-            var subscriptGenericContext = subscript.ParentDecl is TypeDecl subscriptParentType && subscriptParentType.IsGeneric
-                ? GenericContext.FromType(subscriptParentType)
-                : GenericContext.Empty;
-            var subscriptFactory = new TypeProjectionFactory();
-            var subscriptProjection = subscriptFactory.Project(subscript.ReturnTypeSpec, new ProjectionContext
-            {
-                TypeDatabase = typeDatabase,
-                IsParameter = false,
-                GenericContext = subscriptGenericContext
-            });
-            if (subscriptProjection != null)
-            {
-                projectedReturnTypeName = subscriptProjection.PublicType;
-            }
-            else if (subscript.ReturnTypeSpec is NamedTypeSpec subBoundGeneric && subBoundGeneric.ContainsGenericParameters)
-            {
-                var bgh = new BoundGenericsHandler(typeDatabase);
-                projectedReturnTypeName = bgh.TranslateBoundGenericTypeToCSharp(subscript.ReturnTypeSpec, subscriptGenericContext);
-            }
-            else
-            {
-                projectedReturnTypeName = typeDatabase.GetTypeRecordOrAnyType(subscript.ReturnTypeSpec).CSharpTypeName.FullyQualifiedName;
-            }
-        }
-        else
-        {
-            skipDetails = "Subscript has no return type.";
-            return SkipReason.UnsupportedType;
-        }
-
-        // Check for AnyType fallback
-        if (projectedReturnTypeName != null && projectedReturnTypeName.Contains("AnyType"))
-        {
-            skipDetails = $"Subscript return type resolved to AnyType ({projectedReturnTypeName}).";
-            return SkipReason.AnyTypeFallback;
-        }
-
-        // Check index parameters
-        foreach (var param in subscript.IndexParameters)
-        {
-            if (param.SwiftTypeSpec != null)
-            {
-                var paramTypeRecord = typeDatabase.GetTypeRecordOrAnyType(param.SwiftTypeSpec);
-                if (paramTypeRecord.CSharpTypeName.FullyQualifiedName.Contains("AnyType"))
-                {
-                    skipDetails = $"Subscript index parameter resolved to AnyType.";
-                    return SkipReason.AnyTypeFallback;
-                }
-            }
-        }
-
-        return null;
-        #pragma warning restore CS0162
+        return SubscriptHandler.TryPlanIndexer(
+            subscript,
+            typeDatabase,
+            new BoundGenericsHandler(typeDatabase, conformanceGraph: null, currentModuleName: currentModuleName),
+            new MemberValidationPipeline(typeDatabase),
+            currentModuleName,
+            out skipDetails,
+            out projectedReturnTypeName,
+            out _);
     }
 
     /// <summary>
