@@ -33,6 +33,13 @@ namespace BindingsGeneration;
 ///
 /// Emitted surface: <c>Count</c>, <c>this[int index]</c>, <c>GetEnumerator()</c>,
 /// and the non-generic <c>IEnumerable.GetEnumerator()</c>.
+///
+/// <para><b>Index semantics.</b> <c>IReadOnlyList&lt;T&gt;</c> is zero-based by contract, so
+/// the emitted indexer takes a zero-based offset regardless of where the Swift collection's
+/// own index space starts. The witness-backed shim translates that offset through
+/// <c>index(startIndex, offsetBy:)</c>; the array-backed shape delegates to a Swift
+/// <c>Array</c>, whose <c>startIndex</c> is always zero. Out-of-range offsets raise
+/// <c>ArgumentOutOfRangeException</c> rather than tripping Swift's subscript precondition.</para>
 /// </summary>
 internal static class CollectionProjectionEmitter
 {
@@ -42,6 +49,22 @@ internal static class CollectionProjectionEmitter
         "Swift.RandomAccessCollection",
         "Swift.BidirectionalCollection",
         "Swift.Sequence",
+    };
+
+    /// <summary>
+    /// The subset of <see cref="s_collectionProtocols"/> that actually supplies the members
+    /// the witness-backed shim dispatches through — <c>count</c>, <c>index(_:offsetBy:)</c>
+    /// and the index subscript. <c>Sequence</c> is deliberately absent: it declares none of
+    /// them, so a conformer that publishes only <c>Sequence</c> plus a hand-written
+    /// <c>startIndex</c>/<c>endIndex</c>/<c>subscript(Int)</c> shape would emit a wrapper
+    /// that does not compile. The array-backed path has no such dependency (it delegates to
+    /// a Swift <c>Array</c>) and keeps accepting the full set.
+    /// </summary>
+    private static readonly HashSet<string> s_indexableCollectionProtocols = new()
+    {
+        "Swift.Collection",
+        "Swift.RandomAccessCollection",
+        "Swift.BidirectionalCollection",
     };
 
     /// <summary>
@@ -362,14 +385,30 @@ internal static class CollectionProjectionEmitter
         // copies Self — for non-move-only structs the compiler handles the reference
         // fields' retain, so this is safe.
         //
-        // The subscript dispatch checks the position against the collection's own index
-        // range BEFORE evaluating `obj[position]`. Swift's Collection subscript is a
-        // precondition, not a throwing call: an out-of-range position traps the whole
-        // process, which would turn an ordinary managed bounds error on the C# indexer
-        // into a hard crash the consumer cannot catch. Checking here rather than on the
-        // C# side keeps the read to a single native call under a single payload lease.
-        // The return value carries the verdict: -1 means the element was written, any
-        // non-negative value is the collection's element count for the managed message.
+        // `position` arrives as a ZERO-BASED offset, because the projected C# surface is
+        // an IReadOnlyList<T> and that contract says element 0 is the first element. A
+        // Swift Collection's own index space need not start at zero (a slice-backed or
+        // windowed conformer starts wherever its base does), so the offset is translated
+        // to a native index with `index(startIndex, offsetBy:)` — the Collection API for
+        // exactly this — instead of being used as an index directly.
+        //
+        // The offset is range-checked against `count` BEFORE evaluating `obj[…]`. Swift's
+        // Collection subscript is a precondition, not a throwing call: an out-of-range
+        // index traps the whole process, which would turn an ordinary managed bounds error
+        // on the C# indexer into a hard crash the consumer cannot catch. Checking here
+        // rather than on the C# side keeps the read to a single native call under a single
+        // payload lease. The return value carries the verdict: -1 means the element was
+        // written, any non-negative value is the collection's element count for the managed
+        // message.
+        //
+        // Cost follows the conformer's own guarantees rather than this code: a
+        // RandomAccessCollection answers `count` and the offset walk in constant time (the
+        // stdlib specializes them for `Index: Strideable where Stride == Int`, a refinement
+        // that lives on RandomAccessCollection), while a forward-only Collection walks —
+        // O(n) for `count`, O(position) for the offset — so enumerating one through the
+        // projected indexer is quadratic in its length. Both are correct; index arithmetic
+        // is the only translation a Collection's index space permits, because `Int` indices
+        // are not required to be contiguous.
         OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(subscriptDecl).Artifact);
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLines($$"""
@@ -380,10 +419,12 @@ internal static class CollectionProjectionEmitter
                 }
                 static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) -> Int {
                     let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
-                    guard position >= obj.startIndex, position < obj.endIndex else {
-                        return obj.count
+                    let elementCount = obj.count
+                    guard position >= 0, position < elementCount else {
+                        return elementCount
                     }
-                    let result: {{elementSwiftType}} = obj[position]
+                    let nativeIndex = obj.index(obj.startIndex, offsetBy: position)
+                    let result: {{elementSwiftType}} = obj[nativeIndex]
                     resultPtr.initializeMemory(as: {{elementSwiftType}}.self, repeating: result, count: 1)
                     return -1
                 }
@@ -411,9 +452,10 @@ internal static class CollectionProjectionEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             // Collection subscript @_cdecl wrapper for {{moduleQualifiedName}}.subscript(_:) -> {{elementSwiftType}}.
+            // `position` is a zero-based offset from the collection's startIndex, not a native index.
             // Parent type metadata is supplied by the C# caller (see count wrapper above).
             // Returns -1 when the element was written to resultPtr, otherwise the collection's
-            // element count — the position was out of range and nothing was written.
+            // element count — the offset was out of range and nothing was written.
             """);
         WrapperEmitterHelpers.EmitCdeclAnnotation(
             swiftWriter, subscriptSymbol, needsMainActor: false,
@@ -449,6 +491,9 @@ internal static class CollectionProjectionEmitter
         var csGenericName = NameProvider.GetCSharpGenericParameterName(tparam, 0);
 
         csWriter.WriteLine("/// <summary>Element access — projection of Swift <c>subscript(_:)</c> via Collection witness.</summary>");
+        csWriter.WriteLine("/// <param name=\"index\">Zero-based position, as <c>IReadOnlyList&lt;T&gt;</c> requires. It is offset from the");
+        csWriter.WriteLine("/// Swift collection's <c>startIndex</c> natively, so it is not the collection's own index when that differs.</param>");
+        csWriter.WriteLine("/// <exception cref=\"global::System.ArgumentOutOfRangeException\">The index is negative or not less than <c>Count</c>.</exception>");
         csWriter.WriteLine($"public {elementCsName} this[int index]");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -470,10 +515,12 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        // The native shim reports the bounds verdict instead of evaluating an out-of-range
-        // Swift subscript (which is a precondition failure, i.e. a process trap the consumer
-        // cannot catch). -1 means the element was written; any other value is the collection's
-        // element count. Throwing here gives the ordinary IReadOnlyList<T> contract.
+        // `index` crosses as a zero-based offset; the shim translates it to the collection's
+        // own index space before reading. The native shim also reports the bounds verdict
+        // instead of evaluating an out-of-range Swift subscript (which is a precondition
+        // failure, i.e. a process trap the consumer cannot catch). -1 means the element was
+        // written; any other value is the collection's element count. Throwing here gives the
+        // ordinary IReadOnlyList<T> contract.
         csWriter.WriteLine($"var __bounds = {pinvokeHelperContext.HelperClassName}.{pinvokeMethodName}((IntPtr)__cdeclBuf, (nint)index, __parentMeta.Handle, _payload.DangerousGetHandle());");
         csWriter.WriteLine("if (__bounds >= 0)");
         csWriter.Indent++;
@@ -581,6 +628,13 @@ internal static class CollectionProjectionEmitter
         string unsugaredElementName,
         string sugaredElementName)
     {
+        // The shim reaches for `count` and `index(startIndex, offsetBy:)` on Self, both of
+        // which come from Collection. A conformer that publishes the index shape on a bare
+        // Sequence has neither, so it takes no witness projection at all rather than one
+        // whose wrapper fails to build.
+        if (!HasIndexableCollectionConformance(structDecl))
+            return null;
+
         // Require public `startIndex: Int` and `endIndex: Int` on the raw ABI — these are
         // the shape guarantees that let us safely dispatch through `Self.count` /
         // `Self[position]` defaults inside the @_cdecl wrappers. We do NOT require these
@@ -654,6 +708,22 @@ internal static class CollectionProjectionEmitter
         foreach (var c in structDecl.Conformances)
         {
             if (s_collectionProtocols.Contains(c.Protocol.ModuleQualifiedName))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when the struct conforms to a protocol that supplies the Collection
+    /// members the witness-backed shim calls (<c>count</c>, <c>index(_:offsetBy:)</c>, the
+    /// index subscript). Narrower than <see cref="HasCollectionConformance"/>, which also
+    /// accepts a bare <c>Sequence</c>.
+    /// </summary>
+    private static bool HasIndexableCollectionConformance(StructDecl structDecl)
+    {
+        foreach (var c in structDecl.Conformances)
+        {
+            if (s_indexableCollectionProtocols.Contains(c.Protocol.ModuleQualifiedName))
                 return true;
         }
         return false;
