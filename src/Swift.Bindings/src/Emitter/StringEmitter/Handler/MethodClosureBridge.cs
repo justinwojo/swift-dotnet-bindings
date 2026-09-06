@@ -1626,11 +1626,13 @@ public static class MethodClosureBridge
             // Optional<class> — Swift passed nil as IntPtr.Zero; non-nil is a borrowed ref. The narrow
             // IsOptionalReferenceArg gate admits ONLY true-reference inners here (pure-Swift class,
             // ObjC-rooted class, ObjC-bridged class); an Optional<value type> never reaches this branch.
-            // BorrowedCallbackArgMarshal branches on IsClassType (pure-Swift class only): a pure-Swift
-            // class inner takes an owning +1 via MarshalBorrowedClassFromSwift, while every other inner
-            // routes to MarshalCallbackArg<T> — which UPGRADES a true class (Kind==Class, i.e. also
-            // ObjC-rooted / ObjC-bridged) to an isa-aware owning +1 at runtime. So every inner that
-            // reaches here is owning; an explicit Dispose in the callback body balances it.
+            // BorrowedCallbackArgMarshal splits those three: a pure-Swift class takes an owning +1 via
+            // MarshalBorrowedClassFromSwift and an ObjC-rooted generator-bound class reaches the same
+            // isa-aware +1 through MarshalCallbackArg<T> (it carries Swift class metadata, so the
+            // Kind == Class check fires) — for both, an explicit Dispose in the callback body balances
+            // the retain. An ObjC-BRIDGED peer has no Swift metadata at all, so it bridges through
+            // GetNSObject/GetINativeObject instead; MarshalCallbackArg<T> would fall through to the
+            // NSObject arm of MarshalFromSwift, which reads the slot one level too deep.
             var innerCs = innerClassRec.CSharpTypeName.FullyQualifiedName;
             var optBorrow = env.ClosureHandler.BorrowedCallbackArgMarshal(innerClassSpec, innerCs, $"__p{index}");
             csWriter.WriteLine($"{csharpType} __a{index} = __p{index} == IntPtr.Zero ? null : {optBorrow};");
@@ -1651,7 +1653,7 @@ public static class MethodClosureBridge
             // Swift (the caller owns them). A class arg takes an owning +1 so an explicit Dispose in
             // the callback body — and the wrapper finalizer — both balance it; bound-generic value
             // wrappers keep the borrowed path. See BorrowedCallbackArgMarshal.
-            csWriter.WriteLine($"var __a{index} = {env.ClosureHandler.BorrowedCallbackArgMarshal(argType, csharpType, $"__p{index}")};");
+            csWriter.WriteLine($"var __a{index} = {env.ClosureHandler.BorrowedCallbackArgMarshal(argType, csharpType, $"__p{index}", nonNullObjCBridge: true)};");
         }
     }
 

@@ -2092,16 +2092,131 @@ public class ClosureHandler
     /// wrapper is finalized on NativeAOT, where its reflection-based <c>Payload</c> finalizer suppression is trimmed away
     /// for app-assembly types — a use-after-free of the borrowed object (device GenericClosureBridge crash).
     /// </para>
-    /// Non-class types (read-and-discard <c>SwiftString</c>/<c>Data</c>, value wrappers, ObjC-bridged) keep the borrowed path;
-    /// they are never surfaced to the user for <c>Dispose</c> and have no ARC <c>+1</c> to over-release.
+    /// Value types (read-and-discard <c>SwiftString</c>/<c>Data</c>, value wrappers, bound generics) keep the borrowed
+    /// <c>MarshalCallbackArg</c> path; they are never surfaced to the user for <c>Dispose</c> and have no ARC <c>+1</c>
+    /// to over-release.
+    /// <para>
+    /// This is the SINGLE classifier for a borrowed callback-arg slot. A reference argument needs TWO facts to be
+    /// read correctly, and they are independent: <b>which reference flavour</b> the Swift type is, and <b>what the
+    /// adapter actually put in the slot</b>. Getting either wrong is a silent one-dereference-off read, not a
+    /// compile error.
+    /// </para>
+    /// <para>
+    /// <b>Flavour.</b> Three reference shapes reach here and none of them can share a reader:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><b>Pure-Swift class</b> — carries Swift class metadata; owning <c>+1</c> into an <c>ISwiftObject</c> wrapper.</item>
+    /// <item><b>ObjC-rooted generator-bound class</b> (<c>@objc … : NSObject</c>, no native remap) — also carries Swift
+    /// class metadata, so <c>MarshalCallbackArg&lt;T&gt;</c> detects <c>Kind == Class</c> and upgrades to the same
+    /// isa-aware owning <c>+1</c>.</item>
+    /// <item><b>ObjC-bridged peer</b> (a Microsoft.iOS binding such as <c>Foundation.NSUrlResponse</c>) — it has NO Swift
+    /// type-metadata record and is not <c>ISwiftObject</c>, so the Swift-payload readers cannot see it at all: it must
+    /// bridge through <see cref="MarshallingHelpers.FormatObjCBridgeCall"/> onto the ObjC peer registry.</item>
+    /// </list>
+    /// <para>
+    /// <b>Slot convention.</b> The callback adapters do NOT agree on what a reference slot holds, so the reader cannot
+    /// be a pure function of the type. The direct closure trampoline, the method-closure bridge and the generic-closure
+    /// bridge each lower a reference to a bare object pointer — <c>Unmanaged.passUnretained(x[ as AnyObject]).toOpaque()</c>.
+    /// The protocol-extension bridge instead copies EVERY non-primitive argument into a scratch buffer
+    /// (<c>__buf{i}</c>) and passes that buffer's ADDRESS, so its reference slots hold the address of a word holding
+    /// the instance pointer. Reading a slot address as an object pointer wraps the scratch buffer (which Swift
+    /// <c>defer</c>-deallocates on return) as the instance; reading an object pointer as a slot address wraps the
+    /// object's isa word. <paramref name="ptrIsSlotAddress"/> selects the matching dereference.
+    /// </para>
+    /// <para>
+    /// A constructed type is classified by the DECLARATION it names — <c>Box&lt;T&gt;</c> reads like <c>Box</c> for
+    /// every <c>T</c>, and a nested <c>Outer&lt;T&gt;.Inner</c> reads like <c>Inner</c> — which
+    /// <see cref="ResolveFlavourType"/> reduces it to, since the predicates reject any spec carrying generic
+    /// arguments. That is not cosmetic: the fallthrough reader below decides class-ness from runtime metadata, and a
+    /// generic class's metadata accessor demands metadata for every argument, so closing one over an argument that has
+    /// none (an ObjC peer such as <c>URLResponse</c>) makes the lookup fail and the payload arm adopt the slot as the
+    /// instance.
+    /// </para>
+    /// <para>
+    /// What is left for <c>MarshalCallbackArg</c> — its slot-address sibling <c>MarshalCallbackArgFromSlot</c> under
+    /// the buffer convention — is value types (read-and-discard <c>SwiftString</c>/<c>Data</c>, value wrappers) plus
+    /// the shapes with no declaration to look up at all: an unbound generic parameter and a <c>Self.*</c> member type,
+    /// whose carrier is not known to be a reference until it closes at runtime. The reader resolves that from metadata,
+    /// which is why the convention must travel with it — a value carrier reads its buffer identically either way, but
+    /// a class carrier does not.
+    /// </para>
     /// </summary>
     /// <param name="argType">The Swift type of the closure argument.</param>
     /// <param name="csType">The resolved C# wrapper type name.</param>
     /// <param name="ptrExpr">The expression yielding the borrowed pointer (e.g. <c>args[0]</c>, <c>__p1</c>).</param>
-    public string BorrowedCallbackArgMarshal(TypeSpec argType, string csType, string ptrExpr)
-        => IsClassType(argType)
-            ? $"SwiftMarshal.MarshalBorrowedClassFromSwift<{csType}>({ptrExpr})"
+    /// <param name="nonNullObjCBridge">Emit the ObjC bridge call with a null-forgiving <c>!</c>. Set from a
+    /// NON-optional argument position, where Swift guarantees the pointer is non-nil and the delegate parameter is
+    /// non-nullable; the Optional arms leave it false because they already guard the pointer themselves.</param>
+    /// <param name="ptrIsSlotAddress"><c>true</c> when the adapter passed the address of a word holding the instance
+    /// pointer rather than the instance pointer itself (the protocol-extension bridge's <c>__buf{i}</c> convention).</param>
+    public string BorrowedCallbackArgMarshal(TypeSpec argType, string csType, string ptrExpr,
+        bool nonNullObjCBridge = false, bool ptrIsSlotAddress = false)
+    {
+        var flavourType = ResolveFlavourType(argType);
+
+        var isPureClass = IsClassType(flavourType);
+        if (isPureClass || IsObjCRootedClass(flavourType))
+        {
+            // Both flavours carry Swift class metadata, so one slot reader serves them.
+            if (ptrIsSlotAddress)
+                return $"SwiftMarshal.MarshalBorrowedClassFromSlot<{csType}>({ptrExpr})";
+            return isPureClass
+                ? $"SwiftMarshal.MarshalBorrowedClassFromSwift<{csType}>({ptrExpr})"
+                : $"SwiftMarshal.MarshalCallbackArg<{csType}>({ptrExpr})";
+        }
+
+        if (IsObjCBridgedClass(flavourType))
+        {
+            var objectPtrExpr = ptrIsSlotAddress
+                ? $"global::System.Runtime.InteropServices.Marshal.ReadIntPtr({ptrExpr})"
+                : ptrExpr;
+            return MarshallingHelpers.FormatObjCBridgeCall(csType, objectPtrExpr, nonNull: nonNullObjCBridge);
+        }
+
+        // Everything with no declaration to classify: value types, and — the reason this arm is
+        // convention-sensitive — an unbound generic parameter or a Self.* member type, whose C# carrier
+        // is not known to be a reference until it closes at runtime. The reader has to carry the
+        // convention with it so its own class arm dereferences correctly; for a value carrier the two
+        // entry points are the same code.
+        return ptrIsSlotAddress
+            ? $"SwiftMarshal.MarshalCallbackArgFromSlot<{csType}>({ptrExpr})"
             : $"SwiftMarshal.MarshalCallbackArg<{csType}>({ptrExpr})";
+    }
+
+    /// <summary>
+    /// Picks the spec whose DECLARATION decides a callback argument's reference flavour.
+    /// <para>
+    /// A bound generic's flavour belongs to its declaration, not to the arguments it closes over — a
+    /// generic Swift class is a class for every argument list — but the three flavour predicates decline
+    /// any spec carrying generic arguments, so a constructed type has to be reduced to the declaration
+    /// it names before they can see it. Doing that here rather than by loosening the predicates leaves
+    /// their other callers alone. It matters because the unclassified arm resolves the carrier from
+    /// runtime metadata, and a generic class's metadata accessor needs metadata for every argument:
+    /// close one over a type that has none (an ObjC peer such as <c>URLResponse</c>) and the lookup
+    /// fails, the class arm never runs, and the payload arm adopts the slot itself as the instance.
+    /// </para>
+    /// <para>
+    /// The declaration is the LEAF of the nested chain, not the segment carrying the arguments. The
+    /// parser hangs <c>Outer&lt;T&gt;.Inner</c> off the outer segment — arguments on <c>Outer</c>,
+    /// <c>InnerType</c> = <c>Inner</c> — so reading the outer name alone would call a struct nested in a
+    /// generic class a class and retain the first word of its value bytes. Joining the chain asks the
+    /// database about the leaf; a leaf it has no record for classifies as nothing and falls through to
+    /// the runtime reader, which is the honest answer for a declaration this generator never saw.
+    /// </para>
+    /// </summary>
+    private static TypeSpec ResolveFlavourType(TypeSpec argType)
+    {
+        if (argType is not NamedTypeSpec { ContainsGenericParameters: true } constructed)
+            return argType;
+
+        if (constructed.InnerType is null)
+            return new NamedTypeSpec(constructed.Name);
+
+        var leafName = constructed.Name;
+        for (var inner = constructed.InnerType; inner is not null; inner = inner.InnerType)
+            leafName += "." + inner.Name;
+        return new NamedTypeSpec(leafName);
+    }
 
     /// <summary>
     /// Checks if a type is a simple enum (no-payload) in the type database.

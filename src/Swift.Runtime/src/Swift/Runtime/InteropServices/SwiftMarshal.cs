@@ -1519,12 +1519,63 @@ public static class SwiftMarshal
     [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
     [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
     public static T MarshalCallbackArg<T>(IntPtr swiftSource)
+        => MarshalCallbackArgCore<T>(swiftSource, slotHoldsInstancePointer: false);
+
+    /// <summary>
+    /// The slot-address sibling of <see cref="MarshalCallbackArg{T}"/>, for a callback adapter that hands
+    /// over the ADDRESS of a word holding the argument rather than the argument itself — the
+    /// protocol-extension closure bridge, whose Swift adapter copies every non-primitive argument into a
+    /// scratch buffer and passes that buffer's address.
+    /// <para>
+    /// Only the true-class arm differs, and it is the arm that cannot be reached from the type alone: a
+    /// generic parameter, a <c>Self.*</c> member type or a bound generic reaches this entry point with its
+    /// C# carrier unresolved at generation time, so whether the slot holds an instance pointer is decided
+    /// here by runtime metadata. Reading a class slot with the object-pointer reader retains and wraps the
+    /// scratch buffer, which Swift <c>defer</c>-deallocates when the callback returns. Every other arm —
+    /// Copy / Move / Adopt wrappers, ObjC peers with no Swift metadata, primitives and blittable values —
+    /// already takes the address of a value buffer under BOTH conventions, so it is shared verbatim.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The C# carrier for the callback argument.</typeparam>
+    /// <param name="slot">Address of the borrowed word/buffer the adapter allocated for the argument.</param>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    public static T MarshalCallbackArgFromSlot<T>(IntPtr slot)
+        => MarshalCallbackArgCore<T>(slot, slotHoldsInstancePointer: true);
+
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwift / metadata + semantics resolution")]
+    private static T MarshalCallbackArgCore<T>(IntPtr swiftSource, bool slotHoldsInstancePointer)
     {
         // True Swift class: a borrowed (+0) class pointer needs an ObjC-aware +1 into an owning wrapper.
+        // Which reader depends on the ADAPTER, not on T: the closure trampolines and the method/generic
+        // closure bridges hand over the instance pointer, the protocol-extension bridge the address of a
+        // word holding it. A caller whose C# carrier resolved to a concrete reference type is classified
+        // in the generator (ClosureHandler.BorrowedCallbackArgMarshal) and never arrives here; what does
+        // arrive is the shape the generator could not classify — an unbound generic parameter, Self.*, or
+        // a bound generic — which is why the convention has to be carried in rather than inferred.
         if (TypeMetadata.TryGetTypeMetadata<T>(out var classMd)
             && classMd.Value.IsValid
             && classMd.Value.Kind == TypeMetadataKind.Class)
-            return MarshalBorrowedClassFromSwift<T>(swiftSource);
+            return slotHoldsInstancePointer
+                ? MarshalBorrowedClassFromSlot<T>(swiftSource)
+                : MarshalBorrowedClassFromSwift<T>(swiftSource);
+
+        // No guard here for an Objective-C peer with no Swift type metadata (a Microsoft.iOS binding
+        // such as Foundation.NSUrlResponse). Such a type has no metadata to test, so it falls through to
+        // MarshalFromSwift's NSObject arm, which does Marshal.ReadIntPtr(swiftSource) — a read that only
+        // matches the slot-address convention. Throwing instead would reject the protocol-extension
+        // bridge's slot-address callers, which this read has always served correctly, as readily as it
+        // caught an object-pointer one. The classification therefore stays where the convention AND the
+        // flavour are both known — ClosureHandler.BorrowedCallbackArgMarshal, which routes every ObjC
+        // peer whose C# carrier it can resolve through ObjCRuntime.Runtime.GetNSObject/GetINativeObject
+        // with the dereference its own caller needs, so an object-pointer caller never reaches here.
 
         PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
         if (sem == PayloadConstructionSemantics.Copy)

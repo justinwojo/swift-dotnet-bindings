@@ -33,6 +33,8 @@ public class OptionalReferenceClassifierTests
     private const string ObjCRootedClass = "TestModule.ObjCRootedClass";
     private const string ObjCBridgedClass = "TestModule.ObjCBridgedClass";
     private const string BridgeableValue = "TestModule.BridgeableValue";
+    private const string NestedStructLeaf = "NestedValue";
+    private const string NestedClassLeaf = "NestedRef";
     private const string Primitive = "Swift.Int32";
     private const string SimpleEnum = "TestModule.SimpleColor";
     private const string Bool = "Swift.Bool";
@@ -86,6 +88,30 @@ public class OptionalReferenceClassifierTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(ObjCRootedClass),
                 MetadataAccessor = "$s10TestModule15ObjCRootedClassCMa",
                 Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        // Nested declarations under the (generic) pure-Swift class. The parser hangs
+        // `PureSwiftClass<T>.NestedValue` off the OUTER segment — arguments on the outer, the leaf in
+        // InnerType — so these two say whether the flavour is read from the leaf or from the segment
+        // that happens to carry the arguments.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{PureClass}.{NestedStructLeaf}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PureSwiftClass.NestedValue"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{PureClass}.{NestedStructLeaf}"),
+                MetadataAccessor = "$s10TestModule14PureSwiftClassC11NestedValueVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{PureClass}.{NestedClassLeaf}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PureSwiftClass.NestedRef"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{PureClass}.{NestedClassLeaf}"),
+                MetadataAccessor = "$s10TestModule14PureSwiftClassC9NestedRefCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
             });
         // ObjC-bridged class (Microsoft.iOS-remapped peer) — borrowed via FormatObjCBridgeCall.
@@ -225,5 +251,212 @@ public class OptionalReferenceClassifierTests
         Assert.False(closureHandler.IsObjCRootedClass(new NamedTypeSpec(PureClass)));
         Assert.False(closureHandler.IsObjCRootedClass(new NamedTypeSpec(ObjCBridgedClass)));
         Assert.False(closureHandler.IsObjCRootedClass(new NamedTypeSpec(BridgeableValue)));
+    }
+
+    // ──────────── Borrowed callback-arg reader (the one classifier both lanes share) ────────────
+
+    /// <summary>
+    /// Each reference flavour needs its OWN reader off the borrowed object pointer Swift stores in the
+    /// slot. An ObjC-bridged peer (a Microsoft.iOS binding with no Swift type-metadata record, not
+    /// ISwiftObject) is the one that cannot use the Swift-payload marshal: <c>MarshalCallbackArg</c>
+    /// falls through to <c>MarshalFromSwift</c>'s NSObject arm, which does <c>Marshal.ReadIntPtr</c> —
+    /// treating the OBJECT pointer as the ADDRESS OF a slot holding one and wrapping its isa word.
+    /// </summary>
+    [Theory]
+    [InlineData(PureClass, "SwiftMarshal.MarshalBorrowedClassFromSwift<Cs>(__p0)")]
+    [InlineData(ObjCRootedClass, "SwiftMarshal.MarshalCallbackArg<Cs>(__p0)")]
+    [InlineData(ObjCBridgedClass, "ObjCRuntime.Runtime.GetNSObject<Cs>(__p0)")]
+    [InlineData(BridgeableValue, "SwiftMarshal.MarshalCallbackArg<Cs>(__p0)")]
+    [InlineData(Primitive, "SwiftMarshal.MarshalCallbackArg<Cs>(__p0)")]
+    public void BorrowedCallbackArgMarshal_RoutesEachReferenceFlavourToItsOwnReader(
+        string typeName, string expected)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+
+        Assert.Equal(expected,
+            closureHandler.BorrowedCallbackArgMarshal(new NamedTypeSpec(typeName), "Cs", "__p0"));
+    }
+
+    /// <summary>
+    /// The defect this classifier closes: an ObjC-bridged peer must NEVER be read with the Swift-payload
+    /// marshal, in either the optional or the non-optional lane. Asserted as a property of the emitted
+    /// expression rather than as an exact string, so a future change of bridge helper still passes.
+    /// </summary>
+    [Fact]
+    public void BorrowedCallbackArgMarshal_ObjCBridgedPeer_NeverUsesSwiftPayloadMarshal()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+
+        var expr = closureHandler.BorrowedCallbackArgMarshal(
+            new NamedTypeSpec(ObjCBridgedClass), "TestModule.ObjCBridgedClass", "new IntPtr(arg1)");
+
+        Assert.DoesNotContain("MarshalCallbackArg", expr);
+        Assert.DoesNotContain("MarshalFromSwift", expr);
+        Assert.Contains("new IntPtr(arg1)", expr);
+    }
+
+    /// <summary>
+    /// The non-optional lane emits into a non-nullable delegate parameter, so its bridge call carries
+    /// the null-forgiving <c>!</c>; the optional lane guards the pointer itself and must not.
+    /// </summary>
+    [Fact]
+    public void BorrowedCallbackArgMarshal_NonNullObjCBridge_AppendsNullForgiving()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var argType = new NamedTypeSpec(ObjCBridgedClass);
+
+        Assert.EndsWith("!", closureHandler.BorrowedCallbackArgMarshal(
+            argType, "Cs", "__p0", nonNullObjCBridge: true));
+        Assert.DoesNotContain("!", closureHandler.BorrowedCallbackArgMarshal(argType, "Cs", "__p0"));
+    }
+
+    /// <summary>
+    /// The closure bridges do not agree on what a REFERENCE slot holds: the direct trampoline and the
+    /// method / generic closure bridges pass the instance pointer, while the protocol-extension bridge
+    /// copies every non-primitive argument into a scratch buffer and passes that buffer's ADDRESS. Each
+    /// reference flavour therefore needs a dereferencing reader under the slot-address convention, or the
+    /// scratch buffer itself is wrapped as the instance (and Swift deallocates it on return).
+    /// </summary>
+    [Theory]
+    [InlineData(PureClass, "SwiftMarshal.MarshalBorrowedClassFromSlot<Cs>(__p0)")]
+    [InlineData(ObjCRootedClass, "SwiftMarshal.MarshalBorrowedClassFromSlot<Cs>(__p0)")]
+    [InlineData(ObjCBridgedClass,
+        "ObjCRuntime.Runtime.GetNSObject<Cs>(global::System.Runtime.InteropServices.Marshal.ReadIntPtr(__p0))")]
+    public void BorrowedCallbackArgMarshal_SlotAddressConvention_DereferencesEveryReferenceFlavour(
+        string typeName, string expected)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+
+        Assert.Equal(expected, closureHandler.BorrowedCallbackArgMarshal(
+            new NamedTypeSpec(typeName), "Cs", "__p0", ptrIsSlotAddress: true));
+    }
+
+    /// <summary>
+    /// A bound generic — a shape the protocol-extension bridge explicitly admits and copies into its
+    /// scratch buffer — takes the reader of its BASE declaration, since the reference flavour belongs to
+    /// the declaration and not to the arguments it closes over. Deferring it to the runtime reader
+    /// instead only works while every argument has Swift metadata: a generic class's metadata accessor
+    /// demands metadata for each one, so a box closed over an ObjC peer resolves nothing, misses the
+    /// class arm and has its slot adopted as the instance.
+    /// </summary>
+    [Theory]
+    [InlineData(PureClass, "SwiftMarshal.MarshalBorrowedClassFromSlot<Cs>(__p0)",
+        "SwiftMarshal.MarshalBorrowedClassFromSwift<Cs>(__p0)")]
+    [InlineData(ObjCRootedClass, "SwiftMarshal.MarshalBorrowedClassFromSlot<Cs>(__p0)",
+        "SwiftMarshal.MarshalCallbackArg<Cs>(__p0)")]
+    [InlineData(ObjCBridgedClass,
+        "ObjCRuntime.Runtime.GetNSObject<Cs>(global::System.Runtime.InteropServices.Marshal.ReadIntPtr(__p0))",
+        "ObjCRuntime.Runtime.GetNSObject<Cs>(__p0)")]
+    public void BorrowedCallbackArgMarshal_BoundGeneric_TakesItsBaseDeclarationsReader(
+        string baseTypeName, string expectedFromSlot, string expectedFromObjectPointer)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var boundGeneric = new NamedTypeSpec(baseTypeName, new NamedTypeSpec(Primitive));
+
+        Assert.Equal(expectedFromSlot,
+            closureHandler.BorrowedCallbackArgMarshal(boundGeneric, "Cs", "__p0", ptrIsSlotAddress: true));
+        Assert.Equal(expectedFromObjectPointer,
+            closureHandler.BorrowedCallbackArgMarshal(boundGeneric, "Cs", "__p0"));
+    }
+
+    /// <summary>
+    /// A bound generic whose base is a VALUE type still reads as a value: the base-declaration lookup
+    /// decides the flavour, so it must not promote every generic to a reference reader.
+    /// </summary>
+    [Fact]
+    public void BorrowedCallbackArgMarshal_BoundGenericOverValueBase_StaysOnTheValueReader()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var boundGeneric = new NamedTypeSpec(BridgeableValue, new NamedTypeSpec(Primitive));
+
+        Assert.Equal("SwiftMarshal.MarshalCallbackArgFromSlot<Cs>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(boundGeneric, "Cs", "__p0", ptrIsSlotAddress: true));
+        Assert.Equal("SwiftMarshal.MarshalCallbackArg<Cs>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(boundGeneric, "Cs", "__p0"));
+    }
+
+    /// <summary>
+    /// A type nested inside a generic outer is classified by its LEAF declaration. The parser hangs
+    /// <c>Outer&lt;T&gt;.Inner</c> off the outer segment (arguments on <c>Outer</c>, the leaf in
+    /// <c>InnerType</c>) and the protocol-extension bridge admits the shape on the OUTER record's kind,
+    /// so a struct nested in a generic class arrives on a slot holding its value bytes. Classifying it
+    /// by the outer segment would retain the first of those words as an object.
+    /// </summary>
+    [Theory]
+    [InlineData(NestedStructLeaf, "SwiftMarshal.MarshalCallbackArgFromSlot<Cs>(__p0)",
+        "SwiftMarshal.MarshalCallbackArg<Cs>(__p0)")]
+    [InlineData(NestedClassLeaf, "SwiftMarshal.MarshalBorrowedClassFromSlot<Cs>(__p0)",
+        "SwiftMarshal.MarshalBorrowedClassFromSwift<Cs>(__p0)")]
+    public void BorrowedCallbackArgMarshal_NestedLeafOnGenericOuter_TakesTheLeafsReader(
+        string leafName, string expectedFromSlot, string expectedFromObjectPointer)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var nested = new NamedTypeSpec(PureClass, new NamedTypeSpec(Primitive))
+        {
+            InnerType = new NamedTypeSpec(leafName)
+        };
+
+        Assert.Equal(expectedFromSlot,
+            closureHandler.BorrowedCallbackArgMarshal(nested, "Cs", "__p0", ptrIsSlotAddress: true));
+        Assert.Equal(expectedFromObjectPointer,
+            closureHandler.BorrowedCallbackArgMarshal(nested, "Cs", "__p0"));
+    }
+
+    /// <summary>
+    /// A nested leaf the database never registered classifies as nothing and falls through to the
+    /// runtime reader — the honest answer for a declaration this generator never saw, and never a
+    /// reference read inherited from the enclosing declaration.
+    /// </summary>
+    [Fact]
+    public void BorrowedCallbackArgMarshal_UnregisteredNestedLeaf_FallsThroughToTheRuntimeReader()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var nested = new NamedTypeSpec(PureClass, new NamedTypeSpec(Primitive))
+        {
+            InnerType = new NamedTypeSpec("NeverRegistered")
+        };
+
+        Assert.Equal("SwiftMarshal.MarshalCallbackArgFromSlot<Cs>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(nested, "Cs", "__p0", ptrIsSlotAddress: true));
+        Assert.Equal("SwiftMarshal.MarshalCallbackArg<Cs>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(nested, "Cs", "__p0"));
+    }
+
+    /// <summary>
+    /// An unbound generic parameter and a <c>Self.*</c> member type have no type record at all, so they
+    /// land on the same unclassified arm and must carry the convention for the same reason.
+    /// </summary>
+    [Theory]
+    [InlineData("τ_0_0")]
+    [InlineData("Self.Element")]
+    public void BorrowedCallbackArgMarshal_SlotAddressConvention_GenericParamCarriesTheConvention(
+        string typeName)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var argType = new NamedTypeSpec(typeName);
+
+        Assert.Equal("SwiftMarshal.MarshalCallbackArgFromSlot<T>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(argType, "T", "__p0", ptrIsSlotAddress: true));
+        Assert.Equal("SwiftMarshal.MarshalCallbackArg<T>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(argType, "T", "__p0"));
+    }
+
+    /// <summary>
+    /// A value argument is handed over as the address of its buffer under BOTH conventions, so the two
+    /// readers must agree on it — <c>MarshalCallbackArgFromSlot</c> differs from its sibling only in the
+    /// true-class arm, which a value carrier never takes.
+    /// </summary>
+    [Theory]
+    [InlineData(BridgeableValue)]
+    [InlineData(Primitive)]
+    public void BorrowedCallbackArgMarshal_SlotAddressConvention_ValueTypesTakeTheSharedReader(string typeName)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var argType = new NamedTypeSpec(typeName);
+
+        Assert.Equal("SwiftMarshal.MarshalCallbackArg<Cs>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(argType, "Cs", "__p0"));
+        Assert.Equal("SwiftMarshal.MarshalCallbackArgFromSlot<Cs>(__p0)",
+            closureHandler.BorrowedCallbackArgMarshal(argType, "Cs", "__p0", ptrIsSlotAddress: true));
     }
 }

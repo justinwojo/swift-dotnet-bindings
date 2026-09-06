@@ -603,7 +603,12 @@ public static class ProtocolExtensionClosureBridge
             // ISwiftObject types (classes, generic params) — callback parameters are borrowed
             // references. A class arg takes an owning +1 so an explicit Dispose in the callback
             // body balances it; value wrappers keep the borrowed path. See BorrowedCallbackArgMarshal.
-            csWriter.WriteLine($"var __a{index} = {env.ClosureHandler.BorrowedCallbackArgMarshal(argType, csharpType, $"__p{index}")};");
+            //
+            // ptrIsSlotAddress: unlike the other closure bridges, this one's Swift adapter copies
+            // EVERY non-primitive argument into a scratch `__buf{i}` and passes that buffer's
+            // address, so even a reference argument arrives as the address of a word holding the
+            // instance pointer rather than as the instance pointer itself.
+            csWriter.WriteLine($"var __a{index} = {env.ClosureHandler.BorrowedCallbackArgMarshal(argType, csharpType, $"__p{index}", nonNullObjCBridge: true, ptrIsSlotAddress: true)};");
         }
     }
 

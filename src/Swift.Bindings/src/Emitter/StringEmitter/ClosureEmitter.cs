@@ -903,32 +903,18 @@ public static partial class ClosureEmitter
             // to prevent double-release when the GC collects the wrapper.
             if (IsOptionalReferenceParam(namedType, closureHandler))
             {
+                // The inner is a true reference, so the non-nil slot holds a bare object pointer —
+                // the same shape the non-optional arm below receives. Both delegate to the ONE
+                // classifier so the optional and non-optional lanes cannot drift: pure-Swift class →
+                // owning MarshalBorrowedClassFromSwift; ObjC-rooted generator-bound class → isa-aware
+                // MarshalCallbackArg (it carries Swift class metadata); native-remapped or otherwise
+                // ObjC-bridged peer (e.g. URLResponse? → NSUrlResponse?) → FormatObjCBridgeCall, which
+                // dispatches GetNSObject / GetINativeObject against the Microsoft.iOS peer.
                 var inner = namedType.GenericParameters[0];
                 var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
-                if (closureHandler.IsClassType(inner))
-                    // Pure-Swift class. The wrapper is handed to the user's closure body and may be
-                    // Disposed there. MarshalBorrowedClassFromSwift takes a real +1 (owning), so
-                    // Dispose + finalize both balance it — unlike a blanket-suppress borrowed marshal,
-                    // whose SuppressFinalize-only strategy leaves an explicit Dispose double-releasing
-                    // a +0 handle.
-                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedClassFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
-                if (closureHandler.IsObjCRootedClass(inner))
-                    // ObjC-rooted (@objc … : NSObject) generator-bound class with no native remap. It
-                    // carries Swift class metadata (Kind == Class), so the canonical isa-aware
-                    // MarshalCallbackArg<T> path applies — the same +1 (swift_unknownObjectRetain)
-                    // marshal used for every other ObjC-rooted closure argument: the non-optional
-                    // reference arm below (IsClassType-false → MarshalCallbackArg) and
-                    // ClosureHandler.BorrowedCallbackArgMarshal. Routing it here keeps the optional and
-                    // non-optional ObjC-rooted closure-arg paths on ONE marshal instead of diverging to
-                    // FormatObjCBridgeCall. (FormatObjCBridgeCall's GetNSObject<T> also round-trips and
-                    // balances ARC for such a dual-natured NSObject peer, but only incidentally, via its
-                    // ObjC-peer nature rather than its Swift metadata; the native-remapped Foundation
-                    // peers below have no Swift metadata and genuinely require it.)
-                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<{innerType}>(new IntPtr(arg{argIndex})) : null";
-                // Native-remapped Foundation peer (e.g. URLResponse? → NSUrlResponse?) or other
-                // ObjC-bridged inner with no Swift metadata: FormatObjCBridgeCall dispatches
-                // GetNSObject / GetINativeObject against the Microsoft.iOS peer.
-                return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
+                var innerMarshal = closureHandler.BorrowedCallbackArgMarshal(
+                    inner, innerType, $"new IntPtr(arg{argIndex})");
+                return $"arg{argIndex} != null ? {innerMarshal} : null";
             }
 
             // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI (null = .none, non-null = pointer to inner value)
@@ -980,11 +966,12 @@ public static partial class ClosureEmitter
                 return $"SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray()";
             }
 
-            // ObjC-bridged native remap (e.g., Foundation.URLResponse → Foundation.NSUrlResponse).
-            // TranslateTypeSpecToCSharp returns the NativeTypeName (NSUrlResponse) when set,
-            // but MarshalCallbackArg can't bridge directly. Use FormatObjCBridgeCall
-            // which dispatches between GetNSObject / GetINativeObject — same shape as the
-            // Optional-of-ObjC-class path above.
+            // ObjC-bridgeABLE value type carrying an explicit native remap (Foundation.URL →
+            // Foundation.NSUrl, URLRequest, IndexPath, …): a Swift STRUCT whose XML entry sets
+            // nativeType=, so TranslateTypeSpecToCSharp returns the ObjC peer name and only the
+            // bridge call can produce that type. This is NOT the ObjC-bridged CLASS case — a
+            // remapped class (Foundation.URLResponse → Foundation.NSUrlResponse) carries no
+            // nativeType and is classified below by BorrowedCallbackArgMarshal instead.
             if (closureHandler.HasObjCNativeRemap(namedType, out var nativeRemapType))
                 return MarshallingHelpers.FormatObjCBridgeCall(nativeRemapType, $"new IntPtr(arg{argIndex})");
 
@@ -1015,16 +1002,19 @@ public static partial class ClosureEmitter
                 return $"SwiftMarshal.MarshalFromSwift<{ownedType}>(new IntPtr(arg{argIndex}))";
             }
 
-            // The callback receives void* but the delegate expects the actual type.
-            // Callback parameters are borrowed references. For a class wrapper handed to the user's
-            // closure body, route through MarshalBorrowedClassFromSwift so an explicit Dispose in
-            // that body is balanced by a real +1; value-type wrappers (SwiftString /
+            // The callback receives void* but the delegate expects the actual type. Callback
+            // parameters are borrowed references, and the ONE classifier decides how to read the
+            // slot: a class wrapper handed to the user's closure body routes through
+            // MarshalBorrowedClassFromSwift so an explicit Dispose in that body is balanced by a real
+            // +1; an ObjC-bridged peer (a Microsoft.iOS binding with no Swift metadata, e.g.
+            // Foundation.NSUrlResponse for a NON-optional URLResponse) bridges through
+            // GetNSObject/GetINativeObject, because the borrowed marshal would dereference the object
+            // pointer a second time and wrap its isa word; value-type wrappers (SwiftString /
             // Foundation.Data read-and-discard) keep the SuppressFinalize-only borrowed path, which
             // is correct because they are never surfaced to the user for Dispose.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
-            if (closureHandler.IsClassType(typeSpec))
-                return $"SwiftMarshal.MarshalBorrowedClassFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
-            return $"SwiftMarshal.MarshalCallbackArg<{delegateType}>(new IntPtr(arg{argIndex}))";
+            return closureHandler.BorrowedCallbackArgMarshal(
+                typeSpec, delegateType, $"new IntPtr(arg{argIndex})", nonNullObjCBridge: true);
         }
 
         // Well-known protocol wrapping (e.g., any Swift.Error → AnyError)

@@ -831,7 +831,7 @@ public static class GenericClosureBridgeEmitter
             if (closureArgs[i].IsGeneric)
                 csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalBorrowedValueFromSlot<T>((void*)args[{i}], metadata);");
             else
-                csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]")};");
+                csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]", nonNullObjCBridge: true)};");
         }
         var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => $"a{i}");
         csWriter.WriteLine($"var result = {csClosureName}({string.Join(", ", userCallArgs)});");
@@ -978,7 +978,7 @@ public static class GenericClosureBridgeEmitter
         // Callback params are borrowed references. Class args take an owning +1 so the wrapper handed
         // to the user's closure balances on Dispose/finalize — see BorrowedCallbackArgMarshal.
         for (int i = 0; i < closureArgs.Count; i++)
-            csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]")};");
+            csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]", nonNullObjCBridge: true)};");
         var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => $"a{i}");
         csWriter.WriteLine($"{csClosureName}({string.Join(", ", userCallArgs)});");
         csWriter.Indent--;
