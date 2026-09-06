@@ -19,6 +19,7 @@ public class ClosureProjection : ITypeProjection
     private readonly bool _throws;
     private readonly bool _isAsync;
     private readonly string _callbackName;
+    private readonly string? _resolvedDelegateType;
 
     /// <summary>
     /// Creates a closure projection.
@@ -29,13 +30,22 @@ public class ClosureProjection : ITypeProjection
     /// <param name="throws">Whether the closure throws.</param>
     /// <param name="isAsync">Whether the closure is async.</param>
     /// <param name="callbackName">Unique callback name derived from CallbackNamePrefix.</param>
+    /// <param name="resolvedDelegateType">
+    /// The already-computed C# delegate type for this closure, produced by
+    /// <see cref="ClosureHandler.GetCSharpDelegateType"/> — the SINGLE closure-delegate-type
+    /// computation shared with the trampoline that casts <c>GCHandle.Target</c> back to it.
+    /// <see cref="TypeProjectionFactory"/> always supplies it; it is null only for the
+    /// hand-composed projections built directly by unit tests, which have no
+    /// <c>ClosureTypeSpec</c> to resolve from.
+    /// </param>
     public ClosureProjection(
         IReadOnlyList<ITypeProjection> argProjections,
         ITypeProjection? returnProjection,
         bool isEscaping,
         bool throws,
         bool isAsync,
-        string callbackName)
+        string callbackName,
+        string? resolvedDelegateType = null)
     {
         _argProjections = argProjections;
         _returnProjection = returnProjection;
@@ -43,6 +53,7 @@ public class ClosureProjection : ITypeProjection
         _throws = throws;
         _isAsync = isAsync;
         _callbackName = callbackName;
+        _resolvedDelegateType = resolvedDelegateType;
     }
 
     /// <summary>The argument projections.</summary>
@@ -51,7 +62,15 @@ public class ClosureProjection : ITypeProjection
     /// <summary>The return projection (null for void closures).</summary>
     public ITypeProjection? ReturnProjection => _returnProjection;
 
-    public string PublicType => BuildDelegateType();
+    /// <summary>
+    /// The public C# delegate type for this closure. On the live emission path this is the string
+    /// <see cref="ClosureHandler.GetCSharpDelegateType"/> produced — the SAME computation the
+    /// [UnmanagedCallersOnly] trampoline uses for its
+    /// <c>GetDelegateFrom(Boxed)Context&lt;T&gt;</c> cast — so the declared parameter type and the
+    /// cast target can never drift apart. Independently re-deriving one of the two from projection
+    /// strings is what produced the callback-time InvalidCastException this defers to fix.
+    /// </summary>
+    public string PublicType => _resolvedDelegateType ?? BuildDelegateType();
     public string PInvokeType => _isEscaping ? "SwiftClosureData" : BuildFuncPtrType();
     public string? PInvokeAttribute => null;
 
@@ -214,9 +233,11 @@ public class ClosureProjection : ITypeProjection
 
             // Build callback body: extract delegate from GCHandle, convert args, invoke
             var body = new List<MarshalStatement>();
-            var delegateType = BuildDelegateType();
+            // PublicType, not BuildDelegateType(): this cast must name the same type the parameter
+            // was DECLARED as, and the composed builder is only the fallback for a projection built
+            // without a ClosureTypeSpec to resolve from.
             body.Add(new MarshalStatement.Line(
-                $"var del = SwiftClosureMarshaller.GetDelegateFromContext<{delegateType}>(context);"));
+                $"var del = SwiftClosureMarshaller.GetDelegateFromContext<{PublicType}>(context);"));
 
             // Convert P/Invoke args to delegate types
             var invokeArgs = new List<string>();
@@ -286,10 +307,12 @@ public class ClosureProjection : ITypeProjection
         }
     }
 
-    // NOTE: Async/throws wrapping logic here mirrors ClosureHandler.GetCSharpDelegateType()
-    // (lines 555-581). Both paths take different inputs — ClosureProjection uses
-    // ITypeProjection.PublicType strings while ClosureHandler uses TranslateTypeSpecToCSharp
-    // on TypeSpec. Future centralization should extract a shared helper.
+    // Legacy composed delegate-type builder. NOT reached on the live emission path: the factory
+    // always hands this projection the resolved ClosureHandler.GetCSharpDelegateType string, which
+    // PublicType returns instead. It survives only for hand-composed projections built directly by
+    // unit tests (no ClosureTypeSpec to resolve from). Do NOT wire a new production construction
+    // site that omits resolvedDelegateType — a second delegate-type translator is precisely the
+    // drift that makes the trampoline's GetDelegateFromContext<T> cast miss the stored delegate.
     private string BuildDelegateType()
     {
         var argTypes = _argProjections.Select(p => p.PublicType).ToList();

@@ -1117,6 +1117,13 @@ partial class Build
                 // there is nothing to reseed and no state in which `Configure2` is acceptable.
                 RunOverloadNameGate();
 
+                // Closure delegate-type parity gate: assert every [UnmanagedCallersOnly] trampoline
+                // recovers its stored delegate under a type the public signature actually declares.
+                // That cast is unchecked, so a divergence compiles on both sides and only shows up as
+                // a process abort on the first callback — no other gate in this chain can see it.
+                // Fail-closed and unconditional: a soundness property, not a baseline.
+                RunClosureDelegateParityGate();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

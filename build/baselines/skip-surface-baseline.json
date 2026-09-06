@@ -1,5 +1,5 @@
 {
-  "git_sha": "49305360",
+  "git_sha": "970e5c51",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -1361,7 +1361,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Unsupported closure fallback",
-      "count": 15
+      "count": 17
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",

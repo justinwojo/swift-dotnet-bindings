@@ -441,11 +441,15 @@ public class ProtocolSignatureHelperTests
 
         var key = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, typeDatabase);
 
-        // Key must contain projected dictionary type with generic args
-        Assert.Contains("IReadOnlyDictionary<", key);
-        // Must NOT have bare type without generic args
-        Assert.DoesNotContain("IReadOnlyDictionary,", key);
-        Assert.DoesNotContain("IReadOnlyDictionary>", key);
+        // Key must carry the projected dictionary type WITH its generic args. The delegate type is
+        // resolved by the one computation the closure trampoline's cast also reads, so the spelling
+        // is the Swift container carrier rather than the idiomatic read-only interface; what this
+        // test guards is that the key does not degrade to a bare, argument-less container name
+        // (which would collapse two distinct overloads onto one key).
+        Assert.Contains("SwiftDictionary<", key);
+        Assert.DoesNotContain("SwiftDictionary,", key);
+        Assert.DoesNotContain("SwiftDictionary>", key);
+        Assert.DoesNotContain("SwiftDictionary?", key);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithClasses(params string[] moduleQualifiedClassNames)
@@ -1532,12 +1536,17 @@ public class ProtocolSignatureHelperTests
     #endregion
 
     [Fact]
-    public void ProjectTypeToCSharp_ClosureReturningArray_UsesIReadOnlyListNotIEnumerable()
+    public void ProjectTypeToCSharp_ClosureReturningArray_MatchesTheDelegateTypeComputation()
     {
-        // Closure return types must use isParameter:false (return position) to project
-        // arrays as IReadOnlyList<T>, not IEnumerable<T>. This ensures parity between
-        // ProtocolSignatureHelper (proxy) and ProtocolHandler (interface).
-        var typeDatabase = CreateTypeDatabaseWithString();
+        // A closure's C# delegate type has to be ONE computation: the protocol proxy's projected
+        // signature (this call) and the trampoline's SwiftClosureMarshaller.GetDelegateFrom-
+        // (Boxed)Context<T> recovery both name it, and that recovery is an unchecked cast of the
+        // GCHandle target — a disagreement compiles on both sides and only shows up as an
+        // InvalidCastException on the first callback. So the assertion here is agreement with
+        // ClosureHandler.GetCSharpDelegateType, not a literal spelling: the array element type must
+        // survive into the delegate (no bare generic, no AnyType), and the proxy must not invent a
+        // second spelling of its own.
+        var typeDatabase = CreateTypeDatabaseWithArray();
 
         // Build: () -> [Int]
         var arrayReturnType = new NamedTypeSpec("Swift.Array");
@@ -1546,8 +1555,46 @@ public class ProtocolSignatureHelperTests
 
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(closureType, typeDatabase, isParameter: false);
 
-        // Should be Func<IReadOnlyList<nint>>, not Func<IEnumerable<nint>>
-        Assert.Equal("global::System.Func<IReadOnlyList<nint>>", result);
+        var delegateTypeFromClosureHandler = new ClosureHandler(typeDatabase).GetCSharpDelegateType(closureType);
+        Assert.Equal(delegateTypeFromClosureHandler, result);
+
+        // The element type survived: not a bare container, not the AnyType fallback.
+        Assert.Contains("<nint>", result);
+        Assert.DoesNotContain("AnyType", result);
+    }
+
+    /// <summary>
+    /// The string database's records plus a <c>Swift.Array</c> one. Kept separate from
+    /// <see cref="CreateTypeDatabaseWithString"/> so registering the container can't shift the
+    /// expectations of the tests built on the string-only database.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithArray()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
     }
 
     #endregion

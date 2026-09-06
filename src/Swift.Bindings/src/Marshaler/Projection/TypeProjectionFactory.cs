@@ -513,13 +513,23 @@ public class TypeProjectionFactory
             ? $"{context.CallbackNamePrefix}Callback"
             : "closureCallback";
 
+        // The public delegate type and the trampoline's GetDelegateFrom(Boxed)Context<T> cast target
+        // must be ONE computation, or a callback that stores Action<A> and casts to Action<B> throws
+        // InvalidCastException on its first invocation (surfacing as FailFastUnhandledClosureException,
+        // i.e. a process abort on any callback). ClosureHandler.GetCSharpDelegateType is that
+        // computation — every trampoline emitter already reads it — so resolve it here and hand it to
+        // the projection rather than re-deriving a parallel string from the sub-projections.
+        var closureHandler = new ClosureHandler(context.TypeDatabase, context.CurrentModuleName);
+        var resolvedDelegateType = closureHandler.GetCSharpDelegateType(closureType);
+
         return new ClosureProjection(
             argProjections,
             returnProjection,
             closureType.IsEscaping,
             closureType.Throws,
             closureType.IsAsync,
-            callbackName);
+            callbackName,
+            resolvedDelegateType);
     }
 
     private ITypeProjection? ProjectExistential(ProtocolListTypeSpec protocolList, ProjectionContext context)

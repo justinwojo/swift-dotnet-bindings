@@ -126,12 +126,13 @@ public static partial class ClosureEmitter
         bool isObjCBridged = closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType);
         bool isClassReturn = closureHandler.IsClassType(closureTypeSpec.ReturnType);
 
-        // Array<String> delegate type: GetCSharpDelegateType returns SwiftArray<string> but
-        // the public API uses IReadOnlyList<string>. The GCHandle stores the public API type,
-        // so the callback must recover using the same type.
-        var effectiveDelegateType = isArrayString
-            ? delegateType.Replace("Swift.SwiftArray<string>", "IReadOnlyList<string>")
-            : delegateType;
+        // No per-case delegate-type rewrite here: GetCSharpDelegateType is the SINGLE computation the
+        // public signature and this cast both read, and it already spells a [String] closure return as
+        // IReadOnlyList<string> (SwiftMarshal has no System.String element conversion, so the
+        // SwiftArray<string> carrier is unusable as a delegate type — see the conversion block below,
+        // which is what bridges the two). Re-deriving the type on one side makes the GCHandle store Action<A> and
+        // this callback cast to Action<B>.
+        var effectiveDelegateType = delegateType;
 
         // Box vs raw context: identical gate to EmitEscapingClosureCallback. On the non-cdecl legacy
         // SwiftClosureData escaping path the context slot carries an `_SBClosureCtx` box pointer with
@@ -254,12 +255,9 @@ public static partial class ClosureEmitter
     /// Checks if the return type is Array&lt;String&gt; (needs String-specific indirect return marshalling).
     /// </summary>
     private static bool IsArrayStringReturn(TypeSpec returnType)
-    {
-        return returnType is NamedTypeSpec named &&
-               named.Name == "Swift.Array" &&
-               named.GenericParameters.Count == 1 &&
-               WitnessDispatchEmitter.IsStringType(named.GenericParameters[0]);
-    }
+        // One oracle with the delegate-type computation: ClosureHandler projects exactly this shape
+        // to IReadOnlyList<string>, and this marshal block is the conversion that pairs with it.
+        => ClosureHandler.IsStringArray(returnType);
 
     /// <summary>
     /// Emits the static field that holds the function pointer for an indirect return callback.

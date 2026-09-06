@@ -1040,11 +1040,13 @@ public class ClosureHandlerTests
         // Must produce T? to align with TypeConversionHandler protocol interface path,
         // which unconditionally uses T? for Optional.
         // SwiftArray<T> is a C# reference type → nullable annotation (same runtime type).
+        // The ELEMENT is the carrier SwiftString, not "string": inside a Swift container the
+        // container marshals its elements one at a time and SwiftMarshal has no System.String arm.
         var arrayString = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String"));
         var optionalArray = new NamedTypeSpec("Swift.Optional", arrayString);
         var result = handler.TranslateTypeSpecToCSharp(optionalArray);
 
-        Assert.Equal("Swift.SwiftArray<string>?", result);
+        Assert.Equal("Swift.SwiftArray<Swift.SwiftString>?", result);
     }
 
     /// <summary>
@@ -2892,6 +2894,9 @@ public class ClosureHandlerTests
     public void TranslateTypeSpecToCSharp_DictionaryWithGenericArgs_ReturnsFullType()
     {
         // Positive counter-case: Dictionary<String, Int> should produce full generic type.
+        // The key spells as the carrier SwiftString rather than "string": SwiftDictionary looks
+        // its keys up through a Swift Hashable witness, which is registered for SwiftString and
+        // not for System.String, so a "string" key could neither be marshalled nor hashed.
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -2900,7 +2905,7 @@ public class ClosureHandlerTests
             new NamedTypeSpec("Swift.Int"));
         var result = handler.TranslateTypeSpecToCSharp(typedDict);
 
-        Assert.Equal("Swift.SwiftDictionary<string, nint>", result);
+        Assert.Equal("Swift.SwiftDictionary<Swift.SwiftString, nint>", result);
     }
 
     #endregion

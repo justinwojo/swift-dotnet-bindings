@@ -712,6 +712,21 @@ public class TypeProjectionConsistencyTests
     {
         var db = new MockTypeDatabase();
 
+        // Swift.Bool. Most projections resolve the stdlib primitives structurally, but a CLOSURE's
+        // delegate type comes from the one computation the trampoline's
+        // GetDelegateFrom(Boxed)Context<T> cast also reads, and that one resolves a named type
+        // through the TypeDatabase. Leaving it unregistered makes a Bool inside a closure signature
+        // come out as Swift.AnyType — the documented under-registered-TypeDatabase gotcha — so the
+        // closure cases below would be asserting on the mock's gaps instead of on the projection.
+        db.AddType("Swift.Bool", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            MetadataAccessor = "$sSbMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
         // ObjC bridged type
         db.AddType("TestModule.UIImage", new TypeRecord
         {

@@ -680,6 +680,30 @@ public static partial class ClosureEmitter
                 """;
         }
 
+        // `[String]` returns are the container form of the same hole: the delegate is declared to
+        // return IReadOnlyList<string>, an interface with no Swift metadata at all, so the generic
+        // branch below would ask for metadata on it and fail at runtime on code that compiled
+        // cleanly. Convert element-wise into the SwiftArray<SwiftString> carrier — the same
+        // conversion the indirect-return path performs — so the escaping and throwing return paths
+        // agree with the delegate's own type.
+        if (callbackReturnType == "void*" && ClosureHandler.IsStringArray(returnType))
+        {
+            return $$"""
+                    var _result = {{resultExpr}};
+                            using var _swiftArray = new Swift.SwiftArray<Swift.SwiftString>();
+                            foreach (var _item in _result)
+                            {
+                                using var _str = new Swift.SwiftString(_item);
+                                _swiftArray.Append(_str);
+                            }
+                            var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftArray<Swift.SwiftString>>();
+                            var _resultBuffer = (void*)NativeMemory.Alloc(_resultMetadata.Size);
+                            var _resultSpan = new Span<byte>(_resultBuffer, (int)_resultMetadata.Size);
+                            SwiftMarshal.MarshalToSwift(_swiftArray, ref _resultSpan);
+                            return _resultBuffer;
+                """;
+        }
+
         if (callbackReturnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(returnType))
         {
             var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);

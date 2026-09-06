@@ -488,7 +488,21 @@ public class TypeProjectionFactoryComplexTests
             ReturnType = new NamedTypeSpec("Swift.Bool")
         };
         closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
-        var ctx = CreateContext(callbackPrefix: "test");
+        // Swift.Bool has to be a registered record: the closure delegate type is resolved by the
+        // one computation the trampoline's GetDelegateFrom(Boxed)Context<T> cast also reads, and
+        // that computation resolves a named type through the TypeDatabase. An unregistered record
+        // yields Swift.AnyType there (the documented under-registered-TypeDatabase gotcha), which
+        // would be testing the mock rather than the projection.
+        var db = new MockTypeDatabase();
+        db.AddType("Swift.Bool", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            MetadataAccessor = "$sSbMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        var ctx = CreateContext(db, callbackPrefix: "test");
 
         var projection = _factory.Project(closureSpec, ctx);
 

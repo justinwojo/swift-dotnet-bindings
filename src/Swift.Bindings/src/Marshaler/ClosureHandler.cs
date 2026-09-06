@@ -375,6 +375,25 @@ public class ClosureHandler
         // Check that all argument types are supported
         foreach (var arg in closureTypeSpec.EachArgument())
         {
+            // An `inout` parameter in the closure's OWN signature — `(inout [String: Any]) -> Void`,
+            // `(inout Int32) -> Int32` — has no write-back channel across the closure boundary. Both
+            // closure ABIs marshal each argument BY VALUE: the CallConvSwift trampoline reads the
+            // Swift cell once (MarshalCallbackArg) and hands the delegate an independent managed
+            // value, and the @convention(c) bridge boxes a by-value context. Nothing stores the
+            // mutated value back into the Swift cell the caller passed by reference, and C#'s
+            // Action<>/Func<> cannot even express a `ref` parameter, so the emitted delegate silently
+            // drops `inout` from the type — a member that compiles on both sides and then discards
+            // every mutation the consumer makes. That is a soundness condition neither compiler can
+            // see, so it is declined here rather than predicted-away downstream: the member skips
+            // with SkipReason.UnsupportedClosure and surfaces as a closure tombstone.
+            //
+            // Restoring this shape needs three things that do not exist yet: a generator-emitted
+            // named `ref` delegate type per closure signature (no BCL delegate can carry `ref`), an
+            // ARC-correct store-back of the mutated carrier into the Swift inout cell, and the same
+            // support on the MethodClosureBridge / protocol-proxy / Swift-wrapper closure paths.
+            if (arg.IsInOut)
+                return false;
+
             if (!IsSupportedClosureParameterType(arg))
                 return false;
         }
@@ -1460,8 +1479,24 @@ public class ClosureHandler
     /// well-known runtime types (e.g., AnyError for Swift.Error), or "object" for
     /// unknown protocols. The P/Invoke layer still uses ExistentialContainer.
     /// </summary>
-    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec, bool isReturnType = false)
+    /// <param name="inSwiftContainerArgument">True while translating a generic ARGUMENT of a Swift
+    /// container carrier (<c>SwiftArray&lt;T&gt;</c>, <c>SwiftDictionary&lt;K,V&gt;</c>, …). Such an
+    /// argument is not a public spelling the consumer reads — it names the element the carrier
+    /// marshals through Swift TypeMetadata — so a type whose idiomatic C# projection has no Swift
+    /// metadata must fall back to its carrier here.</param>
+    public string TranslateTypeSpecToCSharp(TypeSpec typeSpec, bool isReturnType = false, bool inSwiftContainerArgument = false)
     {
+        // `[String]` in closure RETURN position is the one array shape whose Swift container carrier
+        // is not a usable C# type: System.String has no Swift TypeMetadata, so a delegate declared
+        // to return Swift.SwiftArray<string> could never be marshalled. The indirect-return callback
+        // therefore converts the delegate's IReadOnlyList<string> element-by-element into a
+        // SwiftArray<SwiftString>. Because this is the ONE delegate-type computation shared by the
+        // public signature and the trampoline's GetDelegateFrom(Boxed)Context<T> cast, the rule has to
+        // live here rather than as a post-hoc rewrite at the emission site — a rewrite on one side only
+        // re-creates the store-as-A / cast-to-B mismatch this computation exists to prevent.
+        if (isReturnType && IsStringArray(typeSpec))
+            return "IReadOnlyList<string>";
+
         // Handle existential types — use protocol interface or object (never ExistentialContainer)
         if (_existentialHandler.IsExistential(typeSpec))
         {
@@ -1559,8 +1594,16 @@ public class ClosureHandler
 
             // Swift.String must project to "string" to match GetIdiomaticCSharpType's output.
             // Without this, closures use SwiftString while interface methods use string → CS0029.
+            // Inside a Swift container carrier the opposite holds. The container marshals its
+            // elements one at a time, and SwiftMarshal has no conversion arm for System.String —
+            // an element write falls through to "Cannot marshal type System.String to Swift" — while
+            // SwiftDictionary additionally resolves its key's Hashable witness from a registry keyed
+            // on SwiftString, not string. (System.String does resolve to Swift.String METADATA, so
+            // the shape compiles and only fails once an element is actually moved.) The element has
+            // to be the carrier the rest of the emitted surface already uses for a Swift String
+            // inside a container.
             if (MarshallingHelpers.IsSwiftString(namedType))
-                return "string";
+                return inSwiftContainerArgument ? "Swift.SwiftString" : "string";
 
             // Foundation.Data projects to byte[] to match DataProjection's output.
             // Without this, closures use Foundation.NSData while methods use byte[] → CS0029.
@@ -1598,6 +1641,15 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// True when <paramref name="typeSpec"/> is <c>[String]</c> (<c>Swift.Array&lt;Swift.String&gt;</c>).
+    /// </summary>
+    internal static bool IsStringArray(TypeSpec typeSpec)
+        => typeSpec is NamedTypeSpec named &&
+           named.Name == "Swift.Array" &&
+           named.GenericParameters.Count == 1 &&
+           WitnessDispatchEmitter.IsStringType(named.GenericParameters[0]);
+
+    /// <summary>
     /// Translates a bound generic NamedTypeSpec to its full C# type name with generic parameters.
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
@@ -1609,7 +1661,7 @@ public class ClosureHandler
             _typeDatabase,
             _existentialHandler,
             namedType,
-            translateGenericArgument: genericParam => TranslateTypeSpecToCSharp(genericParam),
+            translateGenericArgument: genericParam => TranslateTypeSpecToCSharp(genericParam, inSwiftContainerArgument: true),
             mapEmptyTupleArgumentToSwiftVoid: true,
             bareGenericSafetyNet: true);
     }

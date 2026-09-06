@@ -167,13 +167,15 @@ A method gets a **standalone closure wrapper** only when *all* of its thunk clos
 
 ### Delegate projection
 
-Closure types are projected to C# as BCL `Action<>` / `Func<>` delegates (`ClosureHandler.GetCSharpDelegateType` / `ClosureProjection.BuildDelegateType`):
+Closure types are projected to C# as BCL `Action<>` / `Func<>` delegates:
 
 - Plain closures → `Action<…>` or `Func<…, T>`
 - Throwing (non-async) → `Func<…, SwiftResult<T, SwiftError>>` (or `SwiftResult<SwiftVoid, SwiftError>` for void success)
 - Async → `Func<…, Task>` / `Func<…, Task<T>>` (async+throwing surfaces errors via the continuation, not a nested `SwiftResult`)
 
-The generated marshalling code handles the conversion between those .NET delegates and Swift closure representations at the P/Invoke boundary. Custom per-signature `delegate` type declarations are a non-goal (historical alternative only).
+**One computation, two consumers.** The delegate type appears twice in the emitted code — in the public method signature (which is the type the consumer's lambda is stored under) and in the trampoline's `SwiftClosureMarshaller.GetDelegateFrom(Boxed)Context<T>` recovery. That recovery is an unchecked cast of the `GCHandle` target, so a disagreement between the two compiles on both sides and only appears as an `InvalidCastException` on the first callback, which `FailFastUnhandledClosureException` turns into a process abort. `ClosureHandler.GetCSharpDelegateType` is therefore the single computation: every trampoline emitter reads it, and `TypeProjectionFactory.ProjectClosure` resolves it once and hands the string to `ClosureProjection`, whose `PublicType` returns it verbatim. `ClosureProjection.BuildDelegateType` — a parallel composition over the sub-projections' `PublicType`s — remains only as the fallback for a projection hand-built without a `ClosureTypeSpec` (unit tests); it must not become a second production translator, and a per-case rewrite that re-syncs the two strings for one shape is the same defect in a smaller form. `nuke binding-tests --compile-only` enforces the property directly: the closure delegate-type parity gate scans the generated bindings and fails on any cast whose type the file's public surface does not declare.
+
+The generated marshalling code handles the conversion between those .NET delegates and Swift closure representations at the P/Invoke boundary. Custom per-signature `delegate` type declarations are a non-goal (historical alternative only) — which is also why an `inout` parameter inside a closure signature is refused rather than emitted: `Action<>`/`Func<>` cannot express `ref`, both closure ABIs marshal by value, and an emitted by-value approximation would compile while silently discarding every mutation the consumer makes.
 
 ## Accessibility
 

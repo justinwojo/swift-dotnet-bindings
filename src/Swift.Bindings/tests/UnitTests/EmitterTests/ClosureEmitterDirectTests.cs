@@ -2627,6 +2627,36 @@ public class ClosureEmitterDirectTests
     }
 
     [Fact]
+    public void EmitThrowingClosureCallback_ArrayStringReturn_EmitsSwiftArraySwiftStringCarrier()
+    {
+        // Closure: () throws -> Array<String>. A throwing closure never reaches the
+        // indirect-return emitter, so its return conversion comes from
+        // BuildCallbackReturnStatement instead. The delegate is declared to return
+        // IReadOnlyList<string>, which is not a Swift carrier — without the [String] arm the
+        // generic fallback would ask for TypeMetadata on that interface and fail at runtime on
+        // code that compiles cleanly. Both return paths must land on the same carrier.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")))
+        { Throws = true };
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitThrowingClosureCallback(
+            csWriter, "collect", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule7collectyyKF", "TestModule", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("SwiftArray<Swift.SwiftString>", result);
+        Assert.Contains("new Swift.SwiftString(_item)", result);
+        Assert.DoesNotContain("GetTypeMetadataOrThrow<IReadOnlyList<string>>", result);
+    }
+
+    [Fact]
     public void EmitEscapingClosureCallback_StringParam_EmitsMarshalFromSwiftString()
     {
         // Closure: (String) -> Void
