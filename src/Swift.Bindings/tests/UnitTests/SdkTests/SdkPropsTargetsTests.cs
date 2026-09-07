@@ -1150,12 +1150,13 @@ namespace BindingsGeneration.Tests
         {
             // GetSwiftFrameworkSearchPaths returned relative wrapper xcframework paths.
             // When project B queries project A via MSBuild task, relative paths resolve
-            // against the consumer (B), not the producer (A). Fix: prefix with $(MSBuildProjectDirectory)/.
+            // against the consumer (B), not the producer (A). Resolve against the producer,
+            // preserving an already absolute intermediate directory.
             var target = TargetsContent.Substring(
                 TargetsContent.IndexOf("Name=\"GetSwiftFrameworkSearchPaths\"", StringComparison.Ordinal));
             var endOfTarget = target.IndexOf("</Target>", StringComparison.Ordinal);
             var targetBody = target.Substring(0, endOfTarget);
-            Assert.Contains("$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework", targetBody);
+            Assert.Contains("GetFullPath('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework', '$(MSBuildProjectDirectory)')", targetBody);
         }
 
         [Fact]

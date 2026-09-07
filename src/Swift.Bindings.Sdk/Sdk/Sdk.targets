@@ -2831,8 +2831,8 @@ done; true"
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkSearchPath" />
     </MSBuild>
     <ItemGroup>
-      <_SwiftBindingFrameworkSearchPath Include="%(SwiftFramework.Identity)" />
-      <_SwiftBindingFrameworkSearchPath Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
+      <_SwiftBindingFrameworkSearchPath Include="@(SwiftFramework->'%(FullPath)')" />
+      <_SwiftBindingFrameworkSearchPath Include="$([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework', '$(MSBuildProjectDirectory)'))"
                                         Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
       <_SwiftBindingFrameworkSearchPath Include="@(SwiftFrameworkDependency->'%(FullPath)')"
                                         Condition="'@(SwiftFrameworkDependency)' != ''" />
@@ -3647,7 +3647,7 @@ done; true"
       </_SwiftBindingNativeManifest>
 
       <!-- Wrapper xcframework (generated during Build) -->
-      <_SwiftBindingNativeManifest Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_GNM_WrapperModule).xcframework"
+      <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)$(_GNM_WrapperModule).xcframework', '$(MSBuildProjectDirectory)'))"
                                    Condition="'$(SwiftFrameworkType)' != 'ObjC'
                                               AND '$(_GNM_HasWrapper)' == 'True'
                                               AND Exists('$(_SwiftBindingIntermediateDir)$(_GNM_WrapperModule).xcframework')">
@@ -3656,7 +3656,7 @@ done; true"
 
       <!-- Bridge xcframework (generated during Build). Excluded on native macOS:
            the UIKit-only bridge has an empty macOS slice → MT158. Catalyst keeps it. -->
-      <_SwiftBindingNativeManifest Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_GNM_BridgeModule).xcframework"
+      <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)$(_GNM_BridgeModule).xcframework', '$(MSBuildProjectDirectory)'))"
                                    Condition="'$(SwiftFrameworkType)' != 'ObjC'
                                               AND '$(_GNM_HasBridge)' == 'True'
                                               AND !$(TargetFramework.Contains('-macos'))

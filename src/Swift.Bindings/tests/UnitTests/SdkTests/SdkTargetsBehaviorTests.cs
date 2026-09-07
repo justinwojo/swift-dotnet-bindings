@@ -2789,28 +2789,136 @@ namespace BindingsGeneration.Tests
             // the persisted _GNM_HasWrapper=False, so it flows NEITHER source NOR wrapper through the
             // manifest — a ProjectReference consumer would build with no native carrier and
             // DllNotFoundException at runtime. GetNativeManifest must fail closed with SWIFTBIND040.
-            var (output, exitCode) = RunGetNativeManifestDump(
+            var result = RunGetNativeManifestDump(
                 wrapperOnDisk: true, hasWrapperMetadata: "False");
 
-            Assert.True(exitCode != 0, $"Expected SWIFTBIND040 to fail GetNativeManifest.\nOutput: {output}");
-            Assert.Contains("SWIFTBIND040", output);
+            Assert.True(result.ExitCode != 0, $"Expected SWIFTBIND040 to fail GetNativeManifest.\nOutput: {result.Output}");
+            Assert.Contains("SWIFTBIND040", result.Output);
         }
 
-        [Fact]
-        public void GetNativeManifest_SourceDroppedWithWrapperMetadataTrue_FlowsWrapperNoError()
+        [Theory]
+        [InlineData("absolute")]
+        [InlineData("relative")]
+        [InlineData("artifacts")]
+        public void GetNativeManifest_SourceDroppedWithWrapperMetadataTrue_FlowsExactExistingPaths(string intermediateMode)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             // Good state (no divergence): source dropped (Static + wrapper on disk) AND the persisted
-            // _GNM_HasWrapper=True, so the wrapper xcframework flows through the manifest as the sole
-            // native carrier and the guard stays inert. Confirms SWIFTBIND040 does not misfire on the
-            // healthy path-c case the manifest is built for.
-            var (output, exitCode) = RunGetNativeManifestDump(
-                wrapperOnDisk: true, hasWrapperMetadata: "True");
+            // _GNM_HasWrapper=True, so the wrapper and bridge xcframeworks flow through the
+            // ProjectReference manifest. Exact equality + existence is the contract: a filename
+            // substring alone stayed green when an absolute intermediate path was corruptly
+            // prefixed with the project directory.
+            var result = RunGetNativeManifestDump(
+                wrapperOnDisk: true, hasWrapperMetadata: "True", bridgeOnDisk: true,
+                intermediateMode: intermediateMode);
 
-            Assert.True(exitCode == 0, $"GetNativeManifest should succeed in the good state.\nOutput: {output}");
-            Assert.DoesNotContain("SWIFTBIND040", output);
-            Assert.Contains("MixedSwiftBindings.xcframework", output);
-            Assert.DoesNotContain("Mixed.xcframework\n", output.Replace("MixedSwiftBindings.xcframework", "WRAPPER"));
+            Assert.True(result.ExitCode == 0,
+                $"GetNativeManifest should succeed in the good state.\nOutput: {result.Output}");
+            Assert.DoesNotContain("SWIFTBIND040", result.Output);
+            Assert.Equal(
+                new[] { Path.GetFullPath(result.WrapperPath), Path.GetFullPath(result.BridgePath) }
+                    .OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                result.ManifestPaths.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+            Assert.All(result.ManifestPaths, path => Assert.True(Directory.Exists(path),
+                $"GetNativeManifest returned a nonexistent path: {path}"));
+            Assert.DoesNotContain(Path.GetFullPath(result.SourcePath), result.ManifestPaths);
+            if (intermediateMode == "artifacts")
+            {
+                Assert.True(Path.IsPathFullyQualified(result.IntermediatePath));
+                Assert.StartsWith(Path.GetFullPath(Path.Combine(_tempDir, "artifacts-output")),
+                    result.IntermediatePath, StringComparison.Ordinal);
+            }
+        }
+
+        [Theory]
+        [InlineData("absolute")]
+        [InlineData("relative")]
+        [InlineData("artifacts")]
+        public void GetSwiftFrameworkSearchPaths_WrapperPathIsExactAndExists(string intermediateMode)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var fixture = RunGetNativeManifestDump(
+                wrapperOnDisk: true, hasWrapperMetadata: "True", intermediateMode: intermediateMode,
+                relativeSource: true);
+            Assert.True(fixture.ExitCode == 0, fixture.Output);
+
+            // Query across a project boundary: relative source entries must be resolved
+            // by the producer before the consumer receives framework-dependency paths.
+            var consumerDir = Path.Combine(_tempDir, "SearchConsumer");
+            Directory.CreateDirectory(consumerDir);
+            var consumerManifest = Path.Combine(consumerDir, "search-paths.txt");
+            var consumerPath = Path.Combine(consumerDir, "Consumer.proj");
+            File.WriteAllText(consumerPath, $"""
+                <Project>
+                  <ItemGroup><ProjectReference Include="{fixture.ProjectPath}" /></ItemGroup>
+                  <Target Name="TestConsume">
+                    <MSBuild Projects="@(ProjectReference)" Targets="GetSwiftFrameworkSearchPaths">
+                      <Output TaskParameter="TargetOutputs" ItemName="_SearchPaths" />
+                    </MSBuild>
+                    <WriteLinesToFile File="{consumerManifest}" Lines="@(_SearchPaths)" Overwrite="true" />
+                  </Target>
+                </Project>
+                """);
+            var result = RunDotnet($"msbuild \"{consumerPath}\" -t:TestConsume -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"GetSwiftFrameworkSearchPaths failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var searchPaths = File.ReadAllLines(consumerManifest)
+                .Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
+            Assert.Equal(new[] { Path.GetFullPath(fixture.SourcePath), Path.GetFullPath(fixture.WrapperPath) }
+                .OrderBy(path => path, StringComparer.Ordinal), searchPaths.OrderBy(path => path, StringComparer.Ordinal));
+            Assert.All(searchPaths, path => Assert.True(Path.IsPathFullyQualified(path) && Directory.Exists(path), path));
+        }
+
+        [Theory]
+        [InlineData("absolute")]
+        [InlineData("relative")]
+        [InlineData("artifacts")]
+        public void GetNativeManifest_ProjectReferenceConsumerReceivesExactExistingPaths(string intermediateMode)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var fixture = RunGetNativeManifestDump(
+                wrapperOnDisk: true, hasWrapperMetadata: "True", bridgeOnDisk: true,
+                intermediateMode: intermediateMode);
+            Assert.True(fixture.ExitCode == 0, fixture.Output);
+
+            var consumerDir = Path.Combine(_tempDir, "Consumer");
+            Directory.CreateDirectory(consumerDir);
+            var consumerManifest = Path.Combine(consumerDir, "consumed-native-manifest.txt");
+            var consumerProject = $"""
+                <Project>
+                  <ItemGroup>
+                    <ProjectReference Include="{fixture.ProjectPath}" />
+                  </ItemGroup>
+                  <Target Name="TestConsume">
+                    <MSBuild Projects="@(ProjectReference)" Targets="GetNativeManifest">
+                      <Output TaskParameter="TargetOutputs" ItemName="_ConsumedNativeManifest" />
+                    </MSBuild>
+                    <WriteLinesToFile File="{consumerManifest}" Lines="@(_ConsumedNativeManifest)" Overwrite="true" />
+                  </Target>
+                </Project>
+                """;
+            var consumerProjectPath = Path.Combine(consumerDir, "Consumer.csproj");
+            File.WriteAllText(consumerProjectPath, consumerProject);
+            File.WriteAllText(Path.Combine(consumerDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(consumerDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{consumerProjectPath}\" -t:TestConsume -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"ProjectReference consumer failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var consumedPaths = File.ReadAllLines(consumerManifest)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(
+                new[] { Path.GetFullPath(fixture.WrapperPath), Path.GetFullPath(fixture.BridgePath) }
+                    .OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                consumedPaths);
+            Assert.All(consumedPaths, path => Assert.True(Directory.Exists(path),
+                $"ProjectReference consumer received a nonexistent path: {path}"));
         }
 
         [Fact]
@@ -3804,75 +3912,128 @@ namespace BindingsGeneration.Tests
         /// <summary>
         /// Runs the REAL GetNativeManifest target (the ProjectReference-consumer path, path c) via a
         /// TestDump that depends on it, then dumps the resolved <c>@(_SwiftBindingNativeManifest)</c>
-        /// as <c>NMAN:</c> lines. Mirrors <see cref="RunResolveNativeReferencesDump"/> but exercises the
+        /// into a manifest file. Mirrors <see cref="RunResolveNativeReferencesDump"/> but exercises the
         /// distinct manifest path: GetNativeManifest peeks <c>_GNM_HasWrapper</c> from the PROPS file
         /// (not the project property), so <paramref name="hasWrapperMetadata"/> is written into
         /// binding-metadata.props here. Static linkage + <paramref name="wrapperOnDisk"/> drive
         /// _ComputeSwiftBindingSourceXcframeworkInclusion (the real DependsOnTarget) to drop the source.
         /// </summary>
-        private (string Output, int ExitCode) RunGetNativeManifestDump(
+        private (string Output, int ExitCode, string ProjectPath, string SourcePath, string IntermediatePath,
+            string WrapperPath, string BridgePath, string[] ManifestPaths, string SearchManifestPath)
+            RunGetNativeManifestDump(
             bool wrapperOnDisk,
-            string hasWrapperMetadata = "True")
+            string hasWrapperMetadata = "True",
+            bool bridgeOnDisk = false,
+            string intermediateMode = "absolute",
+            bool relativeSource = false)
         {
             var bindingDir = Path.Combine(_tempDir, "GetManifest.Swift.iOS");
             Directory.CreateDirectory(bindingDir);
-            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
-            Directory.CreateDirectory(intermediateDir);
 
             var sourceXcfw = Path.Combine(bindingDir, "Mixed.xcframework");
             Directory.CreateDirectory(sourceXcfw);
-            if (wrapperOnDisk)
-                Directory.CreateDirectory(Path.Combine(intermediateDir, "MixedSwiftBindings.xcframework"));
-
-            // GetNativeManifest self-peeks linkage (via _ComputeSwiftBindingSourceXcframeworkInclusion),
-            // wrapper module name, AND _SwiftBindingHasWrapperXCFramework all from this props file —
-            // hasWrapperMetadata is the persisted signal the manifest's _GNM_HasWrapper reads, which is
-            // exactly the half of the source-drop/wrapper divergence that the project property cannot fix.
-            var metadataProps = $"""
-                <Project>
-                  <PropertyGroup>
-                    <_SwiftBindingSourceNativeLinkage>Static</_SwiftBindingSourceNativeLinkage>
-                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingHasWrapperXCFramework>{hasWrapperMetadata}</_SwiftBindingHasWrapperXCFramework>
-                  </PropertyGroup>
-                </Project>
-                """;
-            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+            var sourceInclude = relativeSource ? Path.GetRelativePath(bindingDir, sourceXcfw) : sourceXcfw;
 
             var sdkTargetsPath = Path.Combine(FindRepoRoot(),
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var configuredIntermediate = intermediateMode switch
+            {
+                "absolute" => Path.Combine(bindingDir, "absolute-obj", "swift-binding") + "/",
+                "relative" => "relative-obj/swift-binding/",
+                "artifacts" => string.Empty,
+                _ => throw new ArgumentOutOfRangeException(nameof(intermediateMode), intermediateMode, null),
+            };
+            var artifactsPath = Path.Combine(_tempDir, "artifacts-output");
+            var manifestPath = Path.Combine(bindingDir, "native-manifest.txt");
+            var searchManifestPath = Path.Combine(bindingDir, "framework-search-manifest.txt");
+            var intermediateReceiptPath = Path.Combine(bindingDir, "intermediate-path.txt");
+            var artifactsProperties = intermediateMode == "artifacts"
+                ? $"""
+                    <UseArtifactsOutput>true</UseArtifactsOutput>
+                    <ArtifactsPath>{artifactsPath}</ArtifactsPath>
+                    """
+                : string.Empty;
+            var intermediateOverride = intermediateMode == "artifacts"
+                ? string.Empty
+                : $"<_SwiftBindingIntermediateDir>{configuredIntermediate}</_SwiftBindingIntermediateDir>";
 
             // Stub _DiscoverSwiftFrameworks (GetNativeManifest's other DependsOnTarget) but let
             // _ComputeSwiftBindingSourceXcframeworkInclusion run for real so the source-drop decision
             // is the genuine on-disk one.
             var project = $"""
                 <Project>
+                  <PropertyGroup>
+                    {artifactsProperties}
+                  </PropertyGroup>
                   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
                   <PropertyGroup>
                     <TargetFramework>net10.0</TargetFramework>
                   </PropertyGroup>
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>
-                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    {intermediateOverride}
                   </PropertyGroup>
                   <ItemGroup>
-                    <SwiftFramework Include="{sourceXcfw}" />
+                    <SwiftFramework Include="{sourceInclude}" />
                   </ItemGroup>
                   <Target Name="_ComputeSwiftFingerprint" />
                   <Target Name="_DiscoverSwiftFrameworks" />
                   <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="TestIntermediate">
+                    <WriteLinesToFile File="{intermediateReceiptPath}" Lines="$(_SwiftBindingIntermediateDir)" Overwrite="true" />
+                  </Target>
                   <Target Name="TestDump" DependsOnTargets="GetNativeManifest">
-                    <Message Importance="High" Text="NMAN:@(_SwiftBindingNativeManifest)" />
+                    <WriteLinesToFile File="{manifestPath}" Lines="@(_SwiftBindingNativeManifest)" Overwrite="true" />
+                  </Target>
+                  <Target Name="TestSearchDump" DependsOnTargets="GetSwiftFrameworkSearchPaths">
+                    <WriteLinesToFile File="{searchManifestPath}" Lines="@(_SwiftBindingFrameworkSearchPath)" Overwrite="true" />
                   </Target>
                 </Project>
                 """;
 
-            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), project);
+            var projectPath = Path.Combine(bindingDir, "Test.csproj");
+            File.WriteAllText(projectPath, project);
             File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
             File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
 
-            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
-            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+            var intermediateResult = RunDotnet($"msbuild \"{projectPath}\" -t:TestIntermediate -nologo -v:n");
+            Assert.True(intermediateResult.ExitCode == 0,
+                $"Failed to evaluate _SwiftBindingIntermediateDir.\nStdErr: {intermediateResult.StdErr}\nStdOut: {intermediateResult.StdOut}");
+            var evaluatedIntermediate = File.ReadAllText(intermediateReceiptPath).Trim();
+            var intermediateDir = Path.IsPathFullyQualified(evaluatedIntermediate)
+                ? evaluatedIntermediate
+                : Path.GetFullPath(evaluatedIntermediate, bindingDir);
+            Directory.CreateDirectory(intermediateDir);
+
+            var wrapperPath = Path.Combine(intermediateDir, "MixedSwiftBindings.xcframework");
+            var bridgePath = Path.Combine(intermediateDir, "MixedBridge.xcframework");
+            if (wrapperOnDisk)
+                Directory.CreateDirectory(wrapperPath);
+            if (bridgeOnDisk)
+                Directory.CreateDirectory(bridgePath);
+
+            // GetNativeManifest self-peeks linkage (via _ComputeSwiftBindingSourceXcframeworkInclusion),
+            // module names, and presence signals from this props file. These persisted signals are
+            // deliberately distinct from the on-disk source-drop decision.
+            var metadataProps = $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingSourceNativeLinkage>Static</_SwiftBindingSourceNativeLinkage>
+                    <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapperMetadata}</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingBridgeModuleName>MixedBridge</_SwiftBindingBridgeModuleName>
+                    <_SwiftBindingHasBridgeXCFramework>{bridgeOnDisk}</_SwiftBindingHasBridgeXCFramework>
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), metadataProps);
+
+            var result = RunDotnet($"msbuild \"{projectPath}\" -t:TestDump -nologo -v:n");
+            var manifestPaths = File.Exists(manifestPath)
+                ? File.ReadAllLines(manifestPath).Where(path => !string.IsNullOrWhiteSpace(path)).ToArray()
+                : Array.Empty<string>();
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode, projectPath, sourceXcfw, intermediateDir,
+                wrapperPath, bridgePath, manifestPaths, searchManifestPath);
         }
 
         /// <summary>

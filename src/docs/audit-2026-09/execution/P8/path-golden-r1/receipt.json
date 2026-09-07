@@ -1,0 +1,18 @@
+{
+  "old_exit": 1,
+  "current_exit": 0,
+  "sha256": {
+    "current.targets": "60dfa14c5b4eefc6c68e0164e5b875b206ca5b9afaa006a1416785afd596caed",
+    "old.targets": "184afbfe2edf5d5eb1efe618376dbd2e9559856a6448b9feb5c20a22b3c9ae43"
+  },
+  "restored_exactly": true,
+  "command": [
+    "dotnet",
+    "test",
+    "/Users/wojo/Dev/swift-bindings/src/Swift.Bindings/tests/UnitTests/Swift.Bindings.Unit.Tests.csproj",
+    "--no-build",
+    "--no-restore",
+    "--filter",
+    "FullyQualifiedName~GetNativeManifest_SourceDroppedWithWrapperMetadataTrue_FlowsExactExistingPaths"
+  ]
+}

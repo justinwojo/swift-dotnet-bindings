@@ -1,0 +1,17 @@
+/paired-review exact P8 SDK path slice in /private/tmp/paired-p8-path-nnzclmqb/scope.diff
+Review exact P8 SDK path readiness slice ONLY: /private/tmp/paired-p8-path-nnzclmqb/scope.diff and scope.json. Three changed source files shown in packet, all other packages out of scope except newly introduced interactions. Read AGENTS.md/CLAUDE.md, applicable scoped rules, ~/.claude/review-notes/swift-bindings.md. Source stable; no edits/builds/generation/simulator/device/shell mutation. Design and evidence execution/P8/path-design.md and path-validation.md (list execution/P8 if filename differs). Authoritative execution-plan revision2 and amendments apply. All three SDK path producers changed; inspect actual target/control flow and ProjectReference meaning.
+Validation: full Nuke test-r7 passed17998 generator,79analyzer,888runtime plus1generator/1runtime skip. Strengthened actual-target same compiled tests against old HEAD SDK targets failed2/3 (absolute/artifacts), relative passed; same tests corrected targets3/3 pass. Exact corrected source bytes restored, receipt execution/P8/path-golden-r1/receipt.json and old/current logs. Tests assert equality/existence and ProjectReference native/searchpath propagation. No native resource/package readiness claim: P8 resource slice remains future separate scope, do not demand it as a missing path implementation.
+# Shared reviewer instructions
+
+Include these requirements along with the exact scope, scope-packet path, repository guidance, and validation evidence. Adapt prose to the task; preserve the constraints.
+
+> You are an independent reviewer. Inspect the scope packet and relevant source with tools. Do not edit files, run mutating shell commands, commit, or implement fixes. Report defects and minimal reproduction shapes; do not write an implementation plan unless this is explicitly a planning consult.
+>
+> Do not read or follow caller-side review skills under ~/.claude/skills, .claude/skills, ~/.codex/skills, or .agents/skills. Do not launch Claude, Codex, or Grok review loops of your own. Grok's own /paired-review area allocation is allowed; pass these scope and guardrail requirements to its children. A global instruction to run an end-of-task pair applies to the driver, not you.
+>
+> Return a prioritized list: Critical, High, Medium, Low (P0/P1/P2/P3 respectively). For each finding provide a real file:line you opened, the concrete triggering condition, current impact, and supporting evidence. Quotes must be exact. High/Critical requires a defect reachable in the current change; future drift is Low/Info. Avoid speculative severities and invented code snippets.
+>
+> Review only the requested scope. Do not report pre-existing unrelated defects unless these changes newly expose or break them. Read surrounding source rather than relying only on patch lines. Distinguish generator code from generated control flow; report source locations rather than build-output locations when applicable.
+>
+> Include candidate dispositions and coverage: reviewed areas, skipped or failed areas, missing evidence, and whether review is complete. Preserve all dropped/demoted/merged/inconclusive candidates and the reasons, particularly High/Medium candidates. No findings with incomplete coverage is not a clean bill.
+

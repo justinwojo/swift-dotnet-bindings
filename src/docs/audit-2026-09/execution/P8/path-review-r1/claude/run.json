@@ -1,0 +1,12 @@
+{
+  "reviewer": "claude",
+  "repo": "/Users/wojo/Dev/swift-bindings",
+  "status": "captured",
+  "started_at": "2026-09-07T19:14:38.178138+00:00",
+  "resume_from": null,
+  "requested_model": "claude-opus-5",
+  "requested_effort": "medium",
+  "exit_code": 0,
+  "session_id": "7b73fc8a-dabf-4dbb-8bca-a09e781c6740",
+  "finished_at": "2026-09-07T19:19:49.024674+00:00"
+}
