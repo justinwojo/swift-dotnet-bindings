@@ -90,6 +90,13 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     private volatile bool _contentsBorrowed;
 
     /// <summary>
+    /// True when the handle is a retained class-instance pointer rather than a value buffer.
+    /// ReleaseHandle balances its unknown-object reference after the last SafeHandle pin leaves;
+    /// neither a value-witness destroy nor a buffer free applies to that address.
+    /// </summary>
+    private readonly bool _isObjectPointer;
+
+    /// <summary>
     /// Cached type metadata handle for the Swift type T. Populated eagerly during
     /// construction on a user thread so that the finalizer path can call VWT Destroy
     /// via the Cdecl trampoline without any JIT compilation or generic resolution.
@@ -101,14 +108,24 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// Constructs a SwiftSafeHandle from the given IntPtr
     /// </summary>
     public SwiftSafeHandle(IntPtr handle)
+        : this(handle, isObjectPointer: false)
+    {
+    }
+
+    /// <summary>
+    /// Adopts either a value buffer or a retained object pointer. Set the release mode before
+    /// publishing the handle so even a partially constructed handle cannot free object memory.
+    /// </summary>
+    internal SwiftSafeHandle(IntPtr handle, bool isObjectPointer)
         : base(ownsHandle: true)
     {
+        _isObjectPointer = isObjectPointer;
         SetHandle(handle);
 
         // Cache metadata eagerly on user thread so the finalizer can use it without JIT.
         // Skip for zero handles (e.g., SwiftSafeHandle<T>.Zero static field) to avoid
         // triggering type metadata resolution during static initialization.
-        if (handle != IntPtr.Zero)
+        if (handle != IntPtr.Zero && !isObjectPointer)
         {
             try
             {
@@ -196,6 +213,17 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
+    /// The raw object pointer is borrowed (+0). Closing this handle must not release that
+    /// reference, but still invalidates subsequent use through DangerousAddRef.
+    /// </summary>
+    internal void MarkObjectBorrowed()
+    {
+        if (!_isObjectPointer)
+            throw new InvalidOperationException("Only an object-pointer handle can borrow an object reference.");
+        _contentsBorrowed = true;
+    }
+
+    /// <summary>
     /// Releases the handle to the Swift object.
     /// This method must not throw exceptions per the SafeHandle contract.
     /// </summary>
@@ -223,6 +251,18 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         // Early exit for already-freed handles
         if (handle == IntPtr.Zero)
             return true;
+
+        // SafeHandle, not the managed wrapper, owns this reference. ReleaseHandle only runs after
+        // every DangerousAddRef/PInvoke pin has left, even when Dispose happened earlier. A pin's
+        // final release can occur on a finalizer thread, so always use the Cdecl trampoline.
+        if (_isObjectPointer)
+        {
+            var obj = handle;
+            handle = IntPtr.Zero;
+            if (!_contentsBorrowed && !_consumed && (!IsProcessExiting || _explicitDispose))
+                Arc.UnknownObjectReleaseFinalizerSafe(obj);
+            return true;
+        }
 
         // Value moved out by a Swift `consuming` parameter: Swift already ran the value's
         // deinit exactly once, so skip the value-witness Destroy and free the buffer only. Must

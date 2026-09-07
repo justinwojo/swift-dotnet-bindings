@@ -1614,7 +1614,7 @@ public static class ExistentialContainerFactory
     public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(
         TProtocol value,
         Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback,
-        bool classBoundCarrier = false)
+        bool classBoundCarrier)
         where TProtocol : class
     {
         // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
@@ -1626,6 +1626,21 @@ public static class ExistentialContainerFactory
         GC.KeepAlive(keepAlive);
         return carrier;
     }
+
+    /// <summary>
+    /// The opaque-carrier form, kept at its original two-parameter shape. Bindings compiled against
+    /// an earlier runtime bind this exact signature — a method's parameter list is part of its
+    /// identity in the assembly, so widening it with an optional parameter would REPLACE the member
+    /// callers already reference and every already-shipped binding would fail at its first
+    /// existential argument with a missing-method error at load or call time. A new runtime
+    /// parameter therefore always arrives as a sibling overload; this and its no-fallback twin below
+    /// are the members the earlier bindings keep resolving against.
+    /// </summary>
+    public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        where TProtocol : class
+        => CreateOwnedExistential1(value, wrapFallback, classBoundCarrier: false);
 
     /// <summary>
     /// No-fallback overload, emitted at call sites whose proxy class was suppressed (a
@@ -1641,7 +1656,7 @@ public static class ExistentialContainerFactory
     /// </summary>
     public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(
         TProtocol value,
-        bool classBoundCarrier = false)
+        bool classBoundCarrier)
         where TProtocol : class
     {
         // B2 change 4: keep the (possibly auto-wrapped) proxy alive across the synchronous mint —
@@ -1651,6 +1666,14 @@ public static class ExistentialContainerFactory
         GC.KeepAlive(keepAlive);
         return carrier;
     }
+
+    /// <summary>
+    /// The no-fallback opaque-carrier form at its original one-parameter shape; see the
+    /// two-parameter sibling above for why the earlier signature is kept as its own member.
+    /// </summary>
+    public static unsafe ExistentialContainer1 CreateOwnedExistential1<TProtocol>(TProtocol value)
+        where TProtocol : class
+        => CreateOwnedExistential1(value, classBoundCarrier: false);
 
     /// <summary>
     /// Consumer-owned-lane sibling of

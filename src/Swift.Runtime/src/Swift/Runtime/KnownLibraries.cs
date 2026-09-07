@@ -15,7 +15,13 @@ internal static class KnownLibraries
 {
     public const string SwiftCore = "/usr/lib/swift/libswiftCore.dylib";
     public const string SwiftFoundation = "/System/Library/Frameworks/Foundation.framework/Foundation";
-    public const string SwiftDispatch = "/usr/lib/swift/libswiftDispatch.dylib";
+    /// <summary>
+    /// The C runtime umbrella that carries libdispatch's exported C API and data symbols
+    /// (<c>dispatch_get_global_queue</c>, <c>_dispatch_main_q</c>, …). The Swift Dispatch overlay
+    /// inlines its queue accessors into callers and exports no getter to call, so the queues are
+    /// reached through the C surface.
+    /// </summary>
+    public const string LibSystem = "/usr/lib/libSystem.B.dylib";
     public const string AppKit = "/System/Library/Frameworks/AppKit.framework/AppKit";
     public const string CoreImage = "/System/Library/Frameworks/CoreImage.framework/CoreImage";
     public const string UIKit = "/System/Library/Frameworks/UIKit.framework/UIKit";

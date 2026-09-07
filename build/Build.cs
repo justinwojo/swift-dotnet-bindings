@@ -48,6 +48,12 @@ partial class Build : NukeBuild
     [Parameter("Skip the SwiftBindings.Apple pack step (useful when shipping a Runtime/SDK/Templates-only release where the existing Apple supplement nupkg is unchanged)")]
     readonly bool SkipApple;
 
+    [Parameter("ApiCompat baseline for the SwiftBindings.Runtime pack: the last shipped Runtime version this pack's public surface must be additive over (defaults to the highest stable sdk-v* tag below --version)")]
+    readonly string? ApiCompatBaseline;
+
+    [Parameter("Skip the ApiCompat baseline diff on the SwiftBindings.Runtime pack. Local/offline exploration only: the baseline package is downloaded from NuGet, and a pack that ships must run the diff")]
+    readonly bool SkipApiCompat;
+
     [Parameter("NuGet output directory")]
     readonly string OutputDir = Path.Combine(Path.GetTempPath(), "swift-nuget");
 

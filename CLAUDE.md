@@ -24,7 +24,7 @@ Swift/.NET interop: generates C# bindings from compiled Swift libraries (`.dylib
 | `nuke validate` | ~5 min | Compile gate across real-world libs. Flags: `--tier N`, `--filter X` |
 | `nuke fetch` | — | Download xcframeworks (first time only) |
 | `nuke binding-tests [flags]` | varies | End-to-end BindingTests gate — see flag table below |
-| `nuke pack --version X.Y.Z --apple-version A.B.C` | fast | Build all 4 NuGet packages (Runtime, Sdk, Templates, Apple) → `$TMPDIR/swift-nuget/` (macOS `/var/folders/...`, not `/tmp`). `--apple-version` is **required** (pack hard-fails without it so the Apple supplement can't silently ride an unrelated version); pass `--skip-apple` to ship the 3 SDK-lane packages only. |
+| `nuke pack --version X.Y.Z --apple-version A.B.C` | fast | Build all 4 NuGet packages (Runtime, Sdk, Templates, Apple) → `$TMPDIR/swift-nuget/` (macOS `/var/folders/...`, not `/tmp`). `--apple-version` is **required** (pack hard-fails without it so the Apple supplement can't silently ride an unrelated version); pass `--skip-apple` to ship the 3 SDK-lane packages only. The Runtime pack is **ApiCompat-diffed** against the last shipped `SwiftBindings.Runtime` (default: highest stable `sdk-v*` tag below `--version`; override with `--api-compat-baseline X.Y.Z`) — a removed or reshaped public member, including an optional parameter added to an existing method, fails the pack. The baseline nupkg is downloaded from NuGet; `--skip-api-compat` is the loud opt-out for offline local packs only. |
 
 ### `nuke binding-tests` flags
 

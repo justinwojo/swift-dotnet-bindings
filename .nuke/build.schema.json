@@ -135,6 +135,10 @@
           "type": "boolean",
           "description": "Emit the ABI coverage grid report + gate after the platform run(s), merging sim+device"
         },
+        "ApiCompatBaseline": {
+          "type": "string",
+          "description": "ApiCompat baseline for the SwiftBindings.Runtime pack: the last shipped Runtime version this pack's public surface must be additive over (defaults to the highest stable sdk-v* tag below --version)"
+        },
         "AppleVersion": {
           "type": "string",
           "description": "Package version for SwiftBindings.Apple (defaults to --version when unset)"
@@ -323,6 +327,10 @@
         "Sim": {
           "type": "boolean",
           "description": "Run in iOS Simulator (Mono JIT) — default when no platform flag is set"
+        },
+        "SkipApiCompat": {
+          "type": "boolean",
+          "description": "Skip the ApiCompat baseline diff on the SwiftBindings.Runtime pack. Local/offline exploration only: the baseline package is downloaded from NuGet, and a pack that ships must run the diff"
         },
         "SkipApple": {
           "type": "boolean",

@@ -69,6 +69,12 @@
          without a project reference to _build. BCL-only string work, so it compiles AOT-clean under
          this project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/MsBuildPropertyValue.cs" Link="Models/MsBuildPropertyValue.cs" />
+    <!-- Link-compile the pack-time ApiCompat baseline chooser so its pure tag selection (highest
+         STABLE sdk-v* tag strictly below the pack version; prerelease tags never qualify; a re-packed
+         already-tagged version diffs against its predecessor) is unit-tested here without a project
+         reference to _build. BCL-only string/version work, so it compiles AOT-clean under this
+         project's IsAotCompatible + warnings-as-errors. -->
+    <Compile Include="../../../../build/Models/ApiCompatBaselineSelector.cs" Link="Models/ApiCompatBaselineSelector.cs" />
     <!-- Link-compile the release-gates result manifest so its pure serialization / leg aggregation
          (skip != pass, any-fail => non-zero exit) and fail-closed catalog integrity (Validate) are
          unit-tested here without a project reference to _build. BCL-only with source-generated JSON

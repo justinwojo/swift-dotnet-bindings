@@ -20,12 +20,13 @@
          observes). It is the first half of Finding 51's fix: the patch-additivity contract in
          RuntimeVersionRange.Build's <remarks> previously had ZERO enforcement.
          The SECOND half — PackageValidationBaselineVersion, which ApiCompat-diffs this pack
-         against the last shipped version to fail a non-additive patch — is deliberately NOT set
-         here. A baseline forces NuGet to PackageDownload that baseline nupkg, which breaks
-         offline and `release/**-dryrun.N` packs, and pinning the baseline IS the version-window
-         end-state decision reserved for the project owner. The written contract of record is
-         RuntimeVersionRange's <remarks> in
-         the generator; this property is the enforcement seam the baseline will later plug into. -->
+         against the last shipped version and fails on a removed or reshaped public member — is
+         NOT hard-coded here, because the right baseline moves at every release: `nuke pack`
+         resolves it (the highest stable sdk-v* tag below the pack version, or the explicit
+         api-compat-baseline parameter) and passes it as an MSBuild property for every Runtime
+         pack. A baseline makes NuGet PackageDownload that nupkg, so an offline pack that ships
+         nowhere opts out with the skip-api-compat switch; a released pack always runs the diff.
+         The written contract of record is RuntimeVersionRange's <remarks> in the generator. -->
     <EnablePackageValidation>true</EnablePackageValidation>
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Runtime</PackageId>

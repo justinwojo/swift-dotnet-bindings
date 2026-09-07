@@ -15,6 +15,7 @@ using System.Linq;
 using System.Xml.Linq;
 using Nuke.Common;
 using Nuke.Common.IO;
+using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
 using Serilog;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
@@ -88,13 +89,43 @@ partial class Build
             using var scope = new VersionScope(Version!, RootDirectory, appleVersion);
 
             // 1. Runtime
+            // Generated bindings reference Runtime members by exact signature, so the Runtime pack
+            // is ApiCompat-diffed against the last shipped package: a removed or reshaped public
+            // member (including an optional parameter added to an existing method, which replaces
+            // that member) fails the pack instead of surfacing as a missing-method error in every
+            // consumer's app. The baseline is resolved per pack (see Build.ApiCompat.cs).
+            string? apiCompatBaseline = SkipApiCompat ? null : ResolveApiCompatBaseline(Version!);
+            if (apiCompatBaseline is null)
+            {
+                Log.Warning("ApiCompat baseline diff SKIPPED (--skip-api-compat): a SwiftBindings.Runtime member " +
+                            "removed or reshaped since the last shipped package would not be caught by this pack.");
+            }
+            else
+            {
+                Log.Information("ApiCompat baseline: SwiftBindings.Runtime {Baseline} — this pack's public surface must be additive over it.",
+                    apiCompatBaseline);
+            }
+
+            // The SDK's RunPackageValidation target is incremental over the packed inputs and a
+            // semaphore file — the baseline version is NOT one of its inputs. With unchanged
+            // assemblies and a semaphore left by an earlier pack (against another baseline, or with
+            // no baseline at all) the diff is skipped as up-to-date and the pack passes vacuously.
+            // Drop the semaphore so every pack re-runs the diff against the baseline resolved above.
+            var runtimeProjectDir = SourceDir / "Swift.Runtime" / "src";
+            foreach (var semaphore in (runtimeProjectDir / "obj").GlobFiles($"**/{ApiCompatBaselineSelector.ValidatePackageSemaphoreFileName}"))
+            {
+                semaphore.DeleteFile();
+            }
+
             Log.Information("=== [1/4] Packing SwiftBindings.Runtime ===");
             DotNetPack(s => scope.Apply(s
-                .SetProject(SourceDir / "Swift.Runtime" / "src" / "Swift.Runtime.csproj")
+                .SetProject(runtimeProjectDir / "Swift.Runtime.csproj")
                 .SetConfiguration("Release")
                 .SetOutputDirectory(outputDir)
                 .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet)));
+                .SetVerbosity(DotNetVerbosity.quiet)
+                .When(_ => apiCompatBaseline is not null, x => x
+                    .SetProperty("PackageValidationBaselineVersion", apiCompatBaseline))));
 
             // 2. SDK (publish generator first, then pack)
             Log.Information("=== [2/4] Packing SwiftBindings.Sdk ===");
