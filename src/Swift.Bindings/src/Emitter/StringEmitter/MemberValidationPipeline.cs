@@ -388,6 +388,52 @@ public class MemberValidationPipeline
                 "Async method on a generic parent: the wrapper needs the parent's type metadata and self in Swift's implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -> crash).");
         }
 
+        // ── Gate 4b: instance member of a generic parent that projects as a C# value struct ──
+        // A `@frozen` generic struct that stores none of its type parameters and holds no
+        // reference-bearing field projects to a plain C# `struct` (no `Payload` SafeHandle,
+        // and an explicitly-implemented `ISwiftObject.SwiftHandle` that throws). Neither
+        // receiver form an instance member can emit exists for such a parent:
+        //
+        //   * the open-generic surface renders `new SwiftSelf<{Parent}>(this)` and declares
+        //     the matching P/Invoke parameter on a NON-generic `{Parent}_PInvoke` class, so
+        //     the type argument cannot name the parent's own generic parameter at all;
+        //   * the CSM specialization route names `self.Payload` (absent) or falls back to
+        //     `((ISwiftObject)self).SwiftHandle` (present, and throws at run time) — the
+        //     receiver-projection reject in ConcreteProtocolSpecializationEmitter closes that
+        //     half, which is what routes the member here.
+        //
+        // The receiver simply has no expressible carrier on a generic value-struct parent,
+        // so the member is refused honestly and keeps a skip marker rather than being
+        // silently dropped. Constructors and static members take no receiver and stay on
+        // their normal paths — the fixture's `init` binds through its @_cdecl wrapper.
+        // Properties and subscripts take the same receiver through their own validation
+        // entry points, so the condition lives in one predicate all three paths call —
+        // see ParentHasNoInstanceReceiverCarrier.
+        //
+        // Stated plainly, because it is a deviation worth naming: this gate predicts a
+        // COMPILE error (CS0305), which the standing preference would route to the
+        // verify-recover loop rather than to a hand-written predicate. The loop cannot
+        // stand in for it today, for two independent reasons. First, the BindingTests
+        // regeneration path runs the generator with C# verification disabled, so the C#
+        // recovery plane never executes there at all and the later app build is a plain
+        // pass/fail compile with no attribution and no withdrawal. Second, even where that
+        // plane does run, the helper class and every P/Invoke declaration inside it are
+        // written without opening a fragment scope, so the interval map — the only
+        // provenance step on the C# side, with no symbol or linker fallback of the kind the
+        // Swift plane has — attributes a diagnostic raised inside a `{Parent}_PInvoke`
+        // declaration to the module root, which is not a droppable unit; the module then
+        // fails closed as unattributable instead of withdrawing the one member. (The
+        // declaration's Owner is carried for the ABI-validation plane's call plan, not for
+        // fragment ownership.) Once those helper declarations carry fragment ownership, the
+        // loop can attribute and withdraw this shape on its own and this gate demotes to a
+        // fast-path optimization that can be deleted without changing what ships.
+        if (!methodDecl.IsConstructor &&
+            methodDecl.MethodType != MethodType.Static &&
+            ParentHasNoInstanceReceiverCarrier(methodDecl.ParentDecl))
+        {
+            return NoInstanceReceiverCarrierSkip();
+        }
+
         // Gate 4a (sync, generic parent): CSM emits concrete overloads as extension
         // methods on a {Type}{ParentConformer}CsmExtensions class. The open-generic
         // instance method on the parent class would shadow those extensions during C#
@@ -609,6 +655,56 @@ public class MemberValidationPipeline
                 "and the raw CallConvSwift fallback drops the inout modifier.");
         }
 
+        // ── Gate 5d: inout of a protocol existential ──
+        // `inout any P` lowers in Swift to ONE pointer to the caller's existential storage —
+        // for a class-bound (AnyObject-constrained) P as much as for an opaque one. Only the
+        // BY-VALUE form differs between them: class-bound passes the [classRef][witnessTable]
+        // pair in two registers, opaque passes the 5-word container indirectly. Verified by
+        // reading the IR for both shapes rather than inferred from the mangled name.
+        //
+        // Nothing can bind that. MethodWrapperEmitter rejects an existential inout on the
+        // @_cdecl path (WrapperValidation.HasInoutWithAbiMismatch is true for Protocol and
+        // Existential type records), so the member necessarily falls to the raw CallConvSwift
+        // P/Invoke — and the existential arm there selects the wire carrier from the parameter's
+        // TYPE alone, declaring `ClassExistentialContainer1`/`ExistentialContainer1` BY VALUE and
+        // building a fresh container at the call site. Swift then reads the class reference (or
+        // the container's first word) as the address of mutable storage: a wild pointer write,
+        // with the caller's variable never updated either.
+        //
+        // This is the sanctioned shape for a prediction gate rather than the verify-recover loop:
+        // the mis-emission COMPILES on both sides — the public signature says `ref`, the P/Invoke
+        // says by-value, and no compiler can see that the callee expects an address. Only the
+        // register/indirection convention is wrong, which is exactly the soundness class the
+        // prediction-gate freeze policy reserves for a gate.
+        //
+        // Binding it correctly is not merely a declaration change: the call would have to pin the
+        // existential's storage across the call and, on return, re-wrap whatever Swift stored
+        // there into a managed value — which for a C#-implemented conformer means a new proxy on
+        // every call, dropping caller object identity even when the callee never assigns. Until
+        // that write-back shape exists, refusing is the honest answer.
+        //
+        // `inout some P` is NOT this shape and must not be swept up: an opaque parameter is
+        // sugar for a method-own generic parameter, so Swift passes a pointer to the CONCRETE
+        // T's storage alongside a trailing witness table — a shape that already binds (projected
+        // as `ref T0`, with T0Metadata/T0…PWT trailing arguments). Only the erased `any P`
+        // container is refused here. The parser marks the desugared form on the ArgumentDecl
+        // (`IsGeneric`) while the sugared ABI-dump dialect keeps the protocol in an opaque
+        // ProtocolListTypeSpec, so both roots are carved out.
+        foreach (var argument in methodDecl.CSSignature.Skip(1))
+        {
+            if (!argument.IsInOut) continue;
+            if (argument.IsGeneric) continue;
+            if (argument.SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true }) continue;
+            if (!CdeclParamMapper.IsProtocolExistentialType(argument.SwiftTypeSpec, _typeDatabase))
+                continue;
+            return ValidationResult.Skip(SkipReason.UnsupportedExistential,
+                $"inout parameter '{argument.Name}' is a protocol existential. Swift passes " +
+                "`inout any P` as a single pointer to the caller's existential storage, but the " +
+                "@_cdecl wrapper declines the shape and the direct CallConvSwift fallback declares " +
+                "the existential container by value — the callee would read the class reference as " +
+                "a storage address and the caller's variable would never be written back.");
+        }
+
         // ── Gate 6: Generic constructor own params (constructor only) ──
         // C# does not support generic constructors. If the constructor has method-own
         // generic parameters (not inherited from the parent type), skip it.
@@ -796,6 +892,17 @@ public class MemberValidationPipeline
                 "Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure); only bare `any P` / `Optional<any P>` are supported.");
         }
 
+        // Receiver-carrier mirror of the method path's Gate 4b. A property accessor takes the
+        // same `self` an instance method does, so a generic parent that projects as a C# value
+        // struct leaves it with no expressible receiver either. Last in the chain on purpose:
+        // a member that a narrower gate above already refuses keeps that gate's more specific
+        // reason, and only a member that would otherwise emit reaches this one.
+        if (!propertyDecl.IsStatic &&
+            ParentHasNoInstanceReceiverCarrier(propertyDecl.ParentDecl))
+        {
+            return NoInstanceReceiverCarrierSkip();
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -885,8 +992,46 @@ public class MemberValidationPipeline
                 "Subscript return type is a tuple with non-primitive elements the accessor marshalling path cannot carry — per-element marshalling for this element kind is not yet implemented.");
         }
 
+        // Receiver-carrier mirror of the method path's Gate 4b, through the third entry point
+        // that takes a `self`. Same placement rationale as the property arm.
+        if (!subscriptDecl.IsStatic &&
+            ParentHasNoInstanceReceiverCarrier(subscriptDecl.ParentDecl))
+        {
+            return NoInstanceReceiverCarrierSkip();
+        }
+
         return ValidationResult.Emit;
     }
+
+    /// <summary>
+    /// True when an instance member of <paramref name="parentDecl"/> has no expressible
+    /// receiver. A <c>@frozen</c> generic struct that stores none of its type parameters and
+    /// holds no reference-bearing field projects to a plain C# <c>struct</c>: no <c>Payload</c>
+    /// SafeHandle, and an explicitly-implemented <c>ISwiftObject.SwiftHandle</c> that throws.
+    /// Neither receiver form an instance member can emit exists for such a parent — the
+    /// open-generic surface renders <c>SwiftSelf&lt;{Parent}&gt;</c> on a NON-generic
+    /// <c>{Parent}_PInvoke</c> class that cannot name the parent's own generic parameter, and
+    /// the specialization route names a carrier that is either absent or throws.
+    /// </summary>
+    /// <remarks>Methods, properties and subscripts each validate through their own entry
+    /// point but share this one receiver, so the condition lives here rather than being
+    /// restated three times where it could drift apart.</remarks>
+    private bool ParentHasNoInstanceReceiverCarrier(BaseDecl? parentDecl)
+        => parentDecl is TypeDecl { IsGeneric: true } parentTypeDecl &&
+           ConcreteProtocolSpecializationEmitter.ParentProjectsAsValueStruct(
+               parentTypeDecl, _typeDatabase);
+
+    /// <summary>
+    /// The single skip verdict behind <see cref="ParentHasNoInstanceReceiverCarrier"/>, so the
+    /// three member kinds report the same reason and wording. The wording stays kind-neutral
+    /// because the skip marker already names the member kind ahead of this detail.
+    /// </summary>
+    private static ValidationResult NoInstanceReceiverCarrierSkip()
+        => ValidationResult.Skip(SkipReason.GenericTypeCallback,
+            "Instance member of a generic parent that projects as a C# value struct: the " +
+            "receiver has no carrier — there is no Payload SafeHandle, the ISwiftObject " +
+            "SwiftHandle throws, and the open-generic P/Invoke cannot name the parent's own " +
+            "generic parameter in its SwiftSelf<> argument.");
 
     /// <summary>
     /// Shared Pattern 2 emission-time predicate — signature reaches a name in

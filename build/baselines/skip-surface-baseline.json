@@ -1,5 +1,5 @@
 {
-  "git_sha": "a0941586",
+  "git_sha": "cc6f2931",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -550,6 +550,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027ScalarWeighedBox.netUnits\u0027 \u2014 closure or async in generic type member (Instance member of a generic parent that projects as a C# value struct: the receiver has no carrier \u2014 there is no Payload SafeHandle, the ISwiftObject SwiftHandle throws, and the open-generic P/Invoke cannot name the parent\u0027s own generic parameter in its SwiftSelf\u003C\u003E argument.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ScalarWeighedBox.totalUnits\u0027 \u2014 closure or async in generic type member (Async method on a generic parent: the wrapper needs the parent\u0027s type metadata and self in Swift\u0027s implicit registers, which a direct CallConvSwift P/Invoke cannot supply (ABI mismatch -\u003E crash).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027SealedKey.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
@@ -557,6 +569,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027ShortNameCollisionFixture.Data.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027SlotRetagger.retag\u0027 \u2014 protocol-typed parameter/return not yet projected (inout parameter \u0027arg0\u0027 is a protocol existential. Swift passes \u0060inout any P\u0060 as a single pointer to the caller\u0027s existential storage, but the @_cdecl wrapper declines the shape and the direct CallConvSwift fallback declares the existential container by value \u2014 the callee would read the class reference as a storage address and the caller\u0027s variable would never be written back.)",
       "count": 1
     },
     {
@@ -778,6 +796,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027retagOpaqueSlotHolder\u0027 \u2014 protocol-typed parameter/return not yet projected (inout parameter \u0027arg0\u0027 is a protocol existential. Swift passes \u0060inout any P\u0060 as a single pointer to the caller\u0027s existential storage, but the @_cdecl wrapper declines the shape and the direct CallConvSwift fallback declares the existential container by value \u2014 the callee would read the class reference as a storage address and the caller\u0027s variable would never be written back.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027retagSlotHolder\u0027 \u2014 protocol-typed parameter/return not yet projected (inout parameter \u0027arg0\u0027 is a protocol existential. Swift passes \u0060inout any P\u0060 as a single pointer to the caller\u0027s existential storage, but the @_cdecl wrapper declines the shape and the direct CallConvSwift fallback declares the existential container by value \u2014 the callee would read the class reference as a storage address and the caller\u0027s variable would never be written back.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027typeName\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
       "count": 1
     },
@@ -989,6 +1019,36 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027PublicWithInternalStored.carrier\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027RefWeighedBox.label\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027RefWeighedBox.slot\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ScalarWeighedBox.netUnitsValue\u0027 \u2014 closure or async in generic type member (Instance member of a generic parent that projects as a C# value struct: the receiver has no carrier \u2014 there is no Payload SafeHandle, the ISwiftObject SwiftHandle throws, and the open-generic P/Invoke cannot name the parent\u0027s own generic parameter in its SwiftSelf\u003C\u003E argument.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ScalarWeighedBox.tare\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ScalarWeighedBox.units\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
       "count": 1
     },
     {

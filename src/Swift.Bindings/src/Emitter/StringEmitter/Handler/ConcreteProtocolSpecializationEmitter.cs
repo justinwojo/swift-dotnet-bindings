@@ -2377,6 +2377,25 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
 
+        // Receiver-side projection gate. The conformer walk above rejects an argument whose C#
+        // binding is a plain value struct; this is the same rejection for the RECEIVER. A
+        // @frozen trivially-copyable parent has neither a `Payload` SafeHandle nor a usable
+        // ISwiftObject `SwiftHandle`, so both branches of the emitter's lease decision are
+        // wrong for it: one does not compile, the other throws. An instance member refused
+        // here does NOT fall back to the open-generic surface — that surface cannot name the
+        // parent's own generic parameter in its SwiftSelf<> argument either, so the member is
+        // refused a second time at validation and keeps a skip marker. Static members and
+        // constructors take no receiver and are unaffected.
+        if (!(method.MethodType == MethodType.Static || method.IsConstructor) &&
+            ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase))
+        {
+            rejectReason =
+                $"parent '{parentTypeDecl.SwiftTypeName?.ModuleQualifiedName ?? parentTypeDecl.Name}' " +
+                "projects to a C# value `struct` — the specialized receiver has no Payload SafeHandle " +
+                "and its ISwiftObject SwiftHandle throws";
+            return false;
+        }
+
         // Closed-receiver C# constraint gate: a parent-generic pairing closes the parent type
         // over its conformers (e.g. `FastDatabaseValueCursor<System.Guid>`). The C# declaration
         // of `FastDatabaseValueCursor<TValue>` carries `where TValue : IDatabaseValueConvertible,
@@ -3543,6 +3562,44 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// <c>NativeTypeName != null || UsesHandleAccessor</c> oracle
     /// <see cref="ClassifyConformerStructurally"/> applies to argument conformers.
     /// </summary>
+    /// <summary>
+    /// Receiver-side counterpart of the <see cref="StructuralEmitReject.BlittableStructProjection"/>
+    /// conformer reject: true when the CSM host's PARENT type projects to a plain C# value
+    /// <c>struct</c> rather than a wrapper class — a <c>@frozen</c>, trivially-copyable struct,
+    /// admitted by the same <see cref="ProjectsAsBlittableValueStruct"/> oracle the argument side
+    /// uses.
+    ///
+    /// <para>Neither receiver expression a specialized extension can emit exists on such a
+    /// projection. The frozen-struct handler writes the public <c>Payload</c> SafeHandle only for
+    /// the reference-bearing (class-projected) flavor, so <c>self.Payload</c> does not compile;
+    /// and the value flavor implements <c>ISwiftObject</c> explicitly with a <c>SwiftHandle</c>
+    /// that throws, so the <c>((ISwiftObject)self).SwiftHandle</c> fallback the handle-accessor
+    /// flavors take would compile and then throw at run time. Both lease states are therefore
+    /// wrong for this parent and the specialization is refused outright. The member does not
+    /// land on the open-generic surface as a result: that surface renders
+    /// <c>SwiftSelf&lt;{Parent}&gt;</c> on a non-generic <c>{Parent}_PInvoke</c> class, which
+    /// cannot name the parent's own generic parameter, so validation refuses it there too and
+    /// it keeps a skip marker.</para>
+    ///
+    /// <para>Static members and constructors take no receiver, so they stay admissible — the
+    /// callers pair this with the same <c>isStatic</c> they hand the emitter.</para>
+    /// </summary>
+    internal static bool ParentProjectsAsValueStruct(
+        TypeDecl parentTypeDecl,
+        ITypeDatabase typeDatabase)
+    {
+        // A Swift class always projects to a C# class carrying a Payload SafeHandle, so it can
+        // never be this shape whatever its type record happens to say. The decl is the stronger
+        // fact of the two: a record can be a stale or coarse registration (a struct-kind entry
+        // standing in for a nominal type), and reading it alone would refuse a class receiver
+        // that binds perfectly well.
+        if (parentTypeDecl is ClassDecl) return false;
+        if (parentTypeDecl.SwiftTypeName is null) return false;
+        if (!typeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out var record)) return false;
+        return ProjectsAsBlittableValueStruct(
+            new NamedTypeSpec(parentTypeDecl.SwiftTypeName.ModuleQualifiedName), record);
+    }
+
     private static bool ParentExposesPayloadSafeHandle(
         TypeDecl parentTypeDecl,
         ITypeDatabase typeDatabase)

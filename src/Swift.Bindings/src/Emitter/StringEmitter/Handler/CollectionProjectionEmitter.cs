@@ -270,7 +270,14 @@ internal static class CollectionProjectionEmitter
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"var __count = {pinvokeHelperContext.HelperClassName}.{pinvokeCountName}(__parentMeta.Handle, _payload.DangerousGetHandle());");
-            csWriter.WriteLine("return checked((int)__count);");
+            // Swift's `count` is pointer-width; `IReadOnlyList<T>.Count` is fixed at `int`, so unlike a
+            // narrowed Swift property this one can have no native-width companion to point a caller at.
+            // Routing through the same runtime conversion every other narrowed Int uses keeps the
+            // overflow message honest about that — a bare `checked` cast would raise the same exception
+            // with nothing naming the member or explaining why no lossless read exists.
+            var countNarrowing = NativeIntOverloadEmitter.BuildCheckedNarrowingExpression(
+                "int", "__count", "Count", nativeMemberName: null)!;
+            csWriter.WriteLine($"return {countNarrowing};");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("finally");

@@ -81,6 +81,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // capture box is implemented.
         if (parentTypeDecl is ClassDecl) return false;
 
+        // Receiver-projection guard, mirrored in TryEmitParentOnlyAsyncOverload and shared with
+        // the sync route's CanEmitConcreteOverloadForPairing. A @frozen trivially-copyable struct
+        // parent projects to a plain C# value struct that carries neither the `Payload` SafeHandle
+        // the leased branch names nor a usable ISwiftObject `SwiftHandle` for the unleased one, so
+        // the extension's receiver expression has nothing to bind to either way.
+        if (ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase)) return false;
+
         if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return false;
 
         // Method-own generics stay rejected — they would require existential opening
@@ -188,6 +195,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         // Value-type parents only (see predicate for rationale).
         if (parentTypeDecl is ClassDecl) return false;
+        // Receiver-projection guard — mirror of the predicate.
+        if (ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase)) return false;
 
         if (!IsEmittableParentOnlyAsyncPairing(
                 method, parentTypeDecl, pairing, typeDatabase, moduleName,

@@ -2576,6 +2576,177 @@ public class MemberValidationPipelineTests
         Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
     }
 
+    // ── Receiver carrier on a generic value-struct parent ──
+    //
+    // A @frozen generic struct that stores none of its type parameters projects to a plain C#
+    // struct: no Payload SafeHandle, and an explicit ISwiftObject.SwiftHandle that throws. An
+    // instance member of such a parent has no expressible receiver — the open-generic surface
+    // renders SwiftSelf<{Parent}> on the NON-generic {Parent}_PInvoke class, which cannot name
+    // the parent's own generic parameter. Methods, properties and subscripts each validate
+    // through their own entry point, so each is asserted separately; a member kind that keeps
+    // emitting reaches the compiler as CS0305 rather than as a skip marker. Static members and
+    // constructors take no receiver and must stay unaffected.
+
+    [Fact]
+    public void ValidateMethodEmission_InstanceMethodOnGenericValueStructParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethod("netUnits", new NamedTypeSpec("Swift.Int"));
+        method.ParentDecl = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("receiver has no carrier", result.Details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_InstancePropertyOnGenericValueStructParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var property = CreateProperty("netUnitsValue", new NamedTypeSpec("Swift.Int"));
+        property.ParentDecl = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("receiver has no carrier", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_InstanceSubscriptOnGenericValueStructParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        subscript.ParentDecl = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("receiver has no carrier", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ConstructorOnGenericValueStructParent_ReturnsEmit()
+    {
+        // An initialiser takes no receiver — it binds through its own @_cdecl wrapper — so the
+        // carrier question never arises. This is the one member of the shape that works today,
+        // and a refusal reaching it would withdraw the parent's only way in.
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var ctor = CreateMethod("init", new NamedTypeSpec("Swift.Int"));
+        ctor.IsConstructor = true;
+        ctor.ParentDecl = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+
+        var result = pipeline.ValidateMethodEmission(ctor, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_StaticMethodOnGenericValueStructParent_ReturnsEmit()
+    {
+        // A static method takes no receiver either — same reason as the constructor above.
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethod("defaultTare", new NamedTypeSpec("Swift.Int"));
+        method.MethodType = MethodType.Static;
+        method.ParentDecl = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_StaticPropertyOnGenericValueStructParent_ReturnsEmit()
+    {
+        // A static property takes no receiver, so the carrier question never arises. Refusing
+        // it would withdraw surface that binds today.
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var property = CreateProperty("defaultTare", new NamedTypeSpec("Swift.Int"));
+        property.IsStatic = true;
+        property.ParentDecl = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_InstanceSubscriptOnReferenceBearingGenericParent_ReturnsEmit()
+    {
+        // Frozen + RequiresMemoryManagement is the class-projected flavor: the parent really
+        // does carry a public Payload SafeHandle, so the receiver is expressible and the member
+        // must keep emitting. The positive control against a refusal widened past its shape.
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct(
+            "RefWeighedBox", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var subscript = CreateSubscript(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        subscript.ParentDecl = CreateFrozenGenericValueStructParent("RefWeighedBox");
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithFrozenValueStruct(
+        string typeName, TypeRecordFlags flags = TypeRecordFlags.Frozen)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDb = new ModuleTypeDatabase("ValueParentModule", "/tmp/ValueParentModule.dylib");
+        moduleDb.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"ValueParentModule.{typeName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ValueParentModule", typeName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"ValueParentModule.{typeName}"),
+                MetadataAccessor = $"$s17ValueParentModule{typeName.Length}{typeName}VMa",
+                Flags = flags,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(moduleDb);
+        return typeDatabase;
+    }
+
+    private static StructDecl CreateFrozenGenericValueStructParent(string typeName)
+    {
+        var decl = new StructDecl
+        {
+            Name = typeName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"ValueParentModule.{typeName}"),
+            MangledName = $"$s17ValueParentModule{typeName.Length}{typeName}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = string.Empty
+        };
+        decl.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "T",
+            SugaredTypeName: "T",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        return decl;
+    }
+
     [Fact]
     public void ValidateMethodEmission_FailableInitParentPlusOtherInternal_StillSkips()
     {
@@ -2912,6 +3083,237 @@ public class MemberValidationPipelineTests
             IsGeneric = false,
             ParentDecl = null,
             ModuleDecl = null
+        };
+    }
+
+    #endregion
+
+    #region inout protocol-existential gate
+
+    // Swift lowers `inout any P` to a single pointer to the caller's existential storage, for a
+    // class-bound (AnyObject-constrained) P as much as for an opaque one — only the by-VALUE form
+    // differs between the two. No emission path honours that: the @_cdecl wrapper declines an
+    // existential inout outright, and the direct CallConvSwift fallback picks its wire carrier from
+    // the parameter type alone and declares the existential container by value. The result compiles
+    // on both sides while the callee reads a class reference as a storage address, so the member has
+    // to be refused rather than bound.
+
+    [Fact]
+    public void ValidateMethodEmission_InoutClassBoundExistentialParam_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.ClassBound", TypeRecordFlags.None);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs("retag", TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.ClassBound"));
+        method.CSSignature[1].IsInOut = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedExistential, result.Reason);
+        Assert.Contains("inout", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ByValueExistentialParam_ReturnsEmit()
+    {
+        // Guard against over-refusal: the same existential passed BY VALUE has a working
+        // container-carrier path and must keep emitting.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.ClassBound", TypeRecordFlags.None);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs("describe", TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.ClassBound"));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_InoutNonExistentialParam_ReturnsEmit()
+    {
+        // The gate is keyed on the existential-ness of the inout type, not on inout itself: an
+        // ABI-safe inout primitive keeps its wrapper path.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs("bump", TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int"));
+        method.CSSignature[1].IsInOut = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_InoutOpaqueSomeProtocolParam_ReturnsEmit()
+    {
+        // `inout some P` is a method-own generic parameter, not an erased container: Swift passes
+        // a pointer to the CONCRETE T's storage plus a witness table, and the binding already
+        // projects it as `ref T0`. The existential-inout gate must not sweep it up.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.StatusHandler", TypeRecordFlags.None);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var opaque = new ProtocolListTypeSpec(
+            new List<NamedTypeSpec> { new NamedTypeSpec("TestModule.StatusHandler") })
+        {
+            IsOpaque = true
+        };
+        var method = CreateMethodWithArgs("advanceStatus", TupleTypeSpec.Empty, opaque);
+        method.CSSignature[1].IsInOut = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_InoutDesugaredOpaqueParam_ReturnsEmit()
+    {
+        // The desugared ABI-dump dialect for `inout some P` keeps the protocol name on the spec
+        // but marks the ArgumentDecl generic. That root must be carved out too, or a bound
+        // `AdvanceStatus(ref T0)` disappears from the public surface.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.StatusHandler", TypeRecordFlags.None);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethodWithArgs("advanceStatus", TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.StatusHandler"));
+        method.CSSignature[1].IsInOut = true;
+        method.CSSignature[1].IsGeneric = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    #endregion
+
+    #region Generic value-struct parent receiver gate
+
+    // A @frozen generic struct that stores none of its type parameters and carries no
+    // reference-bearing field projects to a plain C# `struct`. An instance member on such a
+    // parent has no receiver carrier at all: no `Payload` SafeHandle, an ISwiftObject
+    // `SwiftHandle` that throws, and an open-generic P/Invoke declared on a non-generic
+    // `{Parent}_PInvoke` class whose `SwiftSelf<>` argument cannot name the parent's own
+    // generic parameter. Constructors and statics take no receiver and stay emittable.
+
+    [Fact]
+    public void ValidateMethodEmission_InstanceMemberOfGenericValueStructParent_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterValueStruct(typeDatabase, "TestModule.ScalarBox", TypeRecordFlags.Frozen);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethodWithArgs("netUnits", new NamedTypeSpec("Swift.Int"));
+        method.ParentDecl = CreateGenericStructDecl("TestModule.ScalarBox", isFrozen: true, isGeneric: true);
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("value struct", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_StaticMemberOfGenericValueStructParent_ReturnsEmit()
+    {
+        // No receiver, no problem — the gate must not withdraw statics.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterValueStruct(typeDatabase, "TestModule.ScalarBox", TypeRecordFlags.Frozen);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethodWithArgs("make", new NamedTypeSpec("Swift.Int"));
+        method.MethodType = MethodType.Static;
+        method.ParentDecl = CreateGenericStructDecl("TestModule.ScalarBox", isFrozen: true, isGeneric: true);
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_InstanceMemberOfGenericClassProjectedStructParent_ReturnsEmit()
+    {
+        // Frozen + RequiresMemoryManagement is the class-projected flavor: it really does carry a
+        // `Payload` SafeHandle, so its instance members must keep emitting.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterValueStruct(typeDatabase, "TestModule.RefBox",
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethodWithArgs("plainUnits", new NamedTypeSpec("Swift.Int"));
+        method.ParentDecl = CreateGenericStructDecl("TestModule.RefBox", isFrozen: true, isGeneric: true);
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_InstanceMemberOfNonGenericValueStructParent_ReturnsEmit()
+    {
+        // A non-generic frozen value struct names itself fine in `SwiftSelf<Foo>` — the gate is
+        // scoped to generic parents and must not sweep this shape up.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterValueStruct(typeDatabase, "TestModule.PlainBox", TypeRecordFlags.Frozen);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var method = CreateMethodWithArgs("units", new NamedTypeSpec("Swift.Int"));
+        method.ParentDecl = CreateGenericStructDecl("TestModule.PlainBox", isFrozen: true, isGeneric: false);
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    private static void RegisterValueStruct(
+        TypeDatabase typeDatabase, string moduleQualifiedName, TypeRecordFlags flags)
+    {
+        var typeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: typeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(typeName.Module, typeName.Name),
+                SwiftTypeName = typeName,
+                MetadataAccessor = $"$s10TestModule{typeName.Name.Length}{typeName.Name}VMa",
+                Flags = flags,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    private static StructDecl CreateGenericStructDecl(
+        string moduleQualifiedName, bool isFrozen, bool isGeneric)
+    {
+        var typeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
+        return new StructDecl
+        {
+            Name = typeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = typeName,
+            MangledName = "",
+            IsFrozen = isFrozen,
+            GenericParameters = isGeneric
+                ? new List<GenericArgumentDecl>
+                {
+                    new GenericArgumentDecl("τ_0_0", "T",
+                        new List<GenericParameterConformance>(),
+                        new List<GenericParameterConformance>())
+                }
+                : new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null,
         };
     }
 

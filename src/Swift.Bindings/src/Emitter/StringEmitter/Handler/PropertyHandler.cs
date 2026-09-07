@@ -964,8 +964,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // catches a per-member @MainActor property on an otherwise non-isolated type, and stays silent
         // for a `nonisolated` property of a @MainActor type (the oracle honors the nonisolated opt-out
         // and returns false even though the parent type is isolated).
-        if (WrapperValidation.NeedsMainActorAnnotation(
-                propertyDecl.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated))
+        // Held in a local rather than re-evaluated, so the native-width companion below carries the
+        // marker off the SAME decision: the companion reads the same Swift storage through the same
+        // accessor, so a main-thread contract that binds the narrowed property binds it identically.
+        // Re-asking the oracle at the companion site would let the two drift apart silently.
+        var needsMainActorMarker = WrapperValidation.NeedsMainActorAnnotation(
+            propertyDecl.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        if (needsMainActorMarker)
         {
             TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
         }
@@ -1019,6 +1024,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             csWriter.WriteLine("/// 64-bit target and throws <see cref=\"global::System.OverflowException\"/> for a value it cannot");
             csWriter.WriteLine("/// represent. This accessor reads the same storage without narrowing.");
             csWriter.WriteLine("/// </remarks>");
+            // Same marker as the narrowed property above, off the same decision: the companion is that
+            // property's accessor bodies with the conversion removed, so it inherits the isolation the
+            // Swift accessor is declared under. Emitting availability alone here would tell a consumer
+            // the lossless read is free of the main-thread contract its narrowed sibling carries.
+            if (needsMainActorMarker)
+            {
+                TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+            }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
             csWriter.WriteLine($"public {staticModifier}{nativePropertyType} {nativeCompanionName}");
             csWriter.WriteLine("{");

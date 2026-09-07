@@ -1819,6 +1819,126 @@ public class ConcreteSpecializationEngineTests
             .ProjectsAsBlittableValueStructForTesting(named, record));
     }
 
+    // ── Receiver-side counterpart: the CSM host's PARENT projection ──
+    //
+    // Both branches of the emitter's self-lease decision assume the parent projects to a C#
+    // wrapper class: the leased branch names the public `Payload` SafeHandle, the unleased one
+    // falls back to `((ISwiftObject)self).SwiftHandle`. A @frozen trivially-copyable parent
+    // projects to a plain value struct that declares neither — `Payload` does not exist (CS1061)
+    // and `SwiftHandle` is an explicit implementation that throws. The specialization has to be
+    // refused for such a receiver, and admitted for the class-projected flavors.
+
+    [Fact]
+    public void ParentProjection_FrozenTrivialStructParent_IsRefused()
+    {
+        var typeDatabase = MakeTypeDatabaseWithStruct(
+            "TestModule.ScalarBox", TypeRecordFlags.Frozen);
+        var parent = MakeParentStructDecl("TestModule.ScalarBox", isFrozen: true);
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .ParentProjectsAsValueStruct(parent, typeDatabase));
+    }
+
+    [Fact]
+    public void ParentProjection_FrozenReferenceBearingStructParent_IsAdmitted()
+    {
+        // Frozen + RequiresMemoryManagement is the class-projected flavor: it really does carry a
+        // public `Payload` SafeHandle, so the specialization must keep working on it. A refusal
+        // wide enough to swallow this receiver would withdraw working surface.
+        var typeDatabase = MakeTypeDatabaseWithStruct(
+            "TestModule.RefBox", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        var parent = MakeParentStructDecl("TestModule.RefBox", isFrozen: true);
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ParentProjectsAsValueStruct(parent, typeDatabase));
+    }
+
+    [Fact]
+    public void ParentProjection_NonFrozenStructParent_IsAdmitted()
+    {
+        // Non-frozen structs are the ClassWithOpaquePayload shape — SafeHandle-backed.
+        var typeDatabase = MakeTypeDatabaseWithStruct("TestModule.OpaqueBox", TypeRecordFlags.None);
+        var parent = MakeParentStructDecl("TestModule.OpaqueBox", isFrozen: false);
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ParentProjectsAsValueStruct(parent, typeDatabase));
+    }
+
+    [Fact]
+    public void ParentProjection_UnknownParentRecord_IsAdmitted()
+    {
+        // No type record resolves → the predicate cannot prove a value projection and must not
+        // refuse on a guess (fail-open here keeps the existing behaviour for un-indexed parents).
+        var typeDatabase = MakeTypeDatabaseWithStruct("TestModule.Known", TypeRecordFlags.Frozen);
+        var parent = MakeParentStructDecl("TestModule.Unknown", isFrozen: true);
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ParentProjectsAsValueStruct(parent, typeDatabase));
+    }
+
+    [Fact]
+    public void ParentProjection_ClassParentWithStructKindRecord_IsAdmitted()
+    {
+        // The decl is the stronger of the two facts. A Swift class always projects to a C# class
+        // carrying a Payload SafeHandle, so it can never be the value-struct shape however its
+        // type record happens to be registered — a coarse or stale struct-kind entry standing in
+        // for a nominal type must not withdraw a class receiver that binds fine.
+        var typeDatabase = MakeTypeDatabaseWithStruct(
+            "TestModule.Mapper", TypeRecordFlags.Frozen);
+        var typeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Mapper");
+        var parent = new ClassDecl
+        {
+            Name = typeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = typeName,
+            MangledName = "",
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            AvailabilityAnnotations = null,
+        };
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ParentProjectsAsValueStruct(parent, typeDatabase));
+    }
+
+    private static TypeDatabase MakeTypeDatabaseWithStruct(
+        string moduleQualifiedName, TypeRecordFlags flags)
+    {
+        var typeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
+        var typeDatabase = new TypeDatabase();
+        var moduleDb = new ModuleTypeDatabase(typeName.Module, $"/tmp/{typeName.Module}.dylib");
+        moduleDb.RegisterType(typeName, MakeStructRecord(moduleQualifiedName, flags));
+        typeDatabase.AddModuleDatabase(moduleDb);
+        return typeDatabase;
+    }
+
+    private static StructDecl MakeParentStructDecl(string moduleQualifiedName, bool isFrozen)
+    {
+        var typeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
+        return new StructDecl
+        {
+            Name = typeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = typeName,
+            MangledName = "",
+            IsFrozen = isFrozen,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null,
+        };
+    }
+
     [Fact]
     public void BlittableValueStructProjection_TypeSkipPrePassSkippedStruct_IsRejected()
     {

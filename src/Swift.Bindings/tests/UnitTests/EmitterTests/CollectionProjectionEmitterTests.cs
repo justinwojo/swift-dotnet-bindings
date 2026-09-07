@@ -136,6 +136,33 @@ public class CollectionProjectionEmitterTests
         Assert.Contains("PInvoke_collCount_", cs);
     }
 
+    [Fact]
+    public void WitnessBacked_CountNarrowsThroughTheRuntimeConversion()
+    {
+        var (cs, _) = EmitWitnessBacked();
+
+        // Swift's `count` is pointer-width and `IReadOnlyList<T>.Count` is fixed at `int`, so this
+        // read narrows like any other projected Swift Int and goes through the same runtime
+        // conversion — which names the member in the overflow message. A bare `checked` cast throws
+        // the same exception type with nothing in it identifying what overflowed.
+        Assert.Contains("global::Swift.Runtime.NativeIntegerNarrowing.ToInt32(__count, \"Count\")", cs);
+        Assert.DoesNotContain("checked((int)__count)", cs);
+    }
+
+    [Fact]
+    public void WitnessBacked_CountNarrowingNamesNoCompanionAccessor()
+    {
+        var (cs, _) = EmitWitnessBacked();
+
+        // Unlike a narrowed Swift property, this one can have no `CountNative` sibling: the member
+        // exists to satisfy `IReadOnlyList<T>.Count`, whose type the interface fixes. So the
+        // conversion is deliberately called WITHOUT a companion name — the message then explains
+        // that the Swift declaration is pointer-width instead of pointing at an accessor that was
+        // never emitted.
+        Assert.DoesNotContain("ToInt32(__count, \"Count\", ", cs);
+        Assert.DoesNotContain("CountNative", cs);
+    }
+
     // ===================================================================
     //  Array-backed shape — a Swift Array is zero-based by construction
     // ===================================================================

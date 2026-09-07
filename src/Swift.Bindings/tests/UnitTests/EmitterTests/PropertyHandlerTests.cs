@@ -902,6 +902,57 @@ public class PropertyHandlerTests
         Assert.DoesNotContain(MainActorAttribute, csOutput);
     }
 
+    [Fact]
+    public void Emit_MainActorNarrowedProperty_NativeCompanionCarriesAttribute()
+    {
+        // The native-width companion is the narrowed property's accessor bodies with the
+        // conversion removed — it reaches the same Swift storage through the same accessor, so
+        // it is under the same isolation. A companion that surfaced without the marker would
+        // read to a consumer as the main-thread-free way to get the value, which is the one
+        // thing it is not.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("ViewModel", moduleDecl);
+        classDecl.IsMainActorIsolated = true;
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // The narrowing conversion identifies the primary property; `CountNative` the companion.
+        Assert.Contains("NativeIntegerNarrowing.ToInt32(Count_Get(), \"Count\", \"CountNative\")", csOutput);
+        var companionIndex = csOutput.IndexOf("public nint CountNative", StringComparison.Ordinal);
+        Assert.True(companionIndex >= 0, $"expected a native-width companion in:\n{csOutput}");
+
+        // The nearest marker above the companion must be the companion's OWN — i.e. nothing but
+        // its doc comment and attributes stands between them. Anchoring on proximity rather than
+        // mere presence is what distinguishes the companion carrying the marker from the narrowed
+        // property's marker being found further up.
+        var markerBeforeCompanion = csOutput.LastIndexOf(MainActorAttribute, companionIndex, StringComparison.Ordinal);
+        Assert.True(
+            markerBeforeCompanion >= 0,
+            $"expected the native-width companion to carry {MainActorAttribute} in:\n{csOutput}");
+        var between = csOutput.Substring(
+            markerBeforeCompanion + MainActorAttribute.Length,
+            companionIndex - markerBeforeCompanion - MainActorAttribute.Length);
+        Assert.DoesNotContain("public ", between);
+    }
+
+    [Fact]
+    public void Emit_NonIsolatedNarrowedProperty_NativeCompanionOmitsAttribute()
+    {
+        // The companion follows the same decision in both directions: an un-isolated property's
+        // companion must not invent a main-thread contract the Swift accessor does not declare.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("PlainModel", moduleDecl);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "count", "Swift.Int", hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("public nint CountNative", csOutput);
+        Assert.DoesNotContain(MainActorAttribute, csOutput);
+    }
+
     #endregion
 
     #region Helper Methods
