@@ -180,6 +180,51 @@ public class IngestionQuarantineClosureTests
             result.Withdrawals);
     }
 
+    [Theory]
+    [InlineData("Other.P")]
+    [InlineData("IngestionBridge.Outer.P")]
+    public void ConformanceEdge_QualifiedHomonymSurvives_LocalDependentNamesTrueCause(string healthyProtocol)
+    {
+        var module = MakeModule();
+        var poisoned = MakeProtocol("P", quarantined: true);
+        var otherPoison = MakeProtocol("Q", quarantined: true);
+        var healthy = MakeStruct("Healthy");
+        healthy.Conformances.Add(new TypeConformance(healthy.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName(healthyProtocol), ""));
+        var dependent = MakeStruct("Dependent");
+        dependent.Conformances.Add(new TypeConformance(dependent.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName(healthyProtocol), ""));
+        dependent.Conformances.Add(new TypeConformance(dependent.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName($"{Module}.Q"), ""));
+        AttachTypes(module, poisoned, otherPoison, healthy, dependent);
+        InputResolutionReport.Reset();
+        var result = IngestionQuarantineClosure.Compute(module, Module, NullLogger.Instance);
+        Assert.True(result.ProvenComplete);
+        Assert.DoesNotContain(RecoveryUnitId.Create(DeclIdFactory.ForType(healthy), RecoveryScope.TypeSurface), result.Withdrawals);
+        Assert.Contains(RecoveryUnitId.Create(DeclIdFactory.ForType(dependent), RecoveryScope.TypeSurface), result.Withdrawals);
+        var entry = Assert.Single(InputResolutionReport.Ledger);
+        Assert.Equal($"{Module}.Q", entry.Referenced);
+    }
+
+    [Fact]
+    public void ConformanceEdge_NestedPoisonDoesNotWithdrawTopLevelHomonym()
+    {
+        var module = MakeModule();
+        var poison = MakeProtocol("P", quarantined: true) with
+        {
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{Module}.Outer.P")
+        };
+        var healthy = MakeStruct("Healthy", conformances: new[] { "P" });
+        var dependent = MakeStruct("Dependent", conformances: new[] { "Outer.P" });
+        AttachTypes(module, poison, healthy, dependent);
+        InputResolutionReport.Reset();
+        var result = IngestionQuarantineClosure.Compute(module, Module, NullLogger.Instance);
+        Assert.True(result.ProvenComplete);
+        Assert.DoesNotContain(RecoveryUnitId.Create(DeclIdFactory.ForType(healthy), RecoveryScope.TypeSurface), result.Withdrawals);
+        Assert.Contains(RecoveryUnitId.Create(DeclIdFactory.ForType(dependent), RecoveryScope.TypeSurface), result.Withdrawals);
+        Assert.Equal($"{Module}.Outer.P", Assert.Single(InputResolutionReport.Ledger).Referenced);
+    }
+
     [Fact]
     public void StoredFieldChain_WithdrawsTransitivelyToFixpoint()
     {

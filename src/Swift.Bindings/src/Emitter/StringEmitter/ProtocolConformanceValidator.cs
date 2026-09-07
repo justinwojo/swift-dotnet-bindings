@@ -41,22 +41,18 @@ public class ProtocolConformanceValidator
             if (qualifiedResult != null)
                 return qualifiedResult;
 
-            // Extract simple name and try that (fallback for cross-module references)
-            var lastDot = protocolName.LastIndexOf('.');
-            var simpleName = protocolName.Substring(lastDot + 1);
-
-            // If multiple protocols have same simple name, prefer one from our module
-            var candidates = _moduleDecl.Protocols.Where(p => p.Name == simpleName).ToList();
+            // The database's module/umbrella alias lookup returns the source record.
+            // Compare its Swift declaration identity, including every owner, rather
+            // than treating a remappable C# namespace as a Swift module identity.
+            if (!SwiftTypeName.TryFromModuleQualifiedName(protocolName, out var requested) ||
+                !_typeDatabase.TryGetTypeRecord(requested, out var record) ||
+                record.Kind != TypeRecordKind.Protocol)
+                return null;
+            var candidates = _moduleDecl.Protocols.Where(p =>
+                p.SwiftTypeName is { } name &&
+                name.ModuleQualifiedName == record.SwiftTypeName.ModuleQualifiedName).ToList();
             if (candidates.Count == 1)
                 return candidates[0];
-            if (candidates.Count > 1)
-            {
-                // Prefer protocol whose module matches the prefix
-                var modulePrefix = protocolName.Substring(0, lastDot);
-                var moduleMatch = candidates.FirstOrDefault(p =>
-                    p.SwiftTypeName?.Module == modulePrefix);
-                return moduleMatch ?? candidates[0]; // Fall back to first if no module match
-            }
 
             return null;
         }

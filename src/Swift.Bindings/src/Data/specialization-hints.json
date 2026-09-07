@@ -4,8 +4,8 @@
     {
       "protocol": "Foundation.DataProtocol",
       "conformers": [
-        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },
-        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8" } }
+        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8", "SubSequence.Element": "Swift.UInt8" } },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8", "SubSequence.Element": "Swift.UInt8" } }
       ]
     },
     {
@@ -53,34 +53,34 @@
     {
       "protocol": "Foundation.ContiguousBytes",
       "conformers": [
-        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },
-        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8" } }
+        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8", "SubSequence.Element": "Swift.UInt8" } },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8", "SubSequence.Element": "Swift.UInt8" } }
       ]
     },
     {
       "protocol": "Swift.Sequence",
       "conformers": [
-        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8" } },
-        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },
-        { "swiftType": "Swift.Array<MusicKit.Album>", "csharpType": "Swift.SwiftArray<MusicKit.Album>", "swiftLiteral": "[MusicKit.Album]", "associatedTypes": { "Element": "MusicKit.Album" }, "modules": ["MusicKit"] },
-        { "swiftType": "Swift.Array<MusicKit.MusicVideo>", "csharpType": "Swift.SwiftArray<MusicKit.MusicVideo>", "swiftLiteral": "[MusicKit.MusicVideo]", "associatedTypes": { "Element": "MusicKit.MusicVideo" }, "modules": ["MusicKit"] },
-        { "swiftType": "Swift.Array<MusicKit.Playlist>", "csharpType": "Swift.SwiftArray<MusicKit.Playlist>", "swiftLiteral": "[MusicKit.Playlist]", "associatedTypes": { "Element": "MusicKit.Playlist" }, "modules": ["MusicKit"] },
-        { "swiftType": "Swift.Array<MusicKit.Song>", "csharpType": "Swift.SwiftArray<MusicKit.Song>", "swiftLiteral": "[MusicKit.Song]", "associatedTypes": { "Element": "MusicKit.Song" }, "modules": ["MusicKit"] },
-        { "swiftType": "Swift.Array<MusicKit.Track>", "csharpType": "Swift.SwiftArray<MusicKit.Track>", "swiftLiteral": "[MusicKit.Track]", "associatedTypes": { "Element": "MusicKit.Track" }, "modules": ["MusicKit"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.SongItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.SongItem>", "swiftLiteral": "[SongItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.SongItem" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.AlbumItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.AlbumItem>", "swiftLiteral": "[AlbumItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.AlbumItem" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.ArtistItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.ArtistItem>", "swiftLiteral": "[ArtistItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.ArtistItem" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Animal>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Animal>", "swiftLiteral": "[Animal]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Animal" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Dog>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Dog>", "swiftLiteral": "[Dog]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Dog" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.HashableBox>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.HashableBox>", "swiftLiteral": "[HashableBox]", "associatedTypes": { "Element": "SwiftBindingsTestLib.HashableBox" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.NonHashableBox>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.NonHashableBox>", "swiftLiteral": "[NonHashableBox]", "associatedTypes": { "Element": "SwiftBindingsTestLib.NonHashableBox" }, "modules": ["SwiftBindingsTestLib"] }
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8", "SubSequence.Element": "Swift.UInt8" } },
+        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8", "SubSequence.Element": "Swift.UInt8" } },
+        { "swiftType": "Swift.Array<MusicKit.Album>", "csharpType": "Swift.SwiftArray<MusicKit.Album>", "swiftLiteral": "[MusicKit.Album]", "associatedTypes": { "Element": "MusicKit.Album", "SubSequence.Element": "MusicKit.Album" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.MusicVideo>", "csharpType": "Swift.SwiftArray<MusicKit.MusicVideo>", "swiftLiteral": "[MusicKit.MusicVideo]", "associatedTypes": { "Element": "MusicKit.MusicVideo", "SubSequence.Element": "MusicKit.MusicVideo" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.Playlist>", "csharpType": "Swift.SwiftArray<MusicKit.Playlist>", "swiftLiteral": "[MusicKit.Playlist]", "associatedTypes": { "Element": "MusicKit.Playlist", "SubSequence.Element": "MusicKit.Playlist" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.Song>", "csharpType": "Swift.SwiftArray<MusicKit.Song>", "swiftLiteral": "[MusicKit.Song]", "associatedTypes": { "Element": "MusicKit.Song", "SubSequence.Element": "MusicKit.Song" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.Track>", "csharpType": "Swift.SwiftArray<MusicKit.Track>", "swiftLiteral": "[MusicKit.Track]", "associatedTypes": { "Element": "MusicKit.Track", "SubSequence.Element": "MusicKit.Track" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.SongItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.SongItem>", "swiftLiteral": "[SongItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.SongItem", "SubSequence.Element": "SwiftBindingsTestLib.SongItem" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.AlbumItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.AlbumItem>", "swiftLiteral": "[AlbumItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.AlbumItem", "SubSequence.Element": "SwiftBindingsTestLib.AlbumItem" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.ArtistItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.ArtistItem>", "swiftLiteral": "[ArtistItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.ArtistItem", "SubSequence.Element": "SwiftBindingsTestLib.ArtistItem" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Animal>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Animal>", "swiftLiteral": "[Animal]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Animal", "SubSequence.Element": "SwiftBindingsTestLib.Animal" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Dog>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Dog>", "swiftLiteral": "[Dog]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Dog", "SubSequence.Element": "SwiftBindingsTestLib.Dog" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.HashableBox>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.HashableBox>", "swiftLiteral": "[HashableBox]", "associatedTypes": { "Element": "SwiftBindingsTestLib.HashableBox", "SubSequence.Element": "SwiftBindingsTestLib.HashableBox" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.NonHashableBox>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.NonHashableBox>", "swiftLiteral": "[NonHashableBox]", "associatedTypes": { "Element": "SwiftBindingsTestLib.NonHashableBox", "SubSequence.Element": "SwiftBindingsTestLib.NonHashableBox" }, "modules": ["SwiftBindingsTestLib"] }
       ]
     },
     {
       "protocol": "Swift.Collection",
       "conformers": [
-        { "swiftType": "Swift.Array<Swift.String>", "csharpType": "Swift.SwiftArray<Swift.SwiftString>", "swiftLiteral": "[String]", "associatedTypes": { "Element": "Swift.String" } },
-        { "swiftType": "Swift.Array<StoreKit.Product.PromotionInfo>", "csharpType": "Swift.SwiftArray<StoreKit2.Product.PromotionInfo>", "swiftLiteral": "[StoreKit.Product.PromotionInfo]", "associatedTypes": { "Element": "StoreKit.Product.PromotionInfo" } }
+        { "swiftType": "Swift.Array<Swift.String>", "csharpType": "Swift.SwiftArray<Swift.SwiftString>", "swiftLiteral": "[String]", "associatedTypes": { "Element": "Swift.String", "SubSequence.Element": "Swift.String" } },
+        { "swiftType": "Swift.Array<StoreKit.Product.PromotionInfo>", "csharpType": "Swift.SwiftArray<StoreKit2.Product.PromotionInfo>", "swiftLiteral": "[StoreKit.Product.PromotionInfo]", "associatedTypes": { "Element": "StoreKit.Product.PromotionInfo", "SubSequence.Element": "StoreKit.Product.PromotionInfo" } }
       ]
     },
     {

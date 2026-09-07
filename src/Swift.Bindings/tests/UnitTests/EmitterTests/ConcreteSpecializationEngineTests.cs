@@ -20,6 +20,33 @@ public class ConcreteSpecializationEngineTests
 {
     private static ITypeDatabase CreateEmptyTypeDatabase() => new EmptyTypeDatabase();
 
+    [Theory]
+    [InlineData("Swift.Dictionary<Swift.String,Swift.Int32>", "Swift.Dictionary<Swift.String,Swift.Int32>", true)]
+    [InlineData("Swift.Dictionary<Swift.String, Swift.Int32>", "Swift.Dictionary<Swift.String,Swift.Int32>", true)]
+    [InlineData("Swift.Array<Swift.Int32>", "[Swift.Int32]", true)]
+    [InlineData("Swift.Dictionary<Swift.String,Swift.Int32>", "Swift.Dictionary<Swift.String,Swift.Int64>", false)]
+    public void Coupling_EquivalentConformerSpellingsPreservePairing(string witness, string otherType, bool expected)
+    {
+        // A hint preserves its authored swiftType spelling. Resolving the witness
+        // canonicalizes it, so the peer conformer must use the same comparison domain.
+        foreach (var path in new[] { "Element", "Child.Element" })
+        {
+            var owner = new ConcreteSpecializationEngine.ConcreteConformer("TestLib.Owner", "Owner",
+                AssociatedTypes: new Dictionary<string, string> { [path] = witness });
+            var peer = new ConcreteSpecializationEngine.ConcreteConformer(otherType, "Peer");
+            var ownerParam = new ConcreteSpecializationEngine.SpecializableParam(
+                new GenericArgumentDecl("S", "S", new(), new()),
+                SwiftTypeName.FromModuleQualifiedName("TestLib.OwnerProtocol"), new() { owner },
+                CouplingConstraints: new[] { (path, "T") });
+            var peerParam = new ConcreteSpecializationEngine.SpecializableParam(
+                new GenericArgumentDecl("T", "T", new(), new()),
+                SwiftTypeName.FromModuleQualifiedName("TestLib.PeerProtocol"), new() { peer });
+
+            Assert.Equal(expected, ConcreteProtocolSpecializationEmitter.ConformerPairingSatisfiesCoupling(
+                new[] { (ownerParam, owner), (peerParam, peer) }));
+        }
+    }
+
     [Fact]
     public void EmitConcreteSpecializations_PureSwiftClassInstanceMethod_SelfArgIsLeasedPayload()
     {
@@ -675,6 +702,40 @@ public class ConcreteSpecializationEngineTests
         Assert.Single(result[0].SpecializableParams);
         var conformer = Assert.Single(result[0].SpecializableParams[0].Conformers);
         Assert.Equal("TestLib.ByteChunk", conformer.SwiftQualifiedName);
+    }
+
+    [Theory]
+    [InlineData("Swift.Int32", "Swift.String", true)]
+    [InlineData("Swift.String", "Swift.Int32", false)]
+    public void AssociatedPath_DiscoveryAndFinalCheck_FollowChildWitness(
+        string childElement, string rootElement, bool expected)
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.RootValue"), "TestLib", "RootValue");
+        var module = CreateModuleWithConformer("TestLib", "TestLib.RootValue", "TestLib.Root");
+        var root = (StructDecl)module.Types[0];
+        root.Typealiases["Child"] = "TestLib.ChildValue";
+        root.Typealiases["Element"] = rootElement;
+        var childModule = CreateModuleWithConformer("TestLib", "TestLib.ChildValue", "TestLib.Leaf");
+        var child = (StructDecl)childModule.Types[0];
+        // Child has no managed TypeRecord: its native witness is still needed to
+        // decide a specialization whose only managed parameter is RootValue.
+        module.Types.Add(child);
+        module.ConformanceGraph.AddWitness("TestLib.ChildValue", "TestLib.Leaf", "Element", new NamedTypeSpec(childElement));
+        var engine = new ConcreteSpecializationEngine(db);
+        engine.IndexModuleConformances(module);
+        var parent = CreateStructWithProtocolConstrainedMethod("Host", "use", "TestLib.Root");
+        var method = parent.Methods[0];
+        var generic = method.GenericParameters[0];
+        generic.AssosiatedTypeConformances.Add(new GenericParameterConformance(
+            new[] { generic.TypeName, "Child", "Element" },
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"), ConformanceKind.ConcreteType));
+        Assert.Equal(expected, engine.FindSpecializableMethods(parent).Count == 1);
+        var conformer = Assert.Single(engine.GetConformers(SwiftTypeName.FromModuleQualifiedName("TestLib.Root")));
+        var param = new ConcreteSpecializationEngine.SpecializableParam(generic,
+            SwiftTypeName.FromModuleQualifiedName("TestLib.Root"), new() { conformer });
+        Assert.Equal(expected, ConcreteProtocolSpecializationEmitter.DoesPairingSatisfyAssociatedTypeConstraints(
+            method, parent, new[] { (param, conformer) }));
     }
 
     [Fact]
@@ -2528,12 +2589,10 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
-    public void ParentTupleSatisfiesMethodConstraints_SameType_MultiSegmentTauRhs_FailsClosed()
+    public void ParentTupleSatisfiesMethodConstraints_SameType_MultiSegmentTauRhs_DefersToCoupling()
     {
-        // Multi-segment `<τ_0_0, τ_1_0 where τ_0_0 == τ_1_0.SubSequence.Element>`.
-        // ConformerPairingSatisfiesCoupling looks up `AssociatedTypes[assocName]` for
-        // a single hop only; multi-hop chains aren't enforced. Predicate must reject
-        // and fall through to fail-closed literal-compare.
+        // Complete paths are preserved by cross-level coupling; the parent-only
+        // filter defers until the method-own parameter is bound.
         var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
         var method = CreateMethodWithSig(
             "deepChain",
@@ -2555,9 +2614,9 @@ public class ConcreteSpecializationEngineTests
             (specParam, conformer)
         };
 
-        Assert.False(
+        Assert.True(
             engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
-            "multi-segment τ_X_Y.A.B SameType RHS is not enforced by coupling (single-hop only) and must fail-closed");
+            "multi-segment method-own RHS is evaluated once the full pairing is bound");
     }
 
     [Fact]
@@ -4201,12 +4260,10 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
-    public void AssociatedTypeConstraints_MultiHopPath_LeafMatches_Accepts()
+    public void AssociatedTypeConstraints_MultiHopPath_ExplicitPathMatches_Accepts()
     {
-        // Deep chain `S.SubSequence.Element == MusicItem`: for stdlib Collection
-        // conformers (Array, Set, Dictionary.Values) the SubSequence alias exposes
-        // the same Element. Leaf-name verification against the conformer's flat
-        // AssociatedTypes map must still accept when the leaf matches.
+        // An explicit SubSequence.Element fact proves this complete path. The
+        // root's unrelated Element would provide no evidence for it.
         var method = CreateStructWithProtocolConstrainedMethod(
             "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
         var parent = (TypeDecl)method.ParentDecl!;
@@ -4221,11 +4278,10 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
-    public void AssociatedTypeConstraints_MultiHopPath_LeafMismatches_Rejects()
+    public void AssociatedTypeConstraints_MultiHopPath_ExplicitPathMismatches_Rejects()
     {
-        // Same deep chain, but the conformer's Element is UInt8 while the constraint
-        // demands MusicItem. Before the multi-hop fix we silently accepted any chain
-        // longer than two segments; now we fail-closed on leaf mismatch.
+        // The complete SubSequence.Element fact is UInt8 while the constraint
+        // demands MusicItem, so this specialization is disproved.
         var method = CreateStructWithProtocolConstrainedMethod(
             "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
         var parent = (TypeDecl)method.ParentDecl!;
@@ -4782,7 +4838,7 @@ public class ConcreteSpecializationEngineTests
     /// <summary>
     /// Variant of <see cref="MakeSequencePairing"/> that lets the test specify the
     /// full associated-type Path (e.g. <c>["T", "SubSequence", "Element"]</c>).
-    /// The conformer still reports its associated types by leaf name only.
+    /// The conformer reports an explicit full-path witness, not a leaf heuristic.
     /// </summary>
     private static (ConcreteSpecializationEngine.SpecializableParam Param,
                     ConcreteSpecializationEngine.ConcreteConformer Conformer)[]
@@ -4809,10 +4865,10 @@ public class ConcreteSpecializationEngineTests
             ConstraintProtocol: sequenceName,
             Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
 
-        var leafName = pathSegments[^1];
+        var memberPath = string.Join(".", pathSegments.Skip(1));
         IReadOnlyDictionary<string, string>? assocTypes = elementAssocType is null
             ? null
-            : new Dictionary<string, string> { [leafName] = elementAssocType };
+            : new Dictionary<string, string> { [memberPath] = elementAssocType };
 
         var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
             SwiftQualifiedName: conformerSwiftName,

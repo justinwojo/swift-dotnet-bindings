@@ -218,6 +218,21 @@ internal static class IngestionQuarantineClosure
     }
 
     /// <summary>
+    /// Conformance identity is the complete Swift owner path. Qualified names must
+    /// never fall back to a leaf, even in this module (Outer.P is not P). A bare
+    /// reference is interpreted only under the current Swift module's ownership.
+    /// Shared by withdrawal and its ledger attribution so the two cannot disagree.
+    /// </summary>
+    private static string? WithdrawnProtocolName(SwiftTypeName protocol,
+        IReadOnlySet<string> withdrawnNames, string currentModuleName)
+    {
+        var qualified = string.IsNullOrEmpty(protocol.Module)
+            ? $"{currentModuleName}.{protocol.ModuleQualifiedName}"
+            : protocol.ModuleQualifiedName;
+        return withdrawnNames.Contains(qualified) ? qualified : null;
+    }
+
+    /// <summary>
     /// Whether a type's inheritance, conformance, or stored-field layout reaches a withdrawn type — the
     /// structural edges that make the type itself indeterminate. Deliberately excludes the type's own
     /// generic where-clause constraints, which the proof owns (see class remarks).
@@ -253,8 +268,7 @@ internal static class IngestionQuarantineClosure
             var protocol = conformance.Protocol;
             if (protocol is null)
                 continue;
-            if (withdrawnNames.Contains(protocol.Name) ||
-                withdrawnNames.Contains(protocol.ModuleQualifiedName))
+            if (WithdrawnProtocolName(protocol, withdrawnNames, currentModuleName) is not null)
                 return true;
         }
 
@@ -579,10 +593,8 @@ internal static class IngestionQuarantineClosure
             var protocol = conformance.Protocol;
             if (protocol is null)
                 continue;
-            if (withdrawnNames.Contains(protocol.ModuleQualifiedName))
-                return protocol.ModuleQualifiedName;
-            if (withdrawnNames.Contains(protocol.Name))
-                return protocol.Name;
+            if (WithdrawnProtocolName(protocol, withdrawnNames, currentModuleName) is { } withdrawn)
+                return withdrawn;
         }
         // Stored-field layout edge — mirrors the StructurallyReaches stored-property branch so a struct or
         // class withdrawn because a stored field's declared type embeds a withdrawn type reports the

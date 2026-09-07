@@ -234,13 +234,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// chosen conformer Swift type of OtherParamName." Concrete (non-coupling) assoc-type
     /// constraints are already validated at conformer-filter time in the engine.
     /// </summary>
-    private static bool ConformerPairingSatisfiesCoupling(
+    internal static bool ConformerPairingSatisfiesCoupling(
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
     {
         var paramTypeByName = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (p, c) in pairing)
         {
-            paramTypeByName[p.GenericParam.TypeName] = c.SwiftQualifiedName;
+            paramTypeByName[p.GenericParam.TypeName] =
+                ConcreteSpecializationEngine.NormalizeTypeForComparison(c.SwiftQualifiedName);
         }
 
         foreach (var (param, conformer) in pairing)
@@ -248,9 +249,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (param.CouplingConstraints is null) continue;
             foreach (var (assocName, otherParamName) in param.CouplingConstraints)
             {
-                if (conformer.AssociatedTypes is null) return false;
-                if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
-                    return false;
+                var resolution = AssociatedTypePathResolver.Resolve(conformer, assocName);
+                if (AssociatedTypePathResolver.DeferToCompiler(resolution, assocName)) continue;
+                if (resolution.Kind != AssociatedTypePathResolver.ResolutionKind.Resolved) return false;
+                var declared = resolution.TypeName!;
                 if (!paramTypeByName.TryGetValue(otherParamName, out var otherConformerType))
                     return false;
                 if (!string.Equals(declared, otherConformerType, StringComparison.Ordinal))
@@ -2726,14 +2728,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (assoc.Kind != ConformanceKind.ConcreteType && assoc.Kind != ConformanceKind.Protocol)
                     continue;
 
-                // Path[0] is the owning generic param's name; Path[1..] is the associated-type chain.
-                // Single-hop (e.g. `S.Element`) resolves directly against the conformer's flat
-                // AssociatedTypes map. For deeper chains (e.g. `S.SubSequence.Element`), we fall
-                // back to leaf-name verification: stdlib Collection/Sequence conformers expose
-                // the same `Element` through every SubSequence/Slice alias, so the leaf still has
-                // to match. Fail-closed when the leaf is missing — better to drop a specialization
-                // we can't verify than to emit an uncompilable wrapper.
-                var assocName = assoc.Path.Length == 2 ? assoc.Path[1] : assoc.Path[assoc.Path.Length - 1];
+                // Keep every member step; Root.Child.Element is not Root.Element.
+                var assocName = string.Join(".", assoc.Path.Skip(1));
                 var expected = assoc.ConformanceTarget.ModuleQualifiedName;
 
                 // Parent-generic-param target: a constraint like `S.Element == TMusicItemType`
@@ -2748,10 +2744,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (IsParentGenericParamName(expected, parentTypeDecl))
                     continue;
 
-                if (conformer.AssociatedTypes is null)
-                    return false;
-                if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
-                    return false;
+                var resolution = AssociatedTypePathResolver.Resolve(conformer, assocName);
+                if (AssociatedTypePathResolver.DeferToCompiler(resolution, assocName)) continue;
+                if (resolution.Kind != AssociatedTypePathResolver.ResolutionKind.Resolved) return false;
+                var declared = resolution.TypeName!;
 
                 // Exact-name fast path: valid for same-type (`==`) constraints and
                 // class-subtype (`:` over a class target) — `Element == Animal` /
@@ -2766,7 +2762,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 bool isProtocolTarget = assoc.Kind == ConformanceKind.Protocol &&
                                         targetRecord is not null &&
                                         targetRecord.Kind == TypeRecordKind.Protocol;
-                if (!isProtocolTarget && string.Equals(declared, expected, StringComparison.Ordinal))
+                if (!isProtocolTarget && string.Equals(declared, ConcreteSpecializationEngine.NormalizeTypeForComparison(expected), StringComparison.Ordinal))
                     continue;
 
                 // Protocol target: verify the conformer Element conforms to the target

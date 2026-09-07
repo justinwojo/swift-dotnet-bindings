@@ -12,6 +12,82 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ProtocolConformanceValidatorTests
 {
+    [Fact]
+    public void FindProtocol_ForeignHomonym_DoesNotResolveLocalRequirements()
+    {
+        var module = CreateModuleDecl("TestModule");
+        var local = CreateProtocolWithVoidMethod("P", "required", module);
+        module.Protocols.Add(local);
+        var validator = new ProtocolConformanceValidator(module, CreateTypeDatabase());
+        Assert.Null(validator.FindProtocol("Other.P"));
+        Assert.Same(local, validator.FindProtocol("TestModule.P"));
+        Assert.Same(local, validator.FindProtocol("P"));
+    }
+
+    [Fact]
+    public void ImplementedInterfaces_ForeignMarkerSurvivesUnrelatedLocalProtocol()
+    {
+        var module = CreateModuleDecl("TestModule");
+        var db = CreateTypeDatabase();
+        var foreignDb = new ModuleTypeDatabase("Other", "/tmp/Other.dylib");
+        var foreignName = SwiftTypeName.FromModuleQualifiedName("Other.P");
+        foreignDb.RegisterType(foreignName, new TypeRecord
+        {
+            SwiftTypeName = foreignName,
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Other", "IP"),
+            MetadataAccessor = "", Kind = TypeRecordKind.Protocol,
+            Flags = TypeRecordFlags.None, EmittedMemberCount = 0
+        });
+        db.AddModuleDatabase(foreignDb);
+        var healthy = CreateStructDecl("Healthy", module);
+        healthy.Conformances.Add(new TypeConformance(healthy.SwiftTypeName, foreignName, "$sConformance"));
+        var validator = new ProtocolConformanceValidator(module, db);
+        Assert.Contains("Other.IP", ProtocolConformanceHelper.GetImplementedInterfaces(healthy, "Healthy", "TestModule", db, validator));
+        module.Protocols.Add(CreateProtocolWithVoidMethod("P", "unrelatedRequirement", module));
+        Assert.Contains("Other.IP", ProtocolConformanceHelper.GetImplementedInterfaces(healthy, "Healthy", "TestModule", db, validator));
+    }
+
+    [Theory]
+    [InlineData("P", "RealityFoundation")]
+    [InlineData("Outer.P", "RealityFoundation")]
+    [InlineData("P", "Custom.Managed.Namespace")]
+    [InlineData("Outer.P", "Custom.Managed.Namespace")]
+    public void FindProtocol_UmbrellaAlias_PreservesQualifiedOwner(string relativePath, string managedNamespace)
+    {
+        var module = CreateModuleDecl("RealityFoundation");
+        var local = CreateProtocolWithVoidMethod("P", "required", module) with
+        {
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"RealityFoundation.{relativePath}")
+        };
+        module.Protocols.Add(local);
+        var db = new TypeDatabase();
+        // Exercise the real RealityKit -> RealityFoundation database fallback;
+        // its returned record retains the declaring Swift identity under namespace remapping.
+        var sourceDb = new ModuleTypeDatabase("RealityFoundation", "/tmp/RealityFoundation.dylib");
+        sourceDb.RegisterType(local.SwiftTypeName, new TypeRecord
+        {
+            SwiftTypeName = local.SwiftTypeName,
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(managedNamespace, "IP"),
+            MetadataAccessor = "",
+            Kind = TypeRecordKind.Protocol,
+            Flags = TypeRecordFlags.None
+        });
+        db.AddModuleDatabase(sourceDb);
+        var foreignDb = new ModuleTypeDatabase("Other", "/tmp/Other.dylib");
+        var foreignName = SwiftTypeName.FromModuleQualifiedName($"Other.{relativePath}");
+        foreignDb.RegisterType(foreignName, new TypeRecord
+        {
+            SwiftTypeName = foreignName,
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(managedNamespace, "IP"),
+            MetadataAccessor = "", Kind = TypeRecordKind.Protocol, Flags = TypeRecordFlags.None
+        });
+        db.AddModuleDatabase(foreignDb);
+        var validator = new ProtocolConformanceValidator(module, db);
+        Assert.Same(local, validator.FindProtocol($"RealityKit.{relativePath}"));
+        Assert.Null(validator.FindProtocol($"Other.{relativePath}"));
+        Assert.Null(validator.FindProtocol("RealityFoundation.Unrelated.P"));
+    }
+
     #region A7 — AnyType Interface Conformance Guard
 
     [Fact]

@@ -34,6 +34,8 @@ public class ConcreteSpecializationEngine
     // witnesses (Element → Swift.Int) that swiftc elided as redundant typealiases. Captured at
     // the top of IndexModuleConformances and consumed while building each ConcreteConformer.
     private ConformanceGraph? _indexedConformanceGraph;
+    private readonly AssociatedTypePathResolver _associatedTypeScope = new();
+    private bool _hintPathFactsRegistered;
     private readonly HashSet<CsmRejectedPairing> _rejectedPairings = new();
 
     /// <summary>
@@ -60,7 +62,10 @@ public class ConcreteSpecializationEngine
         string? SwiftLiteral = null,
         IReadOnlyDictionary<string, string>? AssociatedTypes = null,
         IReadOnlyList<AvailabilityAnnotation>? AvailabilityAnnotations = null,
-        IReadOnlyList<string>? AllowedModules = null);
+        IReadOnlyList<string>? AllowedModules = null)
+    {
+        internal AssociatedTypePathResolver? AssociatedTypeScope { get; init; }
+    }
 
     /// <summary>
     /// A method that can be specialized, along with its specialization info.
@@ -284,11 +289,21 @@ public class ConcreteSpecializationEngine
                 declaredSet.Add(c.Protocol.ToString());
         }
 
+        if (typeDecl.SwiftTypeName is { } ownerName && typeDecl.Typealiases.Count > 0)
+            _associatedTypeScope.AddFacts(ownerName.ToString(), typeDecl.Typealiases);
+
         foreach (var conformance in conformances)
         {
             var protocolKey = conformance.Protocol.ToString();
             if (!_abiConformers.ContainsKey(protocolKey))
                 _abiConformers[protocolKey] = new List<ConcreteConformer>();
+
+            if (_indexedConformanceGraph is { } witnessGraph)
+            {
+                var witnesses = witnessGraph.WitnessesFor(conformance.ConformingType.ToString(), protocolKey)
+                    .ToDictionary(w => w.AssociatedTypeName, w => w.ResolvedType.ToString(true), StringComparer.Ordinal);
+                _associatedTypeScope.AddFacts(conformance.ConformingType.ToString(), witnesses);
+            }
 
             // Resolve C# type name
             var csName = ResolveCSharpName(conformance.ConformingType);
@@ -496,7 +511,20 @@ public class ConcreteSpecializationEngine
             }
         }
 
-        return result;
+        if (!_hintPathFactsRegistered)
+        {
+            _hintPathFactsRegistered = true;
+            foreach (var hints in _hintConformers.Values)
+            {
+                foreach (var hint in hints)
+                {
+                    if (!_abiIndexedTypes.Contains(hint.SwiftQualifiedName) &&
+                        IsConformerAllowedForModule(hint, _currentModuleName) && hint.AssociatedTypes is { } facts)
+                        _associatedTypeScope.AddFacts(hint.SwiftQualifiedName, facts);
+                }
+            }
+        }
+        return result.Select(c => c with { AssociatedTypeScope = _associatedTypeScope }).ToList();
     }
 
     private enum AbiVerification
@@ -730,7 +758,7 @@ public class ConcreteSpecializationEngine
                     if (!string.IsNullOrEmpty(target.Module)) continue;
                     if (!couplingTargetNames.Contains(target.Name)) continue;
                     if (target.Name == paramName) continue;
-                    AddCoupling(paramName, c.Path[^1], target.Name);
+                    AddCoupling(paramName, string.Join(".", c.Path.Skip(1)), target.Name);
                 }
 
                 foreach (var c in param.GenericConformances)
@@ -741,7 +769,7 @@ public class ConcreteSpecializationEngine
                     if (string.IsNullOrEmpty(target.Module)) continue;
                     if (!couplingTargetNames.Contains(target.Module)) continue;
                     if (target.Module == paramName) continue;
-                    AddCoupling(target.Module, target.Name, paramName);
+                    AddCoupling(target.Module, target.ModuleQualifiedName.Substring(target.Module.Length + 1), paramName);
                 }
             }
 
@@ -770,7 +798,7 @@ public class ConcreteSpecializationEngine
                     if (string.IsNullOrEmpty(target.Module)) continue;
                     if (!ownParamNames.Contains(target.Module)) continue;
                     if (target.Module == methodLevelName) continue;
-                    AddCoupling(target.Module, target.Name, methodLevelName);
+                    AddCoupling(target.Module, target.ModuleQualifiedName.Substring(target.Module.Length + 1), methodLevelName);
                 }
             }
 
@@ -793,7 +821,7 @@ public class ConcreteSpecializationEngine
                         if (!string.IsNullOrEmpty(t.Module)) return true;
                         return !couplingTargetNames.Contains(t.Name);
                     })
-                    .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
+                    .Select(c => (Name: string.Join(".", c.Path.Skip(1)), Target: c.ConformanceTarget.ToString()))
                     .ToList();
 
                 // Find the first protocol constraint with known conformers.
@@ -1005,7 +1033,7 @@ public class ConcreteSpecializationEngine
                 if (!string.IsNullOrEmpty(target.Module)) continue;
                 if (!parentParamNames.Contains(target.Name)) continue;
                 if (target.Name == paramName) continue;
-                AddCoupling(paramName, c.Path[^1], target.Name);
+                AddCoupling(paramName, string.Join(".", c.Path.Skip(1)), target.Name);
             }
 
             foreach (var c in parentParam.GenericConformances)
@@ -1016,7 +1044,7 @@ public class ConcreteSpecializationEngine
                 if (string.IsNullOrEmpty(target.Module)) continue;
                 if (!parentParamNames.Contains(target.Module)) continue;
                 if (target.Module == paramName) continue;
-                AddCoupling(target.Module, target.Name, paramName);
+                AddCoupling(target.Module, target.ModuleQualifiedName.Substring(target.Module.Length + 1), paramName);
             }
         }
 
@@ -1042,7 +1070,7 @@ public class ConcreteSpecializationEngine
                     if (!string.IsNullOrEmpty(t.Module)) return true;
                     return !parentParamNames.Contains(t.Name);
                 })
-                .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
+                .Select(c => (Name: string.Join(".", c.Path.Skip(1)), Target: c.ConformanceTarget.ToString()))
                 .ToList();
 
             // Multi-constraint intersection at the parent-generic pairing step. Same
@@ -1161,12 +1189,12 @@ public class ConcreteSpecializationEngine
         List<(string Name, string Target)> constraints)
     {
         if (constraints.Count == 0) return true;
-        if (conformer.AssociatedTypes is null) return false;
-
         foreach (var (name, target) in constraints)
         {
-            if (!conformer.AssociatedTypes.TryGetValue(name, out var conformerTarget))
-                return false;
+            var resolution = AssociatedTypePathResolver.Resolve(conformer, name);
+            if (AssociatedTypePathResolver.DeferToCompiler(resolution, name)) continue;
+            if (resolution.Kind != AssociatedTypePathResolver.ResolutionKind.Resolved) return false;
+            var conformerTarget = resolution.TypeName!;
             // The two sides come from different printings of the same type: the
             // conformer value is a typealias PrintedName or a canonical conformance
             // witness (`Swift.Array<Swift.UInt8>`), while the constraint target is
@@ -1431,33 +1459,9 @@ public class ConcreteSpecializationEngine
                 }
                 else // SameType: τ == ConcreteType — conformer must equal target
                 {
-                    // Cross-level coupling clauses with a SameType RHS of the canonical
-                    // single-hop dependent-member shape `τ_<d>+_<d>+.<id>` (e.g.
-                    // `τ_0_0 == τ_1_0.Element`) are not parent-tuple-only constraints —
-                    // they're registered as AddCoupling entries during method specialization
-                    // (see lines 668-695) and validated by ConformerPairingSatisfiesCoupling
-                    // under the full conformer pairing, where both sides of the equation are
-                    // bound. The parent-tuple-only filter has insufficient information to
-                    // evaluate them (the method-own side isn't bound yet); re-rejecting here
-                    // would discard valid pairings that coupling would have admitted.
-                    // Skip — coupling enforces.
-                    //
-                    // The predicate is restricted to the canonical single-hop shape AND
-                    // the RHS root being a method-own param (i.e. NOT a parent-tuple param
-                    // name). The latter mirrors the cross-level AddCoupling block at
-                    // lines 680-695, which only registers when `target.Module` is in
-                    // `ownParamNames` (line 691). Excluded shapes fall through to
-                    // literal-compare and reject (fail-closed):
-                    //   - Bare `τ_<d>+_<d>+` (no dot): coupling model has no bare-token
-                    //     equality entry (it stores `(AssocName, OtherParamName)`).
-                    //   - Multi-segment `τ_X_Y.A.B`: ConformerPairingSatisfiesCoupling looks
-                    //     up `AssociatedTypes[assocName]` (single hop); chains aren't
-                    //     enforced.
-                    //   - Parent-parent same-type (RHS root is another parent-tuple param):
-                    //     AddCoupling at 680-695 requires RHS root in ownParamNames, so
-                    //     parent-parent shapes are not registered.
-                    //   - User-defined names starting with τ_ but not matching `τ_<d>+_<d>+`:
-                    //     not a generic-parameter placeholder.
+                    // A method-own dependent-member RHS is checked by coupling
+                    // once the complete pairing binds that root. Parent-parent and
+                    // bare-placeholder equalities still use their own checks.
                     if (IsCouplingDeferredSameTypeTarget(target, parentTuple)) continue;
 
                     // Compare the conformer's Swift name (and its literal expression, when
@@ -1510,8 +1514,8 @@ public class ConcreteSpecializationEngine
     /// protocols at parent-tuple resolution; an associated-type bound introduced by a
     /// constrained extension has had no such prior check.</item>
     /// </list>
-    /// Only single-hop member paths are resolvable (<c>AssociatedTypes</c> is one level);
-    /// multi-hop paths (<c>Value.Element.Foo</c>) and unresolved associated types fail closed.
+    /// Complete member paths resolve through the conformer’s associated-type scope.
+    /// Unknown multi-hop facts defer to compiler verification; resolved mismatches reject.
     /// </summary>
     private bool DependentMemberClauseSatisfied(
         MethodConstraintKind kind,
@@ -1548,15 +1552,10 @@ public class ConcreteSpecializationEngine
             target = boundParentConformer.SwiftQualifiedName; // parent-parent — prove against the bound conformer
         }
 
-        // Multi-hop member paths or an unresolved associated type cannot be proven. The
-        // associated type is resolved from the conformer's typealiases AND conformance
-        // TypeWitness entries (merged in IndexTypeConformances), so an inferred-and-elided
-        // typealias still resolves.
-        if (memberPath.IndexOf('.') >= 0) return false;
-        if (conformer.AssociatedTypes is null ||
-            !conformer.AssociatedTypes.TryGetValue(memberPath, out var resolvedMemberType) ||
-            string.IsNullOrEmpty(resolvedMemberType))
-            return false;
+        var resolution = AssociatedTypePathResolver.Resolve(conformer, memberPath);
+        if (AssociatedTypePathResolver.DeferToCompiler(resolution, memberPath)) return true;
+        if (resolution.Kind != AssociatedTypePathResolver.ResolutionKind.Resolved) return false;
+        var resolvedMemberType = resolution.TypeName!;
 
         if (kind == MethodConstraintKind.SameType)
         {
@@ -1578,7 +1577,7 @@ public class ConcreteSpecializationEngine
     /// canonical spelling so a witness and a raw generic-sig target that name the same type
     /// compare equal. Falls back to the raw string when parsing fails.
     /// </summary>
-    private static string NormalizeTypeForComparison(string raw)
+    internal static string NormalizeTypeForComparison(string raw)
     {
         try
         {
@@ -1598,26 +1597,14 @@ public class ConcreteSpecializationEngine
     }
 
     /// <summary>
-    /// Canonical Swift generic-parameter-placeholder same-type RHS shape that is
-    /// deferred to <c>ConformerPairingSatisfiesCoupling</c>: <c>τ_&lt;d&gt;+_&lt;d&gt;+.&lt;id&gt;</c>
-    /// (e.g. <c>τ_1_0.Element</c>). Single-hop only — multi-segment chains are not
-    /// covered by the coupling validator and must fall through to fail-closed
-    /// rejection.
+    /// Canonical method-own dependent-member RHS deferred until full pairing binds
+    /// its root. Coupling retains every path segment and uses the shared resolver.
+    /// Bare placeholders and parent-parent RHS remain separate cases.
     /// </summary>
-    // Single-hop dependent-member only — matches the exact shape AddCoupling registers;
-    // bare-τ and multi-segment fall through to literal-compare and tombstone fail-closed.
     private static readonly System.Text.RegularExpressions.Regex s_couplingDeferredSameTypePattern =
-        new(@"^τ_[0-9]+_[0-9]+\.[A-Za-z_][A-Za-z0-9_]*$",
+        new(@"^τ_[0-9]+_[0-9]+(?:\.[A-Za-z_][A-Za-z0-9_]*)+$",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    /// <summary>
-    /// True when <paramref name="target"/> is a SameType RHS whose enforcement is
-    /// guaranteed by <c>ConformerPairingSatisfiesCoupling</c>: a single-hop dependent
-    /// member <c>τ_&lt;d&gt;+_&lt;d&gt;+.&lt;id&gt;</c> whose RHS root is a method-own
-    /// generic (NOT a parent-tuple param). The latter mirrors the cross-level
-    /// <c>AddCoupling</c> block's <c>ownParamNames</c> gate — parent-parent same-types
-    /// are not registered and must fail-closed.
-    /// </summary>
     private static bool IsCouplingDeferredSameTypeTarget(
         string target,
         IReadOnlyList<(SpecializableParam Param, ConcreteConformer Conformer)> parentTuple)
