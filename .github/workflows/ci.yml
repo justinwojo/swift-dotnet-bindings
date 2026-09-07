@@ -63,7 +63,9 @@ jobs:
 
       - name: Build and run tests
         timeout-minutes: 10
-        run: dotnet nuke test
+        run: |
+          python3 -B build/scripts/ci/test_ci_ios_test.py -v
+          dotnet nuke test
 
       - name: Upload test results
         if: always()
@@ -167,7 +169,7 @@ jobs:
         run: >
           python3 build/scripts/ci/ci_ios_test.py
           --device-udid "$SIM_UDID" --skip-prepare --skip-build
-          --tier 2 --timeout 420 --skip-regen
+          --timeout 420 --skip-regen
           --step-timeout 2100
 
       - name: Validate blast radius

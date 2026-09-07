@@ -65,6 +65,50 @@ INFRA_FAILURE_PATTERNS = [
     "Unable to negotiate with CoreSimulatorService",
 ]
 
+# The Nuke runtime harness has already classified these messages using its
+# LaunchDiagnostics contract: the launcher aborted before the app started and
+# therefore produced no test verdict. The outer CI process may retry only this
+# narrow condition. A bare timeout or generic launch_failure is insufficient.
+PRETEST_STARTUP_FAILURE_PATTERNS = [
+    "launcher aborted before the app started",
+    "launcher never started the app",
+    "the app never launched",
+]
+
+# Evidence that the app ran, the loader rejected it, or a test produced a
+# verdict dominates every retry marker above. Keep this conservative: an outer
+# retry starts a new Nuke process, so it cannot preserve the first process's
+# structured result aggregation.
+PRODUCT_EVIDENCE_PATTERNS = [
+    "[test]",
+    "[pass]",
+    "[fail]",
+    "[skip]",
+    "[crash]",
+    "results flushed",
+    "test success",
+    # The app emits this delimiter. Bare "test failure" also occurs in Nuke's
+    # pre-test explanation "not a test failure" and is not verdict evidence.
+    "test failure:",
+    "runtime tests failed",
+    "runtime tests crashed",
+    "runtime tests timeout",
+    "jsonl results (",
+    "live runtime flavor confirmed",
+    "crash detected in class",
+    "crashed test(s) recorded",
+    "test(s) failed before crash",
+    "mono jit crash detected",
+    "launched application with",
+    "waiting for the application to terminate",
+    "library not loaded",
+    "symbol not found",
+    "image not found",
+    "no suitable image found",
+    "is implemented in both",
+    "dyld:",
+]
+
 
 def is_infra_failure(error: Exception) -> bool:
     """Classify whether an error is retryable infrastructure vs real test failure."""
@@ -72,6 +116,21 @@ def is_infra_failure(error: Exception) -> bool:
         return True
     msg = str(error).lower()
     return any(pat.lower() in msg for pat in INFRA_FAILURE_PATTERNS)
+
+
+def is_retryable_pretest_startup_failure(output: str) -> bool:
+    """True only for established launcher failure before any product evidence."""
+    normalized = (output or "").lower()
+    established = any(pat in normalized for pat in PRETEST_STARTUP_FAILURE_PATTERNS)
+    product_evidence = any(pat in normalized for pat in PRODUCT_EVIDENCE_PATTERNS)
+    return established and not product_evidence
+
+
+def process_output_text(value) -> str:
+    """Normalize subprocess stdout/stderr values from results and timeouts."""
+    if not value:
+        return ""
+    return value if isinstance(value, str) else value.decode(errors="replace")
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +175,6 @@ def run_build(test_framework_dir: str, skip_regen: bool = True) -> None:
 def run_tests(
     test_framework_dir: str,
     device_udid: str,
-    tier: int = 2,
     timeout: int = 420,
     skip_regen: bool = True,
     max_test_retries: int = 1,
@@ -124,8 +182,9 @@ def run_tests(
 ) -> int:
     """Run runtime tests using dotnet nuke binding-tests --sim.
 
-    Retries once on timeout/infrastructure failure (app hang, launch failure),
-    but only if enough time remains before the deadline.
+    Retries an established pre-test launcher failure, but only if enough time
+    remains before the deadline. Product/test evidence is immutable across the
+    outer boundary and therefore fails without starting another Nuke process.
 
     Args:
         deadline: Absolute time.time() by which we must finish. Used to
@@ -190,8 +249,8 @@ def run_tests(
 
             time.sleep(2)  # Let simulator settle
 
-            log.info("=== TESTS: Retry attempt %d (previous run timed out) ===", attempt)
-            gha_warning(f"Test retry attempt {attempt} after timeout/hang")
+            log.info("=== TESTS: Retry attempt %d (pre-test launcher failure) ===", attempt)
+            gha_warning(f"Test retry attempt {attempt} after pre-test launcher failure")
 
         # Calculate subprocess timeout
         if attempt == 1:
@@ -205,8 +264,8 @@ def run_tests(
         else:
             subprocess_timeout = timeout + overhead
 
-        log.info("=== TESTS: Running runtime tests (tier=%d, timeout=%ds, attempt=%d, subprocess_timeout=%.0fs) ===",
-                 tier, timeout, attempt, subprocess_timeout)
+        log.info("=== TESTS: Running full runtime test suite (timeout=%ds, attempt=%d, subprocess_timeout=%.0fs) ===",
+                 timeout, attempt, subprocess_timeout)
         log.info("Command: %s", " ".join(cmd))
 
         try:
@@ -221,35 +280,41 @@ def run_tests(
             )
 
             # Print output so it appears in GHA logs
-            last_output = result.stdout or ""
+            stdout = process_output_text(result.stdout)
+            stderr = process_output_text(result.stderr)
+            last_output = "\n".join(part for part in (stdout, stderr) if part)
             if result.stdout:
-                print(result.stdout, end="", flush=True)
+                print(stdout, end="", flush=True)
             if result.stderr:
-                print(result.stderr, end="", file=sys.stderr, flush=True)
+                print(stderr, end="", file=sys.stderr, flush=True)
 
             if result.returncode == 0:
                 log.info("=== TESTS: PASSED ===")
                 return 0
 
-            # Check if this is a timeout/hang (retryable) vs real test failure
-            if "RUNTIME TESTS TIMEOUT" in last_output or "launch_failure" in last_output:
-                if attempt <= max_test_retries:
-                    log.warning("Tests timed out / app hung — will retry")
-                    continue
+            if (attempt <= max_test_retries
+                    and is_retryable_pretest_startup_failure(last_output)):
+                log.warning("Launcher failed before tests started — will retry")
+                continue
             # Real test failure (assertions, etc.) — don't retry
             log.error("=== TESTS: FAILED (exit code %d) ===", result.returncode)
             return result.returncode
 
         except subprocess.TimeoutExpired as e:
             # subprocess itself timed out — capture output for smart cleanup
-            if e.stdout:
-                last_output = e.stdout if isinstance(e.stdout, str) else e.stdout.decode()
-                print(last_output, end="", flush=True)
-            else:
-                last_output = ""
-            if attempt <= max_test_retries:
-                log.warning("Test subprocess timed out — will retry")
+            stdout = process_output_text(e.stdout)
+            stderr = process_output_text(e.stderr)
+            last_output = "\n".join(part for part in (stdout, stderr) if part)
+            if stdout:
+                print(stdout, end="", flush=True)
+            if stderr:
+                print(stderr, end="", file=sys.stderr, flush=True)
+            if (attempt <= max_test_retries
+                    and is_retryable_pretest_startup_failure(last_output)):
+                log.warning("Test subprocess timed out after a pre-test launcher failure — will retry")
                 continue
+            if last_output:
+                log.error("Test subprocess timed out after producing non-retryable evidence")
             log.error("=== TESTS: TIMED OUT (subprocess) ===")
             return 1
 
@@ -316,7 +381,6 @@ def run_pipeline(
     prepare_only: bool = False,
     skip_prepare: bool = False,
     skip_build: bool = False,
-    tier: int = 2,
     test_timeout: int = 420,
     skip_regen: bool = True,
     max_infra_retries: int = 1,
@@ -422,7 +486,6 @@ def run_pipeline(
             exit_code = run_tests(
                 test_framework_dir,
                 device_udid,
-                tier=tier,
                 timeout=test_timeout,
                 skip_regen=skip_regen,
                 deadline=deadline,
@@ -515,7 +578,6 @@ Examples:
     test_group = parser.add_argument_group("test")
     test_group.add_argument("--test-framework-dir", default="BindingTests",
                            help="Path to BindingTests directory (default: BindingTests)")
-    test_group.add_argument("--tier", type=int, default=2, help="Test tier (default: 2)")
     test_group.add_argument("--timeout", type=int, default=420,
                            help="Per-launch app timeout in seconds (default: 420). Must comfortably "
                                 "exceed a full suite run on the slowest runner, or the launcher kills "
@@ -573,7 +635,6 @@ Examples:
         prepare_only=args.prepare_only,
         skip_prepare=args.skip_prepare,
         skip_build=args.skip_build,
-        tier=args.tier,
         test_timeout=args.timeout,
         skip_regen=args.skip_regen,
         max_infra_retries=args.max_retries,

@@ -1,0 +1,8 @@
+{
+  "utc": "2026-09-07T21:15:21.993056+00:00",
+  "ci_tests": 7,
+  "corpus_acceptance_tests": 5,
+  "corpus_receipt_groups": 11,
+  "all_exit_codes": 0,
+  "reason": "fresh affected validation before user-authorized periodic commits"
+}

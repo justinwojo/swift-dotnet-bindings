@@ -1,0 +1,61 @@
+{
+  "format": "P1 scoped baseline-to-working-tree manifest",
+  "main_repo": {
+    "head": "82ef2b43827e782dd2f6e010f19617452c75df5a",
+    "tracked_diff_sha256": "a1ac46cf05acc4baffa66dcc57d3638ad20ea9ae8eb452ca5a9843da063ad90f",
+    "tracked": {
+      "CLAUDE.md": {
+        "baseline_sha256": "1730c271a2d5c11d54c233ac632225c8f66c0435e5a3f7a9eaaebb4c68e420d9",
+        "current_sha256": "3cf2c757bc6ac2a4bb0677eddd5ab977d8b13a8964d31499afd7ae5b5c211733",
+        "added_lines": 1,
+        "deleted_lines": 1
+      },
+      ".github/workflows/ci.yml": {
+        "baseline_sha256": "feafcae6bb0cd460a7b2a98dfecfdac66eddfafa8dcf25ce1e74f20dc2e38dfc",
+        "current_sha256": "de3a4dab133e5cf41fe29425e9ecab61b422f7c6d1d24a50ce7a7f42776c9b6b",
+        "added_lines": 1,
+        "deleted_lines": 1
+      },
+      ".github/workflows/release.yml": {
+        "baseline_sha256": "9f2ebc4570f9444da94a7247148df76f673a12f999b1960efa0a2f35947e476b",
+        "current_sha256": "6be376b71f4df2b3433b902ed07d1d32dd645ca3e748813078696ef3421619fa",
+        "added_lines": 1,
+        "deleted_lines": 1
+      },
+      "build/scripts/ci/ci_ios_test.py": {
+        "baseline_sha256": "a3c2f1483bd6769935d96e34d2f4ac884161efc6391d1e06a4efdf4983e12b32",
+        "current_sha256": "3570c34a4569dde52db642e8bbbc6ad02ee9f4d523cfc39fc999a353f6da012a",
+        "added_lines": 82,
+        "deleted_lines": 23
+      }
+    },
+    "new": {
+      "build/scripts/ci/test_ci_ios_test.py": {"lines": 116},
+      "src/docs/audit-2026-09/execution/P1/design.md": {"lines": 75},
+      "src/docs/audit-2026-09/execution/P1/results.md": {"lines": 70},
+      "src/docs/audit-2026-09/execution/P1/natural-refusal-classifier-probe.py": {"lines": 136},
+      "src/docs/audit-2026-09/execution/P1/natural-refusal-classifier-result.json": {"lines": 96},
+      "src/docs/audit-2026-09/execution/P1/source-hashes.json": {"self_describing": true},
+      "src/docs/audit-2026-09/execution/P1/baseline-diff.json": {"self_describing": true}
+    }
+  },
+  "corpus_repo": {
+    "head": "905e99e9a228ae8f29aaad72181b364405982fdb",
+    "preexisting_status_lines": 873,
+    "tracked_diff_sha256": "cd138147214c9638915aa6fd0d3226838ee14aae6537c6122a6f4a7955cdebd5",
+    "tracked": {
+      "corpus-sweep/scripts/run_library.py": {
+        "baseline_sha256": "71c1bd464d2f91ac999d690825021a673445edeeb07cef2ff5f756656e8a2560",
+        "current_sha256": "0442069d02fdbf18b2c29dec4241e22209e047a9304848cc3bc7354cf3c68880",
+        "added_lines": 130,
+        "deleted_lines": 15
+      }
+    },
+    "new": {
+      "corpus-sweep/scripts/run_library_acceptance_test.py": {"lines": 179}
+    },
+    "preserved_preexisting_untracked": [
+      "corpus-sweep/scripts/run_library_receipt_test.py"
+    ]
+  }
+}
