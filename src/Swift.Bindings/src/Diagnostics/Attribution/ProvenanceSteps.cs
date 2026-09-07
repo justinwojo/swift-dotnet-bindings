@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text.RegularExpressions;
 
 using BindingsGeneration;
@@ -26,10 +25,14 @@ namespace BindingsGeneration.Diagnostics;
 public sealed class IntervalMapProvenanceStep : IProvenanceStep
 {
     private readonly ModuleFragmentSet _fragments;
+    private readonly CompileInputIdentity _inputs;
 
     /// <summary>Wraps the fragment set for the compiled module.</summary>
-    public IntervalMapProvenanceStep(ModuleFragmentSet fragments) =>
+    public IntervalMapProvenanceStep(ModuleFragmentSet fragments, CompileInputIdentity? inputs = null)
+    {
         _fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
+        _inputs = inputs ?? CompileInputIdentity.ForFiles(fragments.Files.Keys);
+    }
 
     /// <inheritdoc />
     public bool TryResolve(CompilerDiagnostic diagnostic, out ProvenanceHit hit)
@@ -38,15 +41,14 @@ public sealed class IntervalMapProvenanceStep : IProvenanceStep
         if (!diagnostic.HasPosition || string.IsNullOrEmpty(diagnostic.File))
             return false;
 
-        var leaf = Path.GetFileName(diagnostic.File);
-        if (!_fragments.Files.TryGetValue(leaf, out var map))
+        if (!_inputs.TryResolve(diagnostic.File, out var file) ||
+            !_fragments.Files.TryGetValue(file, out var map))
             return false;
 
         if (!map.TryResolveUtf8Column(diagnostic.Line, diagnostic.Column, out var fragment))
             return false;
 
-        // The wrapper compile only produces Swift-plane diagnostics; a C#-plane hit here would mean
-        // the wrong file matched by leaf name, so it is not a wrapper attribution.
+        // File identity and output plane are independent: a wrapper diagnostic cannot own C#.
         if (fragment.Plane != OutputPlane.Swift)
             return false;
 
@@ -69,17 +71,21 @@ public sealed class IntervalMapProvenanceStep : IProvenanceStep
 /// characters — Roslyn/SARIF report character columns, not swiftc's UTF-8 byte columns — so this
 /// resolves through <see cref="FileIntervalMap.TryResolve(int,int,out OutputFragment)"/>, never
 /// <c>TryResolveUtf8Column</c>. And a hit whose fragment is on the Swift plane is rejected: a C#
-/// diagnostic can only be about C#, so a Swift-plane match means the wrong file matched by leaf name.
+/// diagnostic can only be about C#, even when a caller registers a Swift input in the identity map.
 /// The map used here is the current render's <c>_context.FragmentSet</c>, which describes the exact
 /// bytes on disk that MSBuild compiled — no post-publish rewrite intervenes on the loop path.
 /// </remarks>
 public sealed class CSharpIntervalMapProvenanceStep : IProvenanceStep
 {
     private readonly ModuleFragmentSet _fragments;
+    private readonly CompileInputIdentity _inputs;
 
     /// <summary>Wraps the fragment set for the compiled module.</summary>
-    public CSharpIntervalMapProvenanceStep(ModuleFragmentSet fragments) =>
+    public CSharpIntervalMapProvenanceStep(ModuleFragmentSet fragments, CompileInputIdentity? inputs = null)
+    {
         _fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
+        _inputs = inputs ?? CompileInputIdentity.ForFiles(fragments.Files.Keys);
+    }
 
     /// <inheritdoc />
     public bool TryResolve(CompilerDiagnostic diagnostic, out ProvenanceHit hit)
@@ -88,8 +94,8 @@ public sealed class CSharpIntervalMapProvenanceStep : IProvenanceStep
         if (!diagnostic.HasPosition || string.IsNullOrEmpty(diagnostic.File))
             return false;
 
-        var leaf = Path.GetFileName(diagnostic.File);
-        if (!_fragments.Files.TryGetValue(leaf, out var map))
+        if (!_inputs.TryResolve(diagnostic.File, out var file) ||
+            !_fragments.Files.TryGetValue(file, out var map))
             return false;
 
         if (!map.TryResolve(diagnostic.Line, diagnostic.Column, out var fragment))
@@ -114,21 +120,28 @@ public sealed class CSharpIntervalMapProvenanceStep : IProvenanceStep
 /// path resolves through a caller-supplied registry (symbol → artifact) because symbol promotion
 /// details live on a side table the block text does not carry; the anchor path is self-describing
 /// and parses directly. Both then map artifact → unit through the caller's resolver, which in the
-/// live loop reads the recovery graph.
+/// live loop uses the artifact classification. Both fallback paths require the same compiled-file
+/// identity as interval lookup, so a matching line in another file never supplies an owner.
 /// </remarks>
 public sealed class SymbolAnchorProvenanceStep : IProvenanceStep
 {
     private readonly WrapperBlockIndex _index;
+    private readonly string _file;
+    private readonly CompileInputIdentity _inputs;
     private readonly Func<string, ArtifactId?> _symbolLookup;
     private readonly Func<ArtifactId, RecoveryUnitId?> _unitLookup;
 
     /// <summary>Wraps the block index and the symbol/unit resolvers.</summary>
     public SymbolAnchorProvenanceStep(
         WrapperBlockIndex index,
+        string file,
+        CompileInputIdentity inputs,
         Func<string, ArtifactId?> symbolLookup,
         Func<ArtifactId, RecoveryUnitId?> unitLookup)
     {
         _index = index ?? throw new ArgumentNullException(nameof(index));
+        _file = file ?? throw new ArgumentNullException(nameof(file));
+        _inputs = inputs ?? throw new ArgumentNullException(nameof(inputs));
         _symbolLookup = symbolLookup ?? throw new ArgumentNullException(nameof(symbolLookup));
         _unitLookup = unitLookup ?? throw new ArgumentNullException(nameof(unitLookup));
     }
@@ -137,7 +150,7 @@ public sealed class SymbolAnchorProvenanceStep : IProvenanceStep
     public bool TryResolve(CompilerDiagnostic diagnostic, out ProvenanceHit hit)
     {
         hit = default;
-        if (!diagnostic.HasPosition)
+        if (!diagnostic.HasPosition || !_inputs.TryResolve(diagnostic.File, out var file) || file != _file)
             return false;
 
         // Walk containing blocks innermost-first. The innermost block owns the line when it resolves,

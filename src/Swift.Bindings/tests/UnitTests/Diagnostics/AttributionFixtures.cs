@@ -61,11 +61,11 @@ internal static class AttributionFixtures
     /// The symbol→artifact and artifact→unit resolvers a symbol-anchor step needs, wired to the
     /// deterministic identity above. A symbol the fixture never declares resolves to null.
     /// </summary>
-    public static SymbolAnchorProvenanceStep SymbolStep(string source)
+    public static SymbolAnchorProvenanceStep SymbolStep(string source, string file)
     {
         var index = WrapperBlockIndex.Build(source);
         return new SymbolAnchorProvenanceStep(
-            index,
+            index, file, CompileInputIdentity.ForFiles(new[] { file }),
             symbol => ArtifactForSymbol(symbol),
             SymbolUnitLookup());
     }

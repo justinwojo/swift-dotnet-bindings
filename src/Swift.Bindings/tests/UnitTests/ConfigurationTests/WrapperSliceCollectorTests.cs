@@ -21,6 +21,27 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class WrapperSliceCollectorTests
 {
+    [Fact]
+    public void FileProvenance_PreservesExplicitAliasesAcrossSlicesAndGuardRewrite()
+    {
+        var collector = new WrapperSliceCollector();
+        collector.RecordFileProvenance("Owned.swift", "before", "after", new[] { 1 },
+            "/output/Owned.swift", "/stage/sim/Owned.swift");
+        collector.MarkGuardRewrote("Owned.swift");
+        collector.RecordFileProvenance("Owned.swift", "before", "after", new[] { 1 },
+            "/output/Owned.swift", "/stage/device/Owned.swift");
+        var file = Assert.Single(collector.FileProvenance);
+        Assert.True(file.GuardRewrote);
+        Assert.Equal(3, file.CompileInputPaths.Count);
+        var inputs = new CompileInputIdentity(new Dictionary<string, IReadOnlyList<string>>
+        {
+            [file.FileName] = file.CompileInputPaths,
+        });
+        Assert.True(inputs.TryResolve("/stage/sim/Owned.swift", out _));
+        Assert.True(inputs.TryResolve("/stage/device/Owned.swift", out _));
+        Assert.False(inputs.TryResolve("/foreign/Owned.swift", out _));
+    }
+
     private static SwiftWrapperCompilationResult Result() => new()
     {
         XCFrameworkPath = "/tmp/Test.xcframework",

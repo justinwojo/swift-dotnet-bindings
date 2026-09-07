@@ -244,7 +244,8 @@ namespace BindingsGeneration
                         // rebuilds its interval map from these to attribute a diagnostic to the exact
                         // fragment swiftc compiled.
                         collector?.RecordFileProvenance(
-                            Path.GetFileName(swiftFile), content, result.CleanedContent, result.CleanedLineSources);
+                            Path.GetFileName(swiftFile), content, result.CleanedContent, result.CleanedLineSources,
+                            swiftFile, cleanedPath, Path.GetFullPath(swiftFile), Path.GetFullPath(cleanedPath));
                     }
                 }
 
@@ -792,7 +793,8 @@ namespace BindingsGeneration
                         // rebuilds its interval map from these to attribute a diagnostic to the exact
                         // fragment swiftc compiled.
                         collector?.RecordFileProvenance(
-                            Path.GetFileName(swiftFile), content, result.CleanedContent, result.CleanedLineSources);
+                            Path.GetFileName(swiftFile), content, result.CleanedContent, result.CleanedLineSources,
+                            swiftFile, cleanedPath, Path.GetFullPath(swiftFile), Path.GetFullPath(cleanedPath));
                     }
                 }
 

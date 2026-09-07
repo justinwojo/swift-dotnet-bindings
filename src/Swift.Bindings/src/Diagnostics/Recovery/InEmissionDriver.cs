@@ -618,7 +618,8 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         // artifact is not droppable alone becomes no resolution → fail closed.
         var fragments = _context.FragmentSet;
         if (fragments != null)
-            steps.Add(new DroppableGate(new CSharpIntervalMapProvenanceStep(fragments)));
+            steps.Add(new DroppableGate(new CSharpIntervalMapProvenanceStep(fragments,
+                CompileInputIdentity.ForFiles(fragments.Files.Keys, _request.OutputDirectory))));
 
         return steps;
     }
@@ -660,13 +661,15 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     {
         var steps = new List<IProvenanceStep>();
 
+        var inputs = new CompileInputIdentity(diagnostics.FileProvenance.ToDictionary(
+            file => file.FileName, file => file.CompileInputPaths, StringComparer.Ordinal));
         var remapped = BuildRemappedFragmentSet(diagnostics.FileProvenance);
         if (remapped != null)
-            steps.Add(new DroppableGate(new IntervalMapProvenanceStep(remapped)));
+            steps.Add(new DroppableGate(new IntervalMapProvenanceStep(remapped, inputs)));
 
-        var blockIndex = BuildBlockIndex(diagnostics.FileProvenance);
-        if (blockIndex != null)
-            steps.Add(new DroppableGate(new SymbolAnchorProvenanceStep(blockIndex, SymbolLookup, UnitLookup)));
+        foreach (var file in diagnostics.FileProvenance.Where(file => !file.GuardRewrote))
+            steps.Add(new DroppableGate(new SymbolAnchorProvenanceStep(
+                WrapperBlockIndex.Build(file.PostStripContent), file.FileName, inputs, SymbolLookup, UnitLookup)));
 
         steps.Add(new DroppableGate(new LinkerSymbolProvenanceStep(SymbolLookup, UnitLookup)));
         return steps;
@@ -704,17 +707,6 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         }
 
         return mappedAny ? remapped : null;
-    }
-
-    // Builds the block index from the compiled wrapper text for the symbol/anchor fallback. Only files
-    // whose compiled bytes are the post-strip content are usable: a guard-rewritten file's inserted
-    // lines shift every position after them, so resolving a diagnostic against its post-strip text
-    // would name the wrong block. Such files are skipped, leaving their positioned diagnostics to fail
-    // closed rather than mis-attribute.
-    private static WrapperBlockIndex? BuildBlockIndex(IReadOnlyList<WrapperFileProvenance> provenance)
-    {
-        var wrapperFile = provenance.FirstOrDefault(f => !f.GuardRewrote);
-        return wrapperFile == null ? null : WrapperBlockIndex.Build(wrapperFile.PostStripContent);
     }
 
     private ArtifactId? SymbolLookup(string symbol) =>

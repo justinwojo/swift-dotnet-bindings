@@ -77,7 +77,7 @@ public class DiagnosticAttributorTests
     {
         var groups = SwiftDiagnosticParser.Parse(AttributionFixtures.Stderr(fixture));
         var attributor = new DiagnosticAttributor(
-            new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture)) });
+            new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture), fixture + ".wrapper.swift") });
         return attributor.Attribute(groups);
     }
 
@@ -106,7 +106,7 @@ public class DiagnosticAttributorTests
             },
         };
 
-        var attributor = new DiagnosticAttributor(new[] { AttributionFixtures.SymbolStep(source) });
+        var attributor = new DiagnosticAttributor(new[] { AttributionFixtures.SymbolStep(source, "Inline.wrapper.swift") });
         var result = attributor.Attribute(new[] { group });
 
         Assert.Empty(result.Culprits);
@@ -119,7 +119,7 @@ public class DiagnosticAttributorTests
     {
         var group = ErrorAt("Orphan.wrapper.swift", line: 999, "some unrecognized failure");
         var attributor = new DiagnosticAttributor(
-            new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source("SingleBrokenMember")) });
+            new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source("SingleBrokenMember"), "SingleBrokenMember.wrapper.swift") });
 
         var result = attributor.Attribute(new[] { group });
 
@@ -134,7 +134,7 @@ public class DiagnosticAttributorTests
     public void IntervalMapStep_ResolvesASwiftPlaneDiagnosticToItsFragmentsUnit()
     {
         var (set, unit) = BuildFragmentSet("Target.Wrapper.swift", "one\ntwo broken\n", "SBW_Interval_target");
-        var step = new IntervalMapProvenanceStep(set);
+        var step = new IntervalMapProvenanceStep(set, CompileInputIdentity.ForFiles(set.Files.Keys, "/tmp/build"));
 
         var diag = ErrorAt("/tmp/build/Target.Wrapper.swift", line: 2, "boom").Primary;
 
@@ -156,7 +156,7 @@ public class DiagnosticAttributorTests
         var attributor = new DiagnosticAttributor(new IProvenanceStep[]
         {
             new IntervalMapProvenanceStep(set),
-            AttributionFixtures.SymbolStep(content),
+            AttributionFixtures.SymbolStep(content, "Both.Wrapper.swift"),
         });
 
         var result = attributor.Attribute(new[] { ErrorAt("Both.Wrapper.swift", line: 2, "fail") });
@@ -183,7 +183,8 @@ public class DiagnosticAttributorTests
             }
             """;
         var step = new SymbolAnchorProvenanceStep(
-            WrapperBlockIndex.Build(source),
+            WrapperBlockIndex.Build(source), "Helpers.wrapper.swift",
+            CompileInputIdentity.ForFiles(new[] { "Helpers.wrapper.swift" }),
             _ => null,                                   // no symbol on this block
             AttributionFixtures.SymbolUnitLookup());
 
@@ -214,7 +215,8 @@ public class DiagnosticAttributorTests
             }
             """;
         var step = new SymbolAnchorProvenanceStep(
-            WrapperBlockIndex.Build(source),
+            WrapperBlockIndex.Build(source), "Mod.wrapper.swift",
+            CompileInputIdentity.ForFiles(new[] { "Mod.wrapper.swift" }),
             symbol => symbol == "DBW_unregistered"
                 ? (ArtifactId?)null                      // the nested wrapper symbol isn't registered
                 : AttributionFixtures.ArtifactForSymbol(symbol),

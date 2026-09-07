@@ -56,6 +56,77 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameBasenameCSharpDiagnostic_RequiresPublishedInputIdentity(bool foreign)
+    {
+        using var harness = new JointDriverHarness(this, CSharpBehavior.ErrorUntilWithdrawn,
+            diagnosticPath: path => Path.Combine(foreign ? "/foreign" : "", path));
+        var result = WrapperRecoveryController.Run(harness);
+        Assert.True(harness.CSharpErrored);
+        Assert.Equal(!foreign, result.Converged);
+        if (foreign)
+            Assert.Empty(result.Denylist);
+        else
+            Assert.Single(result.Denylist);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public void AbsoluteCompilerLocationResolvesPublishedOutputOnly(
+        bool relativeOutputDirectory, bool foreign, bool fileUri)
+    {
+        using var harness = new JointDriverHarness(this, CSharpBehavior.ErrorUntilWithdrawn,
+            relativeOutputDirectory: relativeOutputDirectory, absoluteDiagnosticPaths: true,
+            diagnosticPath: path =>
+            {
+                if (foreign)
+                    path = Path.Combine(Path.GetDirectoryName(path)!, "foreign", Path.GetFileName(path));
+                return fileUri ? new Uri(path).AbsoluteUri : path;
+            });
+        var result = WrapperRecoveryController.Run(harness);
+        Assert.True(harness.CSharpErrored);
+        Assert.Equal(!foreign, result.Converged);
+        Assert.Equal(foreign ? 1 : 2, harness.CSharpVerifyCalls);
+        Assert.Equal(foreign ? 1 : 2, harness.SwiftCompileCalls);
+        Assert.Equal(!foreign, harness.CSharpVerifiedClean);
+        if (foreign)
+            Assert.Empty(result.Denylist);
+        else
+        {
+            Assert.Single(result.Denylist);
+            Assert.Contains(EmitterFaultRecord.CSharpWithdrawalDetailsPrefix, harness.ReadEmittedCSharp());
+        }
+        Assert.Contains("Register", harness.ReadEmittedCSharp());
+    }
+
+    [Theory]
+    [InlineData("own", true)]
+    [InlineData("staged", true)]
+    [InlineData("foreign", false)]
+    [InlineData("interface", false)]
+    public void SwiftTwoCapturedInputs_OnlyTheNamedInputCanWithdrawItsMember(string pathMode, bool local)
+    {
+        using var harness = new JointDriverHarness(this, CSharpBehavior.AlwaysClean,
+            swiftDiagnosticPathMode: pathMode);
+        var result = WrapperRecoveryController.Run(harness);
+        Assert.Equal(local, result.Converged);
+        if (local)
+            Assert.Equal(harness.WithdrawableMethodUnit(), Assert.Single(result.Denylist));
+        else
+            Assert.Empty(result.Denylist);
+        Assert.Equal(local ? 2 : 1, harness.SwiftCompileCalls);
+        Assert.Contains("Register", harness.ReadEmittedCSharp()); // healthy overload remains
+    }
+
     // ── round-0 joint convergence: both planes clean ────────────────────────────────────────────
 
     [Fact]
@@ -418,6 +489,7 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         private readonly ModuleEmissionContext _context;
         private readonly InEmissionDriver _inner;
         private readonly CSharpBehavior _behavior;
+        private readonly Func<string, string>? _diagnosticPath;
 
         private IReadOnlySet<RecoveryUnitId> _currentDenylist = new HashSet<RecoveryUnitId>();
         private RecoveryUnitId? _target;
@@ -445,19 +517,31 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
             CSharpBehavior behavior,
             bool wrapperPlane = true,
             bool csharpPlane = true,
-            bool withIngestionWithdrawal = false)
+            bool withIngestionWithdrawal = false,
+            Func<string, string>? diagnosticPath = null,
+            string? swiftDiagnosticPathMode = null,
+            bool relativeOutputDirectory = false,
+            bool absoluteDiagnosticPaths = false)
         {
             _behavior = behavior;
             _scratch = Path.Combine(Path.GetTempPath(), "swiftbind-csharploop-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_scratch);
             owner._scratchDirs.Add(_scratch);
+            _diagnosticPath = path =>
+            {
+                var compilerPath = absoluteDiagnosticPaths ? Path.Combine(_scratch, path) : path;
+                return diagnosticPath?.Invoke(compilerPath) ?? compilerPath;
+            };
+            var outputDirectory = relativeOutputDirectory
+                ? Path.GetRelativePath(Directory.GetCurrentDirectory(), _scratch)
+                : _scratch;
 
             _module = FixtureModuleFactory.BuildModule("ContainmentFixture");
             _typeDatabase = FixtureModuleFactory.BuildTypeDatabase(_module);
             _context = new ModuleEmissionContext();
 
             Func<StringEmitter> newEmitter = () =>
-                new StringEmitter(_scratch, _typeDatabase, new NullLoggerFactory());
+                new StringEmitter(outputDirectory, _typeDatabase, new NullLoggerFactory());
 
             Action rebuildCollaborators = () =>
             {
@@ -475,6 +559,8 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
             Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics> compileWrapper = _ =>
             {
                 SwiftCompileCalls++;
+                if (swiftDiagnosticPathMode != null && !_currentDenylist.Contains(LeafApiUnit(_module)))
+                    return SwiftInputFailure(swiftDiagnosticPathMode);
                 return WrapperCompileDiagnostics.Clean(
                     result: null,
                     Array.Empty<WrapperSliceDiagnostics>(),
@@ -482,7 +568,7 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
             };
 
             var request = new WrapperRecoveryCompileRequest(
-                _scratch,
+                outputDirectory,
                 InternalTypeNames: null,
                 ModuleNameForCollision: null,
                 NestedTypesInCollidingClass: null,
@@ -500,6 +586,43 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                 ingestionWithdrawals: withIngestionWithdrawal
                     ? new HashSet<RecoveryUnitId> { AccessorGroupUnit(_module) }
                     : null);
+        }
+
+        // Models two exact captured compiler inputs with overlapping line positions. They carry
+        // real emitted declarations' identities; only external compilation is substituted here.
+        private WrapperCompileDiagnostics SwiftInputFailure(string pathMode)
+        {
+            var target = LeafApiUnit(_module);
+            var registry = _module.Types.Single(t => t.Name == "Registry");
+            var sibling = registry.Methods.First(m => m.Name == "register" &&
+                !DeclIdFactory.ForMethod(m).Equals(target.Decl));
+            string Source(DeclId decl) =>
+                "// SBW-ORIGIN: " + ArtifactId.Create(decl, ArtifactRole.SwiftWrapper).Canonical +
+                "\nenum Helper {\n    static let broken: Missing = fail()\n}\n";
+            WrapperFileProvenance File(string name, DeclId decl) => new(
+                name, Source(decl), Source(decl), null, false)
+            {
+                CompileInputPaths = new[] { Path.Combine(_scratch, name), Path.Combine(_scratch, ".wrapper-build", name) },
+            };
+            var targetFile = "Second.swift";
+            var path = pathMode switch
+            {
+                "own" => Path.Combine(_scratch, targetFile),
+                "staged" => Path.Combine(_scratch, ".wrapper-build", targetFile),
+                "foreign" => Path.Combine("/foreign", targetFile),
+                _ => "/sdk/Foreign.swiftinterface",
+            };
+            var diagnostic = new DiagnosticGroup
+            {
+                Primary = new CompilerDiagnostic
+                {
+                    File = path, Line = 3, Column = 5, Severity = DiagnosticSeverity.Error,
+                    Message = "cannot find type 'Missing' in scope",
+                },
+            };
+            return WrapperCompileDiagnostics.Failed(
+                new[] { new WrapperSliceDiagnostics("simulator", false, new[] { diagnostic }) },
+                new[] { File("First.swift", DeclIdFactory.ForMethod(sibling)), File(targetFile, target.Decl) });
         }
 
         /// <inheritdoc />
@@ -629,7 +752,7 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                     new CSharpCompileDiagnostic(
                         Id: "CS0103",
                         Severity: CSharpDiagnosticSeverity.Error,
-                        FilePath: at.Value.File,
+                        FilePath: _diagnosticPath?.Invoke(at.Value.File) ?? at.Value.File,
                         Line: at.Value.Line,
                         Column: at.Value.Column,
                         EndLine: at.Value.Line,

@@ -52,7 +52,7 @@ public class WrapperRecoveryLoopIntegrationTests
         {
             var groups = SwiftDiagnosticParser.Parse(AttributionFixtures.Stderr(fixture));
             var attributor = new DiagnosticAttributor(
-                new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture)) });
+                new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture), fixture + ".wrapper.swift") });
             _capture = attributor.Attribute(groups);
             _culprits = _capture.Culprits.ToImmutableHashSet();
         }
@@ -105,7 +105,7 @@ public class WrapperRecoveryLoopIntegrationTests
         {
             var groups = SwiftDiagnosticParser.Parse(AttributionFixtures.Stderr(fixture));
             var attributor = new DiagnosticAttributor(
-                new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture)) });
+                new[] { AttributionFixtures.SymbolStep(AttributionFixtures.Source(fixture), fixture + ".wrapper.swift") });
             _capture = attributor.Attribute(groups);
             _planted = planted;
             _candidateGroups = candidates.Select(ImmutableArray.Create).ToList();

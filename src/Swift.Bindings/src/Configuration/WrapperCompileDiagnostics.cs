@@ -128,7 +128,11 @@ public sealed record WrapperFileProvenance(
     string PreStripContent,
     string PostStripContent,
     IReadOnlyList<int>? CleanedLineSources,
-    bool GuardRewrote);
+    bool GuardRewrote)
+{
+    /// <summary>Explicit source/staging aliases recorded by the compiler input producer.</summary>
+    public IReadOnlyList<string> CompileInputPaths { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// The mutable per-slice accumulator a recovery-mode wrapper compile writes into: one
@@ -196,11 +200,15 @@ public sealed class WrapperSliceCollector
     /// </summary>
     public void RecordFileProvenance(
         string fileName, string preStripContent, string postStripContent,
-        IReadOnlyList<int>? cleanedLineSources)
+        IReadOnlyList<int>? cleanedLineSources, params string[] compileInputPaths)
     {
         var guardRewrote = _fileProvenance.TryGetValue(fileName, out var existing) && existing.GuardRewrote;
         _fileProvenance[fileName] = new WrapperFileProvenance(
-            fileName, preStripContent, postStripContent, cleanedLineSources, guardRewrote);
+            fileName, preStripContent, postStripContent, cleanedLineSources, guardRewrote)
+        {
+            CompileInputPaths = (existing?.CompileInputPaths ?? Array.Empty<string>())
+                .Concat(compileInputPaths).Distinct(StringComparer.Ordinal).ToArray(),
+        };
     }
 
     /// <summary>

@@ -24,7 +24,7 @@
 //   4. the healthy siblings survive with names and collision suffixes IDENTICAL to the control run
 //      (the withdrawal must not perturb the surviving surface);
 //   5. no dangling P/Invoke — the hostile names appear only inside `// Unsupported:` comments, never as
-//      a live member/entry point, the final wrapper carries no hostile symbol, and the generator log
+//      a live concrete member/entry point; same-named retained protocol requirements stay valid. The generator log
 //      never emitted SWIFTBIND108;
 //   6. the positive-control type is emitted (the binding is a genuine PARTIAL success, not a shell).
 //
@@ -73,9 +73,20 @@ partial class Build
     // PROJECTED C# member names (properties keep their PascalCased Swift name; a nullary value-returning
     // method like describeTag() picks up the noun→Get prefix → GetDescribeTag). Matched with word
     // boundaries so `Count`/`Tag` hit the standalone property, not the substring inside GetPeekCount/
-    // GetDescribeTag — each name must be independently present.
-    static readonly string[] ResilienceHealthySiblings =
-        { "Tag", "HealthyWidget", "GetDescribeTag", "First", "Count", "GetPeekCount" };
+    // GetDescribeTag — each name must be independently present on its concrete owner, not a proxy.
+    static readonly (string Owner, string Member)[] ResilienceHealthySiblings =
+    {
+        ("KitchenBox", "Tag"), ("KitchenBox", "HealthyWidget"), ("KitchenBox", "GetDescribeTag"),
+        ("KitchenBox", "Transform"), ("KitchenBox", "Adjust"),
+        ("KitchenPair", "First"), ("KitchenPair", "Count"), ("KitchenPair", "GetPeekCount"),
+    };
+
+    const string ResilienceBoxFile = ResilienceModule + ".Types.KitchenBox.cs";
+    const string ResilienceBoxAccessor = "public virtual ResilienceKitchen.KitchenWidget? HostileWidget";
+    const string ResilienceBoxDeclaration = "public partial class KitchenBox<TElement> : ISwiftObject, IDisposable, Swift.Runtime.IExistentialBoxable";
+    const string ResilienceControlBoxDeclaration = "public partial class KitchenBox<TElement> : ISwiftObject, IDisposable, IKitchenValue, Swift.Runtime.IExistentialBoxable";
+    const string ResilienceBoxHostileSymbol = "KitchenBox_hostileWidget";
+    const string ResilienceBoxHostileOrigin = "|KitchenBox|Property|hostileWidget|";
 
     AbsolutePath ResilienceSourceDir => BindingTestsDir / "Sources" / ResilienceModule;
     AbsolutePath ResilienceScratch => RootDirectory / "artifacts" / "resilience-kitchen";
@@ -151,12 +162,16 @@ partial class Build
         //      must resolve to a localized (leaf-api / accessor-group) scope, never a coarser one.
         AssertResilienceWithdrawalsAllLocalized(hostileOut / "binding-report.json");
 
+        // A lost concrete witness must remove its managed conformance without shrinking the
+        // independent protocol's complete reverse capability or another protocol's shared carrier.
+        AssertResilienceProtocolClosure(hostileOut, controlOut);
+
         // (4) Healthy siblings survive with names + collision suffixes identical to the control run.
         AssertResilienceHealthySiblingsStable(hostileOut, controlOut);
 
         // (5) No dangling P/Invoke: hostile names appear only in `// Unsupported:` comments, and the
         //     final wrapper carries no hostile symbol.
-        AssertResilienceNoDanglingWrapper(hostileOut);
+        AssertResilienceNoDanglingWrapper(hostileOut, controlOut);
 
         // (6) The positive control is emitted — the binding is a genuine partial success.
         AssertResiliencePositiveControls(hostileOut);
@@ -270,8 +285,10 @@ partial class Build
 
         foreach (var member in ResilienceHostileMembers)
         {
+            var declaringType = member == "hostileWidget" ? "KitchenBox" : "KitchenPair";
             var row = items.EnumerateArray().FirstOrDefault(it =>
-                it.TryGetProperty("Name", out var n) && n.GetString() == member);
+                it.TryGetProperty("Name", out var n) && n.GetString() == member &&
+                it.TryGetProperty("ContainingType", out var t) && t.GetString() == $"{ResilienceModule}.{declaringType}");
             if (row.ValueKind != JsonValueKind.Object)
                 throw new Exception($"resilience-kitchen: no SkippedItems row for hostile member '{member}' — it must be withdrawn, not silently dropped or (worse) emitted.");
 
@@ -375,8 +392,10 @@ partial class Build
         var hostilePublic = CollectPublicMemberLines(hostileOut);
         var controlPublic = CollectPublicMemberLines(controlOut);
 
-        var onlyInControl = controlPublic.Except(hostilePublic).OrderBy(s => s, StringComparer.Ordinal).ToList();
-        var onlyInHostile = hostilePublic.Except(controlPublic).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        var onlyInControl = controlPublic.Except(hostilePublic)
+            .OrderBy(s => s.File, StringComparer.Ordinal).ThenBy(s => s.Declaration, StringComparer.Ordinal).ToList();
+        var onlyInHostile = hostilePublic.Except(controlPublic)
+            .OrderBy(s => s.File, StringComparer.Ordinal).ThenBy(s => s.Declaration, StringComparer.Ordinal).ToList();
 
         if (onlyInControl.Count > 0 || onlyInHostile.Count > 0)
         {
@@ -394,8 +413,11 @@ partial class Build
         foreach (var (label, surface) in new[] { ("hostile", hostilePublic), ("control", controlPublic) })
         {
             var absent = ResilienceHealthySiblings
-                .Where(name => !surface.Any(line => System.Text.RegularExpressions.Regex.IsMatch(
-                    line, $@"\b{System.Text.RegularExpressions.Regex.Escape(name)}\b")))
+                .Where(sibling => !surface.Any(line =>
+                    line.File == $"{ResilienceModule}.Types.{sibling.Owner}.cs" &&
+                    System.Text.RegularExpressions.Regex.IsMatch(line.Declaration,
+                        $@"\b{System.Text.RegularExpressions.Regex.Escape(sibling.Member)}(?:\s*\(|\s*$|\s*=>)")))
+                .Select(sibling => $"{sibling.Owner}.{sibling.Member}")
                 .ToList();
             if (absent.Count > 0)
                 throw new Exception($"resilience-kitchen: the {label} surface is missing healthy sibling(s) "
@@ -407,11 +429,14 @@ partial class Build
             + "all {Named} named siblings present in both slices.", hostilePublic.Count, ResilienceHealthySiblings.Length);
     }
 
+    static string NormalizeResilienceDeclaration(string line)
+        => System.Text.RegularExpressions.Regex.Replace(line.Trim(), @"\s+", " ");
+
     // Normalized set of every emitted `public` declaration across the module's generated C#. Nested
     // P/Invoke declarations are `internal static partial`, so they are naturally excluded.
-    static HashSet<string> CollectPublicMemberLines(AbsolutePath outputDir)
+    static HashSet<(string File, string Declaration)> CollectPublicMemberLines(AbsolutePath outputDir)
     {
-        var lines = new HashSet<string>(StringComparer.Ordinal);
+        var lines = new HashSet<(string File, string Declaration)>();
         foreach (var file in Directory.EnumerateFiles(outputDir, $"{ResilienceModule}*.cs", SearchOption.TopDirectoryOnly))
         {
             foreach (var raw in File.ReadLines(file))
@@ -419,17 +444,44 @@ partial class Build
                 var trimmed = raw.Trim();
                 if (!trimmed.StartsWith("public ", StringComparison.Ordinal)) continue;
                 // Collapse interior whitespace so cosmetic spacing can't spoof a diff.
-                var normalized = System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s+", " ");
-                lines.Add(normalized);
+                var normalized = NormalizeResilienceDeclaration(trimmed);
+                // The closure assertion independently proves these two deliberate differences:
+                // only the control retains the concrete accessor and its IKitchenValue conformance.
+                // Keep the original whole-surface equality check for every other declaration.
+                if (Path.GetFileName(file) == ResilienceBoxFile)
+                {
+                    if (normalized == ResilienceBoxAccessor)
+                        continue;
+                    if (normalized == ResilienceControlBoxDeclaration)
+                        normalized = ResilienceBoxDeclaration;
+                }
+                // Keep the declaring file in the key: an identically named protocol/proxy member
+                // or member on another type must not cover the loss of a concrete sibling.
+                lines.Add((Path.GetFileName(file), normalized));
             }
         }
         return lines;
     }
 
-    // (5) No dangling wrapper: every emitted mention of a hostile name is a `// Unsupported:` comment,
-    //     and the final wrapper Swift carries no hostile symbol.
-    void AssertResilienceNoDanglingWrapper(AbsolutePath outputDir)
+    // (5) No dangling concrete wrapper; same-named independent protocol requirements remain valid.
+    void AssertResilienceNoDanglingWrapper(AbsolutePath outputDir, AbsolutePath controlOut)
     {
+        // These are the owner spellings used by the negative scans below. Require their actual
+        // source/managed producer forms in the control so a renamed marker cannot turn the scan
+        // into an always-green assertion while same-named protocol members remain legitimate.
+        var controlBox = File.ReadAllLines(controlOut / ResilienceBoxFile).Select(line => line.TrimStart()).ToArray();
+        var controlSwift = File.ReadAllLines(controlOut / $"{ResilienceModule}.Wrapper.swift").Select(line => line.TrimStart()).ToArray();
+        foreach (var accessor in new[] { "Get", "Set" })
+        {
+            var symbol = $"SBW_{accessor}_{ResilienceModule}_{ResilienceBoxHostileSymbol}";
+            if (!controlBox.Any(line => line.StartsWith("[global::System.Runtime.InteropServices.LibraryImport(", StringComparison.Ordinal) &&
+                    line.Contains($"EntryPoint = \"{symbol}\"", StringComparison.Ordinal)) ||
+                !controlSwift.Contains($"@_cdecl(\"{symbol}\")", StringComparer.Ordinal))
+                throw new Exception($"resilience-kitchen: control is missing the concrete {accessor} owner marker '{symbol}' — dangling scan would be unqualified.");
+        }
+        if (!controlSwift.Any(line => line.StartsWith($"// SBW-ORIGIN: {ResilienceModule}{ResilienceBoxHostileOrigin}", StringComparison.Ordinal)))
+            throw new Exception("resilience-kitchen: control is missing the concrete property origin marker — dangling scan would be unqualified.");
+
         foreach (var file in Directory.EnumerateFiles(outputDir, $"{ResilienceModule}*.cs", SearchOption.TopDirectoryOnly))
         {
             foreach (var raw in File.ReadLines(file))
@@ -438,6 +490,12 @@ partial class Build
                 {
                     if (raw.IndexOf(member, StringComparison.OrdinalIgnoreCase) < 0) continue;
                     if (raw.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
+                    // KitchenValue's public requirement and reverse callback remain valid. The
+                    // withdrawn owner is KitchenBox, not every occurrence of the same member name.
+                    if (member == "hostileWidget" &&
+                        Path.GetFileName(file) != ResilienceBoxFile &&
+                        !raw.Contains(ResilienceBoxHostileSymbol, StringComparison.OrdinalIgnoreCase))
+                        continue;
                     throw new Exception($"resilience-kitchen: dangling reference to withdrawn member '{member}' in a live "
                         + $"(non-comment) line of {Path.GetFileName(file)}:\n    {raw.Trim()}");
                 }
@@ -452,11 +510,88 @@ partial class Build
             throw new Exception($"resilience-kitchen: expected wrapper Swift '{wrapper.Name}' is missing — the healthy "
                 + "siblings' @_cdecl wrappers must be re-emitted after the withdrawal.");
         var wrapperText = File.ReadAllText(wrapper);
-        var leaked = ResilienceHostileMembers.Where(m => wrapperText.Contains(m, StringComparison.Ordinal)).ToList();
+        var leaked = ResilienceHostileMembers.Where(m => m == "hostileWidget"
+            ? wrapperText.Contains(ResilienceBoxHostileSymbol, StringComparison.Ordinal) ||
+              wrapperText.Contains(ResilienceBoxHostileOrigin, StringComparison.Ordinal)
+            : wrapperText.Contains(m, StringComparison.Ordinal)).ToList();
         if (leaked.Count > 0)
             throw new Exception($"resilience-kitchen: the final wrapper still carries withdrawn symbol(s): {string.Join(", ", leaked)}. "
                 + "The verify-recover loop must re-emit the wrapper without the withdrawn units.");
-        Log.Information("  ✓ no dangling wrapper: withdrawn members appear only in `// Unsupported:` comments.");
+        Log.Information("  ✓ no dangling wrapper: withdrawn concrete members have no live accessor/entry point; retained protocol requirements remain valid.");
+    }
+
+    // Artifact gate only: actual native reverse calls, retained existential use, nil/some callbacks,
+    // insertion order and repeat generation require a separate native consumer qualification.
+    void AssertResilienceProtocolClosure(AbsolutePath hostileOut, AbsolutePath controlOut)
+    {
+        var expected = new Dictionary<string, string[]>
+        {
+            ["KitchenValue"] = new[] { "func_hostileWidget_get", "func_hostileWidget_set", "func_transform_0", "func_adjust_1" },
+            ["KitchenEcho"] = new[] { "func_echo_0" },
+        };
+        foreach (var (label, directory, hostile) in new[] { ("hostile", hostileOut, true), ("control", controlOut, false) })
+        {
+            var boxLines = File.ReadLines(directory / ResilienceBoxFile)
+                .Select(NormalizeResilienceDeclaration).ToArray();
+            var expectedDeclaration = hostile ? ResilienceBoxDeclaration : ResilienceControlBoxDeclaration;
+            if (boxLines.Count(line => line.StartsWith("public partial class KitchenBox<", StringComparison.Ordinal)) != 1 ||
+                !boxLines.Contains(expectedDeclaration, StringComparer.Ordinal))
+                throw new Exception($"resilience-kitchen: {label} concrete conformance declaration does not match witness availability.");
+            if (boxLines.Count(line => line == ResilienceBoxAccessor) != (hostile ? 0 : 1))
+                throw new Exception($"resilience-kitchen: {label} exact concrete accessor does not match the expected withdrawal.");
+
+            using var report = JsonDocument.Parse(File.ReadAllText(directory / "binding-report.json"));
+            var losses = report.RootElement.GetProperty("SkippedItems").EnumerateArray().Where(row =>
+                row.GetProperty("Reason").GetString() == "ConformanceNotFullyImplementable" &&
+                row.GetProperty("ContainingType").GetString() == $"{ResilienceModule}.KitchenBox").ToArray();
+            if (losses.Length != (hostile ? 1 : 0) || hostile &&
+                (losses[0].GetProperty("Name").GetString() != $"{ResilienceModule}.KitchenValue" ||
+                 !losses[0].GetProperty("Details").GetString()!.Contains("hostileWidget", StringComparison.Ordinal) ||
+                 !losses[0].GetProperty("Details").GetString()!.Contains("EmitterFault", StringComparison.Ordinal)))
+                throw new Exception($"resilience-kitchen: {label} conformance report disagrees with the concrete witness withdrawal.");
+
+            var swift = File.ReadAllText(directory / $"{ResilienceModule}.Wrapper.swift");
+            var managed = File.ReadAllText(directory / $"{ResilienceModule}.cs");
+            foreach (var (protocol, fields) in expected)
+            {
+                string Body(string text, string declaration)
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(text,
+                        System.Text.RegularExpressions.Regex.Escape(declaration) + @"\s*\{(?<body>.*?)\r?\n\s*\}",
+                        System.Text.RegularExpressions.RegexOptions.Singleline);
+                    if (!match.Success) throw new Exception($"resilience-kitchen: {label} missing {declaration}.");
+                    return match.Groups["body"].Value;
+                }
+                var swiftFields = System.Text.RegularExpressions.Regex.Matches(
+                    Body(swift, $"fileprivate struct {protocol}_vtable"), @"var (func_\w+)")
+                    .Select(m => m.Groups[1].Value).ToArray();
+                var managedFields = System.Text.RegularExpressions.Regex.Matches(
+                    Body(managed, $"private struct {protocol}SwiftVTable"), @"public IntPtr (func_\w+);")
+                    .Select(m => m.Groups[1].Value).ToArray();
+                if (!swiftFields.SequenceEqual(fields) || !managedFields.SequenceEqual(fields))
+                    throw new Exception($"resilience-kitchen: {label} {protocol} ordered native/managed vtable fields disagree.");
+                foreach (var field in fields)
+                {
+                    var suffix = field["func_".Length..];
+                    if (!managed.Contains($"Func_{suffix} = &Receive_{suffix}", StringComparison.Ordinal) ||
+                        !managed.Contains($"{field} = (IntPtr)_localVTable.Func_{suffix}", StringComparison.Ordinal) ||
+                        !swift.Contains($".{field}!(", StringComparison.Ordinal))
+                        throw new Exception($"resilience-kitchen: {label} {protocol}.{field} has no matching callback wiring.");
+                }
+                if (!swift.Contains($"extension EveryProtocol: {ResilienceModule}.{protocol}", StringComparison.Ordinal) ||
+                    !swift.Contains($"Set{protocol}_vtable", StringComparison.Ordinal) ||
+                    !managed.Contains($"Set{protocol}_vtable", StringComparison.Ordinal) ||
+                    !swift.Contains($"Get_EveryProtocol_{protocol}_WitnessTable", StringComparison.Ordinal) ||
+                    !managed.Contains($"Get_EveryProtocol_{protocol}_WitnessTable", StringComparison.Ordinal))
+                    throw new Exception($"resilience-kitchen: {label} {protocol} lost its complete reverse capability.");
+            }
+            var dependent = File.ReadAllText(directory / $"{ResilienceModule}.Types.KitchenRetained.cs");
+            if (!dependent.Contains("IKitchenValue", StringComparison.Ordinal) ||
+                !dependent.Contains("KitchenValueProxy", StringComparison.Ordinal) ||
+                !System.Text.RegularExpressions.Regex.IsMatch(dependent, @"public[^\r\n]+\bEvaluate\("))
+                throw new Exception($"resilience-kitchen: {label} lost the retained reverse-capability dependent.");
+        }
+        Log.Information("  ✓ concrete conformance withdrawal agrees with report; both reverse layouts, callbacks, shared carrier and retained dependent survive.");
     }
 
     void AssertResiliencePositiveControls(AbsolutePath outputDir)
