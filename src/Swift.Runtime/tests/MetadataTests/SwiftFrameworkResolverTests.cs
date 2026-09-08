@@ -10,6 +10,14 @@ namespace BindingsGeneration.Tests;
 
 public class SwiftFrameworkResolverTests
 {
+    [Fact]
+    public void DuplicateRuntimeRegistrationPreservesItsInstalledAuthority()
+    {
+        Assert.True(SwiftFrameworkResolver.RuntimeAssemblyResolverOwned);
+        SwiftFrameworkResolver.RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
+        Assert.True(SwiftFrameworkResolver.RuntimeAssemblyResolverOwned);
+    }
+
     // A well-known absolute dyld-shared-cache path that is always loadable on
     // macOS (and the iOS/tvOS simulators) without any xcframework wiring. The
     // file itself is not on disk post-BigSur — dyld resolves it out of the

@@ -41,31 +41,8 @@ public class EscapingClosureLifetimeTests : TestBase
 {
     public EscapingClosureLifetimeTests(TestResults results) : base(results) { }
 
-    private const int GcCycles = 6;
     private const int BulkIterations = 25;
     private const int MaxResidualAlive = 5;
-
-    private static void ForceGc()
-    {
-        var worker = new System.Threading.Thread(ForceGcWorker) { IsBackground = true };
-        worker.Start();
-        worker.Join();
-    }
-
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-    private static void ForceGcWorker()
-    {
-        var scratch = new object[256];
-        for (int i = 0; i < scratch.Length; i++)
-            scratch[i] = new object();
-        GC.KeepAlive(scratch);
-
-        for (int i = 0; i < GcCycles; i++)
-        {
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
-            GC.WaitForPendingFinalizers();
-        }
-    }
 
     /// <summary>
     /// Sanity check: the stored closure must dispatch correctly across the
@@ -95,22 +72,11 @@ public class EscapingClosureLifetimeTests : TestBase
     /// the <see cref="WeakReference"/> stayed alive for the lifetime of the
     /// process because the <c>GCHandle</c> leaked.
     /// </summary>
-    [SkipOnSimulator("N-3 owner-token box lives in the SwiftBindingsRuntime native framework. " +
-        "RuntimeTestsApp sets IncludeSwiftBindingsRuntimeNative=false (to avoid the " +
-        "InstallNameTool .dylib.tmp rename failure on simulator), so on " +
-        "simulator the wrapper falls back to _SBClosureCtxFallback — a no-deinit class " +
-        "that intentionally preserves the prior leak behaviour (see ClosureContextHelperEmitter.cs " +
-        "lines 55-60 and SwiftClosureContext.cs catch DllNotFoundException). The device " +
-        "build loads SwiftBindingsRuntime.xcframework as a NativeReference, so the " +
-        "real _SBClosureCtx deinit fires and this assertion holds there.")]
     public void TestClearedClosureReleasesDelegateTarget()
     {
-        var weakTarget = SetCallbackAndReturnWeakRef();
+        var weakTarget = RunOnFinishedThread(SetCallbackAndReturnWeakRef);
 
-        // Caller's frame still holds the harness via the helper's return path?
-        // No — the helper disposes the harness so Swift drops the closure, then
-        // returns only the WeakReference. Worker GC scrubs the stack.
-        ForceGc();
+        ForceGCThorough();
 
         AssertTrue(
             !weakTarget.IsAlive,
@@ -149,18 +115,17 @@ public class EscapingClosureLifetimeTests : TestBase
     /// delegate targets. Pre-fix the count grew linearly; post-fix the count
     /// must collapse to a small constant (conservative-stack-scan noise floor).
     /// </summary>
-    [SkipOnSimulator("N-3 owner-token box lives in the SwiftBindingsRuntime native framework; " +
-        "RuntimeTestsApp omits the dylib via IncludeSwiftBindingsRuntimeNative=false, so " +
-        "the wrapper's no-deinit _SBClosureCtxFallback preserves the prior leak on " +
-        "simulator by design. Device build loads the framework via NativeReference and " +
-        "this assertion holds. Same root cause as TestClearedClosureReleasesDelegateTarget.")]
     public void TestBulkSetClearDoesNotAccumulateTargets()
     {
-        var weaks = new List<WeakReference>(BulkIterations);
-        for (int i = 0; i < BulkIterations; i++)
-            weaks.Add(SetClearRound(i));
+        var weaks = RunOnFinishedThread(() =>
+        {
+            var observations = new List<WeakReference>(BulkIterations);
+            for (int i = 0; i < BulkIterations; i++)
+                observations.Add(SetClearRound(i));
+            return observations;
+        });
 
-        ForceGc();
+        ForceGCThorough();
 
         int alive = 0;
         foreach (var w in weaks)

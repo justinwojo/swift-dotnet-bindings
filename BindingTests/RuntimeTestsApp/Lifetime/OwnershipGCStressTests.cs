@@ -267,8 +267,7 @@ public class OwnershipGCStressTests : TestBase
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("SafeHandle/refcount lifetime stress skipped (run with --lifetime to enable)");
-            return;
+            throw new TestSkippedException("SafeHandle/refcount lifetime stress requires --lifetime");
         }
 
         // Reset Swift's allocation counter so we can assert leak-free
@@ -373,13 +372,11 @@ public class OwnershipGCStressTests : TestBase
     /// adapter ARC-releases.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_EphemeralRepeatCall()
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Closure lifetime ephemeral stress skipped (run with --lifetime to enable)");
-            return;
+            throw new TestSkippedException("Closure lifetime ephemeral stress requires --lifetime");
         }
 
         LifetimeTracker.Reset();
@@ -392,47 +389,22 @@ public class OwnershipGCStressTests : TestBase
         // After the Swift function returns, the adapter ARC-releases →
         // _SBClosureCtx.deinit → GCHandle.Free → delegate eligible →
         // SafeHandle finalizes → Swift _release → tracker dealloc++.
-        for (int i = 0; i < Iterations; i++)
+        RunOnFinishedThread(() =>
         {
-            var captured = TestLibFunctions.CreateTrackedObject(i);
-
-            // Plain primitive closure — exercises the no-heap-alloc path.
-            var resultInt = TestLibFunctions.CallWithInt32(x =>
+            for (int i = 0; i < Iterations; i++)
             {
-                _ = captured.IsAlive();
-                return x + 1;
-            });
-            AssertEqual(43, resultInt, $"iter {i}: CallWithInt32 returns 43");
+                InvokeEphemeralClosureRound(i);
 
-            // Void closure — exercises the no-arg path.
-            var voidCalled = false;
-            TestLibFunctions.CallVoidCallback(() =>
-            {
-                _ = captured.IsAlive();
-                voidCalled = true;
-            });
-            AssertTrue(voidCalled, $"iter {i}: CallVoidCallback invoked");
-
-            // Drop the local reference. Without the fix, the C# delegate
-            // would still be rooted via the leaked GCHandle, which would
-            // root `captured` and keep tracker.live ticking up.
-            captured = null!;
-
-            if (i % GCInterval == 0)
-            {
-                ForceGC();
-                GC.WaitForPendingFinalizers();
-                ForceGC();
+                if (i % GCInterval == 0)
+                {
+                    ForceGC();
+                    GC.WaitForPendingFinalizers();
+                    ForceGC();
+                }
             }
-        }
+        });
 
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
-        Thread.Sleep(100);
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
+        LifetimeTracker.AssertNoLeaks("Ephemeral closure stress after the allocating thread exits");
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
@@ -454,13 +426,11 @@ public class OwnershipGCStressTests : TestBase
     /// allocation counters that we don't track today.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_HeapAllocShapeMatrix()
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Heap-alloc shape matrix skipped (run with --lifetime to enable)");
-            return;
+            throw new TestSkippedException("Heap-alloc shape matrix requires --lifetime");
         }
 
         LifetimeTracker.Reset();
@@ -468,74 +438,22 @@ public class OwnershipGCStressTests : TestBase
         const int Iterations = 500;
         const int GCInterval = 50;
 
-        for (int i = 0; i < Iterations; i++)
+        RunOnFinishedThread(() =>
         {
-            // Frozen struct → blittableFrozenHeapArgs path (Swift defer-deallocate).
-            var capFrozen = TestLibFunctions.CreateTrackedObject(i * 10 + 0);
-            var rFrozen = TestLibFunctions.CallWithFrozenStruct(p =>
+            for (int i = 0; i < Iterations; i++)
             {
-                _ = capFrozen.IsAlive();
-                return p.X + p.Y;
-            });
-            AssertEqual(7.0, rFrozen, $"iter {i}: frozen struct closure round-trip");
-            capFrozen = null!;
+                InvokeClosureShapeRound(i);
 
-            // Non-frozen struct → heapAllocArgs (ARC-bearing, ownership transfer).
-            var capNonFrozen = TestLibFunctions.CreateTrackedObject(i * 10 + 1);
-            var rNonFrozen = TestLibFunctions.CallWithNonFrozenStruct(info =>
-            {
-                _ = capNonFrozen.IsAlive();
-                return info.Value;
-            });
-            AssertEqual(7, rNonFrozen, $"iter {i}: non-frozen struct closure round-trip");
-            capNonFrozen = null!;
-
-            // Optional<Int32> → primitiveOptHeapArgs path.
-            var capOptInt = TestLibFunctions.CreateTrackedObject(i * 10 + 2);
-            var rOptInt = TestLibFunctions.CallWithOptionalInt(x =>
-            {
-                _ = capOptInt.IsAlive();
-                return x.HasValue ? x.Value * 2 : -1;
-            });
-            AssertEqual(84, rOptInt, $"iter {i}: Optional<Int32> closure round-trip");
-            capOptInt = null!;
-
-            // Optional<Color> simple enum.
-            var capOptEnum = TestLibFunctions.CreateTrackedObject(i * 10 + 3);
-            var rOptEnum = TestLibFunctions.CallWithOptionalEnum(c =>
-            {
-                _ = capOptEnum.IsAlive();
-                return c.HasValue ? (int)c.Value : -1;
-            });
-            AssertTrue(rOptEnum >= 0, $"iter {i}: Optional<Color> closure invoked");
-            capOptEnum = null!;
-
-            // Optional<FrozenPoint> — exercises blittableFrozenHeapArgs +
-            // optional pointer ABI.
-            var capOptFrozen = TestLibFunctions.CreateTrackedObject(i * 10 + 4);
-            var rOptFrozen = TestLibFunctions.CallWithOptionalFrozenStruct(p =>
-            {
-                _ = capOptFrozen.IsAlive();
-                return p.HasValue ? p.Value.X + p.Value.Y : -1.0;
-            });
-            AssertEqual(7.0, rOptFrozen, $"iter {i}: Optional<FrozenPoint> closure round-trip");
-            capOptFrozen = null!;
-
-            if (i % GCInterval == 0)
-            {
-                ForceGC();
-                GC.WaitForPendingFinalizers();
-                ForceGC();
+                if (i % GCInterval == 0)
+                {
+                    ForceGC();
+                    GC.WaitForPendingFinalizers();
+                    ForceGC();
+                }
             }
-        }
+        });
 
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
-        Thread.Sleep(100);
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
+        LifetimeTracker.AssertNoLeaks("Closure shape matrix after the allocating thread exits");
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
@@ -552,13 +470,11 @@ public class OwnershipGCStressTests : TestBase
     /// closure storage and free the GCHandle rooting the prior C# delegate.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_PropertySetterReplace()
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("Property-setter replace skipped (run with --lifetime to enable)");
-            return;
+            throw new TestSkippedException("Property-setter replace requires --lifetime");
         }
 
         LifetimeTracker.Reset();
@@ -568,46 +484,35 @@ public class OwnershipGCStressTests : TestBase
 
         using var holder = new ClosureHolder();
 
-        for (int i = 0; i < Iterations; i++)
+        RunOnFinishedThread(() =>
         {
-            // The closure captures `captured` via the C# compiler-generated
-            // displayclass; nulling the local *would* zero that displayclass
-            // field and break the synchronous TriggerChange invocation below.
-            // Don't null the local — it goes out of scope at end of iteration,
-            // and the only path keeping the previous iteration's displayclass
-            // alive is Swift's _SBClosureCtx box (via the GCHandle). When the
-            // next iteration replaces holder.OnValueChanged, the old box is
-            // ARC-released → destroy hook fires → GCHandle freed → displayclass
-            // unreachable → SafeHandle finalizes → tracker dealloc++.
-            var captured = TestLibFunctions.CreateTrackedObject(i);
-            holder.OnValueChanged = v =>
+            for (int i = 0; i < Iterations; i++)
             {
-                _ = captured.IsAlive();
-            };
+                // Never clear the captured field: a leaked delegate must keep
+                // rooting this object. End the allocating thread before the
+                // final checks so its stack cannot supply an unrelated root.
+                var captured = TestLibFunctions.CreateTrackedObject(i);
+                holder.OnValueChanged = v =>
+                {
+                    _ = captured.IsAlive();
+                };
+                holder.TriggerChange(i);
 
-            // Trigger the closure once to verify the new assignment is live
-            // (defends against silent overwrites that drop the closure on
-            // the floor without freeing).
-            holder.TriggerChange(i);
-
-            if (i % GCInterval == 0)
-            {
-                ForceGC();
-                GC.WaitForPendingFinalizers();
-                ForceGC();
+                if (i % GCInterval == 0)
+                {
+                    ForceGC();
+                    GC.WaitForPendingFinalizers();
+                    ForceGC();
+                }
             }
-        }
+        });
 
         // Mid-run sanity: the property still holds the LAST closure; that
         // closure roots the LAST captured TrackedObject. So tracker.live
-        // should be exactly 1 after a full GC pass.
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
-        Thread.Sleep(100);
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
+        // should be exactly 1 after a full GC pass. Collect even if the raw
+        // count is already one, so an unfinalized wrapper cannot fake ownership.
+        ForceGCThorough();
+        LifetimeTracker.AssertLiveCount(1, "Property-setter retains only the last capture");
 
         var midStats = LifetimeTracker.GetStats();
         TestLogger.Info(
@@ -618,13 +523,7 @@ public class OwnershipGCStressTests : TestBase
         // Clearing the property releases the final closure box.
         holder.OnValueChanged = null;
 
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
-        Thread.Sleep(100);
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
+        LifetimeTracker.AssertNoLeaks("Property-setter after clearing the final closure");
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
@@ -639,51 +538,33 @@ public class OwnershipGCStressTests : TestBase
     /// across rapid GC churn.
     ///
     /// </summary>
-    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_GCPressureDuringCall()
     {
         if (!TestRunFlags.Lifetime)
         {
-            TestLogger.Info("GC-pressure-during-call skipped (run with --lifetime to enable)");
-            return;
+            throw new TestSkippedException("GC-pressure-during-call requires --lifetime");
         }
 
         LifetimeTracker.Reset();
 
         const int Iterations = 500;
 
-        for (int i = 0; i < Iterations; i++)
+        RunOnFinishedThread(() =>
         {
-            var captured = TestLibFunctions.CreateTrackedObject(i);
-
-            // CallMultipleTimes invokes the closure N times inside Swift
-            // before returning — exercises the case where the closure is
-            // alive across multiple invocations, with C# managed allocations
-            // (the int boxing implicit in lambda capture) in between.
-            var sum = TestLibFunctions.CallMultipleTimes(x =>
+            for (int i = 0; i < Iterations; i++)
             {
-                _ = captured.IsAlive();
-                return x;
-            }, 5);
-            AssertEqual(15, sum, $"iter {i}: CallMultipleTimes(5) → 1+2+3+4+5 = 15");
+                InvokeRepeatedClosureRound(i);
 
-            captured = null!;
+                // Keep pressure between calls, then terminate the allocating
+                // thread before asserting that only native roots can remain.
+                ForceGC();
+                GC.WaitForPendingFinalizers();
+                _ = new byte[16 * 1024];
+                ForceGC();
+            }
+        });
 
-            // Concentrate GC pressure in the same iteration window the
-            // closure adapter is releasing on the Swift side.
-            ForceGC();
-            GC.WaitForPendingFinalizers();
-            _ = new byte[16 * 1024]; // burn the gen-0 budget
-            ForceGC();
-        }
-
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
-        Thread.Sleep(100);
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
+        LifetimeTracker.AssertNoLeaks("Closure GC pressure after the allocating thread exits");
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
@@ -693,4 +574,97 @@ public class OwnershipGCStressTests : TestBase
     }
 
     #endregion
+
+    // Separate frames prevent clearing a captured field to hide a leaked delegate,
+    // while letting each invocation return before the caller applies GC pressure.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void InvokeEphemeralClosureRound(int i)
+    {
+        var captured = TestLibFunctions.CreateTrackedObject(i);
+
+        // Plain primitive closure — exercises the no-heap-alloc path.
+        var resultInt = TestLibFunctions.CallWithInt32(x =>
+        {
+            _ = captured.IsAlive();
+            return x + 1;
+        });
+        AssertEqual(43, resultInt, $"iter {i}: CallWithInt32 returns 43");
+
+        // Void closure — exercises the no-arg path.
+        var voidCalled = false;
+        TestLibFunctions.CallVoidCallback(() =>
+        {
+            _ = captured.IsAlive();
+            voidCalled = true;
+        });
+        AssertTrue(voidCalled, $"iter {i}: CallVoidCallback invoked");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void InvokeClosureShapeRound(int i)
+    {
+        // Frozen struct → blittableFrozenHeapArgs path (Swift defer-deallocate).
+        var capFrozen = TestLibFunctions.CreateTrackedObject(i * 10 + 0);
+        var rFrozen = TestLibFunctions.CallWithFrozenStruct(p =>
+        {
+            _ = capFrozen.IsAlive();
+            return p.X + p.Y;
+        });
+        AssertEqual(7.0, rFrozen, $"iter {i}: frozen struct closure round-trip");
+
+        // Non-frozen struct → heapAllocArgs (ARC-bearing, ownership transfer).
+        var capNonFrozen = TestLibFunctions.CreateTrackedObject(i * 10 + 1);
+        var rNonFrozen = TestLibFunctions.CallWithNonFrozenStruct(info =>
+        {
+            _ = capNonFrozen.IsAlive();
+            return info.Value;
+        });
+        AssertEqual(7, rNonFrozen, $"iter {i}: non-frozen struct closure round-trip");
+
+        // Optional<Int32> → primitiveOptHeapArgs path.
+        var capOptInt = TestLibFunctions.CreateTrackedObject(i * 10 + 2);
+        var rOptInt = TestLibFunctions.CallWithOptionalInt(x =>
+        {
+            _ = capOptInt.IsAlive();
+            return x.HasValue ? x.Value * 2 : -1;
+        });
+        AssertEqual(84, rOptInt, $"iter {i}: Optional<Int32> closure round-trip");
+
+        // Optional<Color> simple enum.
+        var capOptEnum = TestLibFunctions.CreateTrackedObject(i * 10 + 3);
+        var rOptEnum = TestLibFunctions.CallWithOptionalEnum(c =>
+        {
+            _ = capOptEnum.IsAlive();
+            return c.HasValue ? (int)c.Value : -1;
+        });
+        AssertTrue(rOptEnum >= 0, $"iter {i}: Optional<Color> closure invoked");
+
+        // Optional<FrozenPoint> — exercises blittableFrozenHeapArgs +
+        // optional pointer ABI.
+        var capOptFrozen = TestLibFunctions.CreateTrackedObject(i * 10 + 4);
+        var rOptFrozen = TestLibFunctions.CallWithOptionalFrozenStruct(p =>
+        {
+            _ = capOptFrozen.IsAlive();
+            return p.HasValue ? p.Value.X + p.Value.Y : -1.0;
+        });
+        AssertEqual(7.0, rOptFrozen, $"iter {i}: Optional<FrozenPoint> closure round-trip");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void InvokeRepeatedClosureRound(int i)
+    {
+        var captured = TestLibFunctions.CreateTrackedObject(i);
+
+        // CallMultipleTimes invokes the closure N times inside Swift
+        // before returning — exercises the case where the closure is
+        // alive across multiple invocations, with C# managed allocations
+        // (the int boxing implicit in lambda capture) in between.
+        var sum = TestLibFunctions.CallMultipleTimes(x =>
+        {
+            _ = captured.IsAlive();
+            return x;
+        }, 5);
+        AssertEqual(15, sum, $"iter {i}: CallMultipleTimes(5) → 1+2+3+4+5 = 15");
+    }
+
 }

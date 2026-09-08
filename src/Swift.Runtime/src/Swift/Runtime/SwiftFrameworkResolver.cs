@@ -36,7 +36,7 @@ public static class SwiftFrameworkResolver
         SwiftExitGuard.EnsureInitialized();
 
         RegisterAlcFallback();
-        RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
+        RuntimeAssemblyResolverOwned = TryRegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
 
         // Wire the C# free trampoline that fires from Swift's _SBClosureCtx deinit
         // (defined in the SwiftBindingsRuntime native framework). Must run before any wrapper
@@ -109,18 +109,28 @@ public static class SwiftFrameworkResolver
     /// gets framework-path resolution via the AssemblyLoadContext fallback event.
     /// </summary>
     public static void RegisterForAssembly(Assembly assembly)
+        => TryRegisterForAssembly(assembly);
+
+    // An occupied Swift.Runtime resolver remains an existing caller-owned
+    // contract. Closure registration must use P/Invoke on that route rather
+    // than bypassing the installed resolver with our explicit loading policy.
+    internal static bool RuntimeAssemblyResolverOwned { get; private set; }
+
+    private static bool TryRegisterForAssembly(Assembly assembly)
     {
         RegisterAlcFallback();
 
         try
         {
             NativeLibrary.SetDllImportResolver(assembly, ResolveSwiftFramework);
+            return true;
         }
         catch (InvalidOperationException)
         {
             // A resolver is already registered for this assembly.
             // Expected when binding .cs is compiled into consumer assembly
             // (ModuleInitializer fires before consumer's Main).
+            return false;
         }
     }
 
@@ -255,9 +265,9 @@ public static class SwiftFrameworkResolver
     /// so an Apple *system* framework resolves on a physical device.
     ///
     /// Uses the resolver-free <see cref="NativeLibrary.TryLoad(string, out IntPtr)"/> overload
-    /// (no <see cref="Assembly"/> argument) on purpose: <see cref="ResolveSwiftFramework"/> is
-    /// registered as a per-assembly DllImport resolver, so the assembly-aware overload would
-    /// re-enter it and recurse. Extracting the bare name first is essential -- applying
+    /// (no <see cref="Assembly"/> argument) for each explicit candidate. The assembly-aware
+    /// overload does not invoke a per-assembly DllImport resolver, but can involve the
+    /// ALC unmanaged-resolution fallback registered above. Extracting the bare name first is essential -- applying
     /// <see cref="GetSearchPaths"/> to a raw <c>@rpath/Foo.framework/Foo</c> would produce
     /// double-<c>@rpath</c> nonsense and never reach the system path.
     /// </summary>

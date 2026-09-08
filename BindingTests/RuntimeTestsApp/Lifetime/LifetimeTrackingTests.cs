@@ -153,27 +153,14 @@ public class LifetimeTrackingTests : TestBase
     /// `SwiftClosureContext.EnsureRegistered`. The GCHandle is freed exactly
     /// once when Swift releases the closure.
     /// </summary>
-    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestEphemeralClosureReleasesCapturedSafeHandle()
     {
         LifetimeTracker.Reset();
 
-        // The closure-and-invoke is intentionally inside a helper that takes the
-        // TrackedObject as a parameter. C# lambdas capture variable slots, so if
-        // we created `captured` here and then set it to null, the display class
-        // field would null out and the TrackedObject would be collectable even
-        // pre-fix — invalidating the regression. Routing through a helper means
-        // the only path to the TrackedObject is via the delegate's display class,
-        // which is itself only rooted by the GCHandle.
-        InvokeEphemeralEscapingClosure(101, expectedSum: 42 + 101);
-
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
-        Thread.Sleep(50);
-        ForceGC();
-        GC.WaitForPendingFinalizers();
-        ForceGC();
+        // Allocate on a thread that exits before collection. Do not clear the
+        // delegate's captured field: a leaked GCHandle must still root the object.
+        RunOnFinishedThread(() => InvokeEphemeralEscapingClosure(101, expectedSum: 42 + 101));
+        LifetimeTracker.AssertNoLeaks("Ephemeral closure capture after the allocating thread exits");
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info(
@@ -196,11 +183,8 @@ public class LifetimeTrackingTests : TestBase
             return x + captured.ObjectId;
         });
         AssertEqual(expectedSum, result, "Closure invocation includes captured ObjectId");
-        // Do not null `captured`: see note in the caller. When this method
-        // returns the local slot goes away on its own; the delegate's display
-        // class still holds the TrackedObject and is rooted only by the
-        // GCHandle (post-fix: freed) or by Swift retaining the closure
-        // context (escaping case).
+        // Keep the captured field intact. The allocating thread will exit;
+        // a leaked GCHandle would still root this delegate and its TrackedObject.
     }
 
     /// <summary>

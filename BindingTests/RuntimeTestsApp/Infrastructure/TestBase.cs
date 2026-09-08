@@ -160,6 +160,11 @@ public abstract class TestBase
             stopwatch.Stop();
             Results.Pass(testName, stopwatch.Elapsed);
         }
+        catch (TestSkippedException ex)
+        {
+            stopwatch.Stop();
+            Results.Skip(testName, ex.Message);
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -178,6 +183,8 @@ public abstract class TestBase
         var testName = $"{TestClassName}.{method.Name}";
         var passCount = 0;
         var failCount = 0;
+        var skipCount = 0;
+        string? skipReason = null;
         string? lastError = null;
         var totalElapsed = TimeSpan.Zero;
 
@@ -194,6 +201,14 @@ public abstract class TestBase
                 passCount++;
                 TestLogger.Debug($"  Run {i + 1}/{runs}: PASS ({stopwatch.Elapsed.TotalMilliseconds:F0}ms)");
             }
+            catch (TestSkippedException ex)
+            {
+                stopwatch.Stop();
+                totalElapsed += stopwatch.Elapsed;
+                skipCount++;
+                skipReason = ex.Message;
+                TestLogger.Debug($"  Run {i + 1}/{runs}: SKIP - {skipReason}");
+            }
             catch (Exception ex)
             {
                 stopwatch.Stop();
@@ -204,7 +219,11 @@ public abstract class TestBase
             }
         }
 
-        if (passCount == runs)
+        if (skipCount == runs)
+        {
+            Results.Skip(testName, skipReason ?? "Test prerequisite not enabled");
+        }
+        else if (passCount == runs)
         {
             // All runs passed — stable pass
             Results.Pass(testName, totalElapsed);
@@ -217,7 +236,7 @@ public abstract class TestBase
         else
         {
             // Inconsistent results — flaky test
-            Results.Fail(testName, $"FLAKY: passed {passCount}/{runs}, failed {failCount}/{runs} - {lastError}", totalElapsed);
+            Results.Fail(testName, $"FLAKY: passed {passCount}/{runs}, failed {failCount}/{runs}, skipped {skipCount}/{runs} - {lastError ?? skipReason}", totalElapsed);
         }
     }
 
@@ -306,20 +325,46 @@ public abstract class TestBase
     }
 
     /// <summary>
-    /// Forces collection from a throwaway worker thread, scrubbing its own stack
-    /// first, then running several blocking+compacting full collections with a
-    /// finalizer drain between each. Use this (not <see cref="ForceGC"/>) when a
-    /// test asserts that a transient object was actually collected: under Mono's
-    /// conservative stack scan a stale reference to the object can linger in the
-    /// test thread's frame/registers and falsely keep it alive. Running the GC on
-    /// a separate thread whose stack never touched the object defeats that.
+    /// Runs allocation and closure work on a thread that has exited before returning.
+    /// For collectability tests, allocate targets inside <paramref name="work"/> and
+    /// return only weak references or other observations that do not root the targets.
+    /// This removes the allocating thread's conservative stack roots; a leaked
+    /// GCHandle or a live native owner still roots the target and fails collection.
+    /// The work must finish all asynchronous operations before returning.
+    /// </summary>
+    protected static T RunOnFinishedThread<T>(Func<T> work)
+    {
+        T result = default!;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { result = work(); }
+            catch (Exception ex)
+            {
+                failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+            }
+        });
+        thread.Start();
+        thread.Join();
+        failure?.Throw();
+        return result;
+    }
+
+    protected static void RunOnFinishedThread(Action work)
+        => RunOnFinishedThread(() => { work(); return true; });
+
+    /// <summary>
+    /// Runs several blocking, compacting collections with a finalizer drain between
+    /// each on a collector thread. This does not remove conservative roots from any
+    /// other live thread. Collectability tests can use <see cref="RunOnFinishedThread{T}"/>
+    /// to finish their allocating thread before collecting.
     /// </summary>
     protected static void ForceGCThorough(int cycles = 6)
     {
         var worker = new System.Threading.Thread(() =>
         {
-            // Scrub the worker's own stack with a throwaway allocation loop so a
-            // leftover managed pointer cannot pose as a conservative root.
+            // Apply allocation pressure on the collector's stack. This does not
+            // overwrite stale slots on the calling thread's stack.
             var scratch = new object[256];
             for (int i = 0; i < scratch.Length; i++)
                 scratch[i] = new object();
@@ -423,4 +468,10 @@ public abstract class TestBase
 public class AssertionException : Exception
 {
     public AssertionException(string message) : base(message) { }
+}
+
+/// <summary>Reports a test prerequisite that was not enabled for this run.</summary>
+internal sealed class TestSkippedException : Exception
+{
+    public TestSkippedException(string reason) : base(reason) { }
 }

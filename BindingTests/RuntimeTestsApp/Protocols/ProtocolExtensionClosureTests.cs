@@ -47,23 +47,14 @@ public class ProtocolExtensionClosureTests : TestBase
     /// because the per-call GCHandle is freed by the `_SBClosureCtx` deinit
     /// upcall after the wrapper returns.
     /// </summary>
-    [SkipOnSimulator("Requires the SwiftBindingsRuntime native framework; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestEscapingVoidReleasesCapturedTrackedObject()
     {
         LifetimeTracker.Reset();
 
         using var seed = new PExtClosureSeed(seed: 0);
 
-        // Capture in a separate frame that is popped before collecting: nulling a local is not
-        // enough under a conservative stack scan, which reads the raw slot rather than the
-        // variable. This is the same shape AutoWrappedDelegateTests uses for its weak-slot probe.
-        CaptureTrackedObjectInEscapingClosure(seed);
-
-        // Collect from a worker thread whose stack never held the object. NativeAOT scans
-        // precisely, so plain GC.Collect() sufficed there; the device Mono full-AOT lane scans
-        // the stack conservatively and a stale pointer left in this thread's frame poses as a
-        // root, reporting a leak the bindings did not cause.
-        ForceGCThorough();
+        RunOnFinishedThread(() => CaptureTrackedObjectInEscapingClosure(seed));
+        LifetimeTracker.AssertNoLeaks("Protocol-extension capture after the allocating thread exits");
 
         var (alloc, dealloc, live) = LifetimeTracker.GetStats();
         TestLogger.Info($"PExtCB closure capture lifetime: alloc={alloc} dealloc={dealloc} live={live}");
@@ -154,9 +145,9 @@ public class ProtocolExtensionClosureTests : TestBase
 
     /// <summary>
     /// Creates the tracked object, captures it in the escaping delegate, runs the bridge, and
-    /// returns — so on return no live frame references the object. The closure delegate's
-    /// GCHandle is then the only remaining root path to it, and only for as long as the
-    /// <c>_SBClosureCtx</c> deinit upcall has not yet freed that handle.
+    /// returns on a dedicated thread that the caller joins before collecting. The
+    /// delegate's captured field stays intact, so a leaked GCHandle still roots it
+    /// after the allocating thread exits.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void CaptureTrackedObjectInEscapingClosure(PExtClosureSeed seed)

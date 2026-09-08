@@ -14,8 +14,10 @@ namespace BindingsGeneration;
 /// <remarks>
 /// <para>
 /// Symbol resolution uses <c>dlsym(RTLD_DEFAULT, ...)</c>. Swift.Runtime's
-/// <c>[ModuleInitializer]</c> runs before any wrapper P/Invoke fires (the
-/// runtime assembly is loaded first), so the symbol is always resolvable.
+/// <c>[ModuleInitializer]</c> registers the destroy callback and makes the selected
+/// runtime image process-visible before wrapper P/Invokes can initialize this cache.
+/// A missing native factory retains the fallback below; registration visibility
+/// failures are reported separately by Swift.Runtime.
 /// We intentionally do NOT use the deprecated <c>-undefined dynamic_lookup</c>
 /// linker flag — the symbol is a real export of the runtime dylib, looked
 /// up at runtime once and cached in a <c>fileprivate let</c>.
@@ -48,16 +50,17 @@ public static class ClosureContextHelperEmitter
 
         // The closure that initializes _sbNewClosureContextSymbol runs lazily on
         // first access. By that point Swift.Runtime's [ModuleInitializer] has
-        // typically dlopen'd / NativeLibrary.TryLoad'd SwiftBindingsRuntime
-        // and `dlsym(RTLD_DEFAULT, ...)` resolves the symbol from the in-memory
-        // module. RTLD_DEFAULT is dlopen(nil, 0).
+        // registered the destroy callback and promoted its selected native image
+        // to the process symbol namespace. Merely loading an image LOCAL does
+        // not make its exports visible here. On Darwin, dlopen(nil, 0) queries
+        // the same namespace as RTLD_DEFAULT.
         //
-        // When the runtime dylib is intentionally absent (e.g.
-        // `IncludeSwiftBindingsRuntimeNative=false` in BindingTests' simulator
-        // configuration), dlsym returns nil. We fall back to a fileprivate Swift
+        // When the native runtime is absent, dlsym returns nil. The BindingTests
+        // harness injects it after app build, so its ProjectReference opt-out
+        // alone does not imply absence. We fall back to a fileprivate Swift
         // class with no destroy hook — the closure-context owner-token degrades
         // gracefully to the prior leak behaviour, matching the C# side's
-        // catch-DllNotFoundException fallback in SwiftClosureContext.cs.
+        // unavailable-native-API fallback in SwiftClosureContext.cs.
         swiftWriter.WriteLines("""
             // MARK: - Escaping-closure GCHandle owner token
             //
@@ -71,8 +74,8 @@ public static class ClosureContextHelperEmitter
             // The factory symbol is exported by the SwiftBindingsRuntime native framework
             // and resolved here via dlsym. We deliberately do NOT use
             // `-undefined dynamic_lookup` — this is a runtime symbol lookup against
-            // a real exported symbol of an already-loaded dylib. When the dylib is
-            // intentionally absent (BindingTests simulator), the helper falls back
+            // a real exported symbol of the runtime image made process-visible at
+            // managed callback registration. When the native runtime is absent, this falls back
             // to a no-destroy-hook box — same leak behaviour as 0.10.0 and earlier.
 
             fileprivate final class _SBClosureCtxFallback {
