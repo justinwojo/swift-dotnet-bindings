@@ -32,13 +32,13 @@ For each issue file:
 3. **Re-check the Xcode / iOS SDK version** in the repro environment (the iOS Simulator runtime version drives some of the symptoms).
 4. **Replace `justinwojo/swift-interop-repro`** with the actual published repo URL if different.
 5. **Issue 2 only:** confirm the source-pointer line numbers (`marshal.c:3700-3735`, `SwiftPhysicalLowering.cs:~215`) still match the current `dotnet/runtime` `main` branch — they tend to drift between releases.
-6. **Issue 3 only:** confirm `nm -g libswiftCore.dylib | grep Sh6insert` still resolves to `_$sSh6insertySb8inserted_x17memberAfterInserttxnF` (the Swift stdlib symbol can be re-mangled across major Swift versions, though this is rare).
+6. **Issue 3 only:** the filing now turns on the register mechanism, not the `Set.insert` symbol, so confirm the register evidence still reproduces — disassemble the `wrapper_managed_to_native_*` symbols out of a current Mono full-AOT build and check whether any wrapper for a call passing an untyped `SwiftSelf` still parks the GC-safe-region cookie in `x20` (see the *Root cause — pinned down* section for the shape). If a wrapper for a `SwiftError`-carrying call is now seen parking the cookie in `x21`, that closes the one arm the filing currently reports as unobserved — capture it. If you keep the `Set.insert` reproduction as the illustrating sample, also confirm `nm -g libswiftCore.dylib | grep Sh6insert` still resolves to `_$sSh6insertySb8inserted_x17memberAfterInserttxnF` (the Swift stdlib symbol can be re-mangled across major Swift versions, though this is rare).
 
 ## File-once order suggestion
 
 1. **Issue 2** as `enhancement` / feature request — it is the framing question (does the runtime want to support non-blittable `CallConvSwift`? if not, what is the long-term direction?), and the answer informs how aggressively we should pursue per-method `@_cdecl` wrappers in swift-bindings.
 2. **Issue 1** as a Mono bug — independent of Issue 2, smaller in scope, and the fix is purely on Mono's side.
-3. **Issue 3** as a Mono bug — also Mono-only and well-scoped to one `CallConvSwift` ABI shape; cross-link to Issue 1 since both involve Mono's `CallConvSwift` trampoline.
+3. **Issue 3** as a Mono bug — Mono-only, with a register-level root cause and a concrete suggested fix (exclude `x20`/`x21` from the GC-safe-region cookie's candidate registers in the managed-to-native wrapper). Its scope was **widened on 2026-09-08** from "one `CallConvSwift` ABI shape" to *any* `CallConvSwift` P/Invoke passing an untyped `SwiftSelf`; the file's title and body carry the correction, including the two arms that remain unevidenced (a cookie parked in `x21`, and typed `SwiftSelf<T>`, which is not implicated). Cross-link to Issue 1 since both involve Mono's `CallConvSwift` trampoline.
 
 After filing, link the dotnet/runtime issue numbers back into:
 - `src/docs/roadmap.md` (Blocked — Confirmed Upstream Only section)

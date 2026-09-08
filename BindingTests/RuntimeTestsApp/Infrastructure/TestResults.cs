@@ -318,9 +318,18 @@ public class SkipAttribute : Attribute
 ///
 /// The reason MUST reference either:
 /// - A Mono-specific RuntimeLimitations.Limitation (MonoCallConvSwiftJitAssertion,
-///   MonoSetInsertDoneBlocking, MonoAsyncSafeHandleLifetime, or
+///   MonoSwiftCallDoneBlockingAbort, MonoAsyncSafeHandleLifetime, or
 ///   NonBlittableCallConvSwiftRejection)
 /// - A specific generator bug that only manifests on Mono (prefixed with "Generator bug:")
+///
+/// Naming a limitation here is necessary but not sufficient. This attribute is keyed on the
+/// CLI <em>platform flag</em>, so it does not fire on the Mono full-AOT device lane
+/// (<c>--device --mono-aot</c>), which is a Mono process. Every limitation listed above whose
+/// <c>RuntimeLimitations.IsAffected</c> is true for all of Mono — including
+/// <c>MonoSwiftCallDoneBlockingAbort</c> — therefore belongs on the runtime-detected
+/// <see cref="SkipOnMonoJitAttribute"/>, which fires wherever the process is Mono. Reach for
+/// <c>[SkipOnSimulator]</c> only when the failure really is confined to the simulator, and cite
+/// the evidence for that confinement in the reason.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class SkipOnSimulatorAttribute : Attribute

@@ -39,17 +39,45 @@ public static class RuntimeLimitations
         NonBlittableCallConvSwiftRejection,
 
         /// <summary>
-        /// Mono: <c>Set.insert</c> via CallConvSwift triggers
-        /// "Cannot transition thread from STARTING with DONE_BLOCKING" abort inside
-        /// the Mono CallConvSwift trampoline.
-        /// Upstream: Issue 3. Status: Unfixed. NativeAOT confirmed NOT affected.
-        /// Workaround: never call the stdlib symbol through CallConvSwift. Int64,
-        /// Int and String elements go through <c>@_cdecl</c> Swift wrappers that
-        /// perform the insert on the Swift side; every other element type goes
-        /// through the C-side <c>swiftcall</c> shim <c>SBW_Set_Insert</c>, which
-        /// forwards to the same stdlib symbol with LLVM doing the lowering.
+        /// Mono: a <c>CallConvSwift</c> P/Invoke aborts with
+        /// "Cannot transition thread ... from STARTING with DONE_BLOCKING" after the
+        /// Swift callee has already returned.
+        ///
+        /// Mechanism: Mono's managed-to-native wrapper keeps the GC-safe-region cookie
+        /// (a <c>MonoThreadInfo*</c>) in a callee-saved register picked by its register
+        /// allocator, without excluding the registers the Swift calling convention
+        /// reserves for arguments — x20 (<c>SwiftSelf</c>) and x21 (<c>SwiftError</c>).
+        /// When the allocator picks one of those, the wrapper's own argument setup
+        /// overwrites the cookie before the call; after the call it reloads the now
+        /// clobbered register and passes it to
+        /// <c>mono_threads_exit_gc_safe_region_unbalanced</c>, which reads a bogus
+        /// thread record and aborts.
+        ///
+        /// Scope, as evidenced: any CallConvSwift P/Invoke whose self travels in x20 —
+        /// that is, an untyped <c>SwiftSelf</c> parameter. Which of those members are
+        /// hit is decided by Mono's register allocator, so it is neither predictable
+        /// from the Swift signature nor specific to any argument or return shape.
+        /// A typed <c>SwiftSelf&lt;T&gt;</c> (frozen struct self) travels in ordinary
+        /// argument registers, so a cookie in x20 survives and those members are not
+        /// implicated.
+        /// The x21 (<c>SwiftError</c>) arm is mechanically possible but has not been
+        /// observed: Mono's wrapper does write x21 during argument setup for every
+        /// SwiftError-carrying call, so a cookie allocated there would be destroyed
+        /// identically — but no wrapper in the surveyed corpus allocated the cookie to
+        /// x21. Treat that arm as unconfirmed rather than as an established
+        /// attribution.
+        /// Upstream: Issue 3 — originally filed against Swift <c>Set.insert</c>, whose
+        /// <c>(Bool, @out T via x0)</c> tuple return was a correlation across three
+        /// samples rather than the cause.
+        /// Status: Unfixed. NativeAOT confirmed NOT affected.
+        /// Workaround: route the member through an <c>@_cdecl</c> Swift wrapper — a
+        /// CallConvCdecl signature carries neither SwiftSelf nor SwiftError, so there
+        /// is no reserved register for the cookie to collide with. For <c>Set.insert</c>
+        /// specifically, Int64, Int and String elements go through <c>@_cdecl</c> Swift
+        /// wrappers; every other element type goes through the C-side <c>swiftcall</c>
+        /// shim <c>SBW_Set_Insert</c>.
         /// </summary>
-        MonoSetInsertDoneBlocking,
+        MonoSwiftCallDoneBlockingAbort,
 
         /// <summary>
         /// Mono: SafeHandle/SwiftSelf lifetime not preserved across async P/Invoke
@@ -86,8 +114,9 @@ public static class RuntimeLimitations
             // Not affected on desktop CoreCLR (no Swift interop P/Invokes).
             Limitation.NonBlittableCallConvSwiftRejection => isMono || isNativeAot,
 
-            // Issue 3: Mono-only (Set.insert DONE_BLOCKING in CallConvSwift trampoline)
-            Limitation.MonoSetInsertDoneBlocking => isMono,
+            // Issue 3: Mono-only (GC-safe-region cookie clobbered in the Swift-reserved
+            // argument registers x20/x21 by Mono's own managed-to-native wrapper)
+            Limitation.MonoSwiftCallDoneBlockingAbort => isMono,
 
             // Tracking-comment item: Mono-only (SafeHandle async lifetime).
             // Not a numbered upstream issue — supportability question on the Swift
@@ -115,11 +144,19 @@ public static class RuntimeLimitations
                 "CallConvSwift P/Invoke on both Mono (marshal.c:3729) and NativeAOT " +
                 "(SwiftPhysicalLowering.cs:215) (upstream Issue 2). Workaround: @_cdecl wrapper.",
 
-            Limitation.MonoSetInsertDoneBlocking =>
-                "Mono CallConvSwift trampoline aborts with 'Cannot transition thread from STARTING " +
-                "with DONE_BLOCKING' when calling Swift Set.insert. NativeAOT not affected " +
-                "(upstream Issue 3). Workaround: @_cdecl Swift wrapper for Int64/Int/String " +
-                "elements, C-side swiftcall shim SBW_Set_Insert for every other element type.",
+            Limitation.MonoSwiftCallDoneBlockingAbort =>
+                "Mono CallConvSwift P/Invoke aborts with 'Cannot transition thread from STARTING " +
+                "with DONE_BLOCKING' after the Swift callee returns: Mono's managed-to-native " +
+                "wrapper can hold the GC-safe-region cookie in x20/x21 — the registers the Swift " +
+                "calling convention reserves for SwiftSelf/SwiftError — and then overwrites it " +
+                "with the call's own arguments. Observed for x20: affects any P/Invoke passing " +
+                "an untyped SwiftSelf, and which of those members are hit is decided by Mono's " +
+                "register allocator, not by the Swift signature. A typed SwiftSelf<T> travels in " +
+                "ordinary argument registers and is not implicated. The x21/SwiftError arm is " +
+                "mechanically possible but unobserved in the surveyed corpus (upstream Issue 3, " +
+                "originally filed against Set.insert). NativeAOT not affected. Workaround: " +
+                "@_cdecl Swift wrapper — a CallConvCdecl signature carries no SwiftSelf/SwiftError " +
+                "register for the cookie to collide with.",
 
             Limitation.MonoAsyncSafeHandleLifetime =>
                 "Mono GC can collect SafeHandle across async P/Invoke suspension point, causing " +

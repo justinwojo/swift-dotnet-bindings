@@ -391,15 +391,22 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     /// <remarks>
     /// No arm here calls Swift stdlib's `Set.insert` through a CallConvSwift
-    /// P/Invoke. Its ABI returns `(inserted: Bool, memberAfterInsert: Element)` —
-    /// a (direct Bool, @out via x0) tuple-return shape that Mono's CallConvSwift
-    /// trampoline mishandles on iOS Simulator: the call either SIGABRTs on the
-    /// managed-to-native transition, or appears to succeed while a stack address
-    /// from the trampoline's scratch frame is written into the caller's `self`
-    /// slot, giving a garbage `Count` and a SIGSEGV on a later insert or on the
-    /// next VWT Destroy. `Dictionary.updateValue` (pure `@out` via
-    /// x8/SwiftIndirectResult) does NOT exhibit the same corruption — the bug is
-    /// shape-specific.
+    /// P/Invoke. Mono's managed-to-native wrapper mishandles the call on iOS
+    /// Simulator: it either SIGABRTs on the managed-to-native transition, or
+    /// appears to succeed while a stack address from the wrapper's scratch frame
+    /// is written into the caller's `self` slot, giving a garbage `Count` and a
+    /// SIGSEGV on a later insert or on the next VWT Destroy. The SIGABRT arm is
+    /// understood: Mono's wrapper parks its GC-safe-region cookie in a
+    /// callee-saved register without excluding x20, the register CallConvSwift
+    /// reserves for an untyped SwiftSelf, and then overwrites it with the call's
+    /// own self argument. That makes the exposure `SwiftSelf` (which
+    /// `Set.insert` carries), not the `(inserted: Bool, memberAfterInsert:
+    /// Element)` return shape this comment previously blamed — which member is
+    /// hit is Mono's register-allocation choice, so it is not predictable from
+    /// the Swift signature. The second, *corruption* arm is a separate and still
+    /// unexplained symptom: `Dictionary.updateValue` (pure `@out` via
+    /// x8/SwiftIndirectResult) does not exhibit it, so that arm — and only that
+    /// arm — still looks shape-correlated.
     ///
     /// Two kinds of workaround are in play, and they differ in ownership:
     /// <list type="bullet">
@@ -462,9 +469,10 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         // General path for element types without a typed Swift `@_cdecl`
         // wrapper — arbitrary structs, classes, enums. Goes through the C-side
         // `SBW_Set_Insert` swiftcall shim rather than the raw CallConvSwift
-        // P/Invoke: the (Bool direct, @out via x0) tuple-return shape corrupts
-        // Mono's thread state on the iOS Simulator, so the raw call either
-        // SIGABRTs on the managed-to-native transition or leaves the Set's
+        // P/Invoke: Mono's managed-to-native wrapper corrupts its own thread
+        // state on any SwiftSelf-carrying CallConvSwift call it happens to
+        // allocate the GC-safe-region cookie into x20/x21 for, so the raw call
+        // either SIGABRTs on the managed-to-native transition or leaves the Set's
         // `self` slot holding a trampoline scratch address (garbage Count, then
         // a SIGSEGV on a later insert or on release). The shim keeps the
         // managed boundary plain-Cdecl and lets LLVM swiftcc do the lowering.
@@ -945,7 +953,7 @@ internal static class SwiftSetPInvokes
 /// Cdecl wrappers for <see cref="Swift.SwiftSet{Element}"/> operations whose
 /// CallConvSwift P/Invokes are mishandled by Mono on iOS Simulator. See
 /// <see cref="Swift.SwiftSet{Element}"/>'s <c>InsertUnsafe</c> for context on
-/// the (Bool direct, @out via x0) tuple-return shape this works around.
+/// the Mono wrapper defect this works around.
 /// </summary>
 internal static class SwiftSetCdeclWrappers
 {

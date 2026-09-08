@@ -24,21 +24,27 @@ namespace Swift.Runtime;
 /// and on arm64 across every target. See <c>SretSelfProbeTests</c> for the
 /// minimal hand-marshalled reproduction proving this is upstream.</para>
 ///
-/// <para><b>Shape B</b> — a mixed tuple return
-/// <c>(Bool direct, @out Element)</c> where the <c>@out</c> buffer pointer is
-/// an ordinary leading argument (x0/rdi) rather than an sret register, plus
-/// <c>SwiftSelf</c>. One entry: <see cref="SetInsert"/>. Broken on the iOS
-/// Simulator Mono runtime (isolated on arm64 simulator; x86_64
-/// simulator/Catalyst share that trampoline). The failure is not a wrong
+/// <para><b>Shape B</b> — unlike shape A this is not really a *shape*. Its
+/// eligible population is every <c>CallConvSwift</c> call carrying an untyped
+/// <c>SwiftSelf</c>; which of those actually break is a per-member outcome of
+/// Mono's register allocator, not a property of the signature. One entry is
+/// wrapped here because one is what was observed failing: <see cref="SetInsert"/>.
+/// Broken on the iOS Simulator Mono runtime (isolated on arm64 simulator; x86_64
+/// simulator/Catalyst share that wrapper codegen). The failure is not a wrong
 /// value — it corrupts Mono's own thread state: an immediate SIGABRT with
 /// <c>Cannot transition thread 0x0 from STARTING with DONE_BLOCKING</c>, or a
-/// Set whose <c>count</c> reads garbage after a trampoline scratch address is
+/// Set whose <c>count</c> reads garbage after a scratch address is
 /// written into the caller's <c>self</c> slot, then a SIGSEGV on a later
 /// insert or on the Set's release. Not reproduced on NativeAOT (device) or
-/// CoreCLR (macOS). Shape B is not a variant of shape A:
-/// <c>Dictionary.updateValue</c> (pure <c>@out</c> via
-/// <c>SwiftIndirectResult</c>) and <c>Set.contains</c> (single direct return)
-/// both pass on the iOS Simulator.</para>
+/// CoreCLR (macOS). The SIGABRT arm is understood at register level: Mono's
+/// managed-to-native wrapper parks its GC-safe-region cookie in a callee-saved
+/// register chosen by its register allocator, which does not exclude x20 —
+/// the register CallConvSwift reserves for an untyped <c>SwiftSelf</c> — and
+/// the wrapper's own argument setup then destroys it. This doc comment
+/// previously scoped shape B to the
+/// <c>(inserted: Bool, memberAfterInsert: Element)</c> tuple return, on the
+/// basis that <c>Dictionary.updateValue</c> and <c>Set.contains</c> pass; that
+/// was a correlation across three samples, not the cause.</para>
 ///
 /// The C wrappers redeclare the stdlib symbols with clang's
 /// <c>__attribute__((swiftcall))</c> + <c>swift_indirect_result</c> /
@@ -54,9 +60,14 @@ namespace Swift.Runtime;
 /// (<c>Dictionary.subscript</c>, <c>Set.contains</c>,
 /// <c>Array.subscript</c>, <c>count</c>, <c>makeIterator</c>,
 /// <c>removeAll(keepingCapacity:)</c>, <c>Array.append/insert/set</c>) keep
-/// their direct CallConvSwift P/Invoke — those match neither broken shape and
-/// pass on every runtime already. Routing them through wrappers would be
-/// churn without benefit.
+/// their direct CallConvSwift P/Invoke. They do not match shape A, and while
+/// the SwiftSelf-carrying ones among them are inside shape B's eligible
+/// population, they pass on every runtime today because Mono did not allocate
+/// their cookie to x20. That is an observed outcome, not a guarantee: a Mono
+/// codegen change could move one of them onto the defect without anything on
+/// our side changing. Pre-emptively wrapping all of them would be churn — the
+/// wrapper route is the remedy when one is observed to break, and the coverage
+/// here is deliberately reactive.
 /// </summary>
 internal static class SwiftCollectionCdeclWrappers
 {

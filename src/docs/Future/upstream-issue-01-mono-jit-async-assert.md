@@ -76,7 +76,7 @@ public static class Issue1Repro
 }
 ```
 
-The triggering pattern is **any** Swift function called via `CallConvSwift` that crashes natively. Examples observed in the wider swift-bindings test suite that hit the same assertion include `Set<T>.insert` via `CallConvSwift` (separate Mono bug — see companion Issue 3 `[Mono] DONE_BLOCKING on (Bool direct, @out via x0) tuple-return`), and any `@_cdecl` Swift wrapper that dereferences a stale buffer pointer.
+The triggering pattern is **any** Swift function called via `CallConvSwift` that crashes natively. Examples observed in the wider swift-bindings test suite that hit the same assertion include `Set<T>.insert` via `CallConvSwift` (separate Mono bug — see companion Issue 3 `[Mono] DONE_BLOCKING when the managed-to-native wrapper parks its GC-safe-region cookie in x20/x21`), and any `@_cdecl` Swift wrapper that dereferences a stale buffer pointer.
 
 **Root cause analysis:**
 

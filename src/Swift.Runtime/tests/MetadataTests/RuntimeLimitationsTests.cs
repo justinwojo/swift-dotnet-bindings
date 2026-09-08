@@ -76,7 +76,7 @@ public class RuntimeLimitationsTests
         var all = RuntimeLimitations.GetAllLimitations();
         Assert.Contains(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion, all);
         Assert.Contains(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection, all);
-        Assert.Contains(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking, all);
+        Assert.Contains(RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort, all);
         Assert.Contains(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime, all);
     }
 
@@ -103,8 +103,8 @@ public class RuntimeLimitationsTests
             RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection),
             "Non-blittable rejection is Mono+NativeAOT only, not desktop CoreCLR");
         Assert.False(RuntimeLimitations.IsAffected(
-            RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking),
-            "Mono Set.insert DONE_BLOCKING is iOS simulator only, not desktop CoreCLR");
+            RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort),
+            "Mono CallConvSwift DONE_BLOCKING abort is Mono-only, not desktop CoreCLR");
         Assert.False(RuntimeLimitations.IsAffected(
             RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime),
             "Mono async SafeHandle is iOS simulator only, not desktop CoreCLR");
@@ -118,7 +118,7 @@ public class RuntimeLimitationsTests
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "jit-info.c:918")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "marshal.c:3729")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking), "DONE_BLOCKING")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort), "DONE_BLOCKING")]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "SafeHandle")]
     public void DescribeContainsKeyDiagnosticInfo(
         string limitationName, string expectedSubstring)
@@ -129,13 +129,13 @@ public class RuntimeLimitationsTests
     }
 
     // Issue 1 = Mono JIT async assert, Issue 2 = non-blittable CallConvSwift,
-    // Issue 3 = Mono Set.insert DONE_BLOCKING. The SafeHandle async lifetime is
+    // Issue 3 = Mono CallConvSwift DONE_BLOCKING abort. The SafeHandle async lifetime is
     // intentionally excluded — it's a tracking-issue comment item, not a numbered
     // filing — and is covered separately by DescribeMarksTrackingCommentItem.
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Issue 1")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Issue 2")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking), "Issue 3")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort), "Issue 3")]
     public void DescribeReferencesUpstreamIssueNumber(
         string limitationName, string expectedIssueRef)
     {
@@ -256,7 +256,7 @@ public class RuntimeLimitationsTests
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Workaround")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Workaround")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking), "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort), "Workaround")]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "Workaround")]
     public void DescribeIncludesWorkaround(
         string limitationName, string expectedSubstring)
@@ -264,5 +264,53 @@ public class RuntimeLimitationsTests
         var limitation = Enum.Parse<RuntimeLimitations.Limitation>(limitationName);
         var description = RuntimeLimitations.Describe(limitation);
         Assert.Contains(expectedSubstring, description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The DONE_BLOCKING abort is a Mono register-allocation defect: its wrapper can park
+    // the GC-safe-region cookie in x20, the register the Swift calling convention
+    // reserves for an untyped SwiftSelf, and then overwrite it with the call's own self
+    // argument. It is therefore NOT specific to Set.insert, nor to any argument or
+    // return shape. This registry is consulted as the exhaustive list that decides
+    // whether a crash is upstream or ours, so a description that re-narrows this entry
+    // to one stdlib member would send the next occurrence back to the generator.
+    [Theory]
+    [InlineData("x20")]
+    [InlineData("register allocator")]
+    [InlineData("untyped SwiftSelf")]
+    public void DoneBlockingDescriptionKeepsRegisterLevelScope(string expectedSubstring)
+    {
+        var description = RuntimeLimitations.Describe(
+            RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort);
+        Assert.Contains(expectedSubstring, description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DoneBlockingDescriptionIsNotScopedToSetInsertAlone()
+    {
+        var description = RuntimeLimitations.Describe(
+            RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort);
+
+        // Naming Set.insert is fine (it is the originally filed instance); claiming the
+        // limitation only happens "when calling Swift Set.insert" is what was wrong.
+        Assert.DoesNotContain("when calling Swift Set.insert", description,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The registry decides upstream-vs-ours, so its stated breadth must not run ahead of
+    // the evidence. Two arms are only mechanically possible, never observed: a cookie
+    // parked in x21 (the SwiftError register), and a typed SwiftSelf<T>, whose self
+    // travels in ordinary argument registers and so leaves an x20 cookie intact. If the
+    // description ever presents either as established, a future crash on one of those
+    // shapes gets waved through as upstream instead of being diagnosed.
+    [Fact]
+    public void DoneBlockingDescriptionMarksTheUnobservedArmsAsUnconfirmed()
+    {
+        var description = RuntimeLimitations.Describe(
+            RuntimeLimitations.Limitation.MonoSwiftCallDoneBlockingAbort);
+
+        Assert.Contains("unobserved", description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not implicated", description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("any SwiftSelf/SwiftError P/Invoke", description,
+            StringComparison.OrdinalIgnoreCase);
     }
 }
