@@ -130,7 +130,7 @@ public class JsonlConsoleRecoveryTests
     }
 
     // ===================================================================
-    //  AddConsoleFailure: the recovered failure reaches the verdict
+    //  Legacy AddConsoleFailure aggregate behavior; live verdicts use RuntimeTestAttempts.
     // ===================================================================
 
     [Fact]

@@ -46,6 +46,14 @@ public static class LaunchDiagnostics
         "RESULTS FLUSHED",
         "TEST SUCCESS",
         "TEST FAILURE",
+        "=== RUNTIME TESTS ===",
+        "Runtime flavor:",
+        "[TEST]", "[PASS]", "[FAIL]", "[SKIP]", "[WARN] SKIP:",
+        "OBJC_GREETING:", "FOREIGN_CATEGORY:",
+        "dyld[", "Library not loaded:", "Symbol not found:",
+        "DllNotFoundException", "EntryPointNotFoundException",
+        "Unhandled exception",
+        "Native Crash Reporting", "App terminated due to signal ",
     };
 
     /// <summary>
@@ -53,18 +61,85 @@ public static class LaunchDiagnostics
     /// <see cref="TestResult.LaunchFailure"/>, the launcher printed one of its own abort messages,
     /// it never confirmed a start, and the app produced no output of its own.
     ///
-    /// Deliberately conservative — every clause must hold. A launch that produced ANY app output,
+    /// Deliberately conservative — every clause must hold. A launch with recognized app, test, loader or crash output,
     /// or that the launcher confirmed it started, is treated as a product result and reported as
-    /// one, so this can never turn a genuine binding regression into a retry.
+    /// one. Recognized product evidence is kept out of the launcher-only retry path.
     /// </summary>
     public static bool LauncherNeverStartedApp(TestResult result, string output)
     {
         if (result != TestResult.LaunchFailure) return false;
         if (string.IsNullOrEmpty(output)) return false;
-        if (ContainsAny(output, AppProducedOutput)) return false;
+        if (HasProductEvidence(output)) return false;
         if (ContainsAny(output, LauncherStartedApp)) return false;
         return ContainsAny(output, LauncherAborted);
     }
+
+    /// <summary>
+    /// Classifies the final drained console using the reason polling ended. A timed-out run
+    /// cannot become a late success. Confirmed fatal output wins even over a completed summary;
+    /// weaker diagnostic words retain the simulator's existing completed-summary precedence.
+    /// </summary>
+    public static TestResult ClassifyFinalOutput(TestResult observed, string output)
+    {
+        if (HasFatalTermination(output)) return TestResult.Crash;
+        if (observed is TestResult.Crash or TestResult.Failure) return observed;
+        if (observed == TestResult.Timeout) return TestResult.Timeout;
+        if (output.Contains("TEST FAILURE", StringComparison.Ordinal)) return TestResult.Failure;
+        if (output.Contains("TEST SUCCESS", StringComparison.Ordinal) || observed == TestResult.Success)
+            return TestResult.Success;
+        if (HasCrashOutput(output)) return TestResult.Crash;
+        // Started but exited without a summary is a product failure, not evidence of a crash.
+        if (HasProductEvidence(output) || ContainsAny(output, LauncherStartedApp))
+            return TestResult.Failure;
+        return TestResult.LaunchFailure;
+    }
+
+    /// <summary>
+    /// A started app's failure without a terminal app marker warrants termination diagnostics.
+    /// Recovery additionally requires an unfinished inventory-validated invocation.
+    /// </summary>
+    public static bool IsIncompleteProductFailure(TestResult result, string output) =>
+        result == TestResult.Failure &&
+        !output.Contains("RESULTS FLUSHED", StringComparison.Ordinal) &&
+        !output.Contains("TEST SUCCESS", StringComparison.Ordinal) &&
+        !output.Contains("TEST FAILURE", StringComparison.Ordinal);
+
+    public static bool ShouldInspectTermination(TestResult result, string output) =>
+        result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure ||
+        IsIncompleteProductFailure(result, output);
+
+    static bool HasProductEvidence(string output) =>
+        ContainsAny(output, AppProducedOutput) || HasCrashOutput(output);
+
+    static bool HasFatalTermination(string output)
+    {
+        // Mono's fatal report is stronger than an incidental diagnostic containing "Assertion".
+        if (output.Contains("Native Crash Reporting", StringComparison.Ordinal) &&
+            output.Contains("Got a SIG", StringComparison.Ordinal)) return true;
+        if (output.Contains("Abort trap: 6", StringComparison.Ordinal) ||
+            output.Contains("Segmentation fault: 11", StringComparison.Ordinal)) return true;
+        const string prefix = "App terminated due to signal ";
+        foreach (var rawLine in output.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith(prefix, StringComparison.Ordinal) && line.EndsWith(".", StringComparison.Ordinal) &&
+                int.TryParse(line.AsSpan(prefix.Length, line.Length - prefix.Length - 1), out var signal) &&
+                signal > 0 && signal is not (9 or 15))
+                return true;
+        }
+        // The harness deliberately kills/terminates after completion or timeout. SIGKILL/SIGTERM
+        // alone therefore cannot turn a successful run into a crash or fabricate timeout cause.
+        return false;
+    }
+
+    static bool HasCrashOutput(string text) =>
+        text.Contains("SIGABRT", StringComparison.Ordinal) ||
+        text.Contains("SIGSEGV", StringComparison.Ordinal) ||
+        text.Contains("SIGBUS", StringComparison.Ordinal) ||
+        text.Contains("Fatal error", StringComparison.Ordinal) ||
+        text.Contains("CRASH", StringComparison.Ordinal) ||
+        text.Contains("EXC_BAD_ACCESS", StringComparison.Ordinal) ||
+        (text.Contains("Assertion", StringComparison.Ordinal) && text.Contains("not met", StringComparison.Ordinal));
 
     /// <inheritdoc cref="LauncherNeverStartedApp(TestResult, string)"/>
     public static bool LauncherNeverStartedApp(LaunchResult result) =>

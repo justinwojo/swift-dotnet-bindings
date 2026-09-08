@@ -95,6 +95,8 @@
          must not silently drift. BCL-only string work, so it compiles AOT-clean under this project's
          IsAotCompatible + warnings-as-errors. TestResult.cs rides along for the enum + LaunchResult. -->
     <Compile Include="../../../../build/Models/LaunchDiagnostics.cs" Link="Models/LaunchDiagnostics.cs" />
+    <!-- The same BCL-only attempt retention and recovery decision used by the sim/device loops. -->
+    <Compile Include="../../../../build/Models/RuntimeTestAttempts.cs" Link="Models/RuntimeTestAttempts.cs" />
     <Compile Include="../../../../build/Models/TestResult.cs" Link="Models/TestResult.cs" />
     <!-- Link-compile the async-wrapper gate policy for the same reason: the load-bearing decision is
          that a failed wrapper build is FATAL by default and only the permissive flag downgrades it. Four
@@ -179,6 +181,10 @@
          SwiftInterfaceParser host binary isn't built) and other host/toolchain-gated
          tests. -->
     <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="TestData/LaunchDiagnostics/device-sigabrt.txt"
+                      LogicalName="LaunchDiagnostics.device-sigabrt.txt" />
   </ItemGroup>
 </Project>
 

@@ -1,0 +1,185 @@
+21:07:55  Acquired tunnel connection to device.
+21:07:55  Enabling developer disk image services.
+21:07:55  Acquired usage assertion.
+Launched application with com.swiftbindings.runtimetestsapp bundle identifier.
+Waiting for the application to terminate…
+2026-09-07 21:07:57.761 RuntimeTestsApp[1336:359458] [0.000s] [INFO] === RUNTIME TESTS ===
+2026-09-07 21:07:57.761 RuntimeTestsApp[1336:359458] [0.002s] [INFO] Platform: DeviceMonoAot
+2026-09-07 21:07:57.761 RuntimeTestsApp[1336:359458] [0.002s] [INFO] Runtime flavor: IsMonoRuntime=True, IsNativeAotRuntime=False, IsMonoAot=True, Rid=ios-arm64
+2026-09-07 21:07:57.761 RuntimeTestsApp[1336:359458] [0.002s] [INFO] Class filter: InstanceDirectThrowControlTests
+2026-09-07 21:07:57.766 RuntimeTestsApp[1336:359458] [0.006s] [INFO] Started at 21:07:57
+2026-09-07 21:07:57.766 RuntimeTestsApp[1336:359458] [0.007s] [INFO] JSONL output: /var/mobile/Containers/Data/Application/2BA6B4D3-1D00-479A-8312-B14CEB5D5A3C/Documents/test-results.jsonl
+2026-09-07 21:07:57.768 RuntimeTestsApp[1336:359458] [0.009s] [INFO] Swift concurrency initialized
+2026-09-07 21:07:57.784 RuntimeTestsApp[1336:359458] [0.025s] [INFO] 
+2026-09-07 21:07:57.784 RuntimeTestsApp[1336:359458] [0.025s] [INFO] === InstanceDirectThrowControlTests ===
+2026-09-07 21:07:57.785 RuntimeTestsApp[1336:359458] [0.025s] [TEST] --- InstanceDirectThrowControlTests.TestThrowingInstanceDirectCall ---
+2026-09-07 21:07:57.785 RuntimeTestsApp[1336:359458] error: Cannot transition thread 0x0 from STARTING with DONE_BLOCKING
+
+=================================================================
+	Native Crash Reporting
+=================================================================
+Got a SIGABRT while executing native code. This usually indicates
+a fatal error in the mono runtime or one of the native libraries 
+used by your application.
+=================================================================
+
+=================================================================
+	Native stacktrace:
+=================================================================
+	0x1092415b8 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_dump_native_crash_info
+	0x10922d298 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_handle_native_crash
+	0x1092a6c34 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : sigabrt_signal_handler.cold.1
+	0x109240dec - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_runtime_setup_stat_profiler
+	0x2a9f311b8 - /usr/lib/system/libsystem_platform.dylib : <redacted>
+	0x1e89a17dc - /usr/lib/system/libsystem_pthread.dylib : pthread_kill
+	0x194bcefcc - /usr/lib/system/libsystem_c.dylib : abort
+	0x1090d7a1c - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : _ZL12log_callbackPKcS0_S0_iPv
+	0x109112850 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : monoeg_g_logv
+	0x109112998 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : monoeg_g_log
+	0x1091250b4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_threads_transition_done_blocking
+	0x1091262ec - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_threads_exit_gc_safe_region_unbalanced
+	0x107048918 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : wrapper_managed_to_native_SwiftBindingsTestLib_OwnershipStructConsumer__PInvoke_consumeDirectAndThrow_5C38F24Bg____PInvoke_38_0_intptr_Swift_SwiftString_Buffer__System_Runtime_InteropServices_Swift_SwiftSelf_System_Runtime_InteropServices_Swift_SwiftError
+	0x10586c18c - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : SwiftBindingsTestLib_OwnershipStructConsumer_PInvoke_consumeDirectAndThrow_5C38F24B_System_Runtime_InteropServices_SafeHandle_Swift_SwiftString_Buffer__System_Runtime_InteropServices_Swift_SwiftSelf_System_Runtime_InteropServices_Swift_SwiftError_
+	0x10586b950 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : SwiftBindingsTestLib_OwnershipStructConsumer_ConsumeDirectAndThrow_SwiftBindingsTestLib_OwnershipStructValue_string_
+	0x1063efee4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Lifetime_ArgumentOwnershipTests_RunStructCase_string_bool
+	0x1063ef3c8 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Lifetime_ArgumentOwnershipTests_TestDirectConsumingNonFrozenStructSwiftThrowBalances
+	0x106414990 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Lifetime_InstanceDirectThrowControlTests_TestThrowingInstanceDirectCall
+	0x106746ab4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Infrastructure_TestRegistry__c___cctorb__4_2283_RuntimeTestsApp_Infrastructure_TestBase
+	0x1064587f4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Infrastructure_TestBase__RunTestMethodAsyncd__13_MoveNext
+	0x1079f4ecc - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncMethodBuilderCore_Start_TStateMachine_REF_TStateMachine_REF_
+	0x1079f5868 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncTaskMethodBuilder_Start_TStateMachine_REF_TStateMachine_REF_
+	0x106453ed0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Infrastructure_TestBase_RunTestMethodAsync_RuntimeTestsApp_Infrastructure_TestMethodDescriptor
+	0x106457ea8 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Infrastructure_TestBase__RunAllTestsAsyncd__12_MoveNext
+	0x1079f4ecc - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncMethodBuilderCore_Start_TStateMachine_REF_TStateMachine_REF_
+	0x1079f5868 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncTaskMethodBuilder_Start_TStateMachine_REF_TStateMachine_REF_
+	0x106453cb0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Infrastructure_TestBase_RunAllTestsAsync_RuntimeTestsApp_Infrastructure_TestClassDescriptor_RuntimeTestsApp_Infrastructure_TestPlatform_bool
+	0x1061d3750 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_MainViewController__RunTestClassAsyncd__10_MoveNext
+	0x1079f4ecc - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncMethodBuilderCore_Start_TStateMachine_REF_TStateMachine_REF_
+	0x1079f5868 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncTaskMethodBuilder_Start_TStateMachine_REF_TStateMachine_REF_
+	0x1061d0e40 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_MainViewController_RunTestClassAsync_RuntimeTestsApp_Infrastructure_TestClassDescriptor_RuntimeTestsApp_Infrastructure_TestResults_RuntimeTestsApp_Infrastructure_TestPlatform_bool
+	0x1061d5ac0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_MainViewController__RunTestsAsyncd__8_MoveNext
+	0x1079f4ecc - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncMethodBuilderCore_Start_TStateMachine_REF_TStateMachine_REF_
+	0x1079f5868 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : System_Runtime_CompilerServices_AsyncTaskMethodBuilder_Start_TStateMachine_REF_TStateMachine_REF_
+	0x1061d0bc0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_MainViewController_RunTestsAsync
+	0x1061d023c - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_MainViewController_ViewDidLoad
+	0x1061d7d8c - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_MainViewController___Registrar_Callbacks___callback_12_RuntimeTestsApp_MainViewController_ViewDidLoad_intptr_intptr_intptr_
+	0x1072aa618 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : wrapper_native_to_managed_RuntimeTestsApp_MainViewController___Registrar_Callbacks___callback_12_RuntimeTestsApp_MainViewController_ViewDidLoad_intptr_intptr_intptr_
+	0x10927e444 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : -[RuntimeTestsApp_MainViewController viewDidLoad]
+	0x18ec3bc60 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ec2238c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ec21fa4 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ecb0194 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ecb34b0 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ecd7134 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ecd6fa8 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x1090eb214 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : xamarin_dyn_objc_msgSend
+	0x1090c4528 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : wrapper_managed_to_native_ObjCRuntime_Messaging_void_objc_msgSend_intptr_intptr
+	0x109087874 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : UIKit_UIWindow_MakeKeyAndVisible
+	0x1061ce110 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_AppDelegate_FinishedLaunching_UIKit_UIApplication_Foundation_NSDictionary
+	0x1061ce924 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_AppDelegate___Registrar_Callbacks___callback_9_RuntimeTestsApp_AppDelegate_FinishedLaunching_intptr_intptr_intptr_intptr_intptr_
+	0x1072aa2d0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : wrapper_native_to_managed_RuntimeTestsApp_AppDelegate___Registrar_Callbacks___callback_9_RuntimeTestsApp_AppDelegate_FinishedLaunching_intptr_intptr_intptr_intptr_intptr_
+	0x10927a9b4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : -[RuntimeTestsApp_AppDelegate application:didFinishLaunchingWithOptions:]
+	0x18ed443b0 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ed4319c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ed3ee40 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ed3e534 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb3428 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : _UIScenePerformActionsWithLifecycleActionMask
+	0x18edaf13c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb166c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb3e04 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb1db4 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb5e68 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb5d60 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb5a48 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : _UISceneSettingsDiffActionPerformChangesWithTransitionContextAndCompletion
+	0x18edb3844 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb584c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb516c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18edb4fe0 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ed5979c - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18ed64820 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x1aa26c438 - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa2678ac - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa26c1dc - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa2d62c4 - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa26b520 - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa26b898 - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa26b694 - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1aa26b520 - /System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices : <redacted>
+	0x1c3b331e4 - /usr/lib/system/libdispatch.dylib : <redacted>
+	0x1c3b1e694 - /usr/lib/system/libdispatch.dylib : <redacted>
+	0x1a15c3f84 - /System/Library/PrivateFrameworks/BoardServices.framework/BoardServices : <redacted>
+	0x1a15c3e00 - /System/Library/PrivateFrameworks/BoardServices.framework/BoardServices : <redacted>
+	0x18907b360 - /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation : <redacted>
+	0x18907b2d4 - /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation : <redacted>
+	0x1890405a8 - /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation : <redacted>
+	0x18900a1a0 - /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation : <redacted>
+	0x18900954c - /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation : <redacted>
+	0x22efd5498 - /System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices : GSEventRunModal
+	0x18ed3d670 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : <redacted>
+	0x18eca8158 - /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore : UIApplicationMain
+	0x1090d3db4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : xamarin_UIApplicationMain
+	0x1090bead0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : wrapper_managed_to_native_UIKit_UIApplication_xamarin_UIApplicationMain_int_intptr_intptr_intptr_intptr_
+	0x1090817f4 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : UIKit_UIApplication_UIApplicationMain_int_string___intptr_intptr
+	0x1090819e8 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : UIKit_UIApplication_Main_string___System_Type_System_Type
+	0x1061cd528 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : RuntimeTestsApp_Application_Main_string__
+	0x107c41f58 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : wrapper_runtime_invoke_object_runtime_invoke_dynamic_intptr_intptr_intptr_intptr
+	0x109214c10 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_jit_runtime_invoke
+	0x1091c3cb0 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_runtime_invoke_checked
+	0x1091c9274 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_runtime_exec_main_checked
+	0x10921ae74 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : mono_jit_exec
+	0x1090e9d54 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : xamarin_main
+	0x10927a628 - /private/var/containers/Bundle/Application/ED33EBEA-4CA9-484E-BFDF-F844DE0697A5/RuntimeTestsApp.app/RuntimeTestsApp : main
+	0x185c15c1c - /usr/lib/dyld : <redacted>
+
+=================================================================
+	Basic Fault Address Reporting
+=================================================================
+Memory around native instruction pointer (0x23864f1d0):0x23864f1c0  ff 0f 5f d6 c0 03 5f d6 10 29 80 d2 01 10 00 d4  .._..._..)......
+0x23864f1d0  03 01 00 54 7f 23 03 d5 fd 7b bf a9 fd 03 00 91  ...T.#...{......
+0x23864f1e0  c8 ed ff 97 bf 03 00 91 fd 7b c1 a8 ff 0f 5f d6  .........{...._.
+0x23864f1f0  c0 03 5f d6 10 27 80 d2 01 10 00 d4 03 01 00 54  .._..'.........T
+
+=================================================================
+	Managed Stacktrace:
+=================================================================
+	  at <unknown> <0xffffffff>
+	  at SwiftBindingsTestLib.OwnershipStructConsumer:<PInvoke_consumeDirectAndThrow_5C38F24B>g____PInvoke|38_0 <0x00007>
+	  at SwiftBindingsTestLib.OwnershipStructConsumer:PInvoke_consumeDirectAndThrow_5C38F24B <0x0022b>
+	  at SwiftBindingsTestLib.OwnershipStructConsumer:ConsumeDirectAndThrow <0x003cf>
+	  at RuntimeTestsApp.Lifetime.ArgumentOwnershipTests:RunStructCase <0x00ae3>
+	  at RuntimeTestsApp.Lifetime.ArgumentOwnershipTests:TestDirectConsumingNonFrozenStructSwiftThrowBalances <0x00087>
+	  at RuntimeTestsApp.Lifetime.InstanceDirectThrowControlTests:TestThrowingInstanceDirectCall <0x0007f>
+	  at <>c:<.cctor>b__4_2283 <0x000e3>
+	  at <RunTestMethodAsync>d__13:MoveNext <0x002e3>
+	  at System.Runtime.CompilerServices.AsyncMethodBuilderCore:Start <0x0008b>
+	  at System.Runtime.CompilerServices.AsyncTaskMethodBuilder:Start <0x00057>
+	  at RuntimeTestsApp.Infrastructure.TestBase:RunTestMethodAsync <0x001af>
+	  at <RunAllTestsAsync>d__12:MoveNext <0x00d27>
+	  at System.Runtime.CompilerServices.AsyncMethodBuilderCore:Start <0x0008b>
+	  at System.Runtime.CompilerServices.AsyncTaskMethodBuilder:Start <0x00057>
+	  at RuntimeTestsApp.Infrastructure.TestBase:RunAllTestsAsync <0x001cf>
+	  at <RunTestClassAsync>d__10:MoveNext <0x0145f>
+	  at System.Runtime.CompilerServices.AsyncMethodBuilderCore:Start <0x0008b>
+	  at System.Runtime.CompilerServices.AsyncTaskMethodBuilder:Start <0x00057>
+	  at RuntimeTestsApp.MainViewController:RunTestClassAsync <0x0020f>
+	  at <RunTestsAsync>d__8:MoveNext <0x01d4f>
+	  at System.Runtime.CompilerServices.AsyncMethodBuilderCore:Start <0x0008b>
+	  at System.Runtime.CompilerServices.AsyncTaskMethodBuilder:Start <0x00057>
+	  at RuntimeTestsApp.MainViewController:RunTestsAsync <0x0016f>
+	  at RuntimeTestsApp.MainViewController:ViewDidLoad <0x0157b>
+	  at __Registrar_Callbacks__:callback_12_RuntimeTestsApp_MainViewController_ViewDidLoad <0x000db>
+	  at <unknown> <0xffffffff>
+	  at <unknown> <0xffffffff>
+	  at ObjCRuntime.Messaging:void_objc_msgSend <0x00007>
+	  at <unknown> <0xffffffff>
+	  at RuntimeTestsApp.AppDelegate:FinishedLaunching <0x002ef>
+	  at __Registrar_Callbacks__:callback_9_RuntimeTestsApp_AppDelegate_FinishedLaunching <0x001e3>
+	  at <unknown> <0xffffffff>
+	  at <unknown> <0xffffffff>
+	  at UIKit.UIApplication:xamarin_UIApplicationMain <0x00007>
+	  at <unknown> <0xffffffff>
+	  at <unknown> <0xffffffff>
+	  at RuntimeTestsApp.Application:Main <0x00bf7>
+	  at <unknown> <0xffffffff>
+=================================================================
+App terminated due to signal 6.

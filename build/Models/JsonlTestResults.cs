@@ -77,7 +77,12 @@ public class JsonlTestResults
                 else if (root.TryGetProperty("class", out var cls) && root.TryGetProperty("test", out var test))
                 {
                     var status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "unknown" : "unknown";
-                    var error = root.TryGetProperty("error", out var e) ? e.GetString() : null;
+                    // The app writes skip text as reason, failure text as error. Preserve legacy
+                    // skip producers that used error, without changing status/identity semantics.
+                    var error = status == "skip" && root.TryGetProperty("reason", out var reason) &&
+                        reason.ValueKind == JsonValueKind.String
+                        ? reason.GetString()
+                        : root.TryGetProperty("error", out var e) ? e.GetString() : null;
                     var ms = root.TryGetProperty("ms", out var m) ? m.GetInt32() : 0;
                     results.Tests.Add(new TestEntry(cls.GetString()!, test.GetString()!, status, error, ms));
                 }
@@ -220,6 +225,7 @@ public class JsonlTestResults
     /// Identifies the class that was running when the process crashed.
     /// This is the class with test records but no class_done marker.
     /// Returns null if all classes completed (no crash mid-class).
+    /// Legacy aggregate helper; live recovery uses RuntimeTestAttempts' observed invocation.
     /// </summary>
     public string? FindCrashingClass()
     {
@@ -230,6 +236,8 @@ public class JsonlTestResults
     /// <summary>
     /// Synthesizes CRASHED entries for unfinished methods in the crashing class.
     /// Uses the inventory to know which methods were expected but never reported.
+    /// Legacy helper only. The live harness retains interruptions separately and does not
+    /// synthesize app result rows for methods that did not execute.
     /// </summary>
     public void SynthesizeCrashEntries(string crashingClass, TestClassInventory inventory)
     {
@@ -361,8 +369,8 @@ public class JsonlTestResults
     }
 
     /// <summary>
-    /// Records a test failure recovered from a console "[FAIL]" line — used when JSONL recovery
-    /// fails mid-crash but the failure survived in the console log. Deduplicated by
+    /// Legacy helper for recording a console "[FAIL]" line in an aggregate. The live harness
+    /// retains console failure evidence in RuntimeTestAttempts instead. Deduplicated by
     /// ClassName.TestName, so replaying an already-recorded result is a no-op.
     /// </summary>
     public void AddConsoleFailure(string className, string testName)

@@ -108,12 +108,8 @@ public static class DeviceCtl
                 var text = string.Join("\n", output);
                 resultsFlushed = text.Contains("RESULTS FLUSHED");
 
-                if (text.Contains("TEST SUCCESS"))
-                    result = TestResult.Success;
-                else if (text.Contains("TEST FAILURE"))
-                    result = TestResult.Failure;
-                else
-                    result = TestResult.LaunchFailure;
+                // Classify after redirected readers have drained, not from this partial snapshot.
+                result = TestResult.LaunchFailure;
                 break;
             }
 
@@ -152,6 +148,8 @@ public static class DeviceCtl
         catch { /* Best-effort drain; snapshot whatever was captured. */ }
 
         var finalOutput = string.Join("\n", output);
+        resultsFlushed |= finalOutput.Contains("RESULTS FLUSHED", StringComparison.Ordinal);
+        result = LaunchDiagnostics.ClassifyFinalOutput(result, finalOutput);
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 

@@ -119,6 +119,77 @@ public class LaunchDiagnosticsTests
         Assert.True(LaunchDiagnostics.LauncherNeverStartedApp(result));
     }
 
+    [Fact]
+    public void CapturedDeviceNativeAbort_IsCrashAndNeverLauncherRetry()
+    {
+        using var stream = typeof(LaunchDiagnosticsTests).Assembly.GetManifestResourceStream(
+            "LaunchDiagnostics.device-sigabrt.txt")!;
+        using var reader = new System.IO.StreamReader(stream);
+        var output = reader.ReadToEnd();
+        Assert.Contains("ConsumeDirectAndThrow", output);
+        Assert.Contains("App terminated due to signal 6.", output);
+        Assert.Equal(TestResult.Crash, LaunchDiagnostics.ClassifyFinalOutput(TestResult.LaunchFailure, output));
+        Assert.False(LaunchDiagnostics.LauncherNeverStartedApp(TestResult.LaunchFailure, output));
+    }
+
+    [Theory]
+    [InlineData("[TEST] --- ExampleTests.TestValue ---")]
+    [InlineData("Runtime flavor: IsMonoRuntime=True, IsMonoAot=True")]
+    [InlineData("[WARN] SKIP: ExampleTests.TestValue: not enabled")]
+    [InlineData("dyld[55]: Library not loaded: @rpath/Example.framework/Example")]
+    [InlineData("Unhandled exception. System.EntryPointNotFoundException")]
+    public void ProductEvidenceBeforeGenericLauncherError_IsNotRetryable(string productOutput)
+    {
+        var output = productOutput + "\n" + DeviceCtlAbortedOutput;
+        Assert.False(LaunchDiagnostics.LauncherNeverStartedApp(TestResult.LaunchFailure, output));
+        Assert.Equal(TestResult.Failure, LaunchDiagnostics.ClassifyFinalOutput(TestResult.LaunchFailure, output));
+    }
+
+    [Fact]
+    public void FatalOutputBeforeGenericLauncherError_IsCrash()
+    {
+        var output = "App terminated due to signal 6.\n" + DeviceCtlAbortedOutput;
+        Assert.Equal(TestResult.Crash, LaunchDiagnostics.ClassifyFinalOutput(TestResult.LaunchFailure, output));
+        Assert.False(LaunchDiagnostics.LauncherNeverStartedApp(TestResult.LaunchFailure, output));
+    }
+
+    [Fact]
+    public void CapturedPrestartLauncherFailure_RemainsNoProductVerdict()
+    {
+        var result = LaunchDiagnostics.ClassifyFinalOutput(TestResult.LaunchFailure, DeviceCtlAbortedOutput);
+        Assert.Equal(TestResult.LaunchFailure, result);
+        Assert.True(LaunchDiagnostics.LauncherNeverStartedApp(result, DeviceCtlAbortedOutput));
+    }
+
+    [Theory]
+    [InlineData(TestResult.Timeout, "RESULTS FLUSHED\nTEST SUCCESS", TestResult.Timeout)]
+    [InlineData(TestResult.Timeout, "App terminated due to signal 6.", TestResult.Crash)]
+    [InlineData(TestResult.Success, "RESULTS FLUSHED\nTEST SUCCESS\nApp terminated due to signal 6.", TestResult.Crash)]
+    [InlineData(TestResult.Success, "RESULTS FLUSHED\nTEST SUCCESS\nApp terminated due to signal 9.", TestResult.Success)]
+    [InlineData(TestResult.Success, "RESULTS FLUSHED\nTEST SUCCESS\nApp terminated due to signal 15.", TestResult.Success)]
+    [InlineData(TestResult.LaunchFailure, "RESULTS FLUSHED\nTEST SUCCESS", TestResult.Success)]
+    [InlineData(TestResult.Success, "TEST SUCCESS\nTEST FAILURE", TestResult.Failure)]
+    [InlineData(TestResult.Failure, "TEST SUCCESS", TestResult.Failure)]
+    [InlineData(TestResult.Success, "Assertion was not met\nRESULTS FLUSHED\nTEST SUCCESS", TestResult.Success)]
+    [InlineData(TestResult.LaunchFailure, "SIGSEGV", TestResult.Crash)]
+    [InlineData(TestResult.LaunchFailure, "", TestResult.LaunchFailure)]
+    public void FinalDrainedOutput_PreservesStopReasonAndFatalEvidence(
+        TestResult observed, string output, TestResult expected)
+        => Assert.Equal(expected, LaunchDiagnostics.ClassifyFinalOutput(observed, output));
+
+    [Theory]
+    [InlineData(TestResult.Failure, "Unhandled exception. System.InvalidOperationException", true)]
+    [InlineData(TestResult.Failure, "[TEST] --- ExampleTests.TestValue ---", true)]
+    [InlineData(TestResult.Failure, "TEST FAILURE", false)]
+    [InlineData(TestResult.Failure, "RESULTS FLUSHED", false)]
+    [InlineData(TestResult.Success, "TEST SUCCESS", false)]
+    [InlineData(TestResult.Crash, "App terminated due to signal 6.", true)]
+    [InlineData(TestResult.Timeout, "", true)]
+    [InlineData(TestResult.LaunchFailure, "com.apple.dt.CoreDeviceError", true)]
+    public void TerminationDiagnostics_IncludeIncompleteProductFailureWithoutInventingCrash(
+        TestResult result, string output, bool expected)
+        => Assert.Equal(expected, LaunchDiagnostics.ShouldInspectTermination(result, output));
+
     // ===================================================================
     //  Launcher-abort retry budget and settle curve
     //

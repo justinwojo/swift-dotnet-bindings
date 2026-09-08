@@ -6,22 +6,34 @@
 
 import contextlib
 import io
+import json
+import re
+from pathlib import Path
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
 import ci_ios_test
 
-# Complete exception text from Build.ShouldRetryLauncherAbort, including the
-# explanatory negation that must not be mistaken for the app's TEST FAILURE: marker.
-EXHAUSTED_LAUNCH = (
-    "iOS Simulator: THE APP NEVER LAUNCHED. The launcher aborted before the app's process started on "
-    "all 3 attempts, so no test ever executed and this run "
-    "carries NO verdict about the bindings — it is a deploy/launch failure, not a test failure. "
-    "Check the device/simulator state (connected, unlocked, developer mode, booted) and the app's "
-    "code signature. Do not read any recovered results as evidence: the app's data container is "
-    "persistent, so anything still in it belongs to an earlier run."
-)
+# Read only the current helper's string literals: a stale copied fixture must
+# not keep passing after the load-bearing launcher wording changes.
+def current_launcher_abort_text():
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "build/Build.RuntimeTests.cs").read_text()
+    helper = source.split("static void RetryKnownLauncherAbort(", 1)[1].split(
+        "\n    // ============================================================", 1)[0]
+    expression = re.search(r"throw new Exception\((.*?)\);", helper, re.S).group(1)
+    pieces = re.findall(r'\$?"((?:\\.|[^"\\])*)"', expression)
+    text = "".join(json.loads('"' + piece + '"') for piece in pieces)
+    diagnostics = (root / "build/Models/LaunchDiagnostics.cs").read_text()
+    budget = re.search(r"MaxLauncherAbortAttempts\s*=\s*(\d+)", diagnostics).group(1)
+    text = text.replace("{legLabel}", "iOS Simulator").replace(
+        "{LaunchDiagnostics.MaxLauncherAbortAttempts}", budget)
+    assert "{" not in text and "}" not in text, "Update the bounded fixture for new interpolations"
+    return text, helper
+
+
+EXHAUSTED_LAUNCH, CURRENT_ABORT_HELPER = current_launcher_abort_text()
 
 
 class RunTestsAcceptanceTests(unittest.TestCase):
@@ -80,6 +92,16 @@ class RunTestsAcceptanceTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertEqual(len(calls), 1)
+
+    def test_current_exception_alone_is_a_retryable_pretest_diagnostic(self):
+        self.assertIn("prestart-abort budget exhausted", EXHAUSTED_LAUNCH)
+        self.assertIn("any earlier observed product failure remains a failed gate", EXHAUSTED_LAUNCH)
+        self.assertTrue(ci_ios_test.is_retryable_pretest_startup_failure(EXHAUSTED_LAUNCH))
+
+    def test_current_per_abort_warning_retains_the_ci_contract(self):
+        # This is the actual warning literal, not a second hand-copied fixture.
+        warning = re.search(r'"(\{Leg\}: the launcher aborted[^"\n]+)"', CURRENT_ABORT_HELPER).group(1)
+        self.assertTrue(ci_ios_test.is_retryable_pretest_startup_failure(warning))
 
     def test_pretest_startup_failure_can_recover(self):
         startup_failure = subprocess.CompletedProcess(

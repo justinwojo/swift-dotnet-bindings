@@ -1643,40 +1643,35 @@ partial class Build
     // test class per attempt. Six device attempts in sixteen seconds excluded five real classes and
     // then reported a test-level verdict for a run in which nothing ever executed.
     //
-    // The split is on the EVIDENCE, not on the enum value — LaunchFailure is also the bucket for
-    // "the process started and died before printing a verdict", which crash recovery handles
-    // correctly and should keep handling. LaunchDiagnostics.LauncherNeverStartedApp is the existing
-    // conservative discriminator (any app output, or any launcher start confirmation, means
-    // "product result, do not retry"), and it is reused here rather than reimplemented.
+    // The split is on the evidence: a started app that dies without a summary is a product
+    // failure. Only LaunchDiagnostics.LauncherNeverStartedApp permits this launcher-only retry;
+    // incomplete product termination goes through the separate inventory-validated recovery plan.
     //
-    // Scope note: this classifies and paces the retry. It does NOT try to make the post-install
+    // Scope note: callers classify the abort; this helper paces the retry. It does NOT try to make the post-install
     // launch succeed — that abort is a known, accepted environmental condition.
     // ============================================================
 
     /// <summary>
-    /// Classifies a launch result inside a resume-on-crash loop. Returns true when the launcher
-    /// aborted before the app started and the caller should settle and re-attempt the LAUNCH,
-    /// leaving crash-recovery state (aggregated results, excluded classes) untouched.
+    /// Paces an already-classified prestart abort inside a resume-on-crash loop. Callers retain
+    /// the no-results receipt before entering this branch, then retry the launch without changing
+    /// crash-recovery state (aggregated results, excluded classes).
     /// Throws when the launcher-abort budget is spent — loudly, specifically, and never as a
     /// test-level verdict.
     /// </summary>
-    static bool ShouldRetryLauncherAbort(LaunchResult result, string legLabel, ref int launchAbortCount)
+    static void RetryKnownLauncherAbort(LaunchResult result, string legLabel, ref int launchAbortCount)
     {
-        if (!LaunchDiagnostics.LauncherNeverStartedApp(result))
-            return false;
-
         launchAbortCount++;
 
         if (LaunchDiagnostics.LauncherAbortBudgetExhausted(launchAbortCount))
         {
             Log.Error(
-                "{Leg}: the launcher never started the app in {Max} attempts. Launcher output:\n{Output}",
+                "{Leg}: prestart-abort budget exhausted after {Max} aborted launches. Launcher output:\n{Output}",
                 legLabel, LaunchDiagnostics.MaxLauncherAbortAttempts, result.Output);
 
             throw new Exception(
-                $"{legLabel}: THE APP NEVER LAUNCHED. The launcher aborted before the app's process started on " +
-                $"all {LaunchDiagnostics.MaxLauncherAbortAttempts} attempts, so no test ever executed and this run " +
-                "carries NO verdict about the bindings — it is a deploy/launch failure, not a test failure. " +
+                $"{legLabel}: prestart-abort budget exhausted. The launcher aborted before the app started on " +
+                $"{LaunchDiagnostics.MaxLauncherAbortAttempts} launch attempts. Those attempts carry no test verdict; " +
+                "any earlier observed product failure remains a failed gate. " +
                 "Check the device/simulator state (connected, unlocked, developer mode, booted) and the app's " +
                 "code signature. Do not read any recovered results as evidence: the app's data container is " +
                 "persistent, so anything still in it belongs to an earlier run.");
@@ -1689,7 +1684,6 @@ partial class Build
             "state is left untouched.",
             legLabel, launchAbortCount, LaunchDiagnostics.MaxLauncherAbortAttempts, settle.TotalSeconds);
         Thread.Sleep(settle);
-        return true;
     }
 
     // ============================================================
@@ -1728,197 +1722,107 @@ partial class Build
         var aggregated = new JsonlTestResults();
         LaunchResult? lastResult = null;
 
-        // Launcher aborts are budgeted SEPARATELY from crash recovery (see ShouldRetryLauncherAbort)
+        // Launcher aborts are budgeted SEPARATELY from crash recovery (see RetryKnownLauncherAbort)
         // and extend the loop bound, so an attempt in which the app never started does not consume a
         // crash-recovery retry. Bounded: the abort budget throws well before this can run away.
         // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
         // and the give-up points cannot disagree about how many attempts remain.
         var launchAbortCount = 0;
+        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts", Guid.NewGuid().ToString("N"));
+        var attempts = new RuntimeTestAttempts(attemptDirectory);
+        Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
 
-        for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
+        try
         {
-            if (attempt > 0)
-                Log.Information("--- Resume-on-crash: attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
-                    attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
-
-            var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
-
-            SimCtl.Install(device.Udid, appPath);
-
-            // Fresh identity token per launch ATTEMPT: the app stamps it into its JSONL, and
-            // recovery below refuses any file that doesn't carry it. Per-attempt (not per-run) so
-            // a resume attempt that never wrote results cannot be scored using the prior attempt's
-            // file — the data container persists across install.
-            var runToken = NewRunToken();
-
-            var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
-            if (FlakeDetect) args.AddRange(["--flake-detect"]);
-            if (Lifetime) args.AddRange(["--lifetime"]);
-            if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
-            if (excludeClasses.Count > 0)
-                args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
-
-            Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
-            var result = SimCtl.Launch(
-                device.Udid, RuntimeTestsBundleId,
-                args.ToArray(), TimeSpan.FromSeconds(Timeout),
-                appName: "RuntimeTestsApp");
-            lastResult = result;
-
-            // Show output
-            Log.Information("");
-            Log.Information("=== APP OUTPUT ===");
-            Log.Information(result.Output);
-
-            // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
-            // all, so crash recovery has nothing to recover and would blind-exclude an innocent class.
-            if (ShouldRetryLauncherAbort(result, "iOS Simulator", ref launchAbortCount))
-                continue;
-
-            // Crash diagnostics
-            HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp");
-
-            // Try to retrieve JSONL results from sandbox
-            JsonlTestResults? runResults = null;
-            var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
-            if (jsonlContent != null)
+            for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
             {
-                runResults = JsonlTestResults.Parse(jsonlContent);
-                Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
+                if (attempt > 0)
+                    Log.Information("--- Resume-on-crash: attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
+                        attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
 
-                // Save this run's JSONL to host-side temp file
-                var tempPath = $"/tmp/runtime-tests-run-{attempt}.jsonl";
-                File.WriteAllText(tempPath, jsonlContent);
-            }
-            else
-            {
-                Log.Debug("JSONL retrieval failed for run {Run}", attempt + 1);
-            }
+                var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
 
-            // If app completed normally (success or failure), we're done
-            if (result.Result is TestResult.Success or TestResult.Failure)
-            {
+                SimCtl.Install(device.Udid, appPath);
+
+                // Fresh identity token per launch ATTEMPT: the app stamps it into its JSONL, and
+                // recovery below refuses any file that doesn't carry it. Per-attempt (not per-run) so
+                // a resume attempt that never wrote results cannot be scored using the prior attempt's
+                // file — the data container persists across install.
+                var runToken = NewRunToken();
+
+                var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
+                if (FlakeDetect) args.AddRange(["--flake-detect"]);
+                if (Lifetime) args.AddRange(["--lifetime"]);
+                if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+                if (excludeClasses.Count > 0)
+                    args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
+
+                Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
+                var result = SimCtl.Launch(
+                    device.Udid, RuntimeTestsBundleId,
+                    args.ToArray(), TimeSpan.FromSeconds(Timeout),
+                    appName: "RuntimeTestsApp");
+                lastResult = result;
+                var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
+
+                // Show output
+                Log.Information("");
+                Log.Information("=== APP OUTPUT ===");
+                Log.Information(result.Output);
+
+                // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
+                // all, so only the separate launcher-abort budget applies.
+                if (LaunchDiagnostics.LauncherNeverStartedApp(result))
+                {
+                    RuntimeTestAttempts.RecordResults(attemptEvidence, null, "not-retrieved-known-prestart-abort");
+                    RetryKnownLauncherAbort(result, "iOS Simulator", ref launchAbortCount);
+                    continue;
+                }
+
+                // Crash diagnostics
+                HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp");
+
+                // Try to retrieve JSONL results from sandbox
+                JsonlTestResults? runResults = null;
+                var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
+                RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
+                    jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
+                if (jsonlContent != null)
+                {
+                    runResults = JsonlTestResults.Parse(jsonlContent);
+                    Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
+                }
+                else
+                {
+                    Log.Debug("JSONL retrieval failed for run {Run}", attempt + 1);
+                }
+
+                // Keep only app-emitted JSONL rows in the aggregate. Interrupted-test attribution
+                // is derived attempt evidence, not a synthetic app result or a green-recovery claim.
                 if (runResults != null) aggregated.Merge(runResults);
-                break;
+                var recovery = RuntimeTestAttempts.PlanRecovery(result, runResults, inventory,
+                    eligibleClasses, excludeClasses, attempt, maxRetries, launchAbortCount);
+                RuntimeTestAttempts.RecordRecovery(attemptEvidence, recovery);
+                Log.Information("Attempt recovery: {Reason}", recovery.Reason);
+                if (recovery.ActiveTest is { } interrupted)
+                    Log.Warning("Interrupted invocation: {Class}.{Test} ({Result}); derived evidence: {Directory}.",
+                        interrupted.ClassName, interrupted.TestName, result.Result, attemptEvidence.Directory);
+                if (!recovery.Resume) break;
+                foreach (var cls in recovery.ClassesToExclude) excludeClasses.Add(cls);
+                Log.Warning("Continuing independent classes after {Class}.{Test}; the original {Result} remains in the final gate.",
+                    recovery.ActiveTest!.ClassName, recovery.ActiveTest.TestName, result.Result);
             }
-
-            // Crash/timeout: attempt recovery
-            if (result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
-            {
-                if (runResults == null || runResults.Tests.Count == 0)
-                {
-                    // JSONL recovery failed — fall back to console output parsing
-                    var consoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
-                    if (consoleScan.CompletedClasses.Count > 0)
-                    {
-                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleScan.CompletedClasses.Count);
-                        foreach (var cls in consoleScan.CompletedClasses)
-                            excludeClasses.Add(cls);
-
-                        // Replay any [FAIL] lines into the aggregated results. Without this, a class
-                        // that failed on the crashed run is excluded from re-run but contributes no
-                        // failure to the verdict — and a later all-green run reports success while a
-                        // real failure went missing.
-                        foreach (var (cls, test) in consoleScan.Failures)
-                            aggregated.AddConsoleFailure(cls, test);
-                        if (consoleScan.Failures.Count > 0)
-                            Log.Warning("Recovered {Count} console [FAIL] result(s) — run will be marked failed.", consoleScan.Failures.Count);
-
-                        var remainingAfterConsole = eligibleClasses.Except(excludeClasses).ToList();
-                        if (remainingAfterConsole.Count == 0)
-                        {
-                            Log.Information("All classes either completed or crashed — no more to run.");
-                            break;
-                        }
-
-                        Log.Information("Remaining classes: {Count}", remainingAfterConsole.Count);
-
-                        if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
-                        {
-                            Log.Error("Crash-recovery budget exhausted after {Max} attempt(s).",
-                                CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount));
-                            break;
-                        }
-
-                        continue;
-                    }
-
-                    // Neither JSONL nor console output available. Blind-skip the first
-                    // remaining class to make progress through the crash-recovery loop.
-                    var remainingBlind = eligibleClasses.Except(excludeClasses).OrderBy(c => c).ToList();
-                    if (remainingBlind.Count > 0 && !CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
-                    {
-                        var suspect = remainingBlind[0];
-                        Log.Warning("Blind skip: excluding '{Class}' (first remaining — no output to identify crasher).", suspect);
-                        excludeClasses.Add(suspect);
-                        continue;
-                    }
-
-                    Log.Error("No JSONL results recovered from crashed run — cannot resume.");
-                    break;
-                }
-
-                // Identify completed and crashing classes
-                var crashingClass = runResults.FindCrashingClass();
-
-                // Synthesize CRASHED entries for unfinished methods
-                if (crashingClass != null)
-                {
-                    Log.Warning("Crash detected in class: {Class}", crashingClass);
-                    runResults.SynthesizeCrashEntries(crashingClass, inventory);
-                    excludeClasses.Add(crashingClass);
-                }
-
-                // Add all completed classes to exclude list
-                foreach (var cls in runResults.CompletedClasses)
-                    excludeClasses.Add(cls);
-
-                aggregated.Merge(runResults);
-
-                // A class can print [FAIL] to the console and then crash before that result is
-                // flushed to JSONL (the console line is written first), so a partial JSONL can omit a
-                // real failure. Replay console failures here too — AddConsoleFailure dedups against the
-                // just-merged results by class+test, so a failure already present (as fail or as a
-                // synthesized crash) is never double-counted — and exclude those classes from re-run so
-                // a flaky retry pass cannot overwrite the recovered failure (Merge keeps the last result).
-                var crashConsoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
-                foreach (var (cls, test) in crashConsoleScan.Failures)
-                {
-                    aggregated.AddConsoleFailure(cls, test);
-                    excludeClasses.Add(cls);
-                }
-                if (crashConsoleScan.Failures.Count > 0)
-                    Log.Warning("Recovered {Count} console [FAIL] result(s) the partial JSONL omitted — run will be marked failed.", crashConsoleScan.Failures.Count);
-
-                // Check if there are remaining classes to run (scoped to eligible set)
-                var remaining = eligibleClasses.Except(excludeClasses).ToList();
-                if (remaining.Count == 0)
-                {
-                    Log.Information("All classes either completed or crashed — no more to run.");
-                    break;
-                }
-
-                Log.Information("Remaining classes: {Count} (completed: {Completed}, crashed: {Crashed})",
-                    remaining.Count, runResults.CompletedClasses.Count,
-                    crashingClass != null ? 1 : 0);
-
-                if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
-                {
-                    Log.Error("Crash-recovery budget exhausted after {Max} attempt(s). {Remaining} classes not executed.",
-                        CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), remaining.Count);
-                    break;
-                }
-
-                continue;
-            }
-
-            // Unknown result — don't retry
-            break;
+        }
+        finally
+        {
+            if (attempts.FirstProductFailure is { } failure)
+                Log.Error("Observed product {Result} remains a failed gate; attempt evidence directory: {Directory}.",
+                    failure.Result, attemptDirectory);
         }
 
         // Report final aggregated result
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
-        ReportRuntimeTestResult(lastResult!, "Simulator", finalJsonl);
+        ReportRuntimeTestResult(attempts.FinalResult(lastResult!), "Simulator", finalJsonl);
     }
 
     // ============================================================
@@ -2059,196 +1963,110 @@ partial class Build
         var aggregated = new JsonlTestResults();
         LaunchResult? lastResult = null;
 
-        // Launcher aborts are budgeted SEPARATELY from crash recovery (see ShouldRetryLauncherAbort)
+        // Launcher aborts are budgeted SEPARATELY from crash recovery (see RetryKnownLauncherAbort)
         // and extend the loop bound, so an attempt in which the app never started does not consume a
         // crash-recovery retry. Bounded: the abort budget throws well before this can run away.
         // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
         // and the give-up points cannot disagree about how many attempts remain.
         var launchAbortCount = 0;
+        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts", Guid.NewGuid().ToString("N"));
+        var attempts = new RuntimeTestAttempts(attemptDirectory);
+        Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
 
-        for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
+        try
         {
-            if (attempt > 0)
-                Log.Information("--- Resume-on-crash (device): attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
-                    attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
-
-            DeviceCtl.Install(device.Udid, appPath);
-
-            // Fresh identity token per launch ATTEMPT. This is the site the false-green bug was
-            // proved on: `devicectl` can fail every launch (CoreDeviceError 10002 / EINVAL — the
-            // process never starts) while the sandbox copy keeps succeeding against the PERSISTENT
-            // data container, handing back the previous run's fully-green JSONL. Recovery below
-            // refuses any file that doesn't carry this token.
-            var runToken = NewRunToken();
-
-            var args = new List<string>
+            for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
             {
-                "--platform", monoAot ? "device-monoaot" : "device", "--run-token", runToken
-            };
-            if (FlakeDetect) args.AddRange(["--flake-detect"]);
-            if (Lifetime) args.AddRange(["--lifetime"]);
-            if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
-            if (excludeClasses.Count > 0)
-                args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
+                if (attempt > 0)
+                    Log.Information("--- Resume-on-crash (device): attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
+                        attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
 
-            Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
-            var result = DeviceCtl.Launch(
-                device.Udid, RuntimeTestsBundleId,
-                args.ToArray(), TimeSpan.FromSeconds(Timeout));
-            lastResult = result;
+                DeviceCtl.Install(device.Udid, appPath);
 
-            Log.Information("");
-            Log.Information("=== APP OUTPUT ===");
-            Log.Information(result.Output);
+                // Fresh identity token per launch ATTEMPT. This is the site the false-green bug was
+                // proved on: `devicectl` can fail every launch (CoreDeviceError 10002 / EINVAL — the
+                // process never starts) while the sandbox copy keeps succeeding against the PERSISTENT
+                // data container, handing back the previous run's fully-green JSONL. Recovery below
+                // refuses any file that doesn't carry this token.
+                var runToken = NewRunToken();
 
-            // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
-            // all, so crash recovery has nothing to recover and would blind-exclude an innocent class.
-            // This is the exact path the six-CoreDeviceError-10002 run took.
-            if (ShouldRetryLauncherAbort(result, laneLabel, ref launchAbortCount))
-                continue;
+                var args = new List<string>
+                {
+                    "--platform", monoAot ? "device-monoaot" : "device", "--run-token", runToken
+                };
+                if (FlakeDetect) args.AddRange(["--flake-detect"]);
+                if (Lifetime) args.AddRange(["--lifetime"]);
+                if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+                if (excludeClasses.Count > 0)
+                    args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
 
-            // The app got far enough to print its banner — cross-check the runtime it actually
-            // resolved against the lane we asked for. The structural bundle check
-            // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
-            // with it on the phone, which is the claim the report ultimately makes.
-            AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
+                Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
+                var result = DeviceCtl.Launch(
+                    device.Udid, RuntimeTestsBundleId,
+                    args.ToArray(), TimeSpan.FromSeconds(Timeout));
+                lastResult = result;
+                var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
 
-            // Try to retrieve JSONL results from device sandbox
-            JsonlTestResults? runResults = null;
-            var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
-            if (jsonlContent != null)
-            {
-                runResults = JsonlTestResults.Parse(jsonlContent);
-                Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
+                Log.Information("");
+                Log.Information("=== APP OUTPUT ===");
+                Log.Information(result.Output);
 
-                var tempPath = $"/tmp/runtime-tests-device-run-{attempt}.jsonl";
-                File.WriteAllText(tempPath, jsonlContent);
-            }
-            else
-            {
-                Log.Debug("JSONL retrieval from device failed for run {Run}", attempt + 1);
-            }
+                // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
+                // all, so only the separate launcher-abort budget applies.
+                // This is the exact path the six-CoreDeviceError-10002 run took.
+                if (LaunchDiagnostics.LauncherNeverStartedApp(result))
+                {
+                    RuntimeTestAttempts.RecordResults(attemptEvidence, null, "not-retrieved-known-prestart-abort");
+                    RetryKnownLauncherAbort(result, laneLabel, ref launchAbortCount);
+                    continue;
+                }
 
-            // If app completed normally, we're done
-            if (result.Result is TestResult.Success or TestResult.Failure)
-            {
+                // The app got far enough to print its banner — cross-check the runtime it actually
+                // resolved against the lane we asked for. The structural bundle check
+                // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
+                // with it on the phone, which is the claim the report ultimately makes.
+                AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
+
+                // Try to retrieve JSONL results from device sandbox
+                JsonlTestResults? runResults = null;
+                var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
+                RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
+                    jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
+                if (jsonlContent != null)
+                {
+                    runResults = JsonlTestResults.Parse(jsonlContent);
+                    Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
+                }
+                else
+                {
+                    Log.Debug("JSONL retrieval from device failed for run {Run}", attempt + 1);
+                }
+
+                // Keep only app-emitted JSONL rows in the aggregate. Interrupted-test attribution
+                // is derived attempt evidence, not a synthetic app result or a green-recovery claim.
                 if (runResults != null) aggregated.Merge(runResults);
-                break;
+                var recovery = RuntimeTestAttempts.PlanRecovery(result, runResults, inventory,
+                    eligibleClasses, excludeClasses, attempt, maxRetries, launchAbortCount);
+                RuntimeTestAttempts.RecordRecovery(attemptEvidence, recovery);
+                Log.Information("Attempt recovery: {Reason}", recovery.Reason);
+                if (recovery.ActiveTest is { } interrupted)
+                    Log.Warning("Interrupted invocation: {Class}.{Test} ({Result}); derived evidence: {Directory}.",
+                        interrupted.ClassName, interrupted.TestName, result.Result, attemptEvidence.Directory);
+                if (!recovery.Resume) break;
+                foreach (var cls in recovery.ClassesToExclude) excludeClasses.Add(cls);
+                Log.Warning("Continuing independent classes after {Class}.{Test}; the original {Result} remains in the final gate.",
+                    recovery.ActiveTest!.ClassName, recovery.ActiveTest.TestName, result.Result);
             }
-
-            // Crash/timeout: attempt recovery
-            if (result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
-            {
-                if (runResults == null || runResults.Tests.Count == 0)
-                {
-                    // JSONL recovery failed — fall back to console output parsing.
-                    // Extract class names from [PASS]/[FAIL]/[SKIP] lines to identify
-                    // completed classes and the class that was running when the app crashed.
-                    var consoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
-                    if (consoleScan.CompletedClasses.Count > 0)
-                    {
-                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleScan.CompletedClasses.Count);
-                        foreach (var cls in consoleScan.CompletedClasses)
-                            excludeClasses.Add(cls);
-
-                        // Replay any [FAIL] lines into the aggregated results so a failure on the
-                        // crashed run survives into the verdict instead of vanishing when the class
-                        // is excluded from re-run (a later all-green run would otherwise report success).
-                        foreach (var (cls, test) in consoleScan.Failures)
-                            aggregated.AddConsoleFailure(cls, test);
-                        if (consoleScan.Failures.Count > 0)
-                            Log.Warning("Recovered {Count} console [FAIL] result(s) — run will be marked failed.", consoleScan.Failures.Count);
-
-                        var remainingAfterConsole = eligibleClasses.Except(excludeClasses).ToList();
-                        if (remainingAfterConsole.Count == 0)
-                        {
-                            Log.Information("All classes either completed or crashed — no more to run.");
-                            break;
-                        }
-
-                        Log.Information("Remaining classes: {Count}", remainingAfterConsole.Count);
-
-                        if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
-                        {
-                            Log.Error("Crash-recovery budget exhausted on device after {Max} attempt(s).",
-                                CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount));
-                            break;
-                        }
-
-                        continue;
-                    }
-
-                    // Neither JSONL nor console gave us classes. The app likely crashed at
-                    // startup before running any tests. Skip the first remaining class
-                    // (alphabetically) to make progress — the crash-recovery loop will
-                    // keep narrowing down until the crasher is isolated.
-                    var remainingBlind = eligibleClasses.Except(excludeClasses).OrderBy(c => c).ToList();
-                    if (remainingBlind.Count > 0 && !CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
-                    {
-                        var suspect = remainingBlind[0];
-                        Log.Warning("Blind skip: excluding '{Class}' (first remaining — no output to identify crasher).", suspect);
-                        excludeClasses.Add(suspect);
-                        continue;
-                    }
-
-                    Log.Error("No JSONL results recovered from crashed device run — cannot resume.");
-                    break;
-                }
-
-                var crashingClass = runResults.FindCrashingClass();
-
-                if (crashingClass != null)
-                {
-                    Log.Warning("Crash detected in class: {Class}", crashingClass);
-                    runResults.SynthesizeCrashEntries(crashingClass, inventory);
-                    excludeClasses.Add(crashingClass);
-                }
-
-                foreach (var cls in runResults.CompletedClasses)
-                    excludeClasses.Add(cls);
-
-                aggregated.Merge(runResults);
-
-                // A class can print [FAIL] to the console and then crash before that result is
-                // flushed to JSONL (the console line is written first), so a partial JSONL can omit a
-                // real failure. Replay console failures here too — AddConsoleFailure dedups against the
-                // just-merged results by class+test, so a failure already present (as fail or as a
-                // synthesized crash) is never double-counted — and exclude those classes from re-run so
-                // a flaky retry pass cannot overwrite the recovered failure (Merge keeps the last result).
-                var crashConsoleScan = JsonlTestResults.ParseClassesFromConsole(result.Output);
-                foreach (var (cls, test) in crashConsoleScan.Failures)
-                {
-                    aggregated.AddConsoleFailure(cls, test);
-                    excludeClasses.Add(cls);
-                }
-                if (crashConsoleScan.Failures.Count > 0)
-                    Log.Warning("Recovered {Count} console [FAIL] result(s) the partial JSONL omitted — run will be marked failed.", crashConsoleScan.Failures.Count);
-
-                // Check if there are remaining classes to run (scoped to eligible set)
-                var remaining = eligibleClasses.Except(excludeClasses).ToList();
-                if (remaining.Count == 0)
-                {
-                    Log.Information("All classes either completed or crashed — no more to run.");
-                    break;
-                }
-
-                Log.Information("Remaining classes: {Count}", remaining.Count);
-
-                if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launchAbortCount))
-                {
-                    Log.Error("Crash-recovery budget exhausted on device after {Max} attempt(s). {Remaining} classes not executed.",
-                        CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), remaining.Count);
-                    break;
-                }
-
-                continue;
-            }
-
-            break;
+        }
+        finally
+        {
+            if (attempts.FirstProductFailure is { } failure)
+                Log.Error("Observed product {Result} remains a failed gate; attempt evidence directory: {Directory}.",
+                    failure.Result, attemptDirectory);
         }
 
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
-        ReportRuntimeTestResult(lastResult!, laneLabel, finalJsonl);
+        ReportRuntimeTestResult(attempts.FinalResult(lastResult!), laneLabel, finalJsonl);
     }
 
     // ============================================================
@@ -2307,9 +2125,8 @@ partial class Build
                 Thread.Sleep(100);
                 var text = string.Join("\n", output);
                 resultsFlushed = text.Contains("RESULTS FLUSHED");
-                if (text.Contains("TEST SUCCESS")) testResult = TestResult.Success;
-                else if (text.Contains("TEST FAILURE")) testResult = TestResult.Failure;
-                else testResult = TestResult.LaunchFailure;
+                // Final classification runs after redirected readers have drained.
+                testResult = TestResult.LaunchFailure;
                 break;
             }
 
@@ -2330,7 +2147,15 @@ partial class Build
             catch { }
         }
 
+        // Match simulator/device: bound process exit, then drain redirected async callbacks.
+        try
+        {
+            if (process.WaitForExit(5000)) process.WaitForExit();
+        }
+        catch { /* Best-effort drain; preserve the observed stop reason. */ }
         var finalOutput = string.Join("\n", output);
+        resultsFlushed |= finalOutput.Contains("RESULTS FLUSHED", StringComparison.Ordinal);
+        testResult = LaunchDiagnostics.ClassifyFinalOutput(testResult, finalOutput);
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
@@ -2430,9 +2255,8 @@ partial class Build
                 Thread.Sleep(100);
                 var text = string.Join("\n", output);
                 resultsFlushed = text.Contains("RESULTS FLUSHED");
-                if (text.Contains("TEST SUCCESS")) testResult = TestResult.Success;
-                else if (text.Contains("TEST FAILURE")) testResult = TestResult.Failure;
-                else testResult = TestResult.LaunchFailure;
+                // Final classification runs after redirected readers have drained.
+                testResult = TestResult.LaunchFailure;
                 break;
             }
 
@@ -2453,7 +2277,15 @@ partial class Build
             catch { }
         }
 
+        // Match simulator/device: bound process exit, then drain redirected async callbacks.
+        try
+        {
+            if (process.WaitForExit(5000)) process.WaitForExit();
+        }
+        catch { /* Best-effort drain; preserve the observed stop reason. */ }
         var finalOutput = string.Join("\n", output);
+        resultsFlushed |= finalOutput.Contains("RESULTS FLUSHED", StringComparison.Ordinal);
+        testResult = LaunchDiagnostics.ClassifyFinalOutput(testResult, finalOutput);
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
@@ -2486,7 +2318,7 @@ partial class Build
     // MUST pass the exact basename of the app they launched.
     void HandleCrashDiagnostics(LaunchResult result, string simulatorUdid, int crashLogsBefore, string appName)
     {
-        if (result.Result is not (TestResult.Crash or TestResult.LaunchFailure or TestResult.Timeout))
+        if (!LaunchDiagnostics.ShouldInspectTermination(result.Result, result.Output))
             return;
 
         // Check crash log count delta
@@ -2580,7 +2412,7 @@ partial class Build
             Log.Information("  Crash: {Crash}", jsonlResults.CrashCount);
             Log.Information("  Done:  {Done}", jsonlResults.Done);
 
-            // Report crashed classes explicitly
+            // Report explicit crash rows if supplied; current app recovery does not synthesize them.
             var crashedClasses = jsonlResults.CrashedClasses;
             if (crashedClasses.Count > 0)
             {
@@ -2601,23 +2433,11 @@ partial class Build
         if (AbiGrid)
             StashAbiGridResults(platform, jsonlResults);
 
-        // If we have aggregated results from crash recovery, adjust the final verdict.
-        // A crash that was recovered (all remaining classes ran) is reported from the aggregated
-        // results, not the crash status of the last launch. But a recovered crash is still a
-        // crash: synthesized crash entries carry status "crash" (never "fail"), so FailCount can
-        // be 0 while CrashCount > 0. A crash is OUR bug, never a passing result — so any remaining
-        // crash fails the run (Finding 27).
+        // Live interruptions are retained in RuntimeTestAttempts, independently of JSONL rows.
+        // The current app emits pass/fail/skip only. Keep the defensive rejection of an explicit
+        // crash row if supplied, but do not describe those rows as current recovery output or
+        // replace the observed Crash/Timeout disposition with a synthetic aggregate verdict.
         var effectiveResult = result.Result;
-        if (jsonlResults != null && jsonlResults.CrashCount > 0 &&
-            result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
-        {
-            effectiveResult = TestResult.Failure;
-            Log.Information("Crash recovery completed — reporting based on aggregated results.");
-        }
-
-        // Finding 27: a crash is never a green result. Even when the process exited cleanly and
-        // the verdict above is Success, an individual test recorded as "crash" (e.g. a teardown
-        // or class-init fault the console marker would still print past) must fail the run.
         if (effectiveResult == TestResult.Success && jsonlResults != null && jsonlResults.CrashCount > 0)
         {
             Log.Error("{Crash} crashed test(s) recorded — a crash is never a passing result (Finding 27).",
@@ -2625,12 +2445,10 @@ partial class Build
             effectiveResult = TestResult.Failure;
         }
 
-        // A test failure recovered from a console "[FAIL]" line (see AddConsoleFailure) lands in the
-        // aggregated results as a "fail" entry. That happens when a class failed on a crashed run
-        // whose JSONL was lost: the class is excluded from re-run, so a later all-green launch can
-        // report Success while the recovered failure sits in the aggregate. A real failure is
-        // positive evidence the run is broken — there is no --permissive escape, unlike the
-        // missing-artifact gate below.
+        // App-emitted failure rows in an aggregate remain positive failure evidence even if a
+        // later launch reports success. Interrupted-run console evidence is retained separately
+        // by RuntimeTestAttempts; its first product failure also survives without any JSONL row.
+        // There is no --permissive escape for a recorded failure.
         if (effectiveResult == TestResult.Success && jsonlResults != null && jsonlResults.FailCount > 0)
         {
             Log.Error("{Fail} failed test(s) recorded — refusing to certify a green run with a recorded failure.",
@@ -2650,6 +2468,15 @@ partial class Build
             effectiveResult = TestResult.Failure;
         }
 
+        // A retrieved prefix can contain only passes while the completed console reports
+        // success. Without the structured done record it cannot qualify or seed a baseline.
+        if (effectiveResult == TestResult.Success && jsonlResults != null && !jsonlResults.Done)
+        {
+            Log.Error("Runtime tests reported success for {Platform} but the JSONL results are incomplete; " +
+                "refusing to certify or record a baseline from a partial artifact.", platform);
+            effectiveResult = TestResult.Failure;
+        }
+
         Log.Information("");
         Log.Information("=========================================");
         switch (effectiveResult)
@@ -2664,8 +2491,8 @@ partial class Build
             case TestResult.Failure:
                 Log.Information(" RUNTIME TESTS FAILED ({Platform})", platform);
                 Log.Information("=========================================");
-                if (jsonlResults != null)
-                    CompareRuntimeBaseline(platform, jsonlResults);
+                // An interrupted run may have only pass rows, even after recovery. Its
+                // product failure must neither write baselines nor be masked by a floor error.
                 throw new Exception($"Runtime tests failed ({platform})");
 
             case TestResult.Crash:

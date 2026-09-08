@@ -187,14 +187,8 @@ public static class SimCtl
                 var text = string.Join("\n", output);
                 resultsFlushed = text.Contains("RESULTS FLUSHED");
 
-                if (text.Contains("TEST SUCCESS"))
-                    result = TestResult.Success;
-                else if (text.Contains("TEST FAILURE"))
-                    result = TestResult.Failure;
-                else if (IsCrashOutput(text))
-                    result = TestResult.Crash;
-                else
-                    result = TestResult.LaunchFailure;
+                // Classify after redirected readers have drained, not from this partial snapshot.
+                result = TestResult.LaunchFailure;
                 break;
             }
 
@@ -244,12 +238,14 @@ public static class SimCtl
         catch { /* Best-effort drain; snapshot whatever was captured. */ }
 
         var finalOutput = string.Join("\n", output);
+        resultsFlushed |= finalOutput.Contains("RESULTS FLUSHED", StringComparison.Ordinal);
+        result = LaunchDiagnostics.ClassifyFinalOutput(result, finalOutput);
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
         // Check crash logs if no clear test result
         string? crashLog = null;
-        if (result is TestResult.Crash or TestResult.LaunchFailure or TestResult.Timeout)
+        if (LaunchDiagnostics.ShouldInspectTermination(result, finalOutput))
             crashLog = FindLatestCrashLog(appName);
 
         return new LaunchResult(result, finalOutput, exitCode, crashLog, resultsFlushed);
@@ -465,14 +461,4 @@ public static class SimCtl
                text.Contains("jit-info.c:918");
     }
 
-    static bool IsCrashOutput(string text)
-    {
-        return text.Contains("SIGABRT") ||
-               text.Contains("SIGSEGV") ||
-               text.Contains("SIGBUS") ||
-               text.Contains("Fatal error") ||
-               text.Contains("CRASH") ||
-               text.Contains("EXC_BAD_ACCESS") ||
-               text.Contains("Assertion") && text.Contains("not met");
-    }
 }
