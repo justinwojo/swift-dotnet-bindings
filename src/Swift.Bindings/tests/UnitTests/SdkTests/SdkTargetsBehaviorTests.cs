@@ -2119,6 +2119,116 @@ namespace BindingsGeneration.Tests
             return (result.ExitCode, result.StdOut + "\n" + result.StdErr);
         }
 
+        // Actual optional-discovery MSBuild tasks from all five SDK call sites,
+        // both metadata branches. No fake Swift protocol is added to Managed.csproj.
+        public static System.Collections.Generic.IEnumerable<object[]> OptionalSwiftQueryCases()
+        {
+            foreach (var owner in new[] { "_CollectTransitiveFrameworkDependencies", "GetSwiftFrameworkSearchPaths",
+                "GetSwiftTransitiveFrameworkDependencies", "_ReferenceCrossModuleObjCCompanions", "_CompileSwiftWrapper" })
+                foreach (var pinned in new[] { false, true })
+                    foreach (var outcome in new[] { "missing", "present", "failure", "dependency-failure" })
+                        yield return new object[] { owner, pinned, outcome };
+            foreach (var pinned in new[] { false, true })
+                yield return new object[] { "_CollectTransitiveFrameworkDependencies", pinned, "missing-project" };
+        }
+
+        [Theory]
+        [MemberData(nameof(OptionalSwiftQueryCases))]
+        public void OptionalSwiftQuery_OrdinaryManagedProjectAndPresentProtocol(
+            string owner, bool pinned, string outcome)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var sdk = System.Xml.Linq.XDocument.Load(Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets"));
+            var sourceTask = Assert.Single(sdk.Descendants("Target")
+                .Where(t => (string?)t.Attribute("Name") == owner)
+                .SelectMany(t => t.Elements("MSBuild"))
+                .Where(t => ((string?)t.Attribute("Targets"))?.StartsWith("GetSwift", StringComparison.Ordinal) == true),
+                t => ((string?)t.Attribute("Condition"))!
+                    .Contains("SetTargetFramework)' != ''", StringComparison.Ordinal) == pinned);
+            var task = new System.Xml.Linq.XElement(sourceTask);
+            var itemName = ((string)task.Attribute("Projects")!)[2..^1];
+            var protocol = (string)task.Attribute("Targets")!;
+            // Retain the actual task's conditions, properties and failure policy.
+            // Only capture its output under one test-local name for assertion.
+            foreach (var output in task.Elements("Output"))
+                output.SetAttributeValue("ItemName", "ProbeQueryResults");
+            var managed = Path.Combine(_tempDir, "Managed.csproj");
+            File.WriteAllText(managed, """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+                </Project>
+                """);
+            var references = new System.Xml.Linq.XElement("ItemGroup");
+            void AddReference(string path)
+            {
+                var item = new System.Xml.Linq.XElement(itemName,
+                    new System.Xml.Linq.XAttribute("Include", path),
+                    new System.Xml.Linq.XElement("SetConfiguration", "Configuration=Qualification"));
+                if (pinned)
+                    item.Add(new System.Xml.Linq.XElement("SetTargetFramework", "TargetFramework=net10.0"));
+                references.Add(item);
+            }
+            AddReference(managed);
+            if (outcome == "missing-project")
+                AddReference(Path.Combine(_tempDir, "Missing.csproj"));
+            if (outcome != "missing" && outcome != "missing-project")
+            {
+                var provider = Path.Combine(_tempDir, "Provider.csproj");
+                var target = new System.Xml.Linq.XElement("Target",
+                    new System.Xml.Linq.XAttribute("Name", protocol),
+                    new System.Xml.Linq.XAttribute("Returns", "@(_ProbePayload)"));
+                if (outcome == "failure")
+                    target.Add(new System.Xml.Linq.XElement("Error",
+                        new System.Xml.Linq.XAttribute("Text", "PRESENT_PROTOCOL_FAILED")));
+                else
+                    target.Add(new System.Xml.Linq.XElement("ItemGroup",
+                        new System.Xml.Linq.XElement("_ProbePayload",
+                            new System.Xml.Linq.XAttribute("Include", "VALID_$(Configuration)_$(TargetFramework)"))));
+                var providerProject = new System.Xml.Linq.XElement("Project",
+                    new System.Xml.Linq.XAttribute("Sdk", "Microsoft.NET.Sdk"),
+                    new System.Xml.Linq.XElement("PropertyGroup",
+                        new System.Xml.Linq.XElement("TargetFramework", "net10.0")), target);
+                if (outcome == "dependency-failure")
+                {
+                    target.SetAttributeValue("DependsOnTargets", "FailProtocolPrerequisite");
+                    providerProject.Add(new System.Xml.Linq.XElement("Target",
+                        new System.Xml.Linq.XAttribute("Name", "FailProtocolPrerequisite"),
+                        new System.Xml.Linq.XElement("Error",
+                            new System.Xml.Linq.XAttribute("Text", "PRESENT_PROTOCOL_DEPENDENCY_FAILED"))));
+                }
+                new System.Xml.Linq.XDocument(providerProject).Save(provider);
+                AddReference(provider);
+            }
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+            var host = Path.Combine(_tempDir, "Query.proj");
+            new System.Xml.Linq.XDocument(new System.Xml.Linq.XElement("Project", references,
+                new System.Xml.Linq.XElement("Target", new System.Xml.Linq.XAttribute("Name", "Probe"), task,
+                    new System.Xml.Linq.XElement("Message",
+                        new System.Xml.Linq.XAttribute("Importance", "high"),
+                        new System.Xml.Linq.XAttribute("Text", "QUERY_RESULTS:@(ProbeQueryResults)"))))).Save(host);
+            var result = RunDotnet($"msbuild \"{host}\" -t:Probe -nologo -v:n");
+            var text = result.StdOut + "\n" + result.StdErr;
+            if (outcome == "failure" || outcome == "dependency-failure" || outcome == "missing-project")
+            {
+                Assert.NotEqual(0, result.ExitCode);
+                Assert.Contains(outcome == "failure" ? "PRESENT_PROTOCOL_FAILED"
+                    : outcome == "dependency-failure" ? "PRESENT_PROTOCOL_DEPENDENCY_FAILED" : "MSB3202", text);
+            }
+            else
+            {
+                Assert.True(result.ExitCode == 0, text);
+                Assert.DoesNotContain("MSB4057", text);
+                // Configuration differs from the provider default and proves forwarding.
+                // net10.0 matches the provider default; it does not independently prove TFM forwarding.
+                if (outcome == "present")
+                    Assert.Contains("VALID_Qualification_net10.0", text);
+                else
+                    Assert.DoesNotContain("VALID_", text);
+            }
+        }
+
         // ── Multi-framework first-build ordering (Gap #7): _BuildSiblingSwiftBindingDeps
         //    pre-builds user-declared sibling ProjectReferences before the database scan +
         //    generate. (Sibling Apple-framework deps need no in-tree pre-build — they are

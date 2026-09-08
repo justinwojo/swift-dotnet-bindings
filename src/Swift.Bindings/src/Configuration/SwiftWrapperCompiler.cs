@@ -2584,45 +2584,52 @@ namespace BindingsGeneration
         /// directory, or creates empty stubs when the real bundle cannot be located.
         /// SPM-generated resource_bundle_accessor.swift searches Bundle.main for named bundles.
         /// Bundles placed in the output directory are picked up by Sdk.targets (via
-        /// _SwiftResourceBundles item) and copied to the app bundle root, where the
-        /// accessor will discover them at runtime on both simulator and device.
+        /// the resource manifest) and copied into the app's resource location, where
+        /// the accessor will discover them on the selected Apple platform.
         /// </summary>
         internal static void CreateResourceBundleStubs(
             List<string> bundleNames, string outputDirectory, ILogger logger,
             string? sourceDylibPath = null)
         {
-            // The real .bundle directories live as siblings of the dylib inside the
-            // framework directory (e.g., Library.xcframework/<slice>/Library.framework/<Name>.bundle/).
-            string? sourceFrameworkDir = null;
-            if (!string.IsNullOrEmpty(sourceDylibPath))
-                sourceFrameworkDir = Path.GetDirectoryName(sourceDylibPath);
-
             foreach (var name in bundleNames)
             {
                 var destBundlePath = Path.Combine(outputDirectory, $"{name}.bundle");
 
                 // Try to copy the real bundle from the source framework.
-                var realBundle = sourceFrameworkDir != null
-                    ? Path.Combine(sourceFrameworkDir, $"{name}.bundle")
-                    : null;
+                var realBundle = FindSourceResourceBundle(sourceDylibPath, name);
 
                 // A caller may choose the source framework itself as output. Never
                 // remove its input resource directory when input and output coincide.
                 if (realBundle != null && Path.GetFullPath(realBundle) == Path.GetFullPath(destBundlePath))
                     continue;
 
-                // Generated output is a replacement, not an overlay. Removed source
-                // files (or a transition to the empty fallback) must not retain payload.
-                if (Directory.Exists(destBundlePath))
-                    Directory.Delete(destBundlePath, recursive: true);
-
-                if (realBundle != null && Directory.Exists(realBundle))
+                if (realBundle != null)
                 {
-                    CopyDirectory(realBundle, destBundlePath);
+                    // Equality may be hidden by filesystem case rules or ancestor links.
+                    // Snapshot before replacement, so copying never reads a deleted input.
+                    var sourcePath = ResolveResourceDirectoryAncestors(realBundle);
+                    var destinationPath = ResolveResourceDirectoryAncestors(destBundlePath);
+                    if (IsStrictResourceDescendant(sourcePath, destinationPath) ||
+                        IsStrictResourceDescendant(destinationPath, sourcePath))
+                        throw new IOException($"Resource source and destination must not contain one another: '{realBundle}' and '{destBundlePath}'.");
+
+                    var staging = destBundlePath + $".resource-staging-{Guid.NewGuid():N}";
+                    try
+                    {
+                        CopyDirectory(realBundle, staging);
+                        PromoteResourceBundle(staging, destBundlePath, logger);
+                    }
+                    finally
+                    {
+                        CleanupOwnedResourceDirectory(staging, logger);
+                    }
                     logger.LogInformation("Copied real resource bundle '{Name}.bundle' from source framework", name);
                 }
                 else
                 {
+                    // A genuinely absent source replaces stale generated payload with a stub.
+                    if (Directory.Exists(destBundlePath))
+                        Directory.Delete(destBundlePath, recursive: true);
                     // Fall back to empty stub — prevents fatalError in resource_bundle_accessor.swift
                     // but resources (images, strings, JSON, etc.) will not be available at runtime.
                     if (!Directory.Exists(destBundlePath))
@@ -2641,6 +2648,109 @@ namespace BindingsGeneration
 
             logger.LogInformation("Prepared resource bundle(s) for {Count} bundle(s): {Names}",
                 bundleNames.Count, string.Join(", ", bundleNames));
+        }
+
+        /// <summary>
+        /// Uses the selected source binary's directory as the location authority.
+        /// Flat frameworks keep bundles beside the binary; macOS versioned frameworks
+        /// keep them in its Resources child (also exposed by the framework-root alias).
+        /// </summary>
+        private static string? FindSourceResourceBundle(string? sourceDylibPath, string bundleName)
+        {
+            if (string.IsNullOrEmpty(sourceDylibPath))
+                return null;
+            var binaryDirectory = Path.GetDirectoryName(sourceDylibPath);
+            if (binaryDirectory == null)
+                return null;
+
+            var flatBundle = Path.Combine(binaryDirectory, $"{bundleName}.bundle");
+            if (Directory.Exists(flatBundle))
+                return flatBundle;
+            var resourcesBundle = Path.Combine(binaryDirectory, "Resources", $"{bundleName}.bundle");
+            return Directory.Exists(resourcesBundle) ? resourcesBundle : null;
+        }
+
+        // This comparison only refuses potentially destructive nesting. Case-insensitive
+        // equality is NOT used to skip copying distinct directories on case-sensitive volumes.
+        private static bool IsStrictResourceDescendant(string path, string ancestor)
+            => path.StartsWith(Path.TrimEndingDirectorySeparator(ancestor) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase);
+
+        // Local to resource replacement: resolve existing ancestors for containment checks,
+        // including Resources/Versions links and /tmp. Dependency discovery stays logical.
+        private static string ResolveResourceDirectoryAncestors(string path)
+        {
+            var remainingLinks = 64;
+            return Resolve(new DirectoryInfo(Path.GetFullPath(path)), ref remainingLinks);
+
+            static string Resolve(DirectoryInfo directory, ref int remainingLinks)
+            {
+                var parent = directory.Parent;
+                var resolved = parent == null
+                    ? directory.FullName
+                    : Path.Combine(Resolve(parent, ref remainingLinks), directory.Name);
+                var current = new DirectoryInfo(resolved);
+                try
+                {
+                    _ = File.GetAttributes(resolved);
+                }
+                catch (DirectoryNotFoundException) { return resolved; }
+                catch (FileNotFoundException) { return resolved; }
+                if (current.LinkTarget == null)
+                    return resolved;
+                if (--remainingLinks < 0)
+                    throw new IOException($"Too many symbolic links in resource directory: {resolved}");
+                var target = current.ResolveLinkTarget(returnFinalTarget: false)
+                    ?? throw new IOException($"Could not resolve resource directory link: {resolved}");
+                return Resolve(new DirectoryInfo(target.FullName), ref remainingLinks);
+            }
+        }
+
+        // Mirrors wrapper promotion's park/move/rollback pattern, but resource backups
+        // are unique and owned by this operation: never delete another run's backup.
+        internal static void PromoteResourceBundle(string staging, string destination, ILogger logger)
+        {
+            var backup = destination + $".resource-backup-{Guid.NewGuid():N}";
+            var parked = false;
+            if (Directory.Exists(destination))
+            {
+                Directory.Move(destination, backup);
+                parked = true;
+            }
+            try
+            {
+                Directory.Move(staging, destination);
+            }
+            catch (Exception promotionError)
+            {
+                if (parked)
+                {
+                    try
+                    {
+                        Directory.Move(backup, destination);
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        throw new IOException($"Resource promotion and rollback failed. The previous resource bundle is retained at '{backup}'.",
+                            new AggregateException(promotionError, rollbackError));
+                    }
+                }
+                throw;
+            }
+            CleanupOwnedResourceDirectory(backup, logger);
+        }
+
+        private static void CleanupOwnedResourceDirectory(string path, ILogger logger)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                    Directory.Delete(path, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not remove owned resource staging/backup directory '{Path}'; it has been retained.", path);
+            }
         }
 
         /// <summary>

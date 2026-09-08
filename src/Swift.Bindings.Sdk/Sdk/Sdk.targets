@@ -1782,7 +1782,7 @@ done; true"
              Targets="GetSwiftTransitiveFrameworkDependencies"
              Properties="%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework);%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkDependency" />
     </MSBuild>
@@ -1790,7 +1790,7 @@ done; true"
              Targets="GetSwiftTransitiveFrameworkDependencies"
              Properties="%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' == ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkDependency" />
     </MSBuild>
@@ -2810,7 +2810,8 @@ done; true"
           Returns="@(_SwiftBindingFrameworkSearchPath)">
     <!-- Recurse this project's own swift-binding ProjectReferences. Companion
          csprojs (named '.ObjC.') use Microsoft.NET.Sdk and have no such target;
-         ContinueOnError tolerates any non-binding ProjectReference. Split by
+         SkipNonexistentTargets tolerates absent protocols on non-binding ProjectReferences;
+         a present protocol that fails remains a real build failure. Split by
          SetTargetFramework/SetConfiguration exactly as _CompileSwiftWrapper does,
          so a cross-TFM- or cross-config-pinned sibling is queried under the slice
          it was built with. -->
@@ -2822,7 +2823,7 @@ done; true"
              Targets="GetSwiftFrameworkSearchPaths"
              Properties="%(_SwiftTransitiveDepProjectReference.SetTargetFramework);%(_SwiftTransitiveDepProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftTransitiveDepProjectReference)' != '' AND '%(_SwiftTransitiveDepProjectReference.SetTargetFramework)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkSearchPath" />
     </MSBuild>
@@ -2830,7 +2831,7 @@ done; true"
              Targets="GetSwiftFrameworkSearchPaths"
              Properties="%(_SwiftTransitiveDepProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftTransitiveDepProjectReference)' != '' AND '%(_SwiftTransitiveDepProjectReference.SetTargetFramework)' == ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitiveFrameworkSearchPath" />
     </MSBuild>
@@ -2881,7 +2882,8 @@ done; true"
           Returns="@(_SwiftBindingTransitiveFrameworkDependency)">
     <!-- Recurse this project's own swift-binding ProjectReferences. Companion
          csprojs (named '.ObjC.') use Microsoft.NET.Sdk and have no such target;
-         ContinueOnError tolerates any non-binding ProjectReference. Split by
+         SkipNonexistentTargets tolerates absent protocols on non-binding ProjectReferences;
+         a present protocol that fails remains a real build failure. Split by
          SetTargetFramework/SetConfiguration exactly as GetSwiftFrameworkSearchPaths
          does, so a cross-TFM- or cross-config-pinned sibling is queried under the
          slice it was built with. -->
@@ -2893,7 +2895,7 @@ done; true"
              Targets="GetSwiftTransitiveFrameworkDependencies"
              Properties="%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework);%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingTransitiveFrameworkDependency" />
     </MSBuild>
@@ -2901,7 +2903,7 @@ done; true"
              Targets="GetSwiftTransitiveFrameworkDependencies"
              Properties="%(_SwiftTransitiveDepFwkProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftTransitiveDepFwkProjectReference)' != '' AND '%(_SwiftTransitiveDepFwkProjectReference.SetTargetFramework)' == ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingTransitiveFrameworkDependency" />
     </MSBuild>
@@ -2968,7 +2970,7 @@ done; true"
              Targets="GetSwiftObjCCompanionAssembly"
              Properties="%(_SwiftCompanionQueryRef.SetTargetFramework);%(_SwiftCompanionQueryRef.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftCompanionQueryRef)' != '' AND '%(_SwiftCompanionQueryRef.SetTargetFramework)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftCrossModuleCompanion" />
     </MSBuild>
@@ -2976,7 +2978,7 @@ done; true"
              Targets="GetSwiftObjCCompanionAssembly"
              Properties="%(_SwiftCompanionQueryRef.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftCompanionQueryRef)' != '' AND '%(_SwiftCompanionQueryRef.SetTargetFramework)' == ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftCrossModuleCompanion" />
     </MSBuild>
@@ -3053,7 +3055,7 @@ done; true"
              Targets="GetSwiftFrameworkSearchPaths"
              Properties="%(_SwiftBindingProjectReference.SetTargetFramework);%(_SwiftBindingProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftBindingProjectReference)' != '' AND '$(_SwiftWrapperSkip)' != 'true' AND '%(_SwiftBindingProjectReference.SetTargetFramework)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_ResolvedDepXCFramework" />
     </MSBuild>
@@ -3061,7 +3063,7 @@ done; true"
              Targets="GetSwiftFrameworkSearchPaths"
              Properties="%(_SwiftBindingProjectReference.SetConfiguration)"
              BuildInParallel="false"
-             ContinueOnError="true"
+             SkipNonexistentTargets="true"
              Condition="'@(_SwiftBindingProjectReference)' != '' AND '$(_SwiftWrapperSkip)' != 'true' AND '%(_SwiftBindingProjectReference.SetTargetFramework)' == ''">
       <Output TaskParameter="TargetOutputs" ItemName="_ResolvedDepXCFramework" />
     </MSBuild>
