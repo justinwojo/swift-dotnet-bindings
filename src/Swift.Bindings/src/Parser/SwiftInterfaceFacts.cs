@@ -35,7 +35,8 @@ namespace BindingsGeneration
         public required Dictionary<string, List<string>> ParameterNames { get; init; }
 
         /// <summary>Per-member typed-throws error type. Key: "QualifiedType.printedName" or
-        /// bare printedName. Value: fully-qualified Swift error type
+        /// bare printedName, with |normalizedParamSignature for overloads. Full nested owner
+        /// paths are preserved; ambiguous refinements are absent. Value: Swift error type
         /// (e.g., "SwiftBindingsTestLib.ParseError").</summary>
         public required Dictionary<string, string> TypedThrowsErrors { get; init; }
 

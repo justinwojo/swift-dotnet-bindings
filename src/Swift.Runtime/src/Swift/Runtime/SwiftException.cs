@@ -92,8 +92,8 @@ public class SwiftException : Exception
 /// (e.g., <c>throws(ParseError)</c>) encounters an error.
 /// The <see cref="Error"/> property provides access to the typed error value,
 /// which is populated for both sync and async methods when the error type can
-/// be extracted from the Swift error box. Falls back to default (null) only
-/// when the Swift <c>as?</c> cast fails (rare edge case).
+/// be extracted from the Swift error box. Current generated bindings report a failed
+/// dynamic cast as an untyped <see cref="SwiftException"/>.
 /// </summary>
 /// <typeparam name="TError">The Swift error type (typically an enum with Error conformance).</typeparam>
 public class SwiftException<TError> : SwiftException
@@ -101,15 +101,15 @@ public class SwiftException<TError> : SwiftException
     /// <summary>
     /// The typed Swift error value, or default if the error value could not be extracted.
     /// For both sync and async methods, this contains the fully-marshalled error enum with case
-    /// and associated values when extraction succeeds. Falls back to default (null for reference types)
-    /// only when the Swift <c>as?</c> cast fails — the error message is still available
-    /// via <see cref="Exception.Message"/>.
+    /// and associated values when extraction succeeds. The message-only constructor permits
+    /// a default payload for compatibility; current generated bindings report failed extraction
+    /// as an untyped <see cref="SwiftException"/>.
     /// </summary>
     public TError? Error { get; }
 
     /// <summary>
     /// Creates a new SwiftException&lt;TError&gt; with only an error message (no typed error value).
-    /// Used as fallback when the Swift extractor's <c>as?</c> cast fails (rare edge case).
+    /// Retained for callers and older generated bindings that use message-only typed errors.
     /// </summary>
     /// <param name="message">The error message from Swift.</param>
     public SwiftException(string message) : base(message)

@@ -1465,46 +1465,30 @@ namespace BindingsGeneration
         {
             if (useTypedErrorCallback)
             {
-                if (typedErrorIsClassDirectAsync)
-                {
-                    // Class-shaped typed throws — mirror the cascade dispatcher's
-                    // `ClassPointerDirect` shape. The wire is a +1 retained class pointer
-                    // (no carrier buffer): `initializeMemory` would store the class
-                    // reference into a buffer-of-pointers, but C#'s `MarshalFromSwift<T>`
-                    // for a class expects the raw class pointer, not a pointer-to-pointer.
-                    // Cancellation: pass nil errorPtr (no allocation, no retain) so C#
-                    // routes to TrySetCanceled without touching the pointer.
-                    return
-                        $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                        $"{indent}let errorMessage = String(describing: error)\n" +
-                        $"{indent}if _isCancelled != 0 {{\n" +
-                        $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
-                        $"{indent}        errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)\n" +
-                        $"{indent}    }}\n" +
-                        $"{indent}}} else {{\n" +
-                        $"{indent}    let _ptr = Unmanaged.passRetained(error as! {typedThrowsSwiftErrorType} as AnyObject).toOpaque()\n" +
-                        $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
-                        $"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, 0)\n" +
-                        $"{indent}    }}\n" +
-                        $"{indent}}}";
-                }
-                // Typed-throws path. Cancellation must be handled before the force-cast to
-                // the typed error — CancellationError is not the typed error type, so
-                // `error as! T` would trap. Cancellation: allocate a zeroed buffer (C# only
-                // reads _isCancelled flag). Typed errors: cast and copy into the buffer.
-                // Wire format is the unified 6-param shape; errorTypeId is 0 because the
-                // typed-throws C# body uses the static error type (never consults the id).
+                // Nil payload represents cancellation or a missing typed refinement.
+                // Check the dynamic type before allocating/retaining any payload; the
+                // managed receiver uses the message for a noncancellation nil payload.
+                var payload = typedErrorIsClassDirectAsync
+                    ? $"let _ptr = Unmanaged.passRetained(_typedError as AnyObject).toOpaque()\n" +
+                      $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                      $"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, 0)\n" +
+                      $"{indent}    }}"
+                    : $"let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                      $"{indent}    let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
+                      $"{indent}        byteCount: max(_errSize, 1), alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
+                      $"{indent}    _errPtr.initializeMemory(as: {typedThrowsSwiftErrorType}.self, repeating: _typedError, count: 1)\n" +
+                      $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                      $"{indent}        errorCallback(UnsafeRawPointer(_errPtr), _errSize, _msgPtr, 0, _sbwTask, 0)\n" +
+                      $"{indent}    }}";
                 return
                     $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"{indent}let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
-                    $"{indent}let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
-                    $"{indent}    byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
-                    $"{indent}if _isCancelled == 0 {{\n" +
-                    $"{indent}    _errPtr.initializeMemory(as: {typedThrowsSwiftErrorType}.self, repeating: error as! {typedThrowsSwiftErrorType}, count: 1)\n" +
-                    $"{indent}}}\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
-                    $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
-                    $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, _sbwTask, 0)\n" +
+                    $"{indent}if _isCancelled == 0, let _typedError = error as? {typedThrowsSwiftErrorType} {{\n" +
+                    $"{indent}    {payload}\n" +
+                    $"{indent}}} else {{\n" +
+                    $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                    $"{indent}        errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)\n" +
+                    $"{indent}    }}\n" +
                     $"{indent}}}";
             }
             else if (useCascadeErrorCallback)

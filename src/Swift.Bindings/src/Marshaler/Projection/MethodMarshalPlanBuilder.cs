@@ -1302,7 +1302,7 @@ internal class MethodMarshalPlanBuilder
                             var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(errorPtr);
                             if (_typedErrorPtr != IntPtr.Zero)
                             {{typedErrorBlock}}
-                            throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
+                            throw new SwiftException(_errorMessage);
                         }
                         finally
                         {
@@ -1357,7 +1357,7 @@ internal class MethodMarshalPlanBuilder
                             var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
                             if (_typedErrorPtr != IntPtr.Zero)
                             {{typedErrorBlock2}}
-                            throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
+                            throw new SwiftException(_errorMessage);
                         }
                         finally
                         {

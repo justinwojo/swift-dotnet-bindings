@@ -383,14 +383,83 @@ public class SwiftSyntaxInterfaceFactsProducerTests
 
     #region Typed throws — per-method error type extraction
 
-    // These migrate the unit-level coverage that lived in the deleted
-    // SwiftInterfaceTypedThrowsTests (which drove the retired regex
-    // SwiftInterfaceAccessParser.GetTypedThrowsErrors). The producer now sources
-    // typed-throws facts from the SwiftSyntax host's ThrowsWalker. The host's key shape
-    // is the top-of-scope SIMPLE type name + "." + printedName (bare printedName for free
-    // functions), and the value is the error type's source spelling — the same identity
-    // SwiftABIParser later queries with parentDecl.Name. BindingTests exercises the
-    // end-to-end binding; these pin the extraction itself.
+    // Typed refinements share the availability signature normalization, preserve
+    // the full owner path, and never broadcast from one overload to its siblings.
+
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypedThrows_OverloadIdentity_IsIndependentOfDeclarationOrder(bool reverse)
+    {
+        var members = new[]
+        {
+            "public func run(_ value: Swift.Int32) async throws(Probe.FirstError)",
+            "public func run(_ value: Swift.String) async throws(Probe.SecondError)",
+            "public func run(_ value: Swift.Bool) async throws",
+            "public init(_ value: Swift.Int32) throws(Probe.FirstError)",
+            "public init(_ value: Swift.String) throws(Probe.SecondError)"
+        };
+        if (reverse) Array.Reverse(members);
+        var errors = ProduceTypedThrows("public struct Worker {\n" + string.Join("\n", members) + "\n}", out var path);
+        try
+        {
+            Assert.Equal("Probe.FirstError", errors["Worker.run(_:)|Int32"]);
+            Assert.Equal("Probe.SecondError", errors["Worker.run(_:)|String"]);
+            Assert.Equal("Probe.FirstError", errors["Worker.init(_:)|Int32"]);
+            Assert.Equal("Probe.SecondError", errors["Worker.init(_:)|String"]);
+            Assert.False(errors.ContainsKey("Worker.run(_:)"));
+            Assert.False(errors.ContainsKey("Worker.run(_:)|Bool"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypedThrows_NestedOwnersAndExtensions_DoNotShareLeafIdentity(bool reverse)
+    {
+        var owners = new[]
+        {
+            "public enum A { public struct Inner { public func work() throws(Probe.FirstError) } }",
+            "public enum B { public struct Inner { public func work() throws(Probe.SecondError) } }",
+            "extension Probe.A.Inner { public func extra() throws(Probe.FirstError) }",
+            "extension Probe.B.Inner { public func extra() throws(Probe.SecondError) }",
+            "public func work() throws(Probe.FreeError)"
+        };
+        if (reverse) Array.Reverse(owners);
+        var errors = ProduceTypedThrows(string.Join("\n", owners), out var path);
+        try
+        {
+            Assert.Equal("Probe.FirstError", errors["A.Inner.work()"]);
+            Assert.Equal("Probe.SecondError", errors["B.Inner.work()"]);
+            Assert.Equal("Probe.FirstError", errors["A.Inner.extra()"]);
+            Assert.Equal("Probe.SecondError", errors["B.Inner.extra()"]);
+            Assert.Equal("Probe.FreeError", errors["work()"]);
+            Assert.False(errors.ContainsKey("Inner.work()"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypedThrows_ConflictingNormalizedSignatures_OmitRefinement(bool reverse)
+    {
+        var members = new[]
+        {
+            "public func run(_ value: A.Value) throws(Probe.FirstError)",
+            "public func run(_ value: B.Value) throws"
+        };
+        if (reverse) Array.Reverse(members);
+        var errors = ProduceTypedThrows(string.Join("\n", members) +
+            "\npublic func healthy() throws(Probe.FirstError)", out var path);
+        try
+        {
+            Assert.Single(errors);
+            Assert.Equal("Probe.FirstError", errors["healthy()"]);
+        }
+        finally { File.Delete(path); }
+    }
 
     [SkippableFact]
     public void FreeFunction_TypedThrows_KeyedByPrintedName_PreservesQualifiedErrorType()
@@ -438,8 +507,7 @@ public class SwiftSyntaxInterfaceFactsProducerTests
             out var path);
         try
         {
-            // The extension scope keys by the LAST dotted component of the extended type
-            // (`SwiftBindingsTestLib.NumberBox` -> `NumberBox`), not the fully-qualified path.
+            // The module prefix is removed while nested owner components are preserved.
             Assert.True(errors.TryGetValue("NumberBox.validate(_:)", out var errorType),
                 "An extension member keys by the extended type's simple (last-component) name.");
             Assert.Equal("SwiftBindingsTestLib.ParseError", errorType);

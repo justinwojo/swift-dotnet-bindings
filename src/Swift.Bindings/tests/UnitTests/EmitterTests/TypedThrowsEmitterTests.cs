@@ -210,6 +210,72 @@ public class TypedThrowsEmitterTests
         Assert.Contains("_isCancelled, _sbwTask, 0)", swiftOutput);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AsyncTypedError_DynamicMismatch_UsesNilMessageFallback(bool classError)
+    {
+        var (cs, swift) = GenerateThrowingMethod(true, true, classError: classError);
+        Assert.Contains("let _typedError = error as? TestModule.ParseError", swift);
+        Assert.DoesNotContain("error as! TestModule.ParseError", swift);
+        Assert.Contains("errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)", swift);
+        if (classError)
+        {
+            Assert.Contains("Unmanaged.passRetained(_typedError as AnyObject)", swift);
+            Assert.DoesNotContain("MemoryLayout<TestModule.ParseError>", swift);
+        }
+        else
+            Assert.Contains("repeating: _typedError", swift);
+
+        // Both receiving branches guard before attempting static unmarshalling.
+        var receivers = cs.Split("if (errorPtr == IntPtr.Zero)");
+        Assert.Equal(3, receivers.Length);
+        foreach (var receiver in receivers.Skip(1))
+        {
+            var untyped = receiver.IndexOf("new SwiftException(errorMessage)", StringComparison.Ordinal);
+            var materialize = receiver.IndexOf("MarshalFromSwift<TestModule.ParseError>", StringComparison.Ordinal);
+            Assert.True(untyped >= 0, "Nil payload must construct the untyped exception.");
+            Assert.True(materialize >= 0, "The matching-payload control must remain present.");
+            Assert.True(untyped < materialize);
+        }
+        Assert.Contains("holder.Cleanup()", cs);
+        Assert.Contains("holderTcs.TrySetException(exception)", cs);
+        Assert.Contains("directTcs.TrySetException(exception)", cs);
+        Assert.Contains("directTcs.TrySetCanceled()", cs);
+        Assert.Contains("handle.Free()", cs);
+    }
+
+    [Theory]
+    [InlineData(0, "_errorPtr")]
+    [InlineData(1, "errorPtr")]
+    [InlineData(2, "errorPtr")]
+    public void SyncTypedError_DynamicMismatch_UsesUntypedMessageAndReleasesOriginalError(int syncErrorRoute, string errorPointer)
+    {
+        var (cs, swift) = GenerateThrowingMethod(false, true, syncErrorRoute: syncErrorRoute);
+        Assert.Contains("guard let typedError = errorObj as? TestModule.ParseError", swift);
+        Assert.Contains("throw new SwiftException(_errorMessage)", cs);
+        Assert.DoesNotContain("SwiftException<TestModule.ParseError>(_errorMessage)", cs);
+        Assert.Contains($"SBW_ReleaseError({errorPointer})", cs);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AsyncPlainThrows_DirectCancellationPrecedesUntypedOrCascadeError(bool useCascade)
+    {
+        var (cs, _) = GenerateThrowingMethod(true, false, useCascade: useCascade);
+        var errorCallbackStart = cs.IndexOf("IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr", StringComparison.Ordinal);
+        Assert.True(errorCallbackStart >= 0, "The error callback must be emitted.");
+        var directStart = cs.IndexOf("else if (handle.Target is TaskCompletionSource<int> directTcs)", errorCallbackStart, StringComparison.Ordinal);
+        Assert.True(directStart >= 0, "The direct error receiver must be emitted.");
+        var direct = cs.Substring(directStart);
+        var cancel = direct.IndexOf("directTcs.TrySetCanceled()", StringComparison.Ordinal);
+        var exception = direct.IndexOf(useCascade ? ".CreateException(errorTypeId" : "new SwiftException(errorMessage)", StringComparison.Ordinal);
+        Assert.True(cancel >= 0, "Direct cancellation must settle a canceled task.");
+        Assert.True(exception >= 0, "The ordinary error control must remain emitted.");
+        Assert.True(cancel < exception);
+    }
+
     #endregion
 
     #region Error Ownership — SBW_Free Behavior
@@ -285,15 +351,17 @@ public class TypedThrowsEmitterTests
 
     #region Helpers
 
-    private static (string CsOutput, string SwiftOutput) GenerateThrowingMethod(
+    internal static (string CsOutput, string SwiftOutput) GenerateThrowingMethod(
         bool isAsync,
         bool hasTypedThrows,
         string errorTypeName = "TestModule.ParseError",
         bool registerErrorType = true,
-        bool isFreeFunction = false)
+        bool isFreeFunction = false,
+        bool classError = false,
+        int syncErrorRoute = 0,
+        bool useCascade = false)
     {
-        // Reset static emitter state — these tests need clean dedup tracking
-        // Context-based tracking: tests use default context (no parallelism)
+        // Each invocation owns a fresh emission context, including parallel oracle calls.
 
         var moduleDecl = new ModuleDecl
         {
@@ -371,6 +439,8 @@ public class TypedThrowsEmitterTests
             ModuleDecl = moduleDecl,
             Throws = true,
             IsAsync = isAsync,
+            WrapperStrategy = syncErrorRoute == 1 ? WrapperStrategy.CdeclMethod
+                : syncErrorRoute == 2 ? WrapperStrategy.NativeThunk : WrapperStrategy.None,
             IsSynthesizedAccessor = false,
             ThrownErrorType = hasTypedThrows ? TypeSpecParser.Parse(errorTypeName) : null
         };
@@ -416,7 +486,7 @@ public class TypedThrowsEmitterTests
                     SwiftTypeName = errorSwiftName,
                     MetadataAccessor = $"$s10TestModule{errorSimpleName}OMa",
                     Flags = TypeRecordFlags.None,
-                    Kind = TypeRecordKind.Enum
+                    Kind = classError ? TypeRecordKind.Class : TypeRecordKind.Enum
                 });
         }
 
@@ -437,7 +507,9 @@ public class TypedThrowsEmitterTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = handler.Marshal(methodDecl, typeDatabase);
 
-        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        var emissionContext = new ModuleEmissionContext();
+        if (useCascade) emissionContext.RegisterErrorTypeId("TestModule.ParseError");
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionContext);
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());

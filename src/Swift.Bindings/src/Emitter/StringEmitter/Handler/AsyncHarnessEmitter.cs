@@ -1612,7 +1612,7 @@ namespace BindingsGeneration
             // Class-direct typed throws emit nil errorPtr on cancellation (no buffer / no
             // retain) so there's nothing to clean up — skip the SBW_Free call.
             var freeErrorInCancellation = (_useTypedErrorCallback && !_typedErrorIsClassDirectAsync)
-                ? "\n                                        SBW_Free(errorPtr);"
+                ? "\n                                        if (errorPtr != IntPtr.Zero) SBW_Free(errorPtr);"
                 : "";
             var cancellationBlock = $$"""
                                     if (isCancellation != 0)
@@ -1666,28 +1666,37 @@ namespace BindingsGeneration
                     asyncErrorFreeBlock = "catch { SBW_Free(errorPtr); throw; }";
                 else
                     asyncErrorFreeBlock = "finally { SBW_Free(errorPtr); }";
+                // The typed wire may carry no payload when Swift's dynamic error
+                // does not match the declared refinement. Never unmarshal a nil pointer.
+                var createTypedOrUntypedException = $$"""
+                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                    global::System.Exception exception;
+                    if (errorPtr == IntPtr.Zero)
+                    {
+                        exception = new SwiftException(errorMessage);
+                    }
+                    else
+                    {
+                        {{_typedThrowsCSharpErrorType}} typedError;
+                        try
+                        {
+                            typedError = ({{_typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{_typedThrowsCSharpErrorType}}>(errorPtr);
+                        }
+                        {{asyncErrorFreeBlock}}
+                        exception = new SwiftException<{{_typedThrowsCSharpErrorType}}>(typedError, errorMessage);
+                    }
+                    """;
+                createTypedOrUntypedException = string.Join("\n",
+                    createTypedOrUntypedException.Split('\n').Select(line => "                        " + line));
                 holderErrorBody = $$"""
-                                        var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                        {{_typedThrowsCSharpErrorType}} typedError;
-                                        try
-                                        {
-                                            typedError = ({{_typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{_typedThrowsCSharpErrorType}}>(errorPtr);
-                                        }
-                                        {{asyncErrorFreeBlock}}
-                                        var exception = new SwiftException<{{_typedThrowsCSharpErrorType}}>(typedError, errorMessage);
-                                        // Free copy buffer memory for non-frozen params and release retained self
+                {{createTypedOrUntypedException}}
+                                        // Release arguments and retained self before completion.
                 {{BuildHolderCleanupCode("holder", "                        ")}}
                                         holderTcs.TrySetException(exception);
                 """;
                 directErrorBody = $$"""
-                                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                    {{_typedThrowsCSharpErrorType}} typedError;
-                                    try
-                                    {
-                                        typedError = ({{_typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{_typedThrowsCSharpErrorType}}>(errorPtr);
-                                    }
-                                    {{asyncErrorFreeBlock}}
-                                    directTcs.TrySetException(new SwiftException<{{_typedThrowsCSharpErrorType}}>(typedError, errorMessage));
+                {{createTypedOrUntypedException}}
+                                        directTcs.TrySetException(exception);
                 """;
             }
             else if (_useCascadeErrorCallback)
@@ -1767,7 +1776,12 @@ namespace BindingsGeneration
                                 }
                                 else if (handle.Target is TaskCompletionSource{{tcsType}} directTcs)
                                 {
+                                    if (isCancellation != 0)
+                                        directTcs.TrySetCanceled();
+                                    else
+                                    {
                 {{directErrorBody}}
+                                    }
                                 }
                             }
                 {{BuildAsyncCallbackFaultCatch(tcsType, "            ")}}

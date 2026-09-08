@@ -88,13 +88,16 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   <c>subscript { get async }</c> would silently fall back to the single TBD-symbol oracle
 ///   and, when that is silent too, be emitted as a synchronous indexer over an async entry
 ///   point. Pinning the version makes the stale host binary fail fast instead.</item>
+/// <item><b>v7</b> — <c>typedThrowsErrors</c> preserves full nested owner paths and
+///   uses parameter-signature keys for overloads, including plain-throws siblings in
+///   disambiguation. A v6 host can silently select another declaration's error type.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 6;
+    public const int ExpectedSchemaVersion = 7;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

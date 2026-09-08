@@ -50,8 +50,12 @@ import Foundation
 /// and, when that is silent too, be emitted as a synchronous indexer over an async entry
 /// point. Pinning the version turns the stale host into a "rebuild the host binary" error.
 ///
+/// v7: `typedThrowsErrors` preserves full nested owner paths and stages all
+/// overloads (including plain throws) before emitting parameter-signature keys.
+/// A v6 host can silently select a different declaration's error type.
+///
 /// On the .NET side, see `InterfaceFactsJson.SchemaVersion` — values must match.
-let kSchemaVersion = 6
+let kSchemaVersion = 7
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

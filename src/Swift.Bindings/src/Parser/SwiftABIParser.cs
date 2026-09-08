@@ -2816,18 +2816,17 @@ namespace BindingsGeneration
             // Look up typed throws error type from swiftinterface data
             if (methodDecl.Throws)
             {
-                // Try type-scoped key first (e.g., "TypedThrowingParser.parse(_:)")
-                var throwsScopedKey = $"{parentDecl.Name}.{node.PrintedName}";
-                if (!_facts.TypedThrowsErrors.TryGetValue(throwsScopedKey, out var errorTypeName))
-                {
-                    // Try module-level key (free functions, e.g., "parseNumber(_:)")
-                    _facts.TypedThrowsErrors.TryGetValue(node.PrintedName, out errorTypeName);
-                }
+                var throwsKey = parentDecl is TypeDecl throwsParent
+                    ? $"{BuildSwiftTypeQualifiedPath(throwsParent)}.{node.PrintedName}"
+                    : node.PrintedName;
+                var throwsSignature = ComputeAbiParamSignature(node);
+                if (!_facts.TypedThrowsErrors.TryGetValue(MemberSignatureNormalizer.ComposeKey(throwsKey, throwsSignature), out var errorTypeName))
+                    _facts.TypedThrowsErrors.TryGetValue(throwsKey, out errorTypeName);
 
                 if (errorTypeName != null)
                 {
                     // EOF-strict Parse throws on a malformed/over-captured error-type string (the
-                    // typed-throws extractor is not depth-aware). Leave ThrownErrorType null on failure
+                    // producer or input may be malformed). Leave ThrownErrorType null on failure
                     // so the method still emits — just without the typed-error refinement — rather than
                     // dropping the entire declaration via HandleNode's catch.
                     try
