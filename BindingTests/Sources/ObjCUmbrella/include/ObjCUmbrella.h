@@ -403,4 +403,25 @@ typedef NS_ENUM(NSInteger, OUSourceKind) {
 - (void)selectIndex:(NSInteger)index;
 @end
 
+// Compiler-owned method/property ownership and expanded pointer direction contracts.
+#define OU_INPUT_OUTPUT inout
+@interface OUOwnershipToken : NSObject
+- (int)answer;
+@end
+@interface OUOwnershipOracle : NSObject
++ (OUOwnershipToken *)ownedFactory __attribute__((ns_returns_retained));
++ (OUOwnershipToken *)newToken;
++ (OUOwnershipToken *)familyFactory __attribute__((objc_method_family(new)));
++ (OUOwnershipToken *)borrowedFactory __attribute__((ns_returns_not_retained));
++ (OUOwnershipToken *)newBorrowed __attribute__((ns_returns_not_retained));
++ (void)consume:(OUOwnershipToken * __attribute__((ns_consumed)))value;
++ (int)inspect:(OUOwnershipToken *)value;
++ (int)deallocCount;
++ (void)increment:(inout int *)value;
++ (void)incrementMacro:(OU_INPUT_OUTPUT int *)value;
++ (int)readValue:(in int *)value;
++ (void)writeValue:(out int *)value;
+@property(class, readonly, getter=newProperty) OUOwnershipToken *familyProperty;
+@end
+
 NS_ASSUME_NONNULL_END

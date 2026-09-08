@@ -476,6 +476,9 @@ partial class Build
                 $"--mixed-pack ({label}): the loader reported a duplicate ObjC class registration (Gap 2 regression) — the " +
                 $"static source archive was embedded in the consumer in ADDITION to the force-loading wrapper.\noutput:\n{result.Output}");
 
+        if (!result.Output.Contains("FOREIGN_CATEGORY:73", StringComparison.Ordinal))
+            Assert.Fail($"Mixed consumer: foreign category selector did not round-trip.\n{result.Output}");
+
         var expected = $"OBJC_GREETING:{PackGateMixedObjCGreeting}";
         if (!result.Output.Contains(expected, StringComparison.Ordinal))
             Assert.Fail(
@@ -589,6 +592,7 @@ partial class Build
                     {
                         var probe = new global::{{module}}.{{probeClass}}();
                         Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
+                        Console.WriteLine("FOREIGN_CATEGORY:" + global::{{module}}.NSNull_{{module}}Extras.Contract{{module}}Answer(global::Foundation.NSNull.Null));
                         Console.WriteLine("RESULTS FLUSHED");
                         Console.WriteLine("TEST SUCCESS");
                     }

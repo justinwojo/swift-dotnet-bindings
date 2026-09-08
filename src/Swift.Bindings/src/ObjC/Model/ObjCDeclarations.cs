@@ -24,14 +24,24 @@ public sealed record ObjCDocParam
     public required string Description { get; init; }
 }
 
+/// <summary>Compiler-set return ownership, including implicit Objective-C method-family facts.</summary>
+public enum ObjCReturnOwnership { Unspecified, Borrowed, Retained }
+
+/// <summary>Compiler-expanded parameter direction. Unknown means supplied facts could not be joined.</summary>
+public enum ObjCParameterDirection { Unspecified, In, Out, InOut, Unknown }
+
 public sealed record ObjCParameterDecl
 {
+    public bool IsConsumed { get; init; }
+    public ObjCParameterDirection Direction { get; init; }
     public required string Name { get; init; }
     public required ObjCTypeRef Type { get; init; }
 }
 
 public sealed record ObjCMethodDecl
 {
+    public ObjCReturnOwnership ReturnOwnership { get; init; }
+    public bool ConsumesSelf { get; init; }
     public required string Selector { get; init; }
     public required ObjCTypeRef ReturnType { get; init; }
     public List<ObjCParameterDecl> Parameters { get; init; } = [];
@@ -56,6 +66,8 @@ public sealed record ObjCMethodDecl
 
 public sealed record ObjCPropertyDecl
 {
+    public ObjCReturnOwnership GetterOwnership { get; init; }
+    public bool HasConsumedAccessor { get; init; }
     public required string Name { get; init; }
     public required ObjCTypeRef Type { get; init; }
     public bool IsReadonly { get; init; }
@@ -147,7 +159,10 @@ public sealed record ObjCProtocolDecl
 public sealed record ObjCEnumCaseDecl
 {
     public required string Name { get; init; }
+    // Compatibility for model builders; parsed declarations retain the complete evaluated fact.
     public long? Value { get; init; }
+    public ObjCIntegerValue? EvaluatedValue { get; init; }
+    public bool HasExplicitValue { get; init; }
 
     /// <summary>
     /// Platform-availability records recovered from the enumerator's availability macros or a bare
@@ -184,6 +199,16 @@ public sealed record ObjCEnumDecl
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
 
+/// <summary>Clang-evaluated integer, preserving all 64 bits and source signedness.</summary>
+public readonly record struct ObjCIntegerValue(ulong Bits, bool IsUnsigned);
+
+/// <summary>
+/// Clang diagnostic layout snapshot for the selected target, in bits. Complete-layout dumping
+/// can force layout before trailing attributes are applied; this is not independently proven
+/// shipping ABI and must not override packing/alignment facts when selecting a carrier.
+/// </summary>
+public sealed record ObjCRecordLayout(long SizeBits, long AlignmentBits, IReadOnlyList<long> FieldOffsetsBits);
+
 public sealed record ObjCStructField
 {
     public required string Name { get; init; }
@@ -192,6 +217,10 @@ public sealed record ObjCStructField
 
 public sealed record ObjCStructDecl
 {
+    public ObjCRecordLayout? NativeLayout { get; init; }
+    public bool IsPacked { get; init; }
+    public bool HasExplicitAlignment { get; init; }
+    public bool HasBitFields { get; init; }
     public required string Name { get; init; }
     public List<ObjCStructField> Fields { get; init; } = [];
     /// <summary>

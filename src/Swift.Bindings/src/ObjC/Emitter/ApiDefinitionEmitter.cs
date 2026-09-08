@@ -10,6 +10,7 @@ public static class ApiDefinitionEmitter
 {
     public static string Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null)
     {
+        module = ObjCEmissionEligibility.Prepare(module, diagnostics, apiDefinition: true);
         var typedefMap = ObjCTypeMapper.BuildResolvedTypedefMap(module);
         var blockTypedefMap = ObjCTypeMapper.BuildBlockTypedefMap(module);
 
@@ -872,6 +873,7 @@ public static class ApiDefinitionEmitter
         {
             Selector = plan.GetterSelector,
             ReturnType = prop.Type,
+            ReturnOwnership = prop.GetterOwnership,
             IsInstanceMethod = true,
             DocComment = prop.DocComment,
             Availability = prop.Availability,
@@ -958,8 +960,8 @@ public static class ApiDefinitionEmitter
         // first element of an array, and the two want opposite projections. The `count:` keyword is
         // the signal that separates them: with it the pointer + count pair becomes a single C# array
         // parameter (an `[Internal]` pointer+count member here plus a pinning overload in the
-        // generated partial class); without it the pointer addresses one value and a MUTABLE pointee
-        // is a legitimate `out T`.
+        // generated partial class); without it a mutable scalar pointer uses the established
+        // out default unless an explicit compiler direction selects ref.
         //
         // Two pointees are neither. A CONST pointee is read-only by construction, so it can never be
         // an `out` — C# `out` zeroes the caller's storage before the call, silently destroying the
@@ -968,8 +970,9 @@ public static class ApiDefinitionEmitter
         // where `out T` supplies exactly one — the callee then reads or writes past the end of it.
         // Neither has a sound single-value signature, so when no array overload can be built for it
         // the member drops with a recorded skip rather than shipping as a callable that corrupts its
-        // own arguments. A mutable pointer with no count sibling is untouched: that one really does
-        // address a single value, and `out T` is the right projection for it.
+        // own arguments. A mutable pointer with no count sibling keeps the established out
+        // default unless Clang supplies an explicit input/inout qualifier.
+        // Mutability alone is not proof of an output-only native contract.
         //
         // The array projection needs somewhere to hang the overload: a protocol has no implementation
         // to extend, and a constructor cannot be forwarded from a partial-class member. In those
@@ -989,21 +992,12 @@ public static class ApiDefinitionEmitter
             ? ObjCArrayParameterProjection.TryPlan(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames)
             : null;
 
-        for (var i = 0; i < method.Parameters.Count; i++)
+        var pointerRefusal = GetPointerParameterRefusal(method, typedefMap, enumNames,
+            arrayPlan, canProjectArray);
+        if (pointerRefusal != null)
         {
-            if (arrayPlan != null && i == arrayPlan.PointerParameterIndex)
-                continue;
-            var param = method.Parameters[i];
-            if (!ObjCTypeMapper.IsValueTypePointerShape(param.Type, typedefMap, enumNames))
-                continue;
-
-            var isArrayShaped = ObjCArrayParameterProjection.IsArrayShapedPointerParameter(method, i, typedefMap, enumNames);
-            if (!isArrayShaped && !ObjCTypeMapper.IsConstValueTypePointerParameter(param.Type, typedefMap, enumNames))
-                continue;
-
-            var detail = DescribeUnprojectablePointer(param, isArrayShaped, canProjectArray);
-            logger?.LogDebug("Skipping method {Selector}: {Detail}", method.Selector, detail);
-            diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnsupportedConstruct, detail);
+            logger?.LogDebug("Skipping method {Selector}: {Detail}", method.Selector, pointerRefusal);
+            diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.UnsupportedConstruct, pointerRefusal);
             return null;
         }
 
@@ -1041,6 +1035,9 @@ public static class ApiDefinitionEmitter
         var returnType = isConstructor
             ? "NativeHandle"
             : ObjCTypeMapper.MapType(method.ReturnType, declaringClassName, genericTypeParams, typedefMap, blockTypedefMap, localProtocolNames, classProtocolClashNames);
+
+        if (!isConstructor && method.ReturnOwnership == ObjCReturnOwnership.Retained)
+            sb.AppendLine("        [return: Release]");
 
         if (!isConstructor && ObjCTypeMapper.IsNullableAttribute(method.ReturnType))
             sb.AppendLine("        [return: NullAllowed]");
@@ -1156,8 +1153,9 @@ public static class ApiDefinitionEmitter
             else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
             {
                 var pointeeType = ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap);
-                signatureParts.Add($"out {pointeeType} {safeName}");
-                callArguments.Add($"out {safeName}");
+                var modifier = PointerParameterModifier(param);
+                signatureParts.Add($"{modifier} {pointeeType} {safeName}");
+                callArguments.Add($"{modifier} {safeName}");
             }
             else
             {
@@ -1205,6 +1203,33 @@ public static class ApiDefinitionEmitter
     /// </summary>
     static string NullableSuffix(ObjCTypeRef typeRef, string mappedType) =>
         ObjCTypeMapper.IsNullableAttribute(typeRef) && !mappedType.EndsWith('?') ? "?" : "";
+
+    /// <summary>
+    /// The existing pointer-carrier decision, shared by emission and inherited-protocol name
+    /// reservation. Only an actual array plan exempts its pointer; protocol replay supplies none.
+    /// </summary>
+    static string? GetPointerParameterRefusal(ObjCMethodDecl method,
+        Dictionary<string, ObjCTypeRef>? typedefMap, HashSet<string>? enumNames,
+        ObjCArrayParameterPlan? arrayPlan, bool canProjectArray)
+    {
+        for (var i = 0; i < method.Parameters.Count; i++)
+        {
+            if (arrayPlan != null && i == arrayPlan.PointerParameterIndex)
+                continue;
+            var param = method.Parameters[i];
+            var valuePointer = ObjCTypeMapper.IsValueTypePointerShape(param.Type, typedefMap, enumNames);
+            var errorPointer = ObjCTypeMapper.IsNSErrorOutParameter(param.Type);
+            if ((valuePointer || errorPointer) && (param.Direction == ObjCParameterDirection.Unknown
+                || (errorPointer && param.Direction is ObjCParameterDirection.In or ObjCParameterDirection.InOut)))
+                return $"parameter '{param.Name}' has {(param.Direction == ObjCParameterDirection.Unknown ? "unresolved compiler direction facts" : "input/output NSError ownership")}; no proven pointer carrier";
+            if (!valuePointer)
+                continue;
+            var isArrayShaped = ObjCArrayParameterProjection.IsArrayShapedPointerParameter(method, i, typedefMap, enumNames);
+            if (isArrayShaped || ObjCTypeMapper.IsConstValueTypePointerParameter(param.Type, typedefMap, enumNames))
+                return DescribeUnprojectablePointer(param, isArrayShaped, canProjectArray);
+        }
+        return null;
+    }
 
     /// <summary>
     /// The recorded-skip detail for a value-type pointer parameter that has no sound projection —
@@ -1855,7 +1880,7 @@ public static class ApiDefinitionEmitter
             else if (ObjCTypeMapper.IsNSErrorOutParameter(param.Type))
                 types.Add("out NSError");
             else if (ObjCTypeMapper.IsValueTypePointerParameter(param.Type, typedefMap, enumNames))
-                types.Add($"out {ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap)}");
+                types.Add($"{PointerParameterModifier(param)} {ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap)}");
             else
                 types.Add(ObjCTypeMapper.MapType(param.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames));
         }
@@ -1867,6 +1892,11 @@ public static class ApiDefinitionEmitter
 
         return string.Join(",", types);
     }
+
+    // A mutable pointee alone does not establish direction. Preserve the historical default only
+    // for unqualified pointers; explicit compiler input/inout facts must preserve incoming storage.
+    static string PointerParameterModifier(ObjCParameterDecl parameter) =>
+        parameter.Direction is ObjCParameterDirection.In or ObjCParameterDirection.InOut ? "ref" : "out";
 
     static string EmitParameters(List<ObjCParameterDecl> parameters, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap = null, Dictionary<string, ObjCTypeRef>? blockTypedefMap = null, HashSet<string>? enumNames = null, HashSet<string>? localProtocolNames = null, HashSet<string>? classProtocolClashNames = null, ObjCArrayParameterPlan? arrayPlan = null)
     {
@@ -1889,7 +1919,7 @@ public static class ApiDefinitionEmitter
                 // Value-type pointer parameters become `out T` (e.g., _Bool * → out bool, CGPoint * → out CGPoint)
                 var pointeeType = ObjCTypeMapper.MapValueTypePointerParameterType(param.Type, typedefMap);
                 var safeName = EscapeCSharpKeyword(param.Name);
-                parts.Add($"out {pointeeType} {safeName}");
+                parts.Add($"{PointerParameterModifier(param)} {pointeeType} {safeName}");
             }
             else
             {
@@ -2022,17 +2052,9 @@ public static class ApiDefinitionEmitter
     /// </summary>
     static bool WouldEmitMethod(ObjCMethodDecl method, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
     {
-        for (var i = 0; i < method.Parameters.Count; i++)
-        {
-            var param = method.Parameters[i];
-            if (!ObjCTypeMapper.IsValueTypePointerShape(param.Type, typedefMap, enumNames))
-                continue;
-            if (ObjCArrayParameterProjection.IsArrayShapedPointerParameter(method, i, typedefMap, enumNames)
-                || ObjCTypeMapper.IsConstValueTypePointerParameter(param.Type, typedefMap, enumNames))
-            {
-                return false;
-            }
-        }
+        if (GetPointerParameterRefusal(method, typedefMap, enumNames,
+                arrayPlan: null, canProjectArray: false) != null)
+            return false;
 
         if (knownTypes != null)
         {

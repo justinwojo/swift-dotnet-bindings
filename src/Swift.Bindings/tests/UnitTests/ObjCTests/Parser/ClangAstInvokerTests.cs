@@ -275,7 +275,7 @@ public class ClangAstInvokerTests
 
         invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/fw", isSimulator: true, moduleName: "Intercom");
 
-        var retry = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-fmodules"));
+        var retry = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-fmodules") && i.Arguments.Contains("-ast-dump=json"));
         Assert.Contains("-fmodule-name=Intercom", retry.Arguments);
     }
 
@@ -290,7 +290,7 @@ public class ClangAstInvokerTests
 
         invoker.InvokeClangAstDump("/tmp/test.h", "/tmp/fw", isSimulator: true);
 
-        var retry = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-fmodules"));
+        var retry = Assert.Single(runner.Invocations, i => i.Arguments.Contains("-fmodules") && i.Arguments.Contains("-ast-dump=json"));
         Assert.DoesNotContain("-fmodule-name", retry.Arguments);
     }
 

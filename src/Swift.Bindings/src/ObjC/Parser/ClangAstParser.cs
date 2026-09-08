@@ -53,6 +53,9 @@ public static class ClangAstParser
     [ThreadStatic]
     private static Dictionary<string, byte[]>? _sourceByteCache;
 
+    [ThreadStatic]
+    private static ClangObjCParameterDirections? _parameterDirections;
+
     /// <summary>
     /// Parses a Clang AST JSON string into an ObjCModule.
     /// </summary>
@@ -66,10 +69,11 @@ public static class ClangAstParser
     /// is a systemic parse failure (<c>SWIFTBIND029</c>), surfaced as a hard error rather than a
     /// silently-empty binding.
     /// </exception>
-    public static ObjCModule Parse(string json, string moduleName, string frameworkHeadersPath, ILogger? logger = null)
+    public static ObjCModule Parse(string json, string moduleName, string frameworkHeadersPath, ILogger? logger = null, string? recordLayouts = null, string? canonicalDeclarations = null)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
+        var layouts = ClangRecordLayoutParser.Parse(recordLayouts);
 
         var classes = new List<ObjCClassDecl>();
         var protocols = new List<ObjCProtocolDecl>();
@@ -121,6 +125,8 @@ public static class ClangAstParser
         var namesWithRealDefinition = ScanNamesWithRealDefinition(
             inner, definitionFileByName, redeclaredByThisFramework, frameworkHeadersPath);
 
+        var parameterDirections = new ClangObjCParameterDirections(canonicalDeclarations);
+        _parameterDirections = parameterDirections;
         try
         {
 
@@ -130,9 +136,7 @@ public static class ClangAstParser
 
         // Track the last anonymous RecordDecl (struct with fields but no name)
         // to promote when a typedef follows it.
-        List<ObjCStructField>? lastAnonymousStructFields = null;
-        bool lastAnonymousHasUnsafeLayout = false;
-        string? lastAnonymousUnsafeReason = null;
+        ObjCStructDecl? lastAnonymousRecord = null;
 
         // Node-kind census (Finding 63): tally every top-level kind so silent skips become loud.
         // Reported after the pass; out-of-vocabulary kinds raise SWIFTBIND029.
@@ -231,17 +235,11 @@ public static class ClangAstParser
                     break;
 
                 case "RecordDecl":
-                    var structDecl = ParseStructDecl(node);
-                    if (structDecl != null)
-                        structs.Add(structDecl);
+                    var record = ParseRecordFacts(node, nodeResolvedFile, layouts);
+                    if (record.Name.Length > 0)
+                        structs.Add(record);
                     else
-                    {
-                        // Anonymous struct — remember its fields and layout info for potential typedef promotion
-                        var (anonFields, hasUnsafe, unsafeReason) = ParseStructFieldsWithLayout(node);
-                        lastAnonymousStructFields = anonFields.Count > 0 || hasUnsafe ? anonFields : null;
-                        lastAnonymousHasUnsafeLayout = hasUnsafe;
-                        lastAnonymousUnsafeReason = unsafeReason;
-                    }
+                        lastAnonymousRecord = record;
                     break;
 
                 case "FunctionDecl":
@@ -261,15 +259,8 @@ public static class ClangAstParser
                     // A system-header typedef must NOT steal pending fields from a
                     // framework-local anonymous RecordDecl that precedes it.
                     var (typedefDecl, promotedStruct) = ParseTypedefDecl(node,
-                        isFrameworkLocal ? lastAnonymousStructFields : null,
-                        isFrameworkLocal ? lastAnonymousHasUnsafeLayout : false,
-                        isFrameworkLocal ? lastAnonymousUnsafeReason : null);
-                    if (isFrameworkLocal)
-                    {
-                        lastAnonymousStructFields = null; // consumed by framework-local typedef
-                        lastAnonymousHasUnsafeLayout = false;
-                        lastAnonymousUnsafeReason = null;
-                    }
+                        isFrameworkLocal ? lastAnonymousRecord : null, nodeResolvedFile, layouts);
+                    if (isFrameworkLocal) lastAnonymousRecord = null;
                     if (typedefDecl != null)
                     {
                         if (isFrameworkLocal)
@@ -421,6 +412,10 @@ public static class ClangAstParser
             .Where(c => !droppedAliasNames.Contains(c.ClassName))
             .ToList();
 
+        // A supplied compiler sidecar with no joins is an acquisition failure. Isolated misses
+        // and conflicts keep their Unknown fact for named refusal at the carrier boundary.
+        parameterDirections.ValidateAcquisition(moduleName);
+
         return new ObjCModule
         {
             ModuleName = moduleName,
@@ -446,6 +441,7 @@ public static class ClangAstParser
         {
             ObjCTypeRefParser.SetAdditionalGenericContainers(null);
             _sourceByteCache = null;
+            _parameterDirections = null;
         }
     }
 
@@ -678,16 +674,24 @@ public static class ClangAstParser
                         var caseName = GetName(child);
                         if (caseName != null)
                         {
-                            long? value = null;
-                            // Try to extract value from inner ConstantExpr or IntegerLiteral
+                            ObjCIntegerValue? value = null;
+                            var hasExplicitValue = false;
                             if (child.TryGetProperty("inner", out var caseInner))
                             {
+                                // Attributes/comments also appear in inner; only expression nodes
+                                // indicate an initializer. Unknown evaluation must never become 0/1.
+                                hasExplicitValue = caseInner.EnumerateArray().Any(c =>
+                                    GetOptionalString(c, "kind") is { } k &&
+                                    (k.EndsWith("Expr", StringComparison.Ordinal) || k.EndsWith("Literal", StringComparison.Ordinal)
+                                     || k.EndsWith("Operator", StringComparison.Ordinal)));
                                 value = TryExtractEnumValue(caseInner);
                             }
                             cases.Add(new ObjCEnumCaseDecl
                             {
                                 Name = caseName,
-                                Value = value,
+                                Value = value is { } v ? unchecked((long)v.Bits) : null,
+                                EvaluatedValue = value,
+                                HasExplicitValue = hasExplicitValue,
                                 // Per-case availability: an enumerator can carry its own
                                 // API_AVAILABLE/API_DEPRECATED/API_UNAVAILABLE distinct from the
                                 // enum type's (recovered the same way — source byte offset at the
@@ -719,19 +723,36 @@ public static class ClangAstParser
         };
     }
 
-    private static ObjCStructDecl? ParseStructDecl(JsonElement element)
+    private static ObjCStructDecl ParseRecordFacts(JsonElement element, string? file, IReadOnlyDictionary<string, ObjCRecordLayout> layouts)
     {
-        var name = GetName(element);
-        if (name == null) return null;
-
-        var (fields, hasUnsafeLayout, unsafeReason) = ParseStructFieldsWithLayout(element);
-        return new ObjCStructDecl { Name = name, Fields = fields, HasUnsafeLayout = hasUnsafeLayout, UnsafeLayoutReason = unsafeReason };
-    }
-
-    private static List<ObjCStructField> ParseStructFields(JsonElement element)
-    {
-        var (fields, _, _) = ParseStructFieldsWithLayout(element);
-        return fields;
+        var (fields, unsafeLayout, reason) = ParseStructFieldsWithLayout(element);
+        bool packed = false, aligned = false, bitfields = false;
+        if (element.TryGetProperty("inner", out var inner))
+        {
+            foreach (var child in inner.EnumerateArray())
+            {
+                var kind = GetOptionalString(child, "kind");
+                packed |= kind is "PackedAttr" or "MaxFieldAlignmentAttr";
+                aligned |= kind == "AlignedAttr";
+                if (kind == "FieldDecl")
+                {
+                    bitfields |= child.TryGetProperty("isBitfield", out var b) && b.GetBoolean();
+                    if (child.TryGetProperty("inner", out var attrs))
+                        foreach (var attr in attrs.EnumerateArray())
+                        {
+                            packed |= GetOptionalString(attr, "kind") == "PackedAttr";
+                            aligned |= GetOptionalString(attr, "kind") == "AlignedAttr";
+                        }
+                }
+            }
+        }
+        return new ObjCStructDecl
+        {
+            Name = GetName(element) ?? "", Fields = fields,
+            HasUnsafeLayout = unsafeLayout, UnsafeLayoutReason = reason,
+            NativeLayout = ClangRecordLayoutParser.Find(element, file, layouts),
+            IsPacked = packed, HasExplicitAlignment = aligned, HasBitFields = bitfields
+        };
     }
 
     private static (List<ObjCStructField> fields, bool hasUnsafeLayout, string? unsafeReason) ParseStructFieldsWithLayout(JsonElement element)
@@ -863,7 +884,7 @@ public static class ClangAstParser
         };
     }
 
-    private static (ObjCTypedefDecl?, ObjCStructDecl?) ParseTypedefDecl(JsonElement element, List<ObjCStructField>? precedingAnonymousFields = null, bool precedingHasUnsafeLayout = false, string? precedingUnsafeReason = null)
+    private static (ObjCTypedefDecl?, ObjCStructDecl?) ParseTypedefDecl(JsonElement element, ObjCStructDecl? precedingAnonymousRecord, string? declFile, IReadOnlyDictionary<string, ObjCRecordLayout> layouts)
     {
         var name = GetName(element);
         if (name == null) return (null, null);
@@ -881,9 +902,9 @@ public static class ClangAstParser
                 // Check for anonymous struct (RecordDecl with fields) inside typedef's inner
                 if (childKind == "RecordDecl")
                 {
-                    var (fields, hasUnsafe, unsafeReason) = ParseStructFieldsWithLayout(child);
-                    if (fields.Count > 0 || hasUnsafe)
-                        promotedStruct = new ObjCStructDecl { Name = name, Fields = fields, HasUnsafeLayout = hasUnsafe, UnsafeLayoutReason = unsafeReason };
+                    var record = ParseRecordFacts(child, declFile, layouts);
+                    if (record.Fields.Count > 0 || record.HasUnsafeLayout)
+                        promotedStruct = record with { Name = name };
                 }
 
                 if (childKind is "BuiltinType" or "RecordType" or "ElaboratedType"
@@ -899,11 +920,12 @@ public static class ClangAstParser
 
         // Promote anonymous struct from preceding sibling RecordDecl
         // (clang emits anonymous struct as top-level sibling, then typedef referencing it)
-        if (promotedStruct == null && (precedingAnonymousFields is { Count: > 0 } || precedingHasUnsafeLayout))
+        if (promotedStruct == null && precedingAnonymousRecord != null
+            && (precedingAnonymousRecord.Fields.Count > 0 || precedingAnonymousRecord.HasUnsafeLayout))
         {
             var qualType = GetQualType(element);
             if (qualType != null && qualType.StartsWith("struct ", StringComparison.Ordinal))
-                promotedStruct = new ObjCStructDecl { Name = name, Fields = precedingAnonymousFields ?? [], HasUnsafeLayout = precedingHasUnsafeLayout, UnsafeLayoutReason = precedingUnsafeReason };
+                promotedStruct = precedingAnonymousRecord with { Name = name };
         }
 
         // Fall back to the type property
@@ -958,7 +980,12 @@ public static class ClangAstParser
                         break;
                     var method = ParseMethodDecl(child, IsInOptionalSection(child, optionalLines), currentFile);
                     if (method != null)
+                    {
+                        var directions = _parameterDirections?.Get(element, method.Selector, method.IsInstanceMethod, method.Parameters.Count);
+                        if (directions != null)
+                            method = method with { Parameters = method.Parameters.Select((p, i) => p with { Direction = directions[i] }).ToList() };
                         methods.Add(method);
+                    }
                     break;
 
                 case "ObjCPropertyDecl":
@@ -967,6 +994,30 @@ public static class ClangAstParser
                         properties.Add(prop);
                     break;
             }
+        }
+        // Property accessors include implicit methods which are deliberately not emitted as
+        // methods. Transfer their actual ownership facts before discarding that representation.
+        for (var i = 0; i < properties.Count; i++)
+        {
+            var property = properties[i];
+            var getter = property.GetterSelector ?? property.Name;
+            var setter = property.SetterSelector ?? $"set{char.ToUpperInvariant(property.Name[0])}{property.Name[1..]}:";
+            var ownership = property.GetterOwnership;
+            var consumes = false;
+            foreach (var child in inner.EnumerateArray())
+            {
+                if (GetOptionalString(child, "kind") != "ObjCMethodDecl") continue;
+                var isInstance = !child.TryGetProperty("instance", out var instance) || instance.GetBoolean();
+                if (isInstance == property.IsClass) continue;
+                var selector = GetName(child);
+                if (selector != getter && selector != setter) continue;
+                if (selector == getter && GetReturnOwnership(child) is var fact && fact != ObjCReturnOwnership.Unspecified)
+                    ownership = fact;
+                consumes |= HasDirectAttribute(child, "NSConsumesSelfAttr");
+                if (child.TryGetProperty("inner", out var accessorChildren))
+                    consumes |= accessorChildren.EnumerateArray().Any(p => GetOptionalString(p, "kind") == "ParmVarDecl" && HasDirectAttribute(p, "NSConsumedAttr"));
+            }
+            properties[i] = property with { GetterOwnership = ownership, HasConsumedAccessor = consumes };
         }
     }
 
@@ -1324,6 +1375,8 @@ public static class ClangAstParser
         return new ObjCMethodDecl
         {
             Selector = name,
+            ReturnOwnership = GetReturnOwnership(element),
+            ConsumesSelf = HasDirectAttribute(element, "NSConsumesSelfAttr", explicitOnly: true),
             ReturnType = ObjCTypeRefParser.Parse(returnQualType),
             Parameters = parameters,
             IsInstanceMethod = isInstance,
@@ -1427,9 +1480,19 @@ public static class ClangAstParser
         return new ObjCParameterDecl
         {
             Name = name,
-            Type = ObjCTypeRefParser.Parse(qualType)
+            Type = ObjCTypeRefParser.Parse(qualType),
+            IsConsumed = HasDirectAttribute(element, "NSConsumedAttr")
         };
     }
+
+    private static bool HasDirectAttribute(JsonElement element, string kind, bool explicitOnly = false) =>
+        element.TryGetProperty("inner", out var children) && children.EnumerateArray().Any(c =>
+            GetOptionalString(c, "kind") == kind && (!explicitOnly || !c.TryGetProperty("implicit", out var implicitAttr) || !implicitAttr.GetBoolean()));
+
+    private static ObjCReturnOwnership GetReturnOwnership(JsonElement element) =>
+        HasDirectAttribute(element, "NSReturnsNotRetainedAttr") || HasDirectAttribute(element, "NSReturnsAutoreleasedAttr")
+            ? ObjCReturnOwnership.Borrowed
+            : HasDirectAttribute(element, "NSReturnsRetainedAttr") ? ObjCReturnOwnership.Retained : ObjCReturnOwnership.Unspecified;
 
     /// <summary>
     /// Extracts doc comments from a FullComment node in a declaration's inner nodes.
@@ -2246,92 +2309,51 @@ public static class ClangAstParser
         }).ToList();
     }
 
-    private static long? TryExtractEnumValue(JsonElement innerArray)
+    private static ObjCIntegerValue? TryExtractEnumValue(JsonElement innerArray)
     {
         foreach (var child in innerArray.EnumerateArray())
         {
             var kind = GetOptionalString(child, "kind");
-
-            // ConstantExpr wraps the value — always has the evaluated result
-            if (kind == "ConstantExpr")
+            // Evaluated expressions are authoritative. Do not descend into failed expressions:
+            // an operand of a unary/binary/cast operation is not the expression's value.
+            if (kind is "ConstantExpr" or "IntegerLiteral")
             {
-                if (child.TryGetProperty("value", out var valProp))
+                var text = GetOptionalString(child, "value");
+                if (text != null && TryParseIntegerValue(text, out var bits))
                 {
-                    var valStr = valProp.GetString();
-                    if (valStr != null && TryParseIntegerValue(valStr, out var val))
-                        return val;
+                    var type = child.TryGetProperty("type", out var typeNode)
+                        ? GetOptionalString(typeNode, "desugaredQualType") ?? GetQualType(child) ?? ""
+                        : "";
+                    var unsigned = type.StartsWith("unsigned", StringComparison.Ordinal)
+                        || type.StartsWith("uint", StringComparison.Ordinal) || type == "NSUInteger";
+                    return new ObjCIntegerValue(bits, unsigned);
                 }
-                // Recurse into ConstantExpr's inner
-                if (child.TryGetProperty("inner", out var ceInner))
-                    return TryExtractEnumValue(ceInner);
+                if (kind == "ConstantExpr") return null;
             }
-
-            // IntegerLiteral is the leaf node containing the actual value
-            if (kind == "IntegerLiteral")
-            {
-                if (child.TryGetProperty("value", out var valProp))
+            if (kind is "ImplicitCastExpr" or "ParenExpr")
+                if (child.TryGetProperty("inner", out var nested))
                 {
-                    var valStr = valProp.GetString();
-                    if (valStr != null && TryParseIntegerValue(valStr, out var val))
-                        return val;
+                    var result = TryExtractEnumValue(nested);
+                    if (result.HasValue) return result;
                 }
-            }
-
-            // ImplicitCastExpr / ExplicitCastExpr / ParenExpr — transparent wrappers,
-            // recurse into their inner children to find the actual value node
-            if (kind is "ImplicitCastExpr" or "ExplicitCastExpr" or "ParenExpr"
-                or "CStyleCastExpr")
-            {
-                if (child.TryGetProperty("inner", out var wrapperInner))
-                {
-                    var result = TryExtractEnumValue(wrapperInner);
-                    if (result.HasValue)
-                        return result;
-                }
-            }
         }
         return null;
     }
 
-    /// <summary>
-    /// Parses an integer value string that may be decimal, hex (0x/0X prefix),
-    /// octal (0 prefix), or negative.
-    /// </summary>
-    private static bool TryParseIntegerValue(string value, out long result)
+    private static bool TryParseIntegerValue(string value, out ulong bits)
     {
-        result = 0;
-        if (string.IsNullOrEmpty(value))
-            return false;
-
-        // Handle negative values
-        var isNegative = false;
-        var toParse = value;
-        if (toParse.StartsWith('-'))
+        bits = 0;
+        if (value.StartsWith('-'))
         {
-            isNegative = true;
-            toParse = toParse[1..];
+            if (!long.TryParse(value, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var signed)) return false;
+            bits = unchecked((ulong)signed);
+            return true;
         }
-
-        bool parsed;
-        if (toParse.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-        {
-            // Hex literal — parse as ulong first to handle high-bit values
-            // (e.g., 0xFFFFFFFF80000000) that exceed long.MaxValue, then
-            // use unchecked cast to preserve the bit pattern in a long.
-            parsed = ulong.TryParse(toParse[2..], System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out var ulongResult);
-            if (parsed)
-                result = unchecked((long)ulongResult);
-        }
-        else
-        {
-            // Decimal (or octal — clang typically evaluates these to decimal in the value field)
-            parsed = long.TryParse(toParse, out result);
-        }
-
-        if (parsed && isNegative)
-            result = -result;
-
-        return parsed;
+        return value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? ulong.TryParse(value[2..], System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out bits)
+            : ulong.TryParse(value, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out bits);
     }
 }

@@ -49,6 +49,8 @@ public sealed class ClangAstDumpException : InvalidOperationException
 /// <summary>
 /// Invokes xcrun clang to produce AST JSON from ObjC headers.
 /// </summary>
+public sealed record ClangAstDumpResult(string Json, string RecordLayouts, string? CanonicalDeclarations = null);
+
 public sealed class ClangAstInvoker
 {
     private readonly ICommandRunner _commandRunner;
@@ -67,6 +69,12 @@ public sealed class ClangAstInvoker
     /// <c>-fmodules</c> retry to produce a usable AST (see the retry site below).
     /// </summary>
     public string InvokeClangAstDump(string headerPath, string frameworkSearchPath, bool isSimulator,
+        string? modulemapPath = null, IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+        SliceVariant? sliceVariant = null, string? minOSVersion = null, string? moduleName = null)
+        => InvokeClangAstDumpWithLayouts(headerPath, frameworkSearchPath, isSimulator, modulemapPath,
+            additionalFrameworkSearchPaths, sliceVariant, minOSVersion, moduleName).Json;
+
+    public ClangAstDumpResult InvokeClangAstDumpWithLayouts(string headerPath, string frameworkSearchPath, bool isSimulator,
         string? modulemapPath = null, IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
         SliceVariant? sliceVariant = null, string? minOSVersion = null, string? moduleName = null)
     {
@@ -185,7 +193,20 @@ public sealed class ClangAstInvoker
                 "Clang AST dump returned empty output.");
         }
 
-        return stdout;
+        // Use the exact successful AST invocation, including its module retry and target. Keep
+        // layout output separate: Clang writes the layout dump to stdout, which is not AST JSON.
+        var layoutArgs = args.Replace("-Xclang -ast-dump=json",
+            "-Xclang -fdump-record-layouts-complete -Xclang -fdump-record-layouts-simple", StringComparison.Ordinal);
+        var (layoutExit, layouts, layoutErrors) = _commandRunner.Run("xcrun", layoutArgs, timeoutMs: 120000);
+        if (layoutExit != 0)
+            throw new ClangAstDumpException(layoutExit, layoutErrors ?? string.Empty);
+        // JSON omits ObjC in/out/inout qualifiers. Canonical printing preserves Clang's
+        // expanded qualifiers without reinterpreting source macros or depending on libclang.
+        var declarationArgs = args.Replace("-Xclang -ast-dump=json", "-Xclang -ast-print", StringComparison.Ordinal);
+        var (declarationExit, declarations, declarationErrors) = _commandRunner.Run("xcrun", declarationArgs, timeoutMs: 120000);
+        if (declarationExit != 0)
+            throw new ClangAstDumpException(declarationExit, declarationErrors ?? string.Empty);
+        return new ClangAstDumpResult(stdout, layouts ?? "", declarations ?? "");
     }
 
     /// <summary>

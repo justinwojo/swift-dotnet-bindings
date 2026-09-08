@@ -277,3 +277,25 @@ CGSize const OUDefaultTileSize = { 256, 512 };
     }
 }
 @end
+
+// Native deallocation counts distinguish a leaked owned return from managed value equality.
+static int OUOwnershipDeallocations;
+@implementation OUOwnershipToken
+- (int)answer { return 42; }
+- (void)dealloc { OUOwnershipDeallocations++; }
+@end
+@implementation OUOwnershipOracle
++ (OUOwnershipToken *)ownedFactory { return [OUOwnershipToken new]; }
++ (OUOwnershipToken *)newToken { return [OUOwnershipToken new]; }
++ (OUOwnershipToken *)familyFactory { return [OUOwnershipToken new]; }
++ (OUOwnershipToken *)borrowedFactory { return [OUOwnershipToken new]; }
++ (OUOwnershipToken *)newBorrowed { return [OUOwnershipToken new]; }
++ (OUOwnershipToken *)newProperty { return [OUOwnershipToken new]; }
++ (void)consume:(OUOwnershipToken * __attribute__((ns_consumed)))value { (void)value; }
++ (int)inspect:(OUOwnershipToken *)value { return [value answer]; }
++ (int)deallocCount { return OUOwnershipDeallocations; }
++ (void)increment:(inout int *)value { *value += 1; }
++ (void)incrementMacro:(OU_INPUT_OUTPUT int *)value { *value += 1; }
++ (int)readValue:(in int *)value { return *value; }
++ (void)writeValue:(out int *)value { *value = 42; }
+@end

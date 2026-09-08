@@ -624,7 +624,9 @@ partial class Build
             $"@interface {probeClass} : NSObject\n- (NSString *)greeting;\n@end\n" +
             $"@implementation {probeClass}\n- (NSString *)greeting {{ return @\"{PackGateMixedObjCGreeting}\"; }}\n@end\n" +
             MixedFixtureSelectorDedupInterface(module) +
-            MixedFixtureSelectorDedupImplementation(module));
+            MixedFixtureSelectorDedupImplementation(module) +
+            MixedFixtureForeignCategoryInterface(module) +
+            $"@implementation NSNull ({module}Extras)\n- (int)contract{module}Answer {{ return 73; }}\n@end\n");
 
         // The open-generic struct ({module}Box<T>) is the descriptor trigger: the
         // generator records every open-generic ISwiftObject type and emits an
@@ -671,6 +673,11 @@ partial class Build
         return (probeM, libSwift);
     }
 
+    // Foundation owns this receiver; it must survive mixed filtering even though no local
+    // class exists to absorb its selector. A module-qualified selector avoids collisions.
+    static string MixedFixtureForeignCategoryInterface(string module) =>
+        $"@interface NSNull ({module}Extras)\n- (int)contract{module}Answer;\n@end\n";
+
     // Builds ONE framework slice (static `ar` archive or dynamic Mach-O dylib) for a
     // mixed framework into {sliceDir}/{module}.framework: an umbrella header +
     // modulemap (the non-Swift header is what flips framework-type detection to
@@ -716,7 +723,8 @@ partial class Build
         File.WriteAllText(hdrDir / $"{module}.h",
             "#import <Foundation/Foundation.h>\n" +
             probeInterface +
-            MixedFixtureSelectorDedupInterface(module));
+            MixedFixtureSelectorDedupInterface(module) +
+            MixedFixtureForeignCategoryInterface(module));
 
         File.WriteAllText(frameworkDir / "Modules" / "module.modulemap",
             $"framework module {module} {{\n" +
@@ -940,6 +948,7 @@ partial class Build
             // Licensed under the MIT License.
             var probe = new global::{{module}}.{{consumerClass}}();
             Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
+            Console.WriteLine("FOREIGN_CATEGORY:" + global::{{module}}.NSNull_{{module}}Extras.Contract{{module}}Answer(global::Foundation.NSNull.Null));
             {{bridgeProgram}}
             """;
         File.WriteAllText(appDir / "Program.cs", program);
@@ -982,6 +991,9 @@ partial class Build
             Assert.Fail(
                 $"PackGate (mixed/{module}): expected '{expected}' in stdout — the ObjC type was not usable through " +
                 $"the single Swift-binding PackageReference.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+
+        if (!stdout.Contains("FOREIGN_CATEGORY:73", StringComparison.Ordinal))
+            Assert.Fail($"PackGate (mixed/{module}): foreign category selector did not round-trip.\n{stdout}");
 
         if (exerciseTypeBridge)
         {

@@ -318,4 +318,42 @@ public class MixedFrameworkDedupTests
         bool wouldSkip = filtered.Classes.Count == 0 && filtered.Protocols.Count == 0 && filtered.Categories.Count == 0;
         Assert.False(wouldSkip, "Post-hoc gate should NOT skip when categories are present");
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MixedCategories_ReceiverOwnershipPreservesForeignSelectors(bool reverse)
+    {
+        var localMethod = new ObjCMethodDecl
+        {
+            Selector = "localAnswer", ReturnType = SimpleType("int"), IsInstanceMethod = true,
+            IsFromCategory = true, CategoryName = "LocalExtras"
+        };
+        var categories = new List<ObjCCategoryDecl>
+        {
+            new() { CategoryName = "ForeignExtras", ClassName = "NSNull",
+                Methods = [new() { Selector = "foreignAnswer", ReturnType = SimpleType("int"), IsInstanceMethod = true }] },
+            new() { CategoryName = "LocalExtras", ClassName = "Local", Methods = [localMethod] },
+            new() { CategoryName = "SharedExtras", ClassName = "Shared", Methods = [] }
+        };
+        if (reverse) categories.Reverse();
+        var module = CreateTestModule(
+            classes: [new() { Name = "Local", Methods = [localMethod] },
+                new() { Name = "Shared", GenericTypeParamNames = ["Element"] }],
+            categories: categories);
+
+        // NSNull is truly foreign: it is absent from the parsed class set, unlike a
+        // locally declared NSObject whose category selectors have already been merged.
+        var pure = EmitApiDefinition(ObjCPipeline.FilterToForeignCategories(module, Logger));
+        var mixed = ObjCPipeline.FilterForMixedFramework(module, ["Shared", "UnrelatedSwiftType"], Logger);
+        var api = EmitApiDefinition(mixed);
+
+        Assert.Contains("[Export(\"foreignAnswer\")", pure);
+        Assert.Contains("[Export(\"foreignAnswer\")", api);
+        Assert.Single(mixed.Classes);
+        Assert.Equal("Local", mixed.Classes[0].Name);
+        Assert.DoesNotContain(mixed.Categories, c => c.ClassName == "Local");
+        Assert.Equal(new[] { "Element" }, Assert.Single(mixed.Categories, c => c.ClassName == "Shared").GenericTypeParamNames);
+        Assert.Equal(1, api.Split("[Export(\"localAnswer\")").Length - 1);
+    }
 }

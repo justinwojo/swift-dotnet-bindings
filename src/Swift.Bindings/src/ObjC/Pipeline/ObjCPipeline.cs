@@ -123,11 +123,11 @@ public static class ObjCPipeline
         var nestedSearchPaths = XCFrameworkResolver.ResolveNestedFrameworkSearchPaths(
             resolution.FrameworkSearchPath, frameworkPath);
         var effectiveSearchPaths = MergeSearchPaths(additionalFrameworkSearchPaths, nestedSearchPaths);
-        string json;
+        ClangAstDumpResult astDump;
         try
         {
             var sliceVariant = pi.GetSlice(resolution.IsSimulatorSlice);
-            json = invoker.InvokeClangAstDump(
+            astDump = invoker.InvokeClangAstDumpWithLayouts(
                 headerResult.HeaderPath, resolution.FrameworkSearchPath,
                 resolution.IsSimulatorSlice, headerResult.ModulemapPath,
                 effectiveSearchPaths, sliceVariant,
@@ -167,7 +167,7 @@ public static class ObjCPipeline
         ObjCModule module;
         try
         {
-            module = ClangAstParser.Parse(json, resolution.ModuleName, headersPath, logger);
+            module = ClangAstParser.Parse(astDump.Json, resolution.ModuleName, headersPath, logger, astDump.RecordLayouts, astDump.CanonicalDeclarations);
         }
         catch (Exception ex)
         {
@@ -176,6 +176,10 @@ public static class ObjCPipeline
 
         // 4c. Filter out platform type stubs (types already in the Apple SDK)
         module = FilterPlatformTypeStubs(module, logger);
+
+        // Settle record/enum support before the Swift bridge factory sees the module. Both
+        // companion emitters use this same closure when invoked independently.
+        module = ObjCEmissionEligibility.Prepare(module, diagnostics);
 
         // 4f. Native-symbol existence guard (Gap 3): drop classes the headers declare but
         // whose `_OBJC_CLASS_$_<Name>` symbol is defined in NO binary the consumer links —
@@ -418,32 +422,29 @@ public static class ObjCPipeline
         var removedClasses = module.Classes.Where(c => swiftTypeNames.Contains(c.Name)).ToList();
         var removedProtocols = module.Protocols.Where(p => swiftTypeNames.Contains(p.Name)).ToList();
 
-        // Extract categories for shared classes from module.Categories (populated at parse time).
-        // Copy the owning class's GenericTypeParamNames onto each matching category.
-        var sharedClassCategories = new List<ObjCCategoryDecl>();
+        // Preserve the removed owner's generic context before classifying categories against
+        // the final companion class set. Foreign receivers and Swift-owned receivers both need
+        // standalone categories; only categories merged into a retained class are redundant.
         var classGenericParams = removedClasses.ToDictionary(c => c.Name, c => c.GenericTypeParamNames);
-        foreach (var cat in module.Categories)
-        {
-            if (swiftTypeNames.Contains(cat.ClassName) && classGenericParams.TryGetValue(cat.ClassName, out var genericParams))
-            {
-                sharedClassCategories.Add(cat with { GenericTypeParamNames = genericParams });
-            }
-        }
+        var categories = module.Categories.Select(cat =>
+            classGenericParams.TryGetValue(cat.ClassName, out var genericParams)
+                ? cat with { GenericTypeParamNames = genericParams }
+                : cat).ToList();
 
         if (removedClasses.Count > 0 || removedProtocols.Count > 0)
         {
             logger.LogInformation(
-                "Mixed dedup: removed {ClassCount} shared class(es) and {ProtoCount} shared protocol(s) from ObjC output, extracted {CatCount} category interface(s).",
-                removedClasses.Count, removedProtocols.Count, sharedClassCategories.Count);
+                "Mixed dedup: removed {ClassCount} shared class(es) and {ProtoCount} shared protocol(s) from ObjC output.",
+                removedClasses.Count, removedProtocols.Count);
         }
 
-        return module with
+        return FilterToForeignCategories(module with
         {
             Classes = module.Classes.Where(c => !swiftTypeNames.Contains(c.Name)).ToList(),
             Protocols = module.Protocols.Where(p => !swiftTypeNames.Contains(p.Name)).ToList(),
-            Categories = sharedClassCategories,
+            Categories = categories,
             // Enums, structs, functions, constants, typedefs are never filtered
-        };
+        }, logger);
     }
 
     /// <summary>
