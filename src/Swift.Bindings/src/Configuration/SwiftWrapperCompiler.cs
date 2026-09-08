@@ -302,11 +302,7 @@ namespace BindingsGeneration
                 // SPM-generated resource_bundle_accessor.swift searches Bundle.main for named
                 // bundles — stubs placed in the output directory get copied to the app bundle
                 // root by Sdk.targets, where the accessor will discover them.
-                var bundleNames = DetectResourceBundleNames(simulatorResolution.DylibPath, commandRunner, logger);
-                if (bundleNames.Count > 0)
-                {
-                    CreateResourceBundleStubs(bundleNames, outputDirectory, logger, simulatorResolution.DylibPath);
-                }
+                PrepareResourceBundles(simulatorResolution.DylibPath, outputDirectory, commandRunner, logger);
 
                 // 3. Create xcframework directory structure. Build both slices into a unique
                 // staging tree OUTSIDE the canonical path, validate, then atomically promote — so
@@ -914,11 +910,7 @@ namespace BindingsGeneration
                 // SPM-generated resource_bundle_accessor.swift searches Bundle.main for named
                 // bundles — stubs placed in the output directory get copied to the app bundle
                 // root by Sdk.targets, where the accessor will discover them.
-                var bundleNames = DetectResourceBundleNames(dylibPath, commandRunner, logger);
-                if (bundleNames.Count > 0)
-                {
-                    CreateResourceBundleStubs(bundleNames, outputDirectory, logger, dylibPath);
-                }
+                PrepareResourceBundles(dylibPath, outputDirectory, commandRunner, logger);
 
                 // Combine thunk object files for linking
                 var objectFilesToLink = thunkResult?.ObjectFiles?.Count > 0
@@ -2525,8 +2517,11 @@ namespace BindingsGeneration
         /// SPM-generated resource_bundle_accessor.swift contains the fatalError message
         /// "unable to find bundle named {BundleName}" — we search for this pattern
         /// in the binary to extract the expected bundle name(s).
+        /// Returns null on an operational detection failure; an empty list means the
+        /// command succeeded without finding bundle names. Failure must not publish an
+        /// authoritative empty inventory over a previous successful result.
         /// </summary>
-        internal static List<string> DetectResourceBundleNames(
+        internal static List<string>? DetectResourceBundleNames(
             string dylibPath, ICommandRunner commandRunner, ILogger logger)
         {
             var bundleNames = new List<string>();
@@ -2535,17 +2530,20 @@ namespace BindingsGeneration
                 // Use grep -ao on the binary to extract the bundle name pattern directly.
                 // grep -a treats binary as text, -o outputs only the matching portion.
                 // Exit code 1 = no match (not an error).
-                var (exitCode, stdout, _) = commandRunner.Run(
+                var (exitCode, stdout, stderr) = commandRunner.Run(
                     "grep", $"-ao \"unable to find bundle named [A-Za-z0-9_]*\" \"{dylibPath}\"",
                     timeoutMs: 30000);
 
-                if (exitCode == 1 || string.IsNullOrWhiteSpace(stdout))
-                    return bundleNames; // grep exit 1 = no match
+                if (exitCode == 1)
+                    return bundleNames; // grep exit 1 = successful no-match result
                 if (exitCode != 0)
                 {
-                    logger.LogDebug("Resource bundle detection: grep exited with code {Code}", exitCode);
-                    return bundleNames;
+                    logger.LogWarning("Resource bundle detection failed (grep exit {Code}): {Error}. " +
+                        "Resource inventory was not refreshed; existing inventory and payload are unchanged, but resource freshness is unconfirmed.", exitCode, stderr);
+                    return null;
                 }
+                if (string.IsNullOrWhiteSpace(stdout))
+                    return bundleNames;
 
                 const string marker = "unable to find bundle named ";
                 foreach (var line in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -2561,10 +2559,24 @@ namespace BindingsGeneration
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Resource bundle detection failed (non-fatal): {Message}", ex.Message);
+                logger.LogWarning("Resource bundle detection failed: {Message}. " +
+                    "Resource inventory was not refreshed; existing inventory and payload are unchanged, but resource freshness is unconfirmed.", ex.Message);
+                return null;
             }
 
             return bundleNames;
+        }
+
+        /// <summary>
+        /// Publishes only a completed detection result. Operational failure remains
+        /// non-fatal, but cannot masquerade as a successful empty resource inventory.
+        /// </summary>
+        internal static void PrepareResourceBundles(
+            string dylibPath, string outputDirectory, ICommandRunner commandRunner, ILogger logger)
+        {
+            var bundleNames = DetectResourceBundleNames(dylibPath, commandRunner, logger);
+            if (bundleNames != null)
+                CreateResourceBundleStubs(bundleNames, outputDirectory, logger, dylibPath);
         }
 
         /// <summary>
@@ -2589,10 +2601,20 @@ namespace BindingsGeneration
             {
                 var destBundlePath = Path.Combine(outputDirectory, $"{name}.bundle");
 
-                // Try to copy the real bundle from the source framework
+                // Try to copy the real bundle from the source framework.
                 var realBundle = sourceFrameworkDir != null
                     ? Path.Combine(sourceFrameworkDir, $"{name}.bundle")
                     : null;
+
+                // A caller may choose the source framework itself as output. Never
+                // remove its input resource directory when input and output coincide.
+                if (realBundle != null && Path.GetFullPath(realBundle) == Path.GetFullPath(destBundlePath))
+                    continue;
+
+                // Generated output is a replacement, not an overlay. Removed source
+                // files (or a transition to the empty fallback) must not retain payload.
+                if (Directory.Exists(destBundlePath))
+                    Directory.Delete(destBundlePath, recursive: true);
 
                 if (realBundle != null && Directory.Exists(realBundle))
                 {

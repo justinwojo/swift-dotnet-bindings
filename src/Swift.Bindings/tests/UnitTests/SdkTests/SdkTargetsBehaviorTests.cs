@@ -587,6 +587,59 @@ namespace BindingsGeneration.Tests
                 "A successful generate did not write the fingerprint stamp; incremental builds would always regenerate.");
         }
 
+        [Fact]
+        public void GenerateSwiftBindings_ForwardsResolvedPlatformVersion_AndInvalidatesFingerprint()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+            WriteFingerprintStampProbeProject(stubDir!);
+            var projectPath = Path.Combine(_tempDir, "Test.csproj");
+            File.WriteAllText(projectPath, File.ReadAllText(projectPath).Replace("</Project>", """
+                  <Target Name="_SetProbePlatformVersion" BeforeTargets="_ComputeSwiftFingerprint">
+                    <PropertyGroup>
+                      <TargetPlatformVersion>$(ProbePlatformVersion)</TargetPlatformVersion>
+                    </PropertyGroup>
+                  </Target>
+                </Project>
+                """, StringComparison.Ordinal));
+
+            // Supply the workload-resolved property at target execution, after the
+            // platform-neutral probe's SDK imports have evaluated. Setting it globally
+            // would ask Microsoft.Common.targets to locate an SDK with no platform ID.
+            // The real generator target and fingerprint shell execute; only native discovery and
+            // the generator executable are substituted by this existing harness.
+            // Keep the TFM/output directory fixed so a platform-version-only change must
+            // invalidate the same stamp, rather than accidentally get a fresh obj folder.
+            string Generate(string platformVersion)
+            {
+                var result = RunDotnet(
+                    $"msbuild \"{projectPath}\" -t:_GenerateSwiftBindings -nologo -v:n " +
+                    $"-p:ProbePlatformVersion={platformVersion} -p:SwiftRuntimeVersion=0.0.0-platform-probe");
+                Assert.True(result.ExitCode == 0,
+                    $"Platform-version probe failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+                return result.StdOut + "\n" + result.StdErr;
+            }
+
+            var first = Generate("26.2");
+            var firstArgs = first.Split('\n').First(line => line.Contains("STUB_RECEIVED_ARGS:", StringComparison.Ordinal));
+            Assert.Contains("--platform-version 26.2", firstArgs);
+            Assert.Contains("--swift-runtime-version 0.0.0-platform-probe", firstArgs);
+            var stamp = FindStamp(_tempDir);
+            Assert.NotNull(stamp);
+            var firstFingerprint = File.ReadAllText(stamp!);
+
+            var second = Generate("26.2");
+            Assert.DoesNotContain("STUB_RECEIVED_ARGS:", second);
+            Assert.Equal(firstFingerprint, File.ReadAllText(stamp!));
+
+            var changed = Generate("26.0");
+            var changedArgs = changed.Split('\n').First(line => line.Contains("STUB_RECEIVED_ARGS:", StringComparison.Ordinal));
+            Assert.Contains("--platform-version 26.0", changedArgs);
+            Assert.Contains("--swift-runtime-version 0.0.0-platform-probe", changedArgs);
+            Assert.NotEqual(firstFingerprint, File.ReadAllText(stamp!));
+        }
+
         // ── SWIFTBIND005: the empty-DLL trap (issue #43) ──
         // A project that carries an @(ObjcBindingApiDefinition) item but omits
         // <IsBindingProject>true</IsBindingProject> ships an empty (0-type) binding

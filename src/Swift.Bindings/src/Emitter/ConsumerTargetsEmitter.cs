@@ -37,11 +37,6 @@ namespace BindingsGeneration
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
         /// <summary>
-        /// SPM resource bundle names detected in the source framework.
-        /// When non-empty, BundleResource items are emitted to include bundles from the NuGet package.
-        /// </summary>
-        public IReadOnlyList<string>? ResourceBundleNames { get; init; }
-        /// <summary>
         /// File name (not full path) of the mixed framework's ObjC companion csproj, e.g.
         /// <c>Module.ObjC.iOS.csproj</c>. Non-null only for mixed (ObjC+Swift) frameworks. When
         /// set, the local <c>.ProjectReference.targets</c> injects an assembly <c>&lt;Reference&gt;</c>
@@ -160,20 +155,8 @@ namespace BindingsGeneration
                 """
                 : "";
 
-            // SPM resource bundle items for NuGet consumers
-            var resourceBundleItems = "";
-            if (options.ResourceBundleNames != null && options.ResourceBundleNames.Count > 0)
-            {
-                foreach (var bundleName in options.ResourceBundleNames)
-                {
-                    resourceBundleItems += $"""
-
-                      <BundleResource Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{bundleName}.bundle/**"
-                                      LinkBase="{bundleName}.bundle"
-                                      Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{bundleName}.bundle')" />
-                """;
-                }
-            }
+            var resourceBundleTarget = ResourceBundleTargetsEmitter.Emit(options.ModuleName,
+                $"$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/");
 
             var content = $"""
                 <Project>
@@ -208,8 +191,10 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>{sourceNativeRef}
-                {wrapperNativeRef}{bridgeNativeRef}{resourceBundleItems}    </ItemGroup>
+                {wrapperNativeRef}{bridgeNativeRef}    </ItemGroup>
                   </Target>
+
+                {resourceBundleTarget}
 
                   <!-- NativeAOT trimmer-descriptor delivery (PackageReference consumers, ILC/PublishAot
                        path ONLY). The descriptor is packed loose beside this file in buildTransitive/
@@ -297,20 +282,8 @@ namespace BindingsGeneration
                 """
                 : "";
 
-            // SPM resource bundle items for ProjectReference consumers
-            var localResourceBundleItems = "";
-            if (options.ResourceBundleNames != null && options.ResourceBundleNames.Count > 0)
-            {
-                foreach (var bundleName in options.ResourceBundleNames)
-                {
-                    localResourceBundleItems += $"""
-
-                          <BundleResource Include="$(MSBuildThisFileDirectory){bundleName}.bundle/**"
-                                          LinkBase="{bundleName}.bundle"
-                                          Condition="Exists('$(MSBuildThisFileDirectory){bundleName}.bundle')" />
-                """;
-                }
-            }
+            var localResourceBundleTarget = ResourceBundleTargetsEmitter.Emit(options.ModuleName,
+                "$(MSBuildThisFileDirectory)", "ResolveProjectReferences");
 
             // Compute the relative path from the output directory to the source xcframework.
             // This avoids hardcoding directory traversal depth, which breaks if the consumer
@@ -443,9 +416,10 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}{localResourceBundleItems}{descriptorRootsPR}
+                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}{descriptorRootsPR}
                     </ItemGroup>
                   </Target>
+                {localResourceBundleTarget}
                 {companionReferenceTarget}
                 </Project>
                 """;

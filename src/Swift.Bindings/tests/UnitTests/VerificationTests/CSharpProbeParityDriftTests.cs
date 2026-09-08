@@ -40,6 +40,9 @@ namespace BindingsGeneration.Tests
             Assert.Contains("NativeReference", emitted);
             Assert.Contains("PackageReference", emitted);
             Assert.Contains("BundleResource", emitted);
+            Assert.Contains("_SwiftResourceBundleFiles", emitted);
+            Assert.Contains("Link", emitted);
+            Assert.Contains("ReadLinesFromFile", emitted);
             Assert.Contains("TargetsForTfmSpecificBuildOutput", emitted);
 
             var unclassified = emitted
@@ -57,8 +60,10 @@ namespace BindingsGeneration.Tests
 
         // Collect element names that are direct children of a top-level <PropertyGroup> or
         // <ItemGroup> (the csproj configuration surface). Elements nested inside a <Target> (pack-time
-        // MSBuild machinery — MSBuild/Output/Error/BuildOutputInPackage) are intentionally excluded:
-        // they never shape the C# compilation the probe reproduces.
+        // MSBuild machinery — MSBuild/Error/BuildOutputInPackage) are intentionally excluded.
+        // Resource readiness targets are inventoried explicitly too: their former top-level
+        // BundleResource items now read the compiler manifest at execution, and every new
+        // task/item/metadata element needs the same deliberate native/resource disposition.
         private static IEnumerable<string> TopLevelConfigElementNames(string csprojPath)
         {
             var doc = XDocument.Load(csprojPath);
@@ -68,6 +73,17 @@ namespace BindingsGeneration.Tests
             {
                 foreach (var child in group.Elements())
                     yield return child.Name.LocalName;
+            }
+            foreach (var target in root.Elements("Target").Where(t =>
+                         ((string?)t.Attribute("Name"))?.EndsWith("SwiftResourceBundles") == true))
+            {
+                foreach (var element in target.Descendants().Where(e => e.Name.LocalName != "ItemGroup"))
+                {
+                    var name = element.Name.LocalName;
+                    // The module suffix isolates inventories when a consumer imports multiple bindings.
+                    yield return name.StartsWith("_SwiftResourceBundleFiles_", System.StringComparison.Ordinal)
+                        ? "_SwiftResourceBundleFiles" : name;
+                }
             }
         }
 
@@ -106,7 +122,6 @@ namespace BindingsGeneration.Tests
                     },
                     EmitsAppleSupplementReference = true,
                     AppleSupplementVersion = "26.0.0",
-                    ResourceBundleNames = new[] { "KitchenResources" },
                     ObjCProjectFileName = "Kitchen.ObjC.Swift.iOS.csproj",
                 }, NullLogger.Instance);
 

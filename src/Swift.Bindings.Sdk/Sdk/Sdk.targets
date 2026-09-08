@@ -678,7 +678,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -1838,6 +1838,10 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
+      <!-- Use the workload-resolved version that also labels ordinary XCFramework pack
+           paths. Runtime version overrides require it explicitly; the generator's baked
+           platform default need not match this project's target workload. -->
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform-version $(TargetPlatformVersion)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
       <!-- Tie the generated module initializer's RuntimeContract epoch to the SAME runtime version
            the implicit SwiftBindings.Runtime PackageReference targets ($(SwiftRuntimeVersion), the
@@ -3418,23 +3422,33 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Target 5b: Include SPM resource bundle stubs in app bundle             -->
-  <!-- SPM-generated resource_bundle_accessor.swift searches Bundle.main for  -->
-  <!-- named bundles. Empty stub directories prevent fatalError at runtime.   -->
+  <!-- Target 5b: Make final Swift resources ready for Apple collection      -->
+  <!-- The workload collects and embeds library resources before CoreBuild,
+       hence before its ordinary ResolveProjectReferences invocation. Demand
+       that existing producer boundary here: its generation and wrapper hooks
+       finish before reading their manifest. Do not move wrapper compilation
+       ahead of its project dependencies or couple resources to native linking. -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeSwiftResourceBundleStubs"
-          AfterTargets="_IncludeGeneratedSwiftBindings"
-          BeforeTargets="ResolveProjectReferences"
-          Condition="Exists('$(_SwiftBindingIntermediateDir)_resource-bundles.txt')">
+          BeforeTargets="_CollectBundleResources;_CollectPackLibraryResources"
+          DependsOnTargets="ResolveProjectReferences"
+          Condition="'$(TargetFramework)' != '' AND '$(DesignTimeBuild)' != 'true' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
-    <ReadLinesFromFile File="$(_SwiftBindingIntermediateDir)_resource-bundles.txt">
+    <PropertyGroup>
+      <_SwiftResourceRoot>$([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)'))/</_SwiftResourceRoot>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(_SwiftResourceRoot)_resource-bundles.txt"
+                       Condition="Exists('$(_SwiftResourceRoot)_resource-bundles.txt')">
       <Output TaskParameter="Lines" ItemName="_SwiftResourceBundleName" />
     </ReadLinesFromFile>
 
-    <ItemGroup>
-      <BundleResource Include="$(_SwiftBindingIntermediateDir)%(_SwiftResourceBundleName.Identity).bundle/**"
-                      LinkBase="%(_SwiftResourceBundleName.Identity).bundle"
-                      Condition="'%(_SwiftResourceBundleName.Identity)' != ''" />
+    <ItemGroup Condition="'@(_SwiftResourceBundleName)' != ''">
+      <_SwiftResourceBundleFile Include="$(_SwiftResourceRoot)%(_SwiftResourceBundleName.Identity).bundle/**">
+        <BundleName>%(_SwiftResourceBundleName.Identity)</BundleName>
+      </_SwiftResourceBundleFile>
+      <BundleResource Include="@(_SwiftResourceBundleFile)">
+        <Link>%(_SwiftResourceBundleFile.BundleName).bundle/%(_SwiftResourceBundleFile.RecursiveDir)%(_SwiftResourceBundleFile.Filename)%(_SwiftResourceBundleFile.Extension)</Link>
+      </BundleResource>
     </ItemGroup>
   </Target>
 

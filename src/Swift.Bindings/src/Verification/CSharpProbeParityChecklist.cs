@@ -87,6 +87,15 @@ public static class CSharpProbeParityChecklist
             // SPM resource bundle — an app-bundle runtime resource, copied/packed but never seen by
             // the managed compile.
             ["BundleResource"] = ProbeParityDisposition.NotReproducibleInProcess,
+            // Resource readiness now executes after the native producer manifest is available.
+            // Its task output, temporary file inventory and logical-path metadata only feed
+            // Apple resource collection / NuGet pack; none changes managed source or references.
+            // The parity-drift gate explicitly inventories these target descendants as well.
+            ["ReadLinesFromFile"] = ProbeParityDisposition.NotReproducibleInProcess,
+            ["Output"] = ProbeParityDisposition.NotReproducibleInProcess,
+            ["_SwiftResourceBundleFiles"] = ProbeParityDisposition.NotReproducibleInProcess,
+            ["BundleName"] = ProbeParityDisposition.NotReproducibleInProcess,
+            ["Link"] = ProbeParityDisposition.NotReproducibleInProcess,
 
             // --- PropertyGroup: pack-time output wiring (mixed-ObjC companion embedding) ---
             // Extends the pack pipeline (TargetsForTfmSpecificBuildOutput) to embed the ObjC

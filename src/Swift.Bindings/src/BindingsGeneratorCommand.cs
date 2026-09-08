@@ -1301,7 +1301,6 @@ public static class BindingsGeneratorCommand
                     ResolvedNamespace = csharpNamespaceResolver.ResolveNamespace(csharpModuleName),
                     ObjCProjectFileName = null,
                     PlatformInfo = platformInfo,
-                    ResourceBundleNames = null,
                     EmitsAppleSupplementReference = AppleSupplementReferences.Any,
                     AppleSupplementVersion = appleVersion,
                     AppleSupplementPrototypeProjectPath = prototypeCsproj,
@@ -2099,12 +2098,6 @@ public static class BindingsGeneratorCommand
                     appleSupplementPrototypeCsprojPath: appleSupplementPrototypeCsproj,
                     sourceNativeLinkage: sourceNativeLinkage);
 
-                // Read resource bundle manifest (written by CreateResourceBundleStubs during compilation)
-                var resourceBundleManifest = Path.Combine(outputDirectory, "_resource-bundles.txt");
-                IReadOnlyList<string>? resourceBundleNames = File.Exists(resourceBundleManifest)
-                    ? File.ReadAllLines(resourceBundleManifest).Where(l => !string.IsNullOrWhiteSpace(l)).ToList()
-                    : null;
-
                 // Only emit .csproj in non-SDK mode
                 if (!sdkMode)
                 {
@@ -2127,7 +2120,6 @@ public static class BindingsGeneratorCommand
                         ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName),
                         ObjCProjectFileName = objcProjFileName,
                         PlatformInfo = platformInfo,
-                        ResourceBundleNames = resourceBundleNames,
                         EmitsAppleSupplementReference = AppleSupplementReferences.Any,
                         AppleSupplementVersion = appleVersion,
                         AppleSupplementPrototypeProjectPath = appleSupplementPrototypeCsproj,
@@ -2154,7 +2146,6 @@ public static class BindingsGeneratorCommand
                     XcframeworkPath = xcframeworkPath,
                     SourceNativeLinkage = sourceNativeLinkage,
                     PlatformInfo = platformInfo,
-                    ResourceBundleNames = resourceBundleNames,
                     // Mixed only: lets the local .ProjectReference.targets inject a <Reference> to
                     // the ObjC companion so PR consumers' C# sees the ObjC types (path c). Null for
                     // Swift-only/pure-ObjC bindings, so no companion reference target is emitted.

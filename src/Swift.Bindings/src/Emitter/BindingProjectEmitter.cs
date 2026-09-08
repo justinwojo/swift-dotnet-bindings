@@ -55,11 +55,6 @@ namespace BindingsGeneration
         /// Platform info for multi-platform support. Falls back to iOS if not specified (CLI default).
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
-        /// <summary>
-        /// SPM resource bundle names detected in the source framework.
-        /// When non-empty, BundleResource and pack items are emitted for each bundle.
-        /// </summary>
-        public IReadOnlyList<string>? ResourceBundleNames { get; init; }
 
         /// <summary>
         /// When <c>true</c>, emit a PackageReference to <c>SwiftBindings.Apple</c> — meaning
@@ -506,27 +501,8 @@ namespace BindingsGeneration
                 """;
             }
 
-            // SPM resource bundle items (local build: BundleResource, NuGet pack: None)
-            var resourceBundleItems = "";
-            var resourceBundlePackItems = "";
-            if (options.ResourceBundleNames != null && options.ResourceBundleNames.Count > 0)
-            {
-                foreach (var bundleName in options.ResourceBundleNames)
-                {
-                    resourceBundleItems += $"""
-
-                    <BundleResource Include="{bundleName}.bundle/**"
-                                    LinkBase="{bundleName}.bundle"
-                                    Condition="Exists('{bundleName}.bundle')" />
-                """;
-                    resourceBundlePackItems += $"""
-
-                    <None Include="{bundleName}.bundle/**" Pack="true"
-                          Condition="Exists('{bundleName}.bundle')"
-                          PackagePath="{pi.GetNativePackPath($"{bundleName}.bundle")}" />
-                """;
-                }
-            }
+            var resourceBundleTarget = ResourceBundleTargetsEmitter.Emit(options.ModuleName,
+                "$(MSBuildProjectDirectory)/", nativePackRoot: $"runtimes/{pi.NuGetRid}/native/");
 
             var content = $"""
                 <Project Sdk="Microsoft.NET.Sdk">
@@ -603,12 +579,8 @@ namespace BindingsGeneration
                       <Kind>Framework</Kind>
                     </NativeReference>
                 """ : "")}{wrapperNativeRef}{bridgeNativeRef}
-                  </ItemGroup>{(resourceBundleItems != "" ? $"""
-
-                  <!-- SPM resource bundles (included in app bundle at runtime) -->
-                  <ItemGroup>{resourceBundleItems}
                   </ItemGroup>
-                """ : "")}
+                {resourceBundleTarget}
 
                   <!-- NuGet pack layout -->
                   <ItemGroup>
@@ -626,7 +598,7 @@ namespace BindingsGeneration
 
                     <None Include="{packSourceXcfwRelative}/**" Pack="true"
                           PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />
-                """ : "")}{wrapperPackItem}{bridgePackItem}{resourceBundlePackItems}
+                """ : "")}{wrapperPackItem}{bridgePackItem}
                   </ItemGroup>{objcProjectRef}
                 </Project>
                 """;

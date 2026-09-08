@@ -72,7 +72,6 @@ namespace BindingsGeneration.Tests
                 WrapperXCFrameworkPath = wrapperXcfw,
                 BridgeXCFrameworkPath = bridgeXcfw,
                 HasBridgeSwift = true,
-                ResourceBundleNames = new[] { $"{module}Resources" },
             }, NullLogger.Instance);
 
             var verification = XDocument.Load(CsprojPath(verificationDir, module)).Root!;
@@ -169,7 +168,7 @@ namespace BindingsGeneration.Tests
         private static IReadOnlySet<string> ItemNames(XElement root)
         {
             var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var group in root.Elements().Where(e => e.Name.LocalName == "ItemGroup"))
+            foreach (var group in root.Descendants().Where(e => e.Name.LocalName == "ItemGroup"))
             {
                 foreach (var item in group.Elements())
                     names.Add(item.Name.LocalName);
