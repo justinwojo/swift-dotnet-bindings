@@ -698,6 +698,51 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when <paramref name="structDecl"/> is a <c>~Copyable</c> struct that would take the
+        /// BY-VALUE C# struct projection — frozen, with no reference-bearing stored field, so
+        /// <see cref="MarshallingHelpers.IsFrozenStructProjectedAsClass"/> is false. Such a struct must
+        /// be refused: a plain C# struct gives a move-only Swift value full copy semantics.
+        ///
+        /// <para>The by-value projection has no <c>Payload</c>, which is what the consumed-ownership
+        /// preflight reads to enforce a <c>consuming</c> parameter's lifetime, so every member that
+        /// borrows or consumes the type fails to compile and is withdrawn by the C# verify-recover loop.
+        /// That much the compiler catches on its own. What it cannot catch is the type declaration left
+        /// standing behind those withdrawals: it compiles cleanly while being unsound in three ways at
+        /// once — <c>Dispose()</c> is emitted as a no-op even when the Swift type has a <c>deinit</c>
+        /// (so the deinit never runs), C# struct assignment duplicates a value Swift guarantees is
+        /// unique, and <c>MarshalToSwift</c> copies it through the value witness table's
+        /// <c>InitializeWithCopy</c>. A consumer is left holding a type whose entire callable surface has
+        /// been withdrawn and whose remaining operations silently violate move-only semantics, so the
+        /// honest surface is no type at all.</para>
+        ///
+        /// <para>Deliberately narrow: a <c>~Copyable</c> struct that is NOT projected by value is
+        /// already handled correctly and must keep emitting. A non-frozen one projects as
+        /// ClassWithOpaquePayload and a frozen one carrying a reference-bearing field projects as
+        /// ClassWithBufferStruct; both own a real <c>SwiftSafeHandle</c> payload, so the preflight's
+        /// <c>IsConsumed</c> guard and <c>MarkConsumed()</c> hand-over both emit and the whole member
+        /// surface binds. Widening this predicate to every <c>~Copyable</c> struct would withdraw that
+        /// working surface. A <see cref="TypeSkipConditions"/> entry, so the handler skip, the
+        /// member-pruning pre-pass, and the tombstone registrar all see the same decision.</para>
+        /// </summary>
+        internal static bool HasNonCopyableValueProjection(StructDecl structDecl, ITypeDatabase typeDatabase)
+        {
+            // Only a frozen struct is projected by value; a non-frozen one is ClassWithOpaquePayload.
+            // Mirrors the by-value gate in HasSubWordOptionalLayoutMismatch.
+            if (!structDecl.IsFrozen)
+                return false;
+
+            if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord))
+                return false;
+
+            if ((typeRecord.Flags & TypeRecordFlags.NonCopyable) == 0)
+                return false;
+
+            // Reference-bearing frozen structs project as a Buffer-backed class that does carry a
+            // payload, so they keep their working consumed-ownership handling.
+            return !MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord);
+        }
+
+        /// <summary>
         /// Resolves the Swift and emitted-C# inline (size, alignment) of a frozen struct stored field
         /// for <see cref="HasSubWordOptionalLayoutMismatch"/>. Returns false when the field's layout is
         /// not precisely derivable (an indeterminate-size field, or a non-primitive typed field such as a

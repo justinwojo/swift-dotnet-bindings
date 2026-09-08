@@ -124,9 +124,7 @@ public class MemberGateEvaluator
             property.SwiftTypeSpec, _typeDatabase, out var propOffending);
         if (propUnsupported != ValidationRuleSet.UnsupportedReferenceKind.None)
             return GateResult.Skipped(ValidationRuleSet.ToSkipReason(propUnsupported),
-                propUnsupported == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                    ? $"Property type references .NET-unavailable type '{propOffending}'."
-                    : "Property type references unsupported module (SwiftUI/Combine).");
+                $"Property type references {ValidationRuleSet.DescribeUnsupportedReference(propUnsupported, propOffending)}.");
 
         // P6: Bound generic with non-ISwiftObject args
         if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&
@@ -191,6 +189,20 @@ public class MemberGateEvaluator
         {
             return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
                 "Property type reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+        }
+
+        // PN: a ~Copyable value reachable only through a generic slot. The same shared refusal the
+        // concrete side applies in MemberValidationPipeline — reached here because protocol members
+        // never pass through that pipeline, so without this a protocol requirement naming, say,
+        // `FrozenLabeledToken?` would emit an interface member both compilers accept and whose first
+        // call runs Optional's copy witness, an unconditional trap. Last in the chain so a member a
+        // narrower gate already refuses keeps that gate's more specific reason.
+        if (WrapperValidation.ReachesUnlowerableNonCopyable(
+                new[] { property.SwiftTypeSpec }, _typeDatabase,
+                property.ModuleDecl ?? moduleDecl, out var propNonCopyable))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughGenericSlot,
+                WrapperValidation.DescribeUnlowerableNonCopyable(propNonCopyable));
         }
 
         return GateResult.Pass;
@@ -286,9 +298,7 @@ public class MemberGateEvaluator
                 arg.SwiftTypeSpec, _typeDatabase, out var offending);
             if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
                 return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
-                    kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                        ? $"Method signature references .NET-unavailable type '{offending}'."
-                        : "Method signature references unsupported module (SwiftUI/Combine).");
+                    $"Method signature references {ValidationRuleSet.DescribeUnsupportedReference(kind, offending)}.");
         }
 
         // Pattern 2 emission-time gate — method signature reaches a name in
@@ -311,6 +321,18 @@ public class MemberGateEvaluator
                 return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
                     "Method signature reaches a @usableFromInline internal (or otherwise-suppressed) type.");
             }
+        }
+
+        // MN: the same shared ~Copyable-through-a-generic-slot refusal the concrete side applies in
+        // MemberValidationPipeline, which protocol requirements never pass through. A HARD gate, so
+        // it is decided before the soft-gate InterfaceOnly downgrade: an interface-only member still
+        // declares the signature its conformers must satisfy.
+        if (WrapperValidation.ReachesUnlowerableNonCopyable(
+                method.CSSignature.Select(a => a.SwiftTypeSpec), _typeDatabase,
+                method.ModuleDecl ?? moduleDecl, out var methodNonCopyable))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughGenericSlot,
+                WrapperValidation.DescribeUnlowerableNonCopyable(methodNonCopyable));
         }
 
         // If soft gates fired but no hard gate, return InterfaceOnly
@@ -385,9 +407,7 @@ public class MemberGateEvaluator
             var kind = ValidationRuleSet.ClassifyUnsupportedReference(spec, _typeDatabase, out var offending);
             if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
                 return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
-                    kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                        ? $"Subscript signature references .NET-unavailable type '{offending}'."
-                        : "Subscript signature references unsupported module (SwiftUI/Combine).");
+                    $"Subscript signature references {ValidationRuleSet.DescribeUnsupportedReference(kind, offending)}.");
         }
 
         // S5b: @objc protocol existential in an unsupported nested position — hard, fail-closed drop, in
@@ -416,6 +436,16 @@ public class MemberGateEvaluator
         {
             return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
                 "Subscript signature reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+        }
+
+        // SN: the shared ~Copyable-through-a-generic-slot refusal, over index parameters and the
+        // element type together — the same span the concrete side validates.
+        if (WrapperValidation.ReachesUnlowerableNonCopyable(
+                subscript.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscript.ReturnTypeSpec),
+                _typeDatabase, resolvedSubscriptModule, out var subscriptNonCopyable))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughGenericSlot,
+                WrapperValidation.DescribeUnlowerableNonCopyable(subscriptNonCopyable));
         }
 
         return GateResult.Pass;
@@ -468,9 +498,7 @@ public class MemberGateEvaluator
                 arg.SwiftTypeSpec, _typeDatabase, out var offending, allowProjectableScalar: allowScalar);
             if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
                 return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
-                    kind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                        ? $"Method signature references .NET-unavailable type '{offending}' in '{arg.SwiftTypeSpec}'."
-                        : $"Method signature references unsupported module (SwiftUI/Combine) in '{arg.SwiftTypeSpec}'.");
+                    $"Method signature references {ValidationRuleSet.DescribeUnsupportedReference(kind, offending)} in '{arg.SwiftTypeSpec}'.");
         }
 
         // Internal type references — parameter/return types that are internal to the module
@@ -524,9 +552,7 @@ public class MemberGateEvaluator
             property.SwiftTypeSpec, _typeDatabase, out var hardPropOffending);
         if (hardPropKind != ValidationRuleSet.UnsupportedReferenceKind.None)
             return GateResult.Skipped(ValidationRuleSet.ToSkipReason(hardPropKind),
-                hardPropKind == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                    ? $"Property type references .NET-unavailable type '{hardPropOffending}'."
-                    : "Property type references unsupported module (SwiftUI/Combine).");
+                $"Property type references {ValidationRuleSet.DescribeUnsupportedReference(hardPropKind, hardPropOffending)}.");
 
         // Non-ISwiftObject bound generic
         if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&

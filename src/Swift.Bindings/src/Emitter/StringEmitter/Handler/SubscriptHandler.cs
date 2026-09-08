@@ -127,9 +127,8 @@ namespace BindingsGeneration
                 var unsupported = ValidationRuleSet.ClassifyUnsupportedReference(spec, typeDatabase, out var offending);
                 if (unsupported == ValidationRuleSet.UnsupportedReferenceKind.None)
                     continue;
-                skipDetails = unsupported == ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable
-                    ? $"Subscript signature references .NET-unavailable type '{offending}'."
-                    : "Subscript signature references unsupported module.";
+                skipDetails =
+                    $"Subscript signature references {ValidationRuleSet.DescribeUnsupportedReference(unsupported, offending)}.";
                 return ValidationRuleSet.ToSkipReason(unsupported);
             }
 

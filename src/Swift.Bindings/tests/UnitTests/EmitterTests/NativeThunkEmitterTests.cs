@@ -2035,6 +2035,77 @@ namespace BindingsGeneration.Tests
             Assert.Equal(expectThunk, NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
+        /// <summary>
+        /// A ~Copyable parameter the callee takes <c>@owned</c> must refuse the native thunk: the
+        /// thunk models that argument with the callee-consumes hand-over, whose value transfer
+        /// copies through the value witness, and a non-copyable value's copy witness is an
+        /// unconditional runtime trap. The @_cdecl wrapper is the path that models move.
+        ///
+        /// <para>The gate is scoped to the consumed case on purpose, and this theory is where that
+        /// scope is pinned. A <c>borrowing</c> (or default) ~Copyable argument is +0 — nothing is
+        /// ever handed over, so the thunk never reaches the value transfer and is sound. Refusing
+        /// those too rebinds an already-working, already-runtime-proven C# signature from its
+        /// native thunk symbol onto a cdecl wrapper symbol: consumer-visible ABI churn that the
+        /// API-manifest contract gate rejects, bought for no soundness gain.</para>
+        /// </summary>
+        [Theory]
+        [InlineData(ParameterOwnership.Owned, false)]
+        [InlineData(ParameterOwnership.Shared, true)]
+        [InlineData(ParameterOwnership.Default, true)]
+        public void ShouldEmitThunk_FrozenNonCopyableParameter_DeclinesOnlyWhenConsumed(
+            ParameterOwnership ownership, bool expectThunk)
+        {
+            var env = FrozenTokenParamEnv(
+                TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable, ownership);
+
+            Assert.Equal(expectThunk, NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        /// <summary>
+        /// The same frozen token shape without the NonCopyable flag must stay thunk-eligible in
+        /// every ownership flavor, <c>consuming</c> included: the new argument gate is copyability,
+        /// not ownership on its own and not "any custom struct parameter". A copyable value has a
+        /// valid copy witness, so the hand-over the gate protects against is well-defined for it.
+        /// </summary>
+        [Theory]
+        [InlineData(ParameterOwnership.Owned)]
+        [InlineData(ParameterOwnership.Shared)]
+        [InlineData(ParameterOwnership.Default)]
+        public void ShouldEmitThunk_CopyableParameterOfSameShape_ReturnsTrue(
+            ParameterOwnership ownership)
+        {
+            var env = FrozenTokenParamEnv(TypeRecordFlags.Frozen, ownership);
+
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        private static MethodEnvironment FrozenTokenParamEnv(
+            TypeRecordFlags flags, ParameterOwnership ownership = ParameterOwnership.Default)
+        {
+            var classDecl = CreateClassDecl();
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.Token", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Token"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.Token"),
+                Flags = flags,
+                InlineSize = 8,
+                AbiFieldLayout = "i8",
+                MetadataAccessor = "$s4Test5TokenVMa",
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: classDecl);
+            var token = MakeArg(new NamedTypeSpec("Test.Token"), "token");
+            token.Ownership = ownership;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""),
+                token,
+            };
+            return new MethodEnvironment(method, db);
+        }
+
         #endregion
 
         #region Large-Optional setter values are never thunked

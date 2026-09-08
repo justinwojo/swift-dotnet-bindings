@@ -90,8 +90,27 @@ public static class NativeThunkEmitter
             && genericParent.IsGeneric)
             return false;
 
-        // Non-copyable struct parent — can't thunk
+        // Non-copyable struct or enum parent — can't thunk
         if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
+            return false;
+
+        // A CONSUMED non-copyable argument — can't thunk either, and for the same reason the
+        // parent can't. The parent check alone left the argument case open: a copyable type's
+        // initializer taking a ~Copyable parameter passed this gate, landed on the thunk, and had
+        // its ownership modelled by the callee-consumes hand-over, whose OwnedArgument value
+        // transfer copies through the value witness. A non-copyable value has no valid copy
+        // witness, so that is a trap at run time, not a compile error — exactly the class of
+        // soundness condition neither compiler can see, which is why it is gated here rather than
+        // left to verify-recover. The @_cdecl wrapper path models these correctly (pointer in,
+        // `.move()`), so refusing the thunk steers them there rather than dropping the member.
+        //
+        // Scoped to arguments Swift's lowering takes @owned, because that is the entire hazard: an
+        // explicitly `borrowing` ~Copyable argument is never handed over, so its thunk is sound and
+        // already proven at runtime. Refusing those too would silently rebind a stable C# signature
+        // to a different native symbol for no soundness gain.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a =>
+                CalleeArgumentOwnership.IsConsumedByCallee(env.MethodDecl, a) &&
+                WrapperValidation.IsNonCopyableType(a.SwiftTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl)))
             return false;
 
         // Module internal or SPI protected — not callable

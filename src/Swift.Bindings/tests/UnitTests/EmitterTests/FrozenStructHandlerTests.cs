@@ -858,6 +858,505 @@ public class FrozenStructHandlerTests
 
     #endregion
 
+    #region ~Copyable by-value projection (HasNonCopyableValueProjection)
+
+    [Fact]
+    public void HasNonCopyableValueProjection_PlainMoveOnlyStruct_IsRefused()
+    {
+        // A frozen ~Copyable struct with no reference-bearing field projects to a plain C# struct:
+        // no payload, so C# assignment silently copies a move-only Swift value, Dispose() is a no-op
+        // even when the Swift type has a deinit, and a consuming parameter has nothing to mark.
+        // That projection COMPILES, which is what puts it on the refusal side of the freeze policy
+        // rather than leaving it to the C# verify-recover loop.
+        var db = new TypeDatabase();
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyResource");
+        RegisterStructRecord(db, moveOnly, TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable);
+
+        Assert.True(FrozenStructHandler.HasNonCopyableValueProjection(moveOnly, db));
+    }
+
+    [Fact]
+    public void HasNonCopyableValueProjection_MoveOnlyStructCarryingAReference_IsAdmitted()
+    {
+        // The boundary the refusal must not cross: a frozen ~Copyable struct that holds a reference
+        // is projected as a Buffer-backed C# class, which really does carry a payload and already
+        // enforces consumed lifetimes on it. A refusal wide enough to swallow this shape would
+        // withdraw working surface.
+        var db = new TypeDatabase();
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyHolder");
+        RegisterStructRecord(
+            db,
+            moveOnly,
+            TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable | TypeRecordFlags.RequiresMemoryManagement);
+
+        Assert.False(FrozenStructHandler.HasNonCopyableValueProjection(moveOnly, db));
+    }
+
+    [Fact]
+    public void HasNonCopyableValueProjection_OrdinaryCopyableStruct_IsAdmitted()
+    {
+        // The by-value projection is only unsound for a move-only value; an ordinary copyable frozen
+        // struct is exactly what that projection is for.
+        var db = new TypeDatabase();
+        var copyable = CreateFrozenStructDecl("Point");
+        RegisterStructRecord(db, copyable, TypeRecordFlags.Frozen);
+
+        Assert.False(FrozenStructHandler.HasNonCopyableValueProjection(copyable, db));
+    }
+
+    [Fact]
+    public void HasNonCopyableValueProjection_NonFrozenMoveOnlyStruct_IsAdmitted()
+    {
+        // A non-frozen struct is never projected by value — it becomes an opaque-payload class, so
+        // its consumed-ownership handling has a payload to work with and nothing here should fire.
+        var db = new TypeDatabase();
+        var moveOnly = CreateNonFrozenStructDecl("ResilientMoveOnly");
+        RegisterStructRecord(db, moveOnly, TypeRecordFlags.NonCopyable);
+
+        Assert.False(FrozenStructHandler.HasNonCopyableValueProjection(moveOnly, db));
+    }
+
+    [Fact]
+    public void HasNonCopyableValueProjection_TypeWithNoRecord_IsAdmitted()
+    {
+        // Copyability is a database fact; with no record there is no evidence of a move-only type and
+        // the predicate must not refuse on a guess.
+        var db = new TypeDatabase();
+        var unregistered = CreateFrozenStructDecl("Unregistered");
+
+        Assert.False(FrozenStructHandler.HasNonCopyableValueProjection(unregistered, db));
+    }
+
+    [Fact]
+    public void FirstMatch_PlainMoveOnlyStruct_ReportsTheNonCopyableProjectionCondition()
+    {
+        // The condition has to reach the shared authority, not just the predicate: TypeSkipPrePass and
+        // the type handlers both read TypeSkipConditions.FirstMatch, and that is what closes the
+        // dependency chain so members referencing the refused type are pruned too.
+        var db = new TypeDatabase();
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyResource");
+        RegisterStructRecord(db, moveOnly, TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable);
+
+        var match = TypeSkipConditions.FirstMatch(moveOnly, db, out _);
+
+        Assert.NotNull(match);
+        Assert.Equal(TypeSkipConditionKind.NonCopyableValueProjection, match!.Kind);
+    }
+
+    [Fact]
+    public void FirstMatch_MoveOnlyStructCarryingAReference_IsNotSkipped()
+    {
+        var db = new TypeDatabase();
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyHolder");
+        RegisterStructRecord(
+            db,
+            moveOnly,
+            TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable | TypeRecordFlags.RequiresMemoryManagement);
+
+        Assert.Null(TypeSkipConditions.FirstMatch(moveOnly, db, out _));
+    }
+
+    /// <summary>
+    /// The refusal above is only as good as the flag it reads, and every test above hands that flag
+    /// to the database itself. This one walks the real ingestion instead: a <c>~Copyable</c> struct
+    /// reaches the ABI as a type conforming to <c>Swift.Escapable</c> and NOT to <c>Swift.Copyable</c>
+    /// (an ordinary Swift 6.2 struct lists both), and <c>ModuleProcessor</c> is what turns that into
+    /// <see cref="TypeRecordFlags.NonCopyable"/>. Without this, ingestion could stop deriving the flag
+    /// and the whole refusal would go quiet while every hand-seeded test above still passed.
+    /// </summary>
+    [Fact]
+    public void Ingestion_OfAMoveOnlyStruct_DerivesTheFlagThatDrivesTheRefusal()
+    {
+        var moveOnly = CreateFrozenStructDecl("IngestedMoveOnly");
+        moveOnly.Properties.Add(CreatePropertyDecl("value", "Swift.Int64", hasStorage: true));
+        DeclareMoveOnly(moveOnly);
+
+        var record = DeriveThroughIngestion(moveOnly);
+
+        Assert.True((record.Flags & TypeRecordFlags.NonCopyable) != 0);
+        Assert.True((record.Flags & TypeRecordFlags.Frozen) != 0);
+
+        // Trivial fields only, so nothing puts it on the payload-backed class projection — which is
+        // exactly the by-value shape the refusal exists for.
+        Assert.True((record.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0);
+    }
+
+    /// <summary>
+    /// The seam itself: a declaration that only ever passed through the real parser derivation is
+    /// refused by the shared condition list, with no hand-written record anywhere in the path.
+    /// </summary>
+    [Fact]
+    public void Ingestion_OfAMoveOnlyStruct_ReachesTheRefusalWithoutAHandWrittenRecord()
+    {
+        var moveOnly = CreateFrozenStructDecl("IngestedMoveOnly");
+        moveOnly.Properties.Add(CreatePropertyDecl("value", "Swift.Int64", hasStorage: true));
+        DeclareMoveOnly(moveOnly);
+
+        var db = DatabaseAfterIngestion(moveOnly);
+        var match = TypeSkipConditions.FirstMatch(moveOnly, db, out _);
+
+        Assert.NotNull(match);
+        Assert.Equal(TypeSkipConditionKind.NonCopyableValueProjection, match!.Kind);
+    }
+
+    /// <summary>
+    /// The control for the derivation rule, through the same path: a struct that lists BOTH
+    /// <c>Swift.Copyable</c> and <c>Swift.Escapable</c> is an ordinary copyable Swift 6.2 struct and
+    /// must keep projecting. Reading "conforms to Escapable" alone would refuse every struct in a
+    /// 6.2-built module.
+    /// </summary>
+    [Fact]
+    public void Ingestion_OfAnOrdinaryCopyableStruct_IsNotRefused()
+    {
+        var copyable = CreateFrozenStructDecl("IngestedCopyable");
+        copyable.Properties.Add(CreatePropertyDecl("value", "Swift.Int64", hasStorage: true));
+        DeclareConformance(copyable, "Swift.Copyable");
+        DeclareConformance(copyable, "Swift.Escapable");
+
+        var db = DatabaseAfterIngestion(copyable);
+
+        Assert.True((DeriveThroughIngestion(copyable).Flags & TypeRecordFlags.NonCopyable) == 0);
+        Assert.Null(TypeSkipConditions.FirstMatch(copyable, db, out _));
+    }
+
+    /// <summary>
+    /// The boundary, through the same path: the identical <c>~Copyable</c> declaration carrying a
+    /// CLASS-typed stored field picks up <see cref="TypeRecordFlags.RequiresMemoryManagement"/> from
+    /// ingestion, projects as a payload-backed class, and must keep its whole member surface.
+    /// </summary>
+    [Fact]
+    public void Ingestion_OfAMoveOnlyStructCarryingAReference_IsNotRefused()
+    {
+        var reference = CreateClassDecl("IngestedBox");
+        var moveOnly = CreateFrozenStructDecl("IngestedMoveOnlyHolder");
+        moveOnly.Properties.Add(CreatePropertyDecl("box", "TestModule.IngestedBox", hasStorage: true));
+        DeclareMoveOnly(moveOnly);
+
+        var db = DatabaseAfterIngestion(moveOnly, reference);
+
+        Assert.True(db.TryGetTypeRecord(moveOnly.SwiftTypeName, out var record));
+        Assert.True((record!.Flags & TypeRecordFlags.NonCopyable) != 0);
+        Assert.True((record.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0);
+        Assert.Null(TypeSkipConditions.FirstMatch(moveOnly, db, out _));
+    }
+
+    #endregion
+
+    #region ~Copyable payload construction (move, not copy)
+
+    [Fact]
+    public void FrozenPayloadSemantics_MoveOnlyStructProjectedAsClass_IsMove()
+    {
+        // The bug this pins: a ~Copyable payload declared Copy makes the emitted NewFromPayload run
+        // ValueWitnessTable->InitializeWithCopy, and a non-copyable type's copy witness is
+        // __swift_cannot_copy_noncopyable_type — an unconditional EXC_BREAKPOINT, not an error.
+        // Move is the arm that both constructs by take and suppresses the wire buffer's destroy.
+        var record = StructRecord(
+            "MoveOnlyHolder",
+            TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable | TypeRecordFlags.RequiresMemoryManagement);
+
+        Assert.Equal(
+            Swift.Runtime.PayloadConstructionSemantics.Move,
+            ISwiftObjectMethodWriter.SelectFrozenStructPayloadSemantics(record, isNonCopyable: true));
+    }
+
+    [Fact]
+    public void FrozenPayloadSemantics_CopyableStructProjectedAsClass_StaysCopy()
+    {
+        // The regression guard: an ordinary reference-bearing frozen struct still takes a fresh +1
+        // and still has its wire buffer destroyed. Nothing about the ~Copyable fix may move it.
+        var record = StructRecord(
+            "ReferenceBearingPoint",
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+
+        Assert.Equal(
+            Swift.Runtime.PayloadConstructionSemantics.Copy,
+            ISwiftObjectMethodWriter.SelectFrozenStructPayloadSemantics(record, isNonCopyable: false));
+    }
+
+    [Fact]
+    public void FrozenPayloadSemantics_ValueTypeProjection_StaysInline()
+    {
+        // A frozen struct with no reference-bearing field is read by value; it has no payload buffer
+        // to move OR copy, so the copyability question never arises on this arm. (A ~Copyable one
+        // cannot reach it at all — HasNonCopyableValueProjection refuses the type outright.)
+        var record = StructRecord("PlainPoint", TypeRecordFlags.Frozen);
+
+        Assert.Equal(
+            Swift.Runtime.PayloadConstructionSemantics.Inline,
+            ISwiftObjectMethodWriter.SelectFrozenStructPayloadSemantics(record, isNonCopyable: false));
+        Assert.Equal(
+            Swift.Runtime.PayloadConstructionSemantics.Inline,
+            ISwiftObjectMethodWriter.SelectFrozenStructPayloadSemantics(record, isNonCopyable: true));
+    }
+
+    [Fact]
+    public void NewFromPayload_MoveOnlyStructProjectedAsClass_TakesTheWireValue()
+    {
+        var emitted = ISwiftObjectMethodWriter.BuildNewFromPayloadProjectedAsClass(
+            "MoveOnlyHolder", "MoveOnlyHolder", isNonCopyable: true);
+
+        Assert.Contains("ValueWitnessTable->InitializeWithTake((void*)bufferPtr", emitted);
+        Assert.DoesNotContain("InitializeWithCopy", emitted);
+    }
+
+    [Fact]
+    public void NewFromPayload_CopyableStructProjectedAsClass_StillCopies()
+    {
+        var emitted = ISwiftObjectMethodWriter.BuildNewFromPayloadProjectedAsClass(
+            "ReferenceBearingPoint", "ReferenceBearingPoint", isNonCopyable: false);
+
+        Assert.Contains("ValueWitnessTable->InitializeWithCopy((void*)bufferPtr", emitted);
+        Assert.DoesNotContain("InitializeWithTake", emitted);
+    }
+
+    [Fact]
+    public void MarshalToSwift_MoveOnlyPayload_MovesOutAndMarksConsumed()
+    {
+        // The other direction, and the second instance of the same trap: handing a ~Copyable value
+        // to Swift cannot be a copy either. It takes, then marks the handle consumed so the
+        // SafeHandle frees the moved-from buffer without a second value-witness destroy.
+        var emitted = ISwiftObjectMethodWriter.BuildMarshalToSwiftFromPayload(
+            "MoveOnlyHolder", "MoveOnlyHolder", isNonCopyable: true);
+
+        Assert.Contains("ValueWitnessTable->InitializeWithTake(swiftDest", emitted);
+        Assert.DoesNotContain("InitializeWithCopy", emitted);
+        Assert.Contains("_payload.MarkConsumed();", emitted);
+        // And a value already moved out has nothing left to hand over.
+        Assert.Contains("if (_payload.IsConsumed)", emitted);
+        Assert.Contains("ObjectDisposedException", emitted);
+    }
+
+    [Fact]
+    public void MarshalToSwift_CopyablePayload_StillCopiesAndKeepsOwnership()
+    {
+        var emitted = ISwiftObjectMethodWriter.BuildMarshalToSwiftFromPayload(
+            "ReferenceBearingPoint", "ReferenceBearingPoint", isNonCopyable: false);
+
+        Assert.Contains("ValueWitnessTable->InitializeWithCopy(swiftDest", emitted);
+        Assert.DoesNotContain("InitializeWithTake", emitted);
+        Assert.DoesNotContain("MarkConsumed", emitted);
+    }
+
+    /// <summary>
+    /// The non-frozen lane keeps <c>Adopt</c> whether or not the struct is <c>~Copyable</c>: its
+    /// <c>NewFromPayload</c> wraps the wire handle directly with no value-witness call at all, so
+    /// there is no copy to trap on and nothing for the fix to change there. Only the frozen lane's
+    /// alloc-and-initialize construction had to move. Stated as a test so a later "declare Move for
+    /// every ~Copyable" edit has to confront it — declaring Move on an ADOPTING carrier would tell
+    /// the seam to free a buffer the SafeHandle already owns.
+    /// </summary>
+    [Fact]
+    public void NonFrozenLane_MoveOnlyStruct_IsNotAFrozenClassProjection()
+    {
+        var db = new TypeDatabase();
+        var moveOnly = CreateNonFrozenStructDecl("ResilientMoveOnly");
+        RegisterStructRecord(db, moveOnly, TypeRecordFlags.NonCopyable);
+
+        Assert.True(db.TryGetTypeRecord(moveOnly.SwiftTypeName, out var record));
+        // Not a frozen class projection, so SelectFrozenStructPayloadSemantics never runs for it and
+        // its declaration site keeps the hardcoded Adopt.
+        Assert.False(MarshallingHelpers.IsFrozenStructProjectedAsClass(record!));
+    }
+
+    /// <summary>
+    /// The predicate the emitter branches on is the shared <c>~Copyable</c> oracle, reading the ABI
+    /// shape (Escapable listed, Copyable absent) rather than a second hand-rolled rule.
+    /// </summary>
+    [Fact]
+    public void NonCopyablePredicate_ReadsTheAbiConformanceShape()
+    {
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyHolder");
+        DeclareMoveOnly(moveOnly);
+        Assert.True(WrapperValidation.IsNonCopyableStructParent(moveOnly));
+
+        var copyable = CreateFrozenStructDecl("OrdinaryHolder");
+        DeclareConformance(copyable, "Swift.Copyable");
+        DeclareConformance(copyable, "Swift.Escapable");
+        Assert.False(WrapperValidation.IsNonCopyableStructParent(copyable));
+    }
+
+    /// <summary>
+    /// <c>Optional&lt;T&gt;</c> is itself move-only when <c>T</c> is: a predicate that stopped at the
+    /// <c>Swift.Optional</c> spelling would report a copyable value whose copy witness is an
+    /// unconditional runtime trap.
+    /// </summary>
+    [Fact]
+    public void IsNonCopyableType_OptionalOfMoveOnlyStruct_ReturnsTrue()
+    {
+        var db = new TypeDatabase();
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyResource");
+        DeclareMoveOnly(moveOnly);
+        RegisterStructRecord(db, moveOnly, TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable);
+        var module = ModuleContaining(moveOnly);
+
+        Assert.True(WrapperValidation.IsNonCopyableType(
+            OptionalOf(moveOnly.SwiftTypeName.ModuleQualifiedName), db, module));
+    }
+
+    /// <summary>
+    /// Recursion must not paint every Optional as move-only: wrapping an ordinary copyable struct
+    /// stays copyable, otherwise every <c>T?</c> would be refused as a ~Copyable payload.
+    /// </summary>
+    [Fact]
+    public void IsNonCopyableType_OptionalOfCopyableStruct_ReturnsFalse()
+    {
+        var db = new TypeDatabase();
+        var copyable = CreateFrozenStructDecl("Point");
+        DeclareConformance(copyable, "Swift.Copyable");
+        DeclareConformance(copyable, "Swift.Escapable");
+        RegisterStructRecord(db, copyable, TypeRecordFlags.Frozen);
+        var module = ModuleContaining(copyable);
+
+        Assert.False(WrapperValidation.IsNonCopyableType(
+            OptionalOf(copyable.SwiftTypeName.ModuleQualifiedName), db, module));
+    }
+
+    /// <summary>
+    /// A directly-named ~Copyable struct is still non-copyable after Optional became transparent:
+    /// the named-type arm must keep answering yes, not only the generic-argument walk.
+    /// </summary>
+    [Fact]
+    public void IsNonCopyableType_DirectlyNamedMoveOnlyStruct_ReturnsTrue()
+    {
+        var db = new TypeDatabase();
+        var moveOnly = CreateFrozenStructDecl("MoveOnlyResource");
+        DeclareMoveOnly(moveOnly);
+        RegisterStructRecord(db, moveOnly, TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable);
+        var module = ModuleContaining(moveOnly);
+
+        Assert.True(WrapperValidation.IsNonCopyableType(
+            new NamedTypeSpec(moveOnly.SwiftTypeName.ModuleQualifiedName), db, module));
+    }
+
+    /// <summary>
+    /// The parent oracle's name is historical: a ~Copyable enum (Escapable listed, Copyable absent)
+    /// is move-only exactly as a ~Copyable struct is. Answering only for structs would let an
+    /// enum's members take the copy-constructing emission path, whose value-witness copy traps at
+    /// runtime. A copyable enum listing both Copyable and Escapable must stay on the copyable path.
+    /// </summary>
+    [Fact]
+    public void IsNonCopyableStructParent_MoveOnlyEnum_ReturnsTrue_CopyableEnum_ReturnsFalse()
+    {
+        var moveOnly = CreateEnumDecl("MoveOnlyCase");
+        DeclareMoveOnly(moveOnly);
+        Assert.True(WrapperValidation.IsNonCopyableStructParent(moveOnly));
+
+        var copyable = CreateEnumDecl("OrdinaryCase");
+        DeclareConformance(copyable, "Swift.Copyable");
+        DeclareConformance(copyable, "Swift.Escapable");
+        Assert.False(WrapperValidation.IsNonCopyableStructParent(copyable));
+    }
+
+    private static TypeRecord StructRecord(string name, TypeRecordFlags flags)
+        => new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MetadataAccessor = "",
+            Flags = flags,
+            Kind = TypeRecordKind.Struct,
+        };
+
+    #endregion
+
+    #region ~Copyable helpers
+
+    /// <summary>
+    /// Marks a declaration the way the ABI describes a <c>~Copyable</c> type: Escapable listed,
+    /// Copyable absent.
+    /// </summary>
+    private static ModuleDecl ModuleContaining(TypeDecl typeDecl)
+        => new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { typeDecl },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+    private static void DeclareMoveOnly(StructDecl structDecl)
+        => DeclareConformance(structDecl, "Swift.Escapable");
+
+    private static void DeclareMoveOnly(EnumDecl enumDecl)
+        => DeclareConformance(enumDecl, "Swift.Escapable");
+
+    private static void DeclareConformance(StructDecl structDecl, string protocolName)
+        => structDecl.Conformances.Add(new TypeConformance(
+            structDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName(protocolName),
+            ProtocolConformanceDescriptor: string.Empty));
+
+    private static void DeclareConformance(EnumDecl enumDecl, string protocolName)
+        => enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName(protocolName),
+            ProtocolConformanceDescriptor: string.Empty));
+
+    private static TypeRecord DeriveThroughIngestion(TypeDecl queried, params TypeDecl[] alsoDeclared)
+    {
+        var db = DatabaseAfterIngestion(queried, alsoDeclared);
+        Assert.True(db.TryGetTypeRecord(queried.SwiftTypeName, out var record));
+        return record!;
+    }
+
+    /// <summary>
+    /// Runs the real <see cref="ModuleProcessor"/> over the given declarations and returns the
+    /// database it produced, so the flags under test are the ones ingestion actually derives.
+    /// </summary>
+    private static TypeDatabase DatabaseAfterIngestion(TypeDecl queried, params TypeDecl[] alsoDeclared)
+    {
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>();
+        foreach (var decl in alsoDeclared.Append(queried))
+            typeDecls[new NamedTypeSpec(decl.SwiftTypeName.ModuleQualifiedName)] = decl;
+
+        var typeDatabase = new TypeDatabase();
+        var int64 = SwiftTypeName.FromModuleQualifiedName("Swift.Int64");
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (int64, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "Int64"),
+                SwiftTypeName = int64,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+
+        var processor = new ModuleProcessor(
+            "TestModule",
+            "/tmp/TestModule.dylib",
+            "TestModule",
+            typeDecls,
+            typeDatabase,
+            NullLogger.Instance);
+
+        typeDatabase.AddModuleDatabase(processor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase);
+        return typeDatabase;
+    }
+
+    private static void RegisterStructRecord(TypeDatabase db, StructDecl structDecl, TypeRecordFlags flags)
+    {
+        db.AddOutOfModuleTypes(new[]
+        {
+            (structDecl.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", structDecl.Name),
+                SwiftTypeName = structDecl.SwiftTypeName,
+                MetadataAccessor = "",
+                Flags = flags,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+    }
+
+    #endregion
+
     #region Field-shape helpers
 
     private static NamedTypeSpec OptionalOf(string innerSwiftName)

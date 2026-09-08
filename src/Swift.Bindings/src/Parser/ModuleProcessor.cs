@@ -1107,6 +1107,18 @@ namespace BindingsGeneration
         {
             TypeRecordFlags flags = TypeRecordFlags.None;
 
+            // Same ABI shape test the struct path uses (Escapable listed, Copyable absent). An enum
+            // can be `~Copyable` exactly as a struct can, and every downstream reader of this flag —
+            // the @_cdecl parameter mapper's move-in/borrow lowering, the wrapper eligibility gates,
+            // the payload-construction selection — asks about the FLAG, not about the declaration
+            // kind. Leaving it unset for enums meant a `~Copyable` enum was indistinguishable from a
+            // copyable one at every one of those seams, so it silently took the copy path whose
+            // value-witness `initializeWithCopy` is `__swift_cannot_copy_noncopyable_type` — an
+            // unconditional trap rather than a compile error.
+            if (enumDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
+                !enumDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
+                flags |= TypeRecordFlags.NonCopyable;
+
             if (enumDecl.IsFrozen)
                 flags |= TypeRecordFlags.Frozen;
 

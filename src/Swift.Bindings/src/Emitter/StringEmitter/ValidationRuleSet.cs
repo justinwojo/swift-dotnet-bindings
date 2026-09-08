@@ -58,10 +58,26 @@ public static class ValidationRuleSet
         NetUnavailable,
 
         /// <summary>
-        /// References a SwiftUI/Combine-module type, a .NET static class, a type the emitter will
-        /// skip/never produce, or a module-internal type — the existing "unsupported module" buckets.
+        /// References a SwiftUI/Combine-module type or a .NET static class — the genuine
+        /// "unsupported module" bucket. A reference to a type THIS binding refuses to emit is
+        /// <see cref="SkippedLocalType"/> instead; it is a different cause with a different fix.
         /// </summary>
         OtherUnsupported,
+
+        /// <summary>
+        /// References a type from the module under generation (or one of its dependencies) that the
+        /// generator itself will not emit: the type-skip pre-pass withdrew it, one of its nested
+        /// segments was withdrawn, or its record is flagged <c>Unemittable</c>. Nothing about the
+        /// reference is SwiftUI-, Combine- or framework-related — the declaration simply will not
+        /// exist in the output, so every use of it has to be withdrawn too (the "if a type is
+        /// skipped, every use of it must be skipped" invariant).
+        /// <para>
+        /// Split out because the consumer-facing consequence differs: a SwiftUI constraint is a
+        /// standing platform boundary, while this one points at another skip row in the SAME report
+        /// — the refused type's own — which is where the actual fix lives.
+        /// </para>
+        /// </summary>
+        SkippedLocalType,
 
         /// <summary>
         /// References a framework value type (struct/enum, by its Swift USR) that the type database
@@ -87,15 +103,41 @@ public static class ValidationRuleSet
     /// Maps an <see cref="UnsupportedReferenceKind"/> to the report <see cref="SkipReason"/>:
     /// a .NET-unavailable Foundation type gets <see cref="SkipReason.NetUnavailableType"/>; a
     /// USR-proven absent framework value type gets <see cref="SkipReason.AbsentFrameworkType"/>;
-    /// every other unsupported reference keeps the historical <see cref="SkipReason.SwiftUIConstraint"/>
-    /// at the member-gate sites that previously hardcoded it.
+    /// a reference to a type this binding refuses to emit gets
+    /// <see cref="SkipReason.SkippedTypeReference"/>; and only a real SwiftUI/Combine (or .NET
+    /// static class) reference keeps <see cref="SkipReason.SwiftUIConstraint"/>.
     /// </summary>
     public static SkipReason ToSkipReason(UnsupportedReferenceKind kind)
         => kind switch
         {
             UnsupportedReferenceKind.NetUnavailable => SkipReason.NetUnavailableType,
             UnsupportedReferenceKind.AbsentBridgedValueType => SkipReason.AbsentFrameworkType,
+            UnsupportedReferenceKind.SkippedLocalType => SkipReason.SkippedTypeReference,
             _ => SkipReason.SwiftUIConstraint,
+        };
+
+    /// <summary>
+    /// The cause clause every member-gate site splices into its skip detail, so the prose a consumer
+    /// reads in the <c>// Unsupported:</c> comment matches the <see cref="SkipReason"/> the same
+    /// classification produced. Each site renders <c>"{position} references {this}."</c>.
+    /// <para>
+    /// One builder rather than a ternary repeated at each gate: the repeated form had exactly one
+    /// named branch (.NET-unavailable) and swept everything else into "unsupported module
+    /// (SwiftUI/Combine)", which reported a withdrawn local type — and a USR-proven absent framework
+    /// value type, whose <see cref="SkipReason.AbsentFrameworkType"/> already said otherwise — as a
+    /// SwiftUI reference. Adding a kind now forces a decision here instead of silently landing in
+    /// the SwiftUI bucket at seven call sites.
+    /// </para>
+    /// </summary>
+    public static string DescribeUnsupportedReference(UnsupportedReferenceKind kind, string? offendingType)
+        => kind switch
+        {
+            UnsupportedReferenceKind.NetUnavailable => $".NET-unavailable type '{offendingType}'",
+            UnsupportedReferenceKind.AbsentBridgedValueType =>
+                $"framework type '{offendingType}' which has no .NET binding",
+            UnsupportedReferenceKind.SkippedLocalType =>
+                $"'{offendingType}', a type this binding does not emit (see that type's own skip row)",
+            _ => "unsupported module (SwiftUI/Combine)",
         };
 
     /// <summary>
@@ -156,7 +198,7 @@ public static class ValidationRuleSet
                 if (namedType.HasModule() && IsTypeSkippedWithUmbrellaRemap(namedType))
                 {
                     offendingType = namedType.Name;
-                    return UnsupportedReferenceKind.OtherUnsupported;
+                    return UnsupportedReferenceKind.SkippedLocalType;
                 }
                 // The same skip invariant covers a withdrawn NESTED type after a generic outer:
                 // it renders as "M.Outer<T>.Inner" but TypeSkipPrePass records the generics-stripped
@@ -174,7 +216,7 @@ public static class ValidationRuleSet
                         if (IsTypeSkippedWithUmbrellaRemap(nestedName, namedType.Module))
                         {
                             offendingType = nestedName;
-                            return UnsupportedReferenceKind.OtherUnsupported;
+                            return UnsupportedReferenceKind.SkippedLocalType;
                         }
                     }
                 }
@@ -187,7 +229,7 @@ public static class ValidationRuleSet
                     unemittableRecord.Flags.HasFlag(TypeRecordFlags.Unemittable))
                 {
                     offendingType = namedType.Name;
-                    return UnsupportedReferenceKind.OtherUnsupported;
+                    return UnsupportedReferenceKind.SkippedLocalType;
                 }
                 if (namedType.HasModule() && IsUnsupportedConstraintModule(namedType.Module))
                 {

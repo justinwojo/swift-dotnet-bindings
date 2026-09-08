@@ -925,6 +925,148 @@ public class MemberGateEvaluatorTests
 
     #endregion
 
+    #region Unlowerable ~Copyable Tests
+
+    // Protocol requirements never pass through MemberValidationPipeline, so MemberGateEvaluator is
+    // their only denial point. A requirement whose signature carries a ~Copyable value inside a
+    // generic instantiation (Optional<T> is itself ~Copyable when T is) compiles on both sides and
+    // traps at the first call, so the refusal has to be decided here.
+
+    [Fact]
+    public void EvaluateMethod_OptionalOfNonCopyableParam_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonCopyableStruct();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("inspect", TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Token")));
+        var protocolDecl = CreateProtocolDecl("TestProtocol");
+
+        var result = evaluator.EvaluateMethod(method, CreateModuleDecl("TestModule"), protocolDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.NonCopyableThroughGenericSlot, result.Reason);
+        Assert.Contains("Swift.Optional", result.Details);
+    }
+
+    [Fact]
+    public void EvaluateMethod_DirectlyNamedNonCopyableParam_IsNotRefusedByTheGenericSlotGate()
+    {
+        // The supported lane: a directly named ~Copyable type lowers as a pointer the wrapper
+        // borrows or moves. Refusing it here would be an over-refusal, not a fail-closed win.
+        var typeDatabase = CreateTypeDatabaseWithNonCopyableStruct();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("consume", TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.Token"));
+        var protocolDecl = CreateProtocolDecl("TestProtocol");
+
+        var result = evaluator.EvaluateMethod(method, CreateModuleDecl("TestModule"), protocolDecl);
+
+        Assert.NotEqual(SkipReason.NonCopyableThroughGenericSlot, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateMethod_OptionalOfNonCopyableAlongsideClosure_SkipsRatherThanDowngrades()
+    {
+        // The refusal is a HARD gate, decided before the soft closure/existential downgrade: an
+        // interface-only member still declares the signature its conformers must satisfy, and a
+        // conformer written against it would reach the same trap.
+        var typeDatabase = CreateTypeDatabaseWithNonCopyableStruct();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var closureArg = new ClosureTypeSpec
+        {
+            Arguments = TupleTypeSpec.Empty,
+            ReturnType = TupleTypeSpec.Empty,
+        };
+        var method = CreateMethodWithArgs("inspect", TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Token")),
+            closureArg);
+        var protocolDecl = CreateProtocolDecl("TestProtocol");
+
+        var result = evaluator.EvaluateMethod(method, CreateModuleDecl("TestModule"), protocolDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.False(result.IsInterfaceOnly);
+        Assert.Equal(SkipReason.NonCopyableThroughGenericSlot, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateProperty_OptionalOfNonCopyable_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonCopyableStruct();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("token",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Token")));
+        var protocolDecl = CreateProtocolDecl("TestProtocol");
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), protocolDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.NonCopyableThroughGenericSlot, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateSubscript_OptionalOfNonCopyableIndex_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonCopyableStruct();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var subscriptDecl = CreateSubscript(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Token")));
+        var protocolDecl = CreateProtocolDecl("TestProtocol");
+
+        var result = evaluator.EvaluateSubscript(subscriptDecl, CreateModuleDecl("TestModule"), protocolDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.NonCopyableThroughGenericSlot, result.Reason);
+    }
+
+    /// <summary>
+    /// A type database carrying a directly-lowerable <c>~Copyable</c> struct plus a copyable
+    /// <c>Swift.Optional</c> — the exact pair that makes <c>Optional&lt;Token&gt;</c> read as
+    /// copyable to any predicate that stops at the outer spelling.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithNonCopyableStruct()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Token"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Token"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Token"),
+                MetadataAccessor = "$s10TestModule5TokenVMa",
+                Flags = TypeRecordFlags.NonCopyable,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();

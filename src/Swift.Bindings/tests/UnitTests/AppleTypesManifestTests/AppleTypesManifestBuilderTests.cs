@@ -27,7 +27,14 @@ public class AppleTypesManifestBuilderTests
         }
         """;
 
-    private static string TypeDecl(string declKind, string name, string mangled, string? introIos = null, string? introMacosx = null, string? introTvos = null, string? introMaccat = null, string[]? attrs = null, string? childrenJson = null)
+    // The ABI dump's marker conformances, as a `conformances` array: since Swift 6 the digester
+    // lists `Copyable` explicitly on every copyable nominal, so its ABSENCE alongside `Escapable`
+    // is how a `~Copyable` type is spelled.
+    private static string Conformances(params string[] protocolNames) =>
+        "[" + string.Join(",", protocolNames.Select(p =>
+            $$"""{"kind":"Conformance","name":"{{p}}","printedName":"{{p}}","usr":"s:s{{p}}P","mangledName":"$ss{{p}}P"}""")) + "]";
+
+    private static string TypeDecl(string declKind, string name, string mangled, string? introIos = null, string? introMacosx = null, string? introTvos = null, string? introMaccat = null, string[]? attrs = null, string? childrenJson = null, string? conformancesJson = null)
     {
         string attrsJson = attrs is null ? "[]" : "[" + string.Join(",", attrs.Select(a => $"\"{a}\"")) + "]";
         string intros = string.Join(",", new[]
@@ -58,7 +65,7 @@ public class AppleTypesManifestBuilderTests
           "paramValueOwnership": null,
           "hasDefaultArg": null,
           "children": {{childrenJson ?? "[]"}},
-          "conformances": [],
+          "conformances": {{conformancesJson ?? "[]"}},
           "accessors": []
           {{intros}}
         }
@@ -105,6 +112,43 @@ public class AppleTypesManifestBuilderTests
         Assert.Equal("vwt_opaque", entry.StorageStrategy);
         Assert.False(entry.SequentialLayoutWhitelisted);
         Assert.Equal("generated", entry.Status);
+    }
+
+    [Fact]
+    public void Include_listed_noncopyable_type_fails_the_manifest_build()
+    {
+        // Every manifest entry is `vwt_opaque`, so the C# carrier emitted from it copies through
+        // the value witness. For a `~Copyable` type that witness slot is
+        // `__swift_cannot_copy_noncopyable_type` — an unconditional runtime trap, not a compile
+        // error, so nothing downstream would catch it. The include list is hand-authored, so the
+        // build fails rather than shipping a carrier that traps on first use.
+        var abi = MakeAbi("MoveOnlyKit", "[" +
+            TypeDecl("Struct", "Token", "$s11MoveOnlyKit5TokenV", introIos: "18.0",
+                conformancesJson: Conformances("Escapable", "Sendable")) +
+            "]");
+        var builder = NewBuilder("MoveOnlyKit.Token");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => IngestString(builder, abi));
+        Assert.Contains("MoveOnlyKit.Token", ex.Message);
+        Assert.Contains("~Copyable", ex.Message);
+    }
+
+    [Fact]
+    public void Copyable_type_declaring_escapable_still_builds()
+    {
+        // The negative control for the check above: an ordinary Swift 6 struct lists BOTH
+        // `Escapable` and `Copyable`, so keying the refusal on `Escapable` alone would refuse
+        // essentially the whole SDK.
+        var abi = MakeAbi("MoveOnlyKit", "[" +
+            TypeDecl("Struct", "Ticket", "$s11MoveOnlyKit6TicketV", introIos: "18.0",
+                conformancesJson: Conformances("Escapable", "Copyable", "Sendable")) +
+            "]");
+        var builder = NewBuilder("MoveOnlyKit.Ticket");
+        IngestString(builder, abi);
+        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
+
+        var entry = Assert.Single(manifest.Modules["MoveOnlyKit"].Types);
+        Assert.Equal("MoveOnlyKit.Ticket", entry.SwiftIdentity);
     }
 
     [Fact]

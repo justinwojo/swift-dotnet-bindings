@@ -599,6 +599,55 @@ public enum SkipReason
     /// </para>
     /// </summary>
     PropertyWrapperDeclinedDirectPInvoke,
+
+    /// <summary>
+    /// A <c>~Copyable</c> struct whose projection would be a plain by-value C# struct — frozen with
+    /// no reference-bearing stored field, so it carries no <c>SwiftSafeHandle</c> payload.
+    /// <para>
+    /// C# has no move-only value type, so the projection would hand a Swift value that is guaranteed
+    /// unique to a type that copies on every assignment, whose <c>Dispose()</c> is emitted as a no-op
+    /// even when the Swift type declares a <c>deinit</c>, and whose missing <c>Payload</c> leaves the
+    /// consumed-ownership preflight nothing to read when enforcing a <c>consuming</c> parameter's
+    /// lifetime. The type is refused whole rather than emitted as a declaration whose members have all
+    /// been withdrawn and whose remaining operations silently violate move-only semantics.
+    /// </para>
+    /// <para>
+    /// Narrow by construction: a <c>~Copyable</c> struct that projects as a class — non-frozen
+    /// (ClassWithOpaquePayload) or frozen with a reference-bearing field (ClassWithBufferStruct) —
+    /// owns a real payload, binds its whole member surface, and is NOT reported under this reason.
+    /// </para>
+    /// </summary>
+    NonCopyableValueProjection,
+
+    /// <summary>
+    /// The member's signature names a type from the module under generation (or one of its
+    /// dependencies) that this binding itself does not emit — the referenced type was withdrawn by
+    /// the type-skip pre-pass, one of its nested segments was withdrawn, or its record is flagged
+    /// unemittable.
+    /// <para>
+    /// This is a <em>dependent</em> skip: nothing about the member is unsupported, and the fix is
+    /// whatever unblocks the referenced type, which carries its own skip row naming its own cause.
+    /// It is deliberately distinct from <see cref="SwiftUIConstraint"/>, which means the signature
+    /// reaches into SwiftUI/Combine — a different cause with a different fix that these members were
+    /// previously and wrongly reported under.
+    /// </para>
+    /// </summary>
+    SkippedTypeReference,
+
+    /// <summary>
+    /// The signature carries a <c>~Copyable</c> value through a generic slot — an
+    /// <c>Optional&lt;T&gt;</c>, or another generic instantiation admitting a non-copyable argument
+    /// — rather than naming the non-copyable type directly.
+    /// <para>
+    /// A directly named <c>~Copyable</c> parameter or return is supported: it crosses as a pointer
+    /// and is borrowed inline, <c>.move()</c>d, or constructed with <c>InitializeWithTake</c>. A
+    /// nested one is marshalled through the ENCLOSING type's value witness, which is copyable and so
+    /// reaches <c>initializeWithCopy</c> — for a non-copyable payload that witness is
+    /// <c>__swift_cannot_copy_noncopyable_type</c>, an unconditional trap. Both compilers accept the
+    /// emitted code, so this is refused at emission rather than left to the verify-recover loop.
+    /// </para>
+    /// </summary>
+    NonCopyableThroughGenericSlot,
 }
 
 /// <summary>

@@ -221,6 +221,29 @@ namespace BindingsGeneration
             => CalleeArgumentOwnership.IsHandedOverToCallee(_env.MethodDecl, argumentDecl);
 
         /// <summary>
+        /// True when a consumed argument's <c>+1</c> may be minted by the value-witness transfer
+        /// lease — i.e. the argument is handed over to the callee AND its value can be copied at all.
+        ///
+        /// <para>The lease's mechanism is <c>InitializeWithCopy</c> on the value witness. For a
+        /// <c>~Copyable</c> type that witness is <c>__swift_cannot_copy_noncopyable_type</c>: not a
+        /// diagnostic, not a compile error, an unconditional trap the first time the member is
+        /// called. So "the callee consumes this" and "we may mint a count for it" are two different
+        /// questions, and every arm that emits the lease has to ask the second one. Ownership for a
+        /// <c>~Copyable</c> argument is already modelled end to end by the <c>SafeHandlePin</c> /
+        /// <c>MarkConsumed</c> preflight paired with the wrapper's <c>.move()</c>, so there is
+        /// nothing left for a transfer lease to do — it can only trap.</para>
+        ///
+        /// <para>This is the predicate half of the same guard <c>GetPassThroughConsumedArguments</c>
+        /// applies on the pass-through lane; it lives here so the two projection-driven arms (the
+        /// <c>MarshalPlan.OwnedValueArgument</c> arm and the frozen-struct-as-class arm) cannot
+        /// answer it differently.</para>
+        /// </summary>
+        private bool TransfersConsumedArgumentByValueWitness(ArgumentDecl argumentDecl)
+            => ConsumedByDirectCallee(argumentDecl) &&
+               !WrapperValidation.IsNonCopyableType(
+                   argumentDecl.SwiftTypeSpec, _env.TypeDatabase, _env.MethodDecl.ModuleDecl);
+
+        /// <summary>
         /// Emits the +1 for a consumed argument whose lowered buffer is read out of a wrapper the
         /// CALLER keeps owning — a frozen-struct parameter, a transient <c>SwiftString</c>, a
         /// collection or Optional carrier. Passing those bits borrowed to a callee that releases
@@ -238,7 +261,7 @@ namespace BindingsGeneration
         private void EmitOwnedArgumentRetain(
             CSharpWriter csWriter, ArgumentDecl argumentDecl, string carrierTypeName, string payloadExpression)
         {
-            if (!ConsumedByDirectCallee(argumentDecl))
+            if (!TransfersConsumedArgumentByValueWitness(argumentDecl))
                 return;
 
             EmitOwnedValueArgumentTransfer(csWriter, NameProvider.GetCSharpParameterName(argumentDecl),
@@ -330,6 +353,18 @@ namespace BindingsGeneration
                                                            && p.Type is MarshalledType.NonFrozenSafeHandleType))
                     continue;
                 if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec || namedSpec.GenericParameters.Count > 0)
+                    continue;
+                // A ~Copyable argument NEVER hands over this way. Both hand-over arms below copy:
+                // ClassTransfer takes a provisional ARC +1, and BeginValueTransfer calls the value
+                // witness InitializeWithCopy — which for a non-copyable type is
+                // __swift_cannot_copy_noncopyable_type, an unconditional trap rather than a compile
+                // error. Ownership for these is already modelled end to end by the SafeHandlePin /
+                // MarkConsumed preflight paired with the wrapper's `.move()`, so there is nothing
+                // left for a transfer lease to do. This is the guard half of the constructor fix:
+                // the wrapper path is now open to ~Copyable constructors, and this makes sure no
+                // future routing change can walk one back into BeginValueTransfer.
+                if (WrapperValidation.IsNonCopyableType(
+                        argumentDecl.SwiftTypeSpec, _env.TypeDatabase, _env.MethodDecl.ModuleDecl))
                     continue;
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
                 if (_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
@@ -1139,10 +1174,19 @@ namespace BindingsGeneration
             if (ConsumedByDirectCallee(argumentDecl) && !_inConventionOptionalNames.Contains(csName))
             {
                 if (plan.OwnedValueArgument is { } valueArgument)
-                    EmitOwnedValueArgumentTransfer(csWriter, csName,
-                        valueArgument.CarrierTypeName, valueArgument.PayloadExpression);
+                {
+                    // A ~Copyable payload takes NEITHER arm: the lease's InitializeWithCopy traps,
+                    // and the sibling hand-over is an ObjC refcount bump that does not describe this
+                    // value either. Its ownership is already carried by the pin/MarkConsumed
+                    // preflight paired with the wrapper's `.move()`.
+                    if (TransfersConsumedArgumentByValueWitness(argumentDecl))
+                        EmitOwnedValueArgumentTransfer(csWriter, csName,
+                            valueArgument.CarrierTypeName, valueArgument.PayloadExpression);
+                }
                 else if (plan.OwnedHandOverStatement is { } handOver)
+                {
                     csWriter.WriteLine(handOver);
+                }
             }
 
             // Foundation.Data ABI decomposition for @_cdecl constructor/method wrappers:

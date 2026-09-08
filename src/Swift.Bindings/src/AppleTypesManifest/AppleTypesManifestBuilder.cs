@@ -146,6 +146,21 @@ public sealed class AppleTypesManifestBuilder
 
     private void RecordOrMergeType(Node node, string module, string swiftIdentity, List<string> declarationPath, Availability effectiveAvailability)
     {
+        // A `~Copyable` type has no manifest projection. Every entry this builder writes is
+        // `vwt_opaque`, and the C# carrier emitted from it copies through the value witness —
+        // whose `initializeWithCopy` slot for a non-copyable type is
+        // `__swift_cannot_copy_noncopyable_type`, an unconditional runtime trap rather than a
+        // compile error. Fail the manifest build instead of shipping a carrier that traps on
+        // first use; the include list is hand-authored, so this is a typo/scope check.
+        if (DeclaresNonCopyable(node))
+        {
+            throw new InvalidOperationException(
+                $"Include-listed type '{swiftIdentity}' is ~Copyable (its ABI conformances name " +
+                "Escapable without Copyable). The manifest lane projects every type through its " +
+                "value witness, whose copy for a non-copyable type traps at runtime. Remove it " +
+                "from the include list.");
+        }
+
         if (!_typesByIdentity.TryGetValue(swiftIdentity, out var entry))
         {
             var managed = new ManagedRef
@@ -340,6 +355,25 @@ public sealed class AppleTypesManifestBuilder
         // exists in source; emitters must weak-link the metadata accessor. The supplement's
         // own SupportedOSPlatformVersion floor is separate.
         return !a.IsEmpty;
+    }
+
+    /// <summary>
+    /// The ABI dump's spelling of `~Copyable`: since Swift 6 every nominal type lists an explicit
+    /// `Copyable` conformance, so a type that conforms to `Escapable` but NOT `Copyable` is the
+    /// move-only one. (Both are checked — a node with neither is a producer that predates the
+    /// implicit-conformance dump and must not be read as move-only.)
+    /// </summary>
+    internal static bool DeclaresNonCopyable(Node node)
+    {
+        var conformances = node.Conformances;
+        if (conformances is null) return false;
+        bool escapable = false, copyable = false;
+        foreach (var c in conformances)
+        {
+            if (string.Equals(c.Name, "Escapable", StringComparison.Ordinal)) escapable = true;
+            else if (string.Equals(c.Name, "Copyable", StringComparison.Ordinal)) copyable = true;
+        }
+        return escapable && !copyable;
     }
 
     private static bool HasAttribute(string[]? attrs, string attr)

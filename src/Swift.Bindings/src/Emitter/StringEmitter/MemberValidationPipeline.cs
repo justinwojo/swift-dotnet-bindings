@@ -740,6 +740,15 @@ public class MemberValidationPipeline
             }
         }
 
+        // Gate 7: a ~Copyable value reachable only through a generic slot. Last in the chain for the
+        // same reason as the receiver-carrier gate — a member a narrower gate already refuses keeps
+        // that gate's more specific reason, and only one that would otherwise emit gets here.
+        if (ReachesUnlowerableNonCopyable(
+                methodDecl.CSSignature.Select(a => a.SwiftTypeSpec), methodDecl.ModuleDecl, out var ncOffending))
+        {
+            return UnlowerableNonCopyableSkip(ncOffending);
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -921,6 +930,14 @@ public class MemberValidationPipeline
             return NoInstanceReceiverCarrierSkip();
         }
 
+        // Same last-in-chain ~Copyable-through-a-generic-slot gate the method path carries; a
+        // property's type is its whole signature.
+        if (ReachesUnlowerableNonCopyable(
+                new[] { propertyDecl.SwiftTypeSpec }, propertyDecl.ModuleDecl, out var ncOffending))
+        {
+            return UnlowerableNonCopyableSkip(ncOffending);
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -1018,6 +1035,15 @@ public class MemberValidationPipeline
             return NoInstanceReceiverCarrierSkip();
         }
 
+        // Same last-in-chain ~Copyable-through-a-generic-slot gate, over index parameters and the
+        // element type together.
+        if (ReachesUnlowerableNonCopyable(
+                subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscriptDecl.ReturnTypeSpec),
+                subscriptDecl.ModuleDecl, out var ncOffending))
+        {
+            return UnlowerableNonCopyableSkip(ncOffending);
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -1044,6 +1070,27 @@ public class MemberValidationPipeline
     /// three member kinds report the same reason and wording. The wording stays kind-neutral
     /// because the skip marker already names the member kind ahead of this detail.
     /// </summary>
+    /// <summary>
+    /// This pipeline's view of <see cref="WrapperValidation.ReachesUnlowerableNonCopyable"/> — the
+    /// shared refusal for a <c>~Copyable</c> value no emission path can move rather than copy. The
+    /// condition itself lives on <see cref="WrapperValidation"/>, alongside the <c>~Copyable</c>
+    /// oracle it is keyed on, because protocol requirements are refused by
+    /// <c>MemberGateEvaluator</c> without ever passing through this pipeline; a second copy here
+    /// could drift into letting one front end's members reach the trap.
+    /// </summary>
+    private bool ReachesUnlowerableNonCopyable(
+        IEnumerable<TypeSpec?> signatureSpecs, ModuleDecl? moduleDecl, out string offending)
+        => WrapperValidation.ReachesUnlowerableNonCopyable(
+            signatureSpecs, _typeDatabase, moduleDecl, out offending);
+
+    /// <summary>
+    /// The skip verdict behind <see cref="ReachesUnlowerableNonCopyable"/>, so the three member
+    /// kinds report the same reason and wording protocol requirements report.
+    /// </summary>
+    private static ValidationResult UnlowerableNonCopyableSkip(string offending)
+        => ValidationResult.Skip(SkipReason.NonCopyableThroughGenericSlot,
+            WrapperValidation.DescribeUnlowerableNonCopyable(offending));
+
     private static ValidationResult NoInstanceReceiverCarrierSkip()
         => ValidationResult.Skip(SkipReason.GenericTypeCallback,
             "Instance member of a generic parent that projects as a C# value struct: the " +

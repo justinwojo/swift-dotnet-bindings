@@ -36,6 +36,18 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when the emitted type projects a Swift <c>~Copyable</c> (non-copyable) struct.
+        /// A non-copyable type's value witness table carries <c>__swift_cannot_copy_noncopyable_type</c>
+        /// in its <c>initializeWithCopy</c>/<c>assignWithCopy</c> slots, so ANY value-witness copy of
+        /// such a payload is an unconditional trap (<c>EXC_BREAKPOINT</c>) rather than a diagnosable
+        /// error. Every payload handoff for these types must therefore be a MOVE
+        /// (<c>InitializeWithTake</c>), with the source's ownership relinquished so the value's deinit
+        /// runs exactly once. Same predicate the wrapper emitters and the metadata-accessor fallback
+        /// above already branch on, so the declared semantics can never disagree with the shape.
+        /// </summary>
+        private bool IsNonCopyable => WrapperValidation.IsNonCopyableStructParent(_structDecl);
+
+        /// <summary>
         /// Writes the implementation for ISwiftObject methods for non-frozen structs.
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
@@ -62,13 +74,14 @@ namespace BindingsGeneration
             WriteNewFromPayloadFrozenStruct();
             // Frozen structs that carry reference fields project as a class whose NewFromPayload
             // Alloc+InitializeWithCopy takes a fresh +1 (Copy); pure value-field frozen structs are
-            // read by value (Inline). Derive from the SAME predicate WriteNewFromPayloadFrozenStruct
-            // branches on so the declared contract always matches the emitted construction shape.
-            var frozenSemantics =
-                MarshallingHelpers.IsFrozenStructProjectedAsClass(
-                    _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName))
-                    ? PayloadConstructionSemantics.Copy
-                    : PayloadConstructionSemantics.Inline;
+            // read by value (Inline). A ~Copyable payload cannot be copied at all — its value
+            // witness table traps on initializeWithCopy — so its NewFromPayload MOVES the wire
+            // buffer's value in (InitializeWithTake) and declares Move, which is the arm that tells
+            // the marshal seam to free the moved-from buffer WITHOUT a value-witness Destroy.
+            // Derive from the SAME predicates WriteNewFromPayloadFrozenStruct branches on so the
+            // declared contract always matches the emitted construction shape.
+            var frozenSemantics = SelectFrozenStructPayloadSemantics(
+                _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName), IsNonCopyable);
             WritePayloadConstructionSemantics(frozenSemantics);
             WriteMarshalToSwiftFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
@@ -217,23 +230,17 @@ namespace BindingsGeneration
                 // constructor whose parameter is itself IntPtr-shaped, e.g. a Swift `init(x: Int)`
                 // projected as `(nint)` (nint IS IntPtr). The non-frozen-struct and class paths
                 // already use this SwiftHandle indirection; this path must match.
-                var text = $$"""
-                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-                static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
-                {
-                    var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
-                    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
-                    return obj;
-                }
-
-                unsafe {{_constructorName}}(SwiftHandle handle)
-                {
-                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
-                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
-                    metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)(IntPtr)handle, metadata);
-                    _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(bufferPtr);
-                }
-                """;
+                //
+                // Copyable payload  -> InitializeWithCopy: the wrapper takes a fresh +1 and the wire
+                //                      buffer keeps its own, which the seam then Destroys.
+                // ~Copyable payload -> InitializeWithTake: a value-witness COPY of a non-copyable
+                //                      value is __swift_cannot_copy_noncopyable_type, an
+                //                      unconditional trap, so the only legal handoff is a move. The
+                //                      wire buffer is left uninitialized (moved-from) and the
+                //                      declared Move semantics keeps the seam from Destroying it —
+                //                      a Destroy there would run the value's deinit a second time.
+                var text = BuildNewFromPayloadProjectedAsClass(
+                    _typeNameWithGenerics, _constructorName, IsNonCopyable);
 
                 _writer.WriteLines(text);
                 _writer.WriteLine();
@@ -251,6 +258,59 @@ namespace BindingsGeneration
                 _writer.WriteLines(text);
                 _writer.WriteLine();
             }
+        }
+
+        /// <summary>
+        /// Builds the <c>NewFromPayload</c> + payload constructor for a frozen struct projected as a
+        /// class. The value witness the constructor calls is the whole ~Copyable question:
+        /// <c>InitializeWithCopy</c> for a copyable payload (fresh <c>+1</c>, wire buffer keeps its
+        /// own), <c>InitializeWithTake</c> for a <c>~Copyable</c> one — a value-witness copy of a
+        /// non-copyable value is <c>__swift_cannot_copy_noncopyable_type</c>, an unconditional trap,
+        /// so a move is the only legal handoff. The moved-from wire buffer must then NOT be
+        /// value-witness Destroyed, which is what <see cref="PayloadConstructionSemantics.Move"/>
+        /// declares and <see cref="SelectFrozenStructPayloadSemantics"/> selects from the same
+        /// predicate.
+        /// </summary>
+        internal static string BuildNewFromPayloadProjectedAsClass(
+            string typeNameWithGenerics, string constructorName, bool isNonCopyable)
+        {
+            var initializeWitness = isNonCopyable ? "InitializeWithTake" : "InitializeWithCopy";
+            return $$"""
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+            {
+                var obj = new {{typeNameWithGenerics}}(new SwiftHandle(handle));
+                Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+                return obj;
+            }
+
+            unsafe {{constructorName}}(SwiftHandle handle)
+            {
+                var metadata = SwiftObjectHelper<{{typeNameWithGenerics}}>.GetTypeMetadata();
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                metadata.ValueWitnessTable->{{initializeWitness}}((void*)bufferPtr, (void*)(IntPtr)handle, metadata);
+                _payload = new SwiftSafeHandle<{{typeNameWithGenerics}}>(bufferPtr);
+            }
+            """;
+        }
+
+        /// <summary>
+        /// Selects the declared <see cref="PayloadConstructionSemantics"/> for a frozen struct — the
+        /// single authority the emitted declaration and the marshal seam's teardown both key off.
+        /// Frozen-projected-as-class: <see cref="PayloadConstructionSemantics.Copy"/> normally,
+        /// <see cref="PayloadConstructionSemantics.Move"/> for a <c>~Copyable</c> payload (constructed
+        /// by <c>InitializeWithTake</c>, so the moved-from wire buffer must be freed without a
+        /// value-witness Destroy). Frozen value-type projections stay
+        /// <see cref="PayloadConstructionSemantics.Inline"/> — a <c>~Copyable</c> one never reaches
+        /// here, being refused outright at emission.
+        /// </summary>
+        internal static PayloadConstructionSemantics SelectFrozenStructPayloadSemantics(
+            TypeRecord typeRecord, bool isNonCopyable)
+        {
+            if (!MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                return PayloadConstructionSemantics.Inline;
+
+            return isNonCopyable ? PayloadConstructionSemantics.Move : PayloadConstructionSemantics.Copy;
         }
 
         /// <summary>
@@ -351,38 +411,18 @@ namespace BindingsGeneration
             TypeRecord typeRecord = _typeDatabase.GetTypeRecordOrThrow(_structDecl.SwiftTypeName);
             if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
             {
-                var text = $$"""
-                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-                unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
-                {
-                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
-                    if ((int)metadata.Size > swiftDestSpan.Length)
-                    {
-                        throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
-                    }
-                    fixed (void* swiftDest = swiftDestSpan)
-                    {
-                        // Ensure that the instance is valid before making copy
-                        bool success = false;
-                        _payload.DangerousAddRef(ref success);
-                        try
-                        {
-                            metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                            return (int)metadata.Size;
-                        }
-                        finally
-                        {
-                            if (success)
-                                _payload.DangerousRelease();
-                        }
-                    }
-                }
-                """;
-
-                _writer.WriteLines(text);
+                // Same SafeHandle-payload shape as the non-frozen lane — one body builder so the
+                // ~Copyable move-out cannot be fixed on one lane and forgotten on the other.
+                _writer.WriteLines(BuildMarshalToSwiftFromPayload(_typeNameWithGenerics, _constructorName, IsNonCopyable));
             }
             else
             {
+                // Frozen value-type projection (a real C# struct, PayloadConstructionSemantics.Inline).
+                // Unreachable for ~Copyable: a non-copyable frozen struct with no reference-bearing
+                // field has no handle to guard, so the whole type is refused at emission
+                // (FrozenStructHandler.HasNonCopyableValueProjection ->
+                // SkipReason.NonCopyableValueProjection) and never emits a MarshalToSwift at all.
+                // Every type that DOES reach this arm is Copyable, so InitializeWithCopy is sound.
                 var text = $$"""
                 [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -408,27 +448,81 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Writes the MarshalToSwift method for the struct.
+        /// Builds the <c>MarshalToSwift</c> body shared by the two SafeHandle-payload lanes — the
+        /// non-frozen struct projection and the frozen-projected-as-class one. Both hand the payload
+        /// buffer's value to Swift through the value witness table, and both must treat a
+        /// <c>~Copyable</c> payload as a MOVE rather than a copy, so the code lives once.
         /// </summary>
-        private void WriteMarshalToSwiftNonFrozenStruct()
+        /// <remarks>
+        /// Copyable payload: <c>InitializeWithCopy</c> — Swift gets an independent <c>+1</c> and the
+        /// wrapper keeps owning its buffer.
+        /// <para><c>~Copyable</c> payload: a value-witness copy is
+        /// <c>__swift_cannot_copy_noncopyable_type</c>, an unconditional trap, so the value is taken
+        /// (<c>InitializeWithTake</c>) into Swift's destination and the wrapper's handle is marked
+        /// consumed. After the take the payload buffer is moved-from: the SafeHandle must free its
+        /// storage without running a value-witness Destroy (exactly what <c>MarkConsumed</c> selects),
+        /// or the value's deinit would run a second time. The consumed preflight in front mirrors the
+        /// guard the generated members already carry, so marshalling an already-moved-out value fails
+        /// fast instead of handing Swift uninitialized bytes.</para>
+        /// </remarks>
+        internal static string BuildMarshalToSwiftFromPayload(
+            string typeNameWithGenerics, string constructorName, bool isNonCopyable)
         {
-            var text = $$"""
+            if (!isNonCopyable)
+            {
+                return $$"""
+                [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+                unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+                {
+                    var metadata = SwiftObjectHelper<{{typeNameWithGenerics}}>.GetTypeMetadata();
+                    if ((int)metadata.Size > swiftDestSpan.Length)
+                    {
+                        throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+                    }
+                    fixed (void* swiftDest = swiftDestSpan)
+                    {
+                        // Ensure that the instance is valid before making copy
+                        bool success = false;
+                        _payload.DangerousAddRef(ref success);
+                        try
+                        {
+                            metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                            return (int)metadata.Size;
+                        }
+                        finally
+                        {
+                            if (success)
+                                _payload.DangerousRelease();
+                        }
+                    }
+                }
+                """;
+            }
+
+            return $$"""
             [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
             {
-                var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                var metadata = SwiftObjectHelper<{{typeNameWithGenerics}}>.GetTypeMetadata();
                 if ((int)metadata.Size > swiftDestSpan.Length)
                 {
                     throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
                 }
+                // A ~Copyable value cannot be copied out — marshalling it to Swift MOVES it, so a
+                // value that was already moved out has nothing left to hand over.
+                if (_payload.IsConsumed)
+                    throw new global::System.ObjectDisposedException("{{constructorName}}", "This ~Copyable value was already consumed; further use is invalid.");
                 fixed (void* swiftDest = swiftDestSpan)
                 {
-                    // Ensure that the instance is valid before making copy
+                    // Ensure that the instance is valid before moving out of it
                     bool success = false;
                     _payload.DangerousAddRef(ref success);
                     try
                     {
-                        metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                        metadata.ValueWitnessTable->InitializeWithTake(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                        // Ownership is Swift's now; the buffer is moved-from. Free the storage on
+                        // Dispose but never value-witness Destroy it — that would deinit twice.
+                        _payload.MarkConsumed();
                         return (int)metadata.Size;
                     }
                     finally
@@ -439,6 +533,14 @@ namespace BindingsGeneration
                 }
             }
             """;
+        }
+
+        /// <summary>
+        /// Writes the MarshalToSwift method for the struct.
+        /// </summary>
+        private void WriteMarshalToSwiftNonFrozenStruct()
+        {
+            var text = BuildMarshalToSwiftFromPayload(_typeNameWithGenerics, _constructorName, IsNonCopyable);
 
             _writer.WriteLines(text);
             _writer.WriteLine();

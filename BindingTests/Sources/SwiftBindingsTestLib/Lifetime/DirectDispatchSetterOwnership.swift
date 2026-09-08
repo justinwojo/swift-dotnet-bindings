@@ -4,9 +4,13 @@
 // A class-valued setter reached by DIRECT CallConvSwift dispatch — no native assembly
 // thunk, no @_cdecl wrapper, no wrapper-library entry between C# and Swift's own accessor.
 //
-// Swift lowers a subscript setter as `(@owned Value, @guaranteed Index…, self) -> ()`, so
-// the new value arrives at +1 exactly as on a stored property. The thunked arm of that
-// hand-over is fixtured next door; this file exists for the arm where the P/Invoke names
+// Swift lowers a subscript setter as `(@owned Value, @owned Index…, self) -> ()`, so
+// the new value arrives at +1 exactly as on a stored property. The indices arrive at +1
+// too — the matching GETTER borrows the very same indices, so the convention follows the
+// accessor rather than the parameter position. That half is measured next door on
+// `OwnedArgKeyedHost`, whose index is a String and so carries a refcount to get wrong;
+// the `Int` index below is POD and can show nothing about index ownership either way.
+// The thunked arm of that hand-over is fixtured next door; this file exists for the arm where the P/Invoke names
 // the accessor's own `$s…` symbol, which until now had no first-party coverage and was
 // observed only in a shipped Apple binding (a subscript setter on a nested collection
 // struct, whose element type is nested and whose parent struct is resilient).

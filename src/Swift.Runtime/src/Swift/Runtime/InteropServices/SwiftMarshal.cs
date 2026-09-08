@@ -481,13 +481,32 @@ public static class SwiftMarshal
     /// Marshals an <b>owned</b> by-value Swift struct out of a caller-owned temporary into a
     /// managed wrapper, then releases the temporary's value-witness retains. Used for the direct
     /// (by-value register) return of a frozen-with-memory struct: the C# local holds an
-    /// initialized Swift value carrying <c>+1</c> retains on its heap fields, <c>NewFromPayload</c>
-    /// makes an <c>InitializeWithCopy</c> duplicate owned by the wrapper's <c>SwiftSafeHandle</c>,
-    /// and this then destroys the caller's original temporary so its <c>+1</c> is not orphaned on
-    /// the stack (C# never runs Swift value destruction when the local goes out of scope). This is
+    /// initialized Swift value carrying <c>+1</c> retains on its heap fields, a copyable carrier's
+    /// <c>NewFromPayload</c> makes an <c>InitializeWithCopy</c> duplicate owned by the wrapper's
+    /// <c>SwiftSafeHandle</c>, and this then destroys the caller's original temporary so its
+    /// <c>+1</c> is not orphaned on the stack (C# never runs Swift value destruction when the local
+    /// goes out of scope). A <c>~Copyable</c> carrier moves instead — see the remarks. This is
     /// the by-value analogue of <see cref="DestroyWireBufferRetains{T}"/>, which handles the
     /// indirect-result wire-buffer shape.
     /// </summary>
+    /// <remarks>
+    /// <para>The destroy is <b>skipped</b> for a carrier declaring
+    /// <see cref="PayloadConstructionSemantics.Move"/>. A <c>~Copyable</c> payload cannot be
+    /// value-witness copied — <c>initializeWithCopy</c> resolves to
+    /// <c>__swift_cannot_copy_noncopyable_type</c>, an unconditional trap — so its
+    /// <c>NewFromPayload</c> <c>InitializeWithTake</c>s the value out instead, leaving the caller's
+    /// temporary moved-from: it holds no value at all, and Destroying it would run the value's
+    /// <c>deinit</c> a second time on storage Swift already relinquished. The temporary is a C#
+    /// stack local, so skipping the destroy releases nothing and leaks nothing — there is no
+    /// separate allocation to free. This mirrors the copy-out wire cleanup on the
+    /// <c>@_cdecl</c>/indirect sibling arm, which likewise frees the storage without a destroy for a
+    /// moved-from <c>~Copyable</c> buffer, so the two return arms cannot drift.</para>
+    /// <para>The skip is unconditional on the <c>Move</c> arm, including the path where
+    /// <see cref="MarshalFromSwiftObject{T}"/> throws before the take completes. That exit leaks the
+    /// value's heap fields rather than destroying a possibly-already-moved-from buffer; a leak is
+    /// recoverable where a second <c>deinit</c> is memory corruption, and the caller has no witness
+    /// telling the two states apart.</para>
+    /// </remarks>
     /// <typeparam name="T">The Swift wrapper type whose value occupies the buffer.</typeparam>
     /// <param name="owned">Pointer to the caller-owned, initialized Swift value to consume.</param>
     public static unsafe T MarshalFromSwiftObjectConsuming<T>(void* owned) where T : ISwiftObject
@@ -498,7 +517,8 @@ public static class SwiftMarshal
         }
         finally
         {
-            DestroyWireBufferRetains<T>((IntPtr)owned);
+            if (GetPayloadSemantics<T>() != PayloadConstructionSemantics.Move)
+                DestroyWireBufferRetains<T>((IntPtr)owned);
         }
     }
 

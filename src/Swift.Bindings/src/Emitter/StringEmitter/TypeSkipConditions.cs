@@ -32,6 +32,17 @@ public enum TypeSkipConditionKind
     /// field off its Swift packed offset. Predicate: <see cref="FrozenStructHandler.HasSubWordOptionalLayoutMismatch"/>.</summary>
     SubWordOptionalLayoutMismatch,
 
+    /// <summary><c>~Copyable</c> struct that would project to a plain by-value C# struct, giving a
+    /// move-only Swift value full copy semantics and a no-op <c>Dispose</c>. Predicate:
+    /// <see cref="FrozenStructHandler.HasNonCopyableValueProjection"/>.</summary>
+    NonCopyableValueProjection,
+
+    /// <summary><c>~Copyable</c> enum. There is no move-only enum projection at all: a payload-free
+    /// one becomes a plain copyable C# enum, and one with associated values routes through the
+    /// enum marshalling paths, which construct and inspect cases with value-witness copies.
+    /// Predicate: <see cref="WrapperValidation.IsNonCopyableStructParent"/>.</summary>
+    NonCopyableEnumProjection,
+
     /// <summary>Generic type whose ABI declares conformances the emitter cannot lower into
     /// PWT arguments. Predicate: <see cref="PInvokeHelperContext.HasIndeterminatePwtShape"/>.</summary>
     IndeterminatePwtShape,
@@ -153,7 +164,25 @@ public static class TypeSkipConditions
 
             if (FrozenStructHandler.HasSubWordOptionalLayoutMismatch(structDecl, typeDatabase))
                 return new TypeSkipMatch { Kind = TypeSkipConditionKind.SubWordOptionalLayoutMismatch, Subject = subject };
+
+            // Ordered AFTER the two layout conditions on purpose: a struct that trips one of those
+            // keeps reporting the layout defect it always reported, so adding this condition cannot
+            // relabel an already-skipped type. Move-only-ness is a semantic defect in the by-value
+            // projection rather than a layout one, and the layout predicates self-gate on projection
+            // shape, so in practice the three are near-disjoint anyway.
+            if (FrozenStructHandler.HasNonCopyableValueProjection(structDecl, typeDatabase))
+                return new TypeSkipMatch { Kind = TypeSkipConditionKind.NonCopyableValueProjection, Subject = subject };
         }
+
+        // The enum half of the same semantic defect. Unlike the struct case there is no admitted
+        // flavor to carve out: the payload-carrying struct projection earns its support from a
+        // SwiftSafeHandle payload the consumed-ownership machinery is written against, and no enum
+        // projection has one. Both enum shapes copy — a payload-free enum becomes a plain copyable
+        // C# enum, and an associated-value enum's case construction and inspection go through
+        // value-witness copies — so the type is refused whole rather than emitted with operations
+        // that trap the first time a consumer uses them.
+        if (typeDecl is EnumDecl nonCopyableEnum && WrapperValidation.IsNonCopyableStructParent(nonCopyableEnum))
+            return new TypeSkipMatch { Kind = TypeSkipConditionKind.NonCopyableEnumProjection, Subject = subject };
 
         // Only generic types produce a non-null helper context — non-generics are never
         // skipped by the PWT-shape gate.
@@ -259,6 +288,32 @@ public static class TypeSkipConditions
                 UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - sub-word Optional field packing makes the by-value C# layout diverge from Swift.",
+                    typeDecl.Name);
+                break;
+            }
+
+            case TypeSkipConditionKind.NonCopyableValueProjection:
+            {
+                // A plain C# struct cannot express move-only semantics: it copies on assignment and
+                // its Dispose is a no-op even when the Swift type has a deinit (see
+                // HasNonCopyableValueProjection). The members are withdrawn by the C# compile anyway
+                // — this refuses the declaration those withdrawals would otherwise leave standing.
+                const string detail = "C# assignment would copy a value Swift permits one owner of, Dispose() would be a no-op even when the Swift type has a deinit, and a `consuming` parameter has no payload whose lifetime could be marked.";
+                ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.NonCopyableValueProjection, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.NonCopyableValueProjection, detail, typeDecl.ParentDecl, match.Subject);
+                logger.LogWarning(
+                    "Skipping struct '{TypeName}' - a ~Copyable value cannot be projected as a copyable by-value C# struct.",
+                    typeDecl.Name);
+                break;
+            }
+
+            case TypeSkipConditionKind.NonCopyableEnumProjection:
+            {
+                const string detail = "no enum projection can express move-only semantics: a payload-free ~Copyable enum becomes a plain copyable C# enum, and an associated-value one has its cases constructed and inspected through value-witness copies, which for a non-copyable value trap at runtime rather than failing to compile.";
+                ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.NonCopyableValueProjection, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.NonCopyableValueProjection, detail, typeDecl.ParentDecl, match.Subject);
+                logger.LogWarning(
+                    "Skipping enum '{TypeName}' - a ~Copyable enum has no move-only C# projection.",
                     typeDecl.Name);
                 break;
             }

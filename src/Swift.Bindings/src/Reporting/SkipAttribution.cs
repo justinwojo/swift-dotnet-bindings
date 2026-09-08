@@ -239,6 +239,12 @@ public static class SkipCauseClassifier
         Add(SkipReason.NonBlittableCallConvSwift, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
         Add(SkipReason.IndeterminatePwtShape, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
         Add(SkipReason.IndeterminateStructLayout, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
+        Add(SkipReason.NonCopyableValueProjection, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
+        // Dependent skip: the member itself is fine, the type it names is the blocked one. The cause
+        // therefore belongs to whatever owns THAT type's skip row, so this attribution deliberately
+        // claims only Medium confidence — it points a reader at the referenced type's own row.
+        Add(SkipReason.SkippedTypeReference, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.Medium);
+        Add(SkipReason.NonCopyableThroughGenericSlot, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
         Add(SkipReason.ActorIsolatedConstructor, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
         Add(SkipReason.ConstrainedExtensionWrapper, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
         Add(SkipReason.GenericEnumCaseConstructor, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);

@@ -1,5 +1,5 @@
 {
-  "git_sha": "dbbcac81e",
+  "git_sha": "e986332c3",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -35,7 +35,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
-      "count": 66
+      "count": 67
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -304,6 +304,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027FrozenTokenDesk.inspect\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027GatedKernel.advance\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
       "count": 1
     },
@@ -376,13 +382,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027IAPTransactionLike.init\u0027 \u2014 framework type has no .NET binding available (Method signature references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding, in \u0027StoreKit.Transaction\u0027.)",
+      "reason": "method \u0027IAPTransactionLike.init\u0027 \u2014 framework type has no .NET binding available (Method signature references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding in \u0027StoreKit.Transaction\u0027.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027IAPTransactionLike.refresh\u0027 \u2014 framework type has no .NET binding available (Method signature references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding, in \u0027StoreKit.Transaction\u0027.)",
+      "reason": "method \u0027IAPTransactionLike.refresh\u0027 \u2014 framework type has no .NET binding available (Method signature references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding in \u0027StoreKit.Transaction\u0027.)",
       "count": 1
     },
     {
@@ -694,6 +700,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027borrowFrozenPlainToken\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027consumeFrozenPlainToken\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027createInstance\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
       "count": 1
     },
@@ -706,7 +724,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027describeRangeHolder\u0027 \u2014 generic constraint on SwiftUI View type (Method signature references unsupported module (SwiftUI/Combine) in \u0027SwiftBindingsTestLib.RangeHolder\u0027.)",
+      "reason": "method \u0027describeNoncopyableToken\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.NoncopyableToken\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.NoncopyableToken\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027describeRangeHolder\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.RangeHolder\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.RangeHolder\u0027.)",
       "count": 1
     },
     {
@@ -719,6 +743,18 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027inspectInoutReferenceItem\u0027 \u2014 parameter or return type not yet supported (inout parameter \u0027arg0\u0027 is a class reference. Swift requires a pointer to mutable reference storage with replacement writeback, but the direct CallConvSwift fallback passes the object handle by value and no wrapper provides that storage and ownership contract.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027inspectOptionalFrozenToken\u0027 \u2014 ~Copyable value reached through a generic slot (Optional\u003CT\u003E is ~Copyable when T is) (\u0027Swift.Optional\u003CSwiftBindingsTestLib.FrozenLabeledToken\u003E\u0027 carries a ~Copyable value through a generic slot. Only a directly named ~Copyable type can be moved across the boundary (pointer in, borrow or move out); a nested one would be marshalled through the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027inspectOptionalTrackedResource\u0027 \u2014 ~Copyable value reached through a generic slot (Optional\u003CT\u003E is ~Copyable when T is) (\u0027Swift.Optional\u003CSwiftBindingsTestLib.TrackedResource\u003E\u0027 carries a ~Copyable value through a generic slot. Only a directly named ~Copyable type can be moved across the boundary (pointer in, borrow or move out); a nested one would be marshalled through the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap.)",
       "count": 1
     },
     {
@@ -1204,6 +1240,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "type \u0027FrozenPlainToken\u0027 \u2014 ~Copyable type has no move-only C# projection (every candidate projection copies the value) (C# assignment would copy a value Swift permits one owner of, Dispose() would be a no-op even when the Swift type has a deinit, and a \u0060consuming\u0060 parameter has no payload whose lifetime could be marked.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "type \u0027FrozenRefClosureView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
@@ -1289,6 +1331,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "type \u0027NoParamBlurView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027NoncopyableToken\u0027 \u2014 ~Copyable type has no move-only C# projection (every candidate projection copies the value) (no enum projection can express move-only semantics: a payload-free ~Copyable enum becomes a plain copyable C# enum, and an associated-value one has its cases constructed and inspected through value-witness copies, which for a non-copyable value trap at runtime rather than failing to compile.)",
       "count": 1
     },
     {

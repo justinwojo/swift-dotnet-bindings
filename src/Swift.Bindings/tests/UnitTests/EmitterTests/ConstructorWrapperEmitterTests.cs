@@ -565,12 +565,15 @@ public class ConstructorWrapperEmitterTests
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    /// <summary>
+    /// Same-module ABI shape (Escapable listed, Copyable absent) without a NonCopyable TypeRecord
+    /// is still refused: <c>IsNonCopyableType</c> is true from the declaration, but
+    /// <c>LowersNonCopyableDirectly</c> is false, so the mapper would fall through to a copying
+    /// arm. The TypeRecord-flagged sibling below is the path that now wraps.
+    /// </summary>
     [Fact]
     public void ShouldEmitWrapper_NonCopyableStructParameter_ReturnsFalse()
     {
-        // A copyable type with a non-copyable struct parameter must not get a @_cdecl wrapper.
-        // The wrapper passes frozen structs by value, which requires Copyable. C# also passes
-        // frozen structs by value, so there's no pointer-based fallback available.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -662,12 +665,140 @@ public class ConstructorWrapperEmitterTests
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    /// <summary>
+    /// A directly-named ~Copyable parameter now takes the @_cdecl wrapper path: the mapper's
+    /// NonCopyableBorrow/NonCopyableConsume arms pass it as a pointer. Rejecting it here used to
+    /// route the constructor onto a native thunk or a direct CallConvSwift P/Invoke, whose
+    /// copy-based owned-argument hand-over traps at runtime.
+    /// </summary>
     [Fact]
-    public void ShouldEmitWrapper_CrossModuleNonCopyableStructParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_DirectlyNamedNonCopyableParameter_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Container",
+            ("TestModule.UniqueToken", TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var nonCopyableDecl = CreateStructDecl("UniqueToken", moduleDecl);
+        nonCopyableDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.UniqueToken"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
+                "$s10TestModule11UniqueTokenVACSWAAMc")
+        };
+
+        var tokenSpec = new NamedTypeSpec("TestModule.UniqueToken");
+        Assert.True(WrapperValidation.IsNonCopyableType(tokenSpec, typeDb, moduleDecl));
+        Assert.True(CdeclParamMapper.LowersNonCopyableDirectly(tokenSpec, typeDb));
+
+        var parentDecl = CreateStructDecl("Container", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule9ContainerVyAcA11UniqueTokenVncfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "token",
+                    PrivateName = "token",
+                    SwiftTypeSpec = tokenSpec,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    /// <summary>
+    /// <c>Optional&lt;~Copyable&gt;</c> is still refused: the type is non-copyable through a generic
+    /// slot, but the mapper cannot lower it directly (it would resolve to Optional's own copyable
+    /// record and fall through to a copying arm). The rejection reason is the seam every caller
+    /// keys off.
+    /// </summary>
+    [Fact]
+    public void ShouldEmitWrapper_OptionalNonCopyableParameter_RejectsWithNonCopyableStructParameter()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Container",
+            ("TestModule.UniqueToken", TypeRecordFlags.Frozen | TypeRecordFlags.NonCopyable, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var nonCopyableDecl = CreateStructDecl("UniqueToken", moduleDecl);
+        nonCopyableDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.UniqueToken"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
+                "$s10TestModule11UniqueTokenVACSWAAMc")
+        };
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.UniqueToken"));
+        Assert.True(WrapperValidation.IsNonCopyableType(optionalSpec, typeDb, moduleDecl));
+        Assert.False(CdeclParamMapper.LowersNonCopyableDirectly(optionalSpec, typeDb));
+
+        var parentDecl = CreateStructDecl("Container", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule9ContainerVyAcA11UniqueTokenVSgncfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "token",
+                    PrivateName = "token",
+                    SwiftTypeSpec = optionalSpec,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var eligibility = ConstructorWrapperEmitter.EvaluateWrapperEligibility(env);
+        Assert.False(eligibility.IsWrappable);
+        Assert.Equal("non_copyable_struct_parameter", eligibility.Reason);
+    }
+
+    /// <summary>
+    /// A cross-module ~Copyable parameter whose own TypeRecord carries the NonCopyable flag
+    /// lowers directly, so the constructor now takes the @_cdecl wrapper path instead of being
+    /// rejected. Rejecting it would send it to the thunk/direct P/Invoke whose copy-based
+    /// owned-argument hand-over traps at runtime.
+    /// </summary>
+    [Fact]
+    public void ShouldEmitWrapper_CrossModuleNonCopyableStructParameter_ReturnsTrue()
     {
         // A constructor parameter is a non-copyable struct from a DIFFERENT module.
-        // FindStructDecl won't find it in ModuleDecl.Types, so the guard must fall back
-        // to checking the NonCopyable flag on the TypeRecord in the TypeDatabase.
+        // FindStructDecl won't find it in ModuleDecl.Types, so copyability is the TypeRecord
+        // NonCopyable flag — which is also what LowersNonCopyableDirectly reads.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -686,6 +817,10 @@ public class ConstructorWrapperEmitterTests
         typeDb.AddModuleDatabase(depModule);
 
         // Note: UniqueHandle is NOT in moduleDecl.Types (it's cross-module)
+        var handleSpec = new NamedTypeSpec("DepModule.UniqueHandle");
+        Assert.True(WrapperValidation.IsNonCopyableType(handleSpec, typeDb, moduleDecl));
+        Assert.True(CdeclParamMapper.LowersNonCopyableDirectly(handleSpec, typeDb));
+
         var parentDecl = CreateStructDecl("Container", moduleDecl);
         var method = new MethodDecl
         {
@@ -700,7 +835,7 @@ public class ConstructorWrapperEmitterTests
                 {
                     Name = "handle",
                     PrivateName = "handle",
-                    SwiftTypeSpec = new NamedTypeSpec("DepModule.UniqueHandle"),
+                    SwiftTypeSpec = handleSpec,
                     IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,
@@ -717,7 +852,7 @@ public class ConstructorWrapperEmitterTests
         parentDecl.Methods.Add(method);
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

@@ -114,6 +114,19 @@ public static class SkipDispositionClassifier
             [SkipReason.NonBlittableCallConvSwift] = SkipDisposition.KnownLimitation,
             [SkipReason.IndeterminatePwtShape] = SkipDisposition.KnownLimitation,
             [SkipReason.IndeterminateStructLayout] = SkipDisposition.KnownLimitation,
+            // A ~Copyable struct that would project by value is a decided capability gap: C# has no
+            // move-only value type to project it onto, so the binding refuses the type rather than
+            // offer copy semantics for a value Swift permits one owner of. Documented with a reopen
+            // trigger, so KnownLimitation rather than Review.
+            [SkipReason.NonCopyableValueProjection] = SkipDisposition.KnownLimitation,
+            // Dependent skip. Whether it is a limitation or a bug is decided by the referenced type's
+            // own row, not here, so this one must not claim Review on its own account — that would
+            // double-count a single blocked type as one review item per member that mentions it.
+            [SkipReason.SkippedTypeReference] = SkipDisposition.KnownLimitation,
+            // A decided capability boundary, not an open defect: the supported ~Copyable lane is a
+            // directly named type, and widening it to nested slots needs a move-aware marshalling
+            // path that does not exist yet. Documented with a reopen trigger, so KnownLimitation.
+            [SkipReason.NonCopyableThroughGenericSlot] = SkipDisposition.KnownLimitation,
             [SkipReason.CovariantReturnNotRepresentable] = SkipDisposition.KnownLimitation,
             [SkipReason.NetUnavailableType] = SkipDisposition.KnownLimitation,
             [SkipReason.AbsentFrameworkType] = SkipDisposition.KnownLimitation,

@@ -16,6 +16,25 @@ namespace BindingsGeneration;
 public static class CdeclParamMapper
 {
     /// <summary>
+    /// Whether this mapper lowers the given <c>~Copyable</c> parameter type through its own
+    /// pointer-passing arm (<see cref="CdeclParamCategory.NonCopyableBorrow"/> /
+    /// <see cref="CdeclParamCategory.NonCopyableConsume"/>) rather than falling through to an arm
+    /// that copies the value.
+    /// <para>
+    /// The reach is deliberately narrow: only a DIRECTLY named type whose own record carries
+    /// <c>NonCopyable</c>. A non-copyable value reached through a generic argument — most
+    /// realistically <c>Optional&lt;T&gt;</c>, which is itself <c>~Copyable</c> when <c>T</c> is —
+    /// resolves to the <em>wrapper's</em> record, which is not flagged, so it lands in a copying
+    /// arm. Callers deciding whether a signature may take the wrapper path must ask this, not the
+    /// broader <see cref="WrapperValidation.IsNonCopyableType"/>: the two answers differ exactly on
+    /// the shapes that must be refused, and the gap between them is the trap.
+    /// </para>
+    /// </summary>
+    public static bool LowersNonCopyableDirectly(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => typeDatabase.TryGetTypeRecord(typeSpec, out var record) &&
+           record.Flags.HasFlag(TypeRecordFlags.NonCopyable);
+
+    /// <summary>
     /// Maps a parameter to its @_cdecl-compatible Swift type, reconstruction code,
     /// and call argument expression.
     /// </summary>
@@ -441,7 +460,7 @@ public static class CdeclParamMapper
         if (env.TypeDatabase.TryGetTypeRecord(swiftTypeSpec, out var typeRecord))
         {
             // Non-copyable structs (~Copyable): pass as pointer; ownership-specifier decides the load.
-            if (typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
+            if (LowersNonCopyableDirectly(swiftTypeSpec, env.TypeDatabase))
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
 

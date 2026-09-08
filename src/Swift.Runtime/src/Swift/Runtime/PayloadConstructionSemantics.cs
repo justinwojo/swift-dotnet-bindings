@@ -31,10 +31,16 @@ public enum PayloadConstructionSemantics
     Copy,
 
     /// <summary>
-    /// <c>NewFromPayload</c> allocates its own buffer and <b>bitwise</b>-copies the source, transferring
+    /// <c>NewFromPayload</c> allocates its own buffer and MOVES the source value into it, transferring
     /// the temporary's <c>+1</c> into the wrapper without taking a new one. Cleanup only frees the dead
-    /// buffer (no <c>Destroy</c> — that would over-release the now-shared reference). <c>SwiftString</c>
-    /// only (the bitwise-move-on-construction shape a dedicated marker interface once flagged).
+    /// buffer (no <c>Destroy</c> — the temporary is moved-from, so destroying it would over-release the
+    /// transferred reference or, for a value with a <c>deinit</c>, run that <c>deinit</c> a second time).
+    /// Two shapes: <c>SwiftString</c>, which moves <b>bitwise</b> (the shape a dedicated marker interface
+    /// once flagged), and every <c>~Copyable</c> (non-copyable) struct projected as a class, which moves
+    /// through the value witness table's <c>InitializeWithTake</c>. The <c>~Copyable</c> case has no
+    /// alternative: such a type's <c>initializeWithCopy</c> witness is
+    /// <c>__swift_cannot_copy_noncopyable_type</c>, so <see cref="Copy"/> is not merely wasteful there
+    /// but an unconditional runtime trap.
     /// </summary>
     Move,
 

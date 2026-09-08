@@ -104,6 +104,19 @@ public class ValidationRuleSetClassificationTests
             ValidationRuleSet.ToSkipReason(ValidationRuleSet.UnsupportedReferenceKind.OtherUnsupported));
     }
 
+    /// <summary>
+    /// A reference to a type this binding itself refuses to emit is a skipped-type-reference, not a
+    /// SwiftUI constraint: the consumer's next step is the refused type's own skip row, not a
+    /// platform-boundary workaround.
+    /// </summary>
+    [Fact]
+    public void ToSkipReason_SkippedLocalType_MapsToSkippedTypeReference()
+    {
+        Assert.Equal(
+            SkipReason.SkippedTypeReference,
+            ValidationRuleSet.ToSkipReason(ValidationRuleSet.UnsupportedReferenceKind.SkippedLocalType));
+    }
+
     [Fact]
     public void ReferencesUnsupportedModule_BareLsr_StillTrue()
     {
@@ -257,5 +270,60 @@ public class ValidationRuleSetClassificationTests
         Assert.Equal(
             SkipReason.AbsentFrameworkType,
             ValidationRuleSet.ToSkipReason(ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType));
+    }
+
+    /// <summary>
+    /// The cause clause spliced into every member-gate skip detail must name the actual kind: a
+    /// .NET-unavailable type, an absent framework type, or a locally skipped type. Collapsing any
+    /// of those into the SwiftUI/Combine sentence would tell a consumer the wrong place to look.
+    /// </summary>
+    [Fact]
+    public void DescribeUnsupportedReference_EachKind_UsesItsOwnCauseClause()
+    {
+        Assert.Equal(
+            ".NET-unavailable type 'X'",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable, "X"));
+        Assert.Equal(
+            "framework type 'X' which has no .NET binding",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, "X"));
+        Assert.Equal(
+            "'X', a type this binding does not emit (see that type's own skip row)",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.SkippedLocalType, "X"));
+        Assert.Equal(
+            "unsupported module (SwiftUI/Combine)",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.OtherUnsupported, "X"));
+    }
+
+    /// <summary>
+    /// The SwiftUI/Combine sentence is reserved to the genuine unsupported-module kind. If it
+    /// leaked onto NetUnavailable, AbsentBridgedValueType, or SkippedLocalType, a withdrawn local
+    /// type or a missing framework binding would be reported as a SwiftUI constraint.
+    /// </summary>
+    [Fact]
+    public void DescribeUnsupportedReference_SwiftUiWording_IsReservedToOtherUnsupported()
+    {
+        const string swiftUiWording = "unsupported module (SwiftUI/Combine)";
+
+        Assert.Equal(
+            swiftUiWording,
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.OtherUnsupported, "SwiftUI.View"));
+
+        Assert.DoesNotContain(
+            "SwiftUI/Combine",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.NetUnavailable, "Foundation.Predicate"));
+        Assert.DoesNotContain(
+            "SwiftUI/Combine",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.AbsentBridgedValueType, "StoreKit.Transaction"));
+        Assert.DoesNotContain(
+            "SwiftUI/Combine",
+            ValidationRuleSet.DescribeUnsupportedReference(
+                ValidationRuleSet.UnsupportedReferenceKind.SkippedLocalType, "TestModule.Withdrawn"));
     }
 }

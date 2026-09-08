@@ -25,7 +25,11 @@ namespace BindingsGeneration;
 /// rather than spelled out, which is why the test below is written against the member kind. What
 /// the ABI JSON does record is an <em>explicit</em> specifier, and an explicit <c>borrowing</c>
 /// overrides the member-kind default per parameter — so <see cref="ArgumentDecl.Ownership"/> is
-/// consulted for both explicitly borrowing and explicitly consuming parameters.</para>
+/// consulted for both explicitly borrowing and explicitly consuming parameters. That override can
+/// never reach a subscript index, though: Swift rejects an ownership specifier there outright
+/// (<c>'borrowing' may only be used on function or initializer parameters</c>), so the consuming
+/// answer for indices is unconditional and only the new value or an ordinary parameter can carry
+/// an annotation that flips it.</para>
 ///
 /// <para>Whether that hand-over actually reaches Swift depends on what the P/Invoke names. A
 /// Swift-source wrapper — a <c>@_cdecl</c> wrapper, a <c>@_silgen_name</c> free function, the

@@ -69,9 +69,14 @@ public class FrozenWithMemoryProjection : ITypeProjection
         {
             // Direct (by-value register) return: `resultName` is a C# stack temporary the caller
             // OWNS (the Swift value moved out of the callee, carrying +1 on its heap fields).
-            // NewFromPayload makes an InitializeWithCopy duplicate for the wrapper's SafeHandle, so
-            // the owned temporary must be value-witness-destroyed afterwards or its +1 leaks — C#
-            // never runs Swift destruction when the stack local goes out of scope.
+            // A copyable carrier's NewFromPayload makes an InitializeWithCopy duplicate for the
+            // wrapper's SafeHandle, so the owned temporary must be value-witness-destroyed
+            // afterwards or its +1 leaks — C# never runs Swift destruction when the stack local
+            // goes out of scope. A ~Copyable carrier cannot be value-witness copied, so its
+            // NewFromPayload takes the value instead and the temporary is left moved-from;
+            // MarshalFromSwiftObjectConsuming reads the carrier's declared
+            // PayloadConstructionSemantics and skips the destroy on that arm, so this one
+            // expression is correct for both without a per-carrier branch here.
             ReturnStrategy.Direct => new MarshalPlan
             {
                 PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<{_typeName}>(&{resultName})",

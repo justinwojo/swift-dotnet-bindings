@@ -81,11 +81,20 @@ public static class ConstructorWrapperEmitter
                 .Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
             return WrapperEligibility.Reject("metatype_param");
 
-        // Skip constructors with non-copyable (~Copyable) struct parameters.
-        // The @_cdecl wrapper passes frozen structs by value through the C ABI, which
-        // requires copying. Non-copyable types can't be copied, so the wrapper won't compile.
-        // C# passes frozen structs by value too, so there's no pointer fallback available.
-        if (HasNonCopyableStructParameter(env))
+        // ~Copyable parameters. The blanket rejection this replaces predates
+        // CdeclParamMapper's NonCopyableBorrow/NonCopyableConsume arms, which pass the value as a
+        // pointer and let the ownership specifier decide between an inline borrow and a `.move()`.
+        // Ordinary methods have taken that path for some time; keeping constructors out of it did
+        // not make them safe, it routed them to the native thunk / direct P/Invoke instead — where
+        // the callee-consumes-owned-arguments hand-over calls OwnedArgument.BeginValueTransfer,
+        // whose InitializeWithCopy on a non-copyable payload is an unconditional runtime trap.
+        // Constructors therefore now take the same proven wrapper path, and the rejection narrows
+        // to exactly the shapes the mapper cannot lower — a ~Copyable reached through Optional or
+        // another generic argument, which resolves to the copyable wrapper's own record and would
+        // fall through to a copying arm.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a =>
+                WrapperValidation.IsNonCopyableType(a.SwiftTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl) &&
+                !CdeclParamMapper.LowersNonCopyableDirectly(a.SwiftTypeSpec, env.TypeDatabase)))
             return WrapperEligibility.Reject("non_copyable_struct_parameter");
 
         // Skip constructors with nested frozen struct parameters.
@@ -211,45 +220,19 @@ public static class ConstructorWrapperEmitter
     }
 
     /// <summary>
-    /// Checks whether any constructor parameter is a non-copyable (~Copyable) frozen struct.
-    /// Non-copyable types are detected by an explicit Swift.Escapable conformance in their
-    /// TypeDecl (normal Copyable types have both Copyable and Escapable implicitly, unlisted).
-    /// For cross-module types where the StructDecl isn't available, falls back to the
-    /// NonCopyable flag on the TypeRecord.
+    /// Checks whether any constructor parameter is a <c>~Copyable</c> struct or enum, including one
+    /// reached through <c>Optional</c> or another generic argument.
+    /// <para>
+    /// Delegates to <see cref="WrapperValidation.IsNonCopyableType"/> rather than re-deriving the
+    /// conformance shape: this used to be a second implementation that answered only for structs
+    /// and only at the top level, so a <c>~Copyable</c> enum and an <c>Optional&lt;~Copyable&gt;</c>
+    /// both read as copyable here while the shared oracle said otherwise.
+    /// </para>
     /// </summary>
     internal static bool HasNonCopyableStructParameter(MethodEnvironment env)
-    {
-        var moduleTypes = env.MethodDecl.ModuleDecl?.Types;
-
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-        {
-            if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
-                continue;
-
-            // Try same-module StructDecl first (has full conformance info)
-            if (moduleTypes != null)
-            {
-                var paramStructDecl = FindStructDecl(moduleTypes, namedSpec.Name);
-                if (paramStructDecl != null)
-                {
-                    // In Swift 6.2+, ALL types list both Copyable and Escapable.
-                    // Non-copyable types list Escapable WITHOUT Copyable.
-                    if (paramStructDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-                        !paramStructDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
-                        return true;
-                    continue;
-                }
-            }
-
-            // Cross-module fallback: check TypeRecord.NonCopyable flag
-            if (env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord) &&
-                typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+        => env.MethodDecl.CSSignature.Skip(1)
+            .Any(arg => WrapperValidation.IsNonCopyableType(
+                arg.SwiftTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl));
 
     /// <summary>
     /// Checks whether any constructor parameter is a nested frozen struct type.

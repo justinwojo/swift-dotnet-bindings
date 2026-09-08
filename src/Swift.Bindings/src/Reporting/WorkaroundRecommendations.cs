@@ -74,6 +74,12 @@ public static class WorkaroundRecommendations
             "Public async/closure-bearing method or frozen-struct operator on a @usableFromInline internal parent type. Its wrapper must name the internal parent and no direct CallConvSwift fallback exists, so the member is dropped. Move the member onto a public type, or expose it through a public Swift wrapper.",
         SkipReason.IndeterminateStructLayout =>
             "The frozen struct has a stored field that is a generic value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>) whose inline size depends on its type arguments and cannot be derived cross-compile. Write a Swift wrapper that exposes the data through a supported, concretely-sized type.",
+        SkipReason.NonCopyableThroughGenericSlot =>
+            "The signature wraps a ~Copyable value in a generic slot — an Optional, or another generic type. Optional<T> is itself ~Copyable when T is, so the value would be marshalled through the wrapper's value witness and copied, which for a non-copyable type traps at runtime. Name the ~Copyable type directly instead: a plain borrowing/consuming parameter and a plain return are both supported. If the value genuinely needs to be absent sometimes, expose a Swift wrapper that keeps the optionality on the Swift side — a separate has-value query alongside a non-optional accessor, or a throwing accessor — rather than putting the Optional in the signature. Do not reach for a ~Copyable enum here: an enum has no move-only C# projection at all, so it is refused as a type in its own right.",
+        SkipReason.SkippedTypeReference =>
+            "The signature names a type from this module (or one of its dependencies) that the binding does not emit. Nothing about this member is unsupported — find the referenced type's own skip row, which names the real cause, and unblock that; this member returns on its own once the type binds. If the type cannot be bound, expose the same functionality through a Swift wrapper whose signature uses a supported type instead.",
+        SkipReason.NonCopyableValueProjection =>
+            "The type is ~Copyable and the projection it would get cannot express single ownership. A frozen struct with no reference-bearing stored field becomes a plain by-value C# struct: assignment copies a value Swift permits one owner of, and disposal does not run the Swift deinit. An enum has no move-only projection at all — a payload-free one becomes a plain copyable C# enum, and an associated-value one is constructed and inspected through value-witness copies, which for a non-copyable value trap at runtime. Expose the functionality through a Swift class, or through a ~Copyable struct that carries a reference-bearing stored field — that flavor projects as a payload-backed C# class and its consumed lifetimes are enforced.",
         SkipReason.NetUnavailableType =>
             "The Swift type is auto-bridged but not yet present in the .NET Foundation assembly. Write a Swift wrapper that exposes the data through a supported type (e.g. a plain String).",
         SkipReason.AbsentFrameworkType =>
@@ -161,6 +167,12 @@ public static class WorkaroundRecommendations
             "no handler for this declaration kind",
         SkipReason.UnsupportedType =>
             "type not exported in the module's public ABI",
+        SkipReason.NonCopyableValueProjection =>
+            "~Copyable type has no move-only C# projection (every candidate projection copies the value)",
+        SkipReason.SkippedTypeReference =>
+            "signature names a type this binding does not emit",
+        SkipReason.NonCopyableThroughGenericSlot =>
+            "~Copyable value reached through a generic slot (Optional<T> is ~Copyable when T is)",
         SkipReason.AncestorSkipped =>
             "nested type whose parent was skipped",
         SkipReason.ParentTypeSuppressed =>

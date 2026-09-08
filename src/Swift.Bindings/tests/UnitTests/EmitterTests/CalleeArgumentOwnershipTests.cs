@@ -136,19 +136,71 @@ public class CalleeArgumentOwnershipTests
     }
 
     /// <summary>
-    /// A subscript setter's indices are consumed alongside its new value —
-    /// <c>subscript(i: Idx, s: String) -&gt; Tok</c> lowers its setter as
-    /// <c>(@owned Tok, @owned Idx, @owned String, @inout self)</c>. Borrowing them under-retains
-    /// every index that carries a reference.
+    /// A subscript setter's indices are consumed alongside its new value, and <em>every</em> index
+    /// is, not just the first. Confirmed against the compiler rather than inferred: for
+    /// <c>subscript(first: IndexKey, second: IndexKey, tag: String) -&gt; Int</c> on a class,
+    /// <c>swiftc -emit-silgen</c> lowers the setter as
+    ///
+    /// <code>
+    /// sil @$s…C__3tagSiAA0B3KeyC_AFSStcis :
+    ///   $@convention(method) (Int, @owned IndexKey, @owned IndexKey, @owned String,
+    ///                         @guaranteed Container) -&gt; ()
+    /// </code>
+    ///
+    /// while the matching getter over the identical indices is
+    /// <c>(@guaranteed IndexKey, @guaranteed IndexKey, @guaranteed String, @guaranteed Container)
+    /// -&gt; Int</c>. Borrowing them under-retains every index that carries a reference; the
+    /// runtime half of this is measured on a String-keyed subscript in BindingTests, since an
+    /// integer index has no refcount to get wrong.
     /// </summary>
     [Fact]
-    public void SubscriptIndices_AreHandedOverBesideTheValue()
+    public void EverySubscriptIndex_IsHandedOverBesideTheValue()
     {
         var setter = CreateSetter(new NamedTypeSpec("TestModule.Payload"), WrapperStrategy.NativeThunk, usesWrapperLibrary: true);
-        setter.CSSignature.Add(CreateArg("index", new NamedTypeSpec("TestModule.Key")));
+        setter.CSSignature.Add(CreateArg("first", new NamedTypeSpec("TestModule.Key")));
+        setter.CSSignature.Add(CreateArg("second", new NamedTypeSpec("TestModule.Key")));
+        setter.CSSignature.Add(CreateArg("tag", new NamedTypeSpec("Swift.String")));
 
-        Assert.True(CalleeArgumentOwnership.IsHandedOverToCallee(setter, setter.CSSignature[1]));
+        Assert.All(
+            setter.CSSignature.Skip(1),
+            arg => Assert.True(CalleeArgumentOwnership.IsHandedOverToCallee(setter, arg)));
+    }
+
+    /// <summary>
+    /// The receiver's own category does not move the index answer. A subscript on a struct lowers
+    /// its setter with an <c>@inout</c> self — <c>(Int, @owned IndexKey, @inout ValueContainer)</c>
+    /// per <c>-emit-silgen</c> — and the index is still consumed, exactly as on the
+    /// <c>@guaranteed</c>-self class receiver above.
+    /// </summary>
+    [Fact]
+    public void SubscriptIndex_IsHandedOver_RegardlessOfReceiverCategory()
+    {
+        var setter = CreateSetter(new NamedTypeSpec("Swift.Int"), WrapperStrategy.None);
+        setter.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.ValueContainer"));
+        setter.CSSignature.Add(CreateArg("key", new NamedTypeSpec("TestModule.Key")));
+
         Assert.True(CalleeArgumentOwnership.IsHandedOverToCallee(setter, setter.CSSignature[2]));
+    }
+
+    /// <summary>
+    /// A keyed setter written as an ordinary <c>func</c> borrows its key as well as its value:
+    /// <c>func setValue(_ v: Int, forKey key: IndexKey)</c> lowers as
+    /// <c>(Int, @guaranteed IndexKey, @guaranteed Container) -&gt; ()</c> — no accessor, so no
+    /// consuming default anywhere in the signature. This is the control for the index rule above:
+    /// widening "later parameters are consumed" past real accessors would leak one count per call
+    /// on every keyed mutator in a binding, and the first parameter alone cannot catch it.
+    /// </summary>
+    [Fact]
+    public void KeyedSetterMethod_BorrowsItsKeyAsWellAsItsValue()
+    {
+        var method = CreateSetter(new NamedTypeSpec("TestModule.Payload"), WrapperStrategy.None);
+        method.Name = "setValue";
+        method.IsAccessor = false;
+        method.CSSignature.Add(CreateArg("key", new NamedTypeSpec("TestModule.Key")));
+
+        Assert.All(
+            method.CSSignature.Skip(1),
+            arg => Assert.False(CalleeArgumentOwnership.IsHandedOverToCallee(method, arg)));
     }
 
     /// <summary>
@@ -170,14 +222,24 @@ public class CalleeArgumentOwnershipTests
     /// A getter borrows the same indices its setter consumes, and has no value parameter at all, so
     /// nothing in its signature is handed over even on the arms that consume a setter's value.
     /// A plain method borrows likewise.
+    ///
+    /// <para>The index half is the asymmetry itself, so it is carried in the fixture rather than
+    /// only in this comment: <c>swiftc -emit-silgen</c> lowers one subscript's two accessors over
+    /// the identical index list as <c>(Int, @owned IndexKey, @guaranteed Container) -&gt; ()</c>
+    /// for the setter and <c>(@guaranteed IndexKey, @guaranteed Container) -&gt; Int</c> for the
+    /// getter. A regression that consumed getter indices would over-release every reference-typed
+    /// index a subscript read passes.</para>
     /// </summary>
     [Fact]
     public void GetterAndMethodArguments_AreNeverHandedOver()
     {
         var getter = CreateSetter(new NamedTypeSpec("TestModule.Payload"), WrapperStrategy.NativeThunk, usesWrapperLibrary: true);
         getter.Name = "payload_Get";
+        getter.CSSignature.Add(CreateArg("key", new NamedTypeSpec("TestModule.Key")));
 
-        Assert.False(CalleeArgumentOwnership.IsHandedOverToCallee(getter, getter.CSSignature[1]));
+        Assert.All(
+            getter.CSSignature.Skip(1),
+            arg => Assert.False(CalleeArgumentOwnership.IsHandedOverToCallee(getter, arg)));
 
         var method = CreateSetter(new NamedTypeSpec("TestModule.Payload"), WrapperStrategy.None);
         method.Name = "take";
@@ -741,6 +803,107 @@ public class CalleeArgumentOwnershipTests
         Assert.Contains("OwnedArgument.BeginValueTransfer<TestModule.Box>(value.Payload)", output);
         Assert.Equal(1, CountOccurrences(output, "valueOwnedTransfer.Complete();"));
         Assert.True(output.IndexOf("valueOwnedTransfer.Complete();") < output.IndexOf("if (swiftError"));
+    }
+
+    /// <summary>
+    /// The copyable control for the two <c>~Copyable</c> cases below. A frozen struct with a
+    /// reference-bearing field is projected as a class over a Buffer, and a consuming callee gets
+    /// its <c>+1</c> minted by a value-witness copy of that buffer.
+    /// </summary>
+    [Fact]
+    public void DirectInitializer_FrozenMemoryStructArgument_IsHandedOverByValueWitness()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionFrozenMemoryStruct("Token", moduleDecl, typeDatabase);
+
+        var (csOutput, _) = EmitConstructor(
+            CreateEmissionConstructor(parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("token", moduleDecl, "Token")),
+            typeDatabase);
+
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.BeginValueTransfer"));
+    }
+
+    /// <summary>
+    /// The same carrier, the same consuming convention, but the payload is <c>~Copyable</c>. The
+    /// transfer lease's mechanism is <c>InitializeWithCopy</c>, which for a non-copyable value is
+    /// <c>__swift_cannot_copy_noncopyable_type</c> — an unconditional trap the C# and Swift
+    /// compilers both accept. The lease must not be emitted at all; the value's ownership is
+    /// already carried by the pin/MarkConsumed preflight paired with the wrapper's move.
+    /// </summary>
+    [Fact]
+    public void DirectInitializer_NonCopyableFrozenMemoryStructArgument_MintsNoValueWitnessCopy()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionFrozenMemoryStruct("Token", moduleDecl, typeDatabase, nonCopyableFlag: true);
+
+        var (csOutput, _) = EmitConstructor(
+            CreateEmissionConstructor(parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("token", moduleDecl, "Token")),
+            typeDatabase);
+
+        Assert.DoesNotContain("OwnedArgument.BeginValueTransfer", csOutput);
+    }
+
+    /// <summary>
+    /// The same refusal reached through the OTHER arm of the <c>~Copyable</c> oracle: a same-module
+    /// declaration whose conformances say <c>Escapable</c> without <c>Copyable</c>, before the type
+    /// record carries the flag. Both arms have to answer alike or the guard depends on which
+    /// resolution order a given emission happens to take.
+    /// </summary>
+    [Fact]
+    public void DirectInitializer_NonCopyableByConformanceArgument_MintsNoValueWitnessCopy()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        var tokenDecl = CreateEmissionFrozenMemoryStruct("Token", moduleDecl, typeDatabase);
+        tokenDecl.Conformances.Add(new TypeConformance(
+            tokenDecl.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
+            "conformance-descriptor"));
+
+        var (csOutput, _) = EmitConstructor(
+            CreateEmissionConstructor(parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("token", moduleDecl, "Token")),
+            typeDatabase);
+
+        Assert.DoesNotContain("OwnedArgument.BeginValueTransfer", csOutput);
+    }
+
+    /// <summary>
+    /// A frozen struct carrying a reference-bearing stored field — projected as a C# class over a
+    /// Buffer struct (the <c>ClassWithBufferStruct</c> label), which is the carrier the
+    /// <c>~Copyable</c> reference-bearing lane also uses.
+    /// </summary>
+    private static StructDecl CreateEmissionFrozenMemoryStruct(
+        string name,
+        ModuleDecl moduleDecl,
+        TypeDatabase typeDatabase,
+        bool nonCopyableFlag = false)
+    {
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}");
+        var structDecl = CreateEmissionStruct(name, moduleDecl);
+
+        var flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement;
+        if (nonCopyableFlag)
+            flags |= TypeRecordFlags.NonCopyable;
+
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: swiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+                Flags = flags,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 8,
+            })
+        });
+
+        return structDecl;
     }
 
     /// <summary>

@@ -99,6 +99,14 @@ public static class TypeSkipPrePass
                 SkipReason.IndeterminateStructLayout,
                 "Frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission diverges from the Swift packed field offsets; a by-value pass would corrupt the field."),
 
+            TypeSkipConditionKind.NonCopyableValueProjection => (
+                SkipReason.NonCopyableValueProjection,
+                "C# assignment would copy a value Swift permits one owner of, and Dispose() would be a no-op even when the Swift type has a deinit."),
+
+            TypeSkipConditionKind.NonCopyableEnumProjection => (
+                SkipReason.NonCopyableValueProjection,
+                "No enum projection can express move-only semantics: a payload-free ~Copyable enum becomes a plain copyable C# enum, and an associated-value one is built and read through value-witness copies."),
+
             TypeSkipConditionKind.IndeterminatePwtShape => (
                 SkipReason.IndeterminatePwtShape,
                 string.Join(

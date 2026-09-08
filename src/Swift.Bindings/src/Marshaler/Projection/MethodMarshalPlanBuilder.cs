@@ -48,6 +48,47 @@ internal class MethodMarshalPlanBuilder
     }
 
     /// <summary>
+    /// The single decision for how a COPY-OUT return carrier's wire buffer is torn down, shared by the
+    /// <c>@_cdecl</c> and the direct <c>SwiftIndirectResult</c> paths so the two cannot drift.
+    /// </summary>
+    /// <remarks>
+    /// <para>Copyable carrier: the carrier's <c>NewFromPayload</c> ran a value-witness
+    /// <c>InitializeWithCopy</c> and took its own <c>+1</c>, so the wire buffer still owns the retains
+    /// Swift wrote into it — value-witness <c>Destroy</c> the buffer, then free the storage.</para>
+    /// <para><c>~Copyable</c> carrier: a value-witness copy of a non-copyable value is
+    /// <c>__swift_cannot_copy_noncopyable_type</c>, an unconditional trap, so its
+    /// <c>NewFromPayload</c> MOVES the value out instead (<c>InitializeWithTake</c>) and declares
+    /// <c>PayloadConstructionSemantics.Move</c>. The buffer is then moved-from — it holds no value at
+    /// all — and Destroying it would run the value's <c>deinit</c> a second time on memory Swift
+    /// already relinquished. Free the storage only.</para>
+    /// <para><c>_cdeclResultLive</c> is deliberately NOT tracked on the <c>~Copyable</c> arm, and the
+    /// reason is a trade rather than a vacuity. Three exits are possible. The native call throws
+    /// before writing: the buffer holds uninitialized bytes and freeing is exactly right. The call
+    /// succeeds and the carrier's <c>NewFromPayload</c> moves the value out: the buffer is moved-from
+    /// and freeing is again exactly right. The call succeeds but something between the return and the
+    /// move throws (a metadata resolution, an allocation): the buffer still holds a live <c>+1</c>
+    /// value whose <c>deinit</c> then never runs — a LEAK of that value's resources, on top of the
+    /// storage we do free. A liveness flag could not close that window, because the flag records
+    /// whether Swift WROTE the result, not whether the managed side already TOOK it, and the two are
+    /// indistinguishable to the cleanup once the take has begun. Destroying on a set flag would turn
+    /// the common successful path into a second <c>deinit</c> on moved-from memory. The arm therefore
+    /// accepts the narrow leak in exchange for never double-destroying — the same trade the consuming
+    /// marshal helper's <c>Move</c> guard makes on the sibling arm — because a leak is recoverable
+    /// where a second <c>deinit</c> is memory corruption.</para>
+    /// </remarks>
+    private string BuildCopyOutWireCleanup(TypeSpec returnTypeSpec, string wireType, out bool tracksResultLive)
+    {
+        if (WrapperValidation.IsNonCopyableType(returnTypeSpec, _env.TypeDatabase, _env.MethodDecl.ModuleDecl))
+        {
+            tracksResultLive = false;
+            return "NativeMemory.Free(_cdeclBuf);";
+        }
+
+        tracksResultLive = true;
+        return $"if (_cdeclResultLive && TypeMetadata.TryGetTypeMetadata<{wireType}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+    }
+
+    /// <summary>
     /// The single predicate for "does the emitted return apply its type projection?" — i.e. does the
     /// method body CONSUME the wire value into a managed representation (<c>…ToByteArray()</c>,
     /// <c>…ToArray()</c>, …) before the finally runs, or does it hand the raw carrier back to a caller
@@ -904,8 +945,7 @@ internal class MethodMarshalPlanBuilder
                             // for a generic-param wire type (e.g. SwiftOptional<TValue>) that shifts
                             // Mono JIT native-wrapper generation and can SIGSEGV (jit-info.c:918).
                             var wireType = returnProjection.MarshalFromSwiftType;
-                            cleanupCode = $"if (_cdeclResultLive && TypeMetadata.TryGetTypeMetadata<{wireType}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
-                            tracksResultLive = true;
+                            cleanupCode = BuildCopyOutWireCleanup(returnArg.SwiftTypeSpec, wireType, out tracksResultLive);
                         }
                         else if (returnProjection is DataProjection)
                         {
@@ -1114,8 +1154,7 @@ internal class MethodMarshalPlanBuilder
                     // generic DestroyWireBufferRetains<wireType> in a generic wrapper's finally forces
                     // a new generic instantiation that can crash Mono JIT (jit-info.c:918).
                     var wireType2 = returnProjection2.MarshalFromSwiftType;
-                    swiftIndirectCleanup = $"if (_cdeclResultLive && TypeMetadata.TryGetTypeMetadata<{wireType2}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
-                    swiftIndirectTracksResultLive = true;
+                    swiftIndirectCleanup = BuildCopyOutWireCleanup(returnArg2.SwiftTypeSpec, wireType2, out swiftIndirectTracksResultLive);
                 }
                 else if (returnProjection2 is DataProjection)
                 {

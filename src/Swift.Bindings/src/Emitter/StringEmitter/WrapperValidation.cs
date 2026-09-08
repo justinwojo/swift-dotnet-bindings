@@ -419,24 +419,52 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Checks if a parent decl is a non-copyable struct.
-    /// In Swift 6.2+, ALL types explicitly list both Copyable and Escapable in ABI JSON.
-    /// Non-copyable types list Escapable WITHOUT Copyable.
+    /// The ABI-shape oracle for <c>~Copyable</c>: in Swift 6.2+ every type explicitly lists both
+    /// Copyable and Escapable in the ABI JSON, so a non-copyable one lists Escapable WITHOUT
+    /// Copyable. One implementation, because a second hand-rolled copy of this two-line rule is how
+    /// the struct path and the enum path came to disagree about the same question.
     /// </summary>
-    public static bool IsNonCopyableStructParent(BaseDecl? parentDecl)
-    {
-        if (parentDecl is StructDecl structDecl)
-        {
-            return structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-                   !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
-        }
-        return false;
-    }
+    private static bool DeclaresNonCopyableConformanceShape(IEnumerable<TypeConformance> conformances)
+        => conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
+           !conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
 
     /// <summary>
-    /// Returns true if the given TypeSpec resolves to a `~Copyable` (noncopyable) struct.
-    /// Walks the same paths as <see cref="ConstructorWrapperEmitter.HasNonCopyableStructParameter"/>:
-    /// same-module StructDecl conformances first, then cross-module TypeRecord.NonCopyable flag.
+    /// Checks if a parent decl is a non-copyable struct <em>or enum</em>.
+    /// <para>
+    /// The name is historical: the question every caller is really asking is "does the declaration
+    /// this member hangs off carry move-only semantics", and a <c>~Copyable</c> enum answers yes
+    /// exactly as a <c>~Copyable</c> struct does. Answering only for structs let an enum's members
+    /// take the copy-constructing emission path, whose value-witness copy is an unconditional
+    /// runtime trap rather than a compile error.
+    /// </para>
+    /// </summary>
+    public static bool IsNonCopyableStructParent(BaseDecl? parentDecl)
+        => parentDecl switch
+        {
+            StructDecl structDecl => DeclaresNonCopyableConformanceShape(structDecl.Conformances),
+            EnumDecl enumDecl => DeclaresNonCopyableConformanceShape(enumDecl.Conformances),
+            _ => false,
+        };
+
+    /// <summary>
+    /// Returns true if the given TypeSpec resolves to a <c>~Copyable</c> (noncopyable) struct or
+    /// enum — the single <c>~Copyable</c> oracle every emission and validation seam consults.
+    /// <para>
+    /// Resolution order per type: same-module declaration conformances first (the authoritative ABI
+    /// shape, available before the record is flagged), then the cross-module
+    /// <c>TypeRecord.NonCopyable</c> flag.
+    /// </para>
+    /// <para>
+    /// <b>Optional is transparent here.</b> <c>Optional&lt;T&gt;</c> is itself <c>~Copyable</c> when
+    /// <c>T</c> is — the standard library declares <c>enum Optional&lt;Wrapped: ~Copyable&gt;</c>,
+    /// and the conditional <c>Copyable</c> conformance simply does not apply. A predicate that
+    /// stopped at the <c>Swift.Optional</c> spelling therefore reported "copyable" for a value whose
+    /// value witness `initializeWithCopy` is <c>__swift_cannot_copy_noncopyable_type</c>, and every
+    /// gate keyed on this predicate waved the shape through to an unconditional runtime trap. The
+    /// recursion is over ALL generic arguments rather than only <c>Optional</c>'s, because any
+    /// generic instantiation that admits a non-copyable argument inherits its non-copyability — and
+    /// a future one must fail closed here rather than be discovered by a SIGTRAP.
+    /// </para>
     /// </summary>
     public static bool IsNonCopyableType(TypeSpec? typeSpec, ITypeDatabase typeDatabase, ModuleDecl? currentModule = null)
     {
@@ -446,23 +474,23 @@ public static class WrapperValidation
         var moduleTypes = currentModule?.Types;
         if (moduleTypes != null)
         {
-            StructDecl? FindStruct(IEnumerable<TypeDecl> types, string fqName)
+            TypeDecl? FindDecl(IEnumerable<TypeDecl> types, string fqName)
             {
                 foreach (var t in types)
                 {
-                    if (t is StructDecl s && s.SwiftTypeName.ModuleQualifiedName == fqName)
-                        return s;
-                    var nested = FindStruct(t.Types, fqName);
+                    if (t is StructDecl or EnumDecl && t.SwiftTypeName.ModuleQualifiedName == fqName)
+                        return t;
+                    var nested = FindDecl(t.Types, fqName);
                     if (nested != null) return nested;
                 }
                 return null;
             }
-            var structDecl = FindStruct(moduleTypes, namedSpec.Name);
-            if (structDecl != null)
-            {
-                return structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-                       !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
-            }
+            var decl = FindDecl(moduleTypes, namedSpec.Name);
+            if (decl != null && IsNonCopyableStructParent(decl))
+                return true;
+            // A same-module declaration that is NOT itself ~Copyable still falls through to the
+            // generic-argument walk below: `MyBox<Token>` is spelled by a copyable declaration but
+            // carries a non-copyable payload.
         }
 
         if (typeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord) &&
@@ -470,8 +498,73 @@ public static class WrapperValidation
         {
             return true;
         }
+
+        foreach (var genericArg in namedSpec.GenericParameters)
+        {
+            if (IsNonCopyableType(genericArg, typeDatabase, currentModule))
+                return true;
+        }
+
+        // A nested spelling (`Outer.Inner`) carries the inner segment in InnerType, not in Name.
+        return namedSpec.InnerType is not null &&
+               IsNonCopyableType(namedSpec.InnerType, typeDatabase, currentModule);
+    }
+
+    /// <summary>
+    /// Whether any type in a member's signature carries a <c>~Copyable</c> value that no emission
+    /// path can move rather than copy — reporting the offending spelling when it does.
+    /// <para>
+    /// The supported <c>~Copyable</c> lane is a DIRECTLY named non-copyable type: the <c>@_cdecl</c>
+    /// wrapper takes it as a pointer and either borrows it inline or <c>.move()</c>s it out, and a
+    /// returned one is constructed by <c>InitializeWithTake</c>. Everything else that merely
+    /// CONTAINS a non-copyable value — most realistically <c>Optional&lt;T&gt;</c>, which is itself
+    /// <c>~Copyable</c> when <c>T</c> is, and any other generic instantiation admitting a
+    /// non-copyable argument — resolves through the enclosing type's own record, which is copyable,
+    /// so every marshalling arm downstream reaches for the value witness's
+    /// <c>initializeWithCopy</c>. For a non-copyable type that witness is
+    /// <c>__swift_cannot_copy_noncopyable_type</c>: not a diagnostic, not a compile error, an
+    /// unconditional trap the first time the member is called.
+    /// </para>
+    /// <para>
+    /// That is why this is a prediction gate rather than a verify-recover case: both compilers
+    /// accept the emitted code, so nothing downstream can catch it. It lives here, on the same type
+    /// as the <c>~Copyable</c> oracle it is keyed on, because two DIFFERENT validation front ends
+    /// reach it — <c>MemberValidationPipeline</c> for concrete type members, and
+    /// <c>MemberGateEvaluator</c> for protocol requirements, which never pass through the pipeline.
+    /// A copy of the condition on either side could drift into letting one front end's members
+    /// through to the trap.
+    /// </para>
+    /// </summary>
+    public static bool ReachesUnlowerableNonCopyable(
+        IEnumerable<TypeSpec?> signatureSpecs,
+        ITypeDatabase typeDatabase,
+        ModuleDecl? moduleDecl,
+        out string offending)
+    {
+        foreach (var spec in signatureSpecs)
+        {
+            if (spec is null)
+                continue;
+            if (IsNonCopyableType(spec, typeDatabase, moduleDecl) &&
+                !CdeclParamMapper.LowersNonCopyableDirectly(spec, typeDatabase))
+            {
+                offending = spec.ToString() ?? "<unknown>";
+                return true;
+            }
+        }
+        offending = string.Empty;
         return false;
     }
+
+    /// <summary>
+    /// The single wording behind <see cref="ReachesUnlowerableNonCopyable"/>, so every front end
+    /// that refuses the shape reports the same reason to a consumer reading the skip surface.
+    /// </summary>
+    public static string DescribeUnlowerableNonCopyable(string offending)
+        => $"'{offending}' carries a ~Copyable value through a generic slot. Only a directly " +
+           "named ~Copyable type can be moved across the boundary (pointer in, borrow or move " +
+           "out); a nested one would be marshalled through the enclosing type's value witness, " +
+           "whose copy for a non-copyable value is an unconditional runtime trap.";
 
     /// <summary>
     /// Checks whether a member should be blocked from @_cdecl wrapper emission due to actor isolation.

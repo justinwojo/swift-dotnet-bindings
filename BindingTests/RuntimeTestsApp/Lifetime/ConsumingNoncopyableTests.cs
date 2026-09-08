@@ -297,4 +297,141 @@ public class ConsumingNoncopyableTests : TestBase
         resource.Dispose();
         TestLogger.Info("Property/subscript/borrowing reads after consume all fail fast via the inherited guard");
     }
+
+    public void TestFactoryReturnedValueSurvivesWithoutConsume()
+    {
+        // The non-frozen lane's half of the returning-factory story. A `~Copyable` return travels
+        // back through the indirect result buffer; this projection ADOPTS that buffer rather than
+        // constructing a second value from it, so the wire buffer must be neither value-witness
+        // destroyed nor freed underneath the SafeHandle that now owns it. If the return path
+        // destroyed the buffer, the live count would already be 0 on the next line and every read
+        // below would be a use-after-free; if it freed the storage, Dispose would double-free.
+        LifetimeTracker.Reset();
+
+        var resource = TestLibFunctions.CreateTrackedResource(21);
+        LifetimeTracker.AssertLiveCount(1, "factory-returned TrackedResource is live exactly once");
+
+        AssertEqual(21, resource.GetPeek(), "factory-returned value reads back its id");
+        AssertEqual(21, TestLibFunctions.BorrowTrackedResource(resource),
+            "factory-returned value can be borrowed");
+        LifetimeTracker.AssertLiveCount(1, "reads through the adopted payload consumed nothing");
+
+        resource.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "Dispose of an unconsumed adopted value runs deinit once");
+        resource.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "second Dispose is a no-op — no double-destroy");
+
+        TestLogger.Info("An unconsumed factory-returned TrackedResource is owned by C# and deinits exactly once");
+    }
+
+    public void TestFactoryReturnedValueRoundTripsThroughConsume()
+    {
+        // Same handoff, consumed rather than disposed: exactly one deinit in total across the
+        // return path and the consuming call. A live count of -1 here would mean the wire buffer
+        // and the wrapper each ran a deinit.
+        LifetimeTracker.Reset();
+
+        var resource = TestLibFunctions.CreateTrackedResource(22);
+        LifetimeTracker.AssertLiveCount(1, "factory-returned TrackedResource is live exactly once");
+
+        AssertEqual(22, TestLibFunctions.ConsumeTrackedResource(resource),
+            "factory-returned value can be consumed");
+        LifetimeTracker.AssertLiveCount(0, "consume of a factory-returned value ran deinit exactly once");
+
+        AssertThrows<ObjectDisposedException>(() => resource.GetPeek(),
+            "factory-returned value is guarded after consume like any other");
+
+        resource.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "Dispose after consume of a factory-returned value is a no-op");
+
+        TestLogger.Info("createTrackedResource hands ownership across, runs one deinit, stays guarded");
+    }
+
+    public void TestInitializerBorrowsWithoutConsuming()
+    {
+        // The non-frozen lane's half of the constructor story. A constructor taking a ~Copyable
+        // parameter used to be denied the @_cdecl wrapper, which routed it to the callee-consumes
+        // hand-over — a value-witness copy of the argument, and for a non-copyable type that copy
+        // witness is `__swift_cannot_copy_noncopyable_type`, an unconditional trap. The constructor
+        // now takes the same pointer-passing wrapper path an ordinary borrowing method does.
+        LifetimeTracker.Reset();
+
+        var resource = TestLibFunctions.CreateTrackedResource(31);
+        LifetimeTracker.AssertLiveCount(1, "TrackedResource live after create");
+
+        using (var receipt = new TrackedResourceReceipt(resource, 4))
+        {
+            AssertEqual(35, receipt.Peeked, "initializer read the borrowed resource and added its own argument");
+        }
+        LifetimeTracker.AssertLiveCount(1, "borrowing initializer did not consume the resource");
+
+        AssertEqual(31, resource.GetPeek(), "resource still readable after a borrowing initializer");
+        AssertEqual(31, TestLibFunctions.ConsumeTrackedResource(resource),
+            "resource is still consumable after a borrowing initializer");
+        LifetimeTracker.AssertLiveCount(0, "the later consume ran deinit exactly once");
+
+        AssertThrows<ObjectDisposedException>(() => new TrackedResourceReceipt(resource, 1),
+            "a borrowing initializer must refuse a consumed resource");
+        LifetimeTracker.AssertLiveCount(0, "the guarded initializer ran no second deinit");
+
+        TestLogger.Info("TrackedResourceReceipt init borrows the resource and refuses a consumed one");
+    }
+
+    public void TestInitializerConsumesExactlyOnce()
+    {
+        // The `consuming` half on the opaque-payload lane: Swift runs deinit inside the initializer
+        // and C# marks the handle consumed, so Dispose is a no-op. A live count of -1 would be the
+        // double-destroy this whole guard exists to prevent.
+        LifetimeTracker.Reset();
+
+        var resource = TestLibFunctions.CreateTrackedResource(32);
+        LifetimeTracker.AssertLiveCount(1, "TrackedResource live after create");
+
+        using (var vault = new TrackedResourceVault(resource))
+        {
+            AssertEqual(32, vault.Peeked, "consuming initializer read the resource it took");
+            LifetimeTracker.AssertLiveCount(0, "consuming initializer ran deinit exactly once");
+        }
+        LifetimeTracker.AssertLiveCount(0, "disposing the vault ran no further resource deinit");
+
+        AssertThrows<ObjectDisposedException>(() => resource.GetPeek(),
+            "the resource is guarded after a consuming initializer");
+        AssertThrows<ObjectDisposedException>(() => new TrackedResourceVault(resource),
+            "a second consuming initializer must throw ObjectDisposedException");
+
+        resource.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "Dispose after a consuming initializer does not double-free");
+
+        TestLogger.Info("TrackedResourceVault init consumed the resource once and left it guarded");
+    }
+
+    public void TestGenericSlotMovesTheValueWithoutTrapping()
+    {
+        // `<T: ~Copyable>` is the only erased slot Swift permits a non-copyable value in, and it
+        // drives the generic marshalling path, whose argument buffer is built by
+        // `SwiftMarshal.MarshalToSwift`. For this projection that used to reach the type's
+        // `initializeWithCopy` witness — an unconditional trap for a ~Copyable type. It now MOVES
+        // (`initializeWithTake`) and marks the source handle consumed, so the value legitimately
+        // leaves C# (a move is the only sound way to place a non-copyable value in a caller-owned
+        // buffer) and exactly one deinit runs, from the caller-side destroy of that buffer.
+        LifetimeTracker.Reset();
+
+        var resource = TestLibFunctions.CreateTrackedResource(33);
+        LifetimeTracker.AssertLiveCount(1, "TrackedResource live after create");
+
+#pragma warning disable SB0001 // method-generic direct P/Invoke; that is what this test exercises
+        AssertEqual(7, TestLibFunctions.InspectNoncopyableGenerically(resource),
+            "the ~Copyable value reached the generic callee instead of trapping");
+#pragma warning restore SB0001
+
+        LifetimeTracker.AssertLiveCount(0, "the generic hand-over ran deinit exactly once");
+
+        AssertThrows<ObjectDisposedException>(() => resource.GetPeek(),
+            "the moved-out resource is guarded afterwards");
+
+        resource.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "Dispose after the generic hand-over is a no-op");
+
+        TestLogger.Info("A non-frozen ~Copyable through <T: ~Copyable> moves rather than copies, one deinit, no trap");
+    }
 }
