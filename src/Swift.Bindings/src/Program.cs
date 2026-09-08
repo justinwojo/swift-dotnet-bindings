@@ -1117,6 +1117,12 @@ namespace BindingsGeneration
                     loopCSharpVerifiedClean = driver.CSharpVerifiedClean;
                 }
 
+                // The foreign-extension pre-pass ran before containment, and containment starts a fresh
+                // report session for every attempt — its withdrawal rows were written into a session that
+                // no longer exists, and nothing re-writes them because the pre-pass does not re-run per
+                // attempt. Put them back into the settled session before it is read.
+                ForeignTypeExtensionEmitter.RepublishWithdrawals(decl, emissionContext);
+
                 var report = ReportCollector.Complete();
                 ReportCollector.Reset();
 

@@ -103,8 +103,20 @@ internal static class ContainedModuleEmission
             AppleSupplementReferences.Reset();
             CrossModuleBindingReferences.Reset();
 
-            // Nothing records report rows before emission, so restarting the session per attempt
-            // drops only the discarded attempt's own rows.
+            // Restarting the session per attempt is what keeps a discarded attempt's rows out of the
+            // settled report, and it costs nothing for rows the attempt itself writes: the decl rewind
+            // above is complete, so the recording passes — including the pre-passes inside EmitModule
+            // that publish rename decisions — re-run and re-record from the restored tree. A stamp left
+            // un-rewound would break that pairing, since a pass that guards on its own stamp skips both
+            // the decision and its row on the retry.
+            //
+            // Rows written BEFORE this loop are a different matter: the restart discards them on the
+            // very first attempt, and a pre-emission pass that runs once has no chance to re-record.
+            // Such a pass must therefore keep its rows somewhere that outlives the session (the
+            // foreign-extension withdrawals do, on the emission context) and have them published again
+            // once emission settles — clearing them here is not a bug to be fixed by preserving them,
+            // since preserved rows from a discarded attempt would be exactly what this restart exists
+            // to drop.
             ReportCollector.Reset();
             ReportCollector.Start(decl);
 

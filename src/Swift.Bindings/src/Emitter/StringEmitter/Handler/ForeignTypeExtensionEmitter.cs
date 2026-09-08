@@ -84,6 +84,50 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
+    /// Records one withdrawn foreign-extension member: publishes the skip row now, and keeps the same
+    /// row on the emission context so it can be published again once emission settles.
+    ///
+    /// <para>Both halves are needed because this pre-pass runs OUTSIDE the containment loop. The row
+    /// written here lands in the report session the caller opened before emission, and containment
+    /// starts a fresh session for every attempt — including the first — so this row is discarded by
+    /// the first restart and never rewritten, since the pre-pass does not re-run per attempt. Keeping
+    /// it on the context lets <see cref="RepublishWithdrawals"/> put it back into whichever session
+    /// settled; the report's per-member dedup makes that a no-op when nothing discarded the original,
+    /// which is the case on the direct call paths that never enter containment.</para>
+    /// </summary>
+    private static void RecordWithdrawal(
+        ModuleEmissionContext ctx,
+        ModuleDecl moduleDecl,
+        BindingItemKind kind,
+        string memberName,
+        string details)
+    {
+        ReportCollector.RecordMemberSkipped(
+            kind, memberName, moduleDecl, SkipReason.AbsentFrameworkType, details);
+        ctx.AddForeignExtWithdrawal(
+            new ForeignExtensionWithdrawal(kind, memberName, SkipReason.AbsentFrameworkType, details));
+    }
+
+    /// <summary>
+    /// Re-publishes every withdrawal <see cref="ProcessForeignTypeExtensions"/> recorded into the
+    /// report session that is live now. Call once emission has settled — the pre-pass's own rows were
+    /// written into a session the containment loop replaces, so this is what carries them into the
+    /// report that is actually written to disk. Idempotent: the report dedups by member identity, and
+    /// yields to an emitted-member fact if one was recorded for the same identity.
+    /// </summary>
+    public static void RepublishWithdrawals(ModuleDecl moduleDecl, ModuleEmissionContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(moduleDecl);
+        ArgumentNullException.ThrowIfNull(ctx);
+
+        foreach (var withdrawal in ctx.ForeignExtWithdrawals)
+        {
+            ReportCollector.RecordMemberSkipped(
+                withdrawal.Kind, withdrawal.MemberName, moduleDecl, withdrawal.Reason, withdrawal.Details);
+        }
+    }
+
+    /// <summary>
     /// Emits accumulated Swift wrapper functions to the SwiftWriter.
     /// Called from ModuleHandler.Emit() after all types have been processed.
     /// </summary>
@@ -303,9 +347,8 @@ public static class ForeignTypeExtensionEmitter
         // with a report row instead of leaking a phantom type.
         if (ReferencesAbsentAppleType(propertyTypeSpec, typeDatabase, out var absentPropType))
         {
-            ReportCollector.RecordMemberSkipped(
-                BindingItemKind.Property, extMethod.MethodName, moduleDecl,
-                SkipReason.AbsentFrameworkType,
+            RecordWithdrawal(
+                ctx, moduleDecl, BindingItemKind.Property, extMethod.MethodName,
                 $"Foreign extension on '{foreignTypeQualifiedName}': property type '{absentPropType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             return;
         }
@@ -419,9 +462,8 @@ public static class ForeignTypeExtensionEmitter
         // silently dropping it on a null return classification.
         if (ReferencesAbsentAppleType(returnTypeSpec, typeDatabase, out var absentReturnType))
         {
-            ReportCollector.RecordMemberSkipped(
-                BindingItemKind.Method, extMethod.MethodName, moduleDecl,
-                SkipReason.AbsentFrameworkType,
+            RecordWithdrawal(
+                ctx, moduleDecl, BindingItemKind.Method, extMethod.MethodName,
                 $"Foreign extension on '{foreignTypeQualifiedName}': return type '{absentReturnType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             return;
         }
@@ -491,9 +533,8 @@ public static class ForeignTypeExtensionEmitter
             {
                 // An absent Apple-framework parameter is a surface gap, not an unmarshalable shape:
                 // report it so the withdrawal is observable rather than a silent LogDebug drop.
-                ReportCollector.RecordMemberSkipped(
-                    BindingItemKind.Method, extMethod.MethodName, moduleDecl,
-                    SkipReason.AbsentFrameworkType,
+                RecordWithdrawal(
+                    ctx, moduleDecl, BindingItemKind.Method, extMethod.MethodName,
                     $"Foreign extension on '{foreignTypeQualifiedName}': parameter type '{absentParamType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             }
             else

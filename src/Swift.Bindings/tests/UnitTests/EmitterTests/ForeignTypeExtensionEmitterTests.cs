@@ -756,6 +756,98 @@ public class ForeignTypeExtensionEmitterTests
         Assert.DoesNotContain(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
     }
 
+    [Fact]
+    public void Withdrawal_IsLostWhenTheReportSessionIsRestartedAfterThePrePass()
+    {
+        // Control for the republish below, and the reason it exists. This pre-pass runs before the
+        // containment loop, which starts a fresh report session for EVERY attempt — so the row it
+        // writes is discarded before the first attempt even renders, and the pre-pass never runs
+        // again to rewrite it. Without a republish the withdrawal is simply absent from the report
+        // the binding ships with, which is the one thing the partial-success contract promises it
+        // will not be.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, WithdrawnMethodExtension(), typeDatabase, Logger, ctx);
+
+        // What the containment loop does at the top of every attempt.
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.DoesNotContain(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    [Fact]
+    public void RepublishWithdrawals_PutsThePrePassWithdrawalBackIntoTheSettledSession()
+    {
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, WithdrawnMethodExtension(), typeDatabase, Logger, ctx);
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        var row = Assert.Single(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+        Assert.Equal("configure", row.Name);
+        Assert.Equal(BindingItemKind.Method, row.Kind);
+        Assert.Contains("UIWindowLevel", row.Details);
+    }
+
+    [Fact]
+    public void RepublishWithdrawals_AddsNothingWhenTheOriginalRowSurvived()
+    {
+        // The direct call paths never enter containment, so the pre-pass's own row is still in the
+        // live session. Replaying must leave the report as it was rather than double-counting the
+        // same withdrawal.
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, WithdrawnMethodExtension(), typeDatabase, Logger, ctx);
+
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Single(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+        Assert.Equal(1, report.SkippedMembers);
+    }
+
+    /// <summary>
+    /// One foreign extension whose only member names an Apple type absent from the .NET surface, so
+    /// the pre-pass withdraws it and records the skip row the republish tests are about.
+    /// </summary>
+    private static Dictionary<string, List<ProtocolExtensionMethodDecl>> WithdrawnMethodExtension() =>
+        new()
+        {
+            ["UIKit.UIView"] = new()
+            {
+                CreateExtMethod("configure", "public func configure(level: UIKit.UIWindowLevel)"),
+            },
+        };
+
     #endregion
 
     #region Helpers

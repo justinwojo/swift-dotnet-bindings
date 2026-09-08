@@ -139,6 +139,9 @@ public class EmissionStateSnapshotCoverageTests
         {
             method.WasEmitted = true;
             method.EmittedCSharpName = "Dirtied";
+            // Stamped alongside the emitted name and read for the same question — which C# slot a
+            // derived override binds to — so a survivor would answer it from a discarded render.
+            method.EmittedOverloadNameInput = "DirtiedOverloadInput";
             method.UsesWrapperLibrary = !method.UsesWrapperLibrary;
         }
 
@@ -146,11 +149,15 @@ public class EmissionStateSnapshotCoverageTests
         // rename ledger reads — a stamp surviving a discarded render would advertise a member the
         // retry never wrote. The native-width companion's name is a third such stamp: it is fed
         // back into the sibling-name set, so a stale one pushes an unrelated member off its name.
+        // The case-only stamp is a fourth, and the only one written by a PRE-emission pass: that
+        // pass publishes its rename to the report only when the stamp changes, so a survivor makes
+        // the retry's pass silent and the emitted name loses the row that accounts for it.
         foreach (var property in AllProperties(module))
         {
             property.MarkEmitted();
             property.MarkEmittedCSharpName("Dirtied");
             property.MarkEmittedNativeWidthCSharpName("DirtiedNative");
+            property.MarkCaseDisambiguated("DirtiedCaseOnly");
         }
 
         Assert.NotEqual(before, DescribeDeclState(module));
@@ -315,9 +322,11 @@ public class EmissionStateSnapshotCoverageTests
     private static string DescribeDeclState(ModuleDecl module) =>
         string.Join(Environment.NewLine, AllMethods(module).Select(m =>
             $"{m.Name}|emitted={m.WasEmitted}|csharp={m.EmittedCSharpName ?? "<null>"}" +
+            $"|overloadInput={m.EmittedOverloadNameInput ?? "<null>"}" +
             $"|wrapperLib={m.UsesWrapperLibrary}|args={string.Join(",", m.CSSignature.Select(a => a.Name))}")
         + Environment.NewLine
         + string.Join(Environment.NewLine, AllProperties(module).Select(p =>
             $"{p.Name}|emitted={p.WasEmitted}|csharp={p.EmittedCSharpName ?? "<null>"}" +
-            $"|native={p.EmittedNativeWidthCSharpName ?? "<null>"}")));
+            $"|native={p.EmittedNativeWidthCSharpName ?? "<null>"}" +
+            $"|caseOnly={p.CaseDisambiguatedName ?? "<null>"}")));
 }

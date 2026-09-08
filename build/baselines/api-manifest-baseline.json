@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "81e1358d",
+  "git_sha": "d419108fd",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -9630,7 +9630,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ExpandInoutText(ref string)",
-      "symbol": "$s20SwiftBindingsTestLib15expandInoutTextyySSzF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_expandInoutText_4796C64E"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -11281,6 +11281,21 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetStaticBuffer()",
       "symbol": "thunk_SwiftBindingsTestLib_84239c36"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetStringOwnershipAllocationCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_abe67d7a"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetStringOwnershipDeinitCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_7e431c76"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetStringOwnershipEntryCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_c1fffc84"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -18330,7 +18345,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OwnershipStructConsumer.BorrowDirect(SwiftBindingsTestLib.OwnershipStructValue,ref string)",
-      "symbol": "$s20SwiftBindingsTestLib23OwnershipStructConsumerV12borrowDirect_4texts5Int32VAA0eF5ValueV_SSztFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_OwnershipStructConsumer_borrowDirect_CE7819A4"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -18345,17 +18360,17 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OwnershipStructConsumer.ConsumeDirect(SwiftBindingsTestLib.OwnershipStructValue,ref string)",
-      "symbol": "$s20SwiftBindingsTestLib23OwnershipStructConsumerV13consumeDirect_4texts5Int32VAA0eF5ValueVn_SSztFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_OwnershipStructConsumer_consumeDirect_18BACEE2"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OwnershipStructConsumer.ConsumeDirectAndThrow(SwiftBindingsTestLib.OwnershipStructValue,ref string)",
-      "symbol": "$s20SwiftBindingsTestLib23OwnershipStructConsumerV21consumeDirectAndThrow_4texts5Int32VAA0eF5ValueVn_SSztKFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_OwnershipStructConsumer_consumeDirectAndThrow_3EA510C3"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OwnershipStructConsumer.ConsumeDirectWithLater(SwiftBindingsTestLib.OwnershipStructValue,ref string,SwiftBindingsTestLib.OwnershipToken)",
-      "symbol": "$s20SwiftBindingsTestLib23OwnershipStructConsumerV22consumeDirectWithLater_4text5laters5Int32VAA0eF5ValueVn_SSzAA0E5TokenCtFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_OwnershipStructConsumer_consumeDirectWithLater_EC4FDDBB"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -20070,12 +20085,12 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ReplaceInoutTextAndReturnItem(ref string)",
-      "symbol": "$s20SwiftBindingsTestLib29replaceInoutTextAndReturnItemyAA0f9ReferenceJ0CSSzF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_replaceInoutTextAndReturnItem_E9BE9647"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ReplaceInoutTextThenThrow(ref string)",
-      "symbol": "$s20SwiftBindingsTestLib25replaceInoutTextThenThrowyySSzKF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_replaceInoutTextThenThrow_0CE8EDF1"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -20085,7 +20100,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ReplaceTwoInoutTexts(ref string,ref string)",
-      "symbol": "$s20SwiftBindingsTestLib20replaceTwoInoutTextsyySSz_SSztF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_replaceTwoInoutTexts_C6A7223C"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -21760,7 +21775,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ShrinkInoutText(ref string)",
-      "symbol": "$s20SwiftBindingsTestLib15shrinkInoutTextyySSzF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_shrinkInoutText_CF5ED249"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -22636,6 +22651,121 @@
       "module": "SwiftBindingsTestLib",
       "signature": "StringLabel.StringLabel(string)",
       "symbol": "SBW_SwiftBindingsTestLib_StringLabel_init_873323E7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipFreeText(ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_stringOwnershipFreeText_2C1656F3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipLater.Number",
+      "symbol": "thunk_SwiftBindingsTestLib_11085a41"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipLater.StringOwnershipLater(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_66bf860c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.AfterScalars(int,int,int,int,int,int,int,ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_afterScalars_9FAC445D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.Bias",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_StringOwnershipReceiver_bias"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.Borrow(SwiftBindingsTestLib.StringOwnershipValue,ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_borrow_E1E0517B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.Consume(SwiftBindingsTestLib.StringOwnershipValue,ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_consume_9A50E3F3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.ConsumeAndThrow(SwiftBindingsTestLib.StringOwnershipValue,ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_consumeAndThrow_1AB7E924"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.ConsumeWithLater(SwiftBindingsTestLib.StringOwnershipValue,ref string,SwiftBindingsTestLib.StringOwnershipLater)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_consumeWithLater_AA317524"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.DebugDefault(ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_debugDefault_789E7467"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.DefaultExtra",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_StringOwnershipReceiver_defaultExtra"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.DefaultSuffix",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_StringOwnershipReceiver_defaultSuffix"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.DroppingClosureDefault(ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_droppingClosureDefault_7386B826"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.Replace(SwiftBindingsTestLib.StringOwnershipValue,ref string,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_replace_81A1F83B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.ReplaceBoth(ref string,ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_replaceBoth_97A26A89"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.StaticText(ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_staticText_5060A781"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.StringNeighbors(string,ref string,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_stringNeighbors_5E607A70"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.StringOwnershipReceiver(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_init_3B190AB7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.WithDefaults(SwiftBindingsTestLib.StringOwnershipValue,ref string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_withDefaults_C46DC3F2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.WithDefaults(SwiftBindingsTestLib.StringOwnershipValue,ref string,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_withDefaults_C36DC25F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipReceiver.WithDefaults(SwiftBindingsTestLib.StringOwnershipValue,ref string,string,int)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_withDefaults_A69A50BD"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipValue.Number",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_StringOwnershipValue_number"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringOwnershipValue.StringOwnershipValue(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_StringOwnershipValue_init_99816A02"
     },
     {
       "module": "SwiftBindingsTestLib",

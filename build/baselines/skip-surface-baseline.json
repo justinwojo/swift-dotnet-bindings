@@ -1,5 +1,5 @@
 {
-  "git_sha": "81e1358d",
+  "git_sha": "dbbcac81e",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -616,6 +616,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027StringOwnershipReceiver.droppingClosureDefault\u0027 \u2014 EmitterFault (Withdrawn by wrapper verify-recover: withdrawn to recover the wrapper compile (SwiftBindingsTestLib.StringOwnershipReceiver.droppingClosureDefault (leaf-api)))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027ThrowingSealedBox.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
@@ -676,7 +682,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027appendPathElement\u0027 \u2014 parameter or return type not yet supported (An inout parameter whose type cannot round-trip through a C-ABI pointer (String, class/ObjC-bridged, protocol/existential, non-copyable, or non-frozen) combined with a large-Optional parameter or return has no correct marshalling path: both the MethodWrapper and OptionalPointer wrapper paths decline the mismatched inout type, and the raw CallConvSwift fallback drops the inout modifier.)",
+      "reason": "method \u0027appendPathElement\u0027 \u2014 parameter or return type not yet supported (An inout String or an ABI-mismatched inout type (class/ObjC-bridged, protocol/existential, non-copyable, or non-frozen) combined with a large-Optional parameter or return has no qualified marshalling path. Scalar String support in the ordinary method wrapper does not qualify this composition; the OptionalPointer wrapper cannot forward these inouts and the direct fallback is not established safe.)",
       "count": 1
     },
     {

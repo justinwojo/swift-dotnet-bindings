@@ -11,10 +11,25 @@ namespace BindingsGeneration;
 /// clean run would.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Restoration is always in place: the same <see cref="MethodDecl"/>, <see cref="PropertyDecl"/>,
 /// and <see cref="ArgumentDecl"/> object instances are updated, never replaced with clones.
 /// Other subsystems key dictionaries on reference identity, so cloning declarations would
 /// break those lookups.
+/// </para>
+/// <para>
+/// "Emission" here means everything one attempt runs, PRE-PASSES INCLUDED — the rename passes run
+/// inside <c>StringEmitter.EmitModule</c>, and the ones that write to the DECLARATION stamp it
+/// exactly as the handlers do (the case-only collision pass's member arm). A pre-pass stamp is not
+/// exempt from the rewind for being idempotent in the output: such a pass typically re-derives the
+/// same decision but guards its side effects on the stamp having changed, so a surviving stamp
+/// silences the effect (a report row, a registration) on the retry while the name it chose still
+/// ships. Any field a pass writes on a declaration across an attempt belongs here. A pre-pass that
+/// writes only to the type database instead — the nested-type rename channel and the case-only
+/// pass's own TYPE arm both go through <c>ITypeDatabase.ApplyEmissionResult</c> — is rewound by the
+/// emission-facts journal, not by this class, so its absence here is coverage elsewhere rather than
+/// a gap.
+/// </para>
 /// </remarks>
 internal sealed class DeclEmissionStateSnapshot
 {
@@ -190,7 +205,8 @@ internal sealed class DeclEmissionStateSnapshot
         }
 
         properties.Add(new PropertyState(
-            property, property.WasEmitted, property.EmittedCSharpName, property.EmittedNativeWidthCSharpName));
+            property, property.WasEmitted, property.EmittedCSharpName, property.EmittedNativeWidthCSharpName,
+            property.CaseDisambiguatedName));
 
         if (property.Accessors is not null)
         {
@@ -269,6 +285,7 @@ internal sealed class DeclEmissionStateSnapshot
             IsSubscriptAccessor: method.IsSubscriptAccessor,
             WasEmitted: method.WasEmitted,
             EmittedCSharpName: method.EmittedCSharpName,
+            EmittedOverloadNameInput: method.EmittedOverloadNameInput,
             UsesWrapperLibrary: method.UsesWrapperLibrary,
             HasClosureCdeclWrapper: method.HasClosureCdeclWrapper,
             UsesFreeFunctionWrapper: method.UsesFreeFunctionWrapper,
@@ -321,6 +338,7 @@ internal sealed class DeclEmissionStateSnapshot
         private readonly bool _isSubscriptAccessor;
         private readonly bool _wasEmitted;
         private readonly string? _emittedCSharpName;
+        private readonly string? _emittedOverloadNameInput;
         private readonly bool _usesWrapperLibrary;
         private readonly bool _hasClosureCdeclWrapper;
         private readonly bool _usesFreeFunctionWrapper;
@@ -350,6 +368,7 @@ internal sealed class DeclEmissionStateSnapshot
             bool IsSubscriptAccessor,
             bool WasEmitted,
             string? EmittedCSharpName,
+            string? EmittedOverloadNameInput,
             bool UsesWrapperLibrary,
             bool HasClosureCdeclWrapper,
             bool UsesFreeFunctionWrapper,
@@ -378,6 +397,7 @@ internal sealed class DeclEmissionStateSnapshot
             _isSubscriptAccessor = IsSubscriptAccessor;
             _wasEmitted = WasEmitted;
             _emittedCSharpName = EmittedCSharpName;
+            _emittedOverloadNameInput = EmittedOverloadNameInput;
             _usesWrapperLibrary = UsesWrapperLibrary;
             _hasClosureCdeclWrapper = HasClosureCdeclWrapper;
             _usesFreeFunctionWrapper = UsesFreeFunctionWrapper;
@@ -408,6 +428,11 @@ internal sealed class DeclEmissionStateSnapshot
             _target.IsSubscriptAccessor = _isSubscriptAccessor;
             _target.WasEmitted = _wasEmitted;
             _target.EmittedCSharpName = _emittedCSharpName;
+            // Stamped in the same breath as the emitted name and read for the same purpose (which C#
+            // slot a derived override binds to), so it rewinds with it. Today the read is gated on
+            // WasEmitted, which is itself rewound — but that is a property of one call site, not of
+            // the stamp, and the snapshot's contract is over the field.
+            _target.EmittedOverloadNameInput = _emittedOverloadNameInput;
             _target.UsesWrapperLibrary = _usesWrapperLibrary;
             _target.HasClosureCdeclWrapper = _hasClosureCdeclWrapper;
             _target.UsesFreeFunctionWrapper = _usesFreeFunctionWrapper;
@@ -466,14 +491,16 @@ internal sealed class DeclEmissionStateSnapshot
         private readonly bool _wasEmitted;
         private readonly string? _emittedCSharpName;
         private readonly string? _emittedNativeWidthCSharpName;
+        private readonly string? _caseDisambiguatedName;
 
         public PropertyState(PropertyDecl target, bool wasEmitted, string? emittedCSharpName,
-            string? emittedNativeWidthCSharpName)
+            string? emittedNativeWidthCSharpName, string? caseDisambiguatedName)
         {
             _target = target;
             _wasEmitted = wasEmitted;
             _emittedCSharpName = emittedCSharpName;
             _emittedNativeWidthCSharpName = emittedNativeWidthCSharpName;
+            _caseDisambiguatedName = caseDisambiguatedName;
         }
 
         public void Restore()
@@ -487,6 +514,13 @@ internal sealed class DeclEmissionStateSnapshot
             // leftover stamp would push an unrelated method to a disambiguated name for a companion
             // accessor the retry never wrote.
             _target.RestoreEmittedNativeWidthCSharpName(_emittedNativeWidthCSharpName);
+            // Written by a PRE-emission pass rather than by emission proper, and rewound for a
+            // reason the other two do not have: the case-only collision pass publishes its rename
+            // to the binding report only when it actually changes the stamp. Leaving an attempt's
+            // stamp in place therefore makes the retry's pass a silent no-op — the disambiguated
+            // name still reaches the output, but the report row that accounts for it does not,
+            // because the per-attempt report session discarded the first attempt's copy.
+            _target.RestoreCaseDisambiguatedName(_caseDisambiguatedName);
         }
     }
 

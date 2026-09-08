@@ -78,6 +78,18 @@ namespace BindingsGeneration
         public void MarkCaseDisambiguated(string csharpName) => CaseDisambiguatedName = csharpName;
 
         /// <summary>
+        /// Puts <see cref="CaseDisambiguatedName"/> back to a previously captured value, null
+        /// included. Exists for the same rollback reason as
+        /// <see cref="RestoreEmittedCSharpName"/>, but the stamp it undoes is written by a
+        /// PRE-emission pass rather than by emission proper, and that is precisely why it has to be
+        /// rewound: the pass that writes it also publishes the rename to the binding report, and it
+        /// publishes only when the stamp actually changes. A stamp surviving a discarded attempt
+        /// therefore silences the pass on the retry — the name still lands in the output while the
+        /// report loses the record that accounts for it.
+        /// </summary>
+        public void RestoreCaseDisambiguatedName(string? csharpName) => CaseDisambiguatedName = csharpName;
+
+        /// <summary>
         /// The C# name this property was actually emitted under, stamped at emission time. Mirrors
         /// <see cref="MethodDecl.EmittedCSharpName"/>: it is the only value that has seen every
         /// naming scheme (enclosing-type <c>Value</c> rule, nested-type rename channel, enum-case

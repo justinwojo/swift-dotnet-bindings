@@ -563,6 +563,7 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _foreignExtEmittedSymbols = new();
     private readonly Dictionary<string, ForeignExtensionClassInfo> _foreignExtClasses = new();
     private readonly HashSet<string> _foreignExtNeededImports = new();
+    private readonly List<ForeignExtensionWithdrawal> _foreignExtWithdrawals = new();
 
     /// <summary>Count of emitted foreign extension members for logging.</summary>
     public int ForeignExtEmittedCount { get; set; }
@@ -591,6 +592,23 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Adds a foreign module import for the Swift wrapper file.</summary>
     public void AddForeignExtNeededImport(string import) => _foreignExtNeededImports.Add(import);
+
+    /// <summary>
+    /// Members the foreign-extension pre-pass withdrew, kept so the withdrawal can be re-published
+    /// into whichever report session is the settled one.
+    ///
+    /// <para>The pre-pass runs before the containment loop and reports as it withdraws, but the loop
+    /// starts a fresh report session for each attempt — so a row written before the first attempt is
+    /// discarded by the very first restart, and nothing re-writes it, because the pre-pass does not
+    /// re-run per attempt. Holding the withdrawals here lets the caller replay them once emission has
+    /// settled; the report's own per-member dedup makes the replay a no-op wherever the original row
+    /// already survived, and yields to an emitted-member fact if one was recorded for that identity.</para>
+    /// </summary>
+    public IReadOnlyList<ForeignExtensionWithdrawal> ForeignExtWithdrawals => _foreignExtWithdrawals;
+
+    /// <summary>Records a foreign-extension withdrawal for later replay into the settled report.</summary>
+    public void AddForeignExtWithdrawal(ForeignExtensionWithdrawal withdrawal) =>
+        _foreignExtWithdrawals.Add(withdrawal);
 
     /// <summary>Gets or creates extension class info for a foreign type.</summary>
     public ForeignExtensionClassInfo GetOrAddForeignExtClass(string key, Func<ForeignExtensionClassInfo> factory)
@@ -2638,6 +2656,17 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public MarshalingContext? Marshaling { get; set; }
 }
+
+/// <summary>
+/// One member the foreign-extension pre-pass declined to bind, carried in the shape the report
+/// needs so the withdrawal can be published again after emission settles. Only the fields the skip
+/// row is built from — the pre-pass has no other emission state to preserve here.
+/// </summary>
+public sealed record ForeignExtensionWithdrawal(
+    BindingItemKind Kind,
+    string MemberName,
+    SkipReason Reason,
+    string Details);
 
 /// <summary>
 /// Info for a single C# extension class for a foreign type.
