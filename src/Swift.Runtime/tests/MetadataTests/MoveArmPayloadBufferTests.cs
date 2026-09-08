@@ -11,30 +11,21 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Behavioral accounting for the borrowed-callback Move arm's two-part ownership shape (the
-/// <c>SwiftString</c> shape): the wrapper's from-handle ctor bitwise-copies the borrowed (+0)
-/// value words into a container buffer the WRAPPER allocates itself. The wrapper therefore owns
-/// the container allocation — it must be freed exactly once — but NOT the value inside it, which
-/// Swift still owns. The old blanket finalizer suppression foreclosed the container free (a leak
-/// of the wrapper's own allocation per callback invocation), and an explicit Dispose ran the
-/// value-witness Destroy on the borrowed value (an over-release).
-///
-/// These tests observe the value-witness Destroy DIRECTLY: the fake's metadata is a hand-built
-/// native metadata block whose value witness table routes <c>Destroy</c> to a managed
-/// <c>[UnmanagedCallersOnly]</c> counter. That makes both failure modes measurable on the desktop
-/// host with no Swift runtime involved:
-/// <list type="bullet">
-/// <item>over-release: Destroy count must stay 0 for a callback-marshalled (borrowed) wrapper
-/// across Dispose AND finalization;</item>
-/// <item>leak: the container free must still run — the payload SafeHandle must close on Dispose
-/// rather than being finalizer-suppressed into oblivion;</item>
-/// <item>no behavior change for owned instances: a directly-constructed wrapper's Dispose still
-/// runs Destroy exactly once.</item>
-/// </list>
+/// A callback Move wrapper owns an independent copied value and its container. Recording VWT
+/// copy/destroy witnesses prove one retain and one destroy while Swift's source stays intact.
 /// </summary>
 public unsafe class MoveArmPayloadBufferTests
 {
     private static int _destroyCount;
+    private static int _copyCount;
+
+    [UnmanagedCallersOnly]
+    private static void* CountingCopy(void* destination, void* source, TypeMetadata metadata)
+    {
+        System.Buffer.MemoryCopy(source, destination, 16, 16);
+        Interlocked.Increment(ref _copyCount);
+        return destination;
+    }
 
     [UnmanagedCallersOnly]
     private static void CountingDestroy(void* value, TypeMetadata metadata)
@@ -53,6 +44,8 @@ public unsafe class MoveArmPayloadBufferTests
     {
         var vwt = (ValueWitnessTable*)NativeMemory.AllocZeroed(512);
         vwt->Destroy = &CountingDestroy;
+        vwt->InitializeWithCopy = &CountingCopy;
+        vwt->Flags = ValueWitnessFlags.IsNonPOD;
         vwt->Size = 16;
         vwt->Stride = 16;
         var block = (IntPtr*)NativeMemory.AllocZeroed((nuint)(2 * sizeof(IntPtr)));
@@ -62,9 +55,8 @@ public unsafe class MoveArmPayloadBufferTests
     }
 
     /// <summary>
-    /// Mirrors SwiftString's Move shape exactly: from-handle ctor allocates its OWN 16-byte
-    /// container and bitwise-copies the source words; declared Move semantics; consume marks the
-    /// contents borrowed so cleanup frees the container without the value-witness Destroy.
+    /// Mirrors SwiftString: construction moves words into its own allocation. The callback reader
+    /// must provide a copied +1 so normal owning cleanup remains armed.
     /// </summary>
     private sealed class MoveBufferFake : ISwiftObject
     {
@@ -101,24 +93,27 @@ public unsafe class MoveArmPayloadBufferTests
     }
 
     [Fact]
-    public void MarshalCallbackArg_MoveBufferShape_DisposeFreesContainerWithoutDestroy()
+    public void MarshalCallbackArg_MoveBufferShape_DisposeDestroysIndependentCopy()
     {
         NewFromPayloadDispatcher.Register(typeof(MoveBufferFake), h => MoveBufferFake.NewFromPayload(h));
         var source = AllocSourceWords();
         try
         {
             int before = Volatile.Read(ref _destroyCount);
+            int copiesBefore = Volatile.Read(ref _copyCount);
 
             var wrapper = SwiftMarshal.MarshalCallbackArg<MoveBufferFake>(source);
             Assert.NotNull(wrapper);
             var payload = wrapper.Payload;
 
-            // Dispose must free the wrapper-owned container (handle closes) WITHOUT running the
-            // value-witness Destroy on the borrowed value Swift still owns (over-release class).
+            Assert.NotEqual(source, payload.DangerousGetHandle());
+            // Dispose destroys only the independent copy, leaving the borrowed source intact.
             wrapper.Dispose();
 
             Assert.True(payload.IsClosed);
-            Assert.Equal(before, Volatile.Read(ref _destroyCount));
+            Assert.Equal(before + 1, Volatile.Read(ref _destroyCount));
+            Assert.Equal(copiesBefore + 1, Volatile.Read(ref _copyCount));
+            Assert.Equal(0x1122334455667788, *(long*)source);
         }
         finally
         {
@@ -134,14 +129,16 @@ public unsafe class MoveArmPayloadBufferTests
         try
         {
             int before = Volatile.Read(ref _destroyCount);
+            int copiesBefore = Volatile.Read(ref _copyCount);
             var wrapper = SwiftMarshal.MarshalCallbackArg<MoveBufferFake>(source);
 
-            // The SafeHandle owns the single free; disposing twice must neither double-free the
-            // container (a crash class) nor run the Destroy.
+            // Double dispose must destroy the independently owned copy exactly once.
             wrapper.Dispose();
             wrapper.Dispose();
 
-            Assert.Equal(before, Volatile.Read(ref _destroyCount));
+            Assert.Equal(before + 1, Volatile.Read(ref _destroyCount));
+            Assert.Equal(copiesBefore + 1, Volatile.Read(ref _copyCount));
+            Assert.Equal(0x1122334455667788, *(long*)source);
         }
         finally
         {
@@ -150,13 +147,14 @@ public unsafe class MoveArmPayloadBufferTests
     }
 
     [Fact]
-    public void MarshalCallbackArg_MoveBufferShape_FinalizerPathDoesNotDestroyBorrowedValue()
+    public void MarshalCallbackArg_MoveBufferShape_FinalizerDestroysIndependentCopy()
     {
         NewFromPayloadDispatcher.Register(typeof(MoveBufferFake), h => MoveBufferFake.NewFromPayload(h));
         var source = AllocSourceWords();
         try
         {
             int before = Volatile.Read(ref _destroyCount);
+            int copiesBefore = Volatile.Read(ref _copyCount);
 
             CreateAndDropWrapper(source);
             for (int i = 0; i < 4; i++)
@@ -165,9 +163,10 @@ public unsafe class MoveArmPayloadBufferTests
                 GC.WaitForPendingFinalizers();
             }
 
-            // The payload finalizer now RUNS (it is no longer suppressed, so the container is
-            // reclaimable) — and its borrowed-contents path must skip the value-witness Destroy.
-            Assert.Equal(before, Volatile.Read(ref _destroyCount));
+            // Finalization must release the copied value exactly once, without touching the source.
+            Assert.Equal(before + 1, Volatile.Read(ref _destroyCount));
+            Assert.Equal(copiesBefore + 1, Volatile.Read(ref _copyCount));
+            Assert.Equal(0x1122334455667788, *(long*)source);
         }
         finally
         {
@@ -189,6 +188,7 @@ public unsafe class MoveArmPayloadBufferTests
         try
         {
             int before = Volatile.Read(ref _destroyCount);
+            int copiesBefore = Volatile.Read(ref _copyCount);
 
             // NOT marshalled through the borrowed-callback seam: an owned instance keeps the
             // normal cleanup — Dispose runs the value-witness Destroy exactly once, then frees.
@@ -209,8 +209,8 @@ public unsafe class MoveArmPayloadBufferTests
         var buffer = (IntPtr)NativeMemory.Alloc(16);
         var handle = new SwiftSafeHandle<MoveBufferFake>(buffer);
 
-        // Borrowed contents remain READABLE for the wrapper's lifetime — the use-after-move guard
-        // (IsConsumed) must not trip for a borrowed-callback wrapper.
+        // An explicitly caller-managed borrowed container is not moved out. The caller must keep
+        // its source alive; the IsConsumed guard must not treat this as consumption.
         handle.MarkContentsBorrowed();
 
         Assert.False(handle.IsConsumed);

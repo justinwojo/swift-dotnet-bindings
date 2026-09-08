@@ -85,12 +85,9 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     // Non-reflective borrowed-marshal finalizer suppression (Finding 56a). See ISwiftObject.SuppressPayloadFinalizer.
     void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
 
-    // Borrowed-callback Move shape: the from-handle ctor bitwise-copied the borrowed two-word
-    // String into a 16-byte NativeMemory container THIS wrapper allocated. The wrapper owns that
-    // container (it must be freed exactly once) but not the String value inside it (Swift still
-    // owns the borrowed +0 reference). Mark the contents borrowed so Dispose/finalizer free the
-    // container without a value-witness Destroy — suppressing the payload finalizer here instead
-    // would leak the 16-byte container on every callback invocation.
+    // Legacy caller-managed borrowing: free our container without destroying its borrowed value.
+    // Current callback marshalling instead supplies an independently copied +1 and leaves owning
+    // cleanup armed. Preserve this explicit seam for callers of the existing runtime contract.
     void ISwiftObject.ConsumePayloadBuffer() => _payload.MarkContentsBorrowed();
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()

@@ -81,4 +81,126 @@ public static class OwnedArgument
                 payload.DangerousRelease();
         }
     }
+    /// <summary>Provisionally copies a consumed value while keeping its caller payload pinned.</summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public static ValueTransfer BeginValueTransfer<T>(SafeHandle payload) where T : ISwiftObject
+        => new(SwiftObjectHelper<T>.GetTypeMetadata(), payload);
+
+    /// <summary>
+    /// Holds the initialized copy until native entry succeeds. Generated callers complete the
+    /// transfer immediately after P/Invoke returns, including Swift error returns. Earlier setup
+    /// or entry failures destroy the provisional copy; completed transfers free its storage raw.
+    /// </summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public sealed unsafe class ValueTransfer : IDisposable
+    {
+        private SafeHandle? _payload;
+        private readonly TypeMetadata _metadata;
+        private readonly void* _scratch;
+        private bool _transferred;
+
+        public ValueTransfer(TypeMetadata metadata, SafeHandle payload)
+        {
+            ArgumentNullException.ThrowIfNull(payload);
+            if (!metadata.IsValid)
+                throw new ArgumentException("Valid Swift type metadata is required.", nameof(metadata));
+            bool pinned = false;
+            void* scratch = null;
+            try
+            {
+                payload.DangerousAddRef(ref pinned);
+                var source = (void*)payload.DangerousGetHandle();
+                if (source != null)
+                {
+                    // Witnesses may touch stride padding; zero-sized values still need an address.
+                    nuint bytes = metadata.Stride;
+                    scratch = NativeMemory.Alloc(bytes == 0 ? 1 : bytes);
+                    metadata.ValueWitnessTable->InitializeWithCopy(scratch, source, metadata);
+                }
+                _metadata = metadata;
+                _scratch = scratch;
+                _payload = payload;
+            }
+            catch
+            {
+                NativeMemory.Free(scratch);
+                if (pinned)
+                    payload.DangerousRelease();
+                throw;
+            }
+        }
+
+        /// <summary>Records native consumption before any managed result/error conversion.</summary>
+        public void Complete() => _transferred = true;
+
+        public void Dispose()
+        {
+            var payload = System.Threading.Interlocked.Exchange(ref _payload, null);
+            if (payload is null)
+                return;
+            try
+            {
+                if (!_transferred && _scratch != null)
+                    _metadata.ValueWitnessTable->Destroy(_scratch, _metadata);
+            }
+            finally
+            {
+                NativeMemory.Free(_scratch);
+                payload.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pins a class argument and provisionally acquires the +1 a consuming callee will release.
+    /// A generated caller must use a using declaration and call Complete immediately after the
+    /// P/Invoke returns, including a Swift error return. If later argument preparation or native
+    /// entry resolution throws first, Dispose rolls the provisional retain back.
+    /// </summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public sealed class ClassTransfer : IDisposable
+    {
+        private SafeHandle? _payload;
+        private readonly IntPtr _objectPointer;
+        private bool _transferred;
+
+        public ClassTransfer(SafeHandle payload)
+        {
+            ArgumentNullException.ThrowIfNull(payload);
+            bool pinned = false;
+            try
+            {
+                payload.DangerousAddRef(ref pinned);
+                _objectPointer = payload.DangerousGetHandle();
+                Arc.UnknownObjectRetain(_objectPointer);
+                _payload = payload;
+            }
+            catch
+            {
+                if (pinned)
+                    payload.DangerousRelease();
+                throw;
+            }
+        }
+
+        /// <summary>Records native consumption before any managed result/error conversion.</summary>
+        public void Complete() => _transferred = true;
+
+        public void Dispose()
+        {
+            var payload = System.Threading.Interlocked.Exchange(ref _payload, null);
+            if (payload is null)
+                return;
+            try
+            {
+                if (!_transferred)
+                    Arc.UnknownObjectRelease(_objectPointer);
+            }
+            finally
+            {
+                payload.DangerousRelease();
+            }
+        }
+    }
+
 }

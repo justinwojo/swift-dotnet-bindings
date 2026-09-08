@@ -2139,9 +2139,9 @@ public partial class ClosureHandler
     /// wrapper is finalized on NativeAOT, where its reflection-based <c>Payload</c> finalizer suppression is trimmed away
     /// for app-assembly types — a use-after-free of the borrowed object (device GenericClosureBridge crash).
     /// </para>
-    /// Value types (read-and-discard <c>SwiftString</c>/<c>Data</c>, value wrappers, bound generics) keep the borrowed
-    /// <c>MarshalCallbackArg</c> path; they are never surfaced to the user for <c>Dispose</c> and have no ARC <c>+1</c>
-    /// to over-release.
+    /// Value wrappers and bound generics use <c>MarshalCallbackArg</c>, which takes an independent
+    /// value copy according to the construction semantics. The wrapper may escape the callback or
+    /// be explicitly disposed without affecting Swift's borrowed source.
     /// <para>
     /// This is the SINGLE classifier for a borrowed callback-arg slot. A reference argument needs TWO facts to be
     /// read correctly, and they are independent: <b>which reference flavour</b> the Swift type is, and <b>what the

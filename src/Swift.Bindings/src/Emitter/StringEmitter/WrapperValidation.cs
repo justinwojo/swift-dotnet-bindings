@@ -1460,10 +1460,10 @@ public static class WrapperValidation
                 return false;
         }
         // Guard 5d: inout params with types that have C# ABI mismatch.
-        // MapInout produces a single UnsafeMutableRawPointer. Types with multi-word
-        // C# representation (String → 2 nint words), non-pointer C# representation
-        // (non-frozen → SafeHandle, classes → Unmanaged), or incompatible copy semantics
-        // (non-copyable) create param type/count mismatches with the PInvokeEmitter output.
+        // MapInout produces one address. These secondary producers have not qualified the
+        // primary method wrapper's initialized String storage/writeback capability, so keep
+        // that opt-in off here. Other mismatched carriers and non-copyable values also retain
+        // their existing restrictions; pointer width alone does not establish a sound contract.
         if (HasInoutWithAbiMismatch(env))
             return false;
         // Guard 6: No method-level generics
@@ -1521,22 +1521,23 @@ public static class WrapperValidation
     /// <summary>
     /// Returns true if any inout parameter has a type whose C# ABI representation
     /// doesn't match MapInout's single UnsafeMutableRawPointer pattern.
-    /// Types with multi-word decomposition (String → 2 nint words), non-pointer
-    /// representation (non-frozen → SafeHandle, classes → Unmanaged), or
-    /// incompatible copy semantics (non-copyable) are rejected.
+    /// Producers without initialized String storage support reject String. Non-pointer
+    /// representation (non-frozen → SafeHandle, classes → Unmanaged) and incompatible
+    /// copy semantics (non-copyable) remain rejected for every producer.
     /// </summary>
-    public static bool HasInoutWithAbiMismatch(MethodEnvironment env)
-        => HasInoutWithAbiMismatch(env.MethodDecl, env.TypeDatabase);
+    public static bool HasInoutWithAbiMismatch(MethodEnvironment env, bool supportsInoutString = false)
+        => HasInoutWithAbiMismatch(env.MethodDecl, env.TypeDatabase, supportsInoutString);
 
-    /// <inheritdoc cref="HasInoutWithAbiMismatch(MethodEnvironment)"/>
+    /// <inheritdoc cref="HasInoutWithAbiMismatch(MethodEnvironment, bool)"/>
     /// <remarks>Decl+database overload for callers (e.g. the member-validation pipeline) that
     /// have no <see cref="MethodEnvironment"/> yet.</remarks>
-    public static bool HasInoutWithAbiMismatch(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    public static bool HasInoutWithAbiMismatch(MethodDecl methodDecl, ITypeDatabase typeDatabase,
+        bool supportsInoutString = false)
     {
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (!arg.IsInOut) continue;
-            if (arg.SwiftTypeSpec is NamedTypeSpec inoutNamed && inoutNamed.Name == "Swift.String")
+            if (!supportsInoutString && arg.SwiftTypeSpec is NamedTypeSpec inoutNamed && inoutNamed.Name == "Swift.String")
                 return true;
             if (typeDatabase.TryGetTypeRecord(arg.SwiftTypeSpec, out var inoutTypeRec))
             {

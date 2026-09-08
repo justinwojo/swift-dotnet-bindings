@@ -103,6 +103,13 @@ namespace BindingsGeneration
         // EmitGenericInoutWriteback, while {name}Ptr is still in scope, into the now-`ref` public param.
         private readonly List<string> _cdeclFrozenStructInoutWritebacks = new();
 
+        // String projection writebacks can allocate/throw. Run them in a finally AFTER
+        // native error/return conversion has released or adopted its owned result, while
+        // the String temporaries still own their mutated payloads.
+        private readonly List<MarshalStatement> _stringInoutWritebacks = new();
+        private string? _stringInoutCallCompletedName;
+        private string? _stringInoutUnadoptedObjCResultName;
+
         // Tracks parameter names for Optional<generic> arguments passed under Swift @in
         // (callee-destroyed) convention via raw CallConvSwift. Swift consumes the buffer;
         // running the SwiftOptional's normal Dispose afterwards would call VWT Destroy on
@@ -512,6 +519,7 @@ namespace BindingsGeneration
             EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitNonCopyableArgumentPreflight(csWriter);
             EmitSafeHandleAddRef(csWriter);
 
             // Declare variables (SwiftError, TypeMetadata, payloads, GCHandles).
@@ -547,6 +555,7 @@ namespace BindingsGeneration
             }
 
             EmitArrayOwnershipRetain(csWriter);
+            EmitStringInoutWritebackScopeStart(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
             EmitConsumedNonCopyableParamCleanup(csWriter);
@@ -558,6 +567,7 @@ namespace BindingsGeneration
             EmitRawBufferFixedEnd(csWriter);
             EmitDisposeScopeRegistration(csWriter);
             EmitInitFactoryReturn(csWriter);
+            EmitStringInoutWritebackScopeEnd(csWriter);
 
             // Add cleanup in finally block for generics and closures
             if (needsTryFinally)
@@ -635,6 +645,8 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            EmitNonCopyableArgumentPreflight(csWriter);
+
             // The Swift init runs in this helper (the public constructor calls it from `: base(...)`),
             // so the availability guard must sit at the top of the helper, ahead of the P/Invoke.
             EmitAvailabilityGuard(csWriter);
@@ -672,6 +684,7 @@ namespace BindingsGeneration
                 EmitProtocolWitnessTables(csWriter);
             }
 
+            EmitStringInoutWritebackScopeStart(csWriter, tracksUnadoptedObjCResult: true);
             if (_requiresIndirectResult)
             {
                 // Non-frozen struct constructors: result goes into buf via SwiftIndirectResult or IntPtr
@@ -690,6 +703,8 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
                 csWriter.Indent--;
+                if (_stringInoutUnadoptedObjCResultName != null)
+                    csWriter.WriteLine($"{_stringInoutUnadoptedObjCResultName} = (IntPtr)*buf;");
                 csWriter.WriteLine("return new ObjCRuntime.NativeHandle(*buf);");
                 EmitRawBufferFixedEnd(csWriter);
             }
@@ -706,10 +721,13 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
                 csWriter.Indent--;
+                if (_stringInoutUnadoptedObjCResultName != null)
+                    csWriter.WriteLine($"{_stringInoutUnadoptedObjCResultName} = {ReturnLocalName};");
                 csWriter.WriteLine($"return new ObjCRuntime.NativeHandle({ReturnLocalName});");
                 EmitRawBufferFixedEnd(csWriter);
             }
 
+            EmitStringInoutWritebackScopeEnd(csWriter);
             if (needsTryFinally)
             {
                 EmitTryBlockEnd(csWriter);
@@ -895,6 +913,7 @@ namespace BindingsGeneration
             EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitNonCopyableArgumentPreflight(csWriter);
             EmitConsumedNonCopyableSelfGuard(csWriter);
             // Existential heap variables (`void* xHeap = null;`) must precede EmitAsync.
             // For async methods, EmitAsync opens an outer `try {` whose closing brace is
@@ -938,19 +957,20 @@ namespace BindingsGeneration
             EmitConsumedArgumentHandOvers(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitOptionalReturnBuffer(csWriter);
+            EmitStringInoutWritebackScopeStart(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
-            EmitCdeclResultLiveMarker(csWriter, afterErrorCheck: false);
+            EmitCdeclResultLiveMarker(csWriter);
             EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitConsumedNonCopyableSelfCleanup(csWriter);
             EmitInConventionOptionalCleanup(csWriter);
             EmitObjCExistentialConformerKeepAlive(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
-            EmitCdeclResultLiveMarker(csWriter, afterErrorCheck: true);
             EmitReturnMethod(csWriter);
             EmitRawBufferFixedEnd(csWriter);
 
+            EmitStringInoutWritebackScopeEnd(csWriter);
             EmitFixedBlockEnd(csWriter);
             if (needsTryFinally)
             {
@@ -1332,6 +1352,9 @@ namespace BindingsGeneration
         private void EmitPInvokeCall(CSharpWriter csWriter)
         {
             csWriter.WriteLine(_syncPlan.PInvokeCallStatement);
+            EmitConsumedArgumentTransfersCompleted(csWriter);
+            if (_stringInoutWritebacks.Count > 0)
+                csWriter.WriteLine($"{_stringInoutCallCompletedName} = true;");
             EmitClosureOwnershipTransferred(csWriter);
             csWriter.WriteLine();
         }
@@ -1508,6 +1531,29 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Validates every noncopyable argument before marshalling and holds its handle until the
+        /// method exits. The outer lease spans both the native call and its subsequent consumed mark;
+        /// an automatic P/Invoke lease alone ends too early when Dispose races native consumption.
+        /// Capturing the payload also avoids re-reading a disposed wrapper after native return.
+        /// Like the receiver guard, this rejects sequential reuse, not concurrent consuming calls.
+        /// </summary>
+        private void EmitNonCopyableArgumentPreflight(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (!_env.TypeDatabase.TryGetTypeRecord(argumentDecl.SwiftTypeSpec, out var record)
+                    || !record.Flags.HasFlag(TypeRecordFlags.NonCopyable))
+                    continue;
+
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                csWriter.WriteLine($"var {csName}NonCopyablePayload = {csName}.Payload;");
+                csWriter.WriteLine($"if ({csName}NonCopyablePayload.IsConsumed)");
+                csWriter.WriteLine($"    throw new global::System.ObjectDisposedException(nameof({csName}), \"This ~Copyable value was already consumed; further use is invalid.\");");
+                csWriter.WriteLine($"using var {csName}NonCopyablePin = new global::Swift.Runtime.SafeHandlePin({csName}NonCopyablePayload);");
+            }
+        }
+
+        /// <summary>
         /// After the P/Invoke returns, emits <c>{param}.Payload.MarkConsumed();</c> for each
         /// non-copyable struct parameter passed under Swift's <c>consuming</c> (Owned) ownership.
         /// On that path the @_cdecl wrapper moved the value out of the C# buffer with <c>.move()</c>
@@ -1532,7 +1578,7 @@ namespace BindingsGeneration
                     continue;
 
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
-                csWriter.WriteLine($"{csName}.Payload.MarkConsumed();");
+                csWriter.WriteLine($"{csName}NonCopyablePayload.MarkConsumed();");
             }
         }
 
@@ -1716,26 +1762,19 @@ namespace BindingsGeneration
         /// the plan's cleanup reads the flag (<see cref="IndirectResultSetup.TracksResultLive"/>), so
         /// plans with a free-only cleanup don't carry a dead local.
         ///
-        /// Placement is per-phase because the two facts that make the buffer live arrive at different
-        /// points. For a non-throwing method the P/Invoke returning IS the whole condition, so the mark
-        /// goes immediately after the call — every post-call step (writeback, keep-alives, consumed-value
-        /// cleanups) can throw, and a mark placed after them would let the finally raw-free an already
-        /// initialized buffer and orphan its <c>+1</c>. For a throwing method the buffer is live only
-        /// once the error check has passed, so the mark has to wait for it; a post-call step that throws
-        /// before the check is then still reported as not-live, which leaks rather than destroying a
-        /// buffer Swift may never have written. That residual is the safe side of the trade.
+        /// Observe the raw error carrier immediately after the call, before any managed post-call
+        /// operation can throw. Error conversion need not have run: the raw null test already tells
+        /// us whether native code initialized the result. Failable factories share this authority.
         /// </summary>
-        /// <param name="afterErrorCheck">
-        /// True at the post-error-check call site, false at the post-P/Invoke one. Exactly one of the
-        /// two emits, decided by whether the method carries a Swift error check.
-        /// </param>
-        private void EmitCdeclResultLiveMarker(CSharpWriter csWriter, bool afterErrorCheck)
+        private void EmitCdeclResultLiveMarker(CSharpWriter csWriter)
         {
             if (_env.MethodDecl.IsConstructor) return;
             if (_syncPlan?.IndirectResultMethod?.TracksResultLive != true) return;
-            if (afterErrorCheck != (_syncPlan.SwiftError != null)) return;
-            csWriter.WriteLine("_cdeclResultLive = true;");
+            EmitResultLiveMarker(csWriter, "_cdeclResultLive");
         }
+
+        private void EmitResultLiveMarker(CSharpWriter csWriter, string liveName)
+            => csWriter.WriteLine($"{liveName} = {_syncPlan.SwiftError?.SuccessCondition ?? "true"};");
 
         /// <summary>
         /// Emits the start of a fixed block for frozen struct setters.

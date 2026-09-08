@@ -114,6 +114,45 @@ public class CollectionProjectionEmitterTests
     }
 
     [Fact]
+    public void WitnessBacked_Indexer_ConsumesOwnedResultsThroughTheSlotAuthority()
+    {
+        var (cs, _) = EmitWitnessBacked();
+
+        Assert.Contains("SwiftMarshal.MarshalMovedValueFromSlot<TElement>(__cdeclBuf, TElementMetadata)", cs);
+        Assert.DoesNotContain("MarshalFromSwift<TElement>", cs);
+        Assert.DoesNotContain("SwiftHandle", cs);
+        Assert.DoesNotContain("PayloadConstructionSemantics", cs);
+    }
+
+    [Fact]
+    public void WitnessBacked_Indexer_TracksInitializationOnlyAfterTheBoundsVerdict()
+    {
+        var (cs, _) = EmitWitnessBacked();
+
+        var raw = cs.IndexOf("bool __slotLive = false;", System.StringComparison.Ordinal);
+        var bounds = cs.IndexOf("throw new global::System.ArgumentOutOfRangeException", System.StringComparison.Ordinal);
+        var live = cs.IndexOf("__slotLive = true;", System.StringComparison.Ordinal);
+        var consume = cs.IndexOf("MarshalMovedValueFromSlot<TElement>", System.StringComparison.Ordinal);
+        var consumed = cs.IndexOf("__slotLive = false;", live, System.StringComparison.Ordinal);
+
+        Assert.True(raw >= 0 && raw < bounds && bounds < live && live < consume && consume < consumed,
+            "Raw storage becomes live only after bounds success and becomes consumed only after marshalling succeeds.");
+    }
+
+    [Fact]
+    public void WitnessBacked_Indexer_DestroysOnlyUnconsumedValuesAndAlwaysFreesStorage()
+    {
+        var (cs, _) = EmitWitnessBacked();
+
+        Assert.Contains("if (__slotLive) SwiftMarshal.DestroyWireBufferRetains((IntPtr)__cdeclBuf, TElementMetadata);", cs);
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(cs, "DestroyWireBufferRetains"));
+        var destroy = cs.IndexOf("if (__slotLive) SwiftMarshal.DestroyWireBufferRetains", System.StringComparison.Ordinal);
+        var free = cs.IndexOf("NativeMemory.Free(__cdeclBuf);", System.StringComparison.Ordinal);
+        Assert.True(destroy >= 0 && destroy < free);
+        Assert.DoesNotContain("__cdeclBuf = null", cs);
+    }
+
+    [Fact]
     public void WitnessBacked_Enumerator_WalksZeroToCountThroughTheProjectedIndexer()
     {
         var (cs, _) = EmitWitnessBacked();

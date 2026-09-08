@@ -1252,12 +1252,12 @@ internal class MethodMarshalPlanBuilder
         // @_cdecl wrappers and native thunks use out IntPtr errorPtr instead of SwiftError swiftError.
         // The error pointer is the same retained AnyObject as SwiftError.Value — all downstream
         // error infrastructure (SBW_GetErrorDescription, SBW_ReleaseError) works identically.
-        bool isCdeclConstructor = _env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk;
+        bool usesExplicitErrorPointer = _env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk;
 
         string errorCheckCode;
         if (syncTypedErrorType != null)
         {
-            if (isCdeclConstructor)
+            if (usesExplicitErrorPointer)
             {
                 // C2: Typed throws via @_cdecl out-pointer
                 // For complex enums/non-frozen structs, MarshalFromSwift takes ownership of the buffer
@@ -1369,7 +1369,7 @@ internal class MethodMarshalPlanBuilder
         }
         else
         {
-            if (isCdeclConstructor)
+            if (usesExplicitErrorPointer)
             {
                 // Untyped throws via @_cdecl out-pointer
                 errorCheckCode = $$"""
@@ -1392,6 +1392,7 @@ internal class MethodMarshalPlanBuilder
 
         return new SwiftErrorSetup
         {
+            SuccessCondition = usesExplicitErrorPointer ? "errorPtr == IntPtr.Zero" : "swiftError.Value == null",
             IsTypedThrows = syncTypedErrorType != null,
             TypedErrorTypeName = syncTypedErrorType,
             SwiftErrorTypeName = swiftErrorTypeName,

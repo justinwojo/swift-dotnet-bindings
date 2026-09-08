@@ -44,8 +44,9 @@ public sealed record WrapperRecoveryCompileRequest(
 /// one plane must be wired; a driver with neither would "converge" on round 0 having verified nothing.
 /// </para>
 /// <para>
-/// Each round restores the pristine pre-loop baseline before it renders, so a later seeded render is a
-/// pure function of the denylist and never inherits an earlier render's stamps. Three mutation channels
+/// Each round restores the pristine pre-loop baseline before it renders. Its explicit recovery inputs
+/// are the denylist, withdrawal origins and detached native-default recipes from completed renders;
+/// it never inherits an earlier render's mutable emission stamps. Three mutation channels
 /// neither snapshot covers are rewound explicitly: the decl tree and emission context via their
 /// snapshots; the specialization engine and marshalling context by rebuilding them (they mutate in
 /// place, so restoring the reference would put the tainted instance back); and the type database's
@@ -89,6 +90,12 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
     // First-writer-wins: a unit the Swift compile named stays a Swift withdrawal even if a later C#
     // error also lands on it.
     private readonly Dictionary<RecoveryUnitId, EmitterFaultOrigin> _unitOrigin = new();
+
+    // A native default overload calls its own Swift shim, not the original managed member.
+    // Preserve only producer inputs from completed renders, outside the state restored for each
+    // round. This is local to one driver/module/source snapshot; it is not a cross-run cache.
+    private readonly Dictionary<DeclId, DefaultOverloadReplayRecipe> _defaultOverloadRecipes = new();
+    private bool _isBisectionProbe;
 
     // Units withdrawn by the ingestion-quarantine closure, unioned into EVERY render's denylist so a
     // malformed-type dependent is tombstoned on every attempt regardless of what the compile loop
@@ -224,15 +231,17 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         Demangling.ReductionDiagnostics.Reset();
 
         // Restore the pristine baseline before every render — including the first, where it is a
-        // no-op — so the render is a pure function of the denylist. The three channels neither
-        // snapshot covers are rewound in the order they must be: the context snapshot puts the
-        // pre-emission engine/marshalling references back, the rebuild replaces them with fresh
-        // instances (restoring alone would reinstate the tainted ones), and the outer journal undoes
-        // the previous render's type-database stamps.
+        // no-op — before applying this round's explicit recovery inputs. Restore the type database
+        // BEFORE rebuilding its consumers: specialization indexing caches C# type names, so indexing
+        // a previous render's renamed records would retain those names even after journal rollback.
+        // The context snapshot restores pre-emission references; rebuilding then replaces them with
+        // fresh collaborators over the restored records rather than reusing mutable cached state.
         _declBaseline.Restore();
         _contextBaseline.Restore();
-        _rebuildCollaborators();
         _outerJournal.RestoreInto(_typeDatabase);
+        _rebuildCollaborators();
+
+        _context.SeedDefaultOverloadRecipes(_defaultOverloadRecipes);
 
         var seed = WrapperDenylistSeed.Build(denylist, OriginOf);
         try
@@ -256,6 +265,13 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
             RecordCulpritOrigins(abiAttribution, EmitterFaultOrigin.AbiRecoveryWithdrawal);
             return abiAttribution;
         }
+
+        // A contained attempt or ABI validation failure never reaches this commit point. Retain
+        // the first completed producer recipe so later denials cannot change a trim's symbol/name
+        // and evade its own previously recorded recovery identity.
+        if (!_isBisectionProbe)
+            foreach (var (source, recipe) in _context.CompletedDefaultOverloadRecipes)
+                _defaultOverloadRecipes.TryAdd(source, recipe);
 
         // No wrapper plane: the render is settled as far as Swift is concerned, so the C# verifier is the
         // whole round. There is no wrapper compilation result to hand the caller, so LastConvergedOutcome
@@ -445,14 +461,22 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         var savedNoWrapperSurface = NoWrapperSurfaceConverged;
         var savedCSharpVerified = CSharpVerifiedClean;
         var savedOrigins = new Dictionary<RecoveryUnitId, EmitterFaultOrigin>(_unitOrigin);
+        var savedProbeState = _isBisectionProbe;
 
         BisectionOutcome outcome;
         try
         {
+            _isBisectionProbe = true;
             bool ProbeClean(IReadOnlyCollection<RecoveryUnitId> subset)
             {
                 var probeDenylist = new HashSet<RecoveryUnitId>(denylist);
                 probeDenylist.UnionWith(subset);
+                // Probe withdrawals have the same replay policy as the eventual bisection
+                // disposition. An unattributed probe is not a Swift-attributed failure and must
+                // not acquire native-default replay merely through OriginOf's legacy fallback.
+                foreach (var unit in subset)
+                    if (!savedOrigins.ContainsKey(unit))
+                        _unitOrigin[unit] = EmitterFaultOrigin.BisectionIsolatedWithdrawal;
                 // RenderCompileAttribute returns null on two DISTINCT terminals: a genuine clean joint
                 // compile, and a vacuous no-wrapper-surface convergence (this subset withdrew every
                 // compilable member, so there was nothing left to compile). Only the former is evidence
@@ -471,6 +495,7 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         }
         finally
         {
+            _isBisectionProbe = savedProbeState;
             LastConvergedOutcome = savedLastConverged;
             NoWrapperSurfaceConverged = savedNoWrapperSurface;
             CSharpVerifiedClean = savedCSharpVerified;

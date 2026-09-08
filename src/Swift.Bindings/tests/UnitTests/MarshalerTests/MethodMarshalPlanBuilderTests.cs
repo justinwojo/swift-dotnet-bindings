@@ -102,6 +102,23 @@ public class MethodMarshalPlanBuilderTests
 
     #region SwiftError Tests
 
+    [Theory]
+    [InlineData(WrapperStrategy.None, false, "swiftError.Value == null")]
+    [InlineData(WrapperStrategy.None, true, "swiftError.Value == null")]
+    [InlineData(WrapperStrategy.CdeclConstructor, false, "errorPtr == IntPtr.Zero")]
+    [InlineData(WrapperStrategy.CdeclMethod, false, "errorPtr == IntPtr.Zero")]
+    [InlineData(WrapperStrategy.CdeclMethod, true, "errorPtr == IntPtr.Zero")]
+    [InlineData(WrapperStrategy.NativeThunk, false, "errorPtr == IntPtr.Zero")]
+    [InlineData(WrapperStrategy.NativeThunk, true, "errorPtr == IntPtr.Zero")]
+    public void SwiftError_SuccessConditionUsesActualNativeErrorCarrier(WrapperStrategy strategy, bool typed, string condition)
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true, hasTypedThrows: typed);
+        env.MethodDecl.WrapperStrategy = strategy;
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true);
+        Assert.Equal(condition, plan.SwiftError!.SuccessCondition);
+    }
+
     [Fact]
     public void SwiftError_NonThrowing_ReturnsNull()
     {

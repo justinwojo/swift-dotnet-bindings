@@ -21,6 +21,190 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class StringByValueFastPathEmitterTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void StringDecomposition_UsesArgumentDirection(bool inout, bool typeSpecInout)
+    {
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("replace", CreateClassDecl("Loader", module), module);
+        method.UsesCdeclMethodWrapper = true;
+        var argument = CreateArg("text", new NamedTypeSpec("Swift.String") { IsInOut = typeSpecInout }, module);
+        argument.IsInOut = inout;
+        Assert.Equal(!inout, MarshallingHelpers.ShouldDecomposeStringForCdecl(method, argument));
+        method.UsesCdeclMethodWrapper = false;
+        method.UsesCdeclConstructorWrapper = true;
+        Assert.Equal(!inout, MarshallingHelpers.ShouldDecomposeStringForCdecl(method, argument));
+        method.UsesCdeclConstructorWrapper = false;
+        Assert.False(MarshallingHelpers.ShouldDecomposeStringForCdecl(method, argument));
+    }
+
+    [Fact]
+    public void StringInout_PrimaryCapabilityDoesNotGrantSecondaryOrUnknownStorageSupport()
+    {
+        var db = CreateTypeDatabase();
+        db.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("replace", CreateClassDecl("Loader", module), module);
+        var argument = CreateArg("text", new NamedTypeSpec("Swift.String"), module);
+        argument.IsInOut = true;
+        method.CSSignature.Add(argument);
+        var env = new MethodEnvironment(method, db);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(WrapperValidation.WillPromoteToCdeclMethodWrapper(env));
+        Assert.True(WrapperValidation.HasInoutWithAbiMismatch(env));
+        Assert.False(WrapperValidation.HasInoutWithAbiMismatch(env, supportsInoutString: true));
+        Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+
+        foreach (string excluded in new[] { "TestModule.Loader", "Unknown.Value" })
+        {
+            argument.SwiftTypeSpec = new NamedTypeSpec(excluded);
+            Assert.True(WrapperValidation.HasInoutWithAbiMismatch(env, supportsInoutString: true));
+            Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        }
+        argument.SwiftTypeSpec = new NamedTypeSpec("Swift.String");
+        Assert.True(db.TryGetTypeRecord(argument.SwiftTypeSpec, out var record));
+        record.Flags |= TypeRecordFlags.NonCopyable;
+        Assert.True(WrapperValidation.HasInoutWithAbiMismatch(env, supportsInoutString: true));
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Theory]
+    [InlineData("async")]
+    [InlineData("generic-parent")]
+    [InlineData("generic-method")]
+    [InlineData("closure")]
+    [InlineData("closure-return")]
+    [InlineData("constructor")]
+    [InlineData("noncopyable-value")]
+    public void StringInout_DoesNotAdmitUnqualifiedProducerCompositions(string shape)
+    {
+        var db = CreateTypeDatabase();
+        db.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = CreateModuleDecl("TestModule");
+        var parent = CreateClassDecl("Loader", module);
+        var method = CreateMethod("replace", parent, module);
+        var text = CreateArg("text", new NamedTypeSpec("Swift.String"), module);
+        text.IsInOut = true;
+        method.CSSignature.Add(text);
+        var generic = new GenericArgumentDecl("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>());
+        switch (shape)
+        {
+            case "async": method.IsAsync = true; break;
+            case "generic-parent": parent.GenericParameters.Add(generic); break;
+            case "generic-method": method.GenericParameters.Add(generic); break;
+            case "constructor": method.IsConstructor = true; break;
+            case "closure":
+                method.CSSignature.Add(CreateArg("callback", new ClosureTypeSpec { Arguments = TupleTypeSpec.Empty, ReturnType = TupleTypeSpec.Empty }, module));
+                break;
+            case "closure-return":
+                method.CSSignature[0].SwiftTypeSpec = new ClosureTypeSpec { Arguments = TupleTypeSpec.Empty, ReturnType = TupleTypeSpec.Empty };
+                break;
+            case "noncopyable-value":
+                Assert.True(db.TryGetTypeRecord(new NamedTypeSpec("TestModule.Tag"), out var record));
+                record.Flags |= TypeRecordFlags.NonCopyable;
+                method.CSSignature.Add(CreateArg("value", new NamedTypeSpec("TestModule.Tag"), module));
+                break;
+        }
+        var env = new MethodEnvironment(method, db);
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.False(WrapperValidation.WillPromoteToCdeclMethodWrapper(env));
+    }
+
+    [Theory]
+    [InlineData(false, ParameterOwnership.Owned)]
+    [InlineData(true, ParameterOwnership.Owned)]
+    [InlineData(false, ParameterOwnership.Shared)]
+    public void QualifiedStringInout_EmitsMatchingNativeAndManagedStorageWithOwnedValueSibling(bool throws, ParameterOwnership ownership)
+    {
+        var db = CreateTypeDatabase();
+        db.AsyncLibraryName = "TestModuleSwiftBindings";
+        Assert.True(db.TryGetTypeRecord(new NamedTypeSpec("TestModule.Tag"), out var valueRecord));
+        valueRecord.Flags = TypeRecordFlags.RequiresMemoryManagement; // nonfrozen, nontrivial
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("replace", CreateClassDecl("Loader", module), module);
+        method.Throws = throws;
+        method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec("Swift.Int");
+        var value = CreateArg("value", new NamedTypeSpec("TestModule.Tag"), module);
+        value.Ownership = ownership;
+        method.CSSignature.Add(value);
+        method.CSSignature.Add(CreateArg("before", new NamedTypeSpec("Swift.String"), module));
+        var text = CreateArg("text", new NamedTypeSpec("Swift.String"), module);
+        text.IsInOut = true;
+        method.CSSignature.Add(text);
+        method.CSSignature.Add(CreateArg("after", new NamedTypeSpec("Swift.String"), module));
+
+        var (managed, native) = EmitMethod(method, db); // Natural MethodHandler eligibility, no flag injection.
+
+        Assert.Contains("CallConvCdecl", managed);
+        Assert.Contains("LibraryImport(\"TestModuleSwiftBindings\"", managed);
+        Assert.Contains("ref string text", managed);
+        Assert.Contains("ref Swift.SwiftString.Buffer text", managed);
+        Assert.Contains("ref textDisposable.BufferRef", managed);
+        Assert.Contains("new SwiftString(text)", managed);
+        Assert.Contains("text = textSwift.ToString();", managed);
+        Assert.DoesNotContain("text_w0", managed);
+        Assert.DoesNotContain("text_w1", managed);
+        Assert.DoesNotContain("BeginValueTransfer", managed);
+        Assert.DoesNotContain("SwiftSelf", managed);
+        Assert.DoesNotContain("ref SwiftError", managed);
+        Assert.Contains("new SwiftString.EphemeralSwiftString(before)", managed);
+        Assert.Contains("new SwiftString.EphemeralSwiftString(after)", managed);
+        Assert.Contains("nint before_w0", managed);
+        Assert.Contains("nint after_w1", managed);
+        Assert.Contains("_ text: UnsafeMutableRawPointer", native);
+        Assert.Contains("var textVal = text.assumingMemoryBound(to: Swift.String.self).pointee", native);
+        Assert.Contains("text.assumingMemoryBound(to: Swift.String.self).pointee = textVal", native);
+        Assert.Contains("defer {", native);
+        Assert.Contains("text: &textVal", native);
+        Assert.Contains("value.assumingMemoryBound(to: TestModule.Tag.self).pointee", native);
+        if (throws)
+        {
+            Assert.Contains("out IntPtr errorPtr", managed);
+            Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", native);
+            int copyback = managed.IndexOf("text = textSwift.ToString();", System.StringComparison.Ordinal);
+            Assert.True(copyback > managed.IndexOf("SwiftMarshal.ThrowSwiftError", System.StringComparison.Ordinal));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NonXCFrameworkStringInout_StillEmitsRealDirectValueTransfer(bool staticStruct)
+    {
+        var db = CreateTypeDatabase(); // No wrapper library, real direct-generation context.
+        Assert.True(db.TryGetTypeRecord(new NamedTypeSpec("TestModule.Tag"), out var valueRecord));
+        valueRecord.Flags = TypeRecordFlags.RequiresMemoryManagement;
+        var module = CreateModuleDecl("TestModule");
+        TypeDecl parent = staticStruct ? CreateFrozenStructDecl("Tag", module) : CreateClassDecl("Loader", module);
+        if (parent is StructDecl structParent)
+            structParent.IsFrozen = false;
+        var method = CreateMethod("replace", parent, module);
+        if (staticStruct)
+            method.MethodType = MethodType.Static;
+        var value = CreateArg("value", new NamedTypeSpec("TestModule.Tag"), module);
+        value.Ownership = ParameterOwnership.Owned;
+        method.CSSignature.Add(value);
+        var text = CreateArg("text", new NamedTypeSpec("Swift.String"), module);
+        text.IsInOut = true;
+        method.CSSignature.Add(text);
+        var (managed, native) = EmitMethod(method, db);
+        Assert.Contains("CallConvSwift", managed);
+        // A nonfinal class instance method resolves to its vtable dispatch export.
+        // A static struct method retains the original symbol and has no receiver slot.
+        string expectedEntry = method.MangledName + (staticStruct ? "" : "Tj");
+        Assert.True(managed.Contains("EntryPoint = \"" + expectedEntry + "\"", System.StringComparison.Ordinal), managed);
+        Assert.DoesNotContain("throw new NotSupportedException", managed);
+        Assert.Contains("OwnedArgument.BeginValueTransfer<TestModule.Tag>(value.Payload)", managed);
+        Assert.Contains("valueOwnedTransfer.Complete();", managed);
+        Assert.Contains("ref textDisposable.BufferRef", managed);
+        Assert.Contains("text = textSwift.ToString();", managed);
+        Assert.DoesNotContain("@_cdecl", native);
+    }
+
     [Fact]
     public void CdeclMethodWrapper_StringParam_UsesEphemeralStackBuffer()
     {
@@ -97,6 +281,171 @@ public class StringByValueFastPathEmitterTests
 
         Assert.DoesNotContain("EphemeralSwiftString", csOutput);
         Assert.Contains("new SwiftString(name)", csOutput);
+        Assert.DoesNotContain("name = nameSwift.ToString();", csOutput);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DirectStringInout_WritesBackInFinallyAfterErrorAndReturnConversion(bool throws)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var parent = CreateClassDecl("Loader", module);
+        var method = CreateMethod("replace", parent, module);
+        method.Throws = throws;
+        method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec("TestModule.Loader");
+        var argument = CreateArg("name", new NamedTypeSpec("Swift.String"), module);
+        argument.IsInOut = true;
+        method.CSSignature.Add(argument);
+
+        var (output, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("ref string name", output);
+        Assert.Contains("ref nameDisposable.BufferRef", output);
+        var writeback = output.IndexOf("name = nameSwift.ToString();", System.StringComparison.Ordinal);
+        Assert.True(writeback >= 0, output);
+        var finallyIndex = output.LastIndexOf("finally", writeback, System.StringComparison.Ordinal);
+        var call = output.IndexOf("ref nameDisposable.BufferRef", System.StringComparison.Ordinal);
+        Assert.True(finallyIndex > call, output);
+        // The managed return conversion is evaluated before finally. A failed String
+        // conversion therefore cannot strand the newly returned native class reference.
+        Assert.Contains("return ", output.Substring(call, finallyIndex - call));
+        if (throws)
+            Assert.Contains("SwiftMarshal.ThrowSwiftError", output.Substring(call, finallyIndex - call));
+        Assert.Contains("= true;", output.Substring(call, finallyIndex - call));
+        Assert.Contains("if (", output.Substring(finallyIndex, writeback - finallyIndex));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DirectStringInout_ConstructorAndFailableFactoryWriteBack(bool failable)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var parent = CreateFrozenStructDecl("Tag", module);
+        var constructor = CreateConstructor(parent, module);
+        constructor.IsFailable = failable;
+        var argument = CreateArg("label", new NamedTypeSpec("Swift.String"), module);
+        argument.IsInOut = true;
+        constructor.CSSignature.Add(argument);
+
+        var (output, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("ref string label", output);
+        var writeback = output.IndexOf("label = labelSwift.ToString();", System.StringComparison.Ordinal);
+        Assert.True(writeback >= 0, output);
+        var finallyIndex = output.LastIndexOf("finally", writeback, System.StringComparison.Ordinal);
+        Assert.True(finallyIndex > output.IndexOf("ref labelDisposable.BufferRef", System.StringComparison.Ordinal), output);
+    }
+
+    [Fact]
+    public void DirectStringInout_MultipleArgumentsWriteBackInDeclarationOrder()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("replaceBoth", CreateClassDecl("Loader", module), module);
+        foreach (var name in new[] { "first", "second" })
+        {
+            var argument = CreateArg(name, new NamedTypeSpec("Swift.String"), module);
+            argument.IsInOut = true;
+            method.CSSignature.Add(argument);
+        }
+
+        var (output, _) = EmitMethod(method, typeDatabase);
+
+        var first = output.IndexOf("first = firstSwift.ToString();", System.StringComparison.Ordinal);
+        var second = output.IndexOf("second = secondSwift.ToString();", System.StringComparison.Ordinal);
+        Assert.True(first >= 0 && second > first, output);
+    }
+
+    [Fact]
+    public void DirectStringInout_CallCompletionLocalAvoidsParameterCollision()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("replace", CreateClassDecl("Loader", module), module);
+        var argument = CreateArg("__stringInoutCallCompleted", new NamedTypeSpec("Swift.String"), module);
+        argument.IsInOut = true;
+        method.CSSignature.Add(argument);
+
+        var (output, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("bool __stringInoutCallCompleted =", output);
+        Assert.Contains("__stringInoutCallCompleted = __stringInoutCallCompletedSwift.ToString();", output);
+    }
+
+    [Fact]
+    public void DirectStringInout_ObjCRootedHelperReleasesPendingHandleOnConversionFailure()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var parent = CreateClassDecl("Loader", module);
+        parent.IsObjCRooted = true;
+        var constructor = CreateConstructor(parent, module);
+        constructor.Throws = true;
+        var argument = CreateArg("label", new NamedTypeSpec("Swift.String"), module);
+        argument.IsInOut = true;
+        constructor.CSSignature.Add(argument);
+
+        var (output, _) = EmitConstructor(constructor, typeDatabase);
+
+        var pending = output.IndexOf("__stringInoutUnadoptedObjCResult = result;", System.StringComparison.Ordinal);
+        var error = output.IndexOf("SwiftMarshal.ThrowSwiftError", System.StringComparison.Ordinal);
+        Assert.True(error >= 0 && pending > error, output);
+        var writeback = output.IndexOf("label = labelSwift.ToString();", System.StringComparison.Ordinal);
+        var release = output.IndexOf("Arc.UnknownObjectRelease(__stringInoutUnadoptedObjCResult)", System.StringComparison.Ordinal);
+        Assert.True(release > writeback && writeback > pending, output);
+        Assert.Contains("catch", output.Substring(writeback, release - writeback));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CdeclOptionalStringInout_WritesBackSomeAndNoneAfterErrorConversion(bool throws)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("replaceOptional", CreateClassDecl("Loader", module), module);
+        method.UsesCdeclMethodWrapper = true;
+        method.Throws = throws;
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var argument = CreateArg("name", optional, module);
+        argument.IsInOut = true;
+        method.CSSignature.Add(argument);
+
+        var (output, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("ref string? name", output);
+        Assert.Contains("if (nameSwift.HasValue)", output);
+        Assert.Contains("using var __nameInoutValue = nameSwift.Some;", output);
+        Assert.Contains("name = __nameInoutValue.ToString();", output);
+        Assert.Contains("name = null;", output);
+        var writeback = output.IndexOf("if (nameSwift.HasValue)", System.StringComparison.Ordinal);
+        var finallyIndex = output.LastIndexOf("finally", writeback, System.StringComparison.Ordinal);
+        Assert.True(finallyIndex >= 0, output);
+        Assert.Contains("if (__stringInoutCallCompleted)", output.Substring(finallyIndex, writeback - finallyIndex));
+        if (throws)
+            Assert.True(output.IndexOf("SwiftMarshal.ThrowSwiftError", System.StringComparison.Ordinal) < finallyIndex, output);
+    }
+
+    [Fact]
+    public void CdeclOptionalStringByValue_DoesNotWriteBack()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var method = CreateMethod("readOptional", CreateClassDecl("Loader", module), module);
+        method.UsesCdeclMethodWrapper = true;
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        method.CSSignature.Add(CreateArg("name", optional, module));
+
+        var (output, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("InoutValue", output);
+        Assert.DoesNotContain("__stringInoutCallCompleted", output);
     }
 
     [Fact]
@@ -209,7 +558,7 @@ public class StringByValueFastPathEmitterTests
         return method;
     }
 
-    private static MethodDecl CreateConstructor(StructDecl parentDecl, ModuleDecl moduleDecl)
+    private static MethodDecl CreateConstructor(TypeDecl parentDecl, ModuleDecl moduleDecl)
     {
         var ctor = new MethodDecl
         {
@@ -330,6 +679,16 @@ public class StringByValueFastPathEmitterTests
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct,
                 InlineSize = 16
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 

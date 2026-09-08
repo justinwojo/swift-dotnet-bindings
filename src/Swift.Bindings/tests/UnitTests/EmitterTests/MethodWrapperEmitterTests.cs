@@ -886,10 +886,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_InoutStringParam_ReturnsFalse()
+    public void ShouldEmitWrapper_InoutStringParam_ReturnsTrue()
     {
-        // Inout String blocked by Guard 5d: C# decomposes String to 2 nint words but
-        // MapInout produces a single UnsafeMutableRawPointer, creating ABI mismatch.
+        // Ordinary synchronous method wrappers use one initialized owning String address.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -933,7 +932,7 @@ public class MethodWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -1383,8 +1382,8 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void HasCdeclCompatibleFunctionShape_InoutString_ReturnsFalse()
     {
-        // Guard 5d: inout String creates ABI mismatch — C# decomposes String to 2 nint words
-        // but MapInout produces a single UnsafeMutableRawPointer.
+        // Secondary producers have not qualified initialized String storage/writeback.
+        // The shared function-shape gate must retain its default-off capability.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

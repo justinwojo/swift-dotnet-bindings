@@ -272,6 +272,7 @@ namespace BindingsGeneration
                 // Allocate buffer for optional result
                 csWriter.WriteLine("// Allocate buffer for SwiftOptional<EnumType> result");
                 csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
+                csWriter.WriteLine("bool resultInitialized = false;");
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -308,6 +309,10 @@ namespace BindingsGeneration
 
                 csWriter.WriteLine();
 
+                // All three native init(rawValue:) routes are nonthrowing. Only a returned
+                // call initializes Optional<Self>; conversion/import failures leave raw storage.
+                csWriter.WriteLine("resultInitialized = true;");
+
                 // Check if Some or None via enum tag
                 csWriter.WriteLine("// Check if result is Some (tag 0) or None (tag 1)");
                 csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
@@ -336,7 +341,10 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("// Clean up the optional buffer");
+                csWriter.WriteLine("if (resultInitialized)");
+                csWriter.Indent++;
                 csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+                csWriter.Indent--;
                 csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

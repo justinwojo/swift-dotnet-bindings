@@ -483,17 +483,10 @@ internal static class CollectionProjectionEmitter
         PInvokeHelperContext pinvokeHelperContext,
         string pinvokeMethodName)
     {
-        // NativeMemory.Alloc the buffer (not stackalloc) because some Element
-        // types adopt the handle in their NewFromPayload constructor (non-frozen
-        // struct pattern — stores the provided pointer directly in the Payload
-        // SafeHandle). A stack buffer would die when the indexer returns, leaving
-        // the new TElement with a dangling pointer. NativeMemory.Alloc lets the
-        // adopting TElement take ownership. If TElement uses copy semantics
-        // instead (frozen-struct-as-class: allocates its own buffer and copies
-        // via VWT.InitializeWithCopy), we detect that by comparing the returned
-        // object's Payload handle against our allocation and free it ourselves
-        // to avoid a leak. Single-generic-param structs only (TryFindBacking
-        // enforces that).
+        // The witness initializes an owned value only on bounds success. The shared slot
+        // reader transfers that value into an independent result, so this caller always
+        // frees the temporary storage. Track unconsumed initialization separately: neither
+        // raw bounds-failure bytes nor a successfully moved result may be destroyed here.
         var tparam = structDecl.GenericParameters[0];
         var csGenericName = NameProvider.GetCSharpGenericParameterName(tparam, 0);
 
@@ -519,6 +512,7 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine("void* __cdeclBuf = NativeMemory.Alloc(__size);");
+        csWriter.WriteLine("bool __slotLive = false;");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -534,20 +528,17 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine("throw new global::System.ArgumentOutOfRangeException(nameof(index), index, "
             + "$\"Index must be non-negative and less than the collection's element count ({__bounds}).\");");
         csWriter.Indent--;
-        csWriter.WriteLine($"var __element = SwiftMarshal.MarshalFromSwift<{elementCsName}>(new IntPtr(__cdeclBuf));");
-        csWriter.WriteLine("if (__element is ISwiftObject __so && __so.SwiftHandle == (IntPtr)__cdeclBuf)");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("__cdeclBuf = null;");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
+        csWriter.WriteLine("__slotLive = true;");
+        csWriter.WriteLine($"var __element = SwiftMarshal.MarshalMovedValueFromSlot<{elementCsName}>(__cdeclBuf, {csGenericName}Metadata);");
+        csWriter.WriteLine("__slotLive = false;");
         csWriter.WriteLine("return __element;");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("if (__cdeclBuf != null) NativeMemory.Free(__cdeclBuf);");
+        csWriter.WriteLine($"if (__slotLive) SwiftMarshal.DestroyWireBufferRetains((IntPtr)__cdeclBuf, {csGenericName}Metadata);");
+        csWriter.WriteLine("NativeMemory.Free(__cdeclBuf);");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.Indent--;

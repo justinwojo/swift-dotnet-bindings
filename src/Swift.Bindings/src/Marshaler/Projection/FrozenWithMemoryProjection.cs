@@ -59,8 +59,7 @@ public class FrozenWithMemoryProjection : ITypeProjection
             // The lowered buffer carries the wrapper's own references. The wrapper is the caller's
             // long-lived object and destroys them on Dispose, so a consuming callee needs a count of
             // its own rather than a share of that one.
-            OwnedHandOverStatement =
-                $"global::Swift.Runtime.OwnedArgument.Retain<{_typeName}>({paramName}.Payload);"
+            OwnedValueArgument = new(_typeName, $"{paramName}.Payload")
         };
     }
 

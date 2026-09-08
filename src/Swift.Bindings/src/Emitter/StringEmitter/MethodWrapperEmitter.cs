@@ -95,7 +95,8 @@ public static class MethodWrapperEmitter
         // (`() async throws -> T` with T a blittable primitive) are bridged via
         // the async wrapper's withCheckedThrowingContinuation harness, so they fall
         // outside the "unsupported" bucket.
-        if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
+        var hasClosureParameters = env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure);
+        if (hasClosureParameters)
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return WrapperEligibility.Reject("closure_params");
@@ -107,8 +108,19 @@ public static class MethodWrapperEmitter
                 return WrapperEligibility.Reject("async_closure");
         }
 
-        // 11b. Inout params with types that have C# ABI mismatch (String → 2 words, class → Unmanaged, etc.)
-        if (WrapperValidation.HasInoutWithAbiMismatch(env))
+        // 11b. This ordinary synchronous producer owns initialized String storage through
+        // MapInout + defer and the managed owning BufferRef/finally plan. Other producers
+        // keep the shared capability off. Do not infer closure/generic/noncopyable
+        // compositions from that single-address String contract.
+        var supportsInoutString = env.MethodDecl.CSSignature.Skip(1).Any(a =>
+                a.IsInOut && MarshallingHelpers.IsSwiftString(a.SwiftTypeSpec)) &&
+            !env.MethodDecl.IsAsync && !env.MethodDecl.IsGeneric &&
+            parentTypeDecl?.IsGeneric != true && !hasClosureParameters &&
+            !env.ClosureHandler.IsClosure(env.MethodDecl.CSSignature[0]) &&
+            !WrapperValidation.IsNonCopyableStructParent(env.ParentDecl) &&
+            !env.MethodDecl.CSSignature.Any(a => WrapperValidation.IsNonCopyableType(
+                a.SwiftTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl));
+        if (WrapperValidation.HasInoutWithAbiMismatch(env, supportsInoutString))
             return WrapperEligibility.Reject("inout_abi_mismatch");
 
         // 11c. Variadic parameters are supported via the unsafeBitCast bridge when the shape is

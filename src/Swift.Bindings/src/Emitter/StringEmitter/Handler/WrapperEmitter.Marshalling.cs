@@ -232,9 +232,8 @@ namespace BindingsGeneration
         /// destroy must stay armed, and one uniform mechanism spares every arm from having to
         /// classify which of the two it holds.</para>
         ///
-        /// <para>Emitted before the call on purpose: should it throw, the value leaks one count
-        /// instead of reaching a consuming callee at +0 and being over-released — the same trade the
-        /// payload-donating arms make.</para>
+        /// <para>The lease rolls the copy back if later setup or native entry fails. Native
+        /// return completes it before managed error/result conversion.</para>
         /// </summary>
         private void EmitOwnedArgumentRetain(
             CSharpWriter csWriter, ArgumentDecl argumentDecl, string carrierTypeName, string payloadExpression)
@@ -242,8 +241,8 @@ namespace BindingsGeneration
             if (!ConsumedByDirectCallee(argumentDecl))
                 return;
 
-            csWriter.WriteLine(
-                $"global::Swift.Runtime.OwnedArgument.Retain<{carrierTypeName}>({payloadExpression});");
+            EmitOwnedValueArgumentTransfer(csWriter, NameProvider.GetCSharpParameterName(argumentDecl),
+                carrierTypeName, payloadExpression);
         }
 
         /// <summary>
@@ -276,49 +275,65 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitConsumedArgumentHandOvers(CSharpWriter csWriter)
         {
+            foreach (var (csName, record) in GetPassThroughConsumedArguments())
+            {
+                if (record.Kind == TypeRecordKind.Class)
+                {
+                    // Provisional +1 and pin share one lease. A later argument/setup/entry failure
+                    // rolls this retain back; native return completes it before error conversion.
+                    var leaseName = RegisterOwnedArgumentTransfer(csName);
+                    csWriter.WriteLine($"using var {leaseName} = new global::Swift.Runtime.OwnedArgument.ClassTransfer({csName}.Payload);");
+                }
+                else if (record.Kind == TypeRecordKind.Struct)
+                {
+                    EmitOwnedValueArgumentTransfer(csWriter, csName, record.CSharpTypeName.ToString(), $"{csName}.Payload");
+                }
+            }
+        }
+
+        private readonly List<string> _ownedArgumentTransfers = new();
+        private SyntheticNameScope? _ownedArgumentTransferNames;
+
+        private string RegisterOwnedArgumentTransfer(string parameterName)
+        {
+            _ownedArgumentTransferNames ??= new SyntheticNameScope(_wrapperSignature.Parameters.Select(p => p.Name)
+                .Concat(new[] { ReturnLocalName, ResultPtrName, HasValuePtrName, SwiftIndirectResultName,
+                    BufferPtrName, ReturnMetadataName, _env.SyntheticLocals.InnerMetadata }));
+            var name = _ownedArgumentTransferNames.Reserve($"{NameProvider.StripVerbatimPrefix(parameterName)}OwnedTransfer");
+            _ownedArgumentTransfers.Add(name);
+            return name;
+        }
+
+        private void EmitOwnedValueArgumentTransfer(CSharpWriter csWriter, string parameterName,
+            string carrierTypeName, string payloadExpression)
+        {
+            var leaseName = RegisterOwnedArgumentTransfer(parameterName);
+            csWriter.WriteLine($"using var {leaseName} = global::Swift.Runtime.OwnedArgument.BeginValueTransfer<{carrierTypeName}>({payloadExpression});");
+        }
+
+        private void EmitConsumedArgumentTransfersCompleted(CSharpWriter csWriter)
+        {
+            // Completion reads the actual creation inventory, never independently reselects args.
+            foreach (var leaseName in _ownedArgumentTransfers)
+                csWriter.WriteLine($"{leaseName}.Complete();");
+        }
+
+        // Marshalled/generic carriers register their handover where their setup is emitted.
+        private IEnumerable<(string Name, TypeRecord Record)> GetPassThroughConsumedArguments()
+        {
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
                 if (!ConsumedByDirectCallee(argumentDecl))
                     continue;
-
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
-
-                // Only the pass-through arm — a parameter the P/Invoke names as a bare SafeHandle
-                // whose call expression is the object's payload. Anything the marshalling above
-                // rewrote into a buffer variable already carried its own transfer.
                 if (!_pInvokeSignature.Parameters.Any(p => p.Name == csName
                                                            && p.Type is MarshalledType.NonFrozenSafeHandleType))
                     continue;
-
-                if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec)
+                if (argumentDecl.SwiftTypeSpec is not NamedTypeSpec namedSpec || namedSpec.GenericParameters.Count > 0)
                     continue;
-
-                // A bound generic reaches the callee through the marshalling above, which spells its
-                // own transfer; its record also names the UNBOUND type, which would not name a
-                // metadata source that compiles here.
-                if (namedSpec.GenericParameters.Count > 0)
-                    continue;
-
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
-                if (!_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
-                    continue;
-
-                if (record.Kind == TypeRecordKind.Class)
-                {
-                    // Pinned across the retain and the call that follows it, so the handle cannot be
-                    // finalized between reading the pointer and Swift's entry.
-                    csWriter.WriteLine($"using SafeHandlePin {csName}OwnedPin = new SafeHandlePin({csName}.Payload);");
-                    csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}OwnedPin.Handle);");
-                }
-                else if (record.Kind == TypeRecordKind.Struct)
-                {
-                    // Value-witness copy discarded without a destroy: the copy's retains stay
-                    // outstanding on the value at the caller's own address, so the pointer the
-                    // P/Invoke passes arrives carrying the count the callee releases. Retain pins the
-                    // handle itself for the duration of the copy.
-                    csWriter.WriteLine(
-                        $"global::Swift.Runtime.OwnedArgument.Retain<{record.CSharpTypeName}>({csName}.Payload);");
-                }
+                if (_env.TypeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
+                    yield return (csName, record);
             }
         }
 
@@ -1070,7 +1085,7 @@ namespace BindingsGeneration
             // ({csName}_w0, {csName}_w1) match the P/Invoke parameter names emitted by PInvokeEmitter,
             // so GetCallArgumentString returns them directly; the heap setup is intentionally skipped
             // because the decompose path never references {csName}Disposable.
-            if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argumentDecl.SwiftTypeSpec))
+            if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argumentDecl))
             {
                 csWriter.WriteLine($"using var {csName}Swift = new SwiftString.EphemeralSwiftString({csName});");
                 csWriter.WriteLine($"var {csName}Buf = {csName}Swift.Buffer;");
@@ -1080,6 +1095,36 @@ namespace BindingsGeneration
             }
 
             MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
+
+            // BufferRef points into this owning SwiftString's pinned native payload.
+            // Only a synchronous public ref projection can receive post-call conversion.
+            if (!_env.MethodDecl.IsAsync && argumentDecl.IsInOut &&
+                _wrapperSignature.Parameters.Any(p => p.Name == csName && p.modifier == "ref" &&
+                    p.TypeString() == projection.PublicType))
+            {
+                if (projection is StringProjection)
+                    _stringInoutWritebacks.Add(new MarshalStatement.Line($"{csName} = {csName}Swift.ToString();"));
+                else if (projection is OptionalProjection { InnerProjection: StringProjection } &&
+                    _env.MethodDecl.UsesCdeclMethodWrapper && !_env.MethodDecl.IsConstructor)
+                {
+                    // The cdecl wrapper writes back into the owning Optional buffer.
+                    // Some returns an independent SwiftString copy, which must be disposed
+                    // even if its conversion throws. Direct/async Optional carriers have
+                    // separate contracts and do not acquire this writeback by inference.
+                    var names = new SyntheticNameScope(_wrapperSignature.Parameters.Select(p => p.Name)
+                        .Append(ReturnLocalName));
+                    var valueName = names.Reserve($"__{NameProvider.StripVerbatimPrefix(csName)}InoutValue");
+                    _stringInoutWritebacks.Add(new MarshalStatement.Block($"if ({csName}Swift.HasValue)", new()
+                    {
+                        new MarshalStatement.Using("var", valueName, $"{csName}Swift.Some"),
+                        new MarshalStatement.Line($"{csName} = {valueName}.ToString();")
+                    }));
+                    _stringInoutWritebacks.Add(new MarshalStatement.Block("else", new()
+                    {
+                        new MarshalStatement.Line($"{csName} = null;")
+                    }));
+                }
+            }
 
             // Swift takes an initializer's value parameters, and every parameter of a setter,
             // @owned — the callee releases what it was handed. The plan's setup read the lowered
@@ -1091,10 +1136,14 @@ namespace BindingsGeneration
             // destroys the buffer's contents itself and the cleanup after the call frees the storage
             // raw, so the transient's own count is what crosses over. Minting a second one there
             // leaves it outstanding for good.
-            if (plan.OwnedHandOverStatement is { } handOver
-                && ConsumedByDirectCallee(argumentDecl)
-                && !_inConventionOptionalNames.Contains(csName))
-                csWriter.WriteLine(handOver);
+            if (ConsumedByDirectCallee(argumentDecl) && !_inConventionOptionalNames.Contains(csName))
+            {
+                if (plan.OwnedValueArgument is { } valueArgument)
+                    EmitOwnedValueArgumentTransfer(csWriter, csName,
+                        valueArgument.CarrierTypeName, valueArgument.PayloadExpression);
+                else if (plan.OwnedHandOverStatement is { } handOver)
+                    csWriter.WriteLine(handOver);
+            }
 
             // Foundation.Data ABI decomposition for @_cdecl constructor/method wrappers:
             // Extract two nint words from the 16-byte Swift.Foundation.Data struct (mirrors the
@@ -1952,6 +2001,52 @@ namespace BindingsGeneration
             // Blittable frozen-struct inout readbacks, collected when their stack buffer was emitted.
             foreach (var line in _cdeclFrozenStructInoutWritebacks)
                 csWriter.WriteLine(line);
+        }
+
+        private void EmitStringInoutWritebackScopeStart(CSharpWriter csWriter, bool tracksUnadoptedObjCResult = false)
+        {
+            if (_stringInoutWritebacks.Count == 0) return;
+            var names = new SyntheticNameScope(_wrapperSignature.Parameters.Select(p => p.Name)
+                .Append(ReturnLocalName));
+            _stringInoutCallCompletedName = names.Reserve("__stringInoutCallCompleted");
+            csWriter.WriteLine($"bool {_stringInoutCallCompletedName} = false;");
+            if (tracksUnadoptedObjCResult)
+            {
+                // NativeHandle is an inert return carrier. The base constructor adopts
+                // it only after the helper returns, so a failed String writeback must
+                // release the helper's still-owned +1 instead of stranding it.
+                _stringInoutUnadoptedObjCResultName = names.Reserve("__stringInoutUnadoptedObjCResult");
+                csWriter.WriteLine($"IntPtr {_stringInoutUnadoptedObjCResultName} = IntPtr.Zero;");
+            }
+            csWriter.WriteLine("try");
+            EmitBodyStart(csWriter);
+        }
+
+        private void EmitStringInoutWritebackScopeEnd(CSharpWriter csWriter)
+        {
+            if (_stringInoutWritebacks.Count == 0) return;
+            EmitBodyEnd(csWriter);
+            csWriter.WriteLine("finally");
+            EmitBodyStart(csWriter);
+            csWriter.WriteLine($"if ({_stringInoutCallCompletedName})");
+            EmitBodyStart(csWriter);
+            if (_stringInoutUnadoptedObjCResultName != null)
+            {
+                csWriter.WriteLine("try");
+                EmitBodyStart(csWriter);
+            }
+            MarshalPlanRenderer.RenderStatements(csWriter, _stringInoutWritebacks);
+            if (_stringInoutUnadoptedObjCResultName != null)
+            {
+                EmitBodyEnd(csWriter);
+                csWriter.WriteLine("catch");
+                EmitBodyStart(csWriter);
+                csWriter.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRelease({_stringInoutUnadoptedObjCResultName});");
+                csWriter.WriteLine("throw;");
+                EmitBodyEnd(csWriter);
+            }
+            EmitBodyEnd(csWriter);
+            EmitBodyEnd(csWriter);
         }
 
         private void EmitProtocolWitnessTables(CSharpWriter csWriter)

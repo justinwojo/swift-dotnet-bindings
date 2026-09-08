@@ -9,26 +9,8 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Finding 11: <see cref="SwiftMarshal.MarshalCallbackArg{T}"/> marshals a borrowed (+0) Swift
-/// reference handed to a closure/callback by dispatching on the wrapper type's declared
-/// <see cref="PayloadConstructionSemantics"/> — it no longer blanket-suppresses the payload
-/// finalizer. <c>Adopt</c> suppresses (the wrapper adopted the borrowed pointer itself — Swift owns
-/// that memory outright, so both the Destroy and the free must be foreclosed). <c>Move</c> consumes
-/// via <see cref="ISwiftObject.ConsumePayloadBuffer"/>: the wrapper bitwise-transferred the borrowed
-/// words into a container it allocated itself, so cleanup must free that container WITHOUT
-/// value-witness-destroying the borrowed value (blanket suppression leaked the container per
-/// callback); the interface default falls back to suppress for Move types with no separable
-/// container. The owning <c>Copy</c> shape does <b>not</b> suppress — its <c>NewFromPayload</c> took
-/// an independent <c>+1</c> via <c>InitializeWithCopy</c>, so the SafeHandle must run to
-/// <c>Destroy</c> that owned copy. Suppressing it was the leak Finding 11 fixes.
-///
-/// These tests run on the desktop CoreCLR host. Each fake type returns an invalid
-/// <see cref="TypeMetadata"/> (so the class fast path is skipped and the semantics branch runs),
-/// declares its <see cref="PayloadConstructionSemantics"/>, and registers a NewFromPayload factory
-/// so the cache-first marshal path (<c>MarshalFromSwiftCore</c>) returns the instance. The fakes are
-/// unregistered in the by-Type dispatcher, so resolution exercises the reflection backstop
-/// (<c>InvokePayloadConstructionSemantics</c>). A type that records the
-/// <see cref="ISwiftObject.SuppressPayloadFinalizer"/> call proves whether the borrow path suppressed.
+/// Borrowed callback wrappers must own independent storage. Unresolved metadata may not
+/// silently adopt/move Swift's buffer; Copy constructors remain self-owning.
 /// </summary>
 public class BorrowedMarshalFinalizerTests
 {
@@ -60,8 +42,8 @@ public class BorrowedMarshalFinalizerTests
     }
 
     /// <summary>
-    /// Move shape WITHOUT a ConsumePayloadBuffer override: the interface default must fall back to
-    /// the conservative suppress treatment (leak-not-crash for a container inseparable from the value).
+    /// Move shape without a legacy ConsumePayloadBuffer override. Missing metadata must reject
+    /// before its factory can move a borrowed pointer.
     /// </summary>
     private sealed class MoveFake : ISwiftObject
     {
@@ -85,9 +67,8 @@ public class BorrowedMarshalFinalizerTests
     }
 
     /// <summary>
-    /// Move shape WITH a separable container (the SwiftString shape): overrides ConsumePayloadBuffer.
-    /// The Move arm must consume — freeing the wrapper-owned container stays live — and must NOT
-    /// blanket-suppress (that foreclosed the container free and leaked it per callback).
+    /// Move shape with the legacy consume seam. Its presence must not bypass the independent-copy
+    /// requirement when metadata is missing.
     /// </summary>
     private sealed class MoveConsumeFake : ISwiftObject
     {
@@ -152,49 +133,28 @@ public class BorrowedMarshalFinalizerTests
     }
 
     [Fact]
-    public void MarshalCallbackArg_AdoptSemantics_SuppressesPayloadFinalizer()
+    public void MarshalCallbackArg_AdoptWithoutMetadata_RejectsBeforeConstructing()
     {
-        NewFromPayloadDispatcher.Register(typeof(AdoptFake), _ => new AdoptFake());
-
-        var result = SwiftMarshal.MarshalCallbackArg<AdoptFake>(new IntPtr(0x5601));
-
-        Assert.NotNull(result);
-        // Adopt does not own the borrowed reference — the borrow path suppresses the payload finalizer.
-        Assert.True(result.PayloadFinalizerSuppressed);
-        // Adopt has no wrapper-owned container to reclaim: the adopted pointer IS Swift's memory,
-        // so freeing it would free Swift-owned memory. The consume seam must not fire.
-        Assert.False(result.PayloadBufferConsumed);
+        bool constructed = false;
+        NewFromPayloadDispatcher.Register(typeof(AdoptFake), _ => { constructed = true; return new AdoptFake(); });
+        Assert.Throws<SwiftRuntimeException>(() => SwiftMarshal.MarshalCallbackArg<AdoptFake>(new IntPtr(0x5601)));
+        Assert.False(constructed);
     }
 
     [Fact]
-    public void MarshalCallbackArg_MoveSemantics_NoOverride_FallsBackToSuppress()
+    public void MarshalCallbackArg_MoveWithoutMetadata_RejectsBeforeConstructing()
     {
-        NewFromPayloadDispatcher.Register(typeof(MoveFake), _ => new MoveFake());
-
-        var result = SwiftMarshal.MarshalCallbackArg<MoveFake>(new IntPtr(0x5602));
-
-        Assert.NotNull(result);
-        // A Move type with NO ConsumePayloadBuffer override reaches the interface default, which
-        // must fall back to the conservative suppress (leak-not-crash): a finalizer Destroy would
-        // over-release a value Swift still owns.
-        Assert.True(result.PayloadFinalizerSuppressed);
+        bool constructed = false;
+        NewFromPayloadDispatcher.Register(typeof(MoveFake), _ => { constructed = true; return new MoveFake(); });
+        Assert.Throws<SwiftRuntimeException>(() => SwiftMarshal.MarshalCallbackArg<MoveFake>(new IntPtr(0x5602)));
+        Assert.False(constructed);
     }
 
     [Fact]
-    public void MarshalCallbackArg_MoveSemantics_SeparableContainer_ConsumesInsteadOfSuppressing()
+    public void MarshalCallbackArg_MoveWithConsumeOverride_StillRequiresIndependentCopy()
     {
         NewFromPayloadDispatcher.Register(typeof(MoveConsumeFake), _ => new MoveConsumeFake());
-
-        var result = SwiftMarshal.MarshalCallbackArg<MoveConsumeFake>(new IntPtr(0x5605));
-
-        Assert.NotNull(result);
-        // The Move-arm leak fix: a Move wrapper with a separable container (SwiftString's shape)
-        // must have its container consumed — cleanup frees the wrapper-owned buffer without
-        // destroying the borrowed value...
-        Assert.True(result.PayloadBufferConsumed);
-        // ...and must NOT be blanket-suppressed, which foreclosed the container free and leaked
-        // the wrapper's own allocation on every callback invocation.
-        Assert.False(result.PayloadFinalizerSuppressed);
+        Assert.Throws<SwiftRuntimeException>(() => SwiftMarshal.MarshalCallbackArg<MoveConsumeFake>(new IntPtr(0x5605)));
     }
 
     [Fact]
@@ -213,15 +173,10 @@ public class BorrowedMarshalFinalizerTests
     }
 
     [Fact]
-    public void MarshalCallbackArg_DefaultNoOp_DoesNotThrow_WhenTypeHasNoPayloadOverride()
+    public void MarshalCallbackArg_AdoptDefaultWithoutMetadata_RejectsUnsafeBorrow()
     {
         NewFromPayloadDispatcher.Register(typeof(AdoptDefaultFake), _ => new AdoptDefaultFake());
-
-        // A non-owning type with no separately-finalizable payload falls through to the default
-        // no-op DIM (the value-type / self-payload / existential-proxy shape) and must not throw.
-        var result = SwiftMarshal.MarshalCallbackArg<AdoptDefaultFake>(new IntPtr(0x5604));
-
-        Assert.NotNull(result);
+        Assert.Throws<SwiftRuntimeException>(() => SwiftMarshal.MarshalCallbackArg<AdoptDefaultFake>(new IntPtr(0x5604)));
     }
 
     [Fact]

@@ -210,6 +210,7 @@ namespace BindingsGeneration
             // defaultedness), and without it a synthesized overload cannot tell whether a consumer
             // call site would bind it and an already-emitted member equally well (CS0121).
             var reservedOverloadShapes = new Dictionary<string, int>(StringComparer.Ordinal);
+            var withdrawnDefaultSources = new List<MethodDecl>();
             // Track collision counts per projected key for disambiguation suffix generation
             var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             // FB-1b: the first-declared failable init (init?/init!) to own each projected C# key. Later
@@ -519,6 +520,8 @@ namespace BindingsGeneration
                                         (validationResult.Details ?? "") + UnresolvedAppleTypes.DescribeSuffix(
                                             methodDecl, typeDatabase, methodDecl.ModuleDecl?.Name));
                                     UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details, containingDecl: methodDecl.ParentDecl);
+                                    if (validationResult.Reason == SkipReason.EmitterFault)
+                                        withdrawnDefaultSources.Add(methodDecl);
                                 }
                             }
                             continue;
@@ -755,7 +758,10 @@ namespace BindingsGeneration
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         // Pass property names and P/Invoke helper context to the method environment
-                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
+                        var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector)
+                        {
+                            SourceDeclId = declOwner.Artifact.Decl,
+                        };
                         env.DisambiguatedNameInput = disambiguatedNameInput;
                         // FB-1b: a recovered colliding failable init emits under a label-disambiguated
                         // static-factory name; null leaves the emitter's default "TryCreate".
@@ -876,6 +882,13 @@ namespace BindingsGeneration
 
                 csWriter.WriteLine();
             }
+
+            // Healthy declarations keep priority over recovered convenience surfaces, regardless
+            // of source order. Replay uses the original producer's actual names and only claims
+            // the surviving trim signatures, never the withdrawn full member's reservation.
+            foreach (var source in withdrawnDefaultSources)
+                NativeDefaultOverloadRecovery.TryEmit(source, csWriter, swiftWriter, typeDatabase,
+                    context, siblingPropertyNames, emittedProjectedSignatures, reservedOverloadShapes, _logger);
         }
 
         /// <summary>

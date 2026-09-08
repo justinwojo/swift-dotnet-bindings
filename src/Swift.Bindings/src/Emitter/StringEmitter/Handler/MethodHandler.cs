@@ -90,6 +90,13 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var methodEnv = (MethodEnvironment)env;
+            // Complete the primary artifact before independently owned native-default siblings.
+            // Keep the enclosing identity (including accessor ownership and pre-debug signature)
+            // so adding child overloads cannot remove this primary from the whole-scope inventory.
+            using var primaryCsScope = csWriter.BeginFragment(
+                csWriter.Fragments.InnermostOwner ?? FragmentOwners.ForDecl(methodEnv.MethodDecl));
+            using var primarySwiftScope = swiftWriter.BeginFragment(
+                swiftWriter.Fragments.InnermostOwner ?? FragmentOwners.ForDeclWrapper(methodEnv.MethodDecl));
             // Inject composition collector into existing ExistentialHandler if not already set.
             // Marshal() creates environments without the collector; Emit() has the context.
             // Must inject into the existing handler (not create a new env) because signature-building
@@ -871,6 +878,9 @@ namespace BindingsGeneration
             methodEnv.MethodDecl.MarkEmitted();
             ReportCollector.RecordMemberEmitted(methodEnv.MethodDecl);
 
+            primaryCsScope.Dispose();
+            primarySwiftScope.Dispose();
+
             // Post-processor table: only Scope=All processors run for constructors
             var postCtx = new PostProcessorContext(csWriter, swiftWriter, methodEnv, _logger,
                 context.GetEmissionContext(), context.MarkerProtocolConformances);
@@ -1114,6 +1124,13 @@ namespace BindingsGeneration
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
             var methodEnv = (MethodEnvironment)env;
+            // Complete the primary artifact before independently owned native-default siblings.
+            // Keep the enclosing identity (including accessor ownership and pre-debug signature)
+            // so adding child overloads cannot remove this primary from the whole-scope inventory.
+            using var primaryCsScope = csWriter.BeginFragment(
+                csWriter.Fragments.InnermostOwner ?? FragmentOwners.ForDecl(methodEnv.MethodDecl));
+            using var primarySwiftScope = swiftWriter.BeginFragment(
+                swiftWriter.Fragments.InnermostOwner ?? FragmentOwners.ForDeclWrapper(methodEnv.MethodDecl));
             // Inject composition collector into existing ExistentialHandler if not already set.
             // Marshal() creates environments without the collector; Emit() has the context.
             // Must inject into the existing handler (not create a new env) because signature-building
@@ -1874,6 +1891,9 @@ namespace BindingsGeneration
             {
                 ReportCollector.RecordMemberEmitted(methodEnv.MethodDecl);
             }
+
+            primaryCsScope.Dispose();
+            primarySwiftScope.Dispose();
 
             // Post-processor table: overload generation after normal emission
             var postCtx = new PostProcessorContext(csWriter, swiftWriter, methodEnv, _logger,

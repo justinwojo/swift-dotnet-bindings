@@ -213,21 +213,34 @@ public class BorrowedSlotParamDispatchTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveRecordCallbacks(200);
+        // Finish the allocating/callback thread before observing collectability. A no-inline
+        // call on the still-live test thread does not establish this prerequisite.
+        var observed = RunOnFinishedThread(() => DriveRecordCallbacks(200));
+        AssertEqual("iter#199/1", observed.received,
+            "the final copied-out callback value remains readable");
+        AssertEqual("iter#199/1", observed.original,
+            "the final Swift original remains readable after its callback");
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
             "repeated non-frozen-struct reverse-callback must not leak the copied-out payload");
+        var stats = LifetimeTracker.GetStats();
+        AssertEqual(200, stats.allocations, "exactly 200 native payloads allocated");
+        AssertEqual(200, stats.deallocations, "all 200 native payloads deallocated");
+        AssertEqual(0, stats.live, "no copied-out native payload remains live");
         TestLogger.Info("borrowed-slot struct reverse-callback: 200 payloads copied out and released");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void DriveRecordCallbacks(int n)
+    private static (string received, string original) DriveRecordCallbacks(int n)
     {
         var impl = new BorrowedSlotReceiverImpl();
         var driver = new BorrowedSlotDriver();
-        driver.DriveRecordRepeatedly(impl, iterations: n, tag: 1);
+        var original = driver.DriveRecordRepeatedly(impl, iterations: n, tag: 1);
+        var received = impl.LastRecordSummary;
         GC.KeepAlive(impl);
+        // Only managed text observations cross back to the test thread.
+        return (received, original);
     }
 }
 

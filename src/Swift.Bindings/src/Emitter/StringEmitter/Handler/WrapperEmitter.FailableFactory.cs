@@ -48,6 +48,9 @@ namespace BindingsGeneration
             // wrapper and the non-failable class convention. Struct failable inits (and CallConvSwift
             // class inits) keep the indirect SwiftOptional<Self> buffer path below.
             bool isClassCdecl = _env.MethodDecl.UsesCdeclConstructorWrapper && _env.ParentDecl is ClassDecl;
+            bool tracksOptionalResultLive = !isClassCdecl && !(_env.MethodDecl.UsesCdeclConstructorWrapper && isFrozenValue);
+            var resultLiveName = new SyntheticNameScope(_wrapperSignature.Parameters.Select(p => p.Name)
+                .Append(ReturnLocalName)).Reserve("__failableResultLive");
 
             // Emit error helper P/Invokes and closure callbacks before factory body
             EmitErrorHelperPInvokes(csWriter);
@@ -114,6 +117,7 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitAvailabilityGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitNonCopyableArgumentPreflight(csWriter);
 
             // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args.
             // Existential heap pointers are declared at the unsafe-block top scope so the
@@ -142,11 +146,13 @@ namespace BindingsGeneration
 
                 // Allocate buffer for SwiftOptional<Self> result
                 csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
+                if (tracksOptionalResultLive)
+                    csWriter.WriteLine($"bool {resultLiveName} = false;");
             }
 
             // try/finally brackets argument marshalling so SafeHandle AddRefs, GCHandles, and
             // existential heap buffers are always released — and, on the indirect path, the
-            // Optional<Self> buffer is destroyed and freed.
+            // initialized Optional<Self> value is destroyed and its storage is always freed.
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -176,8 +182,12 @@ namespace BindingsGeneration
             EmitArrayOwnershipRetain(csWriter);
             // Call P/Invoke. Indirect path writes Optional<Self> into resultBuffer; class-cdecl path
             // returns the retained class pointer (or null) into ReturnLocalName.
+            EmitStringInoutWritebackScopeStart(csWriter);
             EmitPInvokeCall(csWriter);
+            if (tracksOptionalResultLive)
+                EmitResultLiveMarker(csWriter, resultLiveName);
             EmitInConventionOptionalCleanup(csWriter);
+            EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitObjCExistentialConformerKeepAlive(csWriter);
 
             // Write back inout generic params before error check (so mutations survive exceptions)
@@ -264,6 +274,7 @@ namespace BindingsGeneration
                 }
             }
 
+            EmitStringInoutWritebackScopeEnd(csWriter);
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("finally");
@@ -275,8 +286,13 @@ namespace BindingsGeneration
                 // For frozen value types with @_cdecl wrappers, the Destroy is a no-op
                 // (no ARC reference counting needed), so skip it to avoid Mono JIT issues.
                 // Non-frozen structs need Destroy for proper reference cleanup.
-                if (!(_env.MethodDecl.UsesCdeclConstructorWrapper && isFrozenValue))
+                if (tracksOptionalResultLive)
+                {
+                    csWriter.WriteLine($"if ({resultLiveName})");
+                    csWriter.Indent++;
                     csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+                    csWriter.Indent--;
+                }
                 csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
             }
             EmitExistentialContainerCleanup(csWriter);

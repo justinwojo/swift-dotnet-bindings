@@ -8,7 +8,7 @@ namespace BindingsGeneration;
 /// separate from the width question <see cref="DirectOptionalAbi.UsesSwiftSideCarrier"/> answers.
 ///
 /// <para>SILGen lowers an ordinary <c>func</c> as <c>(@guaranteed Args…, @guaranteed self)</c>:
-/// the caller keeps ownership and the callee borrows. Two member kinds break that pattern and take
+/// the caller keeps ownership and the callee borrows. Two member kinds change the default to
 /// their arguments <c>@owned</c> (<c>@in</c> for an address-only type), meaning the callee releases
 /// them:</para>
 /// <list type="bullet">
@@ -25,7 +25,7 @@ namespace BindingsGeneration;
 /// rather than spelled out, which is why the test below is written against the member kind. What
 /// the ABI JSON does record is an <em>explicit</em> specifier, and an explicit <c>borrowing</c>
 /// overrides the member-kind default per parameter — so <see cref="ArgumentDecl.Ownership"/> is
-/// consulted as the exception, not as the source.</para>
+/// consulted for both explicitly borrowing and explicitly consuming parameters.</para>
 ///
 /// <para>Whether that hand-over actually reaches Swift depends on what the P/Invoke names. A
 /// Swift-source wrapper — a <c>@_cdecl</c> wrapper, a <c>@_silgen_name</c> free function, the
@@ -66,8 +66,9 @@ internal static class CalleeArgumentOwnership
     /// <summary>
     /// True when Swift's own lowering of <paramref name="methodDecl"/> takes
     /// <paramref name="argumentDecl"/> <c>@owned</c>. The member kind sets the default — on a setter
-    /// or an initializer every value parameter is consumed, and on everything else none is — but an
-    /// explicit ownership specifier on the parameter itself overrides it: SILGen lowers
+    /// or an initializer every value parameter is consumed, and ordinary methods borrow by default — but an
+    /// explicit ownership specifier on the parameter itself overrides it in either direction. Explicit
+    /// <c>consuming</c> takes ownership even on an ordinary free function or method; SILGen lowers
     /// <c>init(w: borrowing W, n: String)</c> as <c>(@guaranteed W, @owned String, …)</c>, so the
     /// annotated parameter is borrowed while its unannotated sibling is still consumed. Handing a
     /// borrowed parameter across at +1 strands a count for the life of the process, so the
@@ -75,7 +76,8 @@ internal static class CalleeArgumentOwnership
     /// <see cref="ParameterOwnership.Default"/> and keeps the member-kind answer.
     /// </summary>
     internal static bool IsConsumedByCallee(MethodDecl methodDecl, ArgumentDecl argumentDecl)
-        => (IsSetter(methodDecl) || methodDecl.IsConstructor)
+        => (argumentDecl.Ownership == ParameterOwnership.Owned
+               || IsSetter(methodDecl) || methodDecl.IsConstructor)
            && argumentDecl.Ownership is not (ParameterOwnership.Shared or ParameterOwnership.InOut)
            && !argumentDecl.IsInOut
            && methodDecl.CSSignature.Skip(1).Any(a => ReferenceEquals(a, argumentDecl));

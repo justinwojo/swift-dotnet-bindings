@@ -21,7 +21,7 @@ public static class DefaultParameterOverloadEmitter
 
     /// <summary>
     /// Same as <see cref="TryEmitOverloads"/> but reports whether at least one overload was
-    /// actually emitted, measured by a C# buffer delta across the call.
+    /// actually emitted. A denial comment is not a recovered callable.
     ///
     /// Used by the placeholder-rejection recovery path in the method/constructor handlers: when a
     /// full signature is unbindable because a TRAILING DEFAULTED parameter resolves to the
@@ -41,9 +41,7 @@ public static class DefaultParameterOverloadEmitter
         ILogger logger,
         ModuleEmissionContext? emissionContext = null)
     {
-        var before = csWriter.Checkpoint();
-        TryEmitOverloads(csWriter, swiftWriter, env, logger, emissionContext);
-        return csWriter.Checkpoint().Length > before.Length;
+        return TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext);
     }
 
     /// <summary>
@@ -57,27 +55,66 @@ public static class DefaultParameterOverloadEmitter
         ILogger logger,
         ModuleEmissionContext? emissionContext = null)
     {
+        TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext);
+    }
+
+    private static bool TryEmitOverloadsWithRecipe(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ILogger logger,
+        ModuleEmissionContext? emissionContext)
+    {
+        emissionContext ??= env.EmissionContext;
+        DefaultOverloadReplayRecipe? recipe = null;
+        var producerEnv = env;
+        if (emissionContext != null && emissionContext.TryGetDefaultOverloadRecipe(env.SourceDeclId, out var previous))
+        {
+            recipe = previous;
+            producerEnv = recipe.CreateEnvironment(env);
+            producerEnv.EmissionContext = emissionContext;
+        }
+        var emitted = TryEmitOverloadsCore(csWriter, swiftWriter, producerEnv, logger, emissionContext);
+        // The core reads producer inputs and mutates its candidate declarations/environments.
+        // Capture only when a real bundle completed, preserving cheap declines (including unknown
+        // TypeSpecs on methods with no defaults). A swallowed containment signal abandons the render.
+        if (emitted && emissionContext != null && EmissionAttempt.Current?.Abandoned != true)
+        {
+            recipe ??= DefaultOverloadReplayRecipe.Capture(producerEnv);
+            emissionContext.RecordDefaultOverloadRecipe(recipe.SourceDeclId, recipe);
+        }
+        return emitted;
+    }
+
+    private static bool TryEmitOverloadsCore(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ILogger logger,
+        ModuleEmissionContext? emissionContext)
+    {
         var methodDecl = env.MethodDecl;
+        int emittedCount = 0;
 
         // Skip property accessors
         if (methodDecl.IsAccessor)
-            return;
+            return false;
 
         // Skip module-internal methods
         if (methodDecl.IsModuleInternal)
-            return;
+            return false;
 
         // Skip methods on internal parent types.
         // Note: nested types (e.g. OuterType.NestedType) are not registered in TypeDatabase,
         // so only check IsModuleInternal — TryGetTypeRecord would incorrectly reject them.
         if (methodDecl.ParentDecl is TypeDecl parentTypeDecl && parentTypeDecl.IsModuleInternal)
-            return;
+            return false;
 
         // Skip methods on generic parent types — Swift extension syntax can't express
         // the generic parameters (e.g., `extension Keyframe` instead of `extension Keyframe<T>`),
         // and generic type params (τ_0_0) in parameter types aren't valid Swift identifiers.
         if (methodDecl.ParentDecl is TypeDecl parentType && parentType.IsGeneric)
-            return;
+            return false;
 
         // Skip methods with method-level generics whose own params can't be expressed
         // in the @_silgen_name shim signature. We allow class-bound non-CSM async/throws
@@ -90,7 +127,7 @@ public static class DefaultParameterOverloadEmitter
         // (τ_0_0, τ_0_1, ...) — bail.
         if (methodDecl.IsGeneric &&
             !AsyncMethodGenericBridgeEmitter.IsEligible(methodDecl, env.TypeDatabase))
-            return;
+            return false;
 
         var trailingDefaultCount = CountTrailingDefaults(methodDecl);
 
@@ -108,7 +145,7 @@ public static class DefaultParameterOverloadEmitter
         }
 
         if (trailingDefaultCount == 0 && defaultedIndices.Count == 0)
-            return;
+            return false;
 
         // Default-parameter overloads on custom-global-actor-isolated parents emit as
         // `extension Type { static func _dbw_*(...) }`, and those extensions inherit the
@@ -132,7 +169,7 @@ public static class DefaultParameterOverloadEmitter
                 methodDecl.Name,
                 actorIsolatedParent.Name,
                 actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>");
-            return;
+            return false;
         }
 
         // When all trailing defaults have C#-mappable inline values the primary signature already
@@ -202,7 +239,7 @@ public static class DefaultParameterOverloadEmitter
         }
 
         if (trailingDefaultsAreMappable && !wantAllDefaultsForm)
-            return;
+            return false;
 
         // Cap accounting: the trim ladder keeps the WHOLE MaxOverloads budget, and the all-defaults
         // form is added on top of it rather than taking one of its slots. Charging both to one budget
@@ -241,98 +278,74 @@ public static class DefaultParameterOverloadEmitter
                 ? BuildOverloadDecl(env.EmissionSymbol, methodDecl, trim)
                 : BuildOverloadDeclDropping(env.EmissionSymbol, methodDecl, dropIndices);
 
-            // Note: HasClosureCdeclWrapper is NOT set on cloned overload decls.
-            // DefaultParam wrappers use @_silgen_name to intercept the original Swift symbol,
-            // which forces the function type to match the original ABI. Closure params must
-            // remain native Swift types in the wrapper. Only standalone closure wrappers
-            // (emitted at MethodHandler level with their own unique symbol) can use Cdecl params.
-
-            // Create environment with overload decl
-            var overloadEnv = new MethodEnvironment(
-                overloadDecl,
-                env.TypeDatabase,
-                env.SiblingPropertyNames,
-                env.PInvokeHelperContext,
-                env.CompositionCollector);
-            overloadEnv.DisambiguatedNameInput = env.DisambiguatedNameInput;
-            // When the primary method adopted a disambiguated ancestor slot name (e.g. `override
-            // ProcessSecond`), every generated trimmed/default-arg overload must emit under the SAME
-            // adopted name. DisambiguatedNameInput alone does not carry it — CSharpMethodName recomputes
-            // from the bare NameProvider name, which would yield `Process` and silently bind the trimmed
-            // overload to the wrong base slot. Propagate the adopted name.
-            overloadEnv.AdoptedOverrideCSharpName = env.AdoptedOverrideCSharpName;
-            // FB-1b: a recovered colliding failable init emits under a label-disambiguated factory name
-            // (e.g. TryCreateWithMessengerPageId); its default-arg trimmed overloads must share that name.
-            overloadEnv.FailableFactoryName = env.FailableFactoryName;
-            // Same for a recovered colliding NON-failable init: the primary emitted as a static
-            // `CreateWith{Labels}` factory, so its trimmed overloads must be factories of that name too —
-            // otherwise they would emit as constructors and re-create the collision the recovery resolved.
-            overloadEnv.InitFactoryName = env.InitFactoryName;
-            overloadEnv.EmissionContext = env.EmissionContext;
-
-            // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
-            // Compute the @_cdecl symbol from the original MangledName (before EmitSwiftWrapper changes it).
-            string? silgenSymbolForCdecl = null;
-            string? cdeclSymbolForRestore = null;
-            if (overloadDecl.IsConstructor && ConstructorWrapperEmitter.ShouldEmitWrapper(overloadEnv))
+            // Identity is fixed by the captured producer symbol. Deny before preparation or
+            // reservations so a withdrawn trim cannot consume a healthy sibling's name.
+            using var candidateCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(overloadDecl));
+            using var candidateSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(overloadDecl));
+            if (EmissionSeam.TryDenyUpFront(overloadDecl, csWriter))
+                continue;
+            EmissionSeam.Guard(overloadDecl, RecoveryScope.LeafApi, overloadDecl.ParentDecl as TypeDecl, () =>
             {
-                var parentType_ = overloadDecl.ParentDecl as TypeDecl;
-                // Save the @_silgen_name symbol (current MangledName = DBW_...) — the @_cdecl wrapper calls it
-                silgenSymbolForCdecl = overloadDecl.MangledName;
-                var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
-                    parentType_!.SwiftTypeName.Module,
-                    parentType_.Name,
-                    overloadDecl.MangledName);
-                cdeclSymbolForRestore = cdeclSymbol;
-                overloadDecl.UsesCdeclConstructorWrapper = true;
-                // UsesWrapperLibrary already set by BuildOverloadDecl
-                overloadEnv.PromoteSymbol(cdeclSymbol);
+                // Note: HasClosureCdeclWrapper is NOT set on cloned overload decls.
+                // DefaultParam wrappers use @_silgen_name to intercept the original Swift symbol,
+                // which forces the function type to match the original ABI. Closure params must
+                // remain native Swift types in the wrapper. Only standalone closure wrappers
+                // (emitted at MethodHandler level with their own unique symbol) can use Cdecl params.
 
-                // Propagate HasClosureParams for @_cdecl constructor overloads with closures
-                if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
-                    overloadDecl.HasClosureParams = true;
-            }
+                // Create environment with overload decl
+                var overloadEnv = new MethodEnvironment(
+                    overloadDecl,
+                    env.TypeDatabase,
+                    env.SiblingPropertyNames,
+                    env.PInvokeHelperContext,
+                    env.CompositionCollector);
+                overloadEnv.DisambiguatedNameInput = env.DisambiguatedNameInput;
+                // When the primary method adopted a disambiguated ancestor slot name (e.g. `override
+                // ProcessSecond`), every generated trimmed/default-arg overload must emit under the SAME
+                // adopted name. DisambiguatedNameInput alone does not carry it — CSharpMethodName recomputes
+                // from the bare NameProvider name, which would yield `Process` and silently bind the trimmed
+                // overload to the wrong base slot. Propagate the adopted name.
+                overloadEnv.AdoptedOverrideCSharpName = env.AdoptedOverrideCSharpName;
+                // FB-1b: a recovered colliding failable init emits under a label-disambiguated factory name
+                // (e.g. TryCreateWithMessengerPageId); its default-arg trimmed overloads must share that name.
+                overloadEnv.FailableFactoryName = env.FailableFactoryName;
+                // Same for a recovered colliding NON-failable init: the primary emitted as a static
+                // `CreateWith{Labels}` factory, so its trimmed overloads must be factories of that name too —
+                // otherwise they would emit as constructors and re-create the collision the recovery resolved.
+                overloadEnv.InitFactoryName = env.InitFactoryName;
+                overloadEnv.EmissionContext = env.EmissionContext;
 
-            // Set @_cdecl method wrapper flags BEFORE SignatureHandler construction.
-            // Mirrors the constructor wrapper pattern above for non-constructor methods.
-            // Check the ORIGINAL method's flag (not the overload's) because BuildOverloadDecl
-            // unconditionally sets UsesWrapperLibrary=true, which would cause ShouldEmitWrapper
-            // to return false on the overload.
-            string? silgenSymbolForMethodCdecl = null;
-            string? cdeclSymbolForMethodRestore = null;
-            if (!overloadDecl.IsConstructor && methodDecl.UsesCdeclMethodWrapper)
-            {
-                var parentType_ = overloadDecl.ParentDecl as TypeDecl;
-                var parentModule_ = overloadDecl.ParentDecl as ModuleDecl;
-                string moduleName_ = parentType_?.SwiftTypeName.Module ?? parentModule_?.Name ?? "";
-                string typeName_ = parentType_?.Name ?? "Free";
-                silgenSymbolForMethodCdecl = overloadDecl.MangledName;
-                var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
-                    moduleName_,
-                    typeName_,
-                    overloadDecl.Name,
-                    overloadDecl.MangledName);
-                cdeclSymbolForMethodRestore = cdeclSymbol;
-                overloadDecl.UsesCdeclMethodWrapper = true;
-                // UsesWrapperLibrary already set by BuildOverloadDecl
-                overloadEnv.PromoteSymbol(cdeclSymbol);
+                // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
+                // Compute the @_cdecl symbol from the original MangledName (before EmitSwiftWrapper changes it).
+                string? silgenSymbolForCdecl = null;
+                string? cdeclSymbolForRestore = null;
+                if (overloadDecl.IsConstructor && ConstructorWrapperEmitter.ShouldEmitWrapper(overloadEnv))
+                {
+                    var parentType_ = overloadDecl.ParentDecl as TypeDecl;
+                    // Save the @_silgen_name symbol (current MangledName = DBW_...) — the @_cdecl wrapper calls it
+                    silgenSymbolForCdecl = overloadDecl.MangledName;
+                    var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+                        parentType_!.SwiftTypeName.Module,
+                        parentType_.Name,
+                        overloadDecl.MangledName);
+                    cdeclSymbolForRestore = cdeclSymbol;
+                    overloadDecl.UsesCdeclConstructorWrapper = true;
+                    // UsesWrapperLibrary already set by BuildOverloadDecl
+                    overloadEnv.PromoteSymbol(cdeclSymbol);
 
-                // Propagate HasClosureParams for @_cdecl method overloads with closures
-                if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
-                    overloadDecl.HasClosureParams = true;
-            }
+                    // Propagate HasClosureParams for @_cdecl constructor overloads with closures
+                    if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
+                        overloadDecl.HasClosureParams = true;
+                }
 
-            // Also check if the overload itself qualifies for @_cdecl independently.
-            // The trimmed overload may have removed problematic params that blocked the base method.
-            // Guard 13 (UsesWrapperLibrary) is true because BuildOverloadDecl sets it;
-            // temporarily clear to run ShouldEmitWrapper.
-            // All eligible methods get @_cdecl wrappers — CallConvSwift is eliminated.
-            if (!overloadDecl.IsConstructor && silgenSymbolForMethodCdecl == null)
-            {
-                overloadDecl.UsesWrapperLibrary = false;
-                bool wrapperRequired = WrapperValidation.DetermineMethodWrapperDecision(overloadEnv) == WrapperDecision.WrapperRequired;
-                overloadDecl.UsesWrapperLibrary = true;
-                if (wrapperRequired)
+                // Set @_cdecl method wrapper flags BEFORE SignatureHandler construction.
+                // Mirrors the constructor wrapper pattern above for non-constructor methods.
+                // Check the ORIGINAL method's flag (not the overload's) because BuildOverloadDecl
+                // unconditionally sets UsesWrapperLibrary=true, which would cause ShouldEmitWrapper
+                // to return false on the overload.
+                string? silgenSymbolForMethodCdecl = null;
+                string? cdeclSymbolForMethodRestore = null;
+                if (!overloadDecl.IsConstructor && methodDecl.UsesCdeclMethodWrapper)
                 {
                     var parentType_ = overloadDecl.ParentDecl as TypeDecl;
                     var parentModule_ = overloadDecl.ParentDecl as ModuleDecl;
@@ -346,109 +359,142 @@ public static class DefaultParameterOverloadEmitter
                         overloadDecl.MangledName);
                     cdeclSymbolForMethodRestore = cdeclSymbol;
                     overloadDecl.UsesCdeclMethodWrapper = true;
+                    // UsesWrapperLibrary already set by BuildOverloadDecl
                     overloadEnv.PromoteSymbol(cdeclSymbol);
+
+                    // Propagate HasClosureParams for @_cdecl method overloads with closures
                     if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
                         overloadDecl.HasClosureParams = true;
                 }
-            }
 
-            // Check if the overload signature is fully marshallable
-            var signatureHandler = new SignatureHandler(overloadEnv);
-            if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
-            {
-                logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — signature contains placeholder", trim, methodDecl.Name);
-                continue;
-            }
-
-            // A closure-typed inout param can't be expressed by this @_silgen_name shim:
-            // EmitSwiftWrapper unconditionally forces @escaping onto every closure parameter
-            // it forwards (the original method may require it), but `inout` and `@escaping`
-            // are mutually exclusive on a Swift function parameter — swiftc rejects the
-            // combination outright. Skip rather than emit an uncompilable wrapper.
-            if (overloadDecl.CSSignature.Skip(1).Any(a => a.IsInOut && a.SwiftTypeSpec is ClosureTypeSpec))
-            {
-                logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — inout closure parameter cannot be expressed in the @_silgen_name shim", trim, methodDecl.Name);
-                continue;
-            }
-
-            // Check for collision with existing methods/ctors that have same name and param count
-            if (HasSignatureCollision(overloadDecl))
-            {
-                logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — collides with existing method", trim, methodDecl.Name);
-                continue;
-            }
-
-            // C6/C7: the projected C# signature this candidate would claim. Computed here (not at the
-            // reservation below) because the ambiguity filter needs the whole candidate set's
-            // signatures before the first of them is written.
-            //
-            // The key also seeds the API-manifest entry after emission: a recovered overload whose
-            // FULL signature was rejected has no primary manifest entry, so without this it lands in
-            // the generated C# but is absent from api-surface.md / the api-manifest — the exact drift
-            // the surface doc exists to prevent, one path deeper.
-            {
-                // Rebuild the key under the primary's disambiguated base name, so a trimmed overload of
-                // `ConfigureZebra` reserves `ConfigureZebra(...)` rather than the bare `Configure(...)`.
-                var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
-                // When the primary method adopted a disambiguated ancestor slot
-                // name, this trimmed overload emits under that SAME adopted name (propagated to
-                // overloadEnv.AdoptedOverrideCSharpName at construction above), so CSharpMethodName reads
-                // `ProcessSecond` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
-                // from the local NameProvider name, so substitute the adopted name into the key's name
-                // component — otherwise the reserved key (`Process()`) diverges from the emitted name
-                // (`ProcessSecond()`): a sibling naturally projecting to `ProcessSecond()` would not collide
-                // (→ duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
-                // mutually exclusive with a non-null DisambiguatedNameInput (a self-disambiguating override
-                // resolves adoption to null), so the two never compound.
-                if (overloadEnv.AdoptedOverrideCSharpName != null)
+                // Also check if the overload itself qualifies for @_cdecl independently.
+                // The trimmed overload may have removed problematic params that blocked the base method.
+                // Guard 13 (UsesWrapperLibrary) is true because BuildOverloadDecl sets it;
+                // temporarily clear to run ShouldEmitWrapper.
+                // All eligible methods get @_cdecl wrappers — CallConvSwift is eliminated.
+                if (!overloadDecl.IsConstructor && silgenSymbolForMethodCdecl == null)
                 {
-                    int keyParen = projectedKey.IndexOf('(');
-                    if (keyParen > 0)
-                        projectedKey = overloadEnv.AdoptedOverrideCSharpName + projectedKey.Substring(keyParen);
+                    overloadDecl.UsesWrapperLibrary = false;
+                    bool wrapperRequired = WrapperValidation.DetermineMethodWrapperDecision(overloadEnv) == WrapperDecision.WrapperRequired;
+                    overloadDecl.UsesWrapperLibrary = true;
+                    if (wrapperRequired)
+                    {
+                        var parentType_ = overloadDecl.ParentDecl as TypeDecl;
+                        var parentModule_ = overloadDecl.ParentDecl as ModuleDecl;
+                        string moduleName_ = parentType_?.SwiftTypeName.Module ?? parentModule_?.Name ?? "";
+                        string typeName_ = parentType_?.Name ?? "Free";
+                        silgenSymbolForMethodCdecl = overloadDecl.MangledName;
+                        var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                            moduleName_,
+                            typeName_,
+                            overloadDecl.Name,
+                            overloadDecl.MangledName);
+                        cdeclSymbolForMethodRestore = cdeclSymbol;
+                        overloadDecl.UsesCdeclMethodWrapper = true;
+                        overloadEnv.PromoteSymbol(cdeclSymbol);
+                        if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
+                            overloadDecl.HasClosureParams = true;
+                    }
                 }
-                // FB-1b: a recovered colliding failable init's default-arg trimmed overloads emit under the
-                // label-disambiguated factory name (overloadEnv.FailableFactoryName, propagated above), NOT the
-                // ctor name GetProjectedOverloadKey rebuilds. Re-key into the SAME "failable-factory:" namespace
-                // the main dedup loop reserved the full factory under (prefix + factory name + input-type list),
-                // so a trimmed factory overload dedups only against other factory overloads of the same
-                // name+arity. Without this the trimmed overload dedups in the ctor namespace and a trimmed
-                // input list matching an UNRELATED init's ctor(...) key would silently drop a valid overload —
-                // the very silent-drop FB-1b exists to prevent, one path deeper. The factory name already
-                // carries the disambiguation, so the numeric collision suffix applied above is irrelevant here
-                // (only the params substring, which the suffix leaves untouched, is used); adoption and a
-                // failable factory are mutually exclusive, so this never double-applies.
-                if (overloadEnv.FailableFactoryName != null)
+
+                // Check if the overload signature is fully marshallable
+                var signatureHandler = new SignatureHandler(overloadEnv);
+                if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
                 {
-                    int factoryParen = projectedKey.IndexOf('(');
-                    if (factoryParen > 0)
-                        projectedKey = "failable-factory:" + overloadEnv.FailableFactoryName + projectedKey.Substring(factoryParen);
+                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — signature contains placeholder", trim, methodDecl.Name);
+                    return;
                 }
-                // A recovered colliding NON-failable init's trimmed overloads likewise emit under the
-                // factory name rather than the ctor name the key builder rebuilds. This lane stays in the
-                // ORDINARY key namespace (unlike the failable one): its factory carries no trailing `out`,
-                // so `CreateWithHost(string)` really can duplicate a natural method of that name and inputs,
-                // and hiding it in a private namespace would fail open on exactly that CS0111.
-                if (overloadEnv.InitFactoryName != null)
+
+                // A closure-typed inout param can't be expressed by this @_silgen_name shim:
+                // EmitSwiftWrapper unconditionally forces @escaping onto every closure parameter
+                // it forwards (the original method may require it), but `inout` and `@escaping`
+                // are mutually exclusive on a Swift function parameter — swiftc rejects the
+                // combination outright. Skip rather than emit an uncompilable wrapper.
+                if (overloadDecl.CSSignature.Skip(1).Any(a => a.IsInOut && a.SwiftTypeSpec is ClosureTypeSpec))
                 {
-                    int initFactoryParen = projectedKey.IndexOf('(');
-                    if (initFactoryParen > 0)
-                        projectedKey = overloadEnv.InitFactoryName + projectedKey.Substring(initFactoryParen);
+                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — inout closure parameter cannot be expressed in the @_silgen_name shim", trim, methodDecl.Name);
+                    return;
                 }
-                prepared.Add(new PreparedOverload
+
+                // Check for collision with existing methods/ctors that have same name and param count
+                if (HasSignatureCollision(overloadDecl))
                 {
-                    Decl = overloadDecl,
-                    Env = overloadEnv,
-                    SignatureHandler = signatureHandler,
-                    SymbolTrim = trim,
-                    SilgenSymbolForCdecl = silgenSymbolForCdecl,
-                    CdeclSymbolForRestore = cdeclSymbolForRestore,
-                    SilgenSymbolForMethodCdecl = silgenSymbolForMethodCdecl,
-                    CdeclSymbolForMethodRestore = cdeclSymbolForMethodRestore,
-                    ProjectedKey = projectedKey,
-                    RequiredCount = OverloadAmbiguityGuard.RequiredCountFor(overloadDecl, env.TypeDatabase, projectedKey),
-                    DeclaredCount = overloadDecl.CSSignature.Count - 1,
-                });
-            }
+                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — collides with existing method", trim, methodDecl.Name);
+                    return;
+                }
+
+                // C6/C7: the projected C# signature this candidate would claim. Computed here (not at the
+                // reservation below) because the ambiguity filter needs the whole candidate set's
+                // signatures before the first of them is written.
+                //
+                // The key also seeds the API-manifest entry after emission: a recovered overload whose
+                // FULL signature was rejected has no primary manifest entry, so without this it lands in
+                // the generated C# but is absent from api-surface.md / the api-manifest — the exact drift
+                // the surface doc exists to prevent, one path deeper.
+                {
+                    // Rebuild the key under the primary's disambiguated base name, so a trimmed overload of
+                    // `ConfigureZebra` reserves `ConfigureZebra(...)` rather than the bare `Configure(...)`.
+                    var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+                    // When the primary method adopted a disambiguated ancestor slot
+                    // name, this trimmed overload emits under that SAME adopted name (propagated to
+                    // overloadEnv.AdoptedOverrideCSharpName at construction above), so CSharpMethodName reads
+                    // `ProcessSecond` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
+                    // from the local NameProvider name, so substitute the adopted name into the key's name
+                    // component — otherwise the reserved key (`Process()`) diverges from the emitted name
+                    // (`ProcessSecond()`): a sibling naturally projecting to `ProcessSecond()` would not collide
+                    // (→ duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
+                    // mutually exclusive with a non-null DisambiguatedNameInput (a self-disambiguating override
+                    // resolves adoption to null), so the two never compound.
+                    if (overloadEnv.AdoptedOverrideCSharpName != null)
+                    {
+                        int keyParen = projectedKey.IndexOf('(');
+                        if (keyParen > 0)
+                            projectedKey = overloadEnv.AdoptedOverrideCSharpName + projectedKey.Substring(keyParen);
+                    }
+                    // FB-1b: a recovered colliding failable init's default-arg trimmed overloads emit under the
+                    // label-disambiguated factory name (overloadEnv.FailableFactoryName, propagated above), NOT the
+                    // ctor name GetProjectedOverloadKey rebuilds. Re-key into the SAME "failable-factory:" namespace
+                    // the main dedup loop reserved the full factory under (prefix + factory name + input-type list),
+                    // so a trimmed factory overload dedups only against other factory overloads of the same
+                    // name+arity. Without this the trimmed overload dedups in the ctor namespace and a trimmed
+                    // input list matching an UNRELATED init's ctor(...) key would silently drop a valid overload —
+                    // the very silent-drop FB-1b exists to prevent, one path deeper. The factory name already
+                    // carries the disambiguation, so the numeric collision suffix applied above is irrelevant here
+                    // (only the params substring, which the suffix leaves untouched, is used); adoption and a
+                    // failable factory are mutually exclusive, so this never double-applies.
+                    if (overloadEnv.FailableFactoryName != null)
+                    {
+                        int factoryParen = projectedKey.IndexOf('(');
+                        if (factoryParen > 0)
+                            projectedKey = "failable-factory:" + overloadEnv.FailableFactoryName + projectedKey.Substring(factoryParen);
+                    }
+                    // A recovered colliding NON-failable init's trimmed overloads likewise emit under the
+                    // factory name rather than the ctor name the key builder rebuilds. This lane stays in the
+                    // ORDINARY key namespace (unlike the failable one): its factory carries no trailing `out`,
+                    // so `CreateWithHost(string)` really can duplicate a natural method of that name and inputs,
+                    // and hiding it in a private namespace would fail open on exactly that CS0111.
+                    if (overloadEnv.InitFactoryName != null)
+                    {
+                        int initFactoryParen = projectedKey.IndexOf('(');
+                        if (initFactoryParen > 0)
+                            projectedKey = overloadEnv.InitFactoryName + projectedKey.Substring(initFactoryParen);
+                    }
+                    prepared.Add(new PreparedOverload
+                    {
+                        Decl = overloadDecl,
+                        Env = overloadEnv,
+                        SignatureHandler = signatureHandler,
+                        SymbolTrim = trim,
+                        SilgenSymbolForCdecl = silgenSymbolForCdecl,
+                        CdeclSymbolForRestore = cdeclSymbolForRestore,
+                        SilgenSymbolForMethodCdecl = silgenSymbolForMethodCdecl,
+                        CdeclSymbolForMethodRestore = cdeclSymbolForMethodRestore,
+                        ProjectedKey = projectedKey,
+                        RequiredCount = OverloadAmbiguityGuard.RequiredCountFor(overloadDecl, env.TypeDatabase, projectedKey),
+                        DeclaredCount = overloadDecl.CSSignature.Count - 1,
+                    });
+                }
+            });
         }
 
         // PHASE 2 — internal set validity. Two candidates from THIS producer can each be individually
@@ -500,160 +546,167 @@ public static class DefaultParameterOverloadEmitter
             var silgenSymbolForMethodCdecl = candidate.SilgenSymbolForMethodCdecl;
             var cdeclSymbolForMethodRestore = candidate.CdeclSymbolForMethodRestore;
 
-            string? recordedProjectedKey = null;
-            if (env.EmittedProjectedSignatures != null)
+            using var candidateCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(overloadDecl));
+            using var candidateSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(overloadDecl));
+            EmissionSeam.Guard(overloadDecl, RecoveryScope.LeafApi, overloadDecl.ParentDecl as TypeDecl, () =>
             {
-                var projectedKey = candidate.ProjectedKey;
-
-                // Cross-producer set validity. Emission is immediate-write, so an already-reserved
-                // signature can never be retracted — the synthesized candidate is the one declined
-                // even when it is the fuller of the two (the inversion is reported).
-                var conflicting = OverloadAmbiguityGuard.FindAmbiguousReservation(
-                    env.EmittedProjectedSignatures, env.ReservedOverloadShapes, projectedKey, candidate.RequiredCount);
-                if (conflicting != null)
+                string? recordedProjectedKey = null;
+                if (env.EmittedProjectedSignatures != null)
                 {
-                    // Both sides are measured on the PROJECTED key, not on the Swift parameter list:
-                    // an async member's emitted signature carries a trailing CancellationToken that
-                    // the decl's CSSignature does not, so comparing a raw declared count against a
-                    // projected arity would report an async candidate a parameter shorter than it is
-                    // and mis-rank the inversion note.
-                    bool candidateWasFuller =
-                        OverloadAmbiguityGuard.ParseKey(projectedKey, 0).ParameterTypes.Count >
-                        OverloadAmbiguityGuard.ParseKey(conflicting, 0).ParameterTypes.Count;
-                    logger.LogDebug(
-                        "DefaultParameterOverload: declining overload (trim {Trim}) for {Name} — a call site would bind it and the already-emitted {Other} equally well: {Key}",
-                        trim, methodDecl.Name, conflicting, projectedKey);
-                    emissionContext?.TryRecordSuppressedAmbiguousOverload(projectedKey, conflicting, candidateWasFuller);
-                    continue;
+                    var projectedKey = candidate.ProjectedKey;
+
+                    // Cross-producer set validity. Emission is immediate-write, so an already-reserved
+                    // signature can never be retracted — the synthesized candidate is the one declined
+                    // even when it is the fuller of the two (the inversion is reported).
+                    var conflicting = OverloadAmbiguityGuard.FindAmbiguousReservation(
+                        env.EmittedProjectedSignatures, env.ReservedOverloadShapes, projectedKey, candidate.RequiredCount);
+                    if (conflicting != null)
+                    {
+                        // Both sides are measured on the PROJECTED key, not on the Swift parameter list:
+                        // an async member's emitted signature carries a trailing CancellationToken that
+                        // the decl's CSSignature does not, so comparing a raw declared count against a
+                        // projected arity would report an async candidate a parameter shorter than it is
+                        // and mis-rank the inversion note.
+                        bool candidateWasFuller =
+                            OverloadAmbiguityGuard.ParseKey(projectedKey, 0).ParameterTypes.Count >
+                            OverloadAmbiguityGuard.ParseKey(conflicting, 0).ParameterTypes.Count;
+                        logger.LogDebug(
+                            "DefaultParameterOverload: declining overload (trim {Trim}) for {Name} — a call site would bind it and the already-emitted {Other} equally well: {Key}",
+                            trim, methodDecl.Name, conflicting, projectedKey);
+                        emissionContext?.TryRecordSuppressedAmbiguousOverload(projectedKey, conflicting, candidateWasFuller);
+                        return;
+                    }
+
+                    if (!env.EmittedProjectedSignatures.Add(projectedKey))
+                    {
+                        logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — projected signature collides: {Key}", trim, methodDecl.Name, projectedKey);
+                        return;
+                    }
+                    OverloadAmbiguityGuard.RecordReservation(env.ReservedOverloadShapes, projectedKey, candidate.RequiredCount);
+                    recordedProjectedKey = projectedKey;
                 }
 
-                if (!env.EmittedProjectedSignatures.Add(projectedKey))
+                // EmitSwiftWrapper reads overloadDecl.MangledName (immutable) as the @_silgen_name target.
+                // If using cdecl, promote the env's emission symbol to the silgen symbol so P/Invoke
+                // routing resolves the original before the cdecl re-promotion below.
+                if (cdeclSymbolForRestore != null)
+                    overloadEnv.PromoteSymbol(silgenSymbolForCdecl!);
+                if (cdeclSymbolForMethodRestore != null)
+                    overloadEnv.PromoteSymbol(silgenSymbolForMethodCdecl!);
+
+                // Emit Swift @_silgen_name wrapper
+                EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim);
+
+                // Promote the env's emission symbol to the cdecl symbol — the value P/Invoke routing reads.
+                // (overloadDecl.MangledName is immutable; EmitSwiftWrapper read it directly for the @_silgen_name.)
+                if (cdeclSymbolForRestore != null)
+                    overloadEnv.PromoteSymbol(cdeclSymbolForRestore);
+                if (cdeclSymbolForMethodRestore != null)
+                    overloadEnv.PromoteSymbol(cdeclSymbolForMethodRestore);
+
+                // Emit @_cdecl constructor wrapper that calls the @_silgen_name function
+                if (silgenSymbolForCdecl != null && overloadDecl.UsesCdeclConstructorWrapper)
                 {
-                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — projected signature collides: {Key}", trim, methodDecl.Name, projectedKey);
-                    continue;
+                    // Use the canonical trim count from the loop variable to ensure the
+                    // silgen function name matches what EmitSwiftWrapper emitted.
+                    var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
+                    ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
+                        swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
                 }
-                OverloadAmbiguityGuard.RecordReservation(env.ReservedOverloadShapes, projectedKey, candidate.RequiredCount);
-                recordedProjectedKey = projectedKey;
-            }
 
-            // EmitSwiftWrapper reads overloadDecl.MangledName (immutable) as the @_silgen_name target.
-            // If using cdecl, promote the env's emission symbol to the silgen symbol so P/Invoke
-            // routing resolves the original before the cdecl re-promotion below.
-            if (cdeclSymbolForRestore != null)
-                overloadEnv.PromoteSymbol(silgenSymbolForCdecl!);
-            if (cdeclSymbolForMethodRestore != null)
-                overloadEnv.PromoteSymbol(silgenSymbolForMethodCdecl!);
-
-            // Emit Swift @_silgen_name wrapper
-            EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim);
-
-            // Promote the env's emission symbol to the cdecl symbol — the value P/Invoke routing reads.
-            // (overloadDecl.MangledName is immutable; EmitSwiftWrapper read it directly for the @_silgen_name.)
-            if (cdeclSymbolForRestore != null)
-                overloadEnv.PromoteSymbol(cdeclSymbolForRestore);
-            if (cdeclSymbolForMethodRestore != null)
-                overloadEnv.PromoteSymbol(cdeclSymbolForMethodRestore);
-
-            // Emit @_cdecl constructor wrapper that calls the @_silgen_name function
-            if (silgenSymbolForCdecl != null && overloadDecl.UsesCdeclConstructorWrapper)
-            {
-                // Use the canonical trim count from the loop variable to ensure the
-                // silgen function name matches what EmitSwiftWrapper emitted.
-                var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
-                ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
-                    swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
-            }
-
-            // Emit @_cdecl method wrapper that calls the @_silgen_name function.
-            // Skip for async methods — @_cdecl wrappers are synchronous and cannot call
-            // async _dbw_ extension methods (would be missing 'await').
-            if (silgenSymbolForMethodCdecl != null && overloadDecl.UsesCdeclMethodWrapper
-                && !overloadDecl.IsAsync)
-            {
-                // Use the canonical trim count from the loop variable to ensure the
-                // silgen function name matches what EmitSwiftWrapper emitted.
-                var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
-                bool silgenUsesResultBuf = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
-                MethodWrapperEmitter.EmitSwiftMethodWrapper(
-                    swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName,
-                    silgenHasResultBuffer: silgenUsesResultBuf);
-            }
-
-            // Delegate C# emission to normal pipeline.
-            // Position-aware degradation (mirrors MethodHandler) via the single source of truth
-            // (MethodEnvironment.ReturnProjectsToExistentialUnion): a return the wrapper actually projects to
-            // union is excluded from BOTH the single [UnsupportedSwiftType] anchor scan AND the SWIFTBIND023
-            // degradation record, while an ineligible position still degrades + warns here. The SAME predicate
-            // drives the signature builder, the return-body wrapper, and the [return: OriginalSwiftType]
-            // suppression, so a default-parameter overload can't keep a stale degradation marker.
-            var overloadSignatureArgs = overloadDecl.CSSignature;
-            bool overloadReturnProjectsToUnion = overloadEnv.ReturnProjectsToExistentialUnion;
-
-            var overloadDegradedSpecs = (overloadReturnProjectsToUnion
-                ? overloadSignatureArgs.Skip(1)
-                : overloadSignatureArgs.AsEnumerable())
-                .Select(a => a.SwiftTypeSpec)
-                .ToList();
-
-            TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
-            foreach (var spec in overloadDegradedSpecs)
-            {
-                if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(env.TypeDatabase, env.ClosureHandler, spec, out var foundFallbackInfo))
+                // Emit @_cdecl method wrapper that calls the @_silgen_name function.
+                // Skip for async methods — @_cdecl wrappers are synchronous and cannot call
+                // async _dbw_ extension methods (would be missing 'await').
+                if (silgenSymbolForMethodCdecl != null && overloadDecl.UsesCdeclMethodWrapper
+                    && !overloadDecl.IsAsync)
                 {
-                    fallbackInfo = foundFallbackInfo;
-                    break;
+                    // Use the canonical trim count from the loop variable to ensure the
+                    // silgen function name matches what EmitSwiftWrapper emitted.
+                    var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
+                    bool silgenUsesResultBuf = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
+                    MethodWrapperEmitter.EmitSwiftMethodWrapper(
+                        swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName,
+                        silgenHasResultBuffer: silgenUsesResultBuf);
                 }
-            }
 
-            // The single flag above names only the first degraded position, but SWIFTBIND023 promises
-            // one loud warning per DISTINCT degraded existential. Record every degraded position so an
-            // existential that only appears as a 2nd+ position is not silently degraded to object; dedup
-            // makes the overlap with the flag above harmless. A union-projected return is excluded above.
-            UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
-                emissionContext, env.TypeDatabase, env.ClosureHandler,
-                overloadDegradedSpecs);
+                // Delegate C# emission to normal pipeline.
+                // Position-aware degradation (mirrors MethodHandler) via the single source of truth
+                // (MethodEnvironment.ReturnProjectsToExistentialUnion): a return the wrapper actually projects to
+                // union is excluded from BOTH the single [UnsupportedSwiftType] anchor scan AND the SWIFTBIND023
+                // degradation record, while an ineligible position still degrades + warns here. The SAME predicate
+                // drives the signature builder, the return-body wrapper, and the [return: OriginalSwiftType]
+                // suppression, so a default-parameter overload can't keep a stale degradation marker.
+                var overloadSignatureArgs = overloadDecl.CSSignature;
+                bool overloadReturnProjectsToUnion = overloadEnv.ReturnProjectsToExistentialUnion;
 
-            var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo, emissionContext);
-            if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)
-            {
-                // A trimmed overload of a recovered colliding init must stay a factory of the same name —
-                // emitting it as a constructor would re-create the very collision the recovery resolved.
-                // The parent shape and result convention are the primary's, which already cleared
-                // CanEmitInitFactory, so there is no second gate to apply here.
-                if (overloadEnv.InitFactoryName != null)
-                    wrapperEmitter.EmitInitFactory(csWriter);
+                var overloadDegradedSpecs = (overloadReturnProjectsToUnion
+                    ? overloadSignatureArgs.Skip(1)
+                    : overloadSignatureArgs.AsEnumerable())
+                    .Select(a => a.SwiftTypeSpec)
+                    .ToList();
+
+                TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
+                foreach (var spec in overloadDegradedSpecs)
+                {
+                    if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(env.TypeDatabase, env.ClosureHandler, spec, out var foundFallbackInfo))
+                    {
+                        fallbackInfo = foundFallbackInfo;
+                        break;
+                    }
+                }
+
+                // The single flag above names only the first degraded position, but SWIFTBIND023 promises
+                // one loud warning per DISTINCT degraded existential. Record every degraded position so an
+                // existential that only appears as a 2nd+ position is not silently degraded to object; dedup
+                // makes the overlap with the flag above harmless. A union-projected return is excluded above.
+                UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
+                    emissionContext, env.TypeDatabase, env.ClosureHandler,
+                    overloadDegradedSpecs);
+
+                var wrapperEmitter = new WrapperEmitter(overloadEnv, signatureHandler, fallbackInfo, emissionContext);
+                if (overloadDecl.IsConstructor && !overloadDecl.IsFailable && !overloadDecl.IsAsync)
+                {
+                    // A trimmed overload of a recovered colliding init must stay a factory of the same name —
+                    // emitting it as a constructor would re-create the very collision the recovery resolved.
+                    // The parent shape and result convention are the primary's, which already cleared
+                    // CanEmitInitFactory, so there is no second gate to apply here.
+                    if (overloadEnv.InitFactoryName != null)
+                        wrapperEmitter.EmitInitFactory(csWriter);
+                    else
+                        wrapperEmitter.EmitConstructor(csWriter);
+                }
+                else if (overloadDecl.IsConstructor && overloadDecl.IsFailable)
+                {
+                    wrapperEmitter.EmitFailableFactory(csWriter);
+                }
                 else
-                    wrapperEmitter.EmitConstructor(csWriter);
-            }
-            else if (overloadDecl.IsConstructor && overloadDecl.IsFailable)
-            {
-                wrapperEmitter.EmitFailableFactory(csWriter);
-            }
-            else
-            {
-                wrapperEmitter.EmitMethod(csWriter, swiftWriter);
-            }
-            PInvokeEmitter.EmitPInvoke(csWriter, overloadEnv, signatureHandler);
+                {
+                    wrapperEmitter.EmitMethod(csWriter, swiftWriter);
+                }
+                PInvokeEmitter.EmitPInvoke(csWriter, overloadEnv, signatureHandler);
+                emittedCount++;
 
-            // Record this recovered overload in the API manifest so it surfaces in api-surface.md.
-            // The member's FULL signature was rejected (a trailing defaulted param resolved to an
-            // AnyType placeholder), so it has no primary manifest entry from the main dedup loop and
-            // WasEmitted stays false — recording the callable TRUNCATED form here (not the full
-            // unbindable signature) keeps the emitted C# and the documented surface in agreement.
-            // Guarded on recordedProjectedKey so a synthetic env with no dedup set (unit harness that
-            // never assigns EmittedProjectedSignatures) records nothing. The name and parameter list
-            // come from whichever writer above emitted the declaration — a constructor writes under
-            // the type's own name, a failable init under its (possibly label-disambiguated) factory
-            // name plus a trailing `out` result — so the entry names the member as written.
-            if (emissionContext != null && recordedProjectedKey != null)
-            {
-                emissionContext.RecordApiManifestEntry(
-                    ModuleEmissionContext.BuildApiManifestKey(
-                        overloadDecl.ParentDecl, overloadEnv.CSharpMethodName, recordedProjectedKey, env.TypeDatabase,
-                        emissionContext.GetEmittedApiShape(overloadDecl)),
-                    overloadEnv.EmissionSymbol);
-            }
+                // Record this recovered overload in the API manifest so it surfaces in api-surface.md.
+                // The member's FULL signature was rejected (a trailing defaulted param resolved to an
+                // AnyType placeholder), so it has no primary manifest entry from the main dedup loop and
+                // WasEmitted stays false — recording the callable TRUNCATED form here (not the full
+                // unbindable signature) keeps the emitted C# and the documented surface in agreement.
+                // Guarded on recordedProjectedKey so a synthetic env with no dedup set (unit harness that
+                // never assigns EmittedProjectedSignatures) records nothing. The name and parameter list
+                // come from whichever writer above emitted the declaration — a constructor writes under
+                // the type's own name, a failable init under its (possibly label-disambiguated) factory
+                // name plus a trailing `out` result — so the entry names the member as written.
+                if (emissionContext != null && recordedProjectedKey != null)
+                {
+                    emissionContext.RecordApiManifestEntry(
+                        ModuleEmissionContext.BuildApiManifestKey(
+                            overloadDecl.ParentDecl, overloadEnv.CSharpMethodName, recordedProjectedKey, env.TypeDatabase,
+                            emissionContext.GetEmittedApiShape(overloadDecl)),
+                        overloadEnv.EmissionSymbol);
+                }
+            });
         }
+        return emittedCount != 0;
     }
 
     /// <summary>
@@ -1235,7 +1288,7 @@ public static class DefaultParameterOverloadEmitter
             // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
             // the anchor (led ahead of the availability) pins the symbol-less extension to the member
             // that owns it, and the post-processor strips it with the block it names.
-            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(originalMethodDecl).Artifact);
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(overloadDecl).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
@@ -1278,7 +1331,7 @@ public static class DefaultParameterOverloadEmitter
             // The @_silgen_name wrapper inside is symbol-bearing, but this plain extension is not;
             // the anchor (led ahead of the availability) pins the symbol-less extension to the member
             // that owns it, and the post-processor strips it with the block it names.
-            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(originalMethodDecl).Artifact);
+            OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(overloadDecl).Artifact);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;

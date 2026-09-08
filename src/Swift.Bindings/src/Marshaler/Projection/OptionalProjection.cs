@@ -422,8 +422,7 @@ public class OptionalProjection : ITypeProjection
             PInvokeExpression = $"{paramName}Buffer",
             // A present payload holding a reference is released by a consuming callee, and the
             // SwiftOptional the setup just built destroys the same value when it goes out of scope.
-            OwnedHandOverStatement =
-                $"global::Swift.Runtime.OwnedArgument.Retain<SwiftOptional<{optTypeParam}>>({paramName}Swift.Payload);"
+            OwnedValueArgument = new($"SwiftOptional<{optTypeParam}>", $"{paramName}Swift.Payload")
         };
     }
 

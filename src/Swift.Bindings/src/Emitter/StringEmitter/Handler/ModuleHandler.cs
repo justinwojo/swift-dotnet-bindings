@@ -218,6 +218,7 @@ namespace BindingsGeneration
                     // key → how many parameters a caller must supply, so a synthesized overload can
                     // tell whether it would be CS0121-ambiguous with an already-emitted free function.
                     var reservedOverloadShapes = new Dictionary<string, int>(StringComparer.Ordinal);
+                    var withdrawnDefaultSources = new List<MethodDecl>();
                     var pipeline = new MemberValidationPipeline(env.TypeDatabase);
 
                     // Overload names for free functions (mirrors HandleBaseDecl). Built over the same
@@ -261,6 +262,8 @@ namespace BindingsGeneration
                                 ReportCollector.RecordMemberSkipped(methodDecl,
                                     validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details ?? "");
                                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details, containingDecl: methodDecl.ParentDecl);
+                                if (validationResult.Reason == SkipReason.EmitterFault)
+                                    withdrawnDefaultSources.Add(methodDecl);
                                 csWriter.WriteLine();
                                 continue;
                             }
@@ -400,6 +403,9 @@ namespace BindingsGeneration
                         }
                         csWriter.WriteLine();
                     }
+                    foreach (var source in withdrawnDefaultSources)
+                        NativeDefaultOverloadRecovery.TryEmit(source, csWriter, swiftWriter, env.TypeDatabase,
+                            context, siblingPropertyNames: null, emittedProjectedSignatures, reservedOverloadShapes, _logger);
                     csWriter.Indent--;
                     csWriter.WriteLine("}");
                     csWriter.WriteLine();

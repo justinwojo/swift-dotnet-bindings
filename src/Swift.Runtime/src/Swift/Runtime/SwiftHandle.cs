@@ -82,7 +82,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
 
     /// <summary>
     /// Set by <see cref="MarkContentsBorrowed"/> when the buffer holds a bitwise copy of a value
-    /// some other owner (typically Swift, across a borrowed +0 callback argument) still owns. When
+    /// some other owner still owns under an explicitly caller-managed borrow. When
     /// true, <see cref="ReleaseHandle"/> frees the .NET-allocated buffer but skips the value-witness
     /// Destroy — running it would over-release the borrowed value, while skipping the free would
     /// leak the wrapper's own container allocation.
@@ -200,8 +200,8 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// <summary>
     /// Marks the buffer's CONTENTS as borrowed: the .NET side owns the buffer allocation itself
     /// (and must free it exactly once), but the value bitwise-copied into it is still owned by
-    /// someone else — typically Swift, for a borrowed (+0) callback argument a Move-semantics
-    /// wrapper transferred into its own container. After this call, Dispose and the finalizer
+    /// someone else under a caller-managed borrow. Current callback readers take independent
+    /// copies instead of marking their contents borrowed. After this call, Dispose and the finalizer
     /// free the buffer WITHOUT running the value-witness Destroy. Idempotent. Unlike
     /// <see cref="MarkConsumed"/>, this does not flag the value as moved-out
     /// (<see cref="IsConsumed"/> stays false), so use-after-move guards do not trip: the borrowed

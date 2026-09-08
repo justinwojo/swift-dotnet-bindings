@@ -631,13 +631,15 @@ public class MemberValidationPipeline
         // An ABI-SAFE inout (Int32, frozen blittable struct) that also carries a large-Optional
         // parameter/return is claimed by MethodWrapperEmitter's cdecl path, which forwards the inout
         // correctly (CdeclParamMapper.MapInout: an UnsafeMutableRawPointer parameter + `&` call arg +
-        // a deferred pointee write-back) — so it is NOT skipped here. An ABI-MISMATCH inout (String,
-        // class/ObjC-bridged, protocol/existential, non-copyable, non-frozen — see
-        // WrapperValidation.HasInoutWithAbiMismatch) has no wrapper path: MethodWrapperEmitter rejects
-        // it ("inout_abi_mismatch") and the OptionalPointer routing declines it as well (its guard
+        // a deferred pointee write-back) — so it is NOT skipped here. The ordinary synchronous
+        // method producer separately qualifies scalar String storage, but this early composition
+        // gate does not opt in: it cannot assume that producer will be available for every
+        // String-plus-large-Optional signature. Other ABI-mismatched inouts (class/ObjC-bridged,
+        // protocol/existential, non-copyable, non-frozen) still have no wrapper path.
+        // OptionalPointer routing declines these types as well (its guard
         // requires !HasInoutWithAbiMismatch, because OptionalPointerWrapperEmitter has no inout
         // awareness — it special-cases only the large-Optional arg and would drop a sibling inout).
-        // With both wrappers declined, the method falls to the raw CallConvSwift P/Invoke, which drops
+        // Without a qualified wrapper, the method can fall to raw CallConvSwift, which drops
         // the inout modifier for an ObjC-bridged / enum parameter — passing the bridged object handle
         // *by value* where Swift expects the value's inout storage address (a silent ABI mismatch,
         // e.g. `inout IndexPath` calling with NSIndexPath.Handle). There is no correct emission path
@@ -648,11 +650,11 @@ public class MemberValidationPipeline
              inoutBoundGenerics.IsLargeOptionalReturn(methodDecl)))
         {
             return ValidationResult.Skip(SkipReason.UnsupportedSignature,
-                "An inout parameter whose type cannot round-trip through a C-ABI pointer (String, " +
-                "class/ObjC-bridged, protocol/existential, non-copyable, or non-frozen) combined with " +
-                "a large-Optional parameter or return has no correct marshalling path: both the " +
-                "MethodWrapper and OptionalPointer wrapper paths decline the mismatched inout type, " +
-                "and the raw CallConvSwift fallback drops the inout modifier.");
+                "An inout String or an ABI-mismatched inout type (class/ObjC-bridged, " +
+                "protocol/existential, non-copyable, or non-frozen) combined with a large-Optional " +
+                "parameter or return has no qualified marshalling path. Scalar String support in " +
+                "the ordinary method wrapper does not qualify this composition; the OptionalPointer " +
+                "wrapper cannot forward these inouts and the direct fallback is not established safe.");
         }
 
         // ── Gate 5d: inout of a protocol existential ──
@@ -695,6 +697,22 @@ public class MemberValidationPipeline
             if (!argument.IsInOut) continue;
             if (argument.IsGeneric) continue;
             if (argument.SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true }) continue;
+            // A concrete class inout is also a pointer to mutable storage: the cell holds
+            // the object reference, and Swift may replace it and release the displaced
+            // reference. The direct SafeHandle/ObjC handle carrier instead passes the
+            // object pointer itself. Both declarations compile, but Swift would read/write
+            // the object's header as that cell. No current wrapper supplies an owning cell
+            // and managed replacement writeback, so refuse at member admission.
+            // Do not extend this to non-frozen structs: their handle points at VALUE storage.
+            if (_typeDatabase.TryGetTypeRecord(argument.SwiftTypeSpec, out var inoutRecord) &&
+                inoutRecord.Kind == TypeRecordKind.Class)
+            {
+                return ValidationResult.Skip(SkipReason.UnsupportedSignature,
+                    $"inout parameter '{argument.Name}' is a class reference. Swift requires " +
+                    "a pointer to mutable reference storage with replacement writeback, but " +
+                    "the direct CallConvSwift fallback passes the object handle by value " +
+                    "and no wrapper provides that storage and ownership contract.");
+            }
             if (!CdeclParamMapper.IsProtocolExistentialType(argument.SwiftTypeSpec, _typeDatabase))
                 continue;
             return ValidationResult.Skip(SkipReason.UnsupportedExistential,

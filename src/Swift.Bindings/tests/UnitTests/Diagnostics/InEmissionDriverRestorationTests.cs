@@ -8,12 +8,14 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
 using BindingsGeneration.Diagnostics;
 
 using Xunit;
+using Xunit.Abstractions;
 
 namespace BindingsGeneration.Tests;
 
@@ -36,17 +38,16 @@ namespace BindingsGeneration.Tests;
 /// first is only observed indirectly here, so a dedicated pin is wave-2. These driver-level tests
 /// are the integration counterpart: they prove the real driver <em>orchestrates</em> those primitives
 /// across renders without crashing, spinning, or accumulating stale output, and that a reused instance
-/// stays output-stable. They are deliberately NOT the per-gap leak detector — the shared fixture's
-/// emission facts and specialization graph do not change re-emission output, so byte-identity here holds
-/// even if a single restoration channel were removed; the leak channels that DO change output only
-/// surface on a corpus module with rejected specialization pairings or output-affecting emission facts,
-/// which is wave-2 territory. The engine-rebuild check below is the one structural gap-#1 assertion this
-/// layer can make directly.
+/// stays output-stable. The default shared fixture's emission facts and specialization graph do not
+/// change re-emission output, so its byte-identity assertions alone are not per-gap leak detectors.
+/// The opt-in nested-conformer fixture is consequential: a real emission-time type rename changes the
+/// next render's factory name if the specialization index is rebuilt before the journal is restored.
+/// It pins both the cached naming token and live type reference through actual generated artifacts.
 /// </para>
 /// <para>
 /// The wrapper compile is stubbed to report "all slices clean" so <see cref="InEmissionDriver.
 /// RenderCompileAttribute"/> takes its converged (return-null) path after writing the render to disk;
-/// the render itself — restore, rebuild, journal-undo, seed, emit — is the real production code. Each
+/// the render itself — snapshot restore, journal-undo, rebuild, seed, emit — is the real production code. Each
 /// render's output is captured as the concatenation of the emitted C# files, so a difference is a real
 /// difference in generated surface, not compile-side noise.
 /// </para>
@@ -54,6 +55,9 @@ namespace BindingsGeneration.Tests;
 public class InEmissionDriverRestorationTests : IDisposable
 {
     private readonly List<string> _scratchDirs = new();
+    private readonly ITestOutputHelper _output;
+
+    public InEmissionDriverRestorationTests(ITestOutputHelper output) => _output = output;
 
     public void Dispose()
     {
@@ -68,7 +72,7 @@ public class InEmissionDriverRestorationTests : IDisposable
     /// <summary>
     /// The master orchestration pin: the empty denylist rendered twice on the same driver must produce
     /// byte-identical output, so the render is a pure function of its denylist — the driver's
-    /// restore → rebuild → journal-undo → emit sequence carries nothing from render 1 into render 2 that
+    /// restore → journal-undo → rebuild → emit sequence carries nothing from render 1 into render 2 that
     /// reaches the emitted surface. A non-trivial output guard keeps the byte-identity from passing
     /// vacuously. This does NOT on its own prove each restoration channel is load-bearing: on this fixture
     /// the emission facts and specialization graph do not alter re-emission output (see the class remark),
@@ -86,6 +90,68 @@ public class InEmissionDriverRestorationTests : IDisposable
 
         AssertExercisedTheMachinery(first);
         AssertByteIdentical(first, second, "empty denylist rendered twice");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NestedConformerCollision_AcrossCompletedRenders_PreservesFactoryNameAndLiveType(
+        bool withdrawUnrelatedMembers)
+    {
+        // The real module pre-pass renames Box.Entry to Box.EntryInfo. Conformance indexing
+        // deliberately precedes that pass: synthetic factory names use the indexed spelling,
+        // while their parameter types resolve the live renamed record. Rebuilding the index
+        // before restoring the previous render's journal changes only the second factory name.
+        using var harness = new DriverHarness(this, withNestedConformerCollision: true);
+        try
+        {
+            harness.AssertCollisionProducerPrerequisites();
+            var original = harness.Render(EmptyDenylist);
+            var originalSwift = harness.SwiftOutput();
+            AssertCollisionFactory(original, originalSwift);
+            AssertCollisionNames(harness);
+
+            if (withdrawUnrelatedMembers)
+            {
+                var recovered = harness.Render(harness.WithdrawableUnits());
+                Assert.NotEqual(original, recovered);
+                AssertCollisionFactory(recovered, harness.SwiftOutput());
+                AssertCollisionNames(harness);
+            }
+
+            var repeated = harness.Render(EmptyDenylist);
+            AssertCollisionFactory(repeated, harness.SwiftOutput());
+            AssertCollisionNames(harness);
+            AssertByteIdentical(original, repeated, "nested conformer factory after completed render");
+            AssertByteIdentical(originalSwift, harness.SwiftOutput(), "nested conformer native wrapper after completed render");
+        }
+        catch
+        {
+            // Assert.Contains abbreviates its actual string. Keep the generated artifacts before
+            // Dispose removes the scratch so a producer refusal remains independently inspectable.
+            _output.WriteLine($"Nested collision failure artifacts: {harness.PreserveFailureArtifacts()}");
+            throw;
+        }
+    }
+
+    private static void AssertCollisionNames(DriverHarness harness)
+    {
+        var conformer = Assert.Single(harness.CurrentEngine!.GetConformers(
+            SwiftTypeName.FromModuleQualifiedName("ContainmentFixture.EntryMaterial")));
+        Assert.Equal("ContainmentFixture.Box.Entry", conformer.CSharpType);
+        Assert.Equal("ContainmentFixture.Box.EntryInfo", harness.CollisionTypeName);
+    }
+
+    private static void AssertCollisionFactory(string csharp, string swift)
+    {
+        Assert.Contains("FromContainmentFixtureBoxEntry(", csharp, StringComparison.Ordinal);
+        Assert.DoesNotContain("FromContainmentFixtureBoxEntryInfo(", csharp, StringComparison.Ordinal);
+        Assert.Contains("ContainmentFixture.Box.EntryInfo source", csharp, StringComparison.Ordinal);
+        var import = Regex.Match(csharp,
+            "EntryPoint = \"(?<symbol>SBW_CSM_ContainmentFixture_Box_ContainmentFixture_Box_Entry_init_[A-F0-9]+)\"");
+        Assert.True(import.Success, "the factory must own a real generated native specialization import");
+        Assert.Contains($"@_cdecl(\"{import.Groups["symbol"].Value}\")", swift, StringComparison.Ordinal);
+        Assert.Contains("ContainmentFixture.Box.Entry.self", swift, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -323,16 +389,44 @@ public class InEmissionDriverRestorationTests : IDisposable
         /// <summary>The specialization engine the emission context carries after the latest render.</summary>
         public ConcreteSpecializationEngine? CurrentEngine => _context.SpecializationEngine;
 
+        public string CollisionTypeName
+        {
+            get
+            {
+                Assert.True(_typeDatabase.TryGetTypeRecord(
+                    SwiftTypeName.FromModuleQualifiedName("ContainmentFixture.Box.Entry"), out var record));
+                return record.CSharpTypeName.FullyQualifiedName;
+            }
+        }
+
         public DriverHarness(
             InEmissionDriverRestorationTests owner,
-            Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileOverride = null)
+            Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileOverride = null,
+            bool withNestedConformerCollision = false)
         {
             _scratch = Path.Combine(Path.GetTempPath(), "swiftbind-driverrestore-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_scratch);
             owner._scratchDirs.Add(_scratch);
 
             _module = FixtureModuleFactory.BuildModule("ContainmentFixture");
+            var nestedConformer = withNestedConformerCollision ? AddNestedConformerCollision(_module) : null;
             _typeDatabase = FixtureModuleFactory.BuildTypeDatabase(_module);
+            if (nestedConformer != null)
+            {
+                // Native CSM emission requires the wrapper-library mode used by the actual
+                // BindingTests generation. Leave the ordinary shared fixture's mode unchanged.
+                _typeDatabase.AsyncLibraryName = "ContainmentFixtureSwiftBindings";
+                // The shared fixture database registers its top-level types. Register the added
+                // nested record in that same module before emission freezes or journals anything.
+                _typeDatabase.RegisterCrossModuleType(nestedConformer.SwiftTypeName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(_module.Name, "Box.Entry"),
+                    SwiftTypeName = nestedConformer.SwiftTypeName,
+                    MetadataAccessor = nestedConformer.MetadataAccessor,
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct,
+                });
+            }
             _context = new ModuleEmissionContext();
 
             Func<StringEmitter> newEmitter = () =>
@@ -349,7 +443,7 @@ public class InEmissionDriverRestorationTests : IDisposable
                 };
             };
 
-            // Always-clean compile by default: the render (restore → rebuild → journal-undo → seed → emit)
+            // Always-clean compile by default: the render (restore → journal-undo → rebuild → seed → emit)
             // is the real production path; only the swiftc call is stubbed, so the driver converges after
             // writing each render to disk and we can read that render's output back. A test may inject a
             // different compile verdict (e.g. a no-wrapper-surface or failing outcome) to exercise the
@@ -448,6 +542,105 @@ public class InEmissionDriverRestorationTests : IDisposable
         /// <summary>The candidate pool the search will actually probe for <paramref name="denylist"/>.</summary>
         public IReadOnlyList<ImmutableArray<RecoveryUnitId>> CandidateGroups(IReadOnlySet<RecoveryUnitId> denylist)
             => _driver.BuildBisectionCandidateGroups(denylist);
+
+        public string SwiftOutput() => string.Concat(Directory
+            .EnumerateFiles(_scratch, "*.swift", SearchOption.AllDirectories)
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .Select(File.ReadAllText));
+
+        public void AssertCollisionProducerPrerequisites()
+        {
+            Assert.True(WrapperValidation.IsXCFrameworkMode(_typeDatabase),
+                "the native CSM producer requires a configured wrapper library");
+            var engine = new ConcreteSpecializationEngine(_typeDatabase, _module.Name);
+            engine.IndexModuleConformances(_module);
+            var conformer = Assert.Single(engine.GetConformers(
+                SwiftTypeName.FromModuleQualifiedName("ContainmentFixture.EntryMaterial")));
+            Assert.Equal(ConcreteProtocolSpecializationEmitter.StructuralEmitReject.None,
+                ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(conformer, _typeDatabase));
+            var box = _module.Types.Single(t => t.Name == "Box");
+            var constructor = Assert.Single(engine.FindSpecializableMethods(box), s => s.Method.IsConstructor);
+            Assert.Single(constructor.SpecializableParams);
+        }
+
+        public string PreserveFailureArtifacts()
+        {
+            var destination = Path.Combine(Path.GetTempPath(), "swiftbind-driverrestore-failure-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(destination);
+            foreach (var file in Directory.EnumerateFiles(_scratch, "*", SearchOption.AllDirectories))
+            {
+                var target = Path.Combine(destination, Path.GetRelativePath(_scratch, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target);
+            }
+            return destination;
+        }
+
+        private static StructDecl AddNestedConformerCollision(ModuleDecl module)
+        {
+            var box = module.Types.Single(t => t.Name == "Box");
+            var protocol = TestDecls.Protocol("EntryMaterial", module.Name,
+                TestDecls.Method("material", returnType: new NamedTypeSpec("Swift.Int"), module: module.Name));
+            protocol.ParentDecl = module;
+            protocol.ModuleDecl = module;
+            foreach (var method in protocol.Methods)
+            {
+                method.ParentDecl = protocol;
+                method.ModuleDecl = module;
+            }
+            module.Types.Add(protocol);
+            module.Protocols.Add(protocol);
+
+            var entryName = SwiftTypeName.FromModuleQualifiedName($"{module.Name}.Box.Entry");
+            var entry = new StructDecl
+            {
+                Name = "Entry", SwiftTypeName = entryName,
+                MangledName = "$s18ContainmentFixture3BoxV5EntryVN",
+                MetadataAccessor = "$s18ContainmentFixture3BoxV5EntryVMa",
+                ParentDecl = box, ModuleDecl = module, IsFrozen = true,
+                Properties = new(), Methods = new(), Types = new(), Operators = new(),
+                Subscripts = new(), GenericParameters = new(),
+                Conformances = new() { new(entryName, protocol.SwiftTypeName, "") },
+            };
+            var material = TestDecls.Method("material", returnType: new NamedTypeSpec("Swift.Int"), module: module.Name);
+            material.ParentDecl = entry;
+            material.ModuleDecl = module;
+            entry.Methods.Add(material);
+            // Match the existing CollisionVault.Entry fixture's supported class/Payload
+            // projection: @frozen with stored String, rather than a trivial frozen value.
+            var tag = TestDecls.Property("tag", new NamedTypeSpec("Swift.String"), module: module.Name);
+            tag.HasStorage = true;
+            tag.ParentDecl = entry;
+            tag.ModuleDecl = module;
+            foreach (var accessor in tag.Accessors)
+            {
+                accessor.Method.ParentDecl = entry;
+                accessor.Method.ModuleDecl = module;
+            }
+            entry.Properties.Add(tag);
+            box.Types.Add(entry);
+
+            var property = TestDecls.Property("entry", new NamedTypeSpec(entryName.ToString()), module: module.Name);
+            property.ParentDecl = box;
+            property.ModuleDecl = module;
+            foreach (var accessor in property.Accessors)
+            {
+                accessor.Method.ParentDecl = box;
+                accessor.Method.ModuleDecl = module;
+            }
+            box.Properties.Add(property);
+
+            var source = TestDecls.Param("source", new NamedTypeSpec("τ_0_0"));
+            source.IsGeneric = true;
+            var constructor = TestDecls.Method("init", methodType: MethodType.Static, isConstructor: true,
+                parameters: new[] { source }, returnType: new NamedTypeSpec(box.SwiftTypeName.ToString()), module: module.Name);
+            constructor.ParentDecl = box;
+            constructor.ModuleDecl = module;
+            constructor.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T",
+                new() { new(new[] { "τ_0_0" }, protocol.SwiftTypeName, ConformanceKind.Protocol) }, new()));
+            box.Methods.Add(constructor);
+            return entry;
+        }
 
         private void ClearScratch()
         {

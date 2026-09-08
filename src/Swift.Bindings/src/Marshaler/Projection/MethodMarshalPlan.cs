@@ -62,6 +62,13 @@ public enum SwiftSelfKind
 /// </summary>
 public record SwiftErrorSetup
 {
+    /// <summary>
+    /// Nonthrowing test of the raw native error carrier immediately after entry returns.
+    /// Indirect results are initialized only when this condition is true; error conversion
+    /// may happen later and must not determine result-buffer liveness.
+    /// </summary>
+    public required string SuccessCondition { get; init; }
+
     /// <summary>Whether the method uses typed throws (SwiftException&lt;TError&gt;).</summary>
     public bool IsTypedThrows { get; init; }
 

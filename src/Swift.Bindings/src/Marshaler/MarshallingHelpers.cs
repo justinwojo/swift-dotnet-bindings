@@ -96,17 +96,20 @@ namespace BindingsGeneration
             => parentDecl is TypeDecl typeDecl && typeDecl.GenericParameters.Count > 0;
 
         /// <summary>
-        /// Whether a SwiftString parameter should be decomposed into two nint words for @_cdecl
+        /// Whether a by-value SwiftString parameter should be decomposed into two nint words for @_cdecl
         /// constructor/method wrappers. The @_cdecl Swift wrappers receive String as two Int words
         /// (_sW0_, _sW1_), so the C# P/Invoke must emit matching nint pairs instead of a Buffer struct.
         /// Invariant: SwiftString.Buffer is exactly 16 bytes (two nint-sized words).
         /// A carved-out scalar <see cref="IsLocalizedStringResource"/> param marshals as a string
         /// (StringProjection) and the @_cdecl wrapper reconstructs the resource from the same two
         /// Int words, so it decomposes identically.
+        /// An inout String uses one address into initialized owning storage, never two words.
+        /// Argument direction is authoritative; a TypeSpec's direction annotation is not.
         /// </summary>
-        public static bool ShouldDecomposeStringForCdecl(MethodDecl methodDecl, TypeSpec? typeSpec)
+        public static bool ShouldDecomposeStringForCdecl(MethodDecl methodDecl, ArgumentDecl argument)
             => (methodDecl.UsesCdeclConstructorWrapper || methodDecl.UsesCdeclMethodWrapper)
-                && (IsSwiftString(typeSpec) || IsLocalizedStringResource(typeSpec));
+                && ((IsSwiftString(argument.SwiftTypeSpec) && !argument.IsInOut)
+                    || IsLocalizedStringResource(argument.SwiftTypeSpec));
 
         /// <summary>
         /// Checks whether the type spec represents Foundation.Data.

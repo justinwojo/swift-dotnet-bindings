@@ -432,6 +432,51 @@ public class CalleeArgumentOwnershipTests
         Assert.Contains("UnknownObjectRetain", MarshallingHelpers.ObjCHandleHandOverStatement("h"));
     }
 
+    [Theory]
+    [InlineData(WrapperStrategy.None, ParameterOwnership.Owned, true)]
+    [InlineData(WrapperStrategy.NativeThunk, ParameterOwnership.Owned, true)]
+    [InlineData(WrapperStrategy.CdeclMethod, ParameterOwnership.Owned, false)]
+    [InlineData(WrapperStrategy.None, ParameterOwnership.Default, false)]
+    [InlineData(WrapperStrategy.NativeThunk, ParameterOwnership.Shared, false)]
+    [InlineData(WrapperStrategy.NativeThunk, ParameterOwnership.InOut, false)]
+    public void OrdinaryExplicitOwnership_FollowsSelectedCallee(
+        WrapperStrategy strategy, ParameterOwnership ownership, bool expected)
+    {
+        var method = CreateSetter(new NamedTypeSpec("TestModule.Payload"), strategy,
+            usesWrapperLibrary: strategy != WrapperStrategy.None);
+        method.Name = "take";
+        method.IsAccessor = false;
+        method.CSSignature[1].Ownership = ownership;
+        Assert.Equal(expected, CalleeArgumentOwnership.IsHandedOverToCallee(method, method.CSSignature[1]));
+        Assert.False(CalleeArgumentOwnership.IsHandedOverToCallee(method, method.CSSignature[0]));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DirectMethod_ExplicitConsumingClassArgument_TransfersOneRetain(bool throws)
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionClass("Holder", moduleDecl, typeDatabase);
+        var owned = ClassArg("holder", moduleDecl);
+        owned.Ownership = ParameterOwnership.Owned;
+        var method = CreateEmissionMethod("consume", parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), owned);
+        method.Throws = throws;
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.ClassTransfer("));
+        Assert.Equal(1, CountOccurrences(csOutput, "holderOwnedTransfer.Complete();"));
+        int completion = csOutput.IndexOf("holderOwnedTransfer.Complete();");
+        Assert.True(completion > csOutput.IndexOf("PInvoke_consume"));
+        if (throws)
+        {
+            int errorCheck = csOutput.IndexOf("if (swiftError.Value != null)");
+            Assert.True(errorCheck > completion, "Native consumption completes even when Swift returned an error.");
+        }
+    }
+
     private static MethodDecl CreateSetter(
         TypeSpec valueType,
         WrapperStrategy strategy,
@@ -533,7 +578,7 @@ public class CalleeArgumentOwnershipTests
             typeDatabase);
 
         Assert.Contains("CallConvSwift", csOutput);
-        Assert.Equal(1, CountOccurrences(csOutput, "UnknownObjectRetain"));
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.ClassTransfer("));
     }
 
     /// <summary>
@@ -555,6 +600,7 @@ public class CalleeArgumentOwnershipTests
 
         Assert.Contains("CallConvSwift", csOutput);
         Assert.DoesNotContain("UnknownObjectRetain", csOutput);
+        Assert.DoesNotContain("OwnedArgument.ClassTransfer", csOutput);
     }
 
     /// <summary>
@@ -576,7 +622,15 @@ public class CalleeArgumentOwnershipTests
             typeDatabase);
 
         Assert.Contains("CallConvSwift", csOutput);
+        // ObjC-bridged .Handle arguments travel as IntPtr, not the SafeHandle pass-through
+        // carrier owned by ClassTransfer. Their marshalling arm must hand over exactly one +1
+        // before native entry, without a second lease/complete pair from the pass-through walk.
         Assert.Equal(1, CountOccurrences(csOutput, "UnknownObjectRetain"));
+        Assert.DoesNotContain("OwnedArgument.ClassTransfer", csOutput);
+        Assert.DoesNotContain("OwnedTransfer.Complete", csOutput);
+        int retain = csOutput.IndexOf("UnknownObjectRetain");
+        int invocation = csOutput.IndexOf("PInvoke_init");
+        Assert.True(invocation > retain, "The bridged object's +1 must exist before native entry.");
     }
 
     /// <summary>
@@ -598,7 +652,7 @@ public class CalleeArgumentOwnershipTests
             typeDatabase);
 
         Assert.Contains("CallConvSwift", csOutput);
-        Assert.Equal(1, CountOccurrences(csOutput, "UnknownObjectRetain"));
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.ClassTransfer("));
     }
 
     /// <summary>
@@ -621,10 +675,11 @@ public class CalleeArgumentOwnershipTests
             typeDatabase);
 
         Assert.Contains("CallConvSwift", csOutput);
-        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.Retain"));
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.BeginValueTransfer"));
         // A struct is not an ARC-managed object: retaining its wrapper handle would count the
         // wrong thing and leave the fields inside it untouched.
         Assert.DoesNotContain("UnknownObjectRetain", csOutput);
+        Assert.DoesNotContain("OwnedArgument.ClassTransfer", csOutput);
     }
 
     /// <summary>
@@ -645,7 +700,47 @@ public class CalleeArgumentOwnershipTests
             typeDatabase);
 
         Assert.Contains("CallConvSwift", csOutput);
-        Assert.DoesNotContain("OwnedArgument.Retain", csOutput);
+        Assert.DoesNotContain("OwnedArgument.BeginValueTransfer", csOutput);
+    }
+
+    [Fact]
+    public void DirectInitializer_MixedTransfers_CompleteExactlyOnceWithCollisionSafeNames()
+    {
+        var db = CreateEmissionTypeDatabase();
+        var module = CreateEmissionModule();
+        var parent = CreateEmissionStruct("Host", module);
+        CreateEmissionResilientStruct("Box", module, db);
+        CreateEmissionClass("Holder", module, db);
+        var (output, _) = EmitConstructor(CreateEmissionConstructor(parent, module,
+            NestedFrozenArg(module), ClassArg("box", module, "Box"),
+            ClassArg("boxOwnedTransfer", module), ClassArg("event", module, "Box")), db);
+        Assert.Equal(2, CountOccurrences(output, "OwnedArgument.BeginValueTransfer"));
+        Assert.Equal(1, CountOccurrences(output, "OwnedArgument.ClassTransfer("));
+        Assert.Contains("using var __boxOwnedTransfer =", output);
+        Assert.Contains("using var eventOwnedTransfer =", output);
+        foreach (var name in new[] { "__boxOwnedTransfer", "boxOwnedTransferOwnedTransfer", "eventOwnedTransfer" })
+        {
+            Assert.Equal(1, CountOccurrences(output, name + ".Complete();"));
+            Assert.True(output.IndexOf(name + ".Complete();") > output.IndexOf("PInvoke_init("));
+        }
+        Assert.DoesNotContain("OwnedArgument.Retain", output);
+    }
+
+    [Fact]
+    public void DirectThrowingMethod_ConsumedStructCompletesBeforeErrorConversion()
+    {
+        var db = CreateEmissionTypeDatabase();
+        var module = CreateEmissionModule();
+        var parent = CreateEmissionStruct("Host", module);
+        CreateEmissionResilientStruct("Box", module, db);
+        var value = ClassArg("value", module, "Box");
+        value.Ownership = ParameterOwnership.Owned;
+        var method = CreateEmissionMethod("consume", parent, module, NestedFrozenArg(module), value);
+        method.Throws = true;
+        var (output, _) = EmitMethod(method, db);
+        Assert.Contains("OwnedArgument.BeginValueTransfer<TestModule.Box>(value.Payload)", output);
+        Assert.Equal(1, CountOccurrences(output, "valueOwnedTransfer.Complete();"));
+        Assert.True(output.IndexOf("valueOwnedTransfer.Complete();") < output.IndexOf("if (swiftError"));
     }
 
     /// <summary>

@@ -1073,9 +1073,8 @@ public static partial class ClosureEmitter
             // +1; an ObjC-bridged peer (a Microsoft.iOS binding with no Swift metadata, e.g.
             // Foundation.NSUrlResponse for a NON-optional URLResponse) bridges through
             // GetNSObject/GetINativeObject, because the borrowed marshal would dereference the object
-            // pointer a second time and wrap its isa word; value-type wrappers (SwiftString /
-            // Foundation.Data read-and-discard) keep the SuppressFinalize-only borrowed path, which
-            // is correct because they are never surfaced to the user for Dispose.
+            // pointer a second time and wrap its isa word; value wrappers take independent copies
+            // through the runtime's construction-semantics reader.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
             return closureHandler.BorrowedCallbackArgMarshal(
                 typeSpec, delegateType, valueAddress, nonNullObjCBridge: true);

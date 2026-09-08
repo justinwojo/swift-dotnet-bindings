@@ -82,6 +82,13 @@ namespace BindingsGeneration
         public MethodDecl MethodDecl { get; private set; } = methodDecl;
 
         /// <summary>
+        /// The declaration dispatched into this environment, before lowering normalizes debug
+        /// parameters or installs wrappers. Native default-overload recovery uses this stable key
+        /// to find the inputs actually used by a previous completed render.
+        /// </summary>
+        internal DeclId SourceDeclId { get; init; } = DeclIdFactory.ForMethod(methodDecl);
+
+        /// <summary>
         /// AF13 (Finding 13): the current emission-time symbol for this method — the linker-visible
         /// cdecl/thunk/wrapper symbol that wrapper-strategy promotion selects. This is the
         /// emission-scoped side table that replaces in-place mutation of

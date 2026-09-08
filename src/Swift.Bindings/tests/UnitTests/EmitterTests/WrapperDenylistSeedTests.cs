@@ -378,12 +378,10 @@ public class WrapperDenylistSeedTests : IDisposable
     }
 
     /// <summary>
-    /// Withdrawing a member that carries trailing default-valued parameters must leave nothing
-    /// standing in for it. Such a member has a second emission route — the default-parameter overload
-    /// machinery mints a reduced form of it alongside the full one — so "the full member is gone" is
-    /// not the same claim as "the member is gone", and only the second is the withdrawal contract.
-    /// The named skip row is asserted with it, because a substitution that emitted under the same
-    /// name AND recorded nothing is the failure this pins from both sides.
+    /// A fresh seeded render has no completed native-default producer recipe to replay. It must
+    /// not invent a reduced call under the withdrawn original symbol or lose the original skip.
+    /// The production driver's separately recorded native bundles are covered by
+    /// NativeDefaultOverloadDriverTests; that mechanism requires an actual earlier render.
     /// </summary>
     /// <remarks>
     /// The render runs in XCFramework mode (a non-empty async library) on purpose. The rescue this
@@ -394,7 +392,7 @@ public class WrapperDenylistSeedTests : IDisposable
     /// <c>{Module}SwiftBindings</c>, so this is the mode the production path is in.
     /// </remarks>
     [Fact]
-    public void Build_SeedsTheContainmentLoop_SoAWithdrawnTrailingDefaultMemberLeavesNoStandIn()
+    public void Build_WithoutCompletedProducerRecipe_DoesNotInventTrimForWithdrawnMember()
     {
         const string wrapperLibrary = "ContainmentFixtureSwiftBindings";
         var enrollUnit = RecoveryUnitId.Create(

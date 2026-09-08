@@ -30,6 +30,12 @@ public record MarshalPlan
     /// </summary>
     public string? OwnedHandOverStatement { get; init; }
 
+    /// <summary>
+    /// A value-witness copy provisionally owned until the consuming native call returns.
+    /// The wrapper emitter supplies the lease and completion from this typed specification.
+    /// </summary>
+    public OwnedValueArgument? OwnedValueArgument { get; init; }
+
     /// <summary>Whether the plan requires an unsafe context.</summary>
     public bool RequiresUnsafe { get; init; }
 
@@ -39,6 +45,9 @@ public record MarshalPlan
     /// <summary>Creates a simple pass-through plan with no setup or cleanup.</summary>
     public static MarshalPlan PassThrough(string expression) => new() { PInvokeExpression = expression };
 }
+
+/// <summary>The Swift metadata carrier and live payload to copy for a consumed argument.</summary>
+public sealed record OwnedValueArgument(string CarrierTypeName, string PayloadExpression);
 
 /// <summary>
 /// A single statement in a marshal plan. Can be a line of code, a block (if/else, try/finally),

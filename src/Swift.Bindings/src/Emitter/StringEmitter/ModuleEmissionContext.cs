@@ -16,6 +16,29 @@ namespace BindingsGeneration;
 /// </summary>
 public sealed class ModuleEmissionContext
 {
+    // Inputs are supplied only by the current verify-recover driver from a completed render.
+    // Outputs are separate so containment can roll back an abandoned attempt, and so an earlier
+    // member in the same render cannot accidentally create replay permission for a later one.
+    private readonly Dictionary<DeclId, DefaultOverloadReplayRecipe> _defaultOverloadInputs = new();
+    private readonly Dictionary<DeclId, DefaultOverloadReplayRecipe> _defaultOverloadOutputs = new();
+
+    internal bool TryGetDefaultOverloadRecipe(DeclId source, out DefaultOverloadReplayRecipe recipe) =>
+        _defaultOverloadInputs.TryGetValue(source, out recipe!);
+
+    internal void RecordDefaultOverloadRecipe(DeclId source, DefaultOverloadReplayRecipe recipe) =>
+        _defaultOverloadOutputs.TryAdd(source, recipe);
+
+    internal void SeedDefaultOverloadRecipes(IReadOnlyDictionary<DeclId, DefaultOverloadReplayRecipe> recipes)
+    {
+        _defaultOverloadInputs.Clear();
+        _defaultOverloadOutputs.Clear();
+        foreach (var (source, recipe) in recipes)
+            _defaultOverloadInputs.Add(source, recipe);
+    }
+
+    internal IReadOnlyDictionary<DeclId, DefaultOverloadReplayRecipe> CompletedDefaultOverloadRecipes =>
+        _defaultOverloadOutputs;
+
     /// <summary>
     /// True for a context nobody supplied — one manufactured at a call site that was handed
     /// <c>null</c>. Emitters that behave differently when no module context was threaded (the

@@ -803,7 +803,7 @@ namespace BindingsGeneration
                 // an auto-bridged, NON-frozen TypeRecord, so the ObjCBridged / non-frozen-SafeHandle
                 // branches below would otherwise intercept it before this two-word path (Swift.String's
                 // own TypeRecord is frozen, so it would reach here either way).
-                if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argument.SwiftTypeSpec))
+                if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argument))
                 {
                     AddParameter("nint", csName + "_w0");
                     AddParameter("nint", csName + "_w1");

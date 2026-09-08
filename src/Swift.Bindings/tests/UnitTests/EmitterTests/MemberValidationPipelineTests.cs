@@ -3090,6 +3090,62 @@ public class MemberValidationPipelineTests
 
     #region inout protocol-existential gate
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ValidateMethodEmission_InoutClassParameter_RefusesReferenceCellMismatch(
+        bool isStatic, bool isConstructor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var typeName = SwiftTypeName.FromModuleQualifiedName("TestModule.InoutItem");
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: typeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "InoutItem"),
+                SwiftTypeName = typeName,
+                MetadataAccessor = "$s10TestModule9InoutItemCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs("replace", TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.InoutItem"));
+        method.MethodType = isStatic ? MethodType.Static : MethodType.Instance;
+        method.IsConstructor = isConstructor;
+        method.CSSignature[1].IsInOut = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("mutable reference storage", result.Details!);
+
+        // Direction alone changes the contract; the same class by value remains supported.
+        method.CSSignature[1].IsInOut = false;
+        Assert.True(pipeline.ValidateMethodEmission(method, null!).ShouldEmit);
+    }
+
+    [Theory]
+    [InlineData("Swift.String", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement)]
+    [InlineData("TestModule.ResilientValue", TypeRecordFlags.None)]
+    [InlineData("TestModule.MutableToken", TypeRecordFlags.NonCopyable)]
+    public void ValidateMethodEmission_InoutValueStorage_DoesNotInheritClassRefusal(
+        string typeName, TypeRecordFlags flags)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterValueStruct(typeDatabase, typeName, flags);
+        var method = CreateMethodWithArgs("mutate", TupleTypeSpec.Empty, new NamedTypeSpec(typeName));
+        method.CSSignature[1].IsInOut = true;
+
+        var result = new MemberValidationPipeline(typeDatabase).ValidateMethodEmission(method, null!);
+
+        // This is an admission assertion, not an assertion of native ABI correctness.
+        Assert.True(result.ShouldEmit);
+    }
+
     // Swift lowers `inout any P` to a single pointer to the caller's existential storage, for a
     // class-bound (AnyObject-constrained) P as much as for an opaque one — only the by-VALUE form
     // differs between the two. No emission path honours that: the @_cdecl wrapper declines an

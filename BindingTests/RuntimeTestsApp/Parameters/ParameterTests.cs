@@ -4,6 +4,7 @@
 using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Parameters;
@@ -19,6 +20,106 @@ public class ParameterTests : TestBase
     public ParameterTests(TestResults results) : base(results) { }
 
     #region Inout Parameters
+
+    public void TestClassInoutRefusalPreservesClassAndNeighbors()
+    {
+        AssertTrue(typeof(TestLibFunctions).GetMethod("ReplaceInoutReferenceItem") is null,
+            "Class replacement must not expose an object handle as mutable reference storage");
+        AssertTrue(typeof(TestLibFunctions).GetMethod("InspectInoutReferenceItem") is null,
+            "A read-only body still requires the class reference-cell ABI");
+        using var item = new InoutReferenceItem(31);
+        AssertEqual(31, TestLibFunctions.ReadInoutReferenceItem(item),
+            "The class constructor and ordinary by-value parameter remain supported");
+    }
+
+    public void TestInoutRefusalPreservesValueAndStringNeighbors()
+    {
+        using var value = new InoutResilientItem(23);
+        AssertEqual(23, TestLibFunctions.ReadInoutResilientItem(value),
+            "A resilient value remains available beside a refused class-inout member");
+        AssertTrue(typeof(TestLibFunctions).GetMethod("ReplaceInoutResilientItem") is not null,
+            "Value storage must not inherit the class reference-cell refusal");
+        const string text = "String storage larger than the inline small-string representation";
+        AssertEqual(text, TestLibFunctions.EchoInoutNeighborText(text),
+            "Ordinary String parameters and results remain supported");
+    }
+
+    public void TestStringInoutSmallAndLargeReplacement()
+    {
+        string text = "original";
+        TestLibFunctions.ExpandInoutText(ref text);
+        AssertEqual("replacement text larger than the inline small-string representation", text,
+            "String mutation must reach the managed ref parameter");
+        TestLibFunctions.ShrinkInoutText(ref text);
+        AssertEqual("small", text, "Replacing heap String storage with inline storage must write back");
+    }
+
+    public void TestOptionalStringInoutSomeAndNoneTransitions()
+    {
+        string? text = null;
+        TestLibFunctions.ExpandOptionalInoutText(ref text);
+        AssertEqual("optional replacement larger than the inline String representation", text,
+            "Optional None to Some must write back the managed string");
+        text = "small";
+        TestLibFunctions.ExpandOptionalInoutText(ref text);
+        AssertEqual("optional replacement larger than the inline String representation", text,
+            "Replacing an existing Some must write back the new string");
+        TestLibFunctions.ClearOptionalInoutText(ref text);
+        AssertTrue(text is null, "Optional Some to None must write back null");
+        TestLibFunctions.ClearOptionalInoutText(ref text);
+        AssertTrue(text is null, "Optional None to None must remain null");
+    }
+
+    public void TestOptionalStringInoutMutationSurvivesSwiftThrow()
+    {
+        string? text = null;
+        AssertThrows<SwiftException>(() => TestLibFunctions.ReplaceOptionalInoutTextThenThrow(ref text));
+        AssertEqual("optional mutation survives the Swift error", text,
+            "Optional String writeback must run while the Swift exception propagates");
+    }
+
+    public void TestStringInoutMultipleParameters()
+    {
+        string first = "first";
+        string second = "initial second String larger than the inline representation";
+        TestLibFunctions.ReplaceTwoInoutTexts(ref first, ref second);
+        AssertEqual("first replacement larger than the inline String representation", first,
+            "The first ref must receive its replacement");
+        AssertEqual("second", second, "The second ref must receive its own replacement");
+    }
+
+    public void TestStringInoutMutationSurvivesSwiftThrow()
+    {
+        string text = "original";
+        AssertThrows<SwiftException>(() => TestLibFunctions.ReplaceInoutTextThenThrow(ref text));
+        AssertEqual("mutation survives the Swift error", text,
+            "String writeback must run while the Swift exception propagates");
+    }
+
+    public void TestStringInoutAlongsideOwnedClassResult()
+    {
+        string text = "original";
+        using var item = TestLibFunctions.ReplaceInoutTextAndReturnItem(ref text);
+        AssertEqual(61, item.Number, "The native class result must be adopted");
+        AssertEqual("mutation alongside an owned class result", text,
+            "String writeback must complete before the managed method returns");
+    }
+
+    public void TestStringInoutFailableInitializerBothOutcomes()
+    {
+        string text = "original";
+        AssertTrue(InoutTextInitializer.TryCreate(ref text, true, out var value),
+            "The successful failable initializer must produce its value");
+        using (value)
+            AssertEqual(71, value.Number, "The initialized value must remain valid");
+        AssertEqual("mutation survives both failable initializer outcomes", text,
+            "Successful failable initialization must write back");
+        text = "original";
+        AssertFalse(InoutTextInitializer.TryCreate(ref text, false, out _),
+            "The nil failable initializer must report failure");
+        AssertEqual("mutation survives both failable initializer outcomes", text,
+            "The nil result must still write the String mutation back");
+    }
 
     // Inout parameters use @_cdecl wrappers with UnsafeMutableRawPointer + write-back semantics.
     // The public API passes them by `ref`, so Swift's in-place mutation IS observable to the caller.

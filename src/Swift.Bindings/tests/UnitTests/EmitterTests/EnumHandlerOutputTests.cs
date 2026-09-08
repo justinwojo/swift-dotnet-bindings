@@ -14,6 +14,39 @@ namespace BindingsGeneration.Tests;
 
 public class EnumHandlerOutputTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_NonSimpleRawRepresentableEnum_DestroysOnlyInitializedOptional(bool stringRawValue)
+    {
+        // A non-simple RawRepresentable model reaches the class factory; ordinary simple
+        // raw enums use a separate managed-enum projection and cannot exercise this branch.
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("RawValue", module, isFrozen: false);
+        declaration.RawValueTypeName = stringRawValue ? "String" : "Int";
+        declaration.Cases.Add(CreateCase("empty"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        declaration.Methods.Add(stringRawValue
+            ? CreateStringRawValueInitializer(declaration, module)
+            : CreateRawValueInitializer(declaration, module));
+
+        var (output, _) = EmitEnum(declaration, database);
+        var factoryStart = output.IndexOf(" FromRawValue(", StringComparison.Ordinal);
+        Assert.True(factoryStart >= 0, output);
+        var factory = output.Substring(factoryStart);
+        var raw = factory.IndexOf("bool resultInitialized = false;", StringComparison.Ordinal);
+        var call = factory.IndexOf("PInvoke_InitWithRawValue", StringComparison.Ordinal);
+        var live = factory.IndexOf("resultInitialized = true;", StringComparison.Ordinal);
+        var tag = factory.IndexOf("uint tag =", StringComparison.Ordinal);
+        var destroy = factory.IndexOf("optionalMetadata.ValueWitnessTable->Destroy", StringComparison.Ordinal);
+        Assert.True(raw >= 0 && raw < call && call < live && live < tag && tag < destroy, factory);
+        Assert.Contains("if (resultInitialized)", factory.Substring(tag, destroy - tag));
+        Assert.True(factory.IndexOf("NativeMemory.Free(resultBuffer);", StringComparison.Ordinal) > destroy, factory);
+    }
+
     [Fact]
     public void Emit_SimpleEnum_EmitsCSharpEnumValueType()
     {

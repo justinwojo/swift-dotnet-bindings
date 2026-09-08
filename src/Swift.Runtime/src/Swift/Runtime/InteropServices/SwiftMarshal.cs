@@ -526,8 +526,12 @@ public static class SwiftMarshal
     /// <c>Destroy</c> consumes the slot's original <c>+1</c>. The <c>Destroy</c> runs <b>only after</b>
     /// the copy succeeds, so a throw leaves the slot intact for the caller's exception-path release —
     /// the slot is therefore consumed atomically (fully, or not at all on throw).</item>
+    /// <item><b>ADOPT POD</b>: <see cref="ExtractCopiedValue{T}"/> copies the bytes into independent
+    /// storage which the wrapper adopts. No source <c>Destroy</c> is needed. Adopting the original
+    /// slot would be unsound: it may be an interior tuple address, reused iterator storage, or an
+    /// aligned allocation that the caller will release after this method returns.</item>
     /// <item><b>Move-on-construction</b> (<see cref="PayloadConstructionSemantics.Move"/>,
-    /// i.e. <c>SwiftString</c>), <b>existential containers</b>, and <b>POD</b>/primitives/value-type
+    /// i.e. <c>SwiftString</c>), <b>existential containers</b>, and other <b>POD</b>/primitives/value-type
     /// structs: a bitwise read transfers the slot's <c>+1</c> (or there is none). An existential
     /// container in particular must NOT be value-witness-copied/destroyed with its static container
     /// metadata at offset 0 (that metadata is not the box's ARC owner — the consumer takes ownership
@@ -540,10 +544,16 @@ public static class SwiftMarshal
     /// whole-buffer <c>Destroy</c> over an already-consumed slot (a transferred class pointer, or an
     /// already-<c>Destroy</c>ed ADOPT/COPY slot) double-frees it.
     /// </para>
+    /// <para>
+    /// Requires valid metadata describing <typeparamref name="T"/>. Factories must obey their
+    /// declared construction semantics and throw before acquiring ownership on failure. As with
+    /// <see cref="ExtractCopiedValue{T}"/>, a factory that acquires a SafeHandle and then throws
+    /// (for example, allocation failure during dispose-scope registration) is outside that contract.
+    /// </para>
     /// </summary>
     /// <typeparam name="T">The element/key/value type occupying the slot.</typeparam>
     /// <param name="slot">Address of the initialized value slot. For classes it holds the object pointer.</param>
-    /// <param name="metadata">Runtime metadata for <typeparamref name="T"/>: detects a true class and drives the ADOPT/COPY value-witness <c>Destroy</c>.</param>
+    /// <param name="metadata">Valid runtime metadata for <typeparamref name="T"/>: detects a true class and drives the ADOPT/COPY value-witness <c>Destroy</c>.</param>
     public static unsafe T MarshalMovedValueFromSlot<T>(void* slot, TypeMetadata metadata)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
@@ -555,20 +565,19 @@ public static class SwiftMarshal
             return MarshalFromSwift<T>(classPointer);
         }
 
-        // Adopt (non-frozen struct, complex enum, bare-ISwiftObject SwiftUI wrapper) / Copy
-        // (frozen-with-ref, SwiftArray/Dictionary/Set) reference-backed non-POD. Move (SwiftString)
-        // and Inline (value-type / non-ISwiftObject) transfer or read their +1 via the bitwise read
-        // below, so they are excluded here. Copy out an independent wrapper, THEN Destroy the slot's
-        // original +1 — Destroy strictly after the copy so a throw leaves the slot intact (the caller's
-        // exception path releases it). (sem is Adopt|Copy is exactly the former
-        // "reference-backed && not bitwise-move-on-construction".)
+        // Adopt always needs independent storage, including POD: the caller may reuse or free
+        // the slot, which can be an interior address. Copy needs extraction only for non-POD,
+        // to account for the source's +1. Move/Inline transfer or read their +1 below.
+        // Destroy strictly after successful extraction so a construction failure leaves the
+        // source intact for the caller's exception cleanup.
         PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
-        if ((sem == PayloadConstructionSemantics.Adopt || sem == PayloadConstructionSemantics.Copy)
-            && metadata.IsValid
-            && metadata.ValueWitnessTable->IsNonPOD)
+        if (metadata.IsValid
+            && (sem == PayloadConstructionSemantics.Adopt
+                || (sem == PayloadConstructionSemantics.Copy && metadata.ValueWitnessTable->IsNonPOD)))
         {
             T moved = ExtractCopiedValue<T>(slot, metadata.Size);
-            metadata.ValueWitnessTable->Destroy(slot, metadata);
+            if (metadata.ValueWitnessTable->IsNonPOD)
+                metadata.ValueWitnessTable->Destroy(slot, metadata);
             return moved;
         }
 
@@ -586,12 +595,12 @@ public static class SwiftMarshal
     /// <item><b>True class</b> (metadata <c>Kind == Class</c>): the slot holds the instance pointer;
     /// copy it out with an ObjC-aware retain so the wrapper handed to the user balances on
     /// <c>Dispose</c>/finalize — <see cref="MarshalBorrowedClassFromSlot{T}"/>.</item>
-    /// <item><b>Reference-backed non-POD value</b> (Adopt/Copy/Move semantics, non-POD value-witness):
+    /// <item><b>Reference-backed value</b> (Adopt/Copy/Move semantics, including POD):
     /// take an <c>InitializeWithCopy</c> <c>+1</c> into a fresh wrapper via
     /// <see cref="MarshalExtractedPayloadValue{T}"/>, leaving the source slot's reference untouched.
     /// Move is included here (not in the bitwise fall-through) precisely because the slot stays
     /// caller-owned under a borrow — see the inline note at the call site.</item>
-    /// <item><b>POD / inline</b>: a plain bitwise read carries no ARC reference, so it is simply read
+    /// <item><b>Inline</b>: a plain bitwise read carries no ARC reference, so it is simply read
     /// by value.</item>
     /// </list>
     /// This is the symmetric input-side counterpart of the moved read the generic-closure bridge already
@@ -606,24 +615,18 @@ public static class SwiftMarshal
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
             && !typeof(T).IsValueType
             && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T))
+            && metadata.IsValid
             && metadata.Kind == TypeMetadataKind.Class)
         {
             return MarshalBorrowedClassFromSlot<T>((IntPtr)slot);
         }
 
-        // Move types (e.g. SwiftString, whose wrapper takes the bytes whole) must take an INDEPENDENT
-        // InitializeWithCopy +1 here, exactly like Adopt/Copy. The plain MarshalFromSwift fall-through
-        // does a consuming bitwise read — it transfers the slot's only +1 into the new wrapper without
-        // retaining — which is correct for a moved (consuming) read but wrong for a borrow: the slot
-        // stays caller-owned, so the caller's finally Destroy would then over-release the now-shared
-        // reference (UAF on dispose/finalize). Route Move through the same copy-out as Adopt/Copy.
-        PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
-        if ((sem == PayloadConstructionSemantics.Adopt
-                || sem == PayloadConstructionSemantics.Copy
-                || sem == PayloadConstructionSemantics.Move)
-            && metadata.IsValid
-            && metadata.ValueWitnessTable->IsNonPOD)
+        // Borrowed buffers must never become the wrapper's own storage, even when POD.
+        // Share the independent extraction contract with callback and reverse-dispatch readers.
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)) && !typeof(T).IsValueType)
         {
+            if (!metadata.IsValid)
+                throw new SwiftRuntimeException($"Cannot copy borrowed Swift value {typeof(T)} without valid metadata.");
             return MarshalExtractedPayloadValue<T>(slot, metadata.Size);
         }
 
@@ -684,7 +687,7 @@ public static class SwiftMarshal
         {
             if (!TypeMetadata.TryGetTypeMetadata<T>(out var md) || !md.Value.IsValid)
                 throw new SwiftRuntimeException(
-                    $"Cannot copy a borrowed Swift value of type {typeof(T)} out of a reverse-dispatch slot: " +
+                    $"Cannot copy a borrowed Swift value of type {typeof(T)} out of a borrowed slot: " +
                     "its Swift type metadata did not resolve, so the value-witness copy that leaves the " +
                     "borrowed slot intact cannot be performed.");
 
@@ -1509,14 +1512,10 @@ public static class SwiftMarshal
     /// <item><b>Copy</b>: construct OWNING (<b>no</b> suppress). The ctor's <c>InitializeWithCopy</c> takes
     /// an independent <c>+1</c>; the borrowed <c>+1</c> stays with Swift; the wrapper's SafeHandle Destroys
     /// its own copy. This is the leak fix.</item>
-    /// <item><b>Adopt</b> (borrowed pointer adopted by the SafeHandle): suppress the payload finalizer —
-    /// the adopted memory is Swift's outright, so neither the free nor the Destroy may run (the
-    /// read-and-discard contract).</item>
-    /// <item><b>Move</b> (borrowed <c>+0</c> bitwise-transferred into a wrapper-allocated container):
-    /// call <see cref="ISwiftObject.ConsumePayloadBuffer"/> — cleanup frees the wrapper's OWN container
-    /// but never value-witness-destroys the borrowed value. The former blanket suppression foreclosed
-    /// the container free too, leaking the wrapper's allocation (e.g. <c>SwiftString</c>'s 16-byte
-    /// buffer) on every callback invocation.</item>
+    /// <item><b>Adopt / Move</b>: copy the borrowed value into independent storage via
+    /// <see cref="MarshalCopiedValueFromSlot{T}"/>. Adopt owns that allocation; Move transfers its
+    /// copied value into the wrapper's allocation. Both remain valid after the callback returns,
+    /// and explicit Dispose/finalization release only the wrapper's own value.</item>
     /// <item><b>Inline</b>: read by value (<c>*(T*)ptr</c> / existential container words) — self-contained,
     /// nothing to suppress.</item>
     /// </list>
@@ -1585,38 +1584,14 @@ public static class SwiftMarshal
         // peer whose C# carrier it can resolve through ObjCRuntime.Runtime.GetNSObject/GetINativeObject
         // with the dereference its own caller needs, so an object-pointer caller never reaches here.
 
+        // Copy constructors already take an independent +1. Inline carriers read by value.
+        // Adopt/Move must copy out first: suppressing finalizers neither prevents explicit Dispose
+        // from destroying Swift-owned storage nor makes a captured wrapper survive callback return.
         PayloadConstructionSemantics sem = GetPayloadSemantics<T>();
-        if (sem == PayloadConstructionSemantics.Copy)
-        {
-            // Owning, NO suppress: the ctor InitializeWithCopy-s its own +1; the SafeHandle Destroys it.
+        if (sem is PayloadConstructionSemantics.Copy or PayloadConstructionSemantics.Inline)
             return MarshalFromSwift<T>(swiftSource);
-        }
 
-        var obj = MarshalFromSwift<T>(swiftSource);
-        if (obj is ISwiftObject swiftObj)
-        {
-            if (sem == PayloadConstructionSemantics.Move)
-            {
-                // Move wrapper: it bitwise-transferred the borrowed +0 words into a container buffer
-                // the WRAPPER itself allocated, so it owns that container but not the value inside it.
-                // ConsumePayloadBuffer keeps the container free alive (Dispose/finalizer reclaim the
-                // wrapper's own allocation) while dropping only the value-witness Destroy — the old
-                // blanket finalizer suppression foreclosed the free too and leaked the container per
-                // callback invocation. The DIM default falls back to suppress for Move types with no
-                // separable container.
-                swiftObj.ConsumePayloadBuffer();
-            }
-            else if (sem == PayloadConstructionSemantics.Adopt)
-            {
-                // Adopt wrapper: its SafeHandle adopted the borrowed pointer itself — that memory is
-                // Swift's outright, so both the free and the Destroy must be suppressed.
-                // SuppressPayloadFinalizer is a non-reflective DIM; its default is a no-op for types
-                // with no separately-finalizable payload.
-                GC.SuppressFinalize(obj);
-                swiftObj.SuppressPayloadFinalizer();
-            }
-        }
-        return obj;
+        return MarshalCopiedValueFromSlot<T>(swiftSource);
     }
 
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple marshalling path only; non-tuple paths are AOT-safe")]
