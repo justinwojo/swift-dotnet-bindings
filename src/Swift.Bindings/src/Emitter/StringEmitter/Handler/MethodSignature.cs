@@ -214,9 +214,29 @@ namespace BindingsGeneration
             }));
         }
 
-        public string CallArgumentsString() => string.Join(", ", Parameters.Select(p => GetCallArgumentString(p)));
+        /// <summary>
+        /// The positional argument list for the P/Invoke call.
+        /// </summary>
+        /// <param name="bodyScope">
+        /// When given, the scope that owns the identifiers of the emitting member's body. One
+        /// argument shape — an ObjC-bridged parameter — reads a local the body declares beside the
+        /// parameters rather than the parameter itself, so the reading site and the declaring site
+        /// have to agree on its spelling. Minting is idempotent per spelling, so both ask this scope
+        /// independently and get one answer. Callers whose body locals are already named through the
+        /// parameter's marshalling base pass nothing and the plain derivation is used.
+        /// </param>
+        public string CallArgumentsString(SyntheticLocalNames? bodyScope = null)
+            => string.Join(", ", Parameters.Select(p => GetCallArgumentString(p, bodyScope)));
 
-        public static string GetCallArgumentString(Parameter parameter)
+        /// <summary>
+        /// The identifier an ObjC-bridged parameter's handle local takes in the emitting member's
+        /// body. Kept here so the site that declares it and the call site that reads it derive it
+        /// the same way. A member with no <paramref name="bodyScope"/> gets the plain derivation.
+        /// </summary>
+        public static string ObjCHandleLocalName(Parameter parameter, SyntheticLocalNames? bodyScope = null)
+            => bodyScope?.LocalComposed($"{parameter.Name}Handle") ?? $"{parameter.Name}Handle";
+
+        public static string GetCallArgumentString(Parameter parameter, SyntheticLocalNames? bodyScope = null)
         {
             return parameter switch
             {
@@ -301,7 +321,7 @@ namespace BindingsGeneration
                 { Type: MarshalledType.ConventionCFuncPtr } =>
                     parameter.Name.EndsWith("FuncPtr") ? parameter.Name : $"{parameter.Name}FuncPtr",
                 // ObjC bridged types: extract Handle from the .NET iOS binding object
-                { Type: MarshalledType.ObjCBridged } => $"{parameter.Name}Handle",
+                { Type: MarshalledType.ObjCBridged } => ObjCHandleLocalName(parameter, bodyScope),
                 // Native-remapped types (URL, Data): use the converted Swift variable
                 { Type: MarshalledType.NativeRemappedNonFrozenType } => $"{parameter.Name}Swift.Payload",
                 { Type: MarshalledType.NativeRemappedFrozen } => $"{parameter.Name}Swift",

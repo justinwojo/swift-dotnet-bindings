@@ -77,6 +77,20 @@ namespace BindingsGeneration
         private string SwiftIndirectResultName => _env.SyntheticLocals.SwiftIndirectResult;
         private string BufferPtrName => _env.SyntheticLocals.BufferPtr;
         private string ReturnMetadataName => _env.SyntheticLocals.ReturnMetadata;
+        // The failable-initializer factory's own body locals and the existential return read-back,
+        // resolved through the same bundle for the same reason.
+        private string SelfMetadataName => _env.SyntheticLocals.SelfMetadata;
+        private string OptionalMetadataName => _env.SyntheticLocals.OptionalMetadata;
+        private string ResultBufferName => _env.SyntheticLocals.ResultBuffer;
+        private string TagName => _env.SyntheticLocals.Tag;
+        private string PayloadBufferName => _env.SyntheticLocals.PayloadBuffer;
+        private string ExistentialResultName => _env.SyntheticLocals.ExistentialResult;
+        private string SwiftResultValueName => _env.SyntheticLocals.SwiftResultValue;
+        private string SuccessName => _env.SyntheticLocals.Success;
+        private string AsyncHandleName => _env.SyntheticLocals.AsyncHandle;
+        // The cancellation token an async member appends to its own signature. A parameter rather
+        // than a body local, so it is resolved the same way every other lane that appends one does.
+        private string CancellationTokenName => NameProvider.ResolveCancellationTokenName(_env.MethodDecl);
         // The live async C# callback-plumbing path. The Swift @_cdecl half is emitted by
         // WrapperEmitter.Async.EmitAsync; the C# callback half by _asyncHarness.EmitAsyncWrapper.
         private readonly AsyncHarnessEmitter _asyncHarness;
@@ -521,6 +535,7 @@ namespace BindingsGeneration
             EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitMarshallingBaseAliases(csWriter);
             EmitNonCopyableArgumentPreflight(csWriter);
             EmitSafeHandleAddRef(csWriter);
 
@@ -647,6 +662,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            EmitMarshallingBaseAliases(csWriter);
             EmitNonCopyableArgumentPreflight(csWriter);
 
             // The Swift init runs in this helper (the public constructor calls it from `: base(...)`),
@@ -915,6 +931,7 @@ namespace BindingsGeneration
             EmitAvailabilityGuard(csWriter);
             EmitMainActorGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitMarshallingBaseAliases(csWriter);
             EmitNonCopyableArgumentPreflight(csWriter);
             EmitConsumedNonCopyableSelfGuard(csWriter);
             // Existential heap variables (`void* xHeap = null;`) must precede EmitAsync.
@@ -1260,7 +1277,7 @@ namespace BindingsGeneration
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(arg.SwiftTypeSpec);
                 if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
                     continue;
-                var csName = NameProvider.GetCSharpParameterName(arg);
+                var csName = NameProvider.GetMarshallingBaseName(arg);
                 var heapName = $"{csName}Heap";
                 // The EC1 GetOrCreate path is the only one that can box a value conformer at +1
                 // (EC2+/well-known go through the borrowed GetExistentialContainer() cast). This gate
@@ -1391,7 +1408,7 @@ namespace BindingsGeneration
                 // pointer stays IntPtr.Zero and Swift's release of the raw GCHandle
                 // ptr is a no-op — the leak persists for those builds (matching 0.10
                 // behaviour) since there is no notification channel.
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                 csWriter.WriteLine($"{csName}Transferred = true;");
             }
         }
@@ -1463,7 +1480,7 @@ namespace BindingsGeneration
             {
                 if (!TupleParamNeedsKeepAlive(arg))
                     continue;
-                var csName = NameProvider.GetCSharpParameterName(arg);
+                var csName = NameProvider.GetMarshallingBaseName(arg);
                 csWriter.WriteLine($"global::System.GC.KeepAlive({csName});");
             }
         }
@@ -1547,10 +1564,14 @@ namespace BindingsGeneration
                     || !record.Flags.HasFlag(TypeRecordFlags.NonCopyable))
                     continue;
 
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
+                // The exception names the PUBLIC parameter, which is what the caller wrote — the
+                // marshalling base can be an internal alias when a sibling parameter shadows one of
+                // this parameter's derived locals.
+                var publicName = NameProvider.GetCSharpParameterName(argumentDecl);
                 csWriter.WriteLine($"var {csName}NonCopyablePayload = {csName}.Payload;");
                 csWriter.WriteLine($"if ({csName}NonCopyablePayload.IsConsumed)");
-                csWriter.WriteLine($"    throw new global::System.ObjectDisposedException(nameof({csName}), \"This ~Copyable value was already consumed; further use is invalid.\");");
+                csWriter.WriteLine($"    throw new global::System.ObjectDisposedException(nameof({publicName}), \"This ~Copyable value was already consumed; further use is invalid.\");");
                 csWriter.WriteLine($"using var {csName}NonCopyablePin = new global::Swift.Runtime.SafeHandlePin({csName}NonCopyablePayload);");
             }
         }
@@ -1581,7 +1602,7 @@ namespace BindingsGeneration
                     || !record.Flags.HasFlag(TypeRecordFlags.NonCopyable))
                     continue;
 
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                 csWriter.WriteLine($"{csName}NonCopyablePayload.MarkConsumed();");
             }
         }
@@ -1817,7 +1838,7 @@ namespace BindingsGeneration
             {
                 if (!MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg.SwiftTypeSpec))
                     continue;
-                var csName = NameProvider.GetCSharpParameterName(arg);
+                var csName = NameProvider.GetMarshallingBaseName(arg);
                 csWriter.WriteLine($"fixed (byte* {csName}PinnedPtr = {csName})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;

@@ -657,11 +657,13 @@ public static class NameProvider
 
     private static void DeduplicateParameterNamesCore(IEnumerable<ArgumentDecl> parameters)
     {
+        var materialized = parameters as IList<ArgumentDecl> ?? parameters.ToList();
         var usedNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var arg in parameters)
+        foreach (var arg in materialized)
         {
             // Compute the base name using existing logic (bypass CSharpName to get raw name)
             arg.CSharpName = null;
+            arg.MarshallingBaseName = null;
             var baseName = GetCSharpParameterName(arg);
 
             if (usedNames.Add(baseName))
@@ -676,7 +678,125 @@ public static class NameProvider
                 arg.CSharpName = $"{baseName}{suffix}";
             }
         }
+
+        AssignMarshallingBaseNames(materialized);
     }
+
+    /// <summary>
+    /// Resolves each parameter's <see cref="ArgumentDecl.MarshallingBaseName"/> — the identifier the
+    /// emitters suffix when naming that parameter's generated scratch locals.
+    /// <para>
+    /// Deduplication above only compares parameters against each other. It cannot see the other half
+    /// of the wrapper body's identifier space: the locals the marshalling paths derive from ONE
+    /// parameter's name by appending a suffix (<c>{p}Buffer</c>, <c>{p}Swift</c>, <c>{p}Handle</c>,
+    /// <c>{p}NSArray</c>, <c>{p}Converted</c>, …). Those land in the same scope as the parameters, so
+    /// a signature whose second parameter is named exactly like the first parameter's scratch local
+    /// redeclares it and the emitted C# does not compile.
+    /// </para>
+    /// <para>
+    /// Rather than enumerate the suffix vocabulary — it is large, spread across every projection and
+    /// wrapper emitter, and grows — the test is structural: a sibling name that extends this
+    /// parameter's name and continues with an upper-case letter or an underscore is exactly the shape
+    /// a derived local takes, so this parameter's derived names are moved aside. The escaped base must
+    /// itself clear the same test, so escaping cannot manufacture a new collision.
+    /// </para>
+    /// </summary>
+    private static void AssignMarshallingBaseNames(IList<ArgumentDecl> parameters)
+    {
+        var names = new List<string>(parameters.Count);
+        foreach (var arg in parameters)
+        {
+            var name = GetCSharpParameterName(arg);
+            if (!string.IsNullOrEmpty(name))
+                names.Add(StripVerbatimPrefix(name));
+        }
+
+        foreach (var arg in parameters)
+            arg.MarshallingBaseName = ResolveMarshallingBaseName(GetCSharpParameterName(arg), names);
+    }
+
+    /// <summary>
+    /// Returns <paramref name="csName"/> unchanged unless one of <paramref name="siblingNames"/> is
+    /// spelled like a scratch local derived from it, in which case an escaped base is returned.
+    /// Pure in its inputs, so every phase re-derives the same answer without shared state.
+    /// </summary>
+    internal static string ResolveMarshallingBaseName(string csName, IReadOnlyList<string> siblingNames)
+    {
+        if (string.IsNullOrEmpty(csName))
+            return csName;
+
+        var bare = StripVerbatimPrefix(csName);
+        if (!IsShadowedByDerivedLocal(bare, siblingNames))
+            return csName;
+
+        var candidate = "__" + bare;
+        for (var suffix = 2; ; suffix++)
+        {
+            if (!siblingNames.Contains(candidate, StringComparer.Ordinal) &&
+                !IsShadowedByDerivedLocal(candidate, siblingNames))
+            {
+                return candidate;
+            }
+            candidate = $"__{bare}{suffix}";
+        }
+    }
+
+    /// <summary>
+    /// True when some sibling parameter name extends <paramref name="bare"/> and continues with the
+    /// upper-case letter or underscore every generated suffix starts with — i.e. that sibling already
+    /// occupies an identifier a scratch local derived from this parameter would want.
+    /// </summary>
+    private static bool IsShadowedByDerivedLocal(string bare, IReadOnlyList<string> siblingNames)
+    {
+        foreach (var sibling in siblingNames)
+        {
+            if (sibling.Length <= bare.Length || !sibling.StartsWith(bare, StringComparison.Ordinal))
+                continue;
+
+            var continuation = sibling[bare.Length];
+            if (char.IsUpper(continuation) || continuation == '_')
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The identifier emitters suffix when naming a scratch local derived from this parameter.
+    /// Falls back to the plain C# parameter name for arguments that never went through the
+    /// deduplication pass (helper paths that build an ArgumentDecl inline).
+    /// </summary>
+    public static string GetMarshallingBaseName(ArgumentDecl arg)
+        => arg.MarshallingBaseName ?? GetCSharpParameterName(arg);
+
+    /// <summary>
+    /// Name of the cancellation token an asynchronous member carries as the trailing parameter of
+    /// its own emitted signature. That parameter is added by the emitter rather than declared by
+    /// the Swift signature, so a Swift parameter spelling it the same way would put two parameters
+    /// of one name on the member — a declaration error, and one that stops the whole compilation
+    /// before any method body is bound, hiding every other diagnostic in it. Resolving the added
+    /// name (never the user's) against the parameters already on the signature keeps them distinct;
+    /// with no collision the plain spelling comes back, so emitted signatures are unchanged.
+    /// <para>Both spellings of each parameter are reserved. When a sibling shadows one of a
+    /// parameter's derived locals the body opens with a <c>ref</c> alias under the escaped
+    /// marshalling base, and that alias is a live identifier in the same scope as the added
+    /// token — so resolving against the public names alone could hand the token the very name the
+    /// alias holds.</para>
+    /// </summary>
+    public static string ResolveCancellationTokenName(MethodDecl method)
+        => new SyntheticNameScope(GetEmittedParameterNames(method)).Reserve("cancellationToken");
+
+    /// <summary>
+    /// Every identifier a member's parameters occupy in its emitted body — the projected C# name of
+    /// each parameter the member actually emits, plus the marshalling base name that names its
+    /// scratch locals (and, when the two differ, a <c>ref</c> alias local). Declared parameters the
+    /// signature builders drop (compiler-supplied debug arguments and zero-sized <c>()</c>
+    /// parameters) contribute neither.
+    /// </summary>
+    internal static IEnumerable<string> GetEmittedParameterNames(MethodDecl method)
+        => method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .SelectMany(p => new[] { GetCSharpParameterName(p), GetMarshallingBaseName(p) });
 
     /// <summary>
     /// Derives a meaningful parameter name from a Swift type specification.
@@ -2125,6 +2245,12 @@ public sealed class SyntheticNameScope
     // Stored in verbatim-stripped form so "@event" and "event" collide as one identifier.
     private readonly HashSet<string> _reserved;
 
+    // Preferred spelling -> the name this scope handed out for it, so repeated Mint calls agree.
+    // Keyed verbatim-stripped, like _reserved: "@event" and "event" are one C# identifier, so two
+    // callers asking under different spellings must get one answer. Keying the raw spelling instead
+    // would reserve the identifier for the first caller and then escape the second away from it.
+    private readonly Dictionary<string, string> _minted = new Dictionary<string, string>(StringComparer.Ordinal);
+
     /// <summary>
     /// Creates a scope seeded with the in-scope user identifiers the synthetic names must avoid.
     /// Null or empty entries are ignored; names are normalized via
@@ -2152,6 +2278,40 @@ public sealed class SyntheticNameScope
         var chosen = NameProvider.MakeNonCollidingSyntheticName(desiredName, _reserved);
         _reserved.Add(NameProvider.StripVerbatimPrefix(chosen));
         return chosen;
+    }
+
+    /// <summary>
+    /// Mints — or hands back the already-minted — name for a generated local whose preferred
+    /// spelling is <paramref name="desiredName"/>. Unlike <see cref="Reserve"/>, asking twice for
+    /// the same spelling yields the same name, so independent emission steps that each need "the
+    /// local called <c>resultPtr</c>" agree without threading the resolved string between them.
+    /// </summary>
+    public string Mint(string desiredName)
+    {
+        if (string.IsNullOrEmpty(desiredName))
+            return desiredName;
+        var key = NameProvider.StripVerbatimPrefix(desiredName);
+        if (_minted.TryGetValue(key, out var existing))
+            return existing;
+        var chosen = Reserve(desiredName);
+        _minted[key] = chosen;
+        return chosen;
+    }
+
+    /// <summary>
+    /// Mints a name whose preferred spelling was built by concatenating a suffix onto a
+    /// possibly-verbatim (<c>@</c>-prefixed) user identifier. The <c>@</c> only means anything when
+    /// the whole identifier is a C# keyword, and a suffixed one no longer is — but the emitters
+    /// have always carried it through, so dropping it would rewrite the spelling of every such name
+    /// whether or not anything collided. A name that does not have to move therefore comes back
+    /// exactly as asked; one that does comes back in the escaped (non-verbatim) form.
+    /// </summary>
+    public string MintComposed(string desiredName)
+    {
+        if (string.IsNullOrEmpty(desiredName))
+            return desiredName;
+        var minted = Mint(desiredName);
+        return minted == NameProvider.StripVerbatimPrefix(desiredName) ? desiredName : minted;
     }
 
     /// <summary>
@@ -2183,10 +2343,13 @@ public sealed class SyntheticNameScope
 /// Each name is resolved eagerly in a fixed order so the result is independent of which phase
 /// reads it first. <see cref="SyntheticNameScope.Reserve"/> returns the bare spelling unless a user
 /// parameter collides, so generated output is byte-identical for the overwhelmingly common
-/// non-colliding case. The <c>_</c>-prefixed internal temporaries (<c>_cdeclBuf</c>, <c>_bufSize</c>,
-/// <c>_innerSize</c>, <c>_cdeclResult</c>) and the indexed <c>tupleResult{i}Ptr</c> family are NOT
-/// resolved here — a public Swift API parameter spelling one of those is not a realistic collision,
-/// and they remain string literals in their emitters.
+/// non-colliding case. The <c>_</c>-prefixed internal temporaries (<c>_cdeclBuf</c>,
+/// <c>_cdeclResultLive</c>, <c>_bufSize</c>, <c>_innerSize</c>, <c>_cdeclResult</c>, and the
+/// asynchronous lanes' <c>_tcs</c>, <c>_asyncCallHolder</c>, <c>_asyncDeferredList</c>,
+/// <c>_sbwCancelKey</c>, <c>_cancelRegistration</c>) and the indexed <c>tupleResult{i}Ptr</c> family
+/// are NOT resolved here — a public Swift API parameter spelling one of those is not a realistic
+/// collision, and they remain string literals in their emitters. Every spelling WITHOUT that prefix
+/// is resolved here, because nothing about it marks it as belonging to the generated code.
 /// </para>
 /// </summary>
 public sealed class SyntheticLocalNames
@@ -2209,24 +2372,87 @@ public sealed class SyntheticLocalNames
     /// <summary>Inner-type metadata temporary for decomposed Optional returns.</summary>
     public string InnerMetadata { get; }
 
+    /// <summary>Self-type metadata temporary in the failable-initializer factory.</summary>
+    public string SelfMetadata { get; }
+
+    /// <summary>Optional-of-Self metadata temporary in the failable-initializer factory.</summary>
+    public string OptionalMetadata { get; }
+
+    /// <summary>Heap buffer the failable-initializer factory receives <c>Optional&lt;Self&gt;</c> into.</summary>
+    public string ResultBuffer { get; }
+
+    /// <summary>Optional discriminator byte read out of the failable-initializer result buffer.</summary>
+    public string Tag { get; }
+
+    /// <summary>Payload buffer carved out of the failable-initializer result buffer.</summary>
+    public string PayloadBuffer { get; }
+
+    /// <summary>Existential container read back from a wrapper's existential return.</summary>
+    public string ExistentialResult { get; }
+
+    /// <summary>Converted native value a <c>Result</c>-returning member marshals through.</summary>
+    public string SwiftResult { get; }
+
+    /// <summary>Converted native value the direct-return marshalling path reads back through.</summary>
+    public string SwiftResultValue { get; }
+
+    /// <summary>Flag the wrapper body pins the receiver's native handle through.</summary>
+    public string Success { get; }
+
+    /// <summary>GC handle an asynchronous member hands to the native call as its callback context.</summary>
+    public string AsyncHandle { get; }
+
+    // One name per preferred spelling, so the site that DECLARES a local and every site that READS
+    // it get the same answer no matter which asks first.
+    private readonly SyntheticNameScope _scope;
+
     private SyntheticLocalNames(SyntheticNameScope scope)
     {
+        _scope = scope;
         // Fixed resolution order → access-order independent. Reserve records each chosen name so
         // the (vanishingly unlikely) case where two synthetics escape into the same identifier is
         // still kept distinct.
-        ResultPtr = scope.Reserve("resultPtr");
-        HasValuePtr = scope.Reserve("hasValuePtr");
-        SwiftIndirectResult = scope.Reserve("swiftIndirectResult");
-        BufferPtr = scope.Reserve("bufferPtr");
-        ReturnMetadata = scope.Reserve("returnMetadata");
-        InnerMetadata = scope.Reserve("innerMetadata");
+        ResultPtr = Local("resultPtr");
+        HasValuePtr = Local("hasValuePtr");
+        SwiftIndirectResult = Local("swiftIndirectResult");
+        BufferPtr = Local("bufferPtr");
+        ReturnMetadata = Local("returnMetadata");
+        InnerMetadata = Local("innerMetadata");
+        SelfMetadata = Local("selfMetadata");
+        OptionalMetadata = Local("optionalMetadata");
+        ResultBuffer = Local("resultBuffer");
+        Tag = Local("tag");
+        PayloadBuffer = Local("payloadBuffer");
+        ExistentialResult = Local("existentialResult");
+        SwiftResult = Local("_swiftResult");
+        SwiftResultValue = Local("swiftResult");
+        Success = Local("success");
+        AsyncHandle = Local("handle");
     }
 
     /// <summary>
-    /// Resolves the synthetic-local bundle for a method, seeded from the projected C# parameter
-    /// names (skipping the return slot at index 0), mirroring <c>ResolveReturnLocalName</c>.
+    /// Mints — or hands back the already-minted — collision-safe name for a generated body local
+    /// whose preferred spelling is <paramref name="preferredSpelling"/>. The spelling comes back
+    /// unchanged unless a parameter of this member (or another local minted here) already holds it,
+    /// so generated output is unchanged for the non-colliding case. Asking twice for the same
+    /// spelling within one member always yields the same name.
+    /// </summary>
+    public string Local(string preferredSpelling) => _scope.Mint(preferredSpelling);
+
+    /// <summary>
+    /// <see cref="Local"/> for a spelling the emitter composed by suffixing a possibly-verbatim
+    /// (<c>@</c>-prefixed) parameter name — see <see cref="SyntheticNameScope.MintComposed"/>. A
+    /// name that need not move keeps the exact spelling asked for, verbatim marker and all.
+    /// </summary>
+    public string LocalComposed(string preferredSpelling) => _scope.MintComposed(preferredSpelling);
+
+    /// <summary>
+    /// Resolves the synthetic-local bundle for a method, seeded from every identifier the member's
+    /// parameters occupy in its body — both spellings of each emitted parameter, the public one and
+    /// the marshalling base that also lives there as a <c>ref</c> alias when a sibling shadows one
+    /// of its derived locals. Declared parameters the signature builders drop contribute neither,
+    /// so a name only a dropped parameter holds cannot move a body local.
     /// </summary>
     public static SyntheticLocalNames Resolve(MethodDecl method)
-        => new SyntheticLocalNames(new SyntheticNameScope(
-            method.CSSignature.Skip(1).Select(NameProvider.GetCSharpParameterName)));
+        => new SyntheticLocalNames(new SyntheticNameScope(NameProvider.GetEmittedParameterNames(method)));
 }

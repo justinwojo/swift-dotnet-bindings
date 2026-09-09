@@ -135,9 +135,12 @@ namespace BindingsGeneration
                 parameterPortion: BuildEmittedParameterPortion(_requiresSwiftAsync));
 
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
-            // Async methods get CancellationToken as the last parameter
+            // Async methods get CancellationToken as the last parameter. Its name is resolved
+            // against this member's own parameters: a Swift signature is free to spell it, and two
+            // parameters of the same name is a declaration error that stops the whole compilation
+            // before any method body is bound.
             var cancellationTokenParam = _requiresSwiftAsync
-                ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}global::System.Threading.CancellationToken cancellationToken = default"
+                ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}global::System.Threading.CancellationToken {CancellationTokenName} = default"
                 : "";
             csWriter.WriteLine($"{accessModifier} {staticKeyword}{dispatchModifier}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
 

@@ -350,12 +350,18 @@ public static class ConstrainedExistentialBridge
 
         // Build C# parameter list
         var csParams = new List<string>();
+        var csParamNames = new List<string>();
         foreach (var bp in bridgeParams)
         {
             var paramName = NameProvider.GetCSharpParameterName(bp.Arg);
+            csParamNames.Add(paramName);
             csParams.Add($"{bp.CSharpType} {paramName}");
         }
         var paramString = string.Join(", ", csParams);
+
+        // The body's scratch local shares a scope with those parameters, so it is minted against
+        // them: a parameter spelled the same way keeps its name and the generated local moves.
+        var resultPtrName = new SyntheticNameScope(csParamNames).Mint("resultPtr");
 
         // Neither half of this declaration matches the declared signature: a constructor is written
         // under the type's own name, the constrained existential parameters are erased to
@@ -442,12 +448,12 @@ public static class ConstrainedExistentialBridge
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, availability, constructorName);
 
         var callArgString = string.Join(", ", pInvokeArgs);
-        csWriter.WriteLine($"var resultPtr = {pInvokeCall}({callArgString});");
+        csWriter.WriteLine($"var {resultPtrName} = {pInvokeCall}({callArgString});");
 
         // Class return unmarshal: wrap pointer directly in SwiftClassHandle.
         // No buffer allocation needed — SwiftClassHandle IS the Swift object pointer.
         var handleType = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl, env.TypeDatabase);
-        csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleType}>(resultPtr);");
+        csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleType}>({resultPtrName});");
         csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
 
         csWriter.Indent--;

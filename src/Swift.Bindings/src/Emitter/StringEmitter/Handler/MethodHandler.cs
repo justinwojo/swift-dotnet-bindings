@@ -2082,7 +2082,20 @@ namespace BindingsGeneration
                     paramType = p.SwiftTypeSpec.ToString();
                 overloadParams.Add($"{paramType} {csName}");
             }
-            overloadParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
+            // This overload appends a cancellation token to the signature and mints a completion
+            // source, a registration and a lambda parameter for the callback value — all in scope
+            // with the projected parameters copied over from the primary. A Swift signature is free
+            // to spell any of them, so resolve each against those names; with no collision the
+            // preferred spelling comes back unchanged.
+            var overloadScope = new SyntheticNameScope(
+                nonClosureParams.Select(NameProvider.GetCSharpParameterName));
+            var ctName = overloadScope.Reserve("cancellationToken");
+            var tcsName = overloadScope.Reserve("tcs");
+            var registrationName = overloadScope.Reserve("registration");
+            var callbackResultName = overloadScope.Reserve("result");
+            var callbackErrorName = overloadScope.Reserve("error");
+            var callbackErrName = overloadScope.Reserve("err");
+            overloadParams.Add($"global::System.Threading.CancellationToken {ctName} = default");
 
             var paramString = string.Join(", ", overloadParams);
             var accessModifier = NameProvider.GetAccessModifier(methodDecl.IsSynthesizedAccessor);
@@ -2101,30 +2114,30 @@ namespace BindingsGeneration
             switch (shape)
             {
                 case CompletionHandlerDetector.CallbackShape.VoidResult:
-                    lambdaBody = "() => tcs.TrySetResult(true)";
+                    lambdaBody = $"() => {tcsName}.TrySetResult(true)";
                     break;
                 case CompletionHandlerDetector.CallbackShape.SingleResult:
-                    lambdaBody = "result => tcs.TrySetResult(result)";
+                    lambdaBody = $"{callbackResultName} => {tcsName}.TrySetResult({callbackResultName})";
                     break;
                 case CompletionHandlerDetector.CallbackShape.ErrorOnly:
-                    lambdaBody = """
-                        error =>
+                    lambdaBody = $$"""
+                        {{callbackErrorName}} =>
                                 {
-                                    if (error is { } err)
-                                        tcs.TrySetException(new SwiftException(err.ToString()));
+                                    if ({{callbackErrorName}} is { } {{callbackErrName}})
+                                        {{tcsName}}.TrySetException(new SwiftException({{callbackErrName}}.ToString()));
                                     else
-                                        tcs.TrySetResult(true);
+                                        {{tcsName}}.TrySetResult(true);
                                 }
                         """;
                     break;
                 case CompletionHandlerDetector.CallbackShape.ResultWithError:
                     lambdaBody = $$"""
-                        (result, error) =>
+                        ({{callbackResultName}}, {{callbackErrorName}}) =>
                                 {
-                                    if (error is { } err)
-                                        tcs.TrySetException(new SwiftException(err.ToString()));
+                                    if ({{callbackErrorName}} is { } {{callbackErrName}})
+                                        {{tcsName}}.TrySetException(new SwiftException({{callbackErrName}}.ToString()));
                                     else
-                                        tcs.TrySetResult(result);
+                                        {{tcsName}}.TrySetResult({{callbackResultName}});
                                 }
                         """;
                     break;
@@ -2185,7 +2198,7 @@ namespace BindingsGeneration
             var callArgsString = string.Join(", ", callArgs);
 
             // Determine if void result (Task without type param requires special handling)
-            var awaitResult = resultTypeName != null ? "return await tcs.Task;" : "await tcs.Task;";
+            var awaitResult = resultTypeName != null ? $"return await {tcsName}.Task;" : $"await {tcsName}.Task;";
 
             // Propagate SB0001/SB0002 safety attributes from the underlying method
             var safetyAttr = GetSafetyObsoleteAttribute(methodEnv, asyncMethodName);
@@ -2201,11 +2214,11 @@ namespace BindingsGeneration
                 /// <summary>
                 /// Task-returning overload for <see cref="{{baseMethodName}}"/>.
                 /// </summary>
-                /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
+                /// <param name="{{ctName}}">Cancels the returned Task but does not cancel the underlying operation.</param>
                 {{(safetyAttr != null ? safetyAttr + "\n    " : "")}}{{accessModifier}} {{staticModifier}}async {{taskType}} {{asyncMethodName}}({{paramString}})
                 {
-                    var tcs = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);
-                    var registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+                    var {{tcsName}} = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var {{registrationName}} = {{ctName}}.Register(() => {{tcsName}}.TrySetCanceled({{ctName}}));
                     try
                     {
                         {{baseMethodName}}({{callArgsString}});
@@ -2213,7 +2226,7 @@ namespace BindingsGeneration
                     }
                     finally
                     {
-                        registration.Dispose();
+                        {{registrationName}}.Dispose();
                     }
                 }
                 """);

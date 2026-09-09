@@ -404,7 +404,7 @@ public partial class ProtocolProxyEmitter
                 parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
             }
             if (method.IsAsync)
-                parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+                parameters.Add($"global::System.Threading.CancellationToken {NameProvider.ResolveCancellationTokenName(method)} = default");
 
             var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
             var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
@@ -671,7 +671,7 @@ public partial class ProtocolProxyEmitter
             parameters.Add($"{inoutModifier}{paramTypeName} {paramName}");
         }
         if (method.IsAsync)
-            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+            parameters.Add($"global::System.Threading.CancellationToken {NameProvider.ResolveCancellationTokenName(method)} = default");
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, declaringProto, _typeDatabase), method.IsAsync, hasReturn,
@@ -776,7 +776,7 @@ public partial class ProtocolProxyEmitter
             argNames.Add($"{inoutModifier}{paramName}");
         }
         if (inheritedMethod.IsAsync)
-            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+            parameters.Add($"global::System.Threading.CancellationToken {NameProvider.ResolveCancellationTokenName(inheritedMethod)} = default");
 
         var inheritedInterfaceName = NameProvider.GetInterfaceName(
             inheritedProto.Name, moduleName: inheritedProto.ModuleDecl?.Name ?? "");
@@ -1543,15 +1543,24 @@ public partial class ProtocolProxyEmitter
         // Add CancellationToken to async proxy methods (matches interface + WrapperEmitter emission)
         if (method.IsAsync)
         {
-            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
-            argNames.Add("cancellationToken");
-            csharpImplArgs.Add("cancellationToken");
+            var ctName = NameProvider.ResolveCancellationTokenName(method);
+            parameters.Add($"global::System.Threading.CancellationToken {ctName} = default");
+            argNames.Add(ctName);
+            csharpImplArgs.Add(ctName);
         }
 
         var parametersString = string.Join(", ", parameters);
         // argsString feeds the `_csharpImpl.{method}(argsString)` delegations exclusively (the native
         // dispatch path uses argNames), so it carries the `ref` modifier for inout params.
         var argsString = string.Join(", ", csharpImplArgs);
+
+        // This member keeps the requirement's projected parameter names on its public signature, so
+        // every local the dispatch body declares lands in the same scope as them. Minting them all
+        // through one scope moves a generated local aside when a parameter is spelled like it — the
+        // public parameter never moves. Nothing moves when nothing collides, so the overwhelmingly
+        // common member emits byte-identical text.
+        var bodyScope = new SyntheticNameScope(argNames);
+        var containerPtrName = bodyScope.Mint("containerPtr");
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
         var methodName = NameProvider.GetPublicMethodName(ProtocolMethodDisambiguator.EffectiveNameInput(method, protocolDecl, _typeDatabase), method.IsAsync, hasReturn,
@@ -1710,7 +1719,7 @@ public partial class ProtocolProxyEmitter
 
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
-            EmitExistentialReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+            EmitExistentialReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType!, returnTypeName);
         }
         else if (dispatchKind == MethodDispatchKind.BlittableOrString)
         {
@@ -1723,13 +1732,13 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLines($$"""
                     if (_csharpImpl != null)
                         return _csharpImpl.{{methodName}}({{argsString}});
-                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                    fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
                     {
                     """);
                 writer.Indent++;
 
                 // Declare pin handles before try for exception-safe cleanup
-                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
                 bool needsOuterTry = pinHandles.Count > 0;
 
                 if (needsOuterTry)
@@ -1740,31 +1749,31 @@ public partial class ProtocolProxyEmitter
                 }
 
                 // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
-                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
                 // Build P/Invoke call
-                var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-                for (int i = 0; i < argNames.Count; i++)
-                {
-                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-                }
+                var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+                pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
                 var pInvokeArgsString = string.Join(", ", pInvokeArgs);
+
+                var resultPtrName = bodyScope.Mint("resultPtr");
+                var sliceName = bodyScope.Mint("slice");
 
                 if (isStringReturn)
                 {
                     // String return: decode SBW_Utf8Slice → string
                     writer.WriteLines($$"""
-                        IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                        IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                         try
                         {
-                            var slice = *(Utf8Slice*)resultPtr;
-                            return slice.Len > 0
-                                ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                            var {{sliceName}} = *(Utf8Slice*){{resultPtrName}};
+                            return {{sliceName}}.Len > 0
+                                ? global::System.Text.Encoding.UTF8.GetString((byte*){{sliceName}}.Ptr, (int){{sliceName}}.Len)
                                 : string.Empty;
                         }
                         finally
                         {
-                            NativeMethods.{{freeSymbol}}(resultPtr);
+                            NativeMethods.{{freeSymbol}}({{resultPtrName}});
                         }
                         """);
                 }
@@ -1774,11 +1783,11 @@ public partial class ProtocolProxyEmitter
                     var marshalReturnType = dispatchEmitter.GetBlittableCSharpType(returnType!) ?? GetCSharpTypeName(returnType!);
 
                     writer.WriteLines($$"""
-                        IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                        try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
+                        IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                        try { return MarshalFromSwift<{{marshalReturnType}}>({{resultPtrName}}); }
                         finally
                         {
-                            NativeMethods.{{freeSymbol}}(resultPtr);
+                            NativeMethods.{{freeSymbol}}({{resultPtrName}});
                         }
                         """);
                 }
@@ -1805,7 +1814,7 @@ public partial class ProtocolProxyEmitter
                     writer.WriteLines($$"""
                         if (_csharpImpl != null)
                             return _csharpImpl.{{methodName}}({{argsString}});
-                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
                         {
                         """);
                 }
@@ -1817,14 +1826,14 @@ public partial class ProtocolProxyEmitter
                             _csharpImpl.{{methodName}}({{argsString}});
                             return;
                         }
-                        fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                        fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
                         {
                         """);
                 }
                 writer.Indent++;
 
                 // Declare pin handles before try for exception-safe cleanup
-                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
                 bool needsOuterTry = pinHandles.Count > 0;
 
                 if (needsOuterTry)
@@ -1835,13 +1844,10 @@ public partial class ProtocolProxyEmitter
                 }
 
                 // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
-                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
-                var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-                for (int i = 0; i < argNames.Count; i++)
-                {
-                    pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-                }
+                var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+                pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
                 var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
                 writer.WriteLine($"NativeMethods.{accessorSymbol}({pInvokeArgsString});");
@@ -1864,19 +1870,19 @@ public partial class ProtocolProxyEmitter
         }
         else if (dispatchKind == MethodDispatchKind.ThrowingBlittableOrString)
         {
-            EmitThrowingBlittableMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType, returnTypeName, hasReturn, isStringReturn);
+            EmitThrowingBlittableMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType, returnTypeName, hasReturn, isStringReturn);
         }
         else if (dispatchKind == MethodDispatchKind.ClassReturn)
         {
-            EmitClassReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+            EmitClassReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType!, returnTypeName);
         }
         else if (dispatchKind == MethodDispatchKind.StructReturn)
         {
-            EmitStructReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+            EmitStructReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType!, returnTypeName);
         }
         else if (dispatchKind == MethodDispatchKind.BoundGenericReturn)
         {
-            EmitCollectionReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, returnType!, returnTypeName);
+            EmitCollectionReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType!, returnTypeName);
         }
         else
         {
@@ -1934,21 +1940,26 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         string accessorSymbol, string freeSymbol,
         string resultExpression,
         string? resultPreamble = null,
         bool isOptionalReturn = false)
     {
+        var containerPtrName = bodyScope.Mint("containerPtr");
+        var resultPtrName = bodyScope.Mint("resultPtr");
+        var errorOutName = bodyScope.Mint("errorOut");
+
         writer.WriteLines($$"""
             if (_csharpImpl != null)
                 return _csharpImpl.{{methodName}}({{argsString}});
-            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
             {
             """);
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -1959,29 +1970,26 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
         // Build P/Invoke call args
-        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-        for (int i = 0; i < argNames.Count; i++)
-        {
-            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-        }
+        var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+        pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
 
         if (method.Throws)
         {
-            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            pInvokeArgs.Add($"(IntPtr)(&{errorOutName})");
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             // Throwing pattern: error out-parameter, null result means error
             writer.WriteLines($$"""
-                IntPtr errorOut = IntPtr.Zero;
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                if (resultPtr == IntPtr.Zero)
+                IntPtr {{errorOutName}} = IntPtr.Zero;
+                IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if ({{resultPtrName}} == IntPtr.Zero)
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer);
+            EmitSwiftErrorHandling(writer, errorOutName);
             writer.Indent--;
             if (resultPreamble != null)
             {
@@ -1992,7 +2000,7 @@ public partial class ProtocolProxyEmitter
                         {{resultPreamble}}
                         return {{resultExpression}};
                     }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}({{resultPtrName}}); }
                     """);
             }
             else
@@ -2003,7 +2011,7 @@ public partial class ProtocolProxyEmitter
                     {
                         return {{resultExpression}};
                     }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}({{resultPtrName}}); }
                     """);
             }
         }
@@ -2015,26 +2023,26 @@ public partial class ProtocolProxyEmitter
             if (resultPreamble != null)
             {
                 writer.WriteLines($$"""
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                    if (resultPtr == IntPtr.Zero) return null;
+                    IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if ({{resultPtrName}} == IntPtr.Zero) return null;
                     try
                     {
                         {{resultPreamble}}
                         return {{resultExpression}};
                     }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}({{resultPtrName}}); }
                     """);
             }
             else
             {
                 writer.WriteLines($$"""
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                    if (resultPtr == IntPtr.Zero) return null;
+                    IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if ({{resultPtrName}} == IntPtr.Zero) return null;
                     try
                     {
                         return {{resultExpression}};
                     }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}({{resultPtrName}}); }
                     """);
             }
         }
@@ -2046,24 +2054,24 @@ public partial class ProtocolProxyEmitter
             if (resultPreamble != null)
             {
                 writer.WriteLines($$"""
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                     try
                     {
                         {{resultPreamble}}
                         return {{resultExpression}};
                     }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}({{resultPtrName}}); }
                     """);
             }
             else
             {
                 writer.WriteLines($$"""
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                     try
                     {
                         return {{resultExpression}};
                     }
-                    finally { NativeMethods.{{freeSymbol}}(resultPtr); }
+                    finally { NativeMethods.{{freeSymbol}}({{resultPtrName}}); }
                     """);
             }
         }
@@ -2148,8 +2156,11 @@ public partial class ProtocolProxyEmitter
         // class-bound cells read the 2-word ClassExistentialContainer1 + retain, opaque cells
         // read the full container. Only the surrounding try/finally scaffolding differs.
         var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
+        // A property accessor body carries no user-chosen identifiers — the getter has no
+        // parameters and a setter's only one is the compiler's `value` — so nothing here can be
+        // shadowed and the scope stays empty, leaving the preferred spellings in place.
         var (preamble, expression) =
-            BuildExistentialHeapCellReadAndConstruct(isClassBound, containerType, proxyClassName);
+            BuildExistentialHeapCellReadAndConstruct(isClassBound, containerType, proxyClassName, new SyntheticNameScope());
         writer.WriteLines(preamble);
         writer.WriteLine($"return ({publicType}){expression};");
         writer.Indent--;
@@ -2172,6 +2183,7 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         int methodIndex, string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         TypeSpec returnType, string returnTypeName)
     {
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
@@ -2205,9 +2217,9 @@ public partial class ProtocolProxyEmitter
         // the 16-byte allocation, so the read width must follow class-boundedness — same shape
         // as the property getter.
         var (resultPreamble, resultExpression) =
-            BuildExistentialHeapCellReadAndConstruct(isClassBound, containerType, proxyClassName);
+            BuildExistentialHeapCellReadAndConstruct(isClassBound, containerType, proxyClassName, bodyScope);
         EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
-            methodName, argsString, argNames, paramSwiftTypeSpecs,
+            methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope,
             accessorSymbol, freeSymbol, resultExpression, resultPreamble, isOptionalReturn: isOptionalExistential);
     }
 
@@ -2223,8 +2235,11 @@ public partial class ProtocolProxyEmitter
     /// which differ only in their surrounding try/finally scaffolding.
     /// </summary>
     private static (string preamble, string expression) BuildExistentialHeapCellReadAndConstruct(
-        bool isClassBound, string containerType, string proxyClassName)
+        bool isClassBound, string containerType, string proxyClassName, SyntheticNameScope bodyScope)
     {
+        var resultPtr = bodyScope.Mint("resultPtr");
+        var container = bodyScope.Mint("container");
+
         if (isClassBound)
         {
             // Read exactly two words, then take an independent +1 so the adopting proxy owns the
@@ -2235,9 +2250,9 @@ public partial class ProtocolProxyEmitter
             // class), so the retain routes through the kind-dispatching unknown-object entry point
             // rather than swift_retain (native-only).
             var preamble =
-                "var container = Unsafe.Read<Swift.Runtime.ClassExistentialContainer1>((void*)resultPtr);\n"
-                + "global::Swift.Runtime.Arc.UnknownObjectRetain(container.ClassRef);";
-            return (preamble, $"new {proxyClassName}(container, ownsContainer: true)");
+                $"var {container} = Unsafe.Read<Swift.Runtime.ClassExistentialContainer1>((void*){resultPtr});\n"
+                + $"global::Swift.Runtime.Arc.UnknownObjectRetain({container}.ClassRef);";
+            return (preamble, $"new {proxyClassName}({container}, ownsContainer: true)");
         }
 
         // Opaque (5-word) existential. The dispatched Swift accessor returns the existential at +1
@@ -2252,16 +2267,17 @@ public partial class ProtocolProxyEmitter
         // must not take the extra retain (it never Destroys, so the +1 would leak).
         if (ExistentialHandler.IsOwnedExistentialContainerType(containerType))
         {
+            var existentialMetadata = bodyScope.Mint("existentialMetadata");
             var ownedPreamble =
-                $"var container = Unsafe.Read<{containerType}>((void*)resultPtr);\n"
-                + "var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(container.Count);\n"
+                $"var {container} = Unsafe.Read<{containerType}>((void*){resultPtr});\n"
+                + $"var {existentialMetadata} = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata({container}.Count);\n"
                 + "Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains("
-                + "(IntPtr)Unsafe.AsPointer(ref container), resultPtr, existentialMetadata);";
-            return (ownedPreamble, $"new {proxyClassName}(container, ownsContainer: true)");
+                + $"(IntPtr)Unsafe.AsPointer(ref {container}), {resultPtr}, {existentialMetadata});";
+            return (ownedPreamble, $"new {proxyClassName}({container}, ownsContainer: true)");
         }
 
-        return ($"var container = Unsafe.Read<{containerType}>((void*)resultPtr);",
-                $"new {proxyClassName}(container)");
+        return ($"var {container} = Unsafe.Read<{containerType}>((void*){resultPtr});",
+                $"new {proxyClassName}({container})");
     }
 
     /// <summary>
@@ -2274,9 +2290,13 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         int methodIndex, string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         TypeSpec? returnType, string returnTypeName, bool hasReturn, bool isStringReturn)
     {
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+        var containerPtrName = bodyScope.Mint("containerPtr");
+        var resultPtrName = bodyScope.Mint("resultPtr");
+        var errorOutName = bodyScope.Mint("errorOut");
 
         if (hasReturn)
         {
@@ -2285,13 +2305,13 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 if (_csharpImpl != null)
                     return _csharpImpl.{{methodName}}({{argsString}});
-                fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
                 {
                 """);
             writer.Indent++;
 
             // Declare pin handles before try for exception-safe cleanup
-            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
             bool needsOuterTry = pinHandles.Count > 0;
 
             if (needsOuterTry)
@@ -2302,41 +2322,40 @@ public partial class ProtocolProxyEmitter
             }
 
             // Marshal each parameter
-            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
             // Build P/Invoke call args
-            var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-            for (int i = 0; i < argNames.Count; i++)
-            {
-                pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-            }
-            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+            pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
+            pInvokeArgs.Add($"(IntPtr)(&{errorOutName})");
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             if (isStringReturn)
             {
+                var sliceName = bodyScope.Mint("slice");
+
                 // String return with error check: resultPtr == IntPtr.Zero means error
                 writer.WriteLines($$"""
-                    IntPtr errorOut = IntPtr.Zero;
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                    if (resultPtr == IntPtr.Zero)
+                    IntPtr {{errorOutName}} = IntPtr.Zero;
+                    IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if ({{resultPtrName}} == IntPtr.Zero)
                     {
                     """);
                 writer.Indent++;
-                EmitSwiftErrorHandling(writer);
+                EmitSwiftErrorHandling(writer, errorOutName);
                 writer.Indent--;
                 writer.WriteLines($$"""
                     }
                     try
                     {
-                        var slice = *(Utf8Slice*)resultPtr;
-                        return slice.Len > 0
-                            ? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)
+                        var {{sliceName}} = *(Utf8Slice*){{resultPtrName}};
+                        return {{sliceName}}.Len > 0
+                            ? global::System.Text.Encoding.UTF8.GetString((byte*){{sliceName}}.Ptr, (int){{sliceName}}.Len)
                             : string.Empty;
                     }
                     finally
                     {
-                        NativeMethods.{{freeSymbol}}(resultPtr);
+                        NativeMethods.{{freeSymbol}}({{resultPtrName}});
                     }
                     """);
             }
@@ -2346,20 +2365,20 @@ public partial class ProtocolProxyEmitter
                 var marshalReturnType = dispatchEmitter.GetBlittableCSharpType(returnType!) ?? GetCSharpTypeName(returnType!);
 
                 writer.WriteLines($$"""
-                    IntPtr errorOut = IntPtr.Zero;
-                    IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                    if (resultPtr == IntPtr.Zero)
+                    IntPtr {{errorOutName}} = IntPtr.Zero;
+                    IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                    if ({{resultPtrName}} == IntPtr.Zero)
                     {
                     """);
                 writer.Indent++;
-                EmitSwiftErrorHandling(writer);
+                EmitSwiftErrorHandling(writer, errorOutName);
                 writer.Indent--;
                 writer.WriteLines($$"""
                     }
-                    try { return MarshalFromSwift<{{marshalReturnType}}>(resultPtr); }
+                    try { return MarshalFromSwift<{{marshalReturnType}}>({{resultPtrName}}); }
                     finally
                     {
-                        NativeMethods.{{freeSymbol}}(resultPtr);
+                        NativeMethods.{{freeSymbol}}({{resultPtrName}});
                     }
                     """);
             }
@@ -2388,13 +2407,13 @@ public partial class ProtocolProxyEmitter
                     _csharpImpl.{{methodName}}({{argsString}});
                     return;
                 }
-                fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
                 {
                 """);
             writer.Indent++;
 
             // Declare pin handles before try for exception-safe cleanup
-            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
             bool needsOuterTry = pinHandles.Count > 0;
 
             if (needsOuterTry)
@@ -2404,24 +2423,21 @@ public partial class ProtocolProxyEmitter
                 writer.Indent++;
             }
 
-            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
-            var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-            for (int i = 0; i < argNames.Count; i++)
-            {
-                pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-            }
-            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+            pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
+            pInvokeArgs.Add($"(IntPtr)(&{errorOutName})");
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             writer.WriteLines($$"""
-                IntPtr errorOut = IntPtr.Zero;
+                IntPtr {{errorOutName}} = IntPtr.Zero;
                 NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                if (errorOut != IntPtr.Zero)
+                if ({{errorOutName}} != IntPtr.Zero)
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer);
+            EmitSwiftErrorHandling(writer, errorOutName);
             writer.Indent--;
             writer.WriteLines("""
                 }
@@ -2455,20 +2471,24 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         int methodIndex, string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         TypeSpec returnType, string returnTypeName)
     {
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
+        var containerPtrName = bodyScope.Mint("containerPtr");
+        var resultPtrName = bodyScope.Mint("resultPtr");
+        var errorOutName = bodyScope.Mint("errorOut");
 
         writer.WriteLines($$"""
             if (_csharpImpl != null)
                 return _csharpImpl.{{methodName}}({{argsString}});
-            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
             {
             """);
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -2479,37 +2499,34 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
         // Build P/Invoke call args
-        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-        for (int i = 0; i < argNames.Count; i++)
-        {
-            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-        }
+        var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+        pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
 
         if (method.Throws)
         {
-            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            pInvokeArgs.Add($"(IntPtr)(&{errorOutName})");
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             // Throwing: error out-parameter, null result means error
             writer.WriteLines($$"""
-                IntPtr errorOut = IntPtr.Zero;
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                if (resultPtr == IntPtr.Zero)
+                IntPtr {{errorOutName}} = IntPtr.Zero;
+                IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if ({{resultPtrName}} == IntPtr.Zero)
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer);
+            EmitSwiftErrorHandling(writer, errorOutName);
             writer.Indent--;
             writer.WriteLines($$"""
                 }
                 try
                 {
-                    return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(resultPtr);
+                    return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>({{resultPtrName}});
                 }
-                catch { global::Swift.Runtime.Arc.Release(resultPtr); throw; }
+                catch { global::Swift.Runtime.Arc.Release({{resultPtrName}}); throw; }
                 """);
         }
         else
@@ -2518,12 +2535,12 @@ public partial class ProtocolProxyEmitter
 
             // Non-throwing: direct class return
             writer.WriteLines($$"""
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                 try
                 {
-                    return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(resultPtr);
+                    return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>({{resultPtrName}});
                 }
-                catch { global::Swift.Runtime.Arc.Release(resultPtr); throw; }
+                catch { global::Swift.Runtime.Arc.Release({{resultPtrName}}); throw; }
                 """);
         }
 
@@ -2556,22 +2573,28 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         int methodIndex, string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         TypeSpec returnType, string returnTypeName)
     {
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
         bool isFrozenRefFields = dispatchEmitter.IsFrozenStructWithRefFields(returnType);
         var cleanupKeyword = isFrozenRefFields ? "finally" : "catch";
+        var containerPtrName = bodyScope.Mint("containerPtr");
+        var metadataName = bodyScope.Mint("metadata");
+        var bufferName = bodyScope.Mint("buffer");
+        var indirectResultName = bodyScope.Mint("indirectResult");
+        var errorOutName = bodyScope.Mint("errorOut");
 
         writer.WriteLines($$"""
             if (_csharpImpl != null)
                 return _csharpImpl.{{methodName}}({{argsString}});
-            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
             {
             """);
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -2582,16 +2605,11 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
         // Build P/Invoke call args: containerPtr + resultBuf + params + errorOut
-        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
         // resultBuf inserted below after buffer allocation
-        var argPInvokeList = new List<string>();
-        for (int i = 0; i < argNames.Count; i++)
-        {
-            argPInvokeList.Add($"(IntPtr)(&arg{i}Slice)");
-        }
+        var argPInvokeList = SliceArguments(argNames.Count, bodyScope).ToList();
 
         if (method.Throws)
         {
@@ -2599,33 +2617,33 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 unsafe
                 {
-                    var metadata = SwiftObjectHelper<{{returnTypeName}}>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                    var {{metadataName}} = SwiftObjectHelper<{{returnTypeName}}>.GetTypeMetadata();
+                    IntPtr {{bufferName}} = (IntPtr)NativeMemory.Alloc({{metadataName}}.Size);
                     try
                     {
-                        var indirectResult = new SwiftIndirectResult((void*)buffer);
-                        IntPtr errorOut = IntPtr.Zero;
+                        var {{indirectResultName}} = new SwiftIndirectResult((void*){{bufferName}});
+                        IntPtr {{errorOutName}} = IntPtr.Zero;
                 """);
             writer.Indent += 2;
 
-            var throwingPInvokeArgs = new List<string> { "(IntPtr)containerPtr", "(IntPtr)indirectResult.Value" };
+            var throwingPInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}", $"(IntPtr){indirectResultName}.Value" };
             throwingPInvokeArgs.AddRange(argPInvokeList);
-            throwingPInvokeArgs.Add("(IntPtr)(&errorOut)");
+            throwingPInvokeArgs.Add($"(IntPtr)(&{errorOutName})");
             var throwingPInvokeArgsString = string.Join(", ", throwingPInvokeArgs);
 
             writer.WriteLines($$"""
                         NativeMethods.{{accessorSymbol}}({{throwingPInvokeArgsString}});
-                        if (errorOut != IntPtr.Zero)
+                        if ({{errorOutName}} != IntPtr.Zero)
                         {
                 """);
             writer.Indent += 3;
-            EmitSwiftErrorHandling(writer);
+            EmitSwiftErrorHandling(writer, errorOutName);
             writer.Indent -= 3;
             writer.WriteLines($$"""
                         }
-                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(buffer);
+                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>({{bufferName}});
                     }
-                    {{cleanupKeyword}} { NativeMemory.Free((void*)buffer);{{(isFrozenRefFields ? "" : " throw;")}} }
+                    {{cleanupKeyword}} { NativeMemory.Free((void*){{bufferName}});{{(isFrozenRefFields ? "" : " throw;")}} }
                 }
                 """);
             writer.Indent -= 2;
@@ -2633,22 +2651,22 @@ public partial class ProtocolProxyEmitter
         else
         {
             // Non-throwing struct return
-            var nonThrowingPInvokeArgs = new List<string> { "(IntPtr)containerPtr", "(IntPtr)indirectResult.Value" };
+            var nonThrowingPInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}", $"(IntPtr){indirectResultName}.Value" };
             nonThrowingPInvokeArgs.AddRange(argPInvokeList);
             var nonThrowingPInvokeArgsString = string.Join(", ", nonThrowingPInvokeArgs);
 
             writer.WriteLines($$"""
                 unsafe
                 {
-                    var metadata = SwiftObjectHelper<{{returnTypeName}}>.GetTypeMetadata();
-                    IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                    var {{metadataName}} = SwiftObjectHelper<{{returnTypeName}}>.GetTypeMetadata();
+                    IntPtr {{bufferName}} = (IntPtr)NativeMemory.Alloc({{metadataName}}.Size);
                     try
                     {
-                        var indirectResult = new SwiftIndirectResult((void*)buffer);
+                        var {{indirectResultName}} = new SwiftIndirectResult((void*){{bufferName}});
                         NativeMethods.{{accessorSymbol}}({{nonThrowingPInvokeArgsString}});
-                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(buffer);
+                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>({{bufferName}});
                     }
-                    {{cleanupKeyword}} { NativeMemory.Free((void*)buffer);{{(isFrozenRefFields ? "" : " throw;")}} }
+                    {{cleanupKeyword}} { NativeMemory.Free((void*){{bufferName}});{{(isFrozenRefFields ? "" : " throw;")}} }
                 }
                 """);
         }
@@ -2677,17 +2695,19 @@ public partial class ProtocolProxyEmitter
     /// All params end up as arg{i}Slice for uniform pointer passing.
     /// Handle variables must be pre-declared by EmitPinHandleDeclarations before the enclosing try block.
     /// </summary>
-    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, WitnessDispatchEmitter? dispatchEmitter = null)
+    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, WitnessDispatchEmitter? dispatchEmitter = null)
     {
         for (int i = 0; i < argNames.Count; i++)
         {
+            var sliceName = SliceLocal(bodyScope, i);
             if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
             {
                 // String parameter: encode to UTF-8, pin via GCHandle, wrap in Utf8Slice
-                var handleName = $"arg{i}Handle";
-                writer.WriteLine($"var arg{i}Bytes = global::System.Text.Encoding.UTF8.GetBytes({argNames[i]} ?? string.Empty);");
-                writer.WriteLine($"{handleName} = GCHandle.Alloc(arg{i}Bytes, GCHandleType.Pinned);");
-                writer.WriteLine($"var arg{i}Slice = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint)arg{i}Bytes.Length }};");
+                var handleName = bodyScope.Mint($"arg{i}Handle");
+                var bytesName = bodyScope.Mint($"arg{i}Bytes");
+                writer.WriteLine($"var {bytesName} = global::System.Text.Encoding.UTF8.GetBytes({argNames[i]} ?? string.Empty);");
+                writer.WriteLine($"{handleName} = GCHandle.Alloc({bytesName}, GCHandleType.Pinned);");
+                writer.WriteLine($"var {sliceName} = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint){bytesName}.Length }};");
             }
             else if (dispatchEmitter != null &&
                      (dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
@@ -2698,16 +2718,33 @@ public partial class ProtocolProxyEmitter
                 // (native-remapped .NET binding like CoreGraphics.CGContext, which carries objcBridged
                 // but is not NSObject-rooted), and ObjC-bridgeable — none of which expose a .Payload.
                 if (dispatchEmitter.UsesHandleAccessor(paramSwiftTypeSpecs[i]))
-                    writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Handle;");
+                    writer.WriteLine($"var {sliceName} = {argNames[i]}.Handle;");
                 else
-                    writer.WriteLine($"var arg{i}Slice = {argNames[i]}.Payload.DangerousGetHandle();");
+                    writer.WriteLine($"var {sliceName} = {argNames[i]}.Payload.DangerousGetHandle();");
             }
             else
             {
                 // Blittable parameter: simple copy
-                writer.WriteLine($"var arg{i}Slice = {argNames[i]};");
+                writer.WriteLine($"var {sliceName} = {argNames[i]};");
             }
         }
+    }
+
+    /// <summary>
+    /// The per-parameter wire-slice local for index <paramref name="index"/>, minted through the
+    /// member's body scope so it stays distinct from a parameter spelled the same way.
+    /// </summary>
+    private static string SliceLocal(SyntheticNameScope bodyScope, int index)
+        => bodyScope.Mint($"arg{index}Slice");
+
+    /// <summary>
+    /// Builds the <c>(IntPtr)(&amp;arg{i}Slice)</c> P/Invoke arguments for every dispatched
+    /// parameter, reading the same slice locals <see cref="EmitMethodParameterMarshalling"/> declares.
+    /// </summary>
+    private static IEnumerable<string> SliceArguments(int count, SyntheticNameScope bodyScope)
+    {
+        for (int i = 0; i < count; i++)
+            yield return $"(IntPtr)(&{SliceLocal(bodyScope, i)})";
     }
 
     /// <summary>
@@ -2727,14 +2764,14 @@ public partial class ProtocolProxyEmitter
     /// This ensures handles can be safely checked with IsAllocated in finally blocks
     /// even if an exception occurs during allocation of subsequent handles.
     /// </summary>
-    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs)
+    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope)
     {
         var pinHandles = new List<string>();
         for (int i = 0; i < argNames.Count; i++)
         {
             if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
             {
-                var handleName = $"arg{i}Handle";
+                var handleName = bodyScope.Mint($"arg{i}Handle");
                 writer.WriteLine($"var {handleName} = default(GCHandle);");
                 pinHandles.Add(handleName);
             }
@@ -2826,6 +2863,7 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         int methodIndex, string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         TypeSpec returnType, string returnTypeName)
     {
         var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
@@ -2838,7 +2876,7 @@ public partial class ProtocolProxyEmitter
             // container conversion; if an element's proxy was suppressed (its EveryProtocol conformance
             // was not emitted) it throws here, during pure string projection — before EmitHeapPointerMethodBody
             // writes any body.
-            resultExpression = GetCollectionMarshalExpression(returnType, "resultPtr");
+            resultExpression = GetCollectionMarshalExpression(returnType, bodyScope.Mint("resultPtr"));
         }
         catch (SuppressedProxyReferenceException)
         {
@@ -2858,13 +2896,13 @@ public partial class ProtocolProxyEmitter
         if (CdeclParamMapper.IsObjCBridgeableContainer(returnType, _typeDatabase))
         {
             EmitObjCBridgedContainerReturnMethodBody(writer, method, dispatchEmitter,
-                methodName, argsString, argNames, paramSwiftTypeSpecs,
+                methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope,
                 accessorSymbol, resultExpression);
             return;
         }
 
         EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
-            methodName, argsString, argNames, paramSwiftTypeSpecs,
+            methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope,
             accessorSymbol, freeSymbol, resultExpression);
     }
 
@@ -2881,18 +2919,23 @@ public partial class ProtocolProxyEmitter
         WitnessDispatchEmitter dispatchEmitter,
         string methodName, string argsString,
         List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs,
+        SyntheticNameScope bodyScope,
         string accessorSymbol, string resultExpression)
     {
+        var containerPtrName = bodyScope.Mint("containerPtr");
+        var resultPtrName = bodyScope.Mint("resultPtr");
+        var errorOutName = bodyScope.Mint("errorOut");
+
         writer.WriteLines($$"""
             if (_csharpImpl != null)
                 return _csharpImpl.{{methodName}}({{argsString}});
-            fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+            fixed (ExistentialContainer1* {{containerPtrName}} = &_swiftContainer)
             {
             """);
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -2903,29 +2946,26 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
 
         // Build P/Invoke call args
-        var pInvokeArgs = new List<string> { "(IntPtr)containerPtr" };
-        for (int i = 0; i < argNames.Count; i++)
-        {
-            pInvokeArgs.Add($"(IntPtr)(&arg{i}Slice)");
-        }
+        var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+        pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
 
         if (method.Throws)
         {
-            pInvokeArgs.Add("(IntPtr)(&errorOut)");
+            pInvokeArgs.Add($"(IntPtr)(&{errorOutName})");
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
 
             // Throwing: nil result pointer means error (Swift wrapper returns nil on the catch path).
             writer.WriteLines($$"""
-                IntPtr errorOut = IntPtr.Zero;
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                if (resultPtr == IntPtr.Zero)
+                IntPtr {{errorOutName}} = IntPtr.Zero;
+                IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                if ({{resultPtrName}} == IntPtr.Zero)
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer);
+            EmitSwiftErrorHandling(writer, errorOutName);
             writer.Indent--;
             writer.WriteLines($$"""
                 }
@@ -2936,7 +2976,7 @@ public partial class ProtocolProxyEmitter
         {
             var pInvokeArgsString = string.Join(", ", pInvokeArgs);
             writer.WriteLines($$"""
-                IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
+                IntPtr {{resultPtrName}} = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
                 return {{resultExpression}};
                 """);
         }
@@ -2962,15 +3002,15 @@ public partial class ProtocolProxyEmitter
     /// to a SwiftException. Used by all throwing witness dispatch paths.
     /// Caller must set writer.Indent to the correct level (typically inside an if-error block).
     /// </summary>
-    private static void EmitSwiftErrorHandling(CSharpWriter writer)
+    private static void EmitSwiftErrorHandling(CSharpWriter writer, string errorOutName)
     {
         // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so the
         // thrown SwiftException carries the live error box on .ErrorHandle, identical to the canonical
         // method path — instead of eagerly releasing it and throwing a message-only, identity-lossy
         // exception. ThrowSwiftError reads + frees the description and transfers ownership of the error
         // box to the exception (released on finalization).
-        writer.WriteLines("""
-            global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(errorOut, NativeMethods.SBW_GetErrorDescription(errorOut), NativeMethods.SBW_ReleaseError);
+        writer.WriteLines($$"""
+            global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError({{errorOutName}}, NativeMethods.SBW_GetErrorDescription({{errorOutName}}), NativeMethods.SBW_ReleaseError);
             """);
     }
 
@@ -3066,8 +3106,9 @@ public partial class ProtocolProxyEmitter
         }
         if (method.IsAsync)
         {
-            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
-            argNames.Add("cancellationToken");
+            var ctName = NameProvider.ResolveCancellationTokenName(method);
+            parameters.Add($"global::System.Threading.CancellationToken {ctName} = default");
+            argNames.Add(ctName);
         }
 
         var parametersString = string.Join(", ", parameters);

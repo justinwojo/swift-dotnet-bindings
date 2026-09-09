@@ -407,9 +407,20 @@ internal static class ConformerKeyPathInitFactoryEmitter
 
             // Public factory.
             var factoryParams = new List<string>();
+            var factoryParamNames = new List<string>();
             foreach (var scalar in shape.Scalars)
+            {
+                factoryParamNames.Add(scalar.Label);
                 factoryParams.Add($"string {scalar.Label}");
+            }
+            factoryParamNames.Add(shape.KeyPathArgLabel);
             factoryParams.Add($"{keyPathParamType} {shape.KeyPathArgLabel}");
+
+            // Every local the factory body declares — the per-scalar marshalling chain, the key-path
+            // pin, and the call's own result pointer — lands in the same scope as those parameters.
+            // Minting them all through one scope moves a generated local aside when a parameter is
+            // spelled like it; nothing moves when nothing collides.
+            var bodyScope = new SyntheticNameScope(factoryParamNames);
 
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, availability, parentAnnotations: null);
@@ -425,20 +436,28 @@ internal static class ConformerKeyPathInitFactoryEmitter
             var callArgs = new List<string>();
             foreach (var scalar in shape.Scalars)
             {
-                csWriter.WriteLine($"using var {scalar.Label}Swift = new SwiftString({scalar.Label});");
-                csWriter.WriteLine($"using var {scalar.Label}Disposable = {scalar.Label}Swift.PayloadBuffer;");
-                csWriter.WriteLine($"var {scalar.Label}Buf = {scalar.Label}Disposable.Buffer;");
-                csWriter.WriteLine($"nint {scalar.Label}_w0 = Unsafe.As<SwiftString.Buffer, nint>(ref {scalar.Label}Buf);");
-                csWriter.WriteLine($"nint {scalar.Label}_w1 = Unsafe.Add(ref Unsafe.As<SwiftString.Buffer, nint>(ref {scalar.Label}Buf), 1);");
-                callArgs.Add($"{scalar.Label}_w0");
-                callArgs.Add($"{scalar.Label}_w1");
+                var swiftName = bodyScope.MintComposed($"{scalar.Label}Swift");
+                var disposableName = bodyScope.MintComposed($"{scalar.Label}Disposable");
+                var bufName = bodyScope.MintComposed($"{scalar.Label}Buf");
+                var w0Name = bodyScope.MintComposed($"{scalar.Label}_w0");
+                var w1Name = bodyScope.MintComposed($"{scalar.Label}_w1");
+                csWriter.WriteLine($"using var {swiftName} = new SwiftString({scalar.Label});");
+                csWriter.WriteLine($"using var {disposableName} = {swiftName}.PayloadBuffer;");
+                csWriter.WriteLine($"var {bufName} = {disposableName}.Buffer;");
+                csWriter.WriteLine($"nint {w0Name} = Unsafe.As<SwiftString.Buffer, nint>(ref {bufName});");
+                csWriter.WriteLine($"nint {w1Name} = Unsafe.Add(ref Unsafe.As<SwiftString.Buffer, nint>(ref {bufName}), 1);");
+                callArgs.Add(w0Name);
+                callArgs.Add(w1Name);
             }
-            csWriter.WriteLine($"using SafeHandlePin {shape.KeyPathArgLabel}Pin = new SafeHandlePin({shape.KeyPathArgLabel}.Payload);");
-            csWriter.WriteLine($"IntPtr {shape.KeyPathArgLabel}Buffer = {shape.KeyPathArgLabel}Pin.Handle;");
-            callArgs.Add($"{shape.KeyPathArgLabel}Buffer");
+            var keyPathPinName = bodyScope.MintComposed($"{shape.KeyPathArgLabel}Pin");
+            var keyPathBufferName = bodyScope.MintComposed($"{shape.KeyPathArgLabel}Buffer");
+            csWriter.WriteLine($"using SafeHandlePin {keyPathPinName} = new SafeHandlePin({shape.KeyPathArgLabel}.Payload);");
+            csWriter.WriteLine($"IntPtr {keyPathBufferName} = {keyPathPinName}.Handle;");
+            callArgs.Add(keyPathBufferName);
 
-            csWriter.WriteLine($"IntPtr resultPtr = {pinvokeName}({string.Join(", ", callArgs)});");
-            csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{returnType}>(resultPtr);");
+            var factoryResultPtrName = bodyScope.Mint("resultPtr");
+            csWriter.WriteLine($"IntPtr {factoryResultPtrName} = {pinvokeName}({string.Join(", ", callArgs)});");
+            csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{returnType}>({factoryResultPtrName});");
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

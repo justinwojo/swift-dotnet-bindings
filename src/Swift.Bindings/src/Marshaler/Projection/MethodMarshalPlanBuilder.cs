@@ -155,8 +155,11 @@ internal class MethodMarshalPlanBuilder
     /// </summary>
     private string ResolveReturnLocalName()
     {
-        var paramNames = new HashSet<string>(
-            _env.MethodDecl.CSSignature.Skip(1).Select(NameProvider.GetCSharpParameterName));
+        // Both spellings are live in the wrapper body: the public parameter and — when a sibling
+        // parameter shadows one of its derived locals — the aliased marshalling base. Declared
+        // parameters the signature builders drop occupy neither identifier, so a name only such a
+        // parameter holds must not move this local.
+        var paramNames = new HashSet<string>(NameProvider.GetEmittedParameterNames(_env.MethodDecl));
 
         // A failable CLASS init routed through a @_cdecl wrapper is emitted as a static
         // `TryCreate(..., out T result)` factory whose P/Invoke returns the instance pointer
@@ -190,7 +193,7 @@ internal class MethodMarshalPlanBuilder
         var lines = new List<string>();
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
         {
-            var csName = NameProvider.GetCSharpParameterName(argument);
+            var csName = NameProvider.GetMarshallingBaseName(argument);
             var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
             var metadataName = NameProvider.GetMetadataName(csTypeParamName);
             var payloadName = NameProvider.GetPayloadName(csName);
@@ -217,7 +220,7 @@ internal class MethodMarshalPlanBuilder
         var lines = new List<string>();
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric && a.IsInOut))
         {
-            var csName = NameProvider.GetCSharpParameterName(argument);
+            var csName = NameProvider.GetMarshallingBaseName(argument);
             var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
             var payloadName = NameProvider.GetPayloadName(csName);
 
@@ -397,7 +400,7 @@ internal class MethodMarshalPlanBuilder
 
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
         {
-            var csName = NameProvider.GetCSharpParameterName(argument);
+            var csName = NameProvider.GetMarshallingBaseName(argument);
             var payloadName = NameProvider.GetPayloadName(csName);
             lines.Add($"IntPtr {payloadName} = IntPtr.Zero;");
         }
@@ -450,7 +453,7 @@ internal class MethodMarshalPlanBuilder
                 !(_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                   _env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec)))
             {
-                var csName = NameProvider.GetCSharpParameterName(argument);
+                var csName = NameProvider.GetMarshallingBaseName(argument);
                 lines.Add($"GCHandle {csName}Handle = default;");
 
                 // Track ownership transfer for escaping closures (cdecl and legacy

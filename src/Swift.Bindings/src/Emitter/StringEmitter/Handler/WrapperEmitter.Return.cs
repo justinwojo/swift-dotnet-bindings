@@ -168,20 +168,20 @@ namespace BindingsGeneration
             var existentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList)
                 ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({resultLocation})"
                 : $"SwiftMarshal.MarshalFromSwift<{containerType}>({resultLocation})";
-            csWriter.WriteLine($"var existentialResult = {existentialRead};");
+            csWriter.WriteLine($"var {ExistentialResultName} = {existentialRead};");
 
-            if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return true; }
+            if (protocolList.Protocols.Count == 0) { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
             // Return position (pure read) → allow the PAT-with-conformers union projection.
             var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
-            if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return true; }
+            if (publicType == "object") { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
             // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
             if (publicType == "Swift.Runtime.ExistentialUnion")
-            { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return true; }
+            { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion({ExistentialResultName});"); return true; }
             if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
-            { csWriter.WriteLine($"return new {wk}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return true; }
+            { csWriter.WriteLine($"return new {wk}({ExistentialResultName}{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return true; }
             var proxy = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
             // Owned return: +1 existential read out of the @_cdecl result location (EC1 or EC2+ composition).
-            csWriter.WriteLine($"return new {proxy}(existentialResult{OwnedExistentialCtorArg(containerType)});");
+            csWriter.WriteLine($"return new {proxy}({ExistentialResultName}{OwnedExistentialCtorArg(containerType)});");
             return true;
         }
 
@@ -217,7 +217,7 @@ namespace BindingsGeneration
                     _env.ClosureHandler.IsAsyncClosure(closureTypeSpec) ||
                     !WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, arg.SwiftTypeSpec, _env.ClosureHandler))
                     continue;
-                var csName = NameProvider.GetCSharpParameterName(arg);
+                var csName = NameProvider.GetMarshallingBaseName(arg);
                 if (UsesConventionCThreadStaticSlot(arg, closureTypeSpec, closureParamCount))
                     continue;
                 csWriter.WriteLine($"if (!{csName}Transferred && {csName}Handle.IsAllocated) {csName}Handle.Free();");
@@ -249,7 +249,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLines(foregroundCleanup);
-                csWriter.WriteLine("handle.Free();");
+                csWriter.WriteLine($"{AsyncHandleName}.Free();");
                 EmitAsyncClosureHandleFaultCleanup(csWriter);
                 // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
                 // Reclaim any WINDOW A cancellation tombstone left for this id (no-op if none).
@@ -621,18 +621,18 @@ namespace BindingsGeneration
                         if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
                         {
                             csWriter.WriteLines($$"""
-                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
-                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                                return new {{wkType}}(swiftResult.Some{{ExistentialHandler.WellKnownOwnedTransferArg(wkType)}});
+                                var {{SwiftResultValueName}} = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
+                                if ({{SwiftResultValueName}}.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {{wkType}}({{SwiftResultValueName}}.Some{{ExistentialHandler.WellKnownOwnedTransferArg(wkType)}});
                                 """);
                         }
                         else
                         {
                             var proxyName = _env.ExistentialHandler.GetRequiredProxyClassName(innerProtocolList, _emissionContext);
                             csWriter.WriteLines($$"""
-                                var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
-                                if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                                return new {{proxyName}}(swiftResult.Some{{OwnedExistentialCtorArg(containerType)}});
+                                var {{SwiftResultValueName}} = SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{resultExpr}});
+                                if ({{SwiftResultValueName}}.Case == Swift.SwiftOptionalCases.None) return null;
+                                return new {{proxyName}}({{SwiftResultValueName}}.Some{{OwnedExistentialCtorArg(containerType)}});
                                 """);
                         }
                         return;
@@ -722,9 +722,9 @@ namespace BindingsGeneration
                         // SwiftOptional; the well-known wrapper adopts and releases it on Dispose/finalize
                         // (ownsContainer: true) or the payload's +1 leaks.
                         csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{wkType}}(swiftResult.Some{{ExistentialHandler.WellKnownOwnedTransferArg(wkType)}});
+                            var {{SwiftResultValueName}} = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
+                            if ({{SwiftResultValueName}}.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{wkType}}({{SwiftResultValueName}}.Some{{ExistentialHandler.WellKnownOwnedTransferArg(wkType)}});
                             """);
                     }
                     else
@@ -734,9 +734,9 @@ namespace BindingsGeneration
                         // SwiftOptional; the proxy adopts and releases it on Dispose
                         // (ownsContainer: true) or the payload's +1 leaks.
                         csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
-                            if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{proxyName}}(swiftResult.Some{{OwnedExistentialCtorArg(containerType)}});
+                            var {{SwiftResultValueName}} = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
+                            if ({{SwiftResultValueName}}.Case == Swift.SwiftOptionalCases.None) return null;
+                            return new {{proxyName}}({{SwiftResultValueName}}.Some{{OwnedExistentialCtorArg(containerType)}});
                             """);
                     }
                     return;
@@ -1115,7 +1115,14 @@ namespace BindingsGeneration
                 _ => ReturnLocalName
             };
 
-            var plan = projection.GetReturnPlan(resultName, strategy);
+            // A few projections declare a body local of their own with a fixed spelling rather than
+            // deriving it from the name they were handed, so a parameter of this member could shadow
+            // it. Those hand over their preferred spelling and take back one resolved against this
+            // member's parameter names; every other projection derives its locals and needs nothing.
+            var plan = projection is IResolvedReturnLocalProjection fixedLocalProjection
+                ? fixedLocalProjection.GetReturnPlan(resultName, strategy,
+                    _env.SyntheticLocals.Local(fixedLocalProjection.DefaultReturnLocalName))
+                : projection.GetReturnPlan(resultName, strategy);
 
             // @_cdecl indirect result with PassThrough projection (e.g. BlittableProjection for frozen structs):
             // PassThrough would emit "return resultPtr;" but resultPtr is IntPtr, not the return type.

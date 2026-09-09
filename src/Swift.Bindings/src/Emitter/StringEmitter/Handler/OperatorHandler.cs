@@ -293,7 +293,7 @@ namespace BindingsGeneration
                     bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
                     var availableNames = new HashSet<string>(wrapperSig.Parameters.Select(p => p.Name));
                     if (requiresIndirectResult)
-                        availableNames.Add("swiftIndirectResult");
+                        availableNames.Add(methodEnv.SyntheticLocals.SwiftIndirectResult);
                     bool hasUndeclaredRefs = pInvokeSig.Parameters.Any(p => !availableNames.Contains(p.Name));
                     if (hasUndeclaredRefs)
                     {
@@ -441,7 +441,7 @@ namespace BindingsGeneration
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature, methodEnv.SyntheticLocals);
 
                 if (usesCdeclWrapper)
                 {
@@ -486,7 +486,7 @@ namespace BindingsGeneration
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature, methodEnv.SyntheticLocals);
 
                 if (usesCdeclWrapper)
                 {
@@ -534,7 +534,7 @@ namespace BindingsGeneration
         private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv = null)
         {
             var pinvokeName = GetPInvokeMethodName(symbol);
-            var callArgs = pInvokeSignature.CallArgumentsString();
+            var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals);
 
             if (requiresIndirectResult)
             {
@@ -559,14 +559,19 @@ namespace BindingsGeneration
                     }
                 }
 
+                // The P/Invoke argument list already carries the registry's spelling for the
+                // indirect-result local, so the declaration has to ask the same registry.
+                var returnMetadataName = methodEnv?.SyntheticLocals.ReturnMetadata ?? "returnMetadata";
+                var indirectResultName = methodEnv?.SyntheticLocals.SwiftIndirectResult ?? "swiftIndirectResult";
+
                 // Declare _cdeclBuf before try so it's accessible in finally for cleanup.
                 csWriter.WriteLine("void* _cdeclBuf = null;");
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
-                csWriter.WriteLine($"_cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);");
-                csWriter.WriteLine($"var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);");
+                csWriter.WriteLine($"var {returnMetadataName} = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
+                csWriter.WriteLine($"_cdeclBuf = NativeMemory.Alloc((nuint){returnMetadataName}.Size);");
+                csWriter.WriteLine($"var {indirectResultName} = new SwiftIndirectResult(_cdeclBuf);");
 
                 // Call P/Invoke (void return — writes through SwiftIndirectResult)
                 if (pinvokeHelperContext != null)
@@ -580,7 +585,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"{pinvokeName}({callArgs});");
                 }
 
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(swiftIndirectResult.Value));");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr({indirectResultName}.Value));");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 if (transfersOwnership)
@@ -685,6 +690,10 @@ namespace BindingsGeneration
             // For Bool-returning operators (comparisons), the param type is the struct type (not bool)
             var structTypeName = paramTypeName ?? returnType;
 
+            // The operands keep their Swift-authored names on the public operator signature, so
+            // every local this body declares is minted against them.
+            var bodyScope = methodEnv.SyntheticLocals;
+
             csWriter.WriteLine("unsafe");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -692,30 +701,33 @@ namespace BindingsGeneration
             // Stackalloc struct params to get pointers
             foreach (var name in paramNames)
             {
-                csWriter.WriteLine($"byte* {name}Bytes = stackalloc byte[Unsafe.SizeOf<{structTypeName}>()];");
-                csWriter.WriteLine($"Unsafe.Write({name}Bytes, {name});");
+                var bytesName = bodyScope.LocalComposed($"{name}Bytes");
+                csWriter.WriteLine($"byte* {bytesName} = stackalloc byte[Unsafe.SizeOf<{structTypeName}>()];");
+                csWriter.WriteLine($"Unsafe.Write({bytesName}, {name});");
             }
 
             if (returnsBool)
             {
                 // Bool return: direct call with pointer args
-                var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){n}Bytes"));
+                var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){bodyScope.LocalComposed($"{n}Bytes")}"));
                 csWriter.WriteLine($"return {pinvokeName}({ptrArgs});");
             }
             else
             {
                 // Struct return: use SwiftIndirectResult
+                var cdeclReturnMetadataName = bodyScope.ReturnMetadata;
+                var cdeclIndirectResultName = bodyScope.SwiftIndirectResult;
                 csWriter.WriteLine("void* _cdeclBuf = null;");
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
-                csWriter.WriteLine("_cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);");
-                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);");
+                csWriter.WriteLine($"var {cdeclReturnMetadataName} = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
+                csWriter.WriteLine($"_cdeclBuf = NativeMemory.Alloc((nuint){cdeclReturnMetadataName}.Size);");
+                csWriter.WriteLine($"var {cdeclIndirectResultName} = new SwiftIndirectResult(_cdeclBuf);");
 
-                var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){n}Bytes"));
-                csWriter.WriteLine($"{pinvokeName}(swiftIndirectResult, {ptrArgs});");
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(swiftIndirectResult.Value));");
+                var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){bodyScope.LocalComposed($"{n}Bytes")}"));
+                csWriter.WriteLine($"{pinvokeName}({cdeclIndirectResultName}, {ptrArgs});");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr({cdeclIndirectResultName}.Value));");
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -730,8 +742,12 @@ namespace BindingsGeneration
         /// Emits handle extraction for ObjC-bridged/rooted parameters in operator wrappers.
         /// For each parameter with ObjCBridged type, emits: IntPtr {name}Handle = {name}.Handle;
         /// This is needed because CallArgumentsString() generates "{name}Handle" references.
+        /// <para>The handle local lands in the same scope as the operands, so an operand spelled
+        /// like another operand's handle local would redeclare it. This declaration and the call
+        /// site both mint the name through the body's scope, which answers the same for the same
+        /// spelling — and answers with the plain spelling whenever no operand holds it.</para>
         /// </summary>
-        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, Signature wrapperSignature)
+        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, Signature wrapperSignature, SyntheticLocalNames? bodyScope)
         {
             foreach (var param in pInvokeSignature.Parameters)
             {
@@ -740,7 +756,8 @@ namespace BindingsGeneration
                     // Find the matching wrapper parameter name for the source object
                     var wrapperParam = wrapperSignature.Parameters.FirstOrDefault(p => p.Name == param.Name);
                     var sourceName = wrapperParam?.Name ?? param.Name;
-                    csWriter.WriteLine($"IntPtr {sourceName}Handle = {sourceName}.Handle;");
+                    var handleName = Signature.ObjCHandleLocalName(param with { Name = sourceName }, bodyScope);
+                    csWriter.WriteLine($"IntPtr {handleName} = {sourceName}.Handle;");
                 }
             }
         }

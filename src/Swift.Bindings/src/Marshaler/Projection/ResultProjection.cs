@@ -14,7 +14,7 @@ namespace BindingsGeneration;
 /// The @_cdecl wrapper writes Result to resultPtr via initializeMemory(as:repeating:count:)
 /// and reads it via assumingMemoryBound(to:).pointee.
 /// </summary>
-public class ResultProjection : ITypeProjection
+public class ResultProjection : ITypeProjection, IResolvedReturnLocalProjection
 {
     private readonly ITypeProjection _successProjection;
     private readonly ITypeProjection _failureProjection;
@@ -63,7 +63,25 @@ public class ResultProjection : ITypeProjection
             $"Parameter '{paramName}' cannot be marshalled to Swift.");
     }
 
+    /// <summary>
+    /// The body local this projection declares when no caller-resolved name is supplied. A member
+    /// whose own parameter is spelled this way has to hand in a resolved name instead.
+    /// </summary>
+    internal const string DefaultLocalName = "_swiftResult";
+
+    /// <inheritdoc />
+    public string DefaultReturnLocalName => DefaultLocalName;
+
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
+        => GetReturnPlan(resultName, strategy, DefaultLocalName);
+
+    /// <summary>
+    /// Builds the return plan with an explicit name for the converted-value local. Unlike the
+    /// container projections, this one does not derive its local from the name it was handed, so a
+    /// parameter of the owning member can be spelled exactly like the default and shadow it. The
+    /// emitter passes a name resolved against that member's parameter names.
+    /// </summary>
+    public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy, string localName)
     {
         var resultType = ContainerTypeName;
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<{resultType}>";
@@ -79,9 +97,9 @@ public class ResultProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var _swiftResult = SwiftMarshal.MarshalFromSwiftObjectConsuming<{resultType}>(&{resultName});")
+                        $"var {localName} = SwiftMarshal.MarshalFromSwiftObjectConsuming<{resultType}>(&{resultName});")
                 },
-                PInvokeExpression = $"_swiftResult",
+                PInvokeExpression = localName,
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
@@ -89,18 +107,18 @@ public class ResultProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var _swiftResult = {marshalFromSwift}({resultName});")
+                        $"var {localName} = {marshalFromSwift}({resultName});")
                 },
-                PInvokeExpression = $"_swiftResult"
+                PInvokeExpression = localName
             },
             ReturnStrategy.AsyncCallback => new MarshalPlan
             {
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var _swiftResult = {marshalFromSwift}({resultName});")
+                        $"var {localName} = {marshalFromSwift}({resultName});")
                 },
-                PInvokeExpression = $"_swiftResult"
+                PInvokeExpression = localName
             },
             _ => MarshalPlan.PassThrough(resultName)
         };

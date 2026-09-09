@@ -479,6 +479,16 @@ namespace BindingsGeneration
             var outParams = parameters.Select(p => $"[MaybeNullWhen(false)] out {p.publicType} {p.name}");
             var outParamString = string.Join(", ", outParams);
 
+            // The out parameters are named from the tuple's own element labels, and every local the
+            // body declares lands in the same scope as them. Minting the locals through one scope
+            // seeded with those names moves a generated local aside when an element is labelled like
+            // it; nothing moves when nothing collides.
+            var bodyScope = new SyntheticNameScope(parameters.Select(p => p.name));
+            var metadataName = bodyScope.Mint("metadata");
+            var enumCopyName = bodyScope.Mint("enumCopy");
+            var successName = bodyScope.Mint("success");
+            var tupleMetadataName = bodyScope.Mint("tupleMetadata");
+
             // Checkpoint before the doc + signature so a suppressed-proxy produce-throw can inject the
             // compile-time-visible SB0006 marker ahead of them (see the single-value TryGet above).
             var __tryGetTupleSigCp = csWriter.Checkpoint();
@@ -521,24 +531,24 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
 
-                csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var {metadataName} = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
                 csWriter.WriteLine();
 
                 // Create a copy to avoid destroying the original
                 csWriter.WriteLine("// Create a non-destructive copy of the enum");
-                csWriter.WriteLine("byte* enumCopy = stackalloc byte[(int)metadata.Size];");
-                csWriter.WriteLine("bool success = false;");
-                csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+                csWriter.WriteLine($"byte* {enumCopyName} = stackalloc byte[(int){metadataName}.Size];");
+                csWriter.WriteLine($"bool {successName} = false;");
+                csWriter.WriteLine($"_payload.DangerousAddRef(ref {successName});");
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);");
+                csWriter.WriteLine($"{metadataName}.ValueWitnessTable->InitializeWithCopy({enumCopyName}, (void*)_payload.DangerousGetHandle(), {metadataName});");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine("finally");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine("if (success)");
+                csWriter.WriteLine($"if ({successName})");
                 csWriter.Indent++;
                 csWriter.WriteLine("_payload.DangerousRelease();");
                 csWriter.Indent--;
@@ -548,12 +558,12 @@ namespace BindingsGeneration
 
                 // Strip the tag to get the payload
                 csWriter.WriteLine("// Strip the tag to get the raw payload (which is the tuple)");
-                csWriter.WriteLine("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);");
+                csWriter.WriteLine($"{metadataName}.ValueWitnessTable->DestructiveProjectEnumData({enumCopyName}, {metadataName});");
                 csWriter.WriteLine();
 
                 // Get tuple type metadata to access element offsets
                 csWriter.WriteLine("// Get tuple metadata to determine element offsets");
-                csWriter.WriteLine($"var tupleMetadata = GetTupleMetadata_{capitalizedName}();");
+                csWriter.WriteLine($"var {tupleMetadataName} = GetTupleMetadata_{capitalizedName}();");
                 csWriter.WriteLine();
 
                 // Marshal each tuple element using its computed offset
@@ -561,9 +571,10 @@ namespace BindingsGeneration
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     var (_, _, name, typeSpec) = parameters[i];
-                    csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
+                    var offsetName = bodyScope.Mint($"offset{i}");
+                    csWriter.WriteLine($"var {offsetName} = {tupleMetadataName}->GetElementOffset({i});");
                     var tupleGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-                    EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase, tupleGenericParams, enumDecl.ModuleDecl, emissionCtx);
+                    EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, enumCopyName, offsetName, typeDatabase, tupleGenericParams, enumDecl.ModuleDecl, emissionCtx);
                 }
                 csWriter.WriteLine();
 

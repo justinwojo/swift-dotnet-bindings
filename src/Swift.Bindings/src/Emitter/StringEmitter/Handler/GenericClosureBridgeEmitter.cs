@@ -773,11 +773,30 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // Every local this body declares shares a scope with the projected parameters, and the ones
+        // inside the invoke lambda share it too (a lambda body is a nested scope of the same method,
+        // where re-using an enclosing name is also an error). Minting them all through one scope
+        // seeded with the parameter names moves a generated local aside when a parameter is spelled
+        // like it, and leaves every name alone when nothing collides.
+        var bodyScope = new SyntheticNameScope(publicParams.Select(ParamName));
+        var metadataName = bodyScope.Mint("metadata");
+        var sizeName = bodyScope.Mint("size");
+        var resultBufName = bodyScope.Mint("resultBuf");
+        var resultSlotLiveName = bodyScope.Mint("resultSlotLive");
+        var invokeName = bodyScope.Mint("invoke");
+        var lambdaArgsName = bodyScope.Mint("args");
+        var resBufPtrName = bodyScope.Mint("resBufPtr");
+        var closureResultName = bodyScope.Mint("result");
+        var resBufSpanName = bodyScope.Mint("resBufSpan");
+        var stateName = bodyScope.Mint("state");
+        var gcHandleName = bodyScope.Mint("gcHandle");
+        var swiftErrorName = bodyScope.Mint("swiftError");
+
         // Aligned result buffer allocation
-        csWriter.WriteLine("var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();");
-        csWriter.WriteLine("var size = metadata.Size;");
-        csWriter.WriteLine("if (size == 0) size = 1;");
-        csWriter.WriteLine("void* resultBuf = NativeMemory.AlignedAlloc(size, (nuint)metadata.Alignment);");
+        csWriter.WriteLine($"var {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<T>();");
+        csWriter.WriteLine($"var {sizeName} = {metadataName}.Size;");
+        csWriter.WriteLine($"if ({sizeName} == 0) {sizeName} = 1;");
+        csWriter.WriteLine($"void* {resultBufName} = NativeMemory.AlignedAlloc({sizeName}, (nuint){metadataName}.Alignment);");
 
         // Each generic non-closure value (`value: T`) is passed to the Swift wrapper as its own
         // value-witness buffer pointer. Declare the pointer + a liveness flag BEFORE the try so the
@@ -787,9 +806,9 @@ public static class GenericClosureBridgeEmitter
         // Destroying a slot that holds no reference.
         foreach (var p in genericValueParams)
         {
-            var bufName = GenericValueBufferName(p);
+            var bufName = bodyScope.MintComposed(GenericValueBufferName(p));
             csWriter.WriteLine($"void* {bufName} = null;");
-            csWriter.WriteLine($"bool {bufName}Live = false;");
+            csWriter.WriteLine($"bool {bodyScope.MintComposed($"{bufName}Live")} = false;");
         }
         // The Swift callback writes the closure result (+1) into resultBuf during the P/Invoke; the
         // moved read below transfers that +1 to the returned wrapper. resultSlotLive tracks whether
@@ -800,7 +819,7 @@ public static class GenericClosureBridgeEmitter
         // path, by contract — see its doc), the flag stays true, so the outer finally value-witness
         // Destroys before the raw AlignedFree, else the conformer / COW-storage +1 leaks. Mirrors
         // the SwiftArray/SwiftDictionary slotLive guard.
-        csWriter.WriteLine("bool resultSlotLive = false;");
+        csWriter.WriteLine($"bool {resultSlotLiveName} = false;");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -808,17 +827,18 @@ public static class GenericClosureBridgeEmitter
         // Allocate + marshal each generic non-closure value (+1) into its buffer before the call.
         foreach (var p in genericValueParams)
         {
-            var bufName = GenericValueBufferName(p);
-            csWriter.WriteLine($"{bufName} = NativeMemory.AlignedAlloc(size, (nuint)metadata.Alignment);");
-            csWriter.WriteLine($"var {bufName}Span = new Span<byte>({bufName}, (int)metadata.Size);");
-            csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({p}, ref {bufName}Span);");
-            csWriter.WriteLine($"{bufName}Live = true;");
+            var bufName = bodyScope.MintComposed(GenericValueBufferName(p));
+            var bufSpanName = bodyScope.MintComposed($"{bufName}Span");
+            csWriter.WriteLine($"{bufName} = NativeMemory.AlignedAlloc({sizeName}, (nuint){metadataName}.Alignment);");
+            csWriter.WriteLine($"var {bufSpanName} = new Span<byte>({bufName}, (int){metadataName}.Size);");
+            csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({p}, ref {bufSpanName});");
+            csWriter.WriteLine($"{bodyScope.MintComposed($"{bufName}Live")} = true;");
         }
 
         // Create the invoke delegate that captures T and the user's Func via closure.
         // The callback (non-generic, [UnmanagedCallersOnly]) extracts and calls this delegate.
         // Delegate signature: Action<IntPtr[], IntPtr> (argsArray, resultBufPtr)
-        csWriter.WriteLine("Action<IntPtr[], IntPtr> invoke = (IntPtr[] args, IntPtr resBufPtr) =>");
+        csWriter.WriteLine($"Action<IntPtr[], IntPtr> {invokeName} = (IntPtr[] {lambdaArgsName}, IntPtr {resBufPtrName}) =>");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         // Marshal each closure arg from IntPtr — callback params are borrowed references. A generic
@@ -829,13 +849,13 @@ public static class GenericClosureBridgeEmitter
         for (int i = 0; i < closureArgs.Count; i++)
         {
             if (closureArgs[i].IsGeneric)
-                csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalBorrowedValueFromSlot<T>((void*)args[{i}], metadata);");
+                csWriter.WriteLine($"var {bodyScope.Mint($"a{i}")} = SwiftMarshal.MarshalBorrowedValueFromSlot<T>((void*){lambdaArgsName}[{i}], {metadataName});");
             else
-                csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]", nonNullObjCBridge: true)};");
+                csWriter.WriteLine($"var {bodyScope.Mint($"a{i}")} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"{lambdaArgsName}[{i}]", nonNullObjCBridge: true)};");
         }
-        var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => $"a{i}");
-        csWriter.WriteLine($"var result = {csClosureName}({string.Join(", ", userCallArgs)});");
-        csWriter.WriteLine("var resBufSpan = new Span<byte>((void*)resBufPtr, (int)metadata.Size);");
+        var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => bodyScope.Mint($"a{i}"));
+        csWriter.WriteLine($"var {closureResultName} = {csClosureName}({string.Join(", ", userCallArgs)});");
+        csWriter.WriteLine($"var {resBufSpanName} = new Span<byte>((void*){resBufPtrName}, (int){metadataName}.Size);");
         // The Swift wrapper passes the SAME resultBuf to this callback (it is the outer method's
         // return slot, not a separate per-call buffer), so the closure writes its +1 directly into
         // it. Mark the slot live the moment that write completes — NOT after the post-P/Invoke error
@@ -845,14 +865,14 @@ public static class GenericClosureBridgeEmitter
         // method that invokes the closure more than once reuses this one slot, and MarshalToSwift
         // treats the destination as raw storage (no destructor for prior bytes), so release any
         // already-written +1 before overwriting.
-        csWriter.WriteLine("if (resultSlotLive) SwiftMarshal.DestroyWireBufferRetains(resBufPtr, metadata);");
-        csWriter.WriteLine("SwiftMarshal.MarshalToSwift(result, ref resBufSpan);");
-        csWriter.WriteLine("resultSlotLive = true;");
+        csWriter.WriteLine($"if ({resultSlotLiveName}) SwiftMarshal.DestroyWireBufferRetains({resBufPtrName}, {metadataName});");
+        csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({closureResultName}, ref {resBufSpanName});");
+        csWriter.WriteLine($"{resultSlotLiveName} = true;");
         csWriter.Indent--;
         csWriter.WriteLine("};");
 
-        csWriter.WriteLine("var state = new object[] { invoke };");
-        csWriter.WriteLine("var gcHandle = GCHandle.Alloc(state);");
+        csWriter.WriteLine($"var {stateName} = new object[] {{ {invokeName} }};");
+        csWriter.WriteLine($"var {gcHandleName} = GCHandle.Alloc({stateName});");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -860,15 +880,15 @@ public static class GenericClosureBridgeEmitter
         // Build P/Invoke call
         var callArgs = new List<string>();
         callArgs.Add($"s_{callbackName}");
-        callArgs.Add("GCHandle.ToIntPtr(gcHandle)");
-        callArgs.Add("resultBuf");
-        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase);
+        callArgs.Add($"GCHandle.ToIntPtr({gcHandleName})");
+        callArgs.Add(resultBufName);
+        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase, bodyScope);
         // Receiver passed as a regular IntPtr argument (regular GPR), matching the free-function
         // Swift wrapper — see AddNonClosureAndSelfParams for the self-register ABI rationale.
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add($"(IntPtr)({selfExpr})");
         if (methodDecl.Throws)
-            callArgs.Add("out var swiftError");
+            callArgs.Add($"out var {swiftErrorName}");
 
         csWriter.WriteLine($"{pInvokeName}_XC({string.Join(", ", callArgs)});");
 
@@ -880,10 +900,10 @@ public static class GenericClosureBridgeEmitter
             // identity-lossy SwiftRuntimeException. ThrowSwiftError reads + frees the description and
             // transfers ownership of the error box to the exception (released on finalization). The
             // surrounding try/finally blocks still run on the throw, freeing resultBuf and the GCHandle.
-            csWriter.WriteLine("if (swiftError.Value != null)");
+            csWriter.WriteLine($"if ({swiftErrorName}.Value != null)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("var _errorPtr = (IntPtr)swiftError.Value;");
+            csWriter.WriteLine($"var _errorPtr = (IntPtr){swiftErrorName}.Value;");
             csWriter.WriteLine("global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -905,13 +925,13 @@ public static class GenericClosureBridgeEmitter
         // check" shape leaked that +1 because the throw exited before reaching this point. Clear it
         // immediately after the moved read adopts the +1; a throw from MarshalMovedValueFromSlot
         // leaves it true, so the outer finally releases the intact slot's +1 instead of leaking it.
-        csWriter.WriteLine("var __movedResult = SwiftMarshal.MarshalMovedValueFromSlot<T>(resultBuf, metadata);");
-        csWriter.WriteLine("resultSlotLive = false;");
+        csWriter.WriteLine($"var __movedResult = SwiftMarshal.MarshalMovedValueFromSlot<T>({resultBufName}, {metadataName});");
+        csWriter.WriteLine($"{resultSlotLiveName} = false;");
         csWriter.WriteLine("return __movedResult;");
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine("finally { if (gcHandle.IsAllocated) gcHandle.Free(); }");
+        csWriter.WriteLine($"finally {{ if ({gcHandleName}.IsAllocated) {gcHandleName}.Free(); }}");
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -924,15 +944,15 @@ public static class GenericClosureBridgeEmitter
         // +1 was taken only frees raw memory.
         foreach (var p in genericValueParams)
         {
-            var bufName = GenericValueBufferName(p);
-            csWriter.WriteLine($"if ({bufName}Live) SwiftMarshal.DestroyWireBufferRetains((IntPtr){bufName}, metadata);");
+            var bufName = bodyScope.MintComposed(GenericValueBufferName(p));
+            csWriter.WriteLine($"if ({bodyScope.MintComposed($"{bufName}Live")}) SwiftMarshal.DestroyWireBufferRetains((IntPtr){bufName}, {metadataName});");
             csWriter.WriteLine($"if ({bufName} != null) NativeMemory.AlignedFree({bufName});");
         }
         // A throw between the callback's +1 write and the moved read (or from the moved read itself)
         // leaves an unconsumed +1 in resultBuf; release it via the non-generic, Mono-safe wire-buffer
         // destroy (no fresh generic instantiation forced inside a finally) before the raw free.
-        csWriter.WriteLine("if (resultSlotLive) SwiftMarshal.DestroyWireBufferRetains((IntPtr)resultBuf, metadata);");
-        csWriter.WriteLine("NativeMemory.AlignedFree(resultBuf);");
+        csWriter.WriteLine($"if ({resultSlotLiveName}) SwiftMarshal.DestroyWireBufferRetains((IntPtr){resultBufName}, {metadataName});");
+        csWriter.WriteLine($"NativeMemory.AlignedFree({resultBufName});");
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
@@ -971,35 +991,45 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // Same scope discipline as the returning overload: the delegate, its captured state and the
+        // lambda's own locals all sit alongside the projected parameters, so they are minted against
+        // them rather than spelled literally.
+        var bodyScope = new SyntheticNameScope(publicParams.Select(ParamName));
+        var invokeName = bodyScope.Mint("invoke");
+        var lambdaArgsName = bodyScope.Mint("args");
+        var stateName = bodyScope.Mint("state");
+        var gcHandleName = bodyScope.Mint("gcHandle");
+        var swiftErrorName = bodyScope.Mint("swiftError");
+
         // Create invoke delegate: Action<IntPtr[]> (argsArray)
-        csWriter.WriteLine("Action<IntPtr[]> invoke = (IntPtr[] args) =>");
+        csWriter.WriteLine($"Action<IntPtr[]> {invokeName} = (IntPtr[] {lambdaArgsName}) =>");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         // Callback params are borrowed references. Class args take an owning +1 so the wrapper handed
         // to the user's closure balances on Dispose/finalize — see BorrowedCallbackArgMarshal.
         for (int i = 0; i < closureArgs.Count; i++)
-            csWriter.WriteLine($"var a{i} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"args[{i}]", nonNullObjCBridge: true)};");
-        var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => $"a{i}");
+            csWriter.WriteLine($"var {bodyScope.Mint($"a{i}")} = {env.ClosureHandler.BorrowedCallbackArgMarshal(closureArgs[i].Spec, closureArgs[i].CSharpType, $"{lambdaArgsName}[{i}]", nonNullObjCBridge: true)};");
+        var userCallArgs = Enumerable.Range(0, closureArgs.Count).Select(i => bodyScope.Mint($"a{i}"));
         csWriter.WriteLine($"{csClosureName}({string.Join(", ", userCallArgs)});");
         csWriter.Indent--;
         csWriter.WriteLine("};");
 
-        csWriter.WriteLine("var state = new object[] { invoke };");
-        csWriter.WriteLine("var gcHandle = GCHandle.Alloc(state);");
+        csWriter.WriteLine($"var {stateName} = new object[] {{ {invokeName} }};");
+        csWriter.WriteLine($"var {gcHandleName} = GCHandle.Alloc({stateName});");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
         var callArgs = new List<string>();
         callArgs.Add($"s_{callbackName}");
-        callArgs.Add("GCHandle.ToIntPtr(gcHandle)");
-        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase);
+        callArgs.Add($"GCHandle.ToIntPtr({gcHandleName})");
+        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase, bodyScope);
         // Receiver passed as a regular IntPtr argument (regular GPR), matching the free-function
         // Swift wrapper — see AddNonClosureAndSelfParams for the self-register ABI rationale.
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add($"(IntPtr)({selfExpr})");
         if (methodDecl.Throws)
-            callArgs.Add("out var swiftError");
+            callArgs.Add($"out var {swiftErrorName}");
 
         csWriter.WriteLine($"{pInvokeName}_XC_void({string.Join(", ", callArgs)});");
 
@@ -1009,10 +1039,10 @@ public static class GenericClosureBridgeEmitter
             // the thrown SwiftException carries the live error box on .ErrorHandle, identical to the
             // canonical method path — instead of eagerly releasing it and throwing a message-only,
             // identity-lossy SwiftRuntimeException. The surrounding finally still frees the GCHandle.
-            csWriter.WriteLine("if (swiftError.Value != null)");
+            csWriter.WriteLine($"if ({swiftErrorName}.Value != null)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("var _errorPtr = (IntPtr)swiftError.Value;");
+            csWriter.WriteLine($"var _errorPtr = (IntPtr){swiftErrorName}.Value;");
             csWriter.WriteLine("global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1020,7 +1050,7 @@ public static class GenericClosureBridgeEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine("finally { if (gcHandle.IsAllocated) gcHandle.Free(); }");
+        csWriter.WriteLine($"finally {{ if ({gcHandleName}.IsAllocated) {gcHandleName}.Free(); }}");
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -1055,7 +1085,8 @@ public static class GenericClosureBridgeEmitter
     private static void AddNonClosurePInvokeCallArgs(
         List<string> callArgs,
         MethodDecl methodDecl,
-        ITypeDatabase typeDatabase)
+        ITypeDatabase typeDatabase,
+        SyntheticNameScope bodyScope)
     {
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -1072,7 +1103,7 @@ public static class GenericClosureBridgeEmitter
             // non-closure param, never reaches this branch). See GenericValueBufferName.
             if (IsGenericNonClosureParam(arg))
             {
-                callArgs.Add($"(IntPtr){GenericValueBufferName(csName)}");
+                callArgs.Add($"(IntPtr){bodyScope.MintComposed(GenericValueBufferName(csName))}");
                 continue;
             }
             var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
@@ -1097,6 +1128,13 @@ public static class GenericClosureBridgeEmitter
     /// (the <c>T</c> wrapper) so both can coexist in the method body.
     /// </summary>
     private static string GenericValueBufferName(string csName) => $"{csName}__valueBuf";
+
+    /// <summary>
+    /// The identifier half of an emitted "&lt;type&gt; &lt;name&gt;" parameter fragment. The type half can
+    /// carry spaces (a generic argument list), the identifier cannot, so the last space separates them.
+    /// </summary>
+    private static string ParamName(string paramFragment) =>
+        paramFragment.Substring(paramFragment.LastIndexOf(' ') + 1);
 
     private static string GetCSharpTypeForClosureArg(TypeSpec typeSpec, MethodEnvironment env)
     {

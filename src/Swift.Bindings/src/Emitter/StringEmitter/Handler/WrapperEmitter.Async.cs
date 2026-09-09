@@ -137,7 +137,7 @@ namespace BindingsGeneration
                 {
                     // Use normalized C# name (prefers PrivateName over ABI Name)
                     // to match the method signature emitted by WrapperEmitter.Marshalling
-                    var csName = NameProvider.GetCSharpParameterName(p);
+                    var csName = NameProvider.GetMarshallingBaseName(p);
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
                     var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
                     // Swift classes project to an instance pointer payload, so
@@ -202,7 +202,7 @@ namespace BindingsGeneration
             {
                 foreach (var p in frozenBlittableAsyncParams)
                 {
-                    var csName = NameProvider.GetCSharpParameterName(p);
+                    var csName = NameProvider.GetMarshallingBaseName(p);
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(p.SwiftTypeSpec);
                     var csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
                     csWriter.WriteLines($"""
@@ -224,10 +224,10 @@ namespace BindingsGeneration
                 // but if original is destroyed, the internal storage could be freed prematurely)
                 // Also keep 'this' alive for instance methods since SwiftSelf doesn't prevent GC
                 // Include both non-frozen and frozen blittable copy buffer wrappers for cleanup
-                var allCopyBufferWrappers = nonFrozenParams.Select(p => $"{NameProvider.GetCSharpParameterName(p)}CopyBufferWrapper")
-                    .Concat(frozenBlittableAsyncParams.Select(p => $"{NameProvider.GetCSharpParameterName(p)}CopyBufferWrapper"));
+                var allCopyBufferWrappers = nonFrozenParams.Select(p => $"{NameProvider.GetMarshallingBaseName(p)}CopyBufferWrapper")
+                    .Concat(frozenBlittableAsyncParams.Select(p => $"{NameProvider.GetMarshallingBaseName(p)}CopyBufferWrapper"));
                 var copyBufferList = string.Join(", ", allCopyBufferWrappers);
-                var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){NameProvider.GetCSharpParameterName(p)}"));
+                var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){NameProvider.GetMarshallingBaseName(p)}"));
 
                 // For Swift classes, retain the self pointer before the async call via the
                 // isa-dispatching UnknownObjectRetain: 'self' may be an @objc:NSObject-rooted class
@@ -299,7 +299,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
                     "_asyncCallHolder", "_tcs", selfFieldInit,
                     needsDeferredList ? "_asyncDeferredList" : null, copyBufferList, keepAliveList));
-                csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
+                csWriter.WriteLine($"GCHandle {AsyncHandleName} = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
             }
             else if (isInstanceMethod)
             {
@@ -345,7 +345,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
                     "_asyncCallHolder", "_tcs", selfFieldInit,
                     needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "", keepAliveList: "(object)this"));
-                csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
+                csWriter.WriteLine($"GCHandle {AsyncHandleName} = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
             }
             else
             {
@@ -359,7 +359,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine(AsyncHarnessEmitter.BuildTypedHolderConstruction(
                     "_asyncCallHolder", "_tcs", selfFieldInit: "",
                     needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "", keepAliveList: ""));
-                csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
+                csWriter.WriteLine($"GCHandle {AsyncHandleName} = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
             }
 
             // Pre-cancel check: if token is already cancelled, clean up and return immediately
@@ -367,27 +367,27 @@ namespace BindingsGeneration
             var cancelTaskPrefix = AsyncCallbackPrefix;
             var preCancelCleanup = BuildHolderCleanupCode("_asyncCallHolder", "    ");
             csWriter.WriteLines($$"""
-            if (cancellationToken.IsCancellationRequested)
+            if ({{CancellationTokenName}}.IsCancellationRequested)
             {
                 // Clean up resources that were allocated for the async call
             """);
             csWriter.WriteLines(preCancelCleanup);
             csWriter.WriteLines($$"""
-                handle.Free();
-                return global::System.Threading.Tasks.Task.FromCanceled{{tcsTypeParam}}(cancellationToken);
+                {{AsyncHandleName}}.Free();
+                return global::System.Threading.Tasks.Task.FromCanceled{{tcsTypeParam}}({{CancellationTokenName}});
             }
             long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();
-            if (cancellationToken.CanBeCanceled)
+            if ({{CancellationTokenName}}.CanBeCanceled)
             {
-                var _cancelRegistration = cancellationToken.Register(
+                var _cancelRegistration = {{CancellationTokenName}}.Register(
                     static state =>
                     {
                         var (tcs, token, id) = ((TaskCompletionSource{{tcsTypeParam}}, global::System.Threading.CancellationToken, long))state!;
                         {{cancelTaskPrefix}}SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (_tcs, cancellationToken, _sbwCancelKey));
-                _asyncCallHolder.CancellationRegistration = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
+                    (_tcs, {{CancellationTokenName}}, _sbwCancelKey));
+                _asyncCallHolder.CancellationRegistration = new CancellationRegistrationHolder(_cancelRegistration, {{CancellationTokenName}});
             }
             """);
 

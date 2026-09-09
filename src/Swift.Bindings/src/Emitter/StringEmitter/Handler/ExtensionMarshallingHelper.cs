@@ -14,6 +14,29 @@ namespace BindingsGeneration;
 public static class ExtensionMarshallingHelper
 {
     /// <summary>
+    /// Preferred spelling of the local holding the indirect-result register for a resilient
+    /// struct return. The call expression is built by one emitter and the declaration by
+    /// <see cref="EmitReturnValueMarshalling"/>, so both mint from this one constant against the
+    /// member's scope rather than each writing the literal.
+    /// </summary>
+    public const string IndirectResultLocalName = "indirectResult";
+
+    /// <summary>
+    /// The receiver parameter every emitted extension member declares. It shares the body scope
+    /// with the generated locals exactly as the Swift-derived parameters do, so it is seeded
+    /// alongside them.
+    /// </summary>
+    private const string ReceiverParameterName = "self";
+
+    /// <summary>
+    /// Builds the name scope for one emitted extension member's body, seeded with the identifiers
+    /// already live in it: the receiver and the member's projected parameter names. Generated
+    /// locals minted against it move aside on a collision; the public parameters never do.
+    /// </summary>
+    public static SyntheticNameScope BuildBodyScope(IEnumerable<string> parameterNames)
+        => new SyntheticNameScope(new[] { ReceiverParameterName }.Concat(parameterNames));
+
+    /// <summary>
     /// Categorizes return types for correct C# marshalling in extension methods.
     /// </summary>
     public enum ReturnKind
@@ -391,11 +414,20 @@ public static class ExtensionMarshallingHelper
     /// Emits return value marshalling based on the return kind.
     /// Shared between ForeignType and CrossModule extension emitters.
     /// </summary>
+    /// <param name="bodyScope">
+    /// Names the locals this method declares. The extension emitters put the member's projected
+    /// parameter names directly into the same C# method scope with no intervening block, and a
+    /// Swift signature is free to spell any of them — so the locals are minted rather than
+    /// hardcoded. The scope is the caller's, seeded with those parameter names, and
+    /// <see cref="SyntheticNameScope.Mint"/> is idempotent per spelling, so a caller that already
+    /// minted the same local while building <paramref name="nativeCall"/> gets the same name here.
+    /// </param>
     public static void EmitReturnValueMarshalling(
         CSharpWriter csWriter,
         ReturnKind returnCategory,
         string nativeCall,
         string csharpType,
+        SyntheticNameScope bodyScope,
         bool primitiveReturnNeedsEnumCast = false)
     {
         switch (returnCategory)
@@ -415,35 +447,46 @@ public static class ExtensionMarshallingHelper
                 break;
 
             case ReturnKind.ObjCClass:
-                csWriter.WriteLine($"var result = {nativeCall};");
-                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, "result", nonNull: true)};");
+            {
+                var resultLocal = bodyScope.Mint("result");
+                csWriter.WriteLine($"var {resultLocal} = {nativeCall};");
+                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, resultLocal, nonNull: true)};");
                 break;
+            }
 
             case ReturnKind.SwiftClass:
-                csWriter.WriteLine($"var result = {nativeCall};");
-                csWriter.WriteLine($"return ({csharpType})SwiftMarshal.MarshalFromSwift<{csharpType}>(result);");
+            {
+                var resultLocal = bodyScope.Mint("result");
+                csWriter.WriteLine($"var {resultLocal} = {nativeCall};");
+                csWriter.WriteLine($"return ({csharpType})SwiftMarshal.MarshalFromSwift<{csharpType}>({resultLocal});");
                 break;
+            }
 
             case ReturnKind.NonFrozenStruct:
+            {
+                var metadataLocal = bodyScope.Mint("metadata");
+                var bufferLocal = bodyScope.Mint("buffer");
+                var indirectResultLocal = bodyScope.Mint(IndirectResultLocalName);
                 csWriter.WriteLines($$"""
                     unsafe
                     {
-                        var metadata = SwiftObjectHelper<{{csharpType}}>.GetTypeMetadata();
-                        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                        var {{metadataLocal}} = SwiftObjectHelper<{{csharpType}}>.GetTypeMetadata();
+                        IntPtr {{bufferLocal}} = (IntPtr)NativeMemory.Alloc({{metadataLocal}}.Size);
                         try
                         {
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            var {{indirectResultLocal}} = new SwiftIndirectResult((void*){{bufferLocal}});
                             {{nativeCall}};
-                            return SwiftMarshal.MarshalFromSwift<{{csharpType}}>(buffer);
+                            return SwiftMarshal.MarshalFromSwift<{{csharpType}}>({{bufferLocal}});
                         }
                         catch
                         {
-                            NativeMemory.Free((void*)buffer);
+                            NativeMemory.Free((void*){{bufferLocal}});
                             throw;
                         }
                     }
                     """);
                 break;
+            }
         }
     }
 }

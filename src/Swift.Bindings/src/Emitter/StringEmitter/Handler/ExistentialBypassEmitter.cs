@@ -1244,33 +1244,40 @@ public static class ExistentialBypassEmitter
         foreach (var line in setupLines)
             csWriter.WriteLine(line);
 
-        csWriter.WriteLine("IntPtr swiftPtr = IntPtr.Zero;");
+        // The factory keeps the reduced signature's projected parameter names, so its own scratch
+        // locals are minted against them: a parameter spelled like one keeps its name.
+        var factoryScope = new SyntheticNameScope(reducedWrapperSig.Parameters.Select(p => p.Name));
+        var swiftPtrName = factoryScope.Mint("swiftPtr");
+        var metadataName = factoryScope.Mint("metadata");
+        var bufferName = factoryScope.Mint("buffer");
+
+        csWriter.WriteLine($"IntPtr {swiftPtrName} = IntPtr.Zero;");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"swiftPtr = {wrapperCall}({callArgs});");
+        csWriter.WriteLine($"{swiftPtrName} = {wrapperCall}({callArgs});");
 
         if (isFrozenValue)
         {
             // Frozen value type: copy directly from the pointer
-            csWriter.WriteLine($"return *({typeName}*)swiftPtr;");
+            csWriter.WriteLine($"return *({typeName}*){swiftPtrName};");
         }
         else
         {
             // Non-frozen or frozen-with-memory-management: copy via metadata
-            csWriter.WriteLine($"var metadata = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");
-            csWriter.WriteLine("IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+            csWriter.WriteLine($"var {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");
+            csWriter.WriteLine($"IntPtr {bufferName} = (IntPtr)NativeMemory.Alloc({metadataName}.Size);");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("metadata.ValueWitnessTable->InitializeWithCopy((void*)buffer, (void*)swiftPtr, metadata);");
-            csWriter.WriteLine($"return new {typeName}(buffer);");
+            csWriter.WriteLine($"{metadataName}.ValueWitnessTable->InitializeWithCopy((void*){bufferName}, (void*){swiftPtrName}, {metadataName});");
+            csWriter.WriteLine($"return new {typeName}({bufferName});");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("catch");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("NativeMemory.Free((void*)buffer);");
+            csWriter.WriteLine($"NativeMemory.Free((void*){bufferName});");
             csWriter.WriteLine("throw;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1281,9 +1288,9 @@ public static class ExistentialBypassEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("if (swiftPtr != IntPtr.Zero)");
+        csWriter.WriteLine($"if ({swiftPtrName} != IntPtr.Zero)");
         csWriter.Indent++;
-        csWriter.WriteLine($"{freeCall}(swiftPtr);");
+        csWriter.WriteLine($"{freeCall}({swiftPtrName});");
         csWriter.Indent--;
         csWriter.Indent--;
         csWriter.WriteLine("}");

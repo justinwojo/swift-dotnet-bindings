@@ -1084,10 +1084,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var csName = NameProvider.GetCSharpParameterName(utf8Arg);
             publicParams.Add($"string {csName}");
         }
-        // CancellationToken trails the user params (defaulted, so existing call sites are unaffected).
-        // Cancelling task-cancels the suspended Swift producer via the registry and sets the TCS canceled.
-        publicParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
-
         // The public method body hardcodes synthetic locals (tcs, resultPtr, holder,
         // handle, cancel key + registration). A user parameter spelling any of them would shadow the
         // synthetic (CS0136) and the generator would emit uncompilable C# at exit 0. Reserve each
@@ -1096,6 +1092,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // success/error callback methods take fixed params (no user names) and stay literal.
         var asyncScope = new SyntheticNameScope(
             new[] { "self" }.Concat(utf8Args.Select(NameProvider.GetCSharpParameterName)));
+        // CancellationToken trails the user params (defaulted, so existing call sites are unaffected).
+        // Cancelling task-cancels the suspended Swift producer via the registry and sets the TCS canceled.
+        // It is a parameter rather than a body local, so a user parameter spelling it declares the same
+        // name twice — a declaration error that stops the compilation before any body is even bound.
+        string ctName = asyncScope.Reserve("cancellationToken");
+        publicParams.Add($"global::System.Threading.CancellationToken {ctName} = default");
+
         string tcsName = asyncScope.Reserve("tcs");
         string asyncResultPtrName = asyncScope.Reserve("resultPtr");
         string holderName = asyncScope.Reserve("holder");
@@ -1126,9 +1129,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // clean up — the exact no-launch shape proven crash-free.
         var fromCanceledParam = isVoid ? "" : $"<{returnCsType}>";
         csWriter.WriteLines($$"""
-            if (cancellationToken.IsCancellationRequested)
+            if ({{ctName}}.IsCancellationRequested)
             {
-                return global::System.Threading.Tasks.Task.FromCanceled{{fromCanceledParam}}(cancellationToken);
+                return global::System.Threading.Tasks.Task.FromCanceled{{fromCanceledParam}}({{ctName}});
             }
             """);
         // Finding 39: RunContinuationsAsynchronously so the continuation does not run inline on
@@ -1168,10 +1171,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"long {cancelKeyName} = global::Swift.Runtime.SwiftAsyncCancellation.NextCancelKey();");
         csWriter.WriteLine(
             $"global::System.Threading.CancellationTokenRegistration {cancelRegName} = default;");
-        csWriter.WriteLine("if (cancellationToken.CanBeCanceled)");
+        csWriter.WriteLine($"if ({ctName}.CanBeCanceled)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"{cancelRegName} = cancellationToken.Register(");
+        csWriter.WriteLine($"{cancelRegName} = {ctName}.Register(");
         csWriter.Indent++;
         csWriter.WriteLine("static state =>");
         csWriter.WriteLine("{");
@@ -1182,7 +1185,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("__tcs.TrySetCanceled(__tok);");
         csWriter.Indent--;
         csWriter.WriteLine("},");
-        csWriter.WriteLine($"({tcsName}, cancellationToken, {cancelKeyName}));");
+        csWriter.WriteLine($"({tcsName}, {ctName}, {cancelKeyName}));");
         csWriter.Indent--;
         csWriter.Indent--;
         csWriter.WriteLine("}");

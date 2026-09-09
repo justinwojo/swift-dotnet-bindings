@@ -17,8 +17,8 @@ namespace RuntimeTestsApp.FoundationInterop;
 /// coverage here by design: the fix declines the member outright (a clean skip — Swift's
 /// `total(_:Int32...)` never emits a wrapper at all), so there is nothing to call from C#.
 /// Verified via <c>binding-emission-report.json</c>'s <c>variadic_parameter</c> skip count and
-/// by confirming <c>NSObjectSwiftBindingsTestLibExtensions</c> only exposes
-/// <c>Classify</c>/<c>Tagged</c>, never a `Total`/`total` member.
+/// by confirming <c>NSObjectSwiftBindingsTestLibExtensions</c> carries no `Total`/`total`
+/// member — the declined one is the only member of that extension absent from the binding.
 /// </summary>
 public class ForeignExtensionBugReprosTests : TestBase
 {
@@ -44,5 +44,21 @@ public class ForeignExtensionBugReprosTests : TestBase
         using var obj = new Foundation.NSObject();
         var result = obj.Tagged(41);
         AssertEqual(42, result, "tagged(extension: 41) returns 42");
+    }
+
+    public void TestSwiftClassReturnOutlivesTheWrapperThatBuiltIt()
+    {
+        // A Swift class returned from a foreign-type extension is constructed inside the emitted
+        // Swift wrapper, so that wrapper's own local is the only thing holding it when the function
+        // returns. The managed peer adopts the reference it is handed, so the wrapper has to pass
+        // ownership across rather than lend it — reading a field back afterwards is what proves the
+        // object was still there to read.
+        using var obj = new Foundation.NSObject();
+
+        using var fromMethod = obj.Receipt(4);
+        AssertEqual(12, fromMethod.Code, "a class returned from an extension method survives the call");
+
+        using var fromProperty = obj.GetReceiptStamp();
+        AssertEqual(7, fromProperty.Code, "a class returned from an extension property survives the call");
     }
 }

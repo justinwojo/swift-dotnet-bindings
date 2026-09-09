@@ -251,8 +251,18 @@ namespace BindingsGeneration
                 WrapperEmitter.EmitConsumeDegradedWarning(csWriter);
 
             var parameterString = string.Join(", ", parameters.Select(p => $"{p.publicType} {p.name}"));
-            // C10: Use unique local variable name to avoid CS0136 if a parameter is also named "result"
-            var resultVarName = parameters.Any(p => p.name == "result") ? "__enumResult" : "result";
+            // The factory's parameters are named from the case's own associated-value labels, and
+            // every local the body declares lands in the same scope as them. Minting the locals
+            // through one scope seeded with those names moves a generated local aside when a label
+            // is spelled like it; nothing moves when nothing collides.
+            var bodyScope = new SyntheticNameScope(parameters.Select(p => p.name));
+            var resultVarName = bodyScope.Mint("result");
+            // The marshalling plan of a projected associated value names its scratch locals by
+            // suffixing that value's own label, so a sibling label spelled like one of them already
+            // occupies the identifier. Resolving each label against its siblings gives the base
+            // those locals are derived from; it differs from the label only when a sibling shadows
+            // one, and then the body binds it to the parameter with a ref alias.
+            var labelNames = parameters.Select(p => NameProvider.StripVerbatimPrefix(p.name)).ToList();
             csWriter.WriteLine($"public static unsafe {enumTypeName} {capitalizedName}({parameterString})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -439,14 +449,25 @@ namespace BindingsGeneration
                     });
                     if (projection != null)
                     {
-                        var plan = projection.GetParameterPlan(name);
+                        // Marshal under the resolved base rather than the label itself. A ref alias
+                        // — not a copy — so the plan reads the very storage the caller passed. Only
+                        // a label a sibling shadows moves, so a case whose labels do not collide
+                        // emits no alias and marshals exactly as before.
+                        var planBase = NameProvider.ResolveMarshallingBaseName(name, labelNames);
+                        if (!string.Equals(planBase, name, StringComparison.Ordinal))
+                        {
+                            planBase = bodyScope.Mint(planBase);
+                            csWriter.WriteLine($"ref var {planBase} = ref {name};");
+                        }
+
+                        var plan = projection.GetParameterPlan(planBase);
 
                         // @_cdecl wrapper: collections and non-reference optionals pass pointer
                         // via UnsafeRawPointer. Use shared helper to skip PayloadBuffer and
                         // emit DangerousGetHandle instead.
                         if (useCdeclWrapper && CdeclMarshallingHelper.NeedsCdeclPointerOverride(projection))
                         {
-                            CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, plan, name);
+                            CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, plan, planBase);
                             projectedArgs[i] = plan;
                         }
                         else
@@ -504,14 +525,14 @@ namespace BindingsGeneration
                         var protocolList = preScanHandler.ToProtocolListTypeSpec(typeSpec);
                         if (protocolList != null)
                         {
-                            var heapName = $"{bareName}Heap";
+                            var heapName = bodyScope.Mint($"{bareName}Heap");
                             var containerType = preScanHandler.GetCSharpExistentialType(protocolList);
                             bool hasTypeRecords = preScanHandler.AllProtocolsHaveTypeRecords(protocolList);
                             bool owningCandidate =
                                 hasTypeRecords &&
                                 containerType == "Swift.Runtime.ExistentialContainer1" &&
                                 !preScanHandler.TryGetWellKnownProtocolType(protocolList, out _);
-                            string? ownsVar = owningCandidate ? $"{bareName}Owns" : null;
+                            string? ownsVar = owningCandidate ? bodyScope.Mint($"{bareName}Owns") : null;
                             // Change 4 (B2): an auto-wrapped proxy is registered WEAKLY now, so
                             // nothing strong roots it across the native call. Capture it here and
                             // GC.KeepAlive it in the finally so the proxy (and its construction-time
@@ -523,7 +544,7 @@ namespace BindingsGeneration
                             //    local. (Unknown protocols with no records pass a raw blittable container
                             //    with no R0 to protect, so no pin.)
                             string? keepAliveVar =
-                                owningCandidate ? $"{bareName}KeepAlive"
+                                owningCandidate ? bodyScope.Mint($"{bareName}KeepAlive")
                                 : hasTypeRecords ? name
                                 : null;
                             existentialHeaps.Add((heapName, ownsVar, protocolList.Protocols.Count, keepAliveVar));
@@ -531,7 +552,7 @@ namespace BindingsGeneration
                             if (ownsVar != null)
                                 csWriter.WriteLine($"bool {ownsVar} = false;");
                             if (owningCandidate)
-                                csWriter.WriteLine($"object? {bareName}KeepAlive = null;");
+                                csWriter.WriteLine($"object? {bodyScope.Mint($"{bareName}KeepAlive")} = null;");
                         }
                     }
                 }
@@ -596,23 +617,23 @@ namespace BindingsGeneration
                                     // conformer was boxed at +1 (borrowed proxy/class containers
                                     // report owns=false and must not be over-released).
                                     var expr = proxyClassName != null
-                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v), out {bareName}Owns, out {bareName}KeepAlive)"
-                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, out {bareName}Owns, out {bareName}KeepAlive)";
-                                    csWriter.WriteLine($"var {bareName}Container = {expr};");
+                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v), out {bodyScope.Mint($"{bareName}Owns")}, out {bodyScope.Mint($"{bareName}KeepAlive")})"
+                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, out {bodyScope.Mint($"{bareName}Owns")}, out {bodyScope.Mint($"{bareName}KeepAlive")})";
+                                    csWriter.WriteLine($"var {bodyScope.Mint($"{bareName}Container")} = {expr};");
                                 }
                                 else
-                                    csWriter.WriteLine($"var {bareName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
+                                    csWriter.WriteLine($"var {bodyScope.Mint($"{bareName}Container")} = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
                             }
                             else
                             {
                                 // Unknown protocol: container is already the right type
-                                csWriter.WriteLine($"var {bareName}Container = {name};");
+                                csWriter.WriteLine($"var {bodyScope.Mint($"{bareName}Container")} = {name};");
                             }
                             // Heap-allocate the container to avoid NativeAOT stack reuse issues
                             // (same fix as WrapperEmitter.EmitExistentialContainerMarshalling)
                             var heapName = existentialHeaps[existentialIndex++].HeapName;
                             csWriter.WriteLine($"{heapName} = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
-                            csWriter.WriteLine($"Unsafe.Copy({heapName}, ref {bareName}Container);");
+                            csWriter.WriteLine($"Unsafe.Copy({heapName}, ref {bodyScope.Mint($"{bareName}Container")});");
                         }
                     }
                     else if (typeSpec is TupleTypeSpec)
@@ -622,7 +643,7 @@ namespace BindingsGeneration
                         // Tuples with projected elements (string, existential, container) are
                         // gated out by ShouldEmitCaseFactoryWrapper → IsTupleElementAbiCompatible,
                         // so only ABI-identical tuples (primitives, frozen structs, etc.) reach here.
-                        csWriter.WriteLine($"var {bareName}Tuple = {name};");
+                        csWriter.WriteLine($"var {bodyScope.Mint($"{bareName}Tuple")} = {name};");
                     }
                 }
             }
@@ -634,12 +655,15 @@ namespace BindingsGeneration
             var getMetadataCall = pinvokeHelperContext != null
                 ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
                 : "PInvoke_getMetadata()";
-            csWriter.WriteLine($"var metadata = {getMetadataCall};");
-            csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
+            var metadataVarName = bodyScope.Mint("metadata");
+            var bufferVarName = bodyScope.Mint("buffer");
+            csWriter.WriteLine($"var {metadataVarName} = {getMetadataCall};");
+            csWriter.WriteLine($"IntPtr {bufferVarName} = (IntPtr)NativeMemory.Alloc({metadataVarName}.Size);");
 
+            var indirectResultVarName = bodyScope.Mint("indirectResult");
             if (!useCdeclWrapper)
             {
-                csWriter.WriteLine($"var indirectResult = new SwiftIndirectResult((void*)buffer);");
+                csWriter.WriteLine($"var {indirectResultVarName} = new SwiftIndirectResult((void*){bufferVarName});");
             }
 
             // Build the P/Invoke call with arguments
@@ -648,7 +672,7 @@ namespace BindingsGeneration
             var argList = new List<string>();
             if (!useCdeclWrapper)
             {
-                argList.Add("indirectResult");
+                argList.Add(indirectResultVarName);
             }
 
             var enumGenericParamsForArgs = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
@@ -663,11 +687,14 @@ namespace BindingsGeneration
                 if (typeSpec is NamedTypeSpec genericParamType &&
                     TryGetGenericTypeParameterName(genericParamType.Name, out _, enumGenericParamsForArgs))
                 {
-                    csWriter.WriteLine($"var {bareName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
-                    csWriter.WriteLine($"byte* {bareName}SwiftBuffer = stackalloc byte[(int){bareName}Metadata.Size];");
-                    csWriter.WriteLine($"var {bareName}SwiftSpan = new Span<byte>({bareName}SwiftBuffer, (int){bareName}Metadata.Size);");
-                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {bareName}SwiftSpan);");
-                    argList.Add($"(IntPtr){bareName}SwiftBuffer");
+                    var swiftMetadataName = bodyScope.Mint($"{bareName}Metadata");
+                    var swiftBufferName = bodyScope.Mint($"{bareName}SwiftBuffer");
+                    var swiftSpanName = bodyScope.Mint($"{bareName}SwiftSpan");
+                    csWriter.WriteLine($"var {swiftMetadataName} = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
+                    csWriter.WriteLine($"byte* {swiftBufferName} = stackalloc byte[(int){swiftMetadataName}.Size];");
+                    csWriter.WriteLine($"var {swiftSpanName} = new Span<byte>({swiftBufferName}, (int){swiftMetadataName}.Size);");
+                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {swiftSpanName});");
+                    argList.Add($"(IntPtr){swiftBufferName}");
                 }
                 else if (projectedArgs.TryGetValue(i, out var projPlan))
                 {
@@ -676,7 +703,7 @@ namespace BindingsGeneration
                 else if (useCdeclWrapper && typeSpec is TupleTypeSpec)
                 {
                     // @_cdecl: pass tuple by pointer (matches Swift's UnsafeRawPointer param)
-                    argList.Add($"(IntPtr)(&{bareName}Tuple)");
+                    argList.Add($"(IntPtr)(&{bodyScope.Mint($"{bareName}Tuple")})");
                 }
                 else if (tuplePInvokeExprs.TryGetValue(i, out var tupleExpr))
                 {
@@ -691,7 +718,7 @@ namespace BindingsGeneration
                 else if (useCdeclWrapper && new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
                 {
                     // @_cdecl: pass heap-allocated pointer to container (matches Swift's UnsafeRawPointer param)
-                    argList.Add($"(IntPtr){bareName}Heap");
+                    argList.Add($"(IntPtr){bodyScope.Mint($"{bareName}Heap")}");
                 }
                 else if (useCdeclWrapper && IsCustomFrozenStructParam(typeSpec, typeDatabase))
                 {
@@ -699,11 +726,14 @@ namespace BindingsGeneration
                     // Marshal to a stack buffer and pass the pointer. This is required because
                     // C calling convention passes float/double struct fields in FPR, but
                     // UnsafeRawPointer expects a pointer in GPR — ABI mismatch.
-                    csWriter.WriteLine($"var {bareName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
-                    csWriter.WriteLine($"byte* {bareName}Buffer = stackalloc byte[(int){bareName}Metadata.Size];");
-                    csWriter.WriteLine($"var {bareName}Span = new Span<byte>({bareName}Buffer, (int){bareName}Metadata.Size);");
-                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {bareName}Span);");
-                    argList.Add($"(IntPtr){bareName}Buffer");
+                    var frozenMetadataName = bodyScope.Mint($"{bareName}Metadata");
+                    var frozenBufferName = bodyScope.Mint($"{bareName}Buffer");
+                    var frozenSpanName = bodyScope.Mint($"{bareName}Span");
+                    csWriter.WriteLine($"var {frozenMetadataName} = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
+                    csWriter.WriteLine($"byte* {frozenBufferName} = stackalloc byte[(int){frozenMetadataName}.Size];");
+                    csWriter.WriteLine($"var {frozenSpanName} = new Span<byte>({frozenBufferName}, (int){frozenMetadataName}.Size);");
+                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {frozenSpanName});");
+                    argList.Add($"(IntPtr){frozenBufferName}");
                 }
                 else
                 {
@@ -717,7 +747,7 @@ namespace BindingsGeneration
 
             if (useCdeclWrapper)
             {
-                argList.Add("buffer"); // resultPtr as last arg for @_cdecl
+                argList.Add(bufferVarName); // resultPtr as last arg for @_cdecl
             }
 
             var invokeArgList = string.Join(", ", argList);
@@ -769,7 +799,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
             }
 
-            csWriter.WriteLine($"{resultVarName}._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
+            csWriter.WriteLine($"{resultVarName}._payload = new SwiftSafeHandle<{enumTypeName}>({bufferVarName});");
             csWriter.WriteLine($"return {resultVarName};");
 
             // Close try/finally for existential heap cleanup
@@ -850,14 +880,21 @@ namespace BindingsGeneration
                 // - Existentials: IntPtr (pointer to ExistentialContainer, matches Unsafe.AsPointer at call site)
                 // - Everything else: same as legacy GetPInvokeType
                 var pInvokeParams = new List<string>();
+                // The extern's own parameter list mixes the case's associated-value names with names
+                // this emitter appends — the per-string pair and the trailing result pointer. They all
+                // share one declaration scope, and a duplicate there is a declaration error that stops
+                // the whole compilation from binding any method body. Minting the appended names
+                // against the associated-value names keeps them apart; P/Invoke binding is positional,
+                // so a moved extern parameter name changes nothing about the call.
+                var pInvokeScope = new SyntheticNameScope(parameters.Select(p => p.name));
                 var cdeclExistentialHandler = new ExistentialHandler(typeDatabase);
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     var (_, _, name, typeSpec) = parameters[i];
                     if (typeConversionHandler.IsSwiftString(typeSpec))
                     {
-                        pInvokeParams.Add($"IntPtr {name}Utf8Ptr");
-                        pInvokeParams.Add($"nint {name}Utf8Len");
+                        pInvokeParams.Add($"IntPtr {pInvokeScope.MintComposed($"{name}Utf8Ptr")}");
+                        pInvokeParams.Add($"nint {pInvokeScope.MintComposed($"{name}Utf8Len")}");
                     }
                     else if (cdeclExistentialHandler.IsExistential(typeSpec))
                     {
@@ -881,7 +918,7 @@ namespace BindingsGeneration
                         pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
                     }
                 }
-                pInvokeParams.Add("IntPtr resultPtr"); // Result pointer as last param
+                pInvokeParams.Add($"IntPtr {pInvokeScope.Mint("resultPtr")}"); // Result pointer as last param
 
                 // @_cdecl case factory symbols live in the wrapper library, not the original
                 var caseFactoryLibPath = typeDatabase.AsyncLibraryName ?? libPath;
@@ -918,7 +955,7 @@ namespace BindingsGeneration
                 // Direct P/Invoke path with SwiftIndirectResult
                 // C5: Use unique name for indirect result param to avoid CS0100 if an associated value
                 // is also named "result"
-                var indirectResultParamName = parameters.Any(p => p.name == "result") ? "__result" : "result";
+                var indirectResultParamName = new SyntheticNameScope(parameters.Select(p => p.name)).Mint("result");
                 var pInvokeParams = new List<string> { $"SwiftIndirectResult {indirectResultParamName}" };
                 for (int i = 0; i < parameters.Count; i++)
                 {

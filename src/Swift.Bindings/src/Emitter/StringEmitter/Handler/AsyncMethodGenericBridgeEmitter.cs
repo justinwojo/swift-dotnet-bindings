@@ -1216,7 +1216,22 @@ public static class AsyncMethodGenericBridgeEmitter
                     break;
             }
         }
-        publicParams.Add("global::System.Threading.CancellationToken cancellationToken = default");
+        // The trailing cancellation token is a parameter this emitter adds, not one the Swift
+        // signature declared, so a Swift parameter spelling it would declare the same name twice —
+        // a declaration error that keeps the compilation from reaching any method body. Resolve it
+        // against the user names; with no collision the spelling comes back unchanged.
+        // Both spellings of every parameter are seeded: the public one, and the marshalling base
+        // that names its derived scratch locals (and lives in the body as a `ref` alias whenever a
+        // sibling parameter shadows one of them).
+        var bodyScope = new SyntheticNameScope(keptArgs
+            .SelectMany(a => new[] { NameProvider.GetCSharpParameterName(a), NameProvider.GetMarshallingBaseName(a) }));
+        var ctName = bodyScope.Reserve("cancellationToken");
+        publicParams.Add($"global::System.Threading.CancellationToken {ctName} = default");
+        // The GC handle this body hands the native call as its callback context is a body local
+        // rather than a parameter, but it lands in the same scope as the projected parameters, so
+        // it is resolved against them too. Reserved up front, before any body emission, so the name
+        // does not depend on which emission step asks for it first.
+        var handleName = bodyScope.Reserve("handle");
 
         // Holder cleanup is delegated to the runtime helper (a single method call, no inlined
         // loop), so no loop-index reservation is needed in this public method body. The only
@@ -1258,13 +1273,25 @@ public static class AsyncMethodGenericBridgeEmitter
                 """);
         }
 
+        // A projection names its scratch locals after the parameter it is marshalling, so a sibling
+        // parameter spelled like one of those suffixed names would be redeclared. Marshalling reads
+        // the parameter through its base name, which moves aside when that happens; the alias below
+        // gives the moved name the same storage, so `inout` still writes through to the caller.
+        foreach (var arg in setArgs)
+        {
+            var publicName = NameProvider.GetCSharpParameterName(arg);
+            var baseName = NameProvider.GetMarshallingBaseName(arg);
+            if (!string.Equals(publicName, baseName, StringComparison.Ordinal))
+                csWriter.WriteLine($"ref var {baseName} = ref {publicName};");
+        }
+
         // Marshal Set<T> args into SwiftSet containers (hoisted into _asyncDeferredList).
         // Must happen AFTER `_asyncDeferredList` is allocated and BEFORE holder construction
         // so the holder slot reflects the live container.
         var bufferVarNames = new Dictionary<string, string>();
         foreach (var arg in setArgs)
         {
-            var csName = NameProvider.GetCSharpParameterName(arg);
+            var csName = NameProvider.GetMarshallingBaseName(arg);
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(arg.SwiftTypeSpec, new ProjectionContext
             {
@@ -1335,35 +1362,35 @@ public static class AsyncMethodGenericBridgeEmitter
                 needsDeferredList ? "_asyncDeferredList" : null, copyBufferList: "",
                 heldArgsKeepAlive));
         }
-        csWriter.WriteLine("GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
+        csWriter.WriteLine($"GCHandle {handleName} = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);");
 
         // Pre-cancel check.
-        csWriter.WriteLines("""
-            if (cancellationToken.IsCancellationRequested)
+        csWriter.WriteLines($$"""
+            if ({{ctName}}.IsCancellationRequested)
             {
             """);
         csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", "    "));
         csWriter.WriteLines($$"""
-                handle.Free();
+                {{handleName}}.Free();
                 return {{(csReturnType == "void"
-                    ? $"global::System.Threading.Tasks.Task.FromCanceled(cancellationToken)"
-                    : $"global::System.Threading.Tasks.Task.FromCanceled<{csReturnType}>(cancellationToken)")}};
+                    ? $"global::System.Threading.Tasks.Task.FromCanceled({ctName})"
+                    : $"global::System.Threading.Tasks.Task.FromCanceled<{csReturnType}>({ctName})")}};
             }
             """);
 
         csWriter.WriteLines($$"""
             long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();
-            if (cancellationToken.CanBeCanceled)
+            if ({{ctName}}.CanBeCanceled)
             {
-                var _cancelRegistration = cancellationToken.Register(
+                var _cancelRegistration = {{ctName}}.Register(
                     static state =>
                     {
                         var (tcs, token, id) = ((TaskCompletionSource{{tcsTypeParam}}, global::System.Threading.CancellationToken, long))state!;
                         SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
-                    (_tcs, cancellationToken, _sbwCancelKey));
-                _asyncCallHolder.CancellationRegistration = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
+                    (_tcs, {{ctName}}, _sbwCancelKey));
+                _asyncCallHolder.CancellationRegistration = new CancellationRegistrationHolder(_cancelRegistration, {{ctName}});
             }
             """);
 
@@ -1378,7 +1405,7 @@ public static class AsyncMethodGenericBridgeEmitter
             $"(void*){callbackFieldName}",
         };
         if (throws) callArgs.Add($"(void*){errorCallbackFieldName}");
-        callArgs.Add("(long)(IntPtr)handle");
+        callArgs.Add($"(long)(IntPtr){handleName}");
         // Monotonic cancellation key — registry key, distinct from the GCHandle
         // context above. Defined as a local before the CanBeCanceled block.
         callArgs.Add("_sbwCancelKey");
@@ -1401,7 +1428,7 @@ public static class AsyncMethodGenericBridgeEmitter
 
             if (IsBridgeableDefaultedContainer(arg, env.TypeDatabase))
             {
-                callArgs.Add(bufferVarNames[csName]);
+                callArgs.Add(bufferVarNames[NameProvider.GetMarshallingBaseName(arg)]);
                 continue;
             }
 
@@ -1462,7 +1489,7 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLines(AsyncHarnessEmitter.BuildHolderCleanupCode("_asyncCallHolder", "    "));
-        csWriter.WriteLine("handle.Free();");
+        csWriter.WriteLine($"{handleName}.Free();");
         // The wrapper never launched, so its `defer { _sbwUnregisterTask }` will not run.
         // Reclaim any WINDOW A cancellation tombstone left for this id (no-op if none).
         csWriter.WriteLine("SBW_UnregisterTask(_sbwCancelKey);");

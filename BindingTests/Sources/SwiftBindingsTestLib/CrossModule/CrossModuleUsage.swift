@@ -217,6 +217,16 @@ extension DependencyPoint {
     public func offsetBy(_ dx: Double, _ dy: Double) -> DependencyPoint {
         return DependencyPoint(x: self.x + dx, y: self.y + dy)
     }
+
+    /// Generated-local collision on the struct-receiver extension's return marshalling.
+    /// A class return is read back through a local the emitter declares straight into the
+    /// body that already holds this method's parameters — and this parameter is spelled
+    /// exactly that way. The returned value folds the receiver and the parameter together,
+    /// so a body that read the wrong identifier would change the answer rather than merely
+    /// fail to compile.
+    public func tokenScaled(result: Double) -> DependencyToken {
+        return DependencyToken(value: Int32(self.x * 10 + result))
+    }
 }
 
 /// A protocol with an EXTENSION-DEFAULT computed property (no per-conformer override).
@@ -363,6 +373,14 @@ extension DependencyService {
     /// trampoline because of the String + closure pair.
     public func notifyLabel(_ label: String, completion: @escaping (Int32) -> Void) {
         completion(Int32(label.count) + (self.isActive ? 1 : 0))
+    }
+
+    /// Generated-local collision on the class-receiver extension's return marshalling.
+    /// Same shape as `DependencyPoint.tokenScaled(result:)` but on the class path, which
+    /// is a different emitter: a class return is read back through a local declared into
+    /// the body that already holds this method's parameters.
+    public func tokenTagged(result: Int32) -> DependencyToken {
+        return DependencyToken(value: self.isActive ? result : -result)
     }
 }
 

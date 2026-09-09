@@ -10,7 +10,7 @@ namespace BindingsGeneration;
 /// Parameter direction: null-check branching → SwiftOptional.NewSome/NewNone + PayloadBuffer.
 /// Return direction: MarshalFromSwift + ToNullable (or discriminant check for existentials/containers).
 /// </summary>
-public class OptionalProjection : ITypeProjection
+public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjection
 {
     private readonly ITypeProjection _innerProjection;
     private readonly bool _isExistentialInner;
@@ -426,7 +426,23 @@ public class OptionalProjection : ITypeProjection
         };
     }
 
+    /// <summary>
+    /// The body local the discriminant-checking arms declare when no caller-resolved name is
+    /// supplied. It is not derived from the name handed in, so a member whose own parameter is
+    /// spelled this way has to pass a resolved name instead.
+    /// </summary>
+    internal const string DefaultLocalName = "swiftResult";
+
+    /// <inheritdoc />
+    public string DefaultReturnLocalName => DefaultLocalName;
+
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
+        => GetReturnPlan(resultName, strategy, DefaultLocalName);
+
+    /// <summary>
+    /// Builds the return plan, declaring the read-back local as <paramref name="localName"/>.
+    /// </summary>
+    public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy, string localName)
     {
         // Use MarshalFromSwiftType for return MarshalFromSwift calls — for classes/non-frozen structs,
         // this is the actual type name (not IntPtr), which MarshalFromSwift needs to construct instances.
@@ -515,9 +531,9 @@ public class OptionalProjection : ITypeProjection
             // explicitly — the shared GetReturnElementConversion stays non-owning because it is also
             // reused for borrowed Swift->C# receiver-callback parameter wraps.
             var elemConversion = _innerProjection is ExistentialProjection existInner
-                ? existInner.GetOwnedReturnElementConversion("swiftResult.Some")
-                : _innerProjection.GetReturnElementConversion("swiftResult.Some");
-            var convExpr = elemConversion ?? "swiftResult.Some";
+                ? existInner.GetOwnedReturnElementConversion($"{localName}.Some")
+                : _innerProjection.GetReturnElementConversion($"{localName}.Some");
+            var convExpr = elemConversion ?? $"{localName}.Some";
 
             // Optional<any Error> direct-IntPtr return: `any Error` is class-bound (single
             // boxed pointer, MemoryLayout = 8) so Swift returns Optional<(any Error)> directly
@@ -567,7 +583,7 @@ public class OptionalProjection : ITypeProjection
                 if (_innerProjection is ExistentialProjection { IsClassBoundArity1: true })
                 {
                     var classBoundRead = $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell({resultName})";
-                    var classBoundConv = elemConversion?.Replace("swiftResult.Some", classBoundRead)
+                    var classBoundConv = elemConversion?.Replace($"{localName}.Some", classBoundRead)
                                       ?? classBoundRead;
                     return new MarshalPlan
                     {
@@ -578,7 +594,7 @@ public class OptionalProjection : ITypeProjection
                 }
 
                 var directInnerExpr = $"*({returnTypeParam}*){resultName}";
-                var directConv = elemConversion?.Replace("swiftResult.Some", directInnerExpr)
+                var directConv = elemConversion?.Replace($"{localName}.Some", directInnerExpr)
                               ?? directInnerExpr;
                 return new MarshalPlan
                 {
@@ -588,14 +604,14 @@ public class OptionalProjection : ITypeProjection
                 };
             }
 
-            return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, convExpr);
+            return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, convExpr, localName);
         }
 
         // Container inner (Array, Dictionary) — discriminant check + container conversion
-        var containerConv = _innerProjection.GetReturnContainerConversion("swiftResult.Some");
+        var containerConv = _innerProjection.GetReturnContainerConversion($"{localName}.Some");
         if (containerConv != null)
         {
-            return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, containerConv);
+            return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, containerConv, localName);
         }
 
         // Blittable primitive inner types: read the discriminator byte directly from the buffer
@@ -834,7 +850,7 @@ public class OptionalProjection : ITypeProjection
     /// Used for both existential and container inners.
     /// </summary>
     private static MarshalPlan BuildDiscriminantReturnPlan(
-        string resultName, ReturnStrategy strategy, string optTypeParam, string convExpr)
+        string resultName, ReturnStrategy strategy, string optTypeParam, string convExpr, string localName)
     {
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<{optTypeParam}>>";
         // Direct (by-value register) return: the owned SwiftOptional temporary copies its payload
@@ -849,9 +865,9 @@ public class OptionalProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var swiftResult = {marshalFromSwiftConsuming}(&{resultName});")
+                        $"var {localName} = {marshalFromSwiftConsuming}(&{resultName});")
                 },
-                PInvokeExpression = $"swiftResult.Case == SwiftOptionalCases.None ? null : {convExpr}",
+                PInvokeExpression = $"{localName}.Case == SwiftOptionalCases.None ? null : {convExpr}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
@@ -859,9 +875,9 @@ public class OptionalProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var swiftResult = {marshalFromSwift}({resultName});")
+                        $"var {localName} = {marshalFromSwift}({resultName});")
                 },
-                PInvokeExpression = $"swiftResult.Case == SwiftOptionalCases.None ? null : {convExpr}"
+                PInvokeExpression = $"{localName}.Case == SwiftOptionalCases.None ? null : {convExpr}"
             },
             ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
             _ => MarshalPlan.PassThrough(resultName)

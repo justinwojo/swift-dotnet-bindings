@@ -641,7 +641,7 @@ public static class ForeignTypeExtensionEmitter
         if (wrapAsOpaque)
         {
             ctx.AddForeignExtWrapperLine($"    let result = instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}");
-            ctx.AddForeignExtWrapperLine($"    return Unmanaged.passUnretained(result).toOpaque()");
+            ctx.AddForeignExtWrapperLine($"    return {FormatOpaqueClassReturn(returnCategory)}");
         }
         else if (returnCategory == ReturnKind.NonFrozenStruct)
         {
@@ -838,7 +838,7 @@ public static class ForeignTypeExtensionEmitter
         if (returnIsClass)
         {
             ctx.AddForeignExtWrapperLine($"    let result = {callStr}");
-            ctx.AddForeignExtWrapperLine($"    return Unmanaged.passUnretained(result).toOpaque()");
+            ctx.AddForeignExtWrapperLine($"    return {FormatOpaqueClassReturn(returnCategory)}");
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
         {
@@ -1010,6 +1010,36 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
+    /// Hands a class the wrapper is holding in <c>result</c> back to C# as an opaque pointer, at
+    /// the reference count the receiving side expects.
+    ///
+    /// <para>An imported ObjC class goes back at +0: the C# side builds its wrapper through the
+    /// ObjC bridge, which takes its own retain, and the object is still alive in the caller's
+    /// autorelease pool while that happens.</para>
+    ///
+    /// <para>A Swift class goes back at +1. The C# side marshals it into a managed peer that adopts
+    /// the reference, so <c>result</c> — which by then is the wrapper's own local and the only
+    /// thing keeping the object alive — must hand its ownership across rather than let the object
+    /// go away when this function returns.</para>
+    /// </summary>
+    private static string FormatOpaqueClassReturn(ReturnKind returnCategory)
+        => returnCategory == ReturnKind.SwiftClass
+            ? "Unmanaged.passRetained(result).toOpaque()"
+            : "Unmanaged.passUnretained(result).toOpaque()";
+
+    /// <summary>
+    /// The C# identifier one Swift parameter is emitted under. The public signature, the native
+    /// call arguments and the body's name scope must all agree on it, so they read it from here
+    /// rather than each re-deriving it.
+    /// </summary>
+    private static string ProjectedParameterName(ForeignExtensionMemberInfo member, string label, string swiftType)
+    {
+        if (member.IsPropertySetter && label == "value")
+            return "value";
+        return ToCamelCase(label == "_" ? GetParamNameFromType(swiftType) : label);
+    }
+
+    /// <summary>
     /// Emits a single public extension method in the extension class.
     /// </summary>
     private static void EmitExtensionMember(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
@@ -1023,10 +1053,7 @@ public static class ForeignTypeExtensionEmitter
         foreach (var (label, typeSpec, swiftType, _) in member.Parameters)
         {
             var paramTypeName = ResolveCSharpParameterType(typeSpec, typeDatabase);
-            var paramName = ToCamelCase(label == "_" ? GetParamNameFromType(swiftType) : label);
-            if (member.IsPropertySetter && label == "value")
-                paramName = "value";
-            paramList.Add($"{paramTypeName} {paramName}");
+            paramList.Add($"{paramTypeName} {ProjectedParameterName(member, label, swiftType)}");
         }
 
         // For setter, return type is void
@@ -1052,10 +1079,15 @@ public static class ForeignTypeExtensionEmitter
         // Build native call arguments
         var nativeArgs = new List<string>();
 
+        // The generated locals share this body with the member's public parameters, and a Swift
+        // signature may spell any of them — so they are minted against the parameter names rather
+        // than hardcoded. Built before the indirect-result argument so the mint sees the seed.
+        var bodyScope = BuildBodyScope(member.Parameters.Select(p => ProjectedParameterName(member, p.label, p.swiftType)));
+
         // For non-frozen struct returns, SwiftIndirectResult is the first parameter
         if (member.ReturnCategory == ReturnKind.NonFrozenStruct)
         {
-            nativeArgs.Add("indirectResult");
+            nativeArgs.Add(bodyScope.Mint(IndirectResultLocalName));
         }
 
         nativeArgs.Add("self.Handle");
@@ -1063,9 +1095,7 @@ public static class ForeignTypeExtensionEmitter
         // Add method parameters
         foreach (var (label, typeSpec, swiftType, _) in member.Parameters)
         {
-            var paramName = ToCamelCase(label == "_" ? GetParamNameFromType(swiftType) : label);
-            if (member.IsPropertySetter && label == "value")
-                paramName = "value";
+            var paramName = ProjectedParameterName(member, label, swiftType);
 
             // A SimpleEnum is a NamedTypeSpec too, but it crosses the silgen boundary as
             // its raw integer scalar (see EmitSwiftMethodWrapper's reconstruction via
@@ -1098,7 +1128,7 @@ public static class ForeignTypeExtensionEmitter
         var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
         bool returnNeedsEnumCast = member.ReturnCategory == ReturnKind.Primitive && member.ReturnTypeSpec != null &&
             ExtensionMarshallingHelper.TryGetSimpleEnumLowering(member.ReturnTypeSpec, typeDatabase, out _, out _, out _);
-        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, returnNeedsEnumCast);
+        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, bodyScope, returnNeedsEnumCast);
     }
 
     /// <summary>

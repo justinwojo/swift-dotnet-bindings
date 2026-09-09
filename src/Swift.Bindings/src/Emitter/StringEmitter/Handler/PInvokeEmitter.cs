@@ -425,7 +425,7 @@ namespace BindingsGeneration
                 }
                 _parameters.Add(new Parameter(MarshalledType.AsyncCallback, callbackName, CallExpression: callbackCallExpr));
                 _parameters.Add(new Parameter(MarshalledType.AsyncErrorCallback, errorCallbackName, CallExpression: errorCallbackCallExpr));
-                AddParameter(MarshalledType.AsyncTask, "handle");
+                AddParameter(MarshalledType.AsyncTask, _env.SyntheticLocals.AsyncHandle);
                 // Monotonic cancellation-registry key, distinct from the recyclable GCHandle
                 // context above. The wrapper body defines the matching
                 // `long _sbwCancelKey = SwiftAsyncCancellation.NextCancelKey();` local before
@@ -438,7 +438,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Handles the arguments of the method.
-        /// Uses GetCSharpParameterName() so P/Invoke call expressions match wrapper body variable names.
+        /// Uses the marshalling base name so P/Invoke call expressions match wrapper body variable names.
         /// </summary>
         public void HandleArguments()
         {
@@ -454,7 +454,7 @@ namespace BindingsGeneration
                 if (argument.SwiftTypeSpec.IsEmptyTuple)
                     continue;
 
-                var csName = NameProvider.GetCSharpParameterName(argument);
+                var csName = NameProvider.GetMarshallingBaseName(argument);
 
                 // Decomposed Optional setter: pass raw inner payload pointer + hasValue bool separately.
                 // Must come before IsBoundGeneric (Optional<T> IS a bound generic) to intercept.

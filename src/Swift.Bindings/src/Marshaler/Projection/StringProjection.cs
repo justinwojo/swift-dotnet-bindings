@@ -8,7 +8,7 @@ namespace BindingsGeneration;
 /// Parameter direction: string → new SwiftString(param) with disposal.
 /// Return direction: SwiftString.ToString() or MarshalFromSwift for indirect.
 /// </summary>
-public class StringProjection : ITypeProjection
+public class StringProjection : ITypeProjection, IResolvedReturnLocalProjection
 {
     public string PublicType => "string";
     public string PInvokeType => "SwiftString";
@@ -32,7 +32,24 @@ public class StringProjection : ITypeProjection
         };
     }
 
+    /// <summary>
+    /// The body local the direct arm declares when no caller-resolved name is supplied. It is not
+    /// derived from the name handed in, so a member whose own parameter is spelled this way has to
+    /// pass a resolved name instead.
+    /// </summary>
+    internal const string DefaultLocalName = "swiftResult";
+
+    /// <inheritdoc />
+    public string DefaultReturnLocalName => DefaultLocalName;
+
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
+        => GetReturnPlan(resultName, strategy, DefaultLocalName);
+
+    /// <summary>
+    /// Builds the return plan, declaring the direct arm's read-back local as
+    /// <paramref name="localName"/>.
+    /// </summary>
+    public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy, string localName)
     {
         return strategy switch
         {
@@ -41,9 +58,9 @@ public class StringProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var swiftResult = SwiftMarshal.MarshalFromSwiftObject<SwiftString>(new IntPtr(&{resultName}));")
+                        $"var {localName} = SwiftMarshal.MarshalFromSwiftObject<SwiftString>(new IntPtr(&{resultName}));")
                 },
-                PInvokeExpression = "swiftResult.ToString()",
+                PInvokeExpression = $"{localName}.ToString()",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan

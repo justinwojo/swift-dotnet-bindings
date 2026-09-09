@@ -1371,7 +1371,7 @@ namespace BindingsGeneration
             // Add CancellationToken to async interface methods (matches WrapperEmitter emission)
             if (methodDecl.IsAsync)
             {
-                parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+                parameters.Add($"global::System.Threading.CancellationToken {NameProvider.ResolveCancellationTokenName(methodDecl)} = default");
             }
 
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType

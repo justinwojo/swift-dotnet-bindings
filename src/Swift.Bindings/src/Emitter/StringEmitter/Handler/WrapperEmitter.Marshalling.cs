@@ -9,6 +9,41 @@ namespace BindingsGeneration
     internal partial class WrapperEmitter
     {
         /// <summary>
+        /// Opens a wrapper body with a <c>ref</c> alias for every parameter whose marshalling base
+        /// name had to move out of the way of a sibling parameter.
+        ///
+        /// <para>The scratch locals a parameter's marshalling mints are spelled from that parameter's
+        /// own name plus a suffix (<c>{p}Buffer</c>, <c>{p}Swift</c>, <c>{p}Handle</c>, the ObjC
+        /// container owners, …). A DIFFERENT parameter is free to be named exactly what one of those
+        /// locals is spelled, and the emitted body then declares a local over a parameter already in
+        /// scope. Deduplicating parameters against each other never sees it, because neither
+        /// parameter name repeats.</para>
+        ///
+        /// <para>The escape moves the derived names, never the public ones: the parameter that mints
+        /// them marshals under an internal base identifier, bound here to the real parameter. A
+        /// <c>ref</c> alias — not a copy — so a read through it and a writeback to it are the same
+        /// storage the caller passed, which is what an <c>inout</c> parameter needs. Emitted only for
+        /// the parameters that actually moved, so a signature with no such shadowing is unchanged.</para>
+        /// </summary>
+        private void EmitMarshallingBaseAliases(CSharpWriter csWriter)
+        {
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(argumentDecl))
+                    continue;
+                if (argumentDecl.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var baseName = NameProvider.GetMarshallingBaseName(argumentDecl);
+                if (string.Equals(csName, baseName, StringComparison.Ordinal))
+                    continue;
+
+                csWriter.WriteLine($"ref var {baseName} = ref {csName};");
+            }
+        }
+
+        /// <summary>
         /// Emits a Swift wrapper for methods returning opaque types (some Protocol).
         /// The wrapper calls the original function and boxes the return value into an
         /// existential container (any Protocol) that matches the C# ExistentialContainer type.
@@ -264,7 +299,7 @@ namespace BindingsGeneration
             if (!TransfersConsumedArgumentByValueWitness(argumentDecl))
                 return;
 
-            EmitOwnedValueArgumentTransfer(csWriter, NameProvider.GetCSharpParameterName(argumentDecl),
+            EmitOwnedValueArgumentTransfer(csWriter, NameProvider.GetMarshallingBaseName(argumentDecl),
                 carrierTypeName, payloadExpression);
         }
 
@@ -348,7 +383,7 @@ namespace BindingsGeneration
             {
                 if (!ConsumedByDirectCallee(argumentDecl))
                     continue;
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                 if (!_pInvokeSignature.Parameters.Any(p => p.Name == csName
                                                            && p.Type is MarshalledType.NonFrozenSafeHandleType))
                     continue;
@@ -420,7 +455,7 @@ namespace BindingsGeneration
                 // wrapper's own release balanced.
                 if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
                 {
-                    var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                    var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                     var handedOver = ConsumedByDirectCallee(argumentDecl)
                         ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName})"
@@ -436,7 +471,7 @@ namespace BindingsGeneration
                     (CdeclParamMapper.IsObjCBridgeableContainer(argumentDecl.SwiftTypeSpec, _env.TypeDatabase) ||
                      CdeclParamMapper.IsOptionalObjCBridgeableContainer(argumentDecl.SwiftTypeSpec, _env.TypeDatabase)))
                 {
-                    var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                    var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                     csWriter.WriteLine($"IntPtr {bufferName} = {csName};");
                     continue;
@@ -444,7 +479,7 @@ namespace BindingsGeneration
 
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
-                    var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                    var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
 
                     // Bug #8: Check if the bound generic's root type is a frozen struct projected as class
@@ -582,7 +617,7 @@ namespace BindingsGeneration
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
 
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                 bool isOptional = _env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
 
                 if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.EmissionSymbol, closureParamCount))
@@ -795,7 +830,7 @@ namespace BindingsGeneration
                     continue;
                 var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
                 var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                var csName = NameProvider.GetCSharpParameterName(arg);
+                var csName = NameProvider.GetMarshallingBaseName(arg);
                 // GetOrCreate only works for single-protocol (EC1) interfaces.
                 // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
                 bool owningCandidate = IsOwningExistentialCandidate(protocolList);
@@ -899,7 +934,7 @@ namespace BindingsGeneration
                     if (ConsumedByDirectCallee(arg))
                         continue;
 
-                    var csName = NameProvider.GetCSharpParameterName(arg);
+                    var csName = NameProvider.GetMarshallingBaseName(arg);
                     csWriter.WriteLine($"global::Swift.Runtime.Arc.Retain({csName}Buffer);");
                 }
             }
@@ -930,7 +965,7 @@ namespace BindingsGeneration
                     _emissionContext?.RecordConsumeDegradedMember(_env.MethodDecl);
                 }
 
-            var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+            var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
 
             // B12: ObjC optional inner — extract Handle directly instead of using projection.
             //
@@ -1243,7 +1278,7 @@ namespace BindingsGeneration
                 if (_env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
                     continue;
 
-                var csName = NameProvider.GetCSharpParameterName(argument);
+                var csName = NameProvider.GetMarshallingBaseName(argument);
                 var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
                 var csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
 
@@ -1537,7 +1572,7 @@ namespace BindingsGeneration
                 if (!UsesConventionCThreadStaticSlot(argumentDecl, closureTypeSpec, closureParamCount))
                     continue;
 
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                 var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
                 csWriter.WriteLine($"var {baseName}_delSaved = {baseName}_del;");
             }
@@ -1561,7 +1596,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitConventionCCallback(CSharpWriter csWriter, ArgumentDecl argumentDecl, ClosureTypeSpec closureTypeSpec)
         {
-            var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(argumentDecl));
+            var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetMarshallingBaseName(argumentDecl));
             var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
             var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
 
@@ -1678,8 +1713,8 @@ namespace BindingsGeneration
                         // the SafeHandle open forever. Skip it; the holder is the sole live +1.
                         if (!_env.MethodDecl.IsAsync)
                         {
-                            csWriter.WriteLine($"var success = false;");
-                            csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                            csWriter.WriteLine($"var {SuccessName} = false;");
+                            csWriter.WriteLine($"_payload.DangerousAddRef(ref {SuccessName});");
                         }
                     }
                 }
@@ -1695,8 +1730,8 @@ namespace BindingsGeneration
                         {
                             // Swift classes use SwiftClassHandle — still need DangerousAddRef/Release
                             // to prevent SafeHandle closure during P/Invoke
-                            csWriter.WriteLine($"var success = false;");
-                            csWriter.WriteLine($"_handle.DangerousAddRef(ref success);");
+                            csWriter.WriteLine($"var {SuccessName} = false;");
+                            csWriter.WriteLine($"_handle.DangerousAddRef(ref {SuccessName});");
                         }
                     }
                     // ObjC-rooted: no SafeHandle — lifecycle managed by NSObject via ARC
@@ -1708,8 +1743,8 @@ namespace BindingsGeneration
                     // end-to-end on async paths; a pre-call AddRef would leak.
                     if (!_env.MethodDecl.IsAsync)
                     {
-                        csWriter.WriteLine($"var success = false;");
-                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                        csWriter.WriteLine($"var {SuccessName} = false;");
+                        csWriter.WriteLine($"_payload.DangerousAddRef(ref {SuccessName});");
                     }
                 }
             }
@@ -1726,7 +1761,7 @@ namespace BindingsGeneration
                     continue;
 
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argumentDecl.SwiftTypeSpec);
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
 
                 // ObjC bridged/rooted types: extract Handle from .NET iOS binding object.
                 // ObjC-rooted classes (same-module Swift classes inheriting NSObject) use .Handle
@@ -1792,7 +1827,7 @@ namespace BindingsGeneration
                     // per-element marshalling that doesn't exist yet — they fail closed at the validator.
                     if (!_env.TupleHandler.IsCdeclBufferMarshallableTuple(tupleTypeSpec))
                         continue;
-                    var csName = NameProvider.GetCSharpParameterName(arg);
+                    var csName = NameProvider.GetMarshallingBaseName(arg);
                     var elements = tupleTypeSpec.Elements;
 
                     // Build metadata accessor calls for each element type. For a class element the
@@ -1906,7 +1941,7 @@ namespace BindingsGeneration
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                     if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
                     {
-                        csWriter.WriteLine($"if (success)");
+                        csWriter.WriteLine($"if ({SuccessName})");
                         csWriter.WriteLine($"   _payload.DangerousRelease();");
                     }
                 }
@@ -1915,7 +1950,7 @@ namespace BindingsGeneration
                     if (!classParentRel.IsObjCRooted)
                     {
                         // Swift classes use SwiftClassHandle
-                        csWriter.WriteLine($"if (success)");
+                        csWriter.WriteLine($"if ({SuccessName})");
                         csWriter.WriteLine($"   _handle.DangerousRelease();");
                     }
                     // ObjC-rooted: no SafeHandle release — NSObject manages lifecycle
@@ -1923,14 +1958,14 @@ namespace BindingsGeneration
                 else if (_env.ParentDecl is EnumDecl)
                 {
                     // Non-simple enums use _payload SafeHandle like classes
-                    csWriter.WriteLine($"if (success)");
+                    csWriter.WriteLine($"if ({SuccessName})");
                     csWriter.WriteLine($"   _payload.DangerousRelease();");
                 }
             }
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
 
                 if (argumentDecl.IsGeneric)
                 {

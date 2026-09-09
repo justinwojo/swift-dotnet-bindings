@@ -117,6 +117,7 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitAvailabilityGuard(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            EmitMarshallingBaseAliases(csWriter);
             EmitNonCopyableArgumentPreflight(csWriter);
 
             // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args.
@@ -131,21 +132,21 @@ namespace BindingsGeneration
             if (!isClassCdecl)
             {
                 // Get metadata for Self type
-                csWriter.WriteLine($"var selfMetadata = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");
+                csWriter.WriteLine($"var {SelfMetadataName} = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");
                 csWriter.WriteLine();
 
                 // Get metadata for SwiftOptional<Self>
                 var optionalMetadataCall = _env.PInvokeHelperContext != null
                     ? $"{_env.PInvokeHelperContext.HelperClassName}.PInvokesForSwiftOptional_MetadataAccessor"
                     : "PInvokesForSwiftOptional_MetadataAccessor";
-                csWriter.WriteLine($"var optionalMetadata = {optionalMetadataCall}(");
+                csWriter.WriteLine($"var {OptionalMetadataName} = {optionalMetadataCall}(");
                 csWriter.Indent++;
-                csWriter.WriteLine("TypeMetadataRequest.Complete, selfMetadata);");
+                csWriter.WriteLine($"TypeMetadataRequest.Complete, {SelfMetadataName});");
                 csWriter.Indent--;
                 csWriter.WriteLine();
 
                 // Allocate buffer for SwiftOptional<Self> result
-                csWriter.WriteLine("void* resultBuffer = NativeMemory.AllocZeroed(optionalMetadata.Size);");
+                csWriter.WriteLine($"void* {ResultBufferName} = NativeMemory.AllocZeroed({OptionalMetadataName}.Size);");
                 if (tracksOptionalResultLive)
                     csWriter.WriteLine($"bool {resultLiveName} = false;");
             }
@@ -162,9 +163,9 @@ namespace BindingsGeneration
             if (!isClassCdecl)
             {
                 if (_env.MethodDecl.UsesCdeclConstructorWrapper)
-                    csWriter.WriteLine($"var {ResultPtrName} = (IntPtr)resultBuffer;");
+                    csWriter.WriteLine($"var {ResultPtrName} = (IntPtr){ResultBufferName};");
                 else
-                    csWriter.WriteLine($"var {SwiftIndirectResultName} = new SwiftIndirectResult(resultBuffer);");
+                    csWriter.WriteLine($"var {SwiftIndirectResultName} = new SwiftIndirectResult({ResultBufferName});");
                 csWriter.WriteLine();
             }
 
@@ -234,14 +235,14 @@ namespace BindingsGeneration
                     var tagHelperCall = _env.PInvokeHelperContext != null
                         ? $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_GetOptionalTag"
                         : "PInvoke_GetOptionalTag";
-                    csWriter.WriteLine($"uint tag = {tagHelperCall}((IntPtr)resultBuffer);");
+                    csWriter.WriteLine($"uint {TagName} = {tagHelperCall}((IntPtr){ResultBufferName});");
                 }
                 else
                 {
-                    csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
+                    csWriter.WriteLine($"uint {TagName} = {OptionalMetadataName}.ValueWitnessTable->GetEnumTag((byte*){ResultBufferName}, {OptionalMetadataName});");
                 }
                 csWriter.WriteLine();
-                csWriter.WriteLine("if (tag == 1) // None");
+                csWriter.WriteLine($"if ({TagName} == 1) // None");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine($"{resultName} = default!;");
@@ -254,7 +255,7 @@ namespace BindingsGeneration
                 if (isFrozenValue)
                 {
                     // Frozen struct (C# value type): read value directly from the optional's payload
-                    csWriter.WriteLine($"{resultName} = *({typeName}*)resultBuffer;");
+                    csWriter.WriteLine($"{resultName} = *({typeName}*){ResultBufferName};");
                     csWriter.WriteLine("return true;");
                 }
                 else
@@ -263,11 +264,11 @@ namespace BindingsGeneration
                     // copy payload and create instance via the private SwiftHandle/NativeHandle constructor
                     bool isObjCRooted = _env.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
                     var ctorArg = isObjCRooted
-                        ? "new ObjCRuntime.NativeHandle(payloadBuffer)"
-                        : "(SwiftHandle)payloadBuffer";
+                        ? $"new ObjCRuntime.NativeHandle({PayloadBufferName})"
+                        : $"(SwiftHandle){PayloadBufferName}";
                     csWriter.WriteLines($$"""
-                        IntPtr payloadBuffer = (IntPtr)NativeMemory.Alloc(selfMetadata.Size);
-                        selfMetadata.ValueWitnessTable->InitializeWithCopy((void*)payloadBuffer, resultBuffer, selfMetadata);
+                        IntPtr {{PayloadBufferName}} = (IntPtr)NativeMemory.Alloc({{SelfMetadataName}}.Size);
+                        {{SelfMetadataName}}.ValueWitnessTable->InitializeWithCopy((void*){{PayloadBufferName}}, {{ResultBufferName}}, {{SelfMetadataName}});
                         {{resultName}} = new {{typeName}}({{ctorArg}});
                         return true;
                         """);
@@ -290,10 +291,10 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLine($"if ({resultLiveName})");
                     csWriter.Indent++;
-                    csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+                    csWriter.WriteLine($"{OptionalMetadataName}.ValueWitnessTable->Destroy({ResultBufferName}, {OptionalMetadataName});");
                     csWriter.Indent--;
                 }
-                csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
+                csWriter.WriteLine($"NativeMemory.Free({ResultBufferName});");
             }
             EmitExistentialContainerCleanup(csWriter);
             // Clean up generic payloads and closure GCHandles

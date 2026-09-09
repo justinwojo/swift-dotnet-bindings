@@ -388,7 +388,8 @@ public static partial class CrossModuleExtensionEmitter
         pinvokeCallArgs.Add($"(IntPtr)(&self)");
 
         var nativeCall = $"NativeMethods.{pinvokeName}({string.Join(", ", pinvokeCallArgs)})";
-        EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicReturnType, returnEnumLowering);
+        EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicReturnType, returnEnumLowering,
+            BuildBodyScope(parameters.Select(p => p.Name)));
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -479,7 +480,10 @@ public static partial class CrossModuleExtensionEmitter
         pinvokeCallArgs.Add($"(IntPtr)(&self)");
 
         var nativeCall = $"NativeMethods.{pinvokeName}({string.Join(", ", pinvokeCallArgs)})";
-        EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicType, returnEnumLowering);
+        // A property getter has no Swift-authored parameters — only the receiver — so nothing
+        // here can collide. The scope is still built the same way so the two paths cannot drift.
+        EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicType, returnEnumLowering,
+            BuildBodyScope(Array.Empty<string>()));
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -767,12 +771,20 @@ public static partial class CrossModuleExtensionEmitter
 
     // =================== Marshalling helpers ===================
 
+    /// <param name="bodyScope">
+    /// Names the local a class return is read back through. The member's projected parameter
+    /// names share this C# method scope, and a Swift signature is free to spell the same
+    /// identifier, so the local is minted rather than hardcoded. The <c>FrozenStruct</c> arm's
+    /// <c>__result</c> is declared by the caller and already carries the generator's
+    /// leading-underscore insulation, so it stays a literal.
+    /// </param>
     private static void EmitStructReturnMarshalling(
         CSharpWriter csWriter,
         ReturnKind category,
         string nativeCall,
         string csharpType,
-        SimpleEnumLowering? returnEnumLowering)
+        SimpleEnumLowering? returnEnumLowering,
+        SyntheticNameScope bodyScope)
     {
         switch (category)
         {
@@ -787,13 +799,19 @@ public static partial class CrossModuleExtensionEmitter
                 csWriter.WriteLine($"return {nativeCall};");
                 break;
             case ReturnKind.ObjCClass:
-                csWriter.WriteLine($"var result = {nativeCall};");
-                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, "result", nonNull: true)};");
+            {
+                var resultLocal = bodyScope.Mint("result");
+                csWriter.WriteLine($"var {resultLocal} = {nativeCall};");
+                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, resultLocal, nonNull: true)};");
                 break;
+            }
             case ReturnKind.SwiftClass:
-                csWriter.WriteLine($"var result = {nativeCall};");
-                csWriter.WriteLine($"return ({csharpType})SwiftMarshal.MarshalFromSwift<{csharpType}>(result);");
+            {
+                var resultLocal = bodyScope.Mint("result");
+                csWriter.WriteLine($"var {resultLocal} = {nativeCall};");
+                csWriter.WriteLine($"return ({csharpType})SwiftMarshal.MarshalFromSwift<{csharpType}>({resultLocal});");
                 break;
+            }
             case ReturnKind.FrozenStruct:
                 csWriter.WriteLine($"{nativeCall};");
                 csWriter.WriteLine("return __result;");

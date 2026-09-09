@@ -531,6 +531,7 @@ namespace BindingsGeneration
                 .ToList();
 
             var csParams = new List<string> { $"this {enumName} self" };
+            var csParamNames = new List<string> { "self" };
             foreach (var param in paramDecls)
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
@@ -542,8 +543,13 @@ namespace BindingsGeneration
                     return;
                 }
                 var csParamName = NameProvider.GetCSharpParameterName(param);
+                csParamNames.Add(csParamName);
                 csParams.Add($"{paramType} {csParamName}");
             }
+
+            // The string-return body's scratch locals share a scope with those parameters, so they
+            // are minted against them: a parameter spelled like one keeps its name, the local moves.
+            var bodyScope = new SyntheticNameScope(csParamNames);
 
             // All parameters validated — now emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
@@ -570,19 +576,21 @@ namespace BindingsGeneration
                     var argName = NameProvider.GetCSharpParameterName(param);
                     callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
                 }
-                csWriter.WriteLine($"IntPtr resultPtr = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                var resultPtrName = bodyScope.Mint("resultPtr");
+                var sliceName = bodyScope.Mint("slice");
+                csWriter.WriteLine($"IntPtr {resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine("var slice = *(Utf8Slice*)resultPtr;");
-                csWriter.WriteLine("return slice.Len > 0");
+                csWriter.WriteLine($"var {sliceName} = *(Utf8Slice*){resultPtrName};");
+                csWriter.WriteLine($"return {sliceName}.Len > 0");
                 csWriter.Indent++;
-                csWriter.WriteLine("? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)");
+                csWriter.WriteLine($"? global::System.Text.Encoding.UTF8.GetString((byte*){sliceName}.Ptr, (int){sliceName}.Len)");
                 csWriter.WriteLine(": string.Empty;");
                 csWriter.Indent--;
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
-                csWriter.WriteLine($"finally {{ PInvoke_SBW_Free(resultPtr); }}");
+                csWriter.WriteLine($"finally {{ PInvoke_SBW_Free({resultPtrName}); }}");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
@@ -1533,13 +1541,22 @@ namespace BindingsGeneration
 
             // Build C# parameter list
             var csParams = new List<string>();
+            var csParamNames = new List<string>();
             foreach (var param in paramDecls)
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                 var paramType = isEnumParam ? enumName
                     : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
-                csParams.Add($"{paramType} {NameProvider.GetCSharpParameterName(param)}");
+                var csParamName = NameProvider.GetCSharpParameterName(param);
+                csParamNames.Add(csParamName);
+                csParams.Add($"{paramType} {csParamName}");
             }
+
+            // The body's scratch locals share a scope with those parameters, so they are minted
+            // against them: a parameter spelled like one keeps its name and the local moves.
+            var bodyScope = new SyntheticNameScope(csParamNames);
+            var resultPtrName = bodyScope.Mint("resultPtr");
+            var sliceName = bodyScope.Mint("slice");
 
             csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
             csWriter.WriteLine("{");
@@ -1554,19 +1571,19 @@ namespace BindingsGeneration
                 callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
             }
 
-            csWriter.WriteLine($"IntPtr resultPtr = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+            csWriter.WriteLine($"IntPtr {resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("var slice = *(Utf8Slice*)resultPtr;");
-            csWriter.WriteLine("return slice.Len > 0");
+            csWriter.WriteLine($"var {sliceName} = *(Utf8Slice*){resultPtrName};");
+            csWriter.WriteLine($"return {sliceName}.Len > 0");
             csWriter.Indent++;
-            csWriter.WriteLine("? global::System.Text.Encoding.UTF8.GetString((byte*)slice.Ptr, (int)slice.Len)");
+            csWriter.WriteLine($"? global::System.Text.Encoding.UTF8.GetString((byte*){sliceName}.Ptr, (int){sliceName}.Len)");
             csWriter.WriteLine(": string.Empty;");
             csWriter.Indent--;
             csWriter.Indent--;
             csWriter.WriteLine("}");
-            csWriter.WriteLine($"finally {{ PInvoke_SBW_Free(resultPtr); }}");
+            csWriter.WriteLine($"finally {{ PInvoke_SBW_Free({resultPtrName}); }}");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();

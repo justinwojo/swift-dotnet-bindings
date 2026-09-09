@@ -61,6 +61,20 @@ namespace BindingsGeneration
         public string? CSharpName { get; set; }
 
         /// <summary>
+        /// The base identifier the emitters build this parameter's generated scratch locals from
+        /// (<c>{base}Buffer</c>, <c>{base}Swift</c>, <c>{base}Handle</c>, the ObjC container owners,
+        /// and the suffixed P/Invoke parameter names the call-argument path reconstructs).
+        /// Set alongside <see cref="CSharpName"/> by NameProvider.DeduplicateParameterNames().
+        /// <para>
+        /// Equal to <see cref="CSharpName"/> except when a sibling parameter is itself named exactly
+        /// what one of those derived locals would be spelled — then it is escaped, and the wrapper
+        /// body opens with a <c>ref</c> alias binding the escaped base to the real parameter, so
+        /// reads and writebacks stay identical while the derived names move out of the way.
+        /// </para>
+        /// </summary>
+        public string? MarshallingBaseName { get; set; }
+
+        /// <summary>
         /// Indicates the parameter is declared with Swift's <c>_const</c> modifier, requiring
         /// the caller to pass a compile-time-constant literal (e.g.
         /// <c>init(min: _const Swift.Int, max: _const Swift.Int)</c>). ABI JSON strips this;

@@ -24,6 +24,29 @@ public enum ForeignExtensionClassification: Int32 {
     case verified = 2
 }
 
+/// Pure-Swift class handed back by the generated-local collision repro below. A class
+/// return is read back through a local the emitter declares itself.
+public class ForeignExtensionReceipt {
+    public let code: Int32
+
+    public init(code: Int32) {
+        self.code = code
+    }
+}
+
+/// Resilient (non-frozen) struct handed back by the same repro. A resilient return is
+/// materialized through the type's value witness, which needs three locals of the
+/// emitter's own — the metadata, the buffer it sizes, and the indirect-result handle.
+public struct ForeignExtensionSummary {
+    public var label: String
+    public var score: Int32
+
+    public init(label: String, score: Int32) {
+        self.label = label
+        self.score = score
+    }
+}
+
 extension NSObject {
     /// Bug (a) sub-case a-2: a SimpleEnum parameter on a foreign-type extension method
     /// (CoreStore-adjacent shape). Pre-fix, `ForeignTypeExtensionEmitter` treated any
@@ -56,5 +79,37 @@ extension NSObject {
     /// absent from the generated binding) beats a corrupted `as!` cast.
     public func total(_ values: Int32...) -> Int32 {
         return values.reduce(0, +)
+    }
+
+    /// Generated-local collision on the foreign-extension return marshalling. A class
+    /// return is read back through a local declared straight into the body that already
+    /// holds this method's parameters — and this parameter is spelled exactly that way.
+    /// The returned value folds the parameter in, so a body that read the wrong identifier
+    /// would change the answer rather than merely fail to compile.
+    public func receipt(result: Int32) -> ForeignExtensionReceipt {
+        return ForeignExtensionReceipt(code: result * 3)
+    }
+
+    /// Same shape on the resilient-struct return arm, which declares the metadata, the
+    /// buffer and the indirect-result handle as locals of its own. Each of these parameters
+    /// is spelled exactly like one of them, and all three are folded into the returned
+    /// value with distinct weights.
+    public func summarize(metadata: Int32, buffer: Int32, indirectResult: Int32) -> ForeignExtensionSummary {
+        return ForeignExtensionSummary(label: "summary", score: metadata * 100 + buffer * 10 + indirectResult)
+    }
+
+    /// The same class return on the PROPERTY arm, which is a second emission site in this
+    /// emitter. A computed property builds its result inside the accessor, so the value the
+    /// caller receives is one nothing else is holding on to.
+    public var receiptStamp: ForeignExtensionReceipt {
+        return ForeignExtensionReceipt(code: 7)
+    }
+
+    /// A resilient return whose parameter is spelled like the indirect-result register's own
+    /// name on the NATIVE declaration rather than in the body. The declaration carries the
+    /// register handle and the caller's arguments in one parameter list, so a member shaped
+    /// this way puts two identically named parameters in it unless the generated one moves.
+    public func stamped(result: Int32) -> ForeignExtensionSummary {
+        return ForeignExtensionSummary(label: "stamped", score: result * 2)
     }
 }

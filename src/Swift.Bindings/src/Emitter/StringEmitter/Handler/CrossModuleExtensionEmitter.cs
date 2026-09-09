@@ -535,6 +535,7 @@ public static partial class CrossModuleExtensionEmitter
         ITypeDatabase typeDatabase)
     {
         var nativeArgs = new List<string>();
+        var bodyScope = BuildBodyScope(parameters.Select(p => p.name));
 
         // CallConvSwift parameter ordering: SwiftIndirectResult first (x8 register),
         // then regular args (x0..x7), then SwiftSelf last (x20). The .NET runtime
@@ -543,8 +544,11 @@ public static partial class CrossModuleExtensionEmitter
         // (SwiftArrayPInvokes / BlittableElementBuffer P/Invokes both put `self`
         // last). This avoids a subtle no-crash empty-result failure observed when
         // self_ sits between the indirect result and the first non-self arg.
+        // Unreachable today: TryEmitMethodExtension declines NonFrozenStruct returns on the
+        // class-receiver path before this runs. Minting rather than hardcoding keeps the arm
+        // correct if that gate is ever lifted, and matches the declaration site.
         if (returnCategory == ReturnKind.NonFrozenStruct)
-            nativeArgs.Add("indirectResult");
+            nativeArgs.Add(bodyScope.Mint(IndirectResultLocalName));
 
         foreach (var (name, _, pinvokeExpr, _) in parameters)
         {
@@ -559,7 +563,7 @@ public static partial class CrossModuleExtensionEmitter
         var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
         EmitPayloadPinnedBody(csWriter, isStatic, isObjCRooted,
-            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType));
+            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType, bodyScope));
     }
 
     /// <summary>
@@ -649,13 +653,17 @@ public static partial class CrossModuleExtensionEmitter
 
             var nativeMethodName = GetNativeMethodName(getterAccessor.Method);
             var nativeArgs = new List<string>();
+            // A property getter has no Swift-authored parameters — only the receiver — so
+            // nothing here can collide; the scope is built the same way so the paths cannot
+            // drift. The NonFrozenStruct arm is additionally declined above.
+            var getterScope = BuildBodyScope(Array.Empty<string>());
             if (returnCategory.Value == ReturnKind.NonFrozenStruct)
-                nativeArgs.Add("indirectResult");
+                nativeArgs.Add(getterScope.Mint(IndirectResultLocalName));
             nativeArgs.Add(GetSelfExpression(classDecl.IsObjCRooted));
             var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
             EmitPayloadPinnedBody(csWriter, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
-                () => EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType));
+                () => EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType, getterScope));
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
