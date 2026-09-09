@@ -31,6 +31,12 @@ private struct TrackedLiveInfo {
 }
 
 private var _liveTracked: [Int64: TrackedLiveInfo] = [:]
+
+/// Monotonic for the life of the process — deliberately NOT rewound by a reset. A tracked object
+/// allocated before a reset can still deinit after it, handing back the serial it was issued; if
+/// serials restarted, that late deallocation would drop a DIFFERENT object's live entry — the one
+/// the current window reissued the number to — and erase exactly the survivor a leak probe exists
+/// to name. Never reusing a number makes a stale hand-back a no-op removal instead.
 private var _nextTrackedSerial: Int64 = 0
 
 /// Resets the allocation counters for testing.
@@ -40,8 +46,9 @@ public func resetAllocationCounters() {
     defer { counterLock.unlock() }
     _allocationCounter = 0
     _deallocationCounter = 0
+    // Clear the table but keep issuing fresh serials, so entries registered after this reset can
+    // never be removed by a deallocation belonging to the window that just ended.
     _liveTracked.removeAll(keepingCapacity: true)
-    _nextTrackedSerial = 0
 }
 
 /// Gets the current allocation count.

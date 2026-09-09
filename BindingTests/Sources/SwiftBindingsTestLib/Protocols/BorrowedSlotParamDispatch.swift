@@ -28,8 +28,9 @@ import Foundation
 // The drivers deliberately keep using the ORIGINAL values after the callback returns and hand the
 // caller a summary of them, so a receiver that consumed or destroyed the borrowed source shows up
 // as a corrupted summary rather than as silent luck. The class payload feeds the shared
-// LifetimeTracker counters (`recordTrackedAllocation` / `recordTrackedDeallocation`, defined in
-// Lifetime/OwnershipTests.swift) so repeated dispatch can be asserted for ARC balance too.
+// LifetimeTracker counters through the registry-aware records defined in Lifetime/OwnershipTests.swift,
+// so repeated dispatch can be asserted for ARC balance AND an imbalance can name the surviving
+// allocation instead of reporting a bare count.
 
 // MARK: - Payload types
 
@@ -38,13 +39,22 @@ import Foundation
 public final class BorrowedSlotRef {
     public let tag: Int32
 
+    /// Serial from the registry-aware allocation record, handed back at deinit so the live entry
+    /// is dropped. Registering per-allocation identity — not just bumping the shared counters — is
+    /// what lets a repeated-dispatch leak probe NAME its survivor: which iteration's payload stayed
+    /// live, in allocation order. Without it a one-object imbalance reports only a count, and a
+    /// wrapper still pinned by a stale conservative stack root is indistinguishable from a genuine
+    /// extra native reference. Stored on the class (a heap ref), so the embedding struct still holds
+    /// only a pointer and its wire layout is unchanged.
+    private let trackedSerial: Int64
+
     public init(tag: Int32) {
         self.tag = tag
-        recordTrackedAllocation()
+        self.trackedSerial = recordTrackedAllocation(category: "BorrowedSlotRef", tag: tag)
     }
 
     deinit {
-        recordTrackedDeallocation()
+        recordTrackedDeallocation(serial: trackedSerial)
     }
 }
 

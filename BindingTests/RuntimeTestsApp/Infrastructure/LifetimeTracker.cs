@@ -298,11 +298,15 @@ public static class LifetimeTracker
         }
     }
 
-    // Ask the Swift registry to name the tracked objects still live, so a leak that never
-    // balances becomes root-cause evidence (which struct-with-ref family, which allocation
-    // order/tag) instead of another tally mark. Best-effort: never throws — a diagnostic must
-    // not mask the assertion it annotates.
-    private static string DescribeLiveIdentities()
+    /// <summary>
+    /// Asks the Swift registry to name the tracked objects still live, so a leak that never
+    /// balances becomes root-cause evidence (which struct-with-ref family, which allocation
+    /// order/tag) instead of another tally mark. Exposed to the test assembly so a probe can also
+    /// assert the identity wiring itself works — a survivor list that is empty because a fixture
+    /// never registered identity looks exactly like a survivor list that is empty because nothing
+    /// leaked. Best-effort: never throws — a diagnostic must not mask the assertion it annotates.
+    /// </summary>
+    internal static string DescribeLiveIdentities()
     {
         try
         {

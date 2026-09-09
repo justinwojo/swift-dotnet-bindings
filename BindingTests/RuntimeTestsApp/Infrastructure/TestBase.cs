@@ -468,6 +468,13 @@ public abstract class TestBase
 public class AssertionException : Exception
 {
     public AssertionException(string message) : base(message) { }
+
+    /// <summary>
+    /// Wraps a failed assertion in a wider message — evidence a probe can only gather once the
+    /// assertion has already failed. The original is kept as the inner exception so the throw site
+    /// of the assertion that actually failed is still in the report.
+    /// </summary>
+    public AssertionException(string message, Exception inner) : base(message, inner) { }
 }
 
 /// <summary>Reports a test prerequisite that was not enabled for this run.</summary>
