@@ -3019,6 +3019,14 @@ partial class Build
             $"--async-library {WrapperModule}",
         };
 
+        // The RuntimeTestsApp build below is the real C# compile gate here, so opt out of the
+        // generator's in-process C# verification build. Beyond being a redundant per-regen dotnet
+        // build, that verification cannot restore: the emitted csproj carries a PackageReference on
+        // the auto-detected sibling dependency, which nothing packs into a feed, so the verify build
+        // fails at restore (NU1101) and — once the loop has withdrawn anything — escalates the whole
+        // module fail-closed on a verdict it never actually reached.
+        genArgs.Add("--no-verify-csharp");
+
         // Fail-closed on a degraded input edge in strict mode — a device→sim slice fallback, a
         // missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD, or a degraded
         // auto-detected dependency (see the iOS RunRegenerateBindings path for the rationale).
@@ -3072,6 +3080,8 @@ partial class Build
             };
             if (strict)
                 depArgs.Add("--strict-inputs");
+            // Same compile gate as the main module above: the app build is the real one.
+            depArgs.Add("--no-verify-csharp");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),
