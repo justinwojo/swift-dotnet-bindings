@@ -1,1063 +1,1013 @@
 {
-  "git_sha": "928243fb",
+  "git_sha": "1cf85f5e7",
   "platforms": {
     "simulator": {
-      "pass_count": 3718,
+      "pass_count": 3833,
       "skips": [
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
-          "reason": ""
-        },
         {
           "class": "AsyncClosureTests",
           "method": "TestAsyncClosure_UnhandledException_FailsFast",
-          "reason": ""
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_OwnerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestDescribeTokenA_ReturnsDescription",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestMakeTokenA_ReturnsToken",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestTokenHolder_Creation",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestBulkSetClearDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestClearedClosureReleasesDelegateTarget",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "FoundationKvoTests",
           "method": "TestObserveCounter_HandlerThrows_FailsFast",
-          "reason": ""
+          "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRun",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRunWithFilter",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": ""
+          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestDelegatePatternWeakRef",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestOwnerResourceUnowned",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestStrongCycleCreation",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
-          "reason": ""
-        },
-        {
-          "class": "LifetimeTrackingTests",
-          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "MethodLevelGenericTests",
           "method": "TestGenericMethodHost_MixedParams",
-          "reason": ""
+          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
-          "reason": ""
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorAdd",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": ""
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OptionalThrowingVoidClosureTests",
           "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
-          "reason": ""
+          "reason": "MonoJit: upstream Issue 1 (!ji-\u003Easync, jit-info.c:918) \u2014 the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
-          "reason": ""
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
-          "reason": ""
+          "reason": "GC-pressure-during-call requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
-          "reason": ""
+          "reason": "Heap-alloc shape matrix requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
-          "reason": ""
+          "reason": "Property-setter replace requires --lifetime"
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Same root cause as the MockStringItem sibling and proven upstream/Swift-independent by the same pure-managed TaskCompletionSource\u003CT\u003E repro (the crash resumes on the shared TResult_REF generic instantiation both conformers use). Layout-sensitive, so it reproduces only under full-suite load. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Proven upstream and Swift-independent: a pure-managed TaskCompletionSource\u003CStringResponse\u003E canceled and awaited through the same generic WithTimeout\u003CT\u003E \u2014 zero Swift/generated-binding/P-Invoke frame on the faulting stack \u2014 crashes identically; substituting it for the real CancelRespondAsync() call changes nothing. Layout-sensitive (adding unrelated sibling methods relocates the JIT code and hides it), so it reproduces only under full-suite load, not single-class isolation. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncVoidMethodsTests",
           "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (SIGSEGV in mono_arch_unwind_frame; assertion \u0027should not be reached\u0027 at mini-exceptions.c:488) when a managed exception is rethrown by TaskAwaiter.GetResult out of a faulted non-generic (void) Task on the main-thread NSAsyncSynchronizationContext continuation, under full-suite JIT load. Void-throwing-error variant of the same upstream unwinder family as the OCE case on PatParentAsyncMethodsTests; zero Swift/binding/P-Invoke frame on the faulting stack (the CallConvCdecl error callback already returned and the Task is faulted before the crash). Layout/load heisenbug: passes in isolation, did not recur in a 12-run soak. Mono-only (Simulator); macOS CoreCLR \u002B device NativeAOT keep running it."
         },
         {
           "class": "ProtocolClosureSkipTests",
           "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
-          "reason": ""
-        },
-        {
-          "class": "ProtocolExtensionClosureTests",
-          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
-          "reason": ""
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
-          "reason": ""
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderConstruction",
-          "reason": ""
+          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderSum",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "device": {
-      "pass_count": 3746,
+      "pass_count": 3837,
       "skips": [
         {
           "class": "AsyncClosureTests",
           "method": "TestAsyncClosure_UnhandledException_FailsFast",
-          "reason": ""
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_OwnerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestDescribeTokenA_ReturnsDescription",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestMakeTokenA_ReturnsToken",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestTokenHolder_Creation",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "FoundationKvoTests",
           "method": "TestObserveCounter_HandlerThrows_FailsFast",
-          "reason": ""
+          "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRun",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRunWithFilter",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": ""
+          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestDelegatePatternWeakRef",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestOwnerResourceUnowned",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestStrongCycleCreation",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "MainActorTests",
           "method": "TestMainActorGuard_OffMainThread_Throws",
-          "reason": ""
+          "reason": "Device: MainActorGuard is [Conditional(\u0022DEBUG\u0022)]; the device app is a Release build with the guard compiled out, so an off-main-thread call does not throw."
         },
         {
           "class": "MethodLevelGenericTests",
           "method": "TestGenericMethodHost_MixedParams",
-          "reason": ""
+          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
-          "reason": ""
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorAdd",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": "GC-pressure-during-call requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": "Heap-alloc shape matrix requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": "Property-setter replace requires --lifetime"
         },
         {
           "class": "ProtocolClosureSkipTests",
           "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
-          "reason": ""
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
-          "reason": ""
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderConstruction",
-          "reason": ""
+          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderSum",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 3734,
+      "pass_count": 3833,
       "skips": [
         {
           "class": "AsyncClosureTests",
           "method": "TestAsyncClosure_UnhandledException_FailsFast",
-          "reason": ""
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_OwnerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestDescribeTokenA_ReturnsDescription",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestMakeTokenA_ReturnsToken",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "CrossModuleAliasTests",
           "method": "TestTokenHolder_Creation",
-          "reason": ""
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
         },
         {
           "class": "FoundationKvoTests",
           "method": "TestObserveCounter_HandlerThrows_FailsFast",
-          "reason": ""
+          "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRun",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRunWithFilter",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": ""
+          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestDelegatePatternWeakRef",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestOwnerResourceUnowned",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestStrongCycleCreation",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "MethodLevelGenericTests",
           "method": "TestGenericMethodHost_MixedParams",
-          "reason": ""
+          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
-          "reason": ""
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorAdd",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": ""
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OptionalThrowingVoidClosureTests",
           "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
-          "reason": ""
+          "reason": "MonoJit: upstream Issue 1 (!ji-\u003Easync, jit-info.c:918) \u2014 the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": "GC-pressure-during-call requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": "Heap-alloc shape matrix requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": "Property-setter replace requires --lifetime"
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Same root cause as the MockStringItem sibling and proven upstream/Swift-independent by the same pure-managed TaskCompletionSource\u003CT\u003E repro (the crash resumes on the shared TResult_REF generic instantiation both conformers use). Layout-sensitive, so it reproduces only under full-suite load. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Proven upstream and Swift-independent: a pure-managed TaskCompletionSource\u003CStringResponse\u003E canceled and awaited through the same generic WithTimeout\u003CT\u003E \u2014 zero Swift/generated-binding/P-Invoke frame on the faulting stack \u2014 crashes identically; substituting it for the real CancelRespondAsync() call changes nothing. Layout-sensitive (adding unrelated sibling methods relocates the JIT code and hides it), so it reproduces only under full-suite load, not single-class isolation. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncVoidMethodsTests",
           "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (SIGSEGV in mono_arch_unwind_frame; assertion \u0027should not be reached\u0027 at mini-exceptions.c:488) when a managed exception is rethrown by TaskAwaiter.GetResult out of a faulted non-generic (void) Task on the main-thread NSAsyncSynchronizationContext continuation, under full-suite JIT load. Void-throwing-error variant of the same upstream unwinder family as the OCE case on PatParentAsyncMethodsTests; zero Swift/binding/P-Invoke frame on the faulting stack (the CallConvCdecl error callback already returned and the Task is faulted before the crash). Layout/load heisenbug: passes in isolation, did not recur in a 12-run soak. Mono-only (Simulator); macOS CoreCLR \u002B device NativeAOT keep running it."
         },
         {
           "class": "ProtocolClosureSkipTests",
           "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
-          "reason": ""
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
-          "reason": ""
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderConstruction",
-          "reason": ""
+          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderSum",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "macos": {
-      "pass_count": 2673,
+      "pass_count": 2997,
       "skips": [
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
-          "reason": ""
-        },
         {
           "class": "AsyncClosureTests",
           "method": "TestAsyncClosure_UnhandledException_FailsFast",
-          "reason": ""
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_OwnerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestBulkSetClearDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestClearedClosureReleasesDelegateTarget",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRun",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRunWithFilter",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": ""
+          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestDelegatePatternWeakRef",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestOwnerResourceUnowned",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestStrongCycleCreation",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
-          "reason": ""
-        },
-        {
-          "class": "LifetimeTrackingTests",
-          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "MethodLevelGenericTests",
           "method": "TestGenericMethodHost_MixedParams",
-          "reason": ""
+          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
-          "reason": ""
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorAdd",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
-          "reason": ""
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
-          "reason": ""
+          "reason": "GC-pressure-during-call requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
-          "reason": ""
+          "reason": "Heap-alloc shape matrix requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
-          "reason": ""
+          "reason": "Property-setter replace requires --lifetime"
         },
         {
           "class": "ProtocolClosureSkipTests",
           "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
-          "reason": ""
-        },
-        {
-          "class": "ProtocolExtensionClosureTests",
-          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
-          "reason": ""
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
-          "reason": ""
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderConstruction",
-          "reason": ""
+          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderSum",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 2675,
+      "pass_count": 2999,
       "skips": [
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
-          "reason": ""
-        },
         {
           "class": "AsyncClosureTests",
           "method": "TestAsyncClosure_UnhandledException_FailsFast",
-          "reason": ""
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_OwnerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestBulkSetClearDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestClearedClosureReleasesDelegateTarget",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRun",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRunWithFilter",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": ""
+          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestDelegatePatternWeakRef",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestOwnerResourceUnowned",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestStrongCycleCreation",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
-          "reason": ""
-        },
-        {
-          "class": "LifetimeTrackingTests",
-          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "MethodLevelGenericTests",
           "method": "TestGenericMethodHost_MixedParams",
-          "reason": ""
+          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
-          "reason": ""
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorAdd",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": ""
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OptionalThrowingVoidClosureTests",
           "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
-          "reason": ""
+          "reason": "MonoJit: upstream Issue 1 (!ji-\u003Easync, jit-info.c:918) \u2014 the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
-          "reason": ""
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
-          "reason": ""
+          "reason": "GC-pressure-during-call requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
-          "reason": ""
+          "reason": "Heap-alloc shape matrix requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
-          "reason": ""
+          "reason": "Property-setter replace requires --lifetime"
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Same root cause as the MockStringItem sibling and proven upstream/Swift-independent by the same pure-managed TaskCompletionSource\u003CT\u003E repro (the crash resumes on the shared TResult_REF generic instantiation both conformers use). Layout-sensitive, so it reproduces only under full-suite load. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Proven upstream and Swift-independent: a pure-managed TaskCompletionSource\u003CStringResponse\u003E canceled and awaited through the same generic WithTimeout\u003CT\u003E \u2014 zero Swift/generated-binding/P-Invoke frame on the faulting stack \u2014 crashes identically; substituting it for the real CancelRespondAsync() call changes nothing. Layout-sensitive (adding unrelated sibling methods relocates the JIT code and hides it), so it reproduces only under full-suite load, not single-class isolation. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncVoidMethodsTests",
           "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (SIGSEGV in mono_arch_unwind_frame; assertion \u0027should not be reached\u0027 at mini-exceptions.c:488) when a managed exception is rethrown by TaskAwaiter.GetResult out of a faulted non-generic (void) Task on the main-thread NSAsyncSynchronizationContext continuation, under full-suite JIT load. Void-throwing-error variant of the same upstream unwinder family as the OCE case on PatParentAsyncMethodsTests; zero Swift/binding/P-Invoke frame on the faulting stack (the CallConvCdecl error callback already returned and the Task is faulted before the crash). Layout/load heisenbug: passes in isolation, did not recur in a 12-run soak. Mono-only (Simulator); macOS CoreCLR \u002B device NativeAOT keep running it."
         },
         {
           "class": "ProtocolClosureSkipTests",
           "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
-          "reason": ""
-        },
-        {
-          "class": "ProtocolExtensionClosureTests",
-          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
-          "reason": ""
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
-          "reason": ""
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderConstruction",
-          "reason": ""
+          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderSum",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 2696,
+      "pass_count": 3106,
       "skips": [
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestBulkAsyncInvokeDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "AsyncClosureContextLifetimeTests",
-          "method": "TestOneShotAsyncClosureReleasesDelegateTarget",
-          "reason": ""
-        },
         {
           "class": "AsyncClosureTests",
           "method": "TestAsyncClosure_UnhandledException_FailsFast",
-          "reason": ""
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_OwnerExistential",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestBulkSetClearDoesNotAccumulateTargets",
-          "reason": ""
-        },
-        {
-          "class": "EscapingClosureLifetimeTests",
-          "method": "TestClearedClosureReleasesDelegateTarget",
-          "reason": ""
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRun",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "GenericClosureBridgeTests",
           "method": "TestGenericProcessorRunWithFilter",
-          "reason": ""
+          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": ""
+          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestDelegatePatternWeakRef",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestOwnerResourceUnowned",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestStrongCycleCreation",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
-          "reason": ""
-        },
-        {
-          "class": "LifetimeTrackingTests",
-          "method": "TestEphemeralClosureReleasesCapturedSafeHandle",
-          "reason": ""
+          "reason": "weak/unowned references not supported by generator"
         },
         {
           "class": "MethodLevelGenericTests",
           "method": "TestGenericMethodHost_MixedParams",
-          "reason": ""
+          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
-          "reason": ""
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
         {
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
-          "reason": ""
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorAdd",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
-          "reason": ""
+          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": ""
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OptionalThrowingVoidClosureTests",
           "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
-          "reason": ""
+          "reason": "MonoJit: upstream Issue 1 (!ji-\u003Easync, jit-info.c:918) \u2014 the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
-          "reason": ""
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
-          "reason": ""
+          "reason": "GC-pressure-during-call requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
-          "reason": ""
+          "reason": "Heap-alloc shape matrix requires --lifetime"
         },
         {
           "class": "OwnershipGCStressTests",
           "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
-          "reason": ""
+          "reason": "Property-setter replace requires --lifetime"
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockIntItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Same root cause as the MockStringItem sibling and proven upstream/Swift-independent by the same pure-managed TaskCompletionSource\u003CT\u003E repro (the crash resumes on the shared TResult_REF generic instantiation both conformers use). Layout-sensitive, so it reproduces only under full-suite load. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncMethodsTests",
           "method": "TestAsyncBagMockStringItem_CancelRespondAsyncSurfacesCancellation",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (EXC_BAD_ACCESS/SIGSEGV, fixed pointer-auth-tagged fault address 0x038c1a03881a036c) when an OperationCanceledException unwinds out of a canceled shared-reference-generic Task\u003CTResult_REF\u003E through TaskAwaiter\u003CT\u003E.GetResult, resumed on the main-thread NSAsyncSynchronizationContext continuation, under accumulated full-suite JIT load. Proven upstream and Swift-independent: a pure-managed TaskCompletionSource\u003CStringResponse\u003E canceled and awaited through the same generic WithTimeout\u003CT\u003E \u2014 zero Swift/generated-binding/P-Invoke frame on the faulting stack \u2014 crashes identically; substituting it for the real CancelRespondAsync() call changes nothing. Layout-sensitive (adding unrelated sibling methods relocates the JIT code and hides it), so it reproduces only under full-suite load, not single-class isolation. Mono-only (Simulator); macOS CoreCLR and device NativeAOT keep running it."
         },
         {
           "class": "PatParentAsyncVoidMethodsTests",
           "method": "TestStringDonator_DonateOrThrowAsync_VoidThrowingErrorPath",
-          "reason": ""
+          "reason": "MonoJit: Mono arm64 JIT exception-unwinder crash (SIGSEGV in mono_arch_unwind_frame; assertion \u0027should not be reached\u0027 at mini-exceptions.c:488) when a managed exception is rethrown by TaskAwaiter.GetResult out of a faulted non-generic (void) Task on the main-thread NSAsyncSynchronizationContext continuation, under full-suite JIT load. Void-throwing-error variant of the same upstream unwinder family as the OCE case on PatParentAsyncMethodsTests; zero Swift/binding/P-Invoke frame on the faulting stack (the CallConvCdecl error callback already returned and the Task is faulted before the crash). Layout/load heisenbug: passes in isolation, did not recur in a 12-run soak. Mono-only (Simulator); macOS CoreCLR \u002B device NativeAOT keep running it."
         },
         {
           "class": "ProtocolClosureSkipTests",
           "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
-          "reason": ""
-        },
-        {
-          "class": "ProtocolExtensionClosureTests",
-          "method": "TestEscapingVoidReleasesCapturedTrackedObject",
-          "reason": ""
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
-          "reason": ""
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderConstruction",
-          "reason": ""
+          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicHolderSum",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         },
         {
           "class": "WrapperStrippingTests",
           "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": ""
+          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
