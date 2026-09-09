@@ -140,11 +140,139 @@ public class ErrorRegistryHelperEmitterTests
         Assert.Equal("global::TestModule._SbwModuleErrorRegistry_TestModule", helperRef);
     }
 
+    // ── Synchronous plain-throws classification ─────────────────────────────────────────
+
+    [Fact]
+    public void SyncClassifier_SwiftAndCSharpSidesAgreeOnTheSameEntryPoint()
+    {
+        // The sync path only works if the C# side calls the exact symbol the Swift side
+        // exports. Emitting both halves and requiring each to carry the module's classifier
+        // symbol is the contract; a rename on one side alone breaks the binding at load time
+        // with a missing-entry-point failure, which no string-free assertion would catch.
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "TestModule";
+        ctx.RegisterErrorTypeId("TestModule.WeatherError");
+
+        var symbol = ErrorRegistryHelperEmitter.GetSwiftClassifierSymbolName("TestModule");
+
+        var swiftSide = EmitSwiftCascade(ctx, moduleName: "TestModule");
+        Assert.Contains($"@_cdecl(\"{symbol}\")", swiftSide);
+
+        var csharpSide = EmitCSharpRegistry(ctx, moduleName: "TestModule", wrapperLib: "TestWrapper");
+        Assert.Contains($"EntryPoint = \"{symbol}\"", csharpSide);
+    }
+
+    [Fact]
+    public void SyncClassifier_TypedArmHandsTheLiveErrorBoxToTheException()
+    {
+        // A sync throw must end up with exactly one owner of the Swift error box, typed or
+        // not. Both arms of the sync entry point therefore construct through the runtime
+        // factories that take the box plus its release delegate, rather than the plain
+        // message-only constructor the async path uses (async has already released by then).
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "TestModule";
+        ctx.RegisterErrorTypeId("TestModule.WeatherError");
+
+        var output = EmitCSharpRegistry(ctx, moduleName: "TestModule", wrapperLib: "TestWrapper");
+        var syncEntryPoint = ExtractMember(output, "CreateSyncException");
+
+        Assert.Contains("CreateSwiftError<global::TestModule.WeatherError>", syncEntryPoint);
+        Assert.Contains("errorBox", syncEntryPoint);
+        Assert.Contains("releaseError", syncEntryPoint);
+        // The message-only constructor would drop the box on the floor — that shape belongs
+        // to the async entry point, never to this one.
+        Assert.DoesNotContain("new global::Swift.Runtime.SwiftException(errorMessage)", syncEntryPoint);
+    }
+
+    [Fact]
+    public void SyncClassifier_AsyncEntryPointIsUnchangedByTheSyncArm()
+    {
+        // Both arms share one cascade builder, so the async entry point is re-verified here:
+        // it still constructs the typed exception from the payload alone and never touches a
+        // box it does not own.
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "TestModule";
+        ctx.RegisterErrorTypeId("TestModule.WeatherError");
+
+        var output = EmitCSharpRegistry(ctx, moduleName: "TestModule", wrapperLib: "TestWrapper");
+        var asyncEntryPoint = ExtractMember(output, "CreateException");
+
+        Assert.Contains("new global::Swift.Runtime.SwiftException<global::TestModule.WeatherError>", asyncEntryPoint);
+        Assert.Contains("new global::Swift.Runtime.SwiftException(errorMessage)", asyncEntryPoint);
+        Assert.DoesNotContain("releaseError", asyncEntryPoint);
+    }
+
+    [Fact]
+    public void GetSyncDispatchHelperReference_ModuleWithRegisteredErrors_ReturnsHelperReference()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "StoreKit2";
+        ctx.ErrorRegistryModuleName = "StoreKit";
+        ctx.RegisterErrorTypeId("StoreKit.SKError");
+
+        Assert.Equal(
+            "global::StoreKit2._SbwModuleErrorRegistry_StoreKit",
+            ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference("StoreKit", ctx));
+    }
+
+    [Fact]
+    public void GetSyncDispatchHelperReference_ModuleWithNoRegisteredErrors_ReturnsNull()
+    {
+        // Nothing to dispatch to: no helper class is emitted for a module that registered no
+        // Error-conforming types, so the member must keep the untyped path rather than
+        // reference a class that does not exist.
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "TestModule";
+        ctx.ErrorRegistryModuleName = "TestModule";
+
+        Assert.Null(ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference("TestModule", ctx));
+    }
+
+    [Fact]
+    public void GetSyncDispatchHelperReference_MemberFromAnotherModule_ReturnsNull()
+    {
+        // The registry is computed for exactly one module per emission. A member reached from
+        // a different module has no helper class in this file, so it keeps the untyped path.
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "TestModule";
+        ctx.ErrorRegistryModuleName = "TestModule";
+        ctx.RegisterErrorTypeId("TestModule.WeatherError");
+
+        Assert.Null(ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference("OtherModule", ctx));
+    }
+
+    [Fact]
+    public void GetSyncDispatchHelperReference_NoContextOrModule_ReturnsNull()
+    {
+        Assert.Null(ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference("TestModule", ctx: null));
+        Assert.Null(ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(null, new ModuleEmissionContext()));
+    }
+
     private static string EmitCSharpRegistry(ModuleEmissionContext ctx, string moduleName, string wrapperLib)
     {
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
         ErrorRegistryHelperEmitter.EmitCSharpRegistryIfNeeded(csWriter, moduleName, wrapperLib, ctx, typeDatabase: null);
         return output.ToString();
+    }
+
+    private static string EmitSwiftCascade(ModuleEmissionContext ctx, string moduleName)
+    {
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+        ErrorRegistryHelperEmitter.EmitSwiftCascadeIfNeeded(swiftWriter, moduleName, ctx, typeDatabase: null);
+        return output.ToString();
+    }
+
+    // Returns the emitted text from the declaration of <paramref name="memberName"/> up to the
+    // start of the next member, so an assertion about one entry point cannot be satisfied by
+    // text belonging to its sibling.
+    private static string ExtractMember(string emitted, string memberName)
+    {
+        const string declPrefix = "internal static System.Exception ";
+        var start = emitted.IndexOf(declPrefix + memberName + "(", StringComparison.Ordinal);
+        Assert.True(start >= 0, $"expected the emitted registry to declare {memberName}");
+        var next = emitted.IndexOf(declPrefix, start + declPrefix.Length, StringComparison.Ordinal);
+        return next < 0 ? emitted.Substring(start) : emitted.Substring(start, next - start);
     }
 }

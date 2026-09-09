@@ -91,7 +91,7 @@ public static class ErrorRegistryHelperEmitter
         ctx.ErrorRegistryHelperEmittedSwift = true;
 
         var dispatchSymbol = GetSwiftDispatchSymbolName(moduleName);
-        var cascadeBody = BuildSwiftCascadeBody(ctx, typeDatabase, indent: "    ");
+        var cascadeBody = BuildSwiftCascadeBody(ctx, typeDatabase, indent: "    ", syncTail: false);
 
         // Per-cast availability lives inside the cascade body via `if #available`
         // (see BuildSwiftCascadeBody). The dispatcher function itself stays
@@ -142,6 +142,38 @@ public static class ErrorRegistryHelperEmitter
 
             """);
 
+        // Synchronous twin of the dispatcher above. A sync throwing member has no
+        // continuation to call back into: it hands C# a raw, still-retained error box and
+        // returns. This entry point takes that box, reconstitutes the `any Error` from it and
+        // runs the SAME registry cascade, but with a synchronous tail — the matched payload is
+        // written through an out-pointer and the matched registry id is the return value, so
+        // the caller can build the typed exception on its own stack. Returns 0 (leaving the
+        // out-pointer nil) when the box holds no registered type, which is the caller's signal
+        // to keep the untyped exception.
+        var classifySymbol = GetSwiftClassifierSymbolName(moduleName);
+        var syncCascadeBody = BuildSwiftCascadeBody(ctx, typeDatabase, indent: "    ", syncTail: true);
+
+        swiftWriter.WriteLines($$"""
+            // Plain-throws → typed-exception classifier for {{moduleName}} (synchronous path).
+            // Recovers the thrown error from the raw error box, runs the registry cascade, writes
+            // the matched payload through `outPayload` and returns its registry id. The box itself
+            // is only READ here (takeUnretainedValue) — its reference is still owned by the caller.
+            @_cdecl("{{classifySymbol}}")
+            public func {{classifySymbol}}(
+                _ errorBox: UnsafeRawPointer,
+                _ outPayload: UnsafeMutablePointer<UnsafeMutableRawPointer?>
+            ) -> Int32 {
+                outPayload.pointee = nil
+                guard let error = Unmanaged<AnyObject>.fromOpaque(errorBox).takeUnretainedValue() as? Error else {
+                    return 0
+                }
+            {{syncCascadeBody}}
+                // Fallthrough: no registered error type matched — untyped fallback.
+                return 0
+            }
+
+            """);
+
         return true;
     }
 
@@ -179,7 +211,9 @@ public static class ErrorRegistryHelperEmitter
         var helperClassName = GetCSharpHelperClassName(moduleName);
         var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
         var resolvedNamespace = ctx.ResolvedNamespace ?? moduleName;
-        var dispatchBody = BuildCSharpDispatchBody(ctx, typeDatabase, moduleName, resolvedNamespace, indent: "                ");
+        var dispatchBody = BuildCSharpDispatchBody(ctx, typeDatabase, moduleName, resolvedNamespace, indent: "                ", syncTail: false);
+        var syncDispatchBody = BuildCSharpDispatchBody(ctx, typeDatabase, moduleName, resolvedNamespace, indent: "                ", syncTail: true);
+        var classifySymbol = GetSwiftClassifierSymbolName(moduleName);
 
         // Per-id ownership: value-copy cases free in their per-case `finally`;
         // buffer-owned-by-SafeHandle cases free only in their per-case `catch` (marshal
@@ -238,6 +272,56 @@ public static class ErrorRegistryHelperEmitter
                     }
                     return result;
                 }
+
+                [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+                [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{classifySymbol}}")]
+                private static partial int SBW_ClassifySwiftError(IntPtr errorBox, out IntPtr payloadPtr);
+
+                /// <summary>
+                /// Synchronous counterpart of <c>CreateException</c>. A sync throwing member hands over
+                /// the live (still-retained) Swift error box; this classifies it against the same
+                /// registry and returns either <c>SwiftException&lt;TError&gt;</c> with the marshalled
+                /// payload or the untyped <c>SwiftException</c>. Either way the returned exception owns
+                /// the box and releases it exactly once, on finalization — the classification P/Invoke
+                /// runs strictly before the exception exists, so the caller's <c>throw</c> is still
+                /// P/Invoke-free.
+                /// </summary>
+                internal static System.Exception CreateSyncException(
+                    IntPtr errorBox,
+                    IntPtr descPtr,
+                    System.Action<IntPtr> releaseError)
+                {
+                    var errorMessage = global::Swift.Runtime.InteropServices.SwiftMarshal.ReadErrorDescription(descPtr);
+                    var errorTypeId = SBW_ClassifySwiftError(errorBox, out var errorPtr);
+                    if (errorTypeId == 0)
+                        return global::Swift.Runtime.InteropServices.SwiftMarshal.CreateSwiftError(errorMessage, errorBox, releaseError);
+
+                    System.Exception result;
+                    try
+                    {
+                        switch (errorTypeId)
+                        {
+            {{syncDispatchBody}}
+                            default:
+                                // Unknown id with a real buffer: free defensively, fall back to untyped.
+                                if (errorPtr != IntPtr.Zero)
+                                    SBW_Free(errorPtr);
+                                result = global::Swift.Runtime.InteropServices.SwiftMarshal.CreateSwiftError(errorMessage, errorBox, releaseError);
+                                break;
+                        }
+                    }
+                    catch (System.Exception marshalEx)
+                    {
+                        // Per-case catch / finally already freed (or transferred) the payload buffer.
+                        // Surface the marshal failure as an untyped exception that still carries the
+                        // Swift message and the live box.
+                        result = global::Swift.Runtime.InteropServices.SwiftMarshal.CreateSwiftError(
+                            $"{errorMessage} (typed marshal failed for id {errorTypeId}: {marshalEx.Message})",
+                            errorBox,
+                            releaseError);
+                    }
+                    return result;
+                }
             }
 
             """);
@@ -248,6 +332,31 @@ public static class ErrorRegistryHelperEmitter
     /// <summary>Per-module Swift cascade-dispatch symbol name.</summary>
     public static string GetSwiftDispatchSymbolName(string moduleName) =>
         $"_SBW_dispatchSwiftError_{moduleName}";
+
+    /// <summary>
+    /// Per-module Swift symbol for the synchronous classifier — the <c>@_cdecl</c> entry point a
+    /// sync throwing member's generated error check calls to learn which registered error type the
+    /// raw error box holds.
+    /// </summary>
+    public static string GetSwiftClassifierSymbolName(string moduleName) =>
+        $"SBW_ClassifySwiftError_{moduleName}";
+
+    /// <summary>
+    /// The <c>global::</c> reference a sync throwing member should dispatch its error through, or
+    /// null when there is nothing to dispatch to and the member must keep the untyped path. Null is
+    /// returned when the module registered no error types, when no registry was computed, and when
+    /// the member belongs to a different module than the one whose helper class is being emitted.
+    /// </summary>
+    public static string? GetSyncDispatchHelperReference(string? memberModuleName, ModuleEmissionContext? ctx)
+    {
+        if (memberModuleName == null || ctx == null)
+            return null;
+        if (ctx.ErrorTypeOrder.Count == 0)
+            return null;
+        if (!string.Equals(ctx.ErrorRegistryModuleName, memberModuleName, StringComparison.Ordinal))
+            return null;
+        return GetFullyQualifiedHelperReference(memberModuleName, ctx.ResolvedNamespace);
+    }
 
     /// <summary>Per-module C# helper class name (namespace-level static).</summary>
     public static string GetCSharpHelperClassName(string moduleName) =>
@@ -375,7 +484,14 @@ public static class ErrorRegistryHelperEmitter
         };
     }
 
-    private static string BuildSwiftCascadeBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string indent)
+    /// <summary>
+    /// Builds the shared registry cascade. <paramref name="syncTail"/> selects what a matched arm
+    /// does with the payload: the async tail invokes the 6-param error callback and returns, the
+    /// sync tail writes the payload through the out-pointer and returns the matched id. Everything
+    /// upstream of the tail — cast order, shape classification, availability gating, unavailable
+    /// platform guards — is shared so the two paths cannot drift.
+    /// </summary>
+    private static string BuildSwiftCascadeBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string indent, bool syncTail)
     {
         var sb = new System.Text.StringBuilder();
         var idx = 0;
@@ -416,10 +532,18 @@ public static class ErrorRegistryHelperEmitter
                 // which constructs the SwiftObject taking ownership of the +1 retain.
                 // Wire `errorSize` is unused in this shape — pass 0.
                 sb.AppendLine($"{indent}    let _ptr = Unmanaged.passRetained(_typed as AnyObject).toOpaque()");
-                sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
-                sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, {idx})");
-                sb.AppendLine($"{indent}    }}");
-                sb.AppendLine($"{indent}    return");
+                if (syncTail)
+                {
+                    sb.AppendLine($"{indent}    outPayload.pointee = _ptr");
+                    sb.AppendLine($"{indent}    return {idx}");
+                }
+                else
+                {
+                    sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
+                    sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, {idx})");
+                    sb.AppendLine($"{indent}    }}");
+                    sb.AppendLine($"{indent}    return");
+                }
             }
             else
             {
@@ -431,10 +555,18 @@ public static class ErrorRegistryHelperEmitter
                 sb.AppendLine($"{indent}    let _align = MemoryLayout<{swiftTypeName}>.alignment");
                 sb.AppendLine($"{indent}    let _buf = UnsafeMutableRawPointer.allocate(byteCount: max(_size, 1), alignment: _align)");
                 sb.AppendLine($"{indent}    _buf.initializeMemory(as: {swiftTypeName}.self, repeating: _typed, count: 1)");
-                sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
-                sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_buf), Int(Int64(_size)), _msgPtr, 0, _sbwTask, {idx})");
-                sb.AppendLine($"{indent}    }}");
-                sb.AppendLine($"{indent}    return");
+                if (syncTail)
+                {
+                    sb.AppendLine($"{indent}    outPayload.pointee = _buf");
+                    sb.AppendLine($"{indent}    return {idx}");
+                }
+                else
+                {
+                    sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
+                    sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_buf), Int(Int64(_size)), _msgPtr, 0, _sbwTask, {idx})");
+                    sb.AppendLine($"{indent}    }}");
+                    sb.AppendLine($"{indent}    return");
+                }
             }
             sb.AppendLine($"{indent}}}");
             if (unavailableGuard != null)
@@ -443,7 +575,7 @@ public static class ErrorRegistryHelperEmitter
         return sb.ToString().TrimEnd();
     }
 
-    private static string BuildCSharpDispatchBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string moduleName, string resolvedNamespace, string indent)
+    private static string BuildCSharpDispatchBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string moduleName, string resolvedNamespace, string indent, bool syncTail)
     {
         // Map each Swift module-qualified name to its C# fully-qualified name, remapping
         // the leading Swift module prefix to the resolved C# namespace. Under the default
@@ -493,7 +625,14 @@ public static class ErrorRegistryHelperEmitter
                 sb.AppendLine($"{indent}    finally {{ if (errorPtr != IntPtr.Zero) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains<{csharpQualifiedName}>(errorPtr); SBW_Free(errorPtr); }} }}");
             else // ClassPointerDirect
                 sb.AppendLine($"{indent}    catch {{ if (errorPtr != IntPtr.Zero) global::Swift.Runtime.Arc.Release(errorPtr); throw; }}");
-            sb.AppendLine($"{indent}    result = new global::Swift.Runtime.SwiftException<{csharpQualifiedName}>(_typed, errorMessage);");
+            // The sync arm also hands the live error box to the exception, so a typed sync throw has
+            // the same ErrorHandle parity — and the same release-exactly-once-on-finalization
+            // ownership — as the untyped one. The async arm has no box to hand over: its wire
+            // callback already ran past the Swift `catch` that owned it.
+            if (syncTail)
+                sb.AppendLine($"{indent}    result = global::Swift.Runtime.InteropServices.SwiftMarshal.CreateSwiftError<{csharpQualifiedName}>(_typed, errorMessage, errorBox, releaseError);");
+            else
+                sb.AppendLine($"{indent}    result = new global::Swift.Runtime.SwiftException<{csharpQualifiedName}>(_typed, errorMessage);");
             sb.AppendLine($"{indent}    break;");
             sb.AppendLine($"{indent}}}");
         }

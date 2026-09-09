@@ -295,7 +295,9 @@ namespace BindingsGeneration
                 _env, _genericContext, _wrapperSignature, _pInvokeSignature,
                 _requiresIndirectResult, _requiresSwiftSelf, _requiresSwiftError,
                 _requiresSwiftAsync, _requiresFixedBlock,
-                IsProtocolAvailableForConstraint);
+                IsProtocolAvailableForConstraint,
+                ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
+                    _env.MethodDecl.ModuleDecl?.Name, _emissionContext));
             _syncPlan = builder.BuildSyncPlan();
             _needsUnsafeBody = _syncPlan.RequiresUnsafe;
 

@@ -842,6 +842,15 @@ public sealed class ModuleEmissionContext
     public bool ErrorTypeRegistryComputed { get; set; }
 
     /// <summary>
+    /// Swift module name the error registry was computed for. Recorded by
+    /// <see cref="ErrorEnumRegistryEmitter"/>'s precompute pass so an emission site can tell whether
+    /// the member it is emitting belongs to the module whose registry helper class is actually being
+    /// emitted — a member reached from another module has no helper class to dispatch through and
+    /// keeps the untyped path.
+    /// </summary>
+    public string? ErrorRegistryModuleName { get; set; }
+
+    /// <summary>
     /// Per-module registry mapping Swift error type's module-qualified name → assigned id (>= 1).
     /// Built deterministically by <see cref="ErrorEnumRegistryEmitter"/> at module-emission start
     /// (alphabetical ordering for cross-run stability). id 0 is reserved for "untyped" (the

@@ -166,6 +166,98 @@ public class MethodMarshalPlanBuilderTests
         Assert.Contains("SBW_Free(_typedErrorPtr)", plan.SwiftError.ErrorCheckCode);
     }
 
+    [Theory]
+    [InlineData(WrapperStrategy.CdeclMethod)]
+    [InlineData(WrapperStrategy.CdeclConstructor)]
+    [InlineData(WrapperStrategy.NativeThunk)]
+    public void SwiftError_UntypedThrows_WithRegistry_ExplicitErrorPointerRoutesThroughRegistry(WrapperStrategy strategy)
+    {
+        // The @_cdecl wrapper and the native thunk both report the thrown error through an
+        // explicit out-pointer. With a registry to consult, that pointer must be classified
+        // (so a registered error type surfaces typed) instead of going straight to the untyped
+        // throw helper.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true);
+        env.MethodDecl.WrapperStrategy = strategy;
+
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true,
+            errorRegistryHelperRef: "global::TestModule._SbwModuleErrorRegistry_TestModule");
+
+        Assert.NotNull(plan.SwiftError);
+        Assert.False(plan.SwiftError!.IsTypedThrows);
+        Assert.Contains("errorPtr != IntPtr.Zero", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains(
+            "global::TestModule._SbwModuleErrorRegistry_TestModule.CreateSyncException",
+            plan.SwiftError.ErrorCheckCode);
+        // The classified path owns the release itself; the unconditional untyped throw helper
+        // must no longer be on this route or the box would be released twice.
+        Assert.DoesNotContain("SwiftMarshal.ThrowSwiftError", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
+    }
+
+    [Fact]
+    public void SwiftError_UntypedThrows_WithRegistry_ErrorRegisterRouteAlsoRoutesThroughRegistry()
+    {
+        // The third route: no wrapper, so the error arrives in the dedicated Swift error
+        // register. The classification is the same — only the carrier the pointer is read out
+        // of differs — so a member reached this way must not be left on the untyped path.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true);
+        env.MethodDecl.WrapperStrategy = WrapperStrategy.None;
+
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true,
+            errorRegistryHelperRef: "global::TestModule._SbwModuleErrorRegistry_TestModule");
+
+        Assert.NotNull(plan.SwiftError);
+        Assert.Contains("swiftError.Value != null", plan.SwiftError!.ErrorCheckCode);
+        Assert.Contains(
+            "global::TestModule._SbwModuleErrorRegistry_TestModule.CreateSyncException",
+            plan.SwiftError.ErrorCheckCode);
+        Assert.DoesNotContain("SwiftMarshal.ThrowSwiftError", plan.SwiftError.ErrorCheckCode);
+    }
+
+    [Theory]
+    [InlineData(WrapperStrategy.None)]
+    [InlineData(WrapperStrategy.CdeclMethod)]
+    [InlineData(WrapperStrategy.NativeThunk)]
+    public void SwiftError_UntypedThrows_NoRegistry_KeepsUntypedThrow(WrapperStrategy strategy)
+    {
+        // A module that registered no error types has no helper class to dispatch through, so
+        // every route keeps today's untyped behaviour rather than referencing a class that was
+        // never emitted.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true);
+        env.MethodDecl.WrapperStrategy = strategy;
+
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true);
+
+        Assert.NotNull(plan.SwiftError);
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", plan.SwiftError!.ErrorCheckCode);
+        Assert.DoesNotContain("CreateSyncException", plan.SwiftError.ErrorCheckCode);
+    }
+
+    [Theory]
+    [InlineData(WrapperStrategy.None)]
+    [InlineData(WrapperStrategy.CdeclMethod)]
+    public void SwiftError_TypedThrows_WithRegistry_KeepsDedicatedExtractionPath(WrapperStrategy strategy)
+    {
+        // An explicit `throws(T)` already knows its one error type and extracts it directly.
+        // Availability of the registry must not divert that member onto the cascade, which
+        // would be a slower answer to a question already settled at the declaration.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "parse", parentKind: ParentKind.Class, throws: true, hasTypedThrows: true);
+        env.MethodDecl.WrapperStrategy = strategy;
+
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresSwiftError: true,
+            errorRegistryHelperRef: "global::TestModule._SbwModuleErrorRegistry_TestModule");
+
+        Assert.NotNull(plan.SwiftError);
+        Assert.True(plan.SwiftError!.IsTypedThrows);
+        Assert.Contains("SBW_ExtractTypedError_TestModule_ParseError", plan.SwiftError.ErrorCheckCode);
+        Assert.DoesNotContain("CreateSyncException", plan.SwiftError.ErrorCheckCode);
+    }
+
     #endregion
 
     #region IndirectResult Tests
@@ -1611,7 +1703,8 @@ public class MethodMarshalPlanBuilderTests
         bool requiresSwiftSelf = false,
         bool requiresSwiftError = false,
         bool requiresSwiftAsync = false,
-        bool requiresFixedBlock = false)
+        bool requiresFixedBlock = false,
+        string? errorRegistryHelperRef = null)
     {
         var genericContext = env.ParentDecl is TypeDecl parentType
             ? GenericContext.FromMethodInType(env.MethodDecl, parentType)
@@ -1627,7 +1720,8 @@ public class MethodMarshalPlanBuilderTests
                     return record.Kind == TypeRecordKind.Protocol &&
                            !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes);
                 return false;
-            });
+            },
+            errorRegistryHelperRef);
 
         return builder.BuildSyncPlan();
     }

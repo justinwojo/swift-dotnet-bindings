@@ -2523,4 +2523,34 @@ public static class SwiftMarshal
         var message = ReadErrorDescription(descPtr);
         throw new SwiftException(message, errorPtr, releaseError);
     }
+
+    /// <summary>
+    /// Builds — but does not throw — an untyped <see cref="SwiftException"/> that carries the LIVE
+    /// (still-retained) Swift error box. Ownership of <paramref name="errorHandle"/> transfers to the
+    /// returned exception, which releases it on finalization under the process-exit guard. Generated
+    /// bindings use this when the exception object has to be constructed before the <c>throw</c>
+    /// statement (a per-module error dispatcher deciding between typed and untyped shapes), keeping
+    /// the throw path itself free of P/Invoke.
+    /// </summary>
+    /// <param name="message">The error description from Swift's String(describing:).</param>
+    /// <param name="errorHandle">The retained Swift error pointer (caller transfers ownership).</param>
+    /// <param name="releaseError">Action that releases one ARC reference on the error.</param>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static Exception CreateSwiftError(string message, IntPtr errorHandle, Action<IntPtr> releaseError)
+        => new SwiftException(message, errorHandle, releaseError);
+
+    /// <summary>
+    /// Builds — but does not throw — a typed <see cref="SwiftException{TError}"/> that carries both the
+    /// marshalled error value and the LIVE (still-retained) Swift error box. Ownership of
+    /// <paramref name="errorHandle"/> transfers to the returned exception exactly as it does for the
+    /// untyped overload, so a typed sync throw releases the box exactly once, on finalization.
+    /// </summary>
+    /// <typeparam name="TError">The projected C# type of the Swift error.</typeparam>
+    /// <param name="error">The marshalled typed error value.</param>
+    /// <param name="message">The error description from Swift's String(describing:).</param>
+    /// <param name="errorHandle">The retained Swift error pointer (caller transfers ownership).</param>
+    /// <param name="releaseError">Action that releases one ARC reference on the error.</param>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static Exception CreateSwiftError<TError>(TError error, string message, IntPtr errorHandle, Action<IntPtr> releaseError)
+        => new SwiftException<TError>(error, message, errorHandle, releaseError);
 }

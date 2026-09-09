@@ -127,4 +127,20 @@ public class SwiftException<TError> : SwiftException
     {
         Error = error;
     }
+
+    /// <summary>
+    /// Creates a typed SwiftException that also carries the live (retained) Swift error box, giving
+    /// a typed sync throw the same <see cref="SwiftException.ErrorHandle"/> parity the untyped sync
+    /// throw already has. The box is owned by this exception and released when it is finalized —
+    /// never on the throw path — so the throw performs no P/Invoke.
+    /// </summary>
+    /// <param name="error">The typed Swift error value.</param>
+    /// <param name="message">The error description from Swift's String(describing:).</param>
+    /// <param name="errorHandle">The retained Swift error pointer (caller transfers ownership).</param>
+    /// <param name="releaseError">Action that releases one ARC reference on the error.</param>
+    internal SwiftException(TError error, string message, IntPtr errorHandle, Action<IntPtr> releaseError)
+        : base(message, errorHandle, releaseError)
+    {
+        Error = error;
+    }
 }

@@ -23,6 +23,12 @@ internal class MethodMarshalPlanBuilder
     private readonly bool _requiresFixedBlock;
     private readonly Func<SwiftTypeName, bool> _isProtocolAvailable;
 
+    /// <summary>
+    /// Fully-qualified reference to the module's error-registry helper class, or null when a plain
+    /// (untyped) <c>throws</c> has nothing to dispatch against and must keep the untyped exception.
+    /// </summary>
+    private readonly string? _errorRegistryHelperRef;
+
     internal MethodMarshalPlanBuilder(
         MethodEnvironment env,
         GenericContext genericContext,
@@ -33,8 +39,10 @@ internal class MethodMarshalPlanBuilder
         bool requiresSwiftError,
         bool requiresSwiftAsync,
         bool requiresFixedBlock,
-        Func<SwiftTypeName, bool> isProtocolAvailable)
+        Func<SwiftTypeName, bool> isProtocolAvailable,
+        string? errorRegistryHelperRef = null)
     {
+        _errorRegistryHelperRef = errorRegistryHelperRef;
         _env = env;
         _genericContext = genericContext;
         _wrapperSignature = wrapperSignature;
@@ -1415,24 +1423,45 @@ internal class MethodMarshalPlanBuilder
         }
         else
         {
+            // A plain `throws` carries no static error type, but the module may still have
+            // Error-conforming types registered. When it does, route the raw error box through the
+            // module's registry helper: it classifies the box against the registered types and
+            // returns SwiftException<TError> with the marshalled payload, or the untyped
+            // SwiftException when nothing matched. Either shape owns the box and releases it once,
+            // on finalization — the classification runs before the exception exists, so the throw
+            // itself still performs no P/Invoke.
+            var registryRef = _errorRegistryHelperRef;
             if (usesExplicitErrorPointer)
             {
                 // Untyped throws via @_cdecl out-pointer
-                errorCheckCode = $$"""
-                    if (errorPtr != IntPtr.Zero)
-                        SwiftMarshal.ThrowSwiftError(errorPtr, {{hp}}SBW_GetErrorDescription(errorPtr), {{hp}}SBW_ReleaseError);
-                    """;
+                errorCheckCode = registryRef != null
+                    ? $$"""
+                        if (errorPtr != IntPtr.Zero)
+                            throw {{registryRef}}.CreateSyncException(errorPtr, {{hp}}SBW_GetErrorDescription(errorPtr), {{hp}}SBW_ReleaseError);
+                        """
+                    : $$"""
+                        if (errorPtr != IntPtr.Zero)
+                            SwiftMarshal.ThrowSwiftError(errorPtr, {{hp}}SBW_GetErrorDescription(errorPtr), {{hp}}SBW_ReleaseError);
+                        """;
             }
             else
             {
                 // Untyped throws — extract message via SBW_GetErrorDescription, release via SBW_ReleaseError
-                errorCheckCode = $$"""
-                    if (swiftError.Value != null)
-                    {
-                        var _errorPtr = (IntPtr)swiftError.Value;
-                        SwiftMarshal.ThrowSwiftError(_errorPtr, {{hp}}SBW_GetErrorDescription(_errorPtr), {{hp}}SBW_ReleaseError);
-                    }
-                    """;
+                errorCheckCode = registryRef != null
+                    ? $$"""
+                        if (swiftError.Value != null)
+                        {
+                            var _errorPtr = (IntPtr)swiftError.Value;
+                            throw {{registryRef}}.CreateSyncException(_errorPtr, {{hp}}SBW_GetErrorDescription(_errorPtr), {{hp}}SBW_ReleaseError);
+                        }
+                        """
+                    : $$"""
+                        if (swiftError.Value != null)
+                        {
+                            var _errorPtr = (IntPtr)swiftError.Value;
+                            SwiftMarshal.ThrowSwiftError(_errorPtr, {{hp}}SBW_GetErrorDescription(_errorPtr), {{hp}}SBW_ReleaseError);
+                        }
+                        """;
             }
         }
 

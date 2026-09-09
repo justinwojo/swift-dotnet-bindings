@@ -42,6 +42,7 @@ public static class ErrorEnumRegistryEmitter
         if (ctx.ErrorTypeRegistryComputed)
             return;
         ctx.ErrorTypeRegistryComputed = true;
+        ctx.ErrorRegistryModuleName = moduleDecl.Name;
 
         // Collect into an ordered map so id assignment is deterministic across runs and
         // each entry retains its source TypeDecl's availability annotations (consumed by
