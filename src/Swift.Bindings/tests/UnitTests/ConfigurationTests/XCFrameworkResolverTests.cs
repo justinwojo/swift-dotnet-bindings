@@ -569,6 +569,112 @@ namespace BindingsGeneration.Tests
 
             InputResolutionReport.Reset();
         }
+
+        [Fact]
+        public void SelectSlice_Catalyst_SelectsMacCatalystSlice_RecordsInfoNotDegradation()
+        {
+            // The Mac Catalyst target's NATIVE slice carries SupportedPlatformVariant "maccatalyst".
+            // A preferred-slice filter that knows only "simulator" (variant == simulator) and "device"
+            // (variant empty) matches nothing for Catalyst, so the target's own slice arrives through
+            // the substitution path and records a SliceSelection degradation on every generate.
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice>
+            {
+                MakeSlice("ios", null, "arm64"),
+                MakeSlice("ios", "simulator", "arm64", "x86_64"),
+                MakeSlice("ios", "maccatalyst", "arm64")
+            };
+
+            var result = XCFrameworkResolver.SelectSlice(
+                slices, XCFrameworkPlatformTarget.Device, Logger,
+                PlatformInfoFactory.Create(ApplePlatform.MacCatalyst), recordResolution: true);
+
+            Assert.Equal("maccatalyst", result.SupportedPlatformVariant);
+            var decision = Assert.Single(InputResolutionReport.Decisions);
+            Assert.Equal(InputResolutionCategory.SliceSelection, decision.Category);
+            Assert.Equal(InputResolutionSeverity.Info, decision.Severity);
+            Assert.False(InputResolutionReport.HasDegradations);
+
+            InputResolutionReport.Reset();
+        }
+
+        [Fact]
+        public void SelectSlice_Catalyst_SimulatorTargetProbe_SelectsMacCatalystSlice_NoDegradation()
+        {
+            // Catalyst has no simulator variant, so a simulator-target probe (the search-paths-only
+            // caller always tries one) resolves to the platform's single slice — not a substitution.
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice> { MakeSlice("ios", "maccatalyst", "arm64") };
+
+            var result = XCFrameworkResolver.SelectSlice(
+                slices, XCFrameworkPlatformTarget.Simulator, Logger,
+                PlatformInfoFactory.Create(ApplePlatform.MacCatalyst), recordResolution: true);
+
+            Assert.Equal("maccatalyst", result.SupportedPlatformVariant);
+            Assert.Equal(InputResolutionSeverity.Info, Assert.Single(InputResolutionReport.Decisions).Severity);
+            Assert.False(InputResolutionReport.HasDegradations);
+
+            InputResolutionReport.Reset();
+        }
+
+        [Fact]
+        public void SelectSlice_MacOS_SimulatorTargetProbe_SelectsMacSlice_NoDegradation()
+        {
+            // Same identity rule for the other simulator-less platform: macOS's native slice carries
+            // no variant, so a simulator-target probe against it selects rather than substitutes.
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice> { MakeSlice("macos", null, "arm64") };
+
+            var result = XCFrameworkResolver.SelectSlice(
+                slices, XCFrameworkPlatformTarget.Simulator, Logger,
+                PlatformInfoFactory.Create(ApplePlatform.macOS), recordResolution: true);
+
+            Assert.Null(result.SupportedPlatformVariant);
+            Assert.Equal(InputResolutionSeverity.Info, Assert.Single(InputResolutionReport.Decisions).Severity);
+            Assert.False(InputResolutionReport.HasDegradations);
+
+            InputResolutionReport.Reset();
+        }
+
+        [Fact]
+        public void SelectSlice_iOSDevice_OnlyMacCatalystSliceOffered_Refuses()
+        {
+            // Control: the maccatalyst slice is native to Catalyst ONLY. An iOS device target is never
+            // silently bound to it — with nothing else on offer the resolution fails loud.
+            var slices = new List<XCFrameworkSlice> { MakeSlice("ios", "maccatalyst", "arm64") };
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                XCFrameworkResolver.SelectSlice(
+                    slices, XCFrameworkPlatformTarget.Device, Logger,
+                    PlatformInfoFactory.Create(ApplePlatform.iOS)));
+
+            Assert.Contains("No iOS platform slices found", ex.Message);
+        }
+
+        [Fact]
+        public void SelectSlice_iOSDevice_MacCatalystPresent_StillDegradesToSimulator()
+        {
+            // Control: an iOS device target offered a maccatalyst slice alongside a simulator slice
+            // neither prefers the Catalyst slice nor stops recording the fallback it does take.
+            InputResolutionReport.Reset();
+            var slices = new List<XCFrameworkSlice>
+            {
+                MakeSlice("ios", "simulator", "arm64"),
+                MakeSlice("ios", "maccatalyst", "arm64")
+            };
+
+            var result = XCFrameworkResolver.SelectSlice(
+                slices, XCFrameworkPlatformTarget.Device, Logger,
+                PlatformInfoFactory.Create(ApplePlatform.iOS), recordResolution: true);
+
+            Assert.Equal("simulator", result.SupportedPlatformVariant);
+            var decision = Assert.Single(InputResolutionReport.Decisions);
+            Assert.Equal(InputResolutionCategory.SliceSelection, decision.Category);
+            Assert.Equal(InputResolutionSeverity.Degradation, decision.Severity);
+            Assert.True(InputResolutionReport.HasDegradations);
+
+            InputResolutionReport.Reset();
+        }
     }
 
     #endregion

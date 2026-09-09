@@ -1125,27 +1125,39 @@ namespace BindingsGeneration
             }
 
             var preferSimulator = platformTarget == XCFrameworkPlatformTarget.Simulator;
-            var preferred = platformSlices.Where(s =>
-                preferSimulator
-                    ? string.Equals(s.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase)
-                    : string.IsNullOrEmpty(s.SupportedPlatformVariant))
+
+            // The variant token that IS this target's native slice, read off the platform's own slice
+            // model rather than assumed to be one of two kinds: iOS/tvOS simulator -> "simulator", a
+            // plain device slice -> no token, Mac Catalyst -> "maccatalyst". Classifying slices as only
+            // "simulator" (token present) or "device" (token absent) leaves a Catalyst target with no
+            // preferred match, so its own native slice arrives through the substitution path below and
+            // records a SliceSelection degradation on every generate. A platform with no simulator
+            // variant (macOS, Catalyst) resolves BOTH targets to its single slice, so a simulator-target
+            // probe against it — the search-paths-only caller always makes one — is not a substitution
+            // either. With no platformInfo the caller is the historical iOS default.
+            var nativeVariant = platformInfo != null
+                ? platformInfo.GetSlice(preferSimulator).XCFrameworkPlatformVariant
+                : (preferSimulator ? "simulator" : null);
+
+            var preferred = platformSlices
+                .Where(s => IsSameSliceVariant(s.SupportedPlatformVariant, nativeVariant))
                 .ToList();
+
+            var requestedKind = DescribeSliceVariant(nativeVariant);
 
             if (preferred.Count > 0)
             {
                 if (recordResolution)
                     InputResolutionReport.RecordInfo(
                         InputResolutionCategory.SliceSelection,
-                        $"Selected {(preferSimulator ? "simulator" : "device")} slice '{preferred[0].LibraryIdentifier}'.");
+                        $"Selected {requestedKind} slice '{preferred[0].LibraryIdentifier}'.");
                 return preferred[0];
             }
 
             // Fallback: use whatever platform slice is available
             var platformName2 = platformInfo?.Platform.ToString() ?? "iOS";
             var fallback = platformSlices[0];
-            var requestedKind = preferSimulator ? "simulator" : "device";
-            var actualKind = string.IsNullOrEmpty(fallback.SupportedPlatformVariant)
-                ? "device" : fallback.SupportedPlatformVariant;
+            var actualKind = DescribeSliceVariant(fallback.SupportedPlatformVariant);
             // Finding 50: a requested slice that falls back to a different kind is an input
             // substitution — record it as a degradation so --strict-inputs can fail-close. Only the
             // PRIMARY generation target's resolution feeds the input-resolution report
@@ -1165,6 +1177,23 @@ namespace BindingsGeneration
                 platformName2, requestedKind, actualKind, fallback.LibraryIdentifier);
             return fallback;
         }
+
+        /// <summary>
+        /// Slice-variant identity. Apple's Info.plist omits SupportedPlatformVariant for a plain
+        /// device slice, so an absent token and an empty one are the same kind; any other token
+        /// ("simulator", "maccatalyst") names a distinct slice kind and is compared case-insensitively.
+        /// </summary>
+        private static bool IsSameSliceVariant(string? sliceVariant, string? targetVariant)
+            => string.IsNullOrEmpty(sliceVariant)
+                ? string.IsNullOrEmpty(targetVariant)
+                : string.Equals(sliceVariant, targetVariant, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Human-readable name for a slice variant used in the resolution log/report lines:
+        /// the token itself, or "device" for the token-less plain device slice.
+        /// </summary>
+        private static string DescribeSliceVariant(string? variant)
+            => string.IsNullOrEmpty(variant) ? "device" : variant.ToLowerInvariant();
 
         /// <summary>
         /// Modules directory location for a slice. Frameworks
