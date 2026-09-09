@@ -1934,10 +1934,21 @@ namespace BindingsGeneration
 
                 if (argumentDecl.IsGeneric)
                 {
+                    // Two conditions have to hold before this buffer may be destroyed, and neither
+                    // was asked before. First, the callee must not already own it: an argument the
+                    // callee consumes is passed @in, so Swift destroys the buffer itself (for a
+                    // ~Copyable value, that is its deinit) and a destroy here is the second one.
+                    // Second, the buffer must be live — the pointer is published only once
+                    // MarshalToSwift has filled the span, so a null pointer means setup threw
+                    // before there was any value to destroy.
+                    if (ConsumedByDirectCallee(argumentDecl))
+                        continue;
+
                     var csTypeParamName = _env.GenericTypeMapping[argumentDecl.SwiftTypeSpec.ToString()].TypeParameter;
                     var metadataName = NameProvider.GetMetadataName(csTypeParamName);
                     var payloadName = NameProvider.GetPayloadName(csName);
-                    csWriter.WriteLine($"{metadataName}.ValueWitnessTable->Destroy((void *){payloadName}, {metadataName});");
+                    csWriter.WriteLine($"if ({payloadName} != IntPtr.Zero)");
+                    csWriter.WriteLine($"    {metadataName}.ValueWitnessTable->Destroy((void *){payloadName}, {metadataName});");
                     continue;
                 }
 

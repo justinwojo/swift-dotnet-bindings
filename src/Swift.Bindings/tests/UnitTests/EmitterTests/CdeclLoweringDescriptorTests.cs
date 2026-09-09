@@ -160,6 +160,18 @@ public class CdeclLoweringDescriptorTests
         return new MethodEnvironment(method, db);
     }
 
+    /// <summary>
+    /// The same environment as <see cref="Env"/> but for a property setter accessor — the member
+    /// kind whose value parameter Swift lowers <c>@owned</c> without any explicit specifier.
+    /// </summary>
+    private static MethodEnvironment SetterEnv(TypeDatabase db, ModuleDecl module)
+    {
+        var env = Env(db, module);
+        env.MethodDecl.Name = "payload_Set";
+        env.MethodDecl.IsAccessor = true;
+        return env;
+    }
+
     private static ArgumentDecl Arg(TypeSpec spec, ModuleDecl module, ParameterOwnership ownership)
         => new ArgumentDecl
         {
@@ -465,6 +477,36 @@ public class CdeclLoweringDescriptorTests
     [Fact]
     public void NonCopyableBorrow_InlineBorrowNoCopy()
         => AssertDescriptor(Describe(Named("TestModule.MyNonCopyable"), ownership: ParameterOwnership.Shared),
+            CdeclParamCategory.NonCopyableBorrow, "_ value: UnsafeRawPointer", null,
+            "value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).pointee");
+
+    /// <summary>
+    /// A property setter's new value is consumed by Swift's own lowering whether or not the
+    /// parameter carries an explicit specifier, and the setter's value parameter is synthesized at
+    /// the wrapper boundary so it never carries one. Lowering it as a borrow hands a
+    /// <c>~Copyable</c> value to a consuming callee through a <c>.pointee</c> load and leaves the
+    /// C# handle's destroy armed against storage Swift has taken over.
+    /// </summary>
+    [Fact]
+    public void NonCopyableSetterNewValue_MovesOutOfBuffer_WithoutAnExplicitSpecifier()
+    {
+        var (db, module) = NewFixture();
+        var env = SetterEnv(db, module);
+        var descriptor = CdeclParamMapper.Describe(
+            Arg(Named("TestModule.MyNonCopyable"), module, ParameterOwnership.Default), Label, env);
+
+        AssertDescriptor(descriptor,
+            CdeclParamCategory.NonCopyableConsume, "_ value: UnsafeMutableRawPointer",
+            "let valueVal = value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).move()", "valueVal");
+    }
+
+    /// <summary>
+    /// The control for the setter case: an ordinary method's unannotated parameter is borrowed, so
+    /// the same type on the same wrapper lowers through the borrow arm.
+    /// </summary>
+    [Fact]
+    public void NonCopyableOrdinaryParameter_StillBorrows_WithoutAnExplicitSpecifier()
+        => AssertDescriptor(Describe(Named("TestModule.MyNonCopyable")),
             CdeclParamCategory.NonCopyableBorrow, "_ value: UnsafeRawPointer", null,
             "value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).pointee");
 

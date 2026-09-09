@@ -54,6 +54,87 @@ public class NoncopyableArgumentEmitterTests
         Assert.DoesNotContain("NonCopyablePin", cs);
     }
 
+    /// <summary>
+    /// A generic argument's Swift buffer is a stack span the emitter fills through
+    /// <c>MarshalToSwift</c>. The pointer to it is what the <c>finally</c> reads to decide whether
+    /// to run the value witness's Destroy, so publishing the pointer before the span holds a value
+    /// makes an uninitialized buffer indistinguishable from an initialized one: a
+    /// <c>MarshalToSwift</c> that throws (a <c>~Copyable</c> value used twice raises
+    /// <c>ObjectDisposedException</c> from its own consumed-state guard) then unwinds into a Destroy
+    /// over undefined stack bytes. Marshalling first makes a non-null pointer mean "live value".
+    /// </summary>
+    [Fact]
+    public void GenericArgument_PublishesItsBufferPointerOnlyAfterTheValueIsInIt()
+    {
+        var (cs, _, _) = EmitGeneric(ParameterOwnership.Shared);
+        int marshal = cs.IndexOf("SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);", StringComparison.Ordinal);
+        int publish = cs.IndexOf("valuePayload = (IntPtr)Unsafe.AsPointer", StringComparison.Ordinal);
+        Assert.True(marshal >= 0 && publish > marshal, cs);
+        Assert.Contains("if (valuePayload != IntPtr.Zero)", cs);
+    }
+
+    /// <summary>
+    /// A borrowed generic argument's buffer is the caller's to destroy: Swift reads it
+    /// <c>@in_guaranteed</c> and destroys nothing, so exactly one Destroy has to run here. This is
+    /// the arm a <c>~Copyable</c> value reaches through <c>borrowing T</c>, whose value moves out of
+    /// C# into the buffer — one deinit, at the end of the call.
+    /// </summary>
+    [Fact]
+    public void BorrowedGenericArgument_StillDestroysItsBuffer()
+    {
+        var (cs, _, _) = EmitGeneric(ParameterOwnership.Shared);
+        Assert.Contains("ValueWitnessTable->Destroy((void *)valuePayload", cs);
+    }
+
+    /// <summary>
+    /// A consumed generic argument's buffer is handed to Swift <c>@in</c>: the callee destroys it,
+    /// which for a <c>~Copyable</c> value means its <c>deinit</c> has already run. Destroying it
+    /// again here runs a second deinit over storage Swift has released.
+    /// </summary>
+    [Fact]
+    public void ConsumedGenericArgument_LeavesTheBufferToTheCallee()
+    {
+        var (cs, _, _) = EmitGeneric(ParameterOwnership.Owned);
+        Assert.Contains("SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);", cs);
+        Assert.DoesNotContain("ValueWitnessTable->Destroy((void *)valuePayload", cs);
+    }
+
+    private static (string cs, string swift, MethodDecl method) EmitGeneric(ParameterOwnership ownership)
+    {
+        var database = new TypeDatabase { AsyncLibraryName = "TestModuleSwiftBindings" };
+        var module = new ModuleDecl
+        {
+            Name = "TestModule", Properties = new(), Methods = new(), Types = new(),
+            Dependencies = new(), Protocols = new(), ParentDecl = null, ModuleDecl = null
+        };
+        database.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        var method = new MethodDecl
+        {
+            Name = "discard", MangledName = "$s10TestModule7discardyyxnlF",
+            MethodType = MethodType.Static, IsConstructor = false, Throws = false,
+            IsAsync = false, IsSynthesizedAccessor = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            ParentDecl = module, ModuleDecl = module,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", SwiftTypeSpec = TupleTypeSpec.Empty,
+                    ParentDecl = null, ModuleDecl = module, IsInOut = false, IsGeneric = false },
+                new() { Name = "value", PrivateName = "value", SwiftTypeSpec = new NamedTypeSpec("T"),
+                    ParentDecl = null, ModuleDecl = module, IsInOut = false, IsGeneric = true, Ownership = ownership }
+            }
+        };
+        module.Methods.Add(method);
+        var cs = new StringWriter();
+        var swift = new StringWriter();
+        var handler = new MethodHandler(NullLogger<MethodHandler>.Instance);
+        handler.Emit(new CSharpWriter(cs), new SwiftWriter(swift), new MethodEnvironment(method, database),
+            new Conductor(new NullLoggerFactory()), TypeHandlerContext.Empty);
+        return (cs.ToString(), swift.ToString(), method);
+    }
+
     private static (string cs, string swift, MethodDecl method) Emit(ParameterOwnership ownership, bool throws, bool noncopyable)
     {
         var database = new TypeDatabase { AsyncLibraryName = "TestModuleSwiftBindings" };

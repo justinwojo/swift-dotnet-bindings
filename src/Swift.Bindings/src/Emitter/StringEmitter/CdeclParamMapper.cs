@@ -471,7 +471,15 @@ public static class CdeclParamMapper
                 // freed WITHOUT a second value-witness Destroy — without it Swift's consume plus the
                 // C# SafeHandle's Destroy double-free (SIGABRT). `.move()` needs a mutable
                 // pointer, so the @_cdecl param is UnsafeMutableRawPointer.
-                if (arg.Ownership == ParameterOwnership.Owned)
+                //
+                // Consume-vs-borrow is the callee's question, and an explicit `consuming` is only
+                // one of the ways it comes out Owned: a setter's new value and an initializer's
+                // value parameters are consumed by Swift's own lowering with no specifier written
+                // anywhere. Reading the specifier alone answers "borrow" for those, which lowers to
+                // a `.pointee` borrow forwarded into a consuming position while the C# side, keying
+                // off the same specifier, leaves its destroy armed. Ask the ownership oracle the
+                // MarkConsumed emitter asks, so the two halves are one decision.
+                if (CalleeArgumentOwnership.IsConsumedByCallee(env.MethodDecl, arg))
                 {
                     return Simple(CdeclParamCategory.NonCopyableConsume,
                             $"_ {label}: UnsafeMutableRawPointer",

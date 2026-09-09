@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -831,6 +832,15 @@ public class CalleeArgumentOwnershipTests
     /// <c>__swift_cannot_copy_noncopyable_type</c> — an unconditional trap the C# and Swift
     /// compilers both accept. The lease must not be emitted at all; the value's ownership is
     /// already carried by the pin/MarkConsumed preflight paired with the wrapper's move.
+    ///
+    /// <para>Withholding the lease is only half an answer, and the absence assertion alone is what
+    /// let the other half through: this member's <c>@_cdecl</c> wrapper is declined (its sibling is
+    /// a nested frozen struct), so nothing downstream owns the move either. A consumed
+    /// <c>~Copyable</c> argument on the leftover direct <c>CallConvSwift</c> path is destroyed
+    /// twice — Swift's <c>deinit</c> in the callee and the handle's value-witness destroy in C# —
+    /// so the member must not be emitted at all. Either it reaches a route that can move (the
+    /// <c>.move()</c>/<c>MarkConsumed</c> pairing) or it is refused with a named skip reason;
+    /// emitting it borrowed is not one of the choices.</para>
     /// </summary>
     [Fact]
     public void DirectInitializer_NonCopyableFrozenMemoryStructArgument_MintsNoValueWitnessCopy()
@@ -845,6 +855,85 @@ public class CalleeArgumentOwnershipTests
             typeDatabase);
 
         Assert.DoesNotContain("OwnedArgument.BeginValueTransfer", csOutput);
+
+        // Positive half: no P/Invoke is declared for the member, and the drop is reported rather
+        // than silent.
+        Assert.DoesNotContain("PInvoke_init", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains(
+            WorkaroundRecommendations.GetDescription(SkipReason.NonCopyableWithoutMoveCapableRoute)!,
+            csOutput);
+    }
+
+    /// <summary>
+    /// The copyable sibling of the case above stays emitted through the very same route: the
+    /// refusal keys on the argument being non-copyable AND consumed, not on the route alone.
+    /// </summary>
+    [Fact]
+    public void DirectInitializer_CopyableFrozenMemoryStructArgument_IsStillEmitted()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionFrozenMemoryStruct("Token", moduleDecl, typeDatabase);
+
+        var (csOutput, _) = EmitConstructor(
+            CreateEmissionConstructor(parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("token", moduleDecl, "Token")),
+            typeDatabase);
+
+        Assert.Contains("PInvoke_init", csOutput);
+    }
+
+    /// <summary>
+    /// A <c>borrowing</c> <c>~Copyable</c> argument on the same declined-wrapper route is NOT
+    /// refused: nothing is handed over, so the direct call borrows a pinned buffer and the handle's
+    /// destroy stays the only one. The refusal has to be keyed on the hand-over, or it withdraws a
+    /// whole class of members that were never at risk.
+    /// </summary>
+    [Fact]
+    public void DirectMethod_BorrowingNonCopyableArgument_IsStillEmitted()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionFrozenMemoryStruct("Token", moduleDecl, typeDatabase, nonCopyableFlag: true);
+
+        var borrowed = ClassArg("token", moduleDecl, "Token");
+        borrowed.Ownership = ParameterOwnership.Shared;
+        var (csOutput, _) = EmitMethod(
+            CreateEmissionMethod("inspect", parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), borrowed),
+            typeDatabase);
+
+        Assert.Contains("PInvoke_inspect", csOutput);
+    }
+
+    /// <summary>
+    /// The setter's new value is synthesized at the wrapper-emission boundary rather than taken
+    /// from the member's own signature, so the oracle has to answer for an argument it has never
+    /// seen in <c>CSSignature</c>. Answering "borrowed" there is what let the Swift-side lowering
+    /// and the C#-side <c>MarkConsumed</c> disagree about a stored <c>~Copyable</c> property.
+    /// </summary>
+    [Fact]
+    public void SetterNewValue_IsConsumed_EvenWhenSynthesizedOutsideTheSignature()
+    {
+        var setter = CreateSetter(new NamedTypeSpec("TestModule.Token"), WrapperStrategy.CdeclProperty, usesWrapperLibrary: true);
+        var synthesized = CreateArg("newValue", new NamedTypeSpec("TestModule.Token"));
+
+        Assert.True(CalleeArgumentOwnership.IsConsumedByCallee(setter, synthesized));
+    }
+
+    /// <summary>
+    /// A synthesized argument on a member kind that borrows still borrows — the relaxation above is
+    /// about signature membership, not about widening the member-kind default.
+    /// </summary>
+    [Fact]
+    public void SynthesizedArgumentOnAnOrdinaryMethod_IsStillBorrowed()
+    {
+        var method = CreateSetter(new NamedTypeSpec("TestModule.Token"), WrapperStrategy.None);
+        method.Name = "take";
+        method.IsAccessor = false;
+
+        Assert.False(CalleeArgumentOwnership.IsConsumedByCallee(method, CreateArg("newValue", new NamedTypeSpec("TestModule.Token"))));
     }
 
     /// <summary>

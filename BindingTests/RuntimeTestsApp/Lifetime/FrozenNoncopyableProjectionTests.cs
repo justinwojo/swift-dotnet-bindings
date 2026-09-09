@@ -311,4 +311,96 @@ public class FrozenNoncopyableProjectionTests : TestBase
 
         TestLogger.Info("A ~Copyable through <T: ~Copyable> moves rather than copies, one deinit, no trap");
     }
+
+    public void TestGenericSlotSecondUseFailsBeforeTheBufferExists()
+    {
+        // The generic argument buffer is a `stackalloc` span, and marshalling is what puts a value
+        // in it. A ~Copyable value used a second time never gets that far: its own consumed-state
+        // guard throws while the span still holds whatever the frame's stack happened to contain.
+        // So the buffer's teardown has to know whether there is anything to tear down — destroying
+        // undefined stack bytes through a value witness is undefined behavior, and for this type it
+        // is a deinit over storage whose value already ran one.
+        LifetimeTracker.Reset();
+
+        var token = new FrozenLabeledToken("generic-2");
+        LifetimeTracker.AssertLiveCount(1, "FrozenLabeledToken live after init");
+
+#pragma warning disable SB0001 // method-generic direct P/Invoke; that is what this test exercises
+        AssertEqual(7, TestLibFunctions.InspectNoncopyableGenerically(token),
+            "the first hand-over reaches the generic callee");
+        LifetimeTracker.AssertLiveCount(0, "the first hand-over ran deinit exactly once");
+
+        AssertThrows<ObjectDisposedException>(
+            () => TestLibFunctions.InspectNoncopyableGenerically(token),
+            "a second generic hand-over of a consumed token is refused");
+#pragma warning restore SB0001
+
+        // The refused call must be inert on the ledger. A -1 here is the destroy of a buffer that
+        // was never initialized.
+        LifetimeTracker.AssertLiveCount(0, "the refused second call ran no further deinit");
+
+        token.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "Dispose after the refused call is still a no-op");
+
+        TestLogger.Info("A refused generic hand-over destroys nothing — the buffer was never live");
+    }
+
+    public void TestGenericSlotConsumingLeavesTheBufferToTheCallee()
+    {
+        // The consuming half of the same slot. C# moves the value into the argument buffer either
+        // way, but a `consuming` parameter is passed `@in`: the callee owns that buffer and runs
+        // the deinit, so the caller must not destroy it as well. One deinit, from the callee this
+        // time rather than from the caller's teardown — a ledger of -1 would be both of them.
+        LifetimeTracker.Reset();
+
+        var token = new FrozenLabeledToken("generic-3");
+        LifetimeTracker.AssertLiveCount(1, "FrozenLabeledToken live after init");
+
+#pragma warning disable SB0001 // method-generic direct P/Invoke; that is what this test exercises
+        TestLibFunctions.DiscardNoncopyableGenerically(token);
+        LifetimeTracker.AssertLiveCount(0, "the consuming generic hand-over ran deinit exactly once");
+
+        AssertThrows<ObjectDisposedException>(() => token.GetPeek(),
+            "the handed-over token is guarded afterwards");
+        AssertThrows<ObjectDisposedException>(
+            () => TestLibFunctions.DiscardNoncopyableGenerically(token),
+            "a second consuming hand-over is refused");
+#pragma warning restore SB0001
+
+        LifetimeTracker.AssertLiveCount(0, "the refused second call ran no further deinit");
+
+        token.Dispose();
+        LifetimeTracker.AssertLiveCount(0, "Dispose after a consuming hand-over is a no-op");
+
+        TestLogger.Info("A consuming ~Copyable through <T: ~Copyable> is destroyed once, by the callee");
+    }
+
+    public void TestNestedFrozenHostBorrowsWithoutConsuming()
+    {
+        // The surviving half of the route refusal. Its sibling initializer takes the same token
+        // `consuming` beside the same nested frozen struct, and the nested parameter is what sends
+        // both of them to Swift's own symbol instead of a @_cdecl wrapper — the only place a move
+        // out of the caller's buffer could happen. The consuming one is therefore refused at
+        // generation and is not callable from here at all; this one asks for no hand-over, so it
+        // must keep binding and must leave the caller's token intact and still consumable.
+        LifetimeTracker.Reset();
+
+        var token = new FrozenLabeledToken("nested-1");
+        LifetimeTracker.AssertLiveCount(1, "FrozenLabeledToken live after init");
+
+        var inner = new NestedOuter.InnerInfo(11);
+        using (var host = new NestedFrozenTokenHost(inner, token, 31))
+        {
+            AssertEqual("nested-1", host.Label, "the borrowing initializer read the label");
+            AssertEqual(42, host.Value, "the borrowing initializer carried its scalar arguments");
+        }
+        LifetimeTracker.AssertLiveCount(1, "the borrowing initializer consumed nothing");
+
+        AssertEqual("nested-1", token.GetPeek(), "the token is still readable afterwards");
+        AssertEqual("nested-1", TestLibFunctions.ConsumeFrozenLabeledToken(token),
+            "the token is still consumable afterwards");
+        LifetimeTracker.AssertLiveCount(0, "the later consume ran deinit exactly once");
+
+        TestLogger.Info("The borrowing sibling of the refused initializer still binds and still borrows");
+    }
 }

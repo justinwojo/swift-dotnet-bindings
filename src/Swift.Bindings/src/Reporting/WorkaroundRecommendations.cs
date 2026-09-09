@@ -76,6 +76,8 @@ public static class WorkaroundRecommendations
             "The frozen struct has a stored field that is a generic value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>) whose inline size depends on its type arguments and cannot be derived cross-compile. Write a Swift wrapper that exposes the data through a supported, concretely-sized type.",
         SkipReason.NonCopyableThroughGenericSlot =>
             "The signature wraps a ~Copyable value in a generic slot — an Optional, or another generic type. Optional<T> is itself ~Copyable when T is, so the value would be marshalled through the wrapper's value witness and copied, which for a non-copyable type traps at runtime. Name the ~Copyable type directly instead: a plain borrowing/consuming parameter and a plain return are both supported. If the value genuinely needs to be absent sometimes, expose a Swift wrapper that keeps the optionality on the Swift side — a separate has-value query alongside a non-optional accessor, or a throwing accessor — rather than putting the Optional in the signature. Do not reach for a ~Copyable enum here: an enum has no move-only C# projection at all, so it is refused as a type in its own right.",
+        SkipReason.NonCopyableWithoutMoveCapableRoute =>
+            "The member consumes a ~Copyable value, but its signature also carries a shape that declines the @_cdecl wrapper, leaving the call on Swift's own symbol. The consuming hand-over is carried by a Swift-side move paired with a C#-side consumed mark, and neither exists on that route, so the value's deinit would run in the callee and its value witness would destroy the same storage again on return. Remove whatever else in the signature declines the wrapper (most often a nested frozen struct parameter beside the ~Copyable one — hoist it to a top-level type), or make the parameter borrowing and expose a separate Swift entry point that consumes the value on its own.",
         SkipReason.SkippedTypeReference =>
             "The signature names a type from this module (or one of its dependencies) that the binding does not emit. Nothing about this member is unsupported — find the referenced type's own skip row, which names the real cause, and unblock that; this member returns on its own once the type binds. If the type cannot be bound, expose the same functionality through a Swift wrapper whose signature uses a supported type instead.",
         SkipReason.NonCopyableValueProjection =>
@@ -173,6 +175,8 @@ public static class WorkaroundRecommendations
             "signature names a type this binding does not emit",
         SkipReason.NonCopyableThroughGenericSlot =>
             "~Copyable value reached through a generic slot (Optional<T> is ~Copyable when T is)",
+        SkipReason.NonCopyableWithoutMoveCapableRoute =>
+            "consumed ~Copyable value on a call route with no move (the value would be destroyed twice)",
         SkipReason.AncestorSkipped =>
             "nested type whose parent was skipped",
         SkipReason.ParentTypeSuppressed =>

@@ -148,6 +148,14 @@ public func inspectNoncopyableGenerically<T: ~Copyable>(_ value: borrowing T) ->
     return 7
 }
 
+/// The consuming half of that same slot. C# must MOVE the value into the argument buffer either
+/// way — a copy is the non-copyable trap — but who destroys the buffer afterwards differs: a
+/// `consuming` parameter is passed `@in`, so the callee owns the buffer and runs the `deinit`, and
+/// a caller-side destroy on top of that is the second one over the same storage. Exactly one
+/// `deinit` must run, and the caller's handle must be left marked consumed either way.
+public func discardNoncopyableGenerically<T: ~Copyable>(_ value: consuming T) {
+}
+
 // MARK: - `init` taking a `~Copyable` parameter
 //
 // A constructor is the one member kind that used to be refused the @_cdecl wrapper for a
@@ -175,6 +183,37 @@ public final class FrozenTokenVault {
 
     public init(consuming token: consuming FrozenLabeledToken) {
         self.label = token.peek()
+    }
+}
+
+// MARK: - Refused shape: a consumed `~Copyable` on a route that cannot move it
+//
+// The move that empties the caller's buffer — and the `MarkConsumed` that disarms the caller's
+// destroy — live in the `@_cdecl` wrapper. Whether a member gets one is decided by its WHOLE
+// signature, so a parameter that has nothing to do with ownership can send the call to Swift's own
+// symbol instead, where the token is destroyed by the callee's `deinit` and again by its value
+// witness on return. Both compilers accept that emission and it only misbehaves at run time, so
+// the member is refused at generation rather than emitted borrowed.
+
+/// The nested frozen struct beside the token is what declines the wrapper; the `consuming` token
+/// is then unreachable by any move, so this initializer must be refused.
+public struct NestedFrozenTokenHost {
+    public let label: String
+    public let value: Int32
+
+    public init(inner: NestedOuter.Inner, token: consuming FrozenLabeledToken) {
+        self.value = inner.value
+        self.label = token.peek()
+    }
+
+    /// Positive control on the same type: the same nested parameter beside the same token type, but
+    /// `borrowing`, which asks for no hand-over at all and therefore keeps binding on the same
+    /// route. A refusal that swallowed this one too would be over-broad. The extra parameter keeps
+    /// the two initializers apart once projected — they would otherwise collide on identical C#
+    /// parameter types and be deduplicated rather than judged on ownership.
+    public init(inner: NestedOuter.Inner, borrowedToken: borrowing FrozenLabeledToken, serial: Int32) {
+        self.value = inner.value + serial
+        self.label = borrowedToken.peek()
     }
 }
 

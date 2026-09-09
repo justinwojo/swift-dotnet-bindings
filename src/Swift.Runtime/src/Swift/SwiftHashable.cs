@@ -82,28 +82,42 @@ namespace Swift.Runtime
             // structural-fallback hash both consume this representation, so we marshal exactly
             // once regardless of which path we end up on.
             Span<byte> span = size > 0 ? stackalloc byte[size] : Span<byte>.Empty;
-            IntPtr payload = size > 0
-                ? (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span))
-                : IntPtr.Zero;
-            if (size > 0)
-                SwiftMarshal.MarshalToSwift(value, ref span);
 
-            if (TryGetHashableWitnessTable<T>(out var hashablePwt))
+            // Marshalling initializes the buffer with an owned value, and `hashValue` borrows its
+            // receiver — it destroys nothing — so the buffer is this frame's to destroy. The
+            // pointer is published only once the buffer holds a value, so a non-null pointer means
+            // "live" and a marshal that throws unwinds without destroying uninitialized bytes.
+            IntPtr payload = IntPtr.Zero;
+            try
             {
-                nint h = PInvoke_SwiftHashValue(
-                    metadata,
-                    hashablePwt,
-                    new SwiftSelf((void*)payload));
+                if (size > 0)
+                {
+                    SwiftMarshal.MarshalToSwift(value, ref span);
+                    payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+                }
 
-                // Fold 64-bit Swift hash to 32-bit .NET hash
-                return unchecked((int)h ^ (int)(h >> 32));
+                if (TryGetHashableWitnessTable<T>(out var hashablePwt))
+                {
+                    nint h = PInvoke_SwiftHashValue(
+                        metadata,
+                        hashablePwt,
+                        new SwiftSelf((void*)payload));
+
+                    // Fold 64-bit Swift hash to 32-bit .NET hash
+                    return unchecked((int)h ^ (int)(h >> 32));
+                }
+
+                // No Hashable witness — synthesize a stable hash from the marshalled Swift bytes.
+                // For trivial value types this matches Swift's synthesized Equatable byte-by-byte
+                // semantics. The important invariant — Equals(a, b) → GetHashCode(a) == GetHashCode(b)
+                // — holds because two byte-equal Swift values produce the same hash.
+                return ComputeStructuralHash(span);
             }
-
-            // No Hashable witness — synthesize a stable hash from the marshalled Swift bytes.
-            // For trivial value types this matches Swift's synthesized Equatable byte-by-byte
-            // semantics. The important invariant — Equals(a, b) → GetHashCode(a) == GetHashCode(b)
-            // — holds because two byte-equal Swift values produce the same hash.
-            return ComputeStructuralHash(span);
+            finally
+            {
+                if (payload != IntPtr.Zero)
+                    metadata.ValueWitnessTable->Destroy((void*)payload, metadata);
+            }
         }
 
         private static bool IsReferenceShaped(TypeMetadataKind kind) =>

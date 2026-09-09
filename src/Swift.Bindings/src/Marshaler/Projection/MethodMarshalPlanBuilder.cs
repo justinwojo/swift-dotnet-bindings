@@ -187,9 +187,16 @@ internal class MethodMarshalPlanBuilder
             var metadataName = NameProvider.GetMetadataName(csTypeParamName);
             var payloadName = NameProvider.GetPayloadName(csName);
 
+            // Marshal BEFORE publishing the pointer. The pre-try IntPtr.Zero and this ordering are
+            // the buffer's live state: a non-null pointer means the span holds an initialized Swift
+            // value that someone still has to destroy. Publishing first makes an uninitialized
+            // stack span indistinguishable from a live one, so a MarshalToSwift that throws — a
+            // ~Copyable value used a second time raises ObjectDisposedException from its own
+            // consumed-state guard before writing anything — unwinds into a value-witness Destroy
+            // over undefined stack bytes.
             lines.Add($"Span<byte> {payloadName}Span = stackalloc byte[(int){metadataName}.Size];");
-            lines.Add($"{payloadName} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({payloadName}Span));");
             lines.Add($"SwiftMarshal.MarshalToSwift({csName}, ref {payloadName}Span);");
+            lines.Add($"{payloadName} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({payloadName}Span));");
         }
         return lines;
     }

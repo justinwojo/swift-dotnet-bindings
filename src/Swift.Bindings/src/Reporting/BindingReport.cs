@@ -648,6 +648,27 @@ public enum SkipReason
     /// </para>
     /// </summary>
     NonCopyableThroughGenericSlot,
+
+    /// <summary>
+    /// The member hands a <c>~Copyable</c> argument (or a <c>consuming self</c>) to a callee that
+    /// consumes it, over a call route that has no way to move the value out of the caller's buffer.
+    /// <para>
+    /// The hand-over is carried by a Swift-side <c>.move()</c> in the <c>@_cdecl</c> wrapper paired
+    /// with a C#-side <c>MarkConsumed</c>, which together give the value exactly one destroy. The
+    /// leftover direct <c>CallConvSwift</c> path — taken when the wrapper is declined for some
+    /// OTHER reason in the same signature, such as a nested frozen struct beside the non-copyable
+    /// parameter — has no Swift frame to move in and so emits neither half: Swift's callee runs the
+    /// value's <c>deinit</c> and the owning handle then runs the value witness's Destroy over the
+    /// same storage.
+    /// </para>
+    /// <para>
+    /// Both compilers accept that code, so the member is refused at emission rather than left to
+    /// the verify-recover loop. Borrowing <c>~Copyable</c> arguments are unaffected — nothing is
+    /// handed over — and the consuming shape returns as soon as its signature stops declining the
+    /// wrapper.
+    /// </para>
+    /// </summary>
+    NonCopyableWithoutMoveCapableRoute,
 }
 
 /// <summary>

@@ -78,13 +78,20 @@ internal static class CalleeArgumentOwnership
     /// borrowed parameter across at +1 strands a count for the life of the process, so the
     /// annotation is honoured wherever the parser recorded one; a synthetic argument leaves it at
     /// <see cref="ParameterOwnership.Default"/> and keeps the member-kind answer.
+    ///
+    /// <para>The signature test is "not the return slot" rather than "a member of
+    /// <c>CSSignature</c>", because a setter's value parameter does not always come from the
+    /// member's own signature: the wrapper emitters synthesize a fresh <c>newValue</c> argument off
+    /// the property's type and ask about that. Identity-matching against <c>CSSignature</c> answers
+    /// "borrowed" for it, which is the member-kind default for the WRONG member kind — the Swift
+    /// wrapper then borrows a value the setter's lowering consumes.</para>
     /// </summary>
     internal static bool IsConsumedByCallee(MethodDecl methodDecl, ArgumentDecl argumentDecl)
         => (argumentDecl.Ownership == ParameterOwnership.Owned
                || IsSetter(methodDecl) || methodDecl.IsConstructor)
            && argumentDecl.Ownership is not (ParameterOwnership.Shared or ParameterOwnership.InOut)
            && !argumentDecl.IsInOut
-           && methodDecl.CSSignature.Skip(1).Any(a => ReferenceEquals(a, argumentDecl));
+           && !ReferenceEquals(methodDecl.CSSignature.FirstOrDefault(), argumentDecl);
 
     /// <summary>
     /// True when the callee this member's P/Invoke names releases the arguments it is passed —

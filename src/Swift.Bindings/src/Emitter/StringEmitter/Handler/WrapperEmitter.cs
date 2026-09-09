@@ -1560,8 +1560,10 @@ namespace BindingsGeneration
         /// (see <see cref="CdeclParamMapper"/>) and Swift ran the value's deinit exactly once;
         /// MarkConsumed tells the owning <c>SwiftSafeHandle</c> to free the now-empty buffer WITHOUT a
         /// second value-witness Destroy. Without it the value is destroyed twice (SIGABRT).
-        /// The predicate mirrors CdeclParamMapper's non-copyable branch exactly (Owned ownership +
-        /// <c>TypeRecordFlags.NonCopyable</c>) and is gated on the @_cdecl wrapper path, so the
+        /// The predicate mirrors CdeclParamMapper's non-copyable branch exactly — the same ownership
+        /// oracle, not a second reading of the specifier, so a member kind that consumes without an
+        /// explicit <c>consuming</c> (a setter's new value, an initializer's value parameters) can't
+        /// have the two halves answer differently — and is gated on the @_cdecl wrapper path, so the
         /// MarkConsumed call is emitted iff the paired <c>.move()</c> was emitted.
         /// </summary>
         private void EmitConsumedNonCopyableParamCleanup(CSharpWriter csWriter)
@@ -1571,7 +1573,7 @@ namespace BindingsGeneration
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
-                if (argumentDecl.Ownership != ParameterOwnership.Owned)
+                if (!CalleeArgumentOwnership.IsConsumedByCallee(_env.MethodDecl, argumentDecl))
                     continue;
                 if (!_env.TypeDatabase.TryGetTypeRecord(argumentDecl.SwiftTypeSpec, out var record)
                     || !record.Flags.HasFlag(TypeRecordFlags.NonCopyable))

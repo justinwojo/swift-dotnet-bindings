@@ -244,6 +244,62 @@ public class NonCopyableValueProjectionCorpusTests
             string.Join(Environment.NewLine, declarations));
     }
 
+    /// <summary>
+    /// The route half of the ownership story, which the runtime suite cannot cover by construction:
+    /// the refused member is not emitted, so there is nothing to call.
+    ///
+    /// <para>The move that empties the caller's buffer — and the <c>MarkConsumed</c> that disarms
+    /// the caller's own destroy — live in the <c>@_cdecl</c> wrapper. Whether a member gets one is
+    /// decided by its WHOLE signature, so a parameter with nothing to do with ownership (here a
+    /// nested frozen struct) can send the call to Swift's own symbol, where the consumed value runs
+    /// its deinit in the callee and is destroyed again by its value witness on return. Both
+    /// compilers accept that emission, so it must be refused at generation.</para>
+    ///
+    /// <para>The fixture declares the two initializers side by side — same nested parameter, same
+    /// token type, differing only in <c>consuming</c> versus <c>borrowing</c> — so a refusal that
+    /// widens or narrows moves exactly one of them: the marker must name the token type, and
+    /// exactly one public constructor (the borrowing one) must survive.</para>
+    /// </summary>
+    [SkippableFact]
+    [Trait("Category", GeneratedBindingsOutputRequirement.TraitCategory)]
+    public void ConsumedNonCopyable_WithoutAMoveCapableRoute_IsRefused_LeavingItsBorrowingSiblingBound()
+    {
+        const string hostType = "NestedFrozenTokenHost";
+
+        var corpus = LoadCorpus(out var repoRoot, out var outputDir);
+        GeneratedBindingsOutputRequirement.SkipUnlessAvailable(corpus.Count > 0,
+            $"Generated bindings corpus not found under {outputDir}");
+
+        var declaring = corpus.FirstOrDefault(f =>
+            File.ReadAllText(f).Contains($"class {hostType} ", StringComparison.Ordinal));
+        Assert.True(declaring is not null,
+            $"'{hostType}' must still be emitted as a type; no file under {outputDir} declares it.");
+
+        var where = Path.GetRelativePath(repoRoot, declaring!);
+        var reason = WorkaroundRecommendations.GetDescription(SkipReason.NonCopyableWithoutMoveCapableRoute)
+            ?? throw new InvalidOperationException(
+                "SkipReason.NonCopyableWithoutMoveCapableRoute has no description; the emitted marker would be unattributable.");
+
+        var lines = File.ReadAllLines(declaring!).Select(l => l.TrimStart()).ToList();
+
+        var markers = lines
+            .Where(l => l.StartsWith("//", StringComparison.Ordinal)
+                        && l.Contains("Unsupported:", StringComparison.Ordinal)
+                        && l.Contains(reason, StringComparison.Ordinal))
+            .ToList();
+        Assert.True(markers.Count == 1,
+            $"{where}: expected exactly one route refusal on '{hostType}', found {markers.Count}.");
+        Assert.Contains(AdmittedType, markers[0]);
+
+        var constructors = lines
+            .Where(l => l.StartsWith($"public {hostType}(", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(constructors.Count == 1,
+            $"{where}: exactly the borrowing initializer must survive, found {constructors.Count} public constructor(s):" +
+            $"{Environment.NewLine}{string.Join(Environment.NewLine, constructors)}");
+        Assert.Contains("borrowedToken", constructors[0]);
+    }
+
     private static List<string> LoadCorpus(out string repoRoot, out string outputDir)
     {
         repoRoot = LocateRepoRoot();

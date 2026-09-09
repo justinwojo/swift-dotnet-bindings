@@ -557,6 +557,68 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// True when this member hands a <c>~Copyable</c> value to a callee that consumes it over a
+    /// route that cannot move it out of the caller's buffer, so the value would be destroyed twice.
+    ///
+    /// <para>The hand-over is a Swift-side <c>.move()</c> in the <c>@_cdecl</c> wrapper paired with
+    /// a C#-side <c>MarkConsumed</c>. Both halves live on the wrapper; the native thunk refuses the
+    /// shape outright; so the only remaining route that reports a consuming callee is the leftover
+    /// direct <c>CallConvSwift</c> P/Invoke, which emits neither half. There the callee runs the
+    /// value's <c>deinit</c> and the owning handle then runs the value witness's Destroy over the
+    /// same storage.</para>
+    ///
+    /// <para>Both compilers accept that emission — nothing about it is ill-typed on either side —
+    /// so it can only be caught here, before the member is written. A borrowing <c>~Copyable</c>
+    /// argument is untouched: nothing is handed over, the pinned buffer stays the caller's, and the
+    /// member is emitted as before.</para>
+    ///
+    /// <para><paramref name="offending"/> receives the name that put the member on this path.</para>
+    /// </summary>
+    public static bool ConsumesNonCopyableWithoutMoveCapableRoute(MethodEnvironment env, out string offending)
+    {
+        offending = string.Empty;
+        var methodDecl = env.MethodDecl;
+
+        if (!CalleeArgumentOwnership.CalleeConsumesOwnedArguments(methodDecl) || methodDecl.UsesNativeThunk)
+            return false;
+
+        foreach (var argumentDecl in methodDecl.CSSignature.Skip(1))
+        {
+            if (CalleeArgumentOwnership.IsConsumedByCallee(methodDecl, argumentDecl) &&
+                IsNonCopyableType(argumentDecl.SwiftTypeSpec, env.TypeDatabase, methodDecl.ModuleDecl))
+            {
+                offending = argumentDecl.SwiftTypeSpec.ToString() ?? "<unknown>";
+                return true;
+            }
+        }
+
+        // `consuming self` is the same hand-over through the receiver slot: the wrapper moves the
+        // value out of the caller-owned buffer and the C# side marks the payload consumed, and
+        // neither happens on the direct route.
+        if (methodDecl.IsConsuming &&
+            methodDecl.MethodType != MethodType.Static &&
+            !methodDecl.IsConstructor &&
+            IsNonCopyableStructParent(env.ParentDecl))
+        {
+            offending = env.ParentDecl?.Name ?? "self";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The single wording behind <see cref="ConsumesNonCopyableWithoutMoveCapableRoute"/>, so both
+    /// the member and the constructor front end report the same reason to a consumer reading the
+    /// skip surface.
+    /// </summary>
+    public static string DescribeNonCopyableWithoutMoveCapableRoute(string offending)
+        => $"'{offending}' is consumed by the callee, but this member's signature declines the " +
+           "@_cdecl wrapper, so the call lands on Swift's own symbol with no frame to move the " +
+           "value out of the caller's buffer; the value would run its deinit in the callee and be " +
+           "destroyed again by its value witness on return.";
+
+    /// <summary>
     /// The single wording behind <see cref="ReachesUnlowerableNonCopyable"/>, so every front end
     /// that refuses the shape reports the same reason to a consumer reading the skip surface.
     /// </summary>

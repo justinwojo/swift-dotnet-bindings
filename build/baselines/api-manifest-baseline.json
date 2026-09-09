@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "e986332c3",
+  "git_sha": "c93d43cf8",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -8764,6 +8764,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "DiscardNoncopyableGenerically(T)\u00601",
+      "symbol": "$s20SwiftBindingsTestLib29discardNoncopyableGenericallyyyxnRi_zlF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "DispatchQueueInteropProbe.DispatchQueueInteropProbe()",
       "symbol": "thunk_SwiftBindingsTestLib_728cb7ed"
     },
@@ -16496,6 +16501,21 @@
       "module": "SwiftBindingsTestLib",
       "signature": "NestedFrozenStructWithRef.NestedFrozenStructWithRef(int)",
       "symbol": "SBW_SwiftBindingsTestLib_NestedFrozenStructWithRef_init_3644DF9E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedFrozenTokenHost.Label",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_NestedFrozenTokenHost_label"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedFrozenTokenHost.NestedFrozenTokenHost(SwiftBindingsTestLib.NestedOuter.InnerInfo,SwiftBindingsTestLib.FrozenLabeledToken,int)",
+      "symbol": "$s20SwiftBindingsTestLib21NestedFrozenTokenHostV5inner08borrowedG06serialAcA0E5OuterV5InnerV_AA0f7LabeledG0Vhs5Int32VtcfC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedFrozenTokenHost.Value",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_NestedFrozenTokenHost_value"
     },
     {
       "module": "SwiftBindingsTestLib",

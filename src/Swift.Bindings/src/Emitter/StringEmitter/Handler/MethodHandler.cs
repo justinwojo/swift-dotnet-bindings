@@ -543,6 +543,23 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Consumed ~Copyable hand-over is a property of the ROUTE, not of the wrapper flag: the
+            // move that empties the caller's buffer lives in the @_cdecl wrapper, so a signature
+            // that declines the wrapper for some OTHER reason leaves the value destroyed by the
+            // callee's deinit and again by its value witness on return. Both compilers accept that
+            // emission, so it is refused here rather than left to the verify-recover loop. Runs
+            // after the wrapper flags are locked and before SignatureHandler, like the gates above.
+            if (WrapperValidation.ConsumesNonCopyableWithoutMoveCapableRoute(methodEnv, out var ncOffending))
+            {
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.NonCopyableWithoutMoveCapableRoute,
+                    WrapperValidation.DescribeNonCopyableWithoutMoveCapableRoute(ncOffending));
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method,
+                    SkipReason.NonCopyableWithoutMoveCapableRoute,
+                    $"'{ncOffending}' is consumed but no wrapper is emitted to move it",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -1614,6 +1631,24 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,
                     "Generic tuple return mixes bare generic parameters with concrete/bound-generic elements — Swift lowers each address-only element to its own indirect-result register while loadable elements return direct, a split the direct-call P/Invoke cannot express.");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express", containingDecl: methodEnv.MethodDecl.ParentDecl);
+                return;
+            }
+
+            // Consumed ~Copyable hand-over is a property of the ROUTE, not of the wrapper flag: the
+            // move that empties the caller's buffer lives in the @_cdecl wrapper, so a signature
+            // that declines the wrapper for some OTHER reason leaves the value destroyed by the
+            // callee's deinit and again by its value witness on return. Both compilers accept that
+            // emission, so it is refused here rather than left to the verify-recover loop. Runs
+            // after the wrapper flags are locked and before SignatureHandler, like the gates above.
+            if (WrapperValidation.ConsumesNonCopyableWithoutMoveCapableRoute(methodEnv, out var ncOffending))
+            {
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.NonCopyableWithoutMoveCapableRoute,
+                    WrapperValidation.DescribeNonCopyableWithoutMoveCapableRoute(ncOffending));
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    isAccessor ? BindingItemKind.Property : BindingItemKind.Method,
+                    SkipReason.NonCopyableWithoutMoveCapableRoute,
+                    $"'{ncOffending}' is consumed but no wrapper is emitted to move it",
+                    containingDecl: methodEnv.MethodDecl.ParentDecl);
                 return;
             }
 
