@@ -90,6 +90,28 @@
          is ever bypassed. -->
     <_SwiftBindingPlatformUnsupported Condition="'$(_SwiftBindingPlatform)' == ''">true</_SwiftBindingPlatformUnsupported>
 
+    <!-- .NET version half of the same gate. The platform detection above is a substring
+         match, so it accepts an Apple platform on ANY .NET version — an older-.NET Apple
+         TFM would pass this first validation and only fail much later, inside generation,
+         on the net10.0-* output project the generator emits. Read from $(TargetFramework)
+         for the same reason the platform is: it is the one spelling the consumer wrote,
+         it is populated for both single-TFM projects and multi-TFM inner builds, and
+         keeping both halves on one input stops them drifting apart. An empty value (the
+         outer build of a multi-TFM project) is already rejected by the platform half.
+         Keep the version accepted here in step with the four TFMs the error text names —
+         they are the contract a declined consumer reads.
+
+         A PREFIX match, so a platform-versioned TFM (net10.0-ios26.0 — the spelling
+         SWIFTBIND016 tells Apple-framework consumers to use) is accepted, and
+         case-insensitive so this half turns a project away for its .NET version and
+         nothing else: any spelling the platform half above tolerates keeps building
+         exactly as it did before this check existed. -->
+    <_SwiftBindingDotNetVersionUnsupported Condition="!$(TargetFramework.StartsWith('net10.0', StringComparison.OrdinalIgnoreCase))">true</_SwiftBindingDotNetVersionUnsupported>
+
+    <!-- Single decision the SWIFTBIND010 error reads, so its condition covers exactly what
+         its message promises. -->
+    <_SwiftBindingTargetFrameworkUnsupported Condition="'$(_SwiftBindingPlatformUnsupported)' == 'true' OR '$(_SwiftBindingDotNetVersionUnsupported)' == 'true'">true</_SwiftBindingTargetFrameworkUnsupported>
+
     <!-- Whether platform has separate simulator + device slices -->
     <_SwiftBindingHasSimulatorSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'tvos'">true</_SwiftBindingHasSimulatorSlice>
 
@@ -139,9 +161,9 @@
   <!-- Target 0: Validate no SwiftPackage items (v2 stub)                     -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftPackageItems" BeforeTargets="_DiscoverSwiftFrameworks">
-    <Error Condition="'$(_SwiftBindingPlatformUnsupported)' == 'true'"
+    <Error Condition="'$(_SwiftBindingTargetFrameworkUnsupported)' == 'true'"
            Code="SWIFTBIND010"
-           Text="Unsupported TargetFramework '$(TargetFramework)' for Swift bindings. Use an Apple platform TFM: net10.0-ios, net10.0-macos, net10.0-tvos, or net10.0-maccatalyst." />
+           Text="Unsupported TargetFramework '$(TargetFramework)' for Swift bindings. Swift bindings require .NET 10 on an Apple platform: use net10.0-ios, net10.0-macos, net10.0-tvos, or net10.0-maccatalyst. An Apple TFM on any other .NET version (for example net9.0-ios) is not supported." />
     <Error Condition="'@(SwiftPackage)' != ''"
            Code="SWIFTBIND100"
            Text="SwiftPackage items are not yet supported. Use SwiftFramework items with a pre-built xcframework." />

@@ -640,6 +640,163 @@ namespace BindingsGeneration.Tests
             Assert.NotEqual(firstFingerprint, File.ReadAllText(stamp!));
         }
 
+        // ── SWIFTBIND010: the TargetFramework gate ──
+        // The SDK binds against .NET 10 Apple TFMs only, and the generator emits net10.0-*
+        // projects. The platform half of the gate is a substring match over $(TargetFramework),
+        // so it accepts an Apple platform on ANY .NET version — a project one .NET version below
+        // the floor would sail past this first validation and fail much later, deep inside
+        // generation, on an output TFM it never declared. The gate therefore has to reject the
+        // .NET version in its own right, and its message has to name the floor it enforces.
+        // These tests drive the REAL _ValidateSwiftPackageItems target from Sdk.targets.
+
+        /// <summary>
+        /// Runs the real <c>_ValidateSwiftPackageItems</c> over a temp project whose only
+        /// interesting property is <paramref name="targetFramework"/>. The target has no
+        /// DependsOnTargets, so nothing else in the SDK runs — no discovery, restore, or
+        /// generation — and the TFM gate is the only thing under test.
+        /// </summary>
+        private (string Output, int ExitCode) RunTargetFrameworkGate(
+            string? bodyTargetFramework,
+            string? bodyTargetFrameworks = null,
+            string? innerBuildTargetFramework = null)
+        {
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var tfmProperties = string.Concat(
+                bodyTargetFramework is null ? "" : $"<TargetFramework>{bodyTargetFramework}</TargetFramework>",
+                bodyTargetFrameworks is null ? "" : $"<TargetFrameworks>{bodyTargetFrameworks}</TargetFrameworks>");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    {tfmProperties}
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            // A multi-TFM inner build reaches the SDK as a GLOBAL TargetFramework, which is
+            // exactly how MSBuild dispatches one slice of a <TargetFrameworks> project.
+            var innerBuildArg = innerBuildTargetFramework is null
+                ? ""
+                : $" -p:TargetFramework={innerBuildTargetFramework}";
+
+            var result = RunDotnet(
+                $"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_ValidateSwiftPackageItems -nologo -v:n{innerBuildArg}");
+            return (result.StdOut + "\n" + result.StdErr, result.ExitCode);
+        }
+
+        [Theory]
+        [InlineData("net9.0-ios")]
+        [InlineData("net9.0-macos")]
+        [InlineData("net9.0-tvos")]
+        [InlineData("net9.0-maccatalyst")]
+        [InlineData("net8.0-ios")]
+        public void TargetFrameworkGate_RejectsAppleTfmBelowTheDotNetFloor(string targetFramework)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate(targetFramework);
+
+            Assert.True(exitCode != 0,
+                $"Expected the TFM gate to fail '{targetFramework}'.\n{output}");
+            Assert.Contains("SWIFTBIND010", output);
+            // A declined user's first error must name the floor they are below.
+            Assert.Contains("net10.0", output);
+        }
+
+        [Theory]
+        [InlineData("net10.0-ios")]
+        [InlineData("net10.0-macos")]
+        [InlineData("net10.0-tvos")]
+        [InlineData("net10.0-maccatalyst")]
+        public void TargetFrameworkGate_AcceptsSupportedAppleTargetFrameworks(string targetFramework)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate(targetFramework);
+
+            Assert.True(exitCode == 0,
+                $"Expected the TFM gate to accept '{targetFramework}'.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND010", output);
+        }
+
+        [Theory]
+        [InlineData("net10.0")]
+        [InlineData("net10.0-android")]
+        public void TargetFrameworkGate_RejectsNonAppleTargetFrameworks(string targetFramework)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate(targetFramework);
+
+            Assert.True(exitCode != 0,
+                $"Expected the TFM gate to fail '{targetFramework}'.\n{output}");
+            Assert.Contains("SWIFTBIND010", output);
+            Assert.Contains("net10.0", output);
+        }
+
+        // A platform-versioned TFM is a first-class spelling here — SWIFTBIND016 tells
+        // Apple-framework consumers to reach for one to pin the SDK version — and a
+        // casing variant is a spelling the platform half of the gate already tolerated.
+        // Both must stay accepted: this gate turns a project away for its .NET version
+        // and for nothing else.
+        [Theory]
+        [InlineData("net10.0-ios26.0")]
+        [InlineData("net10.0-macos15.0")]
+        [InlineData("net10.0-tvos26.0")]
+        [InlineData("net10.0-maccatalyst18.0")]
+        [InlineData("NET10.0-ios")]
+        public void TargetFrameworkGate_AcceptsVersionedAndCaseVariantAppleTargetFrameworks(
+            string targetFramework)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate(targetFramework);
+
+            Assert.True(exitCode == 0,
+                $"Expected the TFM gate to accept '{targetFramework}'.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND010", output);
+        }
+
+        // The shipped Apple-framework template multi-targets all four Apple TFMs, so the
+        // gate's real input for that shape is the per-slice global property, not the
+        // <TargetFrameworks> list in the body.
+        [Fact]
+        public void TargetFrameworkGate_MultiTargeting_AcceptsASupportedInnerSlice()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate(
+                bodyTargetFramework: null,
+                bodyTargetFrameworks: "net10.0-ios;net10.0-macos;net10.0-maccatalyst;net10.0-tvos",
+                innerBuildTargetFramework: "net10.0-ios");
+
+            Assert.True(exitCode == 0, $"Expected the TFM gate to accept the inner slice.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND010", output);
+        }
+
+        [Fact]
+        public void TargetFrameworkGate_MultiTargeting_RejectsAnInnerSliceBelowTheDotNetFloor()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate(
+                bodyTargetFramework: null,
+                bodyTargetFrameworks: "net9.0-ios;net10.0-ios",
+                innerBuildTargetFramework: "net9.0-ios");
+
+            Assert.True(exitCode != 0, $"Expected the TFM gate to fail the inner slice.\n{output}");
+            Assert.Contains("SWIFTBIND010", output);
+            Assert.Contains("net10.0", output);
+        }
+
         // ── SWIFTBIND005: the empty-DLL trap (issue #43) ──
         // A project that carries an @(ObjcBindingApiDefinition) item but omits
         // <IsBindingProject>true</IsBindingProject> ships an empty (0-type) binding

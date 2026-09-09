@@ -125,9 +125,9 @@ All generated C# — no manual wrapper code. These packages are published from [
 
 ## Getting Started
 
-**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the platform workload for your target (e.g., `dotnet workload install ios`).
+**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the platform workload for your target (e.g., `dotnet workload install ios`). Binding projects must target .NET 10 — `net10.0-ios`, `net10.0-macos`, `net10.0-tvos`, or `net10.0-maccatalyst`. Earlier .NET versions are not supported: the generator emits `net10.0-*` projects, and the MSBuild SDK turns an older TFM away with `SWIFTBIND010`.
 
-**Supported platforms**: iOS, macOS, Mac Catalyst, tvOS. The generator, MSBuild SDK, and runtime all support multi-platform targeting — generate bindings for any Apple platform with a single `--platform` flag or by changing the TFM.
+**Supported platforms**: iOS, macOS, Mac Catalyst, tvOS. The generator, MSBuild SDK, and runtime all support multi-platform targeting — generate bindings for any Apple platform with a single `--platform` flag or by changing the TFM to another `net10.0-*` Apple TFM.
 
 ```bash
 # 1. Install the project template and MSBuild SDK
@@ -233,7 +233,7 @@ Full documentation is available on the **[project wiki](https://github.com/justi
 
 ## Known Limitations
 
-Swift Bindings targets .NET 10 on Apple platforms. The vast majority of generated P/Invokes (94-98% for representative libraries) use standard C calling conventions and work identically everywhere. A small number of methods use `CallConvSwift`, which may encounter Mono JIT limitations on iOS/tvOS Simulator. **Device builds (NativeAOT) and macOS are unaffected.**
+Swift Bindings targets .NET 10 on Apple platforms — `net10.0-ios`, `net10.0-macos`, `net10.0-tvos`, and `net10.0-maccatalyst`. There is no .NET 9 lane: a binding project on an earlier TFM is rejected up front by the MSBuild SDK (`SWIFTBIND010`) rather than failing later in generation. The vast majority of generated P/Invokes (94-98% for representative libraries) use standard C calling conventions and work identically everywhere. A small number of methods use `CallConvSwift`, which may encounter Mono JIT limitations on iOS/tvOS Simulator. **Device builds (NativeAOT) and macOS are unaffected.**
 
 For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 
