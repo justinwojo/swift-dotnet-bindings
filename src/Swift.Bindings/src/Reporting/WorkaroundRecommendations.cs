@@ -76,6 +76,8 @@ public static class WorkaroundRecommendations
             "The frozen struct has a stored field that is a generic value-type instantiation (e.g. ClosedRange<Int>, Result<T,E>) whose inline size depends on its type arguments and cannot be derived cross-compile. Write a Swift wrapper that exposes the data through a supported, concretely-sized type.",
         SkipReason.NonCopyableThroughGenericSlot =>
             "The signature wraps a ~Copyable value in a generic slot — an Optional, or another generic type. Optional<T> is itself ~Copyable when T is, so the value would be marshalled through the wrapper's value witness and copied, which for a non-copyable type traps at runtime. Name the ~Copyable type directly instead: a plain borrowing/consuming parameter and a plain return are both supported. If the value genuinely needs to be absent sometimes, expose a Swift wrapper that keeps the optionality on the Swift side — a separate has-value query alongside a non-optional accessor, or a throwing accessor — rather than putting the Optional in the signature. Do not reach for a ~Copyable enum here: an enum has no move-only C# projection at all, so it is refused as a type in its own right.",
+        SkipReason.NonCopyableThroughCopyingLane =>
+            "The signature routes a ~Copyable value into a lane that can only copy it — a closure argument or result, a tuple element, or a parameter of an async member. A directly named ~Copyable parameter or return is supported because the wrapper borrows or moves it in place; these lanes materialise the value with its copy witness instead, which for a non-copyable type traps at runtime. Take the value out of the closure or tuple and name it directly in the member's own signature, or expose a Swift wrapper whose closure passes a copyable summary (an identifier, a snapshot struct) instead of the resource itself. For the async case, split the member: hand the ~Copyable value to a synchronous entry point and keep the async work on data that outlives it.",
         SkipReason.NonCopyableWithoutMoveCapableRoute =>
             "The member consumes a ~Copyable value, but its signature also carries a shape that declines the @_cdecl wrapper, leaving the call on Swift's own symbol. The consuming hand-over is carried by a Swift-side move paired with a C#-side consumed mark, and neither exists on that route, so the value's deinit would run in the callee and its value witness would destroy the same storage again on return. Remove whatever else in the signature declines the wrapper (most often a nested frozen struct parameter beside the ~Copyable one — hoist it to a top-level type), or make the parameter borrowing and expose a separate Swift entry point that consumes the value on its own.",
         SkipReason.SkippedTypeReference =>
@@ -177,6 +179,8 @@ public static class WorkaroundRecommendations
             "~Copyable value reached through a generic slot (Optional<T> is ~Copyable when T is)",
         SkipReason.NonCopyableWithoutMoveCapableRoute =>
             "consumed ~Copyable value on a call route with no move (the value would be destroyed twice)",
+        SkipReason.NonCopyableThroughCopyingLane =>
+            "~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies)",
         SkipReason.AncestorSkipped =>
             "nested type whose parent was skipped",
         SkipReason.ParentTypeSuppressed =>

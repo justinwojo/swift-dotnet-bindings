@@ -245,6 +245,7 @@ public static class SkipCauseClassifier
         // claims only Medium confidence — it points a reader at the referenced type's own row.
         Add(SkipReason.SkippedTypeReference, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.Medium);
         Add(SkipReason.NonCopyableThroughGenericSlot, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
+        Add(SkipReason.NonCopyableThroughCopyingLane, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
         // The Swift declaration is legal and the callee is fine; what is missing is a frame on our
         // side of the call that can move the value out of the caller's buffer, so the generator owns it.
         Add(SkipReason.NonCopyableWithoutMoveCapableRoute, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);

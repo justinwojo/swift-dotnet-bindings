@@ -188,6 +188,26 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         }
 
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+
+        // Optional<T> inherits T's copyability, so a ~Copyable T makes this whole Optional
+        // ~Copyable and its copy witness a trap. Nothing in the C# signature can prevent that:
+        // this class has no `where T` constraint, and none it could carry would express Swift's
+        // implicit `T: Copyable`. The source handle stays the caller's, so there is no take to
+        // substitute either — fail at the constructor the consumer called instead of aborting
+        // inside the Swift runtime.
+        //
+        // Checked ahead of the POD tag-byte fast path below, not inside the witness arm: a
+        // move-only payload built from trivial fields is non-copyable and POD at once, and the
+        // memcpy arm asks no witness at all, so it would duplicate a value that permits a single
+        // owner without any diagnostic.
+        if (Swift.Runtime.NonCopyableValueGuard.IsNonCopyable(metadata))
+        {
+            global::System.Runtime.InteropServices.NativeMemory.Free((void*)bufferPtr);
+            throw Swift.Runtime.NonCopyableValueGuard.CannotDuplicate(
+                typeof(T).FullName ?? typeof(T).Name,
+                "wrapping it in a SwiftOptional, which copies the payload out of a buffer the caller keeps");
+        }
+
         var tagOffset = GetTagByteOffset();
         if (tagOffset >= 0 && !metadata.ValueWitnessTable->IsNonPOD)
         {
@@ -289,6 +309,16 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                 _payload.DangerousAddRef(ref success);
                 try
                 {
+                    // This SwiftOptional keeps its payload after the marshal, so the destination
+                    // span needs a second owner of the value — which a ~Copyable payload does not
+                    // have. Same reasoning as the constructor above.
+                    if (Swift.Runtime.NonCopyableValueGuard.IsNonCopyable(metadata))
+                    {
+                        throw Swift.Runtime.NonCopyableValueGuard.CannotDuplicate(
+                            typeof(T).FullName ?? typeof(T).Name,
+                            "marshalling a SwiftOptional to Swift, which copies the payload while this wrapper keeps its own");
+                    }
+
                     metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
                     return size;
                 }

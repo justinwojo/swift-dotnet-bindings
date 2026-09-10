@@ -26,6 +26,15 @@ namespace Swift.Runtime
         IsNonBitwiseTakable = 0x00100000,
         HasEnumWitnesses = 0x00200000,
         Incomplete = 0x00400000,
+
+        // Swift's TargetValueWitnessFlags carries a non-copyable bit that says the type has no
+        // copy at all: its `initializeWithCopy` witness is `__swift_cannot_copy_noncopyable_type`,
+        // which traps unconditionally rather than returning a diagnostic. The value was read off a
+        // real metadata probe rather than taken from a header — two structs with identical stored
+        // properties differing only by `~Copyable` gave flags 0x00010007 and 0x00810007, isolating
+        // this bit, and `Optional<T>` was confirmed to inherit it while String (which sets a
+        // different high bit) does not.
+        IsNonCopyable = 0x00800000,
     }
 
     /// <summary>
@@ -148,6 +157,14 @@ namespace Swift.Runtime
         /// Returns true if the value can NOT be copied bitwise.
         /// </summary>
         public bool IsNonBitwiseTakable => (Flags & ValueWitnessFlags.IsNonBitwiseTakable) != 0;
+
+        /// <summary>
+        /// Returns true when the type is non-copyable (Swift's <c>~Copyable</c>), so
+        /// <see cref="InitializeWithCopy"/> is <c>__swift_cannot_copy_noncopyable_type</c> and
+        /// calling it aborts the process. A caller holding a value it does not own has no way to
+        /// duplicate such a type and must either take it or refuse.
+        /// </summary>
+        public bool IsNonCopyable => (Flags & ValueWitnessFlags.IsNonCopyable) != 0;
 
         /// <summary>
         /// Returns true if and only if the type has extra inhabitants.

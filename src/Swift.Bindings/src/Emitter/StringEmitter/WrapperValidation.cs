@@ -511,6 +511,76 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Whether a <c>~Copyable</c> value is REACHABLE anywhere inside a signature position — through
+    /// a closure's argument or return type, or through a tuple element — as opposed to whether the
+    /// position's own value is non-copyable.
+    /// <para>
+    /// These are two different questions and they must stay two different predicates.
+    /// <see cref="IsNonCopyableType"/> answers "is THIS value non-copyable", which is what every
+    /// caller that copies a value, spells a <c>consuming</c> ownership prefix, or decides whether a
+    /// wire buffer still needs destroying is asking. A closure VALUE of type
+    /// <c>(borrowing Token) -&gt; Int32</c> is perfectly copyable even though a <c>~Copyable</c>
+    /// type appears in its signature, so widening the first predicate to answer true for it would
+    /// make those callers wrong. What IS unsound is BINDING such a member: the closure lane
+    /// materialises each non-frozen struct argument into a heap buffer with the value witness's
+    /// <c>initializeWithCopy</c>, which for a non-copyable type is
+    /// <c>__swift_cannot_copy_noncopyable_type</c> — an unconditional trap, reached only at run
+    /// time because both compilers accept the emission.
+    /// </para>
+    /// <para>
+    /// So this predicate exists for the callers that ask the binding question rather than the
+    /// value question — <see cref="ReachesNonCopyableThroughCopyingLane"/> and the member-emission
+    /// gate built on it. <see cref="ReachesUnlowerableNonCopyable"/> deliberately does NOT use it:
+    /// that gate owns positions whose own value is non-copyable and reports them as reached through
+    /// a generic slot, which is not what a copyable closure carrying one is. It is a strict superset of
+    /// <see cref="IsNonCopyableType"/> — every shape the first predicate calls non-copyable is
+    /// still non-copyable here — and it adds only shapes that CONTAIN one. A signature with no
+    /// non-copyable type anywhere in it answers false exactly as before, so no copyable member
+    /// changes route.
+    /// </para>
+    /// </summary>
+    public static bool SignatureReachesNonCopyable(TypeSpec? typeSpec, ITypeDatabase typeDatabase, ModuleDecl? currentModule = null)
+    {
+        if (typeSpec is null)
+            return false;
+
+        if (IsNonCopyableType(typeSpec, typeDatabase, currentModule))
+            return true;
+
+        switch (typeSpec)
+        {
+            case ClosureTypeSpec closureSpec:
+                // Arguments is a single spec — a TupleTypeSpec when the closure takes more than one,
+                // which the tuple arm below then walks.
+                return SignatureReachesNonCopyable(closureSpec.Arguments, typeDatabase, currentModule) ||
+                       SignatureReachesNonCopyable(closureSpec.ReturnType, typeDatabase, currentModule);
+
+            case TupleTypeSpec tupleSpec:
+                foreach (var element in tupleSpec.Elements)
+                {
+                    if (SignatureReachesNonCopyable(element, typeDatabase, currentModule))
+                        return true;
+                }
+                return false;
+
+            case NamedTypeSpec namedSpec:
+                // IsNonCopyableType already walked the generic arguments, but only through its own
+                // named-spec recursion: a generic argument that is itself a closure or a tuple
+                // (`Optional<(borrowing Token) -> Int32>`) falls out of that walk at the type check.
+                foreach (var genericArg in namedSpec.GenericParameters)
+                {
+                    if (SignatureReachesNonCopyable(genericArg, typeDatabase, currentModule))
+                        return true;
+                }
+                return namedSpec.InnerType is not null &&
+                       SignatureReachesNonCopyable(namedSpec.InnerType, typeDatabase, currentModule);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
     /// Whether any type in a member's signature carries a <c>~Copyable</c> value that no emission
     /// path can move rather than copy — reporting the offending spelling when it does.
     /// <para>
@@ -627,6 +697,133 @@ public static class WrapperValidation
            "named ~Copyable type can be moved across the boundary (pointer in, borrow or move " +
            "out); a nested one would be marshalled through the enclosing type's value witness, " +
            "whose copy for a non-copyable value is an unconditional runtime trap.";
+
+    /// <summary>
+    /// Whether a member's signature routes a <c>~Copyable</c> value into a lane whose only
+    /// materialisation step is the value witness's <c>initializeWithCopy</c> — reporting the
+    /// offending spelling when it does.
+    /// <para>
+    /// This is the closure/tuple half of the same soundness condition
+    /// <see cref="ReachesUnlowerableNonCopyable"/> covers for generic slots, and it is a separate
+    /// predicate because the two reach the value differently. There, the signature position IS a
+    /// non-copyable value that no route can move. Here the position is a perfectly copyable
+    /// composite — a function value, a tuple — that merely CONTAINS one, so
+    /// <see cref="IsNonCopyableType"/> answers false for it (correctly, for every caller asking
+    /// whether the composite itself may be copied) while the lane that binds it still reaches for
+    /// the contained value's copy witness. For a closure argument that lane is the invoke thunk,
+    /// which heap-materialises each non-frozen struct argument before handing it to the managed
+    /// delegate; for a tuple element it is the element extractor.
+    /// </para>
+    /// <para>
+    /// Both compilers accept that emission, so the trap
+    /// (<c>__swift_cannot_copy_noncopyable_type</c>) is reachable only at run time and only a
+    /// prediction gate can stop it. Shapes already claimed by
+    /// <see cref="ReachesUnlowerableNonCopyable"/> are skipped here so a signature is reported
+    /// under one reason rather than two.
+    /// </para>
+    /// </summary>
+    public static bool ReachesNonCopyableThroughCopyingLane(
+        IEnumerable<TypeSpec?> signatureSpecs,
+        ITypeDatabase typeDatabase,
+        ModuleDecl? moduleDecl,
+        out string offending)
+    {
+        foreach (var spec in signatureSpecs)
+        {
+            if (spec is null)
+                continue;
+            // The generic-slot gate owns every position that is itself a non-copyable value,
+            // whether or not it lowers directly.
+            if (IsNonCopyableType(spec, typeDatabase, moduleDecl))
+                continue;
+            if (SignatureReachesNonCopyable(spec, typeDatabase, moduleDecl))
+            {
+                offending = spec.ToString() ?? "<unknown>";
+                return true;
+            }
+        }
+
+        offending = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// The single wording behind <see cref="ReachesNonCopyableThroughCopyingLane"/>.
+    /// </summary>
+    public static string DescribeNonCopyableThroughCopyingLane(string offending)
+        => $"'{offending}' is itself copyable but reaches a ~Copyable value through a closure " +
+           "argument, closure result or tuple element. Binding it materialises that value with " +
+           "the enclosing type's value witness, whose copy for a non-copyable value is an " +
+           "unconditional runtime trap; only a directly named ~Copyable type has a route that " +
+           "borrows or moves instead of copying.";
+
+    /// <summary>
+    /// Whether an async member takes a directly named <c>~Copyable</c> parameter that the async
+    /// wrapper would stage through a value-witness copy buffer — reporting the offending spelling
+    /// when it does.
+    /// <para>
+    /// A directly named non-copyable type is the SUPPORTED lane on a synchronous member: the
+    /// <c>@_cdecl</c> wrapper borrows it in place or moves it out, so
+    /// <see cref="ReachesUnlowerableNonCopyable"/> deliberately admits it. The async wrapper cannot
+    /// use that route. A parameter has to outlive the suspension point, so every non-frozen
+    /// parameter is first duplicated into a heap buffer the async holder owns and destroys on the
+    /// continuation, while the caller's own value stays live and keeps its buffer — two owners of
+    /// one value, which is exactly what a non-copyable type does not have. There is no take to
+    /// substitute: on a <c>borrowing</c> parameter the caller still owns the value after the call
+    /// returns, so moving out of its buffer would leave the caller's handle destroying storage the
+    /// async continuation has already consumed.
+    /// </para>
+    /// <para>
+    /// The filter mirrors the async wrapper's own copy-buffer selection: ObjC-bridged, ObjC-rooted
+    /// and ObjC-bridgeable types are .NET objects and never staged, simple enums are C# value
+    /// types, and a frozen struct only stages when it is an enum. A shape the async wrapper would
+    /// not stage is left alone, so nothing that binds today stops binding.
+    /// </para>
+    /// </summary>
+    public static bool AsyncParameterCopiesNonCopyable(
+        MethodDecl methodDecl,
+        ITypeDatabase typeDatabase,
+        out string offending)
+    {
+        offending = string.Empty;
+        if (!methodDecl.IsAsync)
+            return false;
+
+        foreach (var argumentDecl in methodDecl.CSSignature.Skip(1))
+        {
+            var spec = argumentDecl.SwiftTypeSpec;
+            if (spec is not NamedTypeSpec namedSpec)
+                continue;
+            if (!IsNonCopyableType(namedSpec, typeDatabase, methodDecl.ModuleDecl))
+                continue;
+            if (!typeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
+                continue;
+            if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
+                MarshallingHelpers.IsObjCRooted(typeRecord) ||
+                MarshallingHelpers.IsObjCBridgeable(typeRecord))
+                continue;
+            if (typeRecord.Kind == TypeRecordKind.Enum &&
+                (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
+                continue;
+            if (!MarshallingHelpers.IsTypeFrozen(typeRecord) || typeRecord.Kind == TypeRecordKind.Enum)
+            {
+                offending = namedSpec.ToString() ?? "<unknown>";
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The single wording behind <see cref="AsyncParameterCopiesNonCopyable"/>.
+    /// </summary>
+    public static string DescribeAsyncParameterCopiesNonCopyable(string offending)
+        => $"'{offending}' is a ~Copyable parameter on an async member. The async wrapper has to " +
+           "stage a non-frozen parameter into a buffer that outlives the suspension point, which " +
+           "duplicates the value with its copy witness while the caller keeps its own; for a " +
+           "non-copyable value that witness is an unconditional runtime trap, and there is no " +
+           "move to substitute because a borrowing caller still owns the value after the call.";
 
     /// <summary>
     /// Checks whether a member should be blocked from @_cdecl wrapper emission due to actor isolation.

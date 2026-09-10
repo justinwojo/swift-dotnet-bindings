@@ -769,6 +769,15 @@ public static class GenericClosureBridgeEmitter
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
         env.EmissionContext?.RecordEmittedApiShape(
             methodDecl, methodName, ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
+
+        // `where T : ISwiftObject` cannot express Swift's implicit `T: Copyable`, and no C# constraint
+        // can: copyability is a property of the Swift value witness, not of any managed type identity.
+        // So this signature admits a ~Copyable instantiation the Swift declaration would have rejected,
+        // and no emission-time predicate can see the consumer's chosen T either — the member is
+        // generic in C# precisely because the type is not known here. The value-witness copies that
+        // instantiation would reach live in the runtime marshal helpers this body calls, and those
+        // read the metadata's non-copyable flag and throw. That runtime check, not a tighter
+        // constraint, is what closes this lane.
         csWriter.WriteLine($"public unsafe T {methodName}<T>({string.Join(", ", publicParams)}) where T : ISwiftObject");
         csWriter.WriteLine("{");
         csWriter.Indent++;

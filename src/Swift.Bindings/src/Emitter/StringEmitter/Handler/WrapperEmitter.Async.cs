@@ -805,8 +805,22 @@ namespace BindingsGeneration
                     // silently stripping the wrapper). Concrete returns keep the bare form.
                     var structEnumMetatype = swiftReturnType.StartsWith("any ")
                         ? $"({swiftReturnType}).self" : $"{swiftReturnType}.self";
-                    string structEnumCopyCode =
-                          $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+
+                    // `initializeMemory(as:repeating:count:)` is declared on a Copyable element — it
+                    // repeats the value, so a ~Copyable return type does not satisfy its constraint
+                    // and the wrapper stops compiling, which costs the member its binding. The
+                    // move-initializing form takes the result instead of repeating it, which is what
+                    // this carrier wants anyway: the harness owns the allocation outright and the C#
+                    // side takes the value straight back out of it. Restricted to ~Copyable returns
+                    // so every copyable member keeps the exact wrapper text it has today.
+                    bool returnIsNonCopyable = WrapperValidation.IsNonCopyableType(
+                        returnTypeSpec, _env.TypeDatabase, _env.MethodDecl.ModuleDecl);
+
+                    string structEnumCopyCode = returnIsNonCopyable
+                        ? $"                            let _typedPtr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)\n" +
+                          $"                            _typedPtr.initialize(to: {resultVar})\n" +
+                          $"                            let _rawPtr = UnsafeMutableRawPointer(_typedPtr)\n"
+                        : $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
                           $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
                           $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
                           $"                            _rawPtr.initializeMemory(as: {structEnumMetatype}, repeating: {resultVar}, count: 1)\n";

@@ -612,6 +612,14 @@ public static class AsyncMethodGenericBridgeEmitter
         foreach (var reconstruction in reconstructions)
             swiftWriter.WriteLine($"    {reconstruction}");
 
+        // The result carrier this wrapper heap-allocates is handed to exactly one consumer — the C#
+        // completion callback — which takes the value straight back out of it. A ~Copyable return
+        // therefore needs the move-initializing form; the repeating one is declared on a Copyable
+        // element and would cost the member its binding by failing to compile. Same predicate the
+        // C# half keys its take on, so the two sides of the handoff agree by construction.
+        bool swiftReturnIsNonCopyable = WrapperValidation.IsNonCopyableType(
+            returnTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl);
+
         swiftWriter.WriteLine($"    let _entry = _SBWTaskEntry()");
         swiftWriter.WriteLine($"    _sbwRegisterTask(_sbwCancelKey, _entry)");
         var taskOpen = needsMainActor
@@ -625,14 +633,14 @@ public static class AsyncMethodGenericBridgeEmitter
         if (throws)
         {
             swiftWriter.WriteLine($"        do {{");
-            EmitTaskBody(swiftWriter, "            ", returnKind, returnTypeSpec, callExpr, awaitKeyword, methodDecl.Name, returnTypeRecord);
+            EmitTaskBody(swiftWriter, "            ", returnKind, returnTypeSpec, callExpr, awaitKeyword, methodDecl.Name, returnTypeRecord, swiftReturnIsNonCopyable);
             swiftWriter.WriteLine($"        }} catch {{");
             EmitCatchBody(swiftWriter, "            ", moduleName, ctx);
             swiftWriter.WriteLine($"        }}");
         }
         else
         {
-            EmitTaskBody(swiftWriter, "        ", returnKind, returnTypeSpec, callExpr, awaitKeyword, methodDecl.Name, returnTypeRecord);
+            EmitTaskBody(swiftWriter, "        ", returnKind, returnTypeSpec, callExpr, awaitKeyword, methodDecl.Name, returnTypeRecord, swiftReturnIsNonCopyable);
         }
 
         swiftWriter.WriteLine($"    }}");
@@ -650,7 +658,8 @@ public static class AsyncMethodGenericBridgeEmitter
         string callExpr,
         string awaitKeyword,
         string methodName,
-        TypeRecord? returnTypeRecord)
+        TypeRecord? returnTypeRecord,
+        bool returnIsNonCopyable)
     {
         switch (returnKind)
         {
@@ -675,10 +684,23 @@ public static class AsyncMethodGenericBridgeEmitter
                     var renderedReturn = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
                     swiftWriter.WriteLine($"{indent}let _result = {awaitKeyword} {callExpr}");
                     // Heap-allocate so the buffer outlives this Task's frame.
-                    swiftWriter.WriteLine($"{indent}let _resultBuf = UnsafeMutableRawPointer.allocate(");
-                    swiftWriter.WriteLine($"{indent}    byteCount: MemoryLayout<{renderedReturn}>.size,");
-                    swiftWriter.WriteLine($"{indent}    alignment: MemoryLayout<{renderedReturn}>.alignment)");
-                    swiftWriter.WriteLine($"{indent}_resultBuf.initializeMemory(as: {renderedReturn}.self, repeating: _result, count: 1)");
+                    if (returnIsNonCopyable)
+                    {
+                        // `initializeMemory(as:repeating:count:)` repeats its element, so it is
+                        // declared on a Copyable one. The move-initializing form consumes _result
+                        // into the same allocation instead, which is what this carrier wants: the
+                        // C# callback takes the value back out and the raw pointer is freed after.
+                        swiftWriter.WriteLine($"{indent}let _resultTyped = UnsafeMutablePointer<{renderedReturn}>.allocate(capacity: 1)");
+                        swiftWriter.WriteLine($"{indent}_resultTyped.initialize(to: _result)");
+                        swiftWriter.WriteLine($"{indent}let _resultBuf = UnsafeMutableRawPointer(_resultTyped)");
+                    }
+                    else
+                    {
+                        swiftWriter.WriteLine($"{indent}let _resultBuf = UnsafeMutableRawPointer.allocate(");
+                        swiftWriter.WriteLine($"{indent}    byteCount: MemoryLayout<{renderedReturn}>.size,");
+                        swiftWriter.WriteLine($"{indent}    alignment: MemoryLayout<{renderedReturn}>.alignment)");
+                        swiftWriter.WriteLine($"{indent}_resultBuf.initializeMemory(as: {renderedReturn}.self, repeating: _result, count: 1)");
+                    }
                     // C# reads via MarshalFromSwift<T>, then VWT.Destroy + NativeMemory.Free.
                     swiftWriter.WriteLine($"{indent}callback(_resultBuf, _sbwTask)");
                     break;
@@ -784,7 +806,13 @@ public static class AsyncMethodGenericBridgeEmitter
         csWriter.WriteLine($"private static unsafe void {callbackMethodName}({callbackParamList})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        EmitCallbackBody(csWriter, returnKind, csReturnType, returnTypeRecord);
+        // Same take-vs-copy decision the async harness makes for its own result carrier: this
+        // bridge owns the carrier and destroys it right after the marshal, so a ~Copyable result
+        // moves rather than copies. Resolved here, where the return spec and the environment are
+        // both in scope.
+        bool returnIsNonCopyable = WrapperValidation.IsNonCopyableType(
+            returnTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl);
+        EmitCallbackBody(csWriter, returnKind, csReturnType, returnTypeRecord, returnIsNonCopyable);
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
@@ -889,7 +917,8 @@ public static class AsyncMethodGenericBridgeEmitter
     }
 
     private static void EmitCallbackBody(
-        CSharpWriter csWriter, AsyncReturnKind returnKind, string csReturnType, TypeRecord? returnTypeRecord)
+        CSharpWriter csWriter, AsyncReturnKind returnKind, string csReturnType, TypeRecord? returnTypeRecord,
+        bool returnIsNonCopyable)
     {
         csWriter.WriteLine("GCHandle handle = GCHandle.FromIntPtr((IntPtr)task);");
         csWriter.WriteLine("try");
@@ -935,6 +964,21 @@ public static class AsyncMethodGenericBridgeEmitter
             case AsyncReturnKind.ComplexValue:
                 if (cbTakesOwnership)
                 {
+                    // A ~Copyable result has no copy witness, and this lane does not need one: the
+                    // carrier is ours and the finally below destroys it immediately, so the pair is
+                    // already a move written as copy-then-destroy. InitializeWithTake performs it
+                    // directly and the carrier release goes away with it. Copyable results keep the
+                    // existing emission unchanged.
+                    string resultInitWitness = returnIsNonCopyable ? "InitializeWithTake" : "InitializeWithCopy";
+                    string carrierReleaseBlock = returnIsNonCopyable
+                        ? ""
+                        : """
+
+                            finally
+                            {
+                                __resultMetadata.ValueWitnessTable->Destroy((void*)rawResult, __resultMetadata);
+                            }
+                            """;
                     // Non-frozen struct / complex enum → ClassWithOpaquePayload. Copy the
                     // carrier into a fresh NativeMemory.Alloc buffer that the SafeHandle
                     // owns, then VWT-Destroy the original carrier to release its +1; the
@@ -946,7 +990,7 @@ public static class AsyncMethodGenericBridgeEmitter
                     csWriter.WriteLines($$"""
                         var __resultMetadata = SwiftObjectHelper<{{csReturnType}}>.GetTypeMetadata();
                         IntPtr __resultBuf = (IntPtr)NativeMemory.Alloc(__resultMetadata.Size);
-                        __resultMetadata.ValueWitnessTable->InitializeWithCopy((void*)__resultBuf, (void*)rawResult, __resultMetadata);
+                        __resultMetadata.ValueWitnessTable->{{resultInitWitness}}((void*)__resultBuf, (void*)rawResult, __resultMetadata);
                         {{csReturnType}} result;
                         try
                         {
@@ -957,14 +1001,10 @@ public static class AsyncMethodGenericBridgeEmitter
                             __resultMetadata.ValueWitnessTable->Destroy((void*)__resultBuf, __resultMetadata);
                             NativeMemory.Free((void*)__resultBuf);
                             throw;
-                        }
-                        finally
-                        {
-                            __resultMetadata.ValueWitnessTable->Destroy((void*)rawResult, __resultMetadata);
-                        }
+                        }{{carrierReleaseBlock}}
                         """);
                 }
-                else if (carrierNeedsDestroy)
+                else if (carrierNeedsDestroy && !returnIsNonCopyable)
                 {
                     // Frozen struct with ref fields (ClassWithBufferStruct). NewFromPayload
                     // runs its own InitializeWithCopy into a managed buffer; we still need
@@ -987,6 +1027,11 @@ public static class AsyncMethodGenericBridgeEmitter
                 {
                     // Frozen blittable struct / simple enum — value-copied by MarshalFromSwift.
                     // The carrier holds no internal refs, so a raw free below is enough.
+                    //
+                    // A ~Copyable frozen-as-class result lands here too, by the guard on the arm
+                    // above. Its payload constructor has no copy witness to run, so it takes the
+                    // carrier; a value-witness Destroy afterwards would deinit storage the take
+                    // already emptied. The take is the release, and the raw free below finishes it.
                     csWriter.WriteLine($"var result = SwiftMarshal.MarshalFromSwift<{csReturnType}>(rawResult);");
                 }
                 break;

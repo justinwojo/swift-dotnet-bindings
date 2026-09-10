@@ -38,6 +38,26 @@ public static class ExistentialBypassEmitter
         if (methodDecl.IsFailable || methodDecl.Throws)
             return false;
 
+        // A ~Copyable Self cannot be constructed through this lane. The bypass wrapper heap-
+        // allocates the result on the Swift side and hands C# a raw pointer it only ever borrows:
+        // the paired free (emitted just below the wrapper) unconditionally runs
+        // `deinitialize(count: 1)` before deallocating, so the value's single destroy already
+        // belongs to Swift. The factory therefore has to materialise its own copy — and a
+        // non-copyable type has no copy witness, only a trap. Substituting a take is not available
+        // either: the taken-from pointer would still be deinitialized by that free, destroying the
+        // value a second time. Giving this lane a take would mean changing its Swift-side ownership
+        // contract (a second, non-deinitializing deallocator plus a took-it flag threaded through
+        // the finally), which is a redesign of the lane rather than a move it already permits.
+        // Declining to claim the constructor leaves it to ordinary emission, where its unsupported
+        // existential argument is refused on its own terms.
+        if (WrapperValidation.IsNonCopyableStructParent(structDecl))
+        {
+            logger.LogDebug("ExistentialBypassEmitter: '{Parent}' is ~Copyable; the bypass factory " +
+                "would have to copy a value that has no copy witness, so the constructor is not claimed.",
+                structDecl.Name);
+            return false;
+        }
+
         // Classify params: first element in CSSignature is the return type
         var allArgs = methodDecl.CSSignature.Skip(1).ToList();
         var existentialArgs = new List<ArgumentDecl>();

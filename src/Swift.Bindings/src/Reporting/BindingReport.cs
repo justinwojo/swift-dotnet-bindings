@@ -669,6 +669,26 @@ public enum SkipReason
     /// </para>
     /// </summary>
     NonCopyableWithoutMoveCapableRoute,
+
+    /// <summary>
+    /// The signature routes a <c>~Copyable</c> value into a lane whose only way to materialise it
+    /// is the value witness's <c>initializeWithCopy</c> — through a closure argument or result,
+    /// through a tuple element, or as a parameter to an async member.
+    /// <para>
+    /// This is the shape a directly named non-copyable parameter is NOT. That one crosses as a
+    /// pointer the <c>@_cdecl</c> wrapper borrows in place or <c>.move()</c>s out, so it binds. The
+    /// lanes here have no such route. A closure argument is heap-materialised by the invoke thunk
+    /// before the managed delegate ever sees it; an async parameter is staged into a buffer that
+    /// has to outlive the suspension point while the caller keeps its own value, which is two
+    /// owners of a value Swift permits one of.
+    /// </para>
+    /// <para>
+    /// For a non-copyable type that copy witness is <c>__swift_cannot_copy_noncopyable_type</c>, an
+    /// unconditional trap rather than a diagnostic, and both compilers accept the emitted code — so
+    /// the member is refused at emission rather than left to the verify-recover loop.
+    /// </para>
+    /// </summary>
+    NonCopyableThroughCopyingLane,
 }
 
 /// <summary>

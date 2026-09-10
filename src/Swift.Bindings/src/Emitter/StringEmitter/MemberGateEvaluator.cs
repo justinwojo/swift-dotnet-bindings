@@ -132,6 +132,23 @@ public class MemberGateEvaluator
             boundGenericsHandler.HasNonSwiftObjectGenericArg(property.SwiftTypeSpec))
             return GateResult.Skipped(SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
 
+        // PN2: the copying-lane half — a requirement whose type is itself copyable but reaches a
+        // ~Copyable value through a closure argument, a closure result or a tuple element.
+        //
+        // Ahead of the closure soft gate below, and for the same reason Gate 1c precedes the
+        // concrete pipeline's closure gate: the shape this refuses is a closure property, so the
+        // soft gate would claim it first and leave an InterfaceOnly stub behind. The concrete side
+        // hard-skips the same property, so a conforming type would carry no implementation for the
+        // stub and lose its whole conformance. A soundness refusal has to outrank a projection
+        // fallback for the two front ends to agree.
+        if (WrapperValidation.ReachesNonCopyableThroughCopyingLane(
+                new[] { property.SwiftTypeSpec }, _typeDatabase,
+                property.ModuleDecl ?? moduleDecl, out var propCopyingLane))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughCopyingLane,
+                WrapperValidation.DescribeNonCopyableThroughCopyingLane(propCopyingLane));
+        }
+
         // P7: Closure property (soft gate → InterfaceOnly)
         if (protocolContext != null)
         {
@@ -335,6 +352,22 @@ public class MemberGateEvaluator
                 WrapperValidation.DescribeUnlowerableNonCopyable(methodNonCopyable));
         }
 
+        // MN2: the copying-lane half, plus the async-parameter staging case the generic-slot gate
+        // deliberately admits on a synchronous member.
+        if (WrapperValidation.ReachesNonCopyableThroughCopyingLane(
+                method.CSSignature.Select(a => a.SwiftTypeSpec), _typeDatabase,
+                method.ModuleDecl ?? moduleDecl, out var methodCopyingLane))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughCopyingLane,
+                WrapperValidation.DescribeNonCopyableThroughCopyingLane(methodCopyingLane));
+        }
+
+        if (WrapperValidation.AsyncParameterCopiesNonCopyable(method, _typeDatabase, out var methodAsyncNonCopyable))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughCopyingLane,
+                WrapperValidation.DescribeAsyncParameterCopiesNonCopyable(methodAsyncNonCopyable));
+        }
+
         // If soft gates fired but no hard gate, return InterfaceOnly
         if (softFlags != SoftGateFlags.None)
             return GateResult.SoftSkip(softFlags);
@@ -446,6 +479,15 @@ public class MemberGateEvaluator
         {
             return GateResult.Skipped(SkipReason.NonCopyableThroughGenericSlot,
                 WrapperValidation.DescribeUnlowerableNonCopyable(subscriptNonCopyable));
+        }
+
+        // SN2: the copying-lane half, over the same index/element span.
+        if (WrapperValidation.ReachesNonCopyableThroughCopyingLane(
+                subscript.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscript.ReturnTypeSpec),
+                _typeDatabase, resolvedSubscriptModule, out var subscriptCopyingLane))
+        {
+            return GateResult.Skipped(SkipReason.NonCopyableThroughCopyingLane,
+                WrapperValidation.DescribeNonCopyableThroughCopyingLane(subscriptCopyingLane));
         }
 
         return GateResult.Pass;

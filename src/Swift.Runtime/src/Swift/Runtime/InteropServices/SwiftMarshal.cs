@@ -789,12 +789,37 @@ public static class SwiftMarshal
 
         bool tempRetained = false;
         TypeMetadata metadata = default;
+        bool metadataResolved = false;
         if (sem != PayloadConstructionSemantics.Inline
             && TypeMetadata.TryGetTypeMetadata<T>(out var md)
-            && md.Value.IsValid
-            && md.Value.ValueWitnessTable->IsNonPOD)
+            && md.Value.IsValid)
         {
             metadata = md.Value;
+            metadataResolved = true;
+        }
+
+        // The source is borrowed and stays the carrier's, so this lane's whole contract is
+        // "produce an independent second reference" — which a ~Copyable T does not have. The
+        // declared semantics cannot answer this: Move covers both a wire buffer that was moved
+        // from and a type that has no copy at all, so it says nothing about copyability. Only
+        // the value witness flag does, and reading it here turns the trap the copy witness
+        // would run into an attributable managed failure.
+        //
+        // Read ahead of the POD split rather than inside it. A move-only type whose stored
+        // fields are all trivial — a handle or raw-pointer wrapper with no deinit — is flagged
+        // non-copyable and POD at the same time, and the byte-copy arm below never consults a
+        // witness, so it would hand the consumer a second owner of the one resource silently.
+        // Duplicating that is the exact hazard the Swift type forbids, so it is refused here too.
+        if (metadataResolved && NonCopyableValueGuard.IsNonCopyable(metadata))
+        {
+            NativeMemory.Free(heapCopy);
+            throw NonCopyableValueGuard.CannotDuplicate(
+                typeof(T).FullName ?? typeof(T).Name,
+                "extracting it out of a borrowed carrier payload, which leaves the carrier's own value in place");
+        }
+
+        if (metadataResolved && metadata.ValueWitnessTable->IsNonPOD)
+        {
             metadata.ValueWitnessTable->InitializeWithCopy(heapCopy, source, metadata);
             tempRetained = true;
         }
@@ -2323,6 +2348,21 @@ public static class SwiftMarshal
             IntPtr classPointer = *(IntPtr*)source;
             Arc.UnknownObjectRetain(classPointer);
             return NewFromPayloadForType(elementType, classPointer);
+        }
+
+        // Same borrowed-source contract as MarshalExtractedPayloadValue: the slot keeps the
+        // carrier's reference, so a ~Copyable element has no way to hand out a second one. Read
+        // ahead of the POD split below for the same reason it is read ahead of the one there — a
+        // move-only element built from trivial fields is non-copyable and POD at once, and the
+        // bitwise read at the bottom asks no witness, so it would build a second wrapper over the
+        // tuple's interior slot and let it adopt storage the tuple still owns.
+        if (!elementType.IsValueType
+            && elementMetadata.IsValid
+            && NonCopyableValueGuard.IsNonCopyable(elementMetadata))
+        {
+            throw NonCopyableValueGuard.CannotDuplicate(
+                elementType.FullName ?? elementType.Name,
+                "extracting it out of a borrowed tuple slot, which leaves the tuple's own element in place");
         }
 
         // Reference-backed non-class value: take a value-witness +1 into a temporary so the element

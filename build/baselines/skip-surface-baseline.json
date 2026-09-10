@@ -1,5 +1,5 @@
 {
-  "git_sha": "c93d43cf8",
+  "git_sha": "765f4f2e3",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -29,7 +29,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the declaring type is generic in a way the wrapper cannot specialize). P/Invoke calling convention may not match Swift ABI",
-      "count": 12
+      "count": 15
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -652,6 +652,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027TrackedFailableResource.init\u0027 \u2014 ~Copyable value reached through a generic slot (Optional\u003CT\u003E is ~Copyable when T is) (\u0027Swift.Optional\u003CSwiftBindingsTestLib.TrackedFailableResource\u003E\u0027 carries a ~Copyable value through a generic slot. Only a directly named ~Copyable type can be moved across the boundary (pointer in, borrow or move out); a nested one would be marshalled through the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027TupleOfClassParamHost.init\u0027 \u2014 parameter or return type not yet supported (Tuple parameter \u0027maxSize\u0027 has elements the @_cdecl tuple buffer cannot carry \u2014 per-element marshalling for this element kind is not yet implemented.)",
       "count": 1
     },
@@ -700,6 +706,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027awaitTrackedResourcePeek\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027SwiftBindingsTestLib.TrackedResource\u0027 is a ~Copyable parameter on an async member. The async wrapper has to stage a non-frozen parameter into a buffer that outlives the suspension point, which duplicates the value with its copy witness while the caller keeps its own; for a non-copyable value that witness is an unconditional runtime trap, and there is no move to substitute because a borrowing caller still owns the value after the call.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027baselineAsyncThrowingClosureFreeFunction\u0027 \u2014 parameter or return type not yet supported (unbridgeable async-throwing closure)",
       "count": 1
     },
@@ -713,6 +725,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027consumeFrozenPlainToken\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.FrozenPlainToken\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027consumeTrackedResourceAsync\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027SwiftBindingsTestLib.TrackedResource\u0027 is a ~Copyable parameter on an async member. The async wrapper has to stage a non-frozen parameter into a buffer that outlives the suspension point, which duplicates the value with its copy witness while the caller keeps its own; for a non-copyable value that witness is an unconditional runtime trap, and there is no move to substitute because a borrowing caller still owns the value after the call.)",
       "count": 1
     },
     {
@@ -761,6 +779,30 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027inspectOptionalTrackedResource\u0027 \u2014 ~Copyable value reached through a generic slot (Optional\u003CT\u003E is ~Copyable when T is) (\u0027Swift.Optional\u003CSwiftBindingsTestLib.TrackedResource\u003E\u0027 carries a ~Copyable value through a generic slot. Only a directly named ~Copyable type can be moved across the boundary (pointer in, borrow or move out); a nested one would be marshalled through the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027inspectThroughClosure\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027(borrowing, SwiftBindingsTestLib.TrackedResource) -\u003E Swift.Int32\u0027 is itself copyable but reaches a ~Copyable value through a closure argument, closure result or tuple element. Binding it materialises that value with the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap; only a directly named ~Copyable type has a route that borrows or moves instead of copying.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027inspectThroughEscapingClosure\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027@escaping (borrowing, SwiftBindingsTestLib.TrackedResource) -\u003E Swift.Int32\u0027 is itself copyable but reaches a ~Copyable value through a closure argument, closure result or tuple element. Binding it materialises that value with the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap; only a directly named ~Copyable type has a route that borrows or moves instead of copying.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027inspectThroughPairClosure\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027(borrowing, SwiftBindingsTestLib.TrackedResource, Swift.Int32) -\u003E Swift.Int32\u0027 is itself copyable but reaches a ~Copyable value through a closure argument, closure result or tuple element. Binding it materialises that value with the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap; only a directly named ~Copyable type has a route that borrows or moves instead of copying.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027inspectThroughThrowingClosure\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027(borrowing, SwiftBindingsTestLib.TrackedResource) throws -\u003E Swift.Int32\u0027 is itself copyable but reaches a ~Copyable value through a closure argument, closure result or tuple element. Binding it materialises that value with the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap; only a directly named ~Copyable type has a route that borrows or moves instead of copying.)",
       "count": 1
     },
     {
@@ -851,6 +893,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027outOfScopeTupleReturnObjC\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an @objc protocol existential in an unsupported nested position on \u0027\u0027 (container/tuple/closure); only bare \u0060any P\u0060 / \u0060Optional\u003Cany P\u003E\u0060 are supported.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027produceThroughClosure\u0027 \u2014 ~Copyable value reached through a closure, tuple element, or async parameter staging buffer (every route there copies) (\u0027() -\u003E SwiftBindingsTestLib.TrackedResource\u0027 is itself copyable but reaches a ~Copyable value through a closure argument, closure result or tuple element. Binding it materialises that value with the enclosing type\u0027s value witness, whose copy for a non-copyable value is an unconditional runtime trap; only a directly named ~Copyable type has a route that borrows or moves instead of copying.)",
       "count": 1
     },
     {

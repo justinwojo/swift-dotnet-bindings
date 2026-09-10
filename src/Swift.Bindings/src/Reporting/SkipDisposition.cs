@@ -127,6 +127,7 @@ public static class SkipDispositionClassifier
             // directly named type, and widening it to nested slots needs a move-aware marshalling
             // path that does not exist yet. Documented with a reopen trigger, so KnownLimitation.
             [SkipReason.NonCopyableThroughGenericSlot] = SkipDisposition.KnownLimitation,
+            [SkipReason.NonCopyableThroughCopyingLane] = SkipDisposition.KnownLimitation,
             // Same family, keyed on the route rather than the slot: the member's whole signature
             // declines the wrapper that would carry the move, and widening the wrapper's admission
             // rules to cover it is a separate capability, so this is a boundary rather than a defect.

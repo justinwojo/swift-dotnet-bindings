@@ -266,10 +266,21 @@ namespace BindingsGeneration
                     var ctorArg = isObjCRooted
                         ? $"new ObjCRuntime.NativeHandle({PayloadBufferName})"
                         : $"(SwiftHandle){PayloadBufferName}";
+                    // A ~Copyable Self has no copy witness, and this lane never needed one: the
+                    // Optional<Self> in the result buffer is the wrapper's own, and the finally
+                    // below destroys it. Taking the payload out and clearing the live flag moves
+                    // that single ownership into the C# object instead of duplicating it — the
+                    // Optional carries nothing else to destroy, because the Some case we are in IS
+                    // the payload. Copyable types keep the copy-and-destroy pair unchanged.
+                    bool selfIsNonCopyable = WrapperValidation.IsNonCopyableStructParent(_env.ParentDecl);
+                    var payloadInitWitness = selfIsNonCopyable ? "InitializeWithTake" : "InitializeWithCopy";
+                    var payloadTakeHandOver = selfIsNonCopyable && tracksOptionalResultLive
+                        ? $"{resultLiveName} = false;\n"
+                        : string.Empty;
                     csWriter.WriteLines($$"""
                         IntPtr {{PayloadBufferName}} = (IntPtr)NativeMemory.Alloc({{SelfMetadataName}}.Size);
-                        {{SelfMetadataName}}.ValueWitnessTable->InitializeWithCopy((void*){{PayloadBufferName}}, {{ResultBufferName}}, {{SelfMetadataName}});
-                        {{resultName}} = new {{typeName}}({{ctorArg}});
+                        {{SelfMetadataName}}.ValueWitnessTable->{{payloadInitWitness}}((void*){{PayloadBufferName}}, {{ResultBufferName}}, {{SelfMetadataName}});
+                        {{payloadTakeHandOver}}{{resultName}} = new {{typeName}}({{ctorArg}});
                         return true;
                         """);
                 }

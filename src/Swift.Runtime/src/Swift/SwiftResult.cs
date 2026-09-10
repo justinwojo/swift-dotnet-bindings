@@ -138,6 +138,21 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(PayloadSize);
         var metadata = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata();
+
+        // Result<Success, Failure> is Copyable only where Success is, so a ~Copyable success type
+        // makes this whole Result ~Copyable and its copy witness a trap. Nothing in the C# signature
+        // can prevent that: this class has no `where TSuccess` constraint, and none it could carry
+        // would express Swift's implicit `Success: Copyable`. The source handle stays the caller's,
+        // so there is no take to substitute either — fail at the constructor the consumer called
+        // instead of aborting inside the Swift runtime.
+        if (Swift.Runtime.NonCopyableValueGuard.IsNonCopyable(metadata))
+        {
+            NativeMemory.Free((void*)bufferPtr);
+            throw Swift.Runtime.NonCopyableValueGuard.CannotDuplicate(
+                typeof(TSuccess).FullName ?? typeof(TSuccess).Name,
+                "wrapping it in a SwiftResult, which copies the payload out of a buffer the caller keeps");
+        }
+
         metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
         _payload = new SwiftSafeHandle<SwiftResult<TSuccess, TFailure>>(bufferPtr);
     }
@@ -225,6 +240,16 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
                 _payload!.DangerousAddRef(ref success);
                 try
                 {
+                    // This SwiftResult keeps its payload after the marshal, so the destination span
+                    // needs a second owner of the value — which a ~Copyable success payload does not
+                    // have. Same reasoning as the constructor above.
+                    if (Swift.Runtime.NonCopyableValueGuard.IsNonCopyable(metadata))
+                    {
+                        throw Swift.Runtime.NonCopyableValueGuard.CannotDuplicate(
+                            typeof(TSuccess).FullName ?? typeof(TSuccess).Name,
+                            "marshalling a SwiftResult to Swift, which copies the payload while this wrapper keeps its own");
+                    }
+
                     metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
                     return (int)metadata.Size;
                 }

@@ -20,6 +20,9 @@ namespace BindingsGeneration;
 ///     1. @_spi protection
 ///     2. Implicit+overriding constructor
 ///     3. Synthesized protocol member
+///   Gate 1c — ~Copyable value reached through a copy-only lane (closure argument or result,
+///             tuple element). Ahead of gate 2 so the accurate soundness reason wins over the
+///             generic unsupported-closure tombstone.
 ///   Gate 2 — Closure + module gates (via ShouldSkipMethodEmission):
 ///     4. Synthesized Codable (Encoder/Decoder)
 ///     5. Unsupported closure parameters (B20)
@@ -182,6 +185,22 @@ public class MemberValidationPipeline
         if (methodDecl.GenericParameters.Any(GenericTypeEmitter.IsVariadicGenericParameter))
             return ValidationResult.Skip(SkipReason.UnsupportedSignature,
                 "Method declares a variadic generic parameter pack (`each ...` / `repeat each ...`) which has no C# equivalent.");
+
+        // ── Gate 1c: a ~Copyable value reached through a lane that can only copy it ──
+        // A closure argument or result, or a tuple element. Distinct from the generic-slot gate
+        // further down because the signature position itself is copyable here: the closure VALUE
+        // `(borrowing Token) -> Int32` copies fine, it is the token inside it that has no copy.
+        // This runs ahead of the closure-support gate on purpose. That gate would claim the same
+        // member for `UnsupportedClosure`, whose tombstone tells a consumer the shape is "not yet
+        // bridgeable" and emits a throwing stub instead of a skip row — a temporary-sounding answer
+        // to a permanent soundness limit, with no report row naming the real cause or a workaround.
+        // Ordering it first costs copyable members nothing: the predicate answers false unless a
+        // non-copyable type is actually reachable in the signature.
+        if (ReachesNonCopyableThroughCopyingLane(
+                methodDecl.CSSignature.Select(a => a.SwiftTypeSpec), methodDecl.ModuleDecl, out var laneOffending))
+        {
+            return NonCopyableCopyingLaneSkip(laneOffending);
+        }
 
         // ── Gate 2: Closure + module gates (via ShouldSkipMethodEmission) ──
         // Catches: synthesized Codable, unsupported closures (B20), SwiftUI/Combine refs (B19),
@@ -749,6 +768,16 @@ public class MemberValidationPipeline
             return UnlowerableNonCopyableSkip(ncOffending);
         }
 
+        // Gate 9: a directly named ~Copyable parameter on an async member. Gate 7 admits it — a
+        // named non-copyable type is the supported lane on a synchronous member — but the async
+        // wrapper stages every non-frozen parameter into a copy buffer that outlives the suspension
+        // point, which the value has no second owner to supply.
+        if (WrapperValidation.AsyncParameterCopiesNonCopyable(methodDecl, _typeDatabase, out var asyncOffending))
+        {
+            return ValidationResult.Skip(SkipReason.NonCopyableThroughCopyingLane,
+                WrapperValidation.DescribeAsyncParameterCopiesNonCopyable(asyncOffending));
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -938,6 +967,14 @@ public class MemberValidationPipeline
             return UnlowerableNonCopyableSkip(ncOffending);
         }
 
+        // The copying-lane half of the same gate — a property whose type is a closure or a tuple
+        // that reaches a ~Copyable value.
+        if (ReachesNonCopyableThroughCopyingLane(
+                new[] { propertyDecl.SwiftTypeSpec }, propertyDecl.ModuleDecl, out var laneOffending))
+        {
+            return NonCopyableCopyingLaneSkip(laneOffending);
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -1044,6 +1081,14 @@ public class MemberValidationPipeline
             return UnlowerableNonCopyableSkip(ncOffending);
         }
 
+        // The copying-lane half of the same gate, over the same index/element specs.
+        if (ReachesNonCopyableThroughCopyingLane(
+                subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscriptDecl.ReturnTypeSpec),
+                subscriptDecl.ModuleDecl, out var laneOffending))
+        {
+            return NonCopyableCopyingLaneSkip(laneOffending);
+        }
+
         return ValidationResult.Emit;
     }
 
@@ -1090,6 +1135,25 @@ public class MemberValidationPipeline
     private static ValidationResult UnlowerableNonCopyableSkip(string offending)
         => ValidationResult.Skip(SkipReason.NonCopyableThroughGenericSlot,
             WrapperValidation.DescribeUnlowerableNonCopyable(offending));
+
+    /// <summary>
+    /// This pipeline's view of
+    /// <see cref="WrapperValidation.ReachesNonCopyableThroughCopyingLane"/>, kept beside the
+    /// generic-slot shim for the same reason: <c>MemberGateEvaluator</c> refuses protocol
+    /// requirements without passing through this pipeline, so the condition itself has to live on
+    /// <see cref="WrapperValidation"/> where both front ends read the one copy.
+    /// </summary>
+    private bool ReachesNonCopyableThroughCopyingLane(
+        IEnumerable<TypeSpec?> signatureSpecs, ModuleDecl? moduleDecl, out string offending)
+        => WrapperValidation.ReachesNonCopyableThroughCopyingLane(
+            signatureSpecs, _typeDatabase, moduleDecl, out offending);
+
+    /// <summary>
+    /// The skip verdict behind <see cref="ReachesNonCopyableThroughCopyingLane"/>.
+    /// </summary>
+    private static ValidationResult NonCopyableCopyingLaneSkip(string offending)
+        => ValidationResult.Skip(SkipReason.NonCopyableThroughCopyingLane,
+            WrapperValidation.DescribeNonCopyableThroughCopyingLane(offending));
 
     private static ValidationResult NoInstanceReceiverCarrierSkip()
         => ValidationResult.Skip(SkipReason.GenericTypeCallback,

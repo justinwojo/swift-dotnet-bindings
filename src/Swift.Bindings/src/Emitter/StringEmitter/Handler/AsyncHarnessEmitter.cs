@@ -733,6 +733,13 @@ namespace BindingsGeneration
             // not IReadOnlyList<T>) — resolved via TypeProjectionFactory.
             string marshalResultCode;
             var asyncReturnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+
+            // Whether the returned value has a copy at all. Both complex-value arms below key their
+            // carrier teardown off this: a ~Copyable result reaches C# through a take, and a take
+            // leaves the carrier moved-from, so the value-witness Destroy that balances a copy would
+            // be running a second deinit over memory that no longer owns anything.
+            bool returnIsNonCopyable = WrapperValidation.IsNonCopyableType(
+                asyncReturnSpec, _env.TypeDatabase, _env.MethodDecl.ModuleDecl);
             if (_env.ExistentialHandler.IsExistential(asyncReturnSpec))
             {
                 // Existential / opaque-protocol return (`some P` is boxed to `any P` by the async
@@ -1002,6 +1009,21 @@ namespace BindingsGeneration
             }
             else if (newFromPayloadTakesOwnership)
             {
+                // A ~Copyable return has no copy witness — calling it aborts the process — but this
+                // lane does not need one. The harness owns the carrier outright and destroys it in
+                // the finally immediately below, so copy-then-destroy-the-source is already a move
+                // spelled in two steps. Collapsing it to InitializeWithTake (and dropping the
+                // matching Destroy) transfers the same single ownership without ever asking for a
+                // second owner. Gated on the type, so a copyable return keeps its existing emission
+                // byte for byte.
+                string resultInitWitness = returnIsNonCopyable ? "InitializeWithTake" : "InitializeWithCopy";
+                string carrierReleaseBlock = returnIsNonCopyable
+                    ? ""
+                    : $"\n" +
+                      $"                                finally\n" +
+                      $"                                {{\n" +
+                      $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                      $"                                }}";
                 // Non-frozen struct/enum return projected as a C# class with SwiftSafeHandle.
                 // The Swift carrier was initialized via `initializeMemory(as:repeating:)`,
                 // so it holds its own +1 on internal references. InitializeWithCopy into a
@@ -1017,7 +1039,7 @@ namespace BindingsGeneration
                 marshalResultCode =
                     $"var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
                     $"                                IntPtr _vwtBuf = (IntPtr)NativeMemory.Alloc(_vwtMetadata.Size);\n" +
-                    $"                                _vwtMetadata.ValueWitnessTable->InitializeWithCopy((void*)_vwtBuf, (void*)resultPtr, _vwtMetadata);\n" +
+                    $"                                _vwtMetadata.ValueWitnessTable->{resultInitWitness}((void*)_vwtBuf, (void*)resultPtr, _vwtMetadata);\n" +
                     $"                                {_wrapperSignature.ReturnType} result;\n" +
                     $"                                try\n" +
                     $"                                {{\n" +
@@ -1028,11 +1050,7 @@ namespace BindingsGeneration
                     $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)_vwtBuf, _vwtMetadata);\n" +
                     $"                                    NativeMemory.Free((void*)_vwtBuf);\n" +
                     $"                                    throw;\n" +
-                    $"                                }}\n" +
-                    $"                                finally\n" +
-                    $"                                {{\n" +
-                    $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
-                    $"                                }}";
+                    $"                                }}" + carrierReleaseBlock;
             }
             else if (carrierNeedsDestroy)
             {
@@ -1041,17 +1059,25 @@ namespace BindingsGeneration
                 // C# object holds its own +1 independent of the carrier. We only need to release the
                 // carrier's +1 (from the Swift-side initializeMemory) before SBW_Free. Resolve the
                 // metadata first, then release in a finally so a marshal-throw cannot orphan the +1.
-                marshalResultCode =
-                    $"var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
-                    $"                                {_wrapperSignature.ReturnType} result;\n" +
-                    $"                                try\n" +
-                    $"                                {{\n" +
-                    $"                                    result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);\n" +
-                    $"                                }}\n" +
-                    $"                                finally\n" +
-                    $"                                {{\n" +
-                    $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
-                    $"                                }}";
+                //
+                // A ~Copyable payload of the same shape reaches here too — a frozen ~Copyable struct
+                // carrying references projects as a class and is admitted by the value-projection
+                // gate — and it inverts the teardown. Its NewFromPayload has no copy witness to run,
+                // so the payload constructor takes the carrier instead; destroying afterwards would
+                // run a second deinit over storage the take already emptied. The take IS the release,
+                // so the carrier is left for the raw SBW_Free below and nothing else.
+                marshalResultCode = returnIsNonCopyable
+                    ? $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);"
+                    : $"var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
+                      $"                                {_wrapperSignature.ReturnType} result;\n" +
+                      $"                                try\n" +
+                      $"                                {{\n" +
+                      $"                                    result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);\n" +
+                      $"                                }}\n" +
+                      $"                                finally\n" +
+                      $"                                {{\n" +
+                      $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
+                      $"                                }}";
             }
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
