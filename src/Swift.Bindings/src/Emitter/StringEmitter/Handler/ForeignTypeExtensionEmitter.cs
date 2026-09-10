@@ -364,6 +364,18 @@ public static class ForeignTypeExtensionEmitter
                 foreignTypeQualifiedName, extMethod.MethodName, afterColon);
             return;
         }
+        // The emitted wrapper returns the value by value and lets swiftcc place it, while the C#
+        // getter allocates a buffer and reads the result back out of it. Those two only agree for
+        // the half of NonFrozenStruct that really is resilient; the frozen-with-reference-fields
+        // half comes back in registers and would leave the buffer holding whatever the fresh
+        // allocation contained.
+        if (returnCategory == ReturnKind.NonFrozenStruct &&
+            !MaterializesFromResultBuffer(propertyTypeSpec, typeDatabase))
+        {
+            logger.LogDebug("Skipping foreign extension property {Type}.{Name}: struct return '{TypeStr}' does not come back through a result buffer",
+                foreignTypeQualifiedName, extMethod.MethodName, afterColon);
+            return;
+        }
 
         var flatTypeName = FlattenQualifiedName(foreignTypeQualifiedName);
         var getterSymbol = $"SBSW_{flatTypeName}_get_{extMethod.MethodName}";
@@ -484,6 +496,17 @@ public static class ForeignTypeExtensionEmitter
             if (classified == null || classified == ReturnKind.FrozenStruct)
             {
                 logger.LogDebug("Skipping foreign extension method {Type}.{Method}: unsupported return type",
+                    foreignTypeQualifiedName, extMethod.MethodName);
+                return;
+            }
+            // Same split as the property arm: the wrapper returns by value and lets swiftcc place
+            // the result, so only a genuinely resilient struct ends up in the buffer the C# body
+            // allocates. A frozen struct carrying reference fields classifies the same and comes
+            // back in registers, leaving that buffer unwritten.
+            if (classified == ReturnKind.NonFrozenStruct &&
+                !MaterializesFromResultBuffer(returnTypeSpec, typeDatabase))
+            {
+                logger.LogDebug("Skipping foreign extension method {Type}.{Method}: struct return does not come back through a result buffer",
                     foreignTypeQualifiedName, extMethod.MethodName);
                 return;
             }
@@ -1047,9 +1070,13 @@ public static class ForeignTypeExtensionEmitter
     {
         var csharpReturnType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
 
-        // Build parameter list
+        // Build parameter list. The receiver is minted against the projected parameter names
+        // first, so a member that spells `self` as an argument label keeps its own parameter and
+        // the receiver moves aside instead of duplicating it.
+        var receiverScope = BuildReceiverScope(
+            member.Parameters.Select(p => ProjectedParameterName(member, p.label, p.swiftType)));
         var paramList = new List<string>();
-        paramList.Add($"this {csharpSelfType} self");
+        paramList.Add($"this {csharpSelfType} {receiverScope.ReceiverName}");
         foreach (var (label, typeSpec, swiftType, _) in member.Parameters)
         {
             var paramTypeName = ResolveCSharpParameterType(typeSpec, typeDatabase);
@@ -1064,7 +1091,7 @@ public static class ForeignTypeExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        EmitMethodBody(csWriter, member, typeDatabase, moduleName);
+        EmitMethodBody(csWriter, member, receiverScope, typeDatabase, moduleName);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -1074,15 +1101,15 @@ public static class ForeignTypeExtensionEmitter
     /// Emits the method body with proper marshalling based on return type category.
     /// </summary>
     private static void EmitMethodBody(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
-        ITypeDatabase typeDatabase, string moduleName)
+        ExtensionReceiverScope receiverScope, ITypeDatabase typeDatabase, string moduleName)
     {
         // Build native call arguments
         var nativeArgs = new List<string>();
 
-        // The generated locals share this body with the member's public parameters, and a Swift
-        // signature may spell any of them — so they are minted against the parameter names rather
-        // than hardcoded. Built before the indirect-result argument so the mint sees the seed.
-        var bodyScope = BuildBodyScope(member.Parameters.Select(p => ProjectedParameterName(member, p.label, p.swiftType)));
+        // The generated locals share this body with the member's public parameters and with the
+        // receiver, and a Swift signature may spell any of them — so they are minted against those
+        // names rather than hardcoded. The scope arrives already seeded with both.
+        var bodyScope = receiverScope.BodyScope;
 
         // For non-frozen struct returns, SwiftIndirectResult is the first parameter
         if (member.ReturnCategory == ReturnKind.NonFrozenStruct)
@@ -1090,7 +1117,7 @@ public static class ForeignTypeExtensionEmitter
             nativeArgs.Add(bodyScope.Mint(IndirectResultLocalName));
         }
 
-        nativeArgs.Add("self.Handle");
+        nativeArgs.Add($"{receiverScope.ReceiverName}.Handle");
 
         // Add method parameters
         foreach (var (label, typeSpec, swiftType, _) in member.Parameters)

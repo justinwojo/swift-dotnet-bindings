@@ -112,4 +112,13 @@ extension NSObject {
     public func stamped(result: Int32) -> ForeignExtensionSummary {
         return ForeignExtensionSummary(label: "stamped", score: result * 2)
     }
+
+    /// `self` is a legal Swift argument label, so a member can project a parameter spelled
+    /// exactly like the receiver the extension method declares — here on the foreign (ObjC
+    /// root) receiver, the third of the three receiver kinds that share this behaviour. The
+    /// returned score folds the parameter in, so reading the wrong identifier changes the
+    /// answer rather than merely failing to compile.
+    public func scoredWithSelfLabel(self: Int32) -> Int32 {
+        return self * 5 + 1
+    }
 }

@@ -111,14 +111,22 @@ public static partial class CrossModuleExtensionEmitter
 
         bool isStatic = method.MethodType == MethodType.Static;
 
-        // Return shape — restrict to the shapes the simple path already handles
-        // so the trampoline body can call the method and forward the return
-        // through the cdecl boundary without sret machinery.
+        // Return shape. Void / primitive / class returns cross the cdecl boundary as themselves.
+        // A resilient struct additionally gets a result-pointer parameter: the trampoline body
+        // writes the returned value into memory the caller supplied, so how Swift hands the value
+        // back internally never reaches the boundary. A frozen struct has no lane here — its C#
+        // projection is not a carrier that can adopt a buffer — and stays with the shapes this
+        // path declines.
         var returnTypeSpec = method.CSSignature.Count > 0 ? method.CSSignature[0].SwiftTypeSpec : null;
         var returnCategory = ClassifyReturnType(returnTypeSpec, typeDatabase);
         if (returnCategory == null)
             return false;
-        if (returnCategory.Value == ReturnKind.FrozenStruct || returnCategory.Value == ReturnKind.NonFrozenStruct)
+        if (returnCategory.Value == ReturnKind.FrozenStruct)
+            return false;
+        bool returnsThroughResultBuffer = returnCategory.Value == ReturnKind.NonFrozenStruct;
+        if (returnsThroughResultBuffer &&
+            (!MaterializesFromResultBuffer(returnTypeSpec, typeDatabase) ||
+             !IsCopyableIntoResultBuffer(returnTypeSpec, typeDatabase)))
             return false;
 
         // Classify every parameter. The trampoline path is the fallback for any
@@ -170,10 +178,14 @@ public static partial class CrossModuleExtensionEmitter
         }
 
         // ====== Emit public C# extension method ======
+        // The receiver is minted against the projected parameter names first, so a member that
+        // spells `self` as an argument label keeps its own parameter and the receiver moves aside
+        // instead of duplicating it.
+        var receiverScope = BuildReceiverScope(parameters.Select(p => p.Name));
         csWriter.WriteLine();
         var publicParams = new List<string>();
         if (!isStatic)
-            publicParams.Add($"this {origCSharpType} self");
+            publicParams.Add($"this {origCSharpType} {receiverScope.ReceiverName}");
         foreach (var p in parameters)
         {
             publicParams.Add($"{p.PublicCSharpType} {p.Name}");
@@ -245,12 +257,16 @@ public static partial class CrossModuleExtensionEmitter
         if (!isStatic)
         {
             var selfExpr = classDecl.IsObjCRooted
-                ? "self.Handle"
-                : "self.Payload.DangerousGetHandle()";
+                ? $"{receiverScope.ReceiverName}.Handle"
+                : $"{receiverScope.ReceiverName}.Payload.DangerousGetHandle()";
             nativeArgs.Add(selfExpr);
         }
 
-        var nativeCall = $"NativeMethods.{pinvokeName}({string.Join(", ", nativeArgs)})";
+        // A resilient struct return prepends the caller-supplied result pointer; every other shape
+        // calls with the arguments alone. The buffer's local name is only known inside the buffered
+        // return, so the call is composed there rather than up front.
+        string BuildNativeCall(string? resultBufferArg) =>
+            $"NativeMethods.{pinvokeName}({string.Join(", ", resultBufferArg is null ? nativeArgs : nativeArgs.Prepend(resultBufferArg))})";
 
         // Receiver-pin guard: pure Swift class receivers go through DangerousAddRef
         // so a concurrent dispose can't hand Swift a freed pointer mid-call. ObjC-rooted
@@ -258,22 +274,22 @@ public static partial class CrossModuleExtensionEmitter
         // Static methods have no instance receiver to pin.
         if (isStatic || classDecl.IsObjCRooted)
         {
-            EmitClosureCallSiteReturnWithTransfer(csWriter, returnCategory.Value, nativeCall, publicReturnType, closureParams);
+            EmitClosureCallSiteReturnWithTransfer(csWriter, returnCategory.Value, BuildNativeCall, publicReturnType, closureParams, receiverScope.BodyScope);
         }
         else
         {
             csWriter.WriteLine("bool __payloadPinned = false;");
-            csWriter.WriteLine("self.Payload.DangerousAddRef(ref __payloadPinned);");
+            csWriter.WriteLine($"{receiverScope.ReceiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            EmitClosureCallSiteReturnWithTransfer(csWriter, returnCategory.Value, nativeCall, publicReturnType, closureParams);
+            EmitClosureCallSiteReturnWithTransfer(csWriter, returnCategory.Value, BuildNativeCall, publicReturnType, closureParams, receiverScope.BodyScope);
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("finally");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("if (__payloadPinned) self.Payload.DangerousRelease();");
+            csWriter.WriteLine($"if (__payloadPinned) {receiverScope.ReceiverName}.Payload.DangerousRelease();");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
@@ -307,6 +323,12 @@ public static partial class CrossModuleExtensionEmitter
 
         // ====== Collect P/Invoke declaration for emission in NativeMethods block ======
         var pinvokeParams = new List<string>();
+        if (returnsThroughResultBuffer)
+        {
+            // Minted against the member's own identifiers: a Swift signature is free to spell a
+            // parameter `resultPtr`, and two parameters of that name make the declaration illegal.
+            pinvokeParams.Add($"IntPtr {receiverScope.BodyScope.Mint(SwiftResultPointerBinding)}");
+        }
         foreach (var p in parameters)
         {
             if (p.Kind == ClassTrampolineParamKind.Closure)
@@ -345,10 +367,13 @@ public static partial class CrossModuleExtensionEmitter
     private static void EmitClosureCallSiteReturnWithTransfer(
         CSharpWriter csWriter,
         ReturnKind category,
-        string nativeCall,
+        Func<string?, string> buildNativeCall,
         string csharpReturnType,
-        List<ClassTrampolineParamInfo> closureParams)
+        List<ClassTrampolineParamInfo> closureParams,
+        SyntheticNameScope bodyScope)
     {
+        var nativeCall = buildNativeCall(null);
+
         // The Transferred flag must be set immediately after a successful
         // P/Invoke return so the outer `finally` knows Swift has accepted
         // ownership of the GCHandle via the _SBClosureCtx box and must
@@ -386,6 +411,16 @@ public static partial class CrossModuleExtensionEmitter
                 csWriter.WriteLine($"var __r = {nativeCall};");
                 EmitMarkTransferred();
                 csWriter.WriteLine($"return ({csharpReturnType})SwiftMarshal.MarshalFromSwift<{csharpReturnType}>(__r);");
+                break;
+            case ReturnKind.NonFrozenStruct:
+                // The trampoline writes the value into this buffer and returns void, so the
+                // transfer flag flips on the call statement itself — the same point the other
+                // arms flip it, before anything that can throw while marshalling the result.
+                EmitResultBufferedReturn(csWriter, csharpReturnType, bodyScope, bufferLocal =>
+                {
+                    csWriter.WriteLine($"{buildNativeCall(bufferLocal)};");
+                    EmitMarkTransferred();
+                });
                 break;
         }
     }
@@ -456,6 +491,13 @@ public static partial class CrossModuleExtensionEmitter
             p.ResolveSwiftBinding(siblingBindings);
 
         var swiftParams = new List<string>();
+        if (returnCategory == ReturnKind.NonFrozenStruct)
+        {
+            // The result pointer leads the signature so the C# side can prepend one argument
+            // without reordering the rest. A user parameter spelling it is escaped aside by
+            // ResolveSwiftBinding — the name is one of the reserved wrapper bindings.
+            swiftParams.Add($"_ {SwiftResultPointerBinding}: UnsafeMutableRawPointer");
+        }
         foreach (var p in parameters)
         {
             if (p.Kind == ClassTrampolineParamKind.Closure)
@@ -588,6 +630,15 @@ public static partial class CrossModuleExtensionEmitter
             case ReturnKind.SwiftClass:
                 swiftWriter.WriteLine($"let __r = {callExpr}");
                 swiftWriter.WriteLine("return Unmanaged.passRetained(__r).toOpaque()");
+                break;
+            case ReturnKind.NonFrozenStruct:
+                // initializeMemory VWT-copies the value into the caller's buffer, retaining any
+                // reference fields it carries — a bitwise store would hand back fields the callee
+                // releases on the way out. The buffer is sized from the same type's metadata on the
+                // C# side, and the carrier there adopts it.
+                swiftWriter.WriteLine($"let __r = {callExpr}");
+                swiftWriter.WriteLine(
+                    $"{SwiftResultPointerBinding}.initializeMemory(as: {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec!)}.self, repeating: __r, count: 1)");
                 break;
         }
 
@@ -917,6 +968,8 @@ public static partial class CrossModuleExtensionEmitter
                 : ResolveCSharpTypeName(returnTypeSpec!, typeDatabase),
             ReturnKind.ObjCClass => "IntPtr",
             ReturnKind.SwiftClass => "IntPtr",
+            // A resilient struct leaves through the result pointer, not the return register.
+            ReturnKind.NonFrozenStruct => "void",
             _ => "void",
         };
 
@@ -1077,15 +1130,17 @@ public static partial class CrossModuleExtensionEmitter
             publicWrapperReturn = publicReturnType;
 
         // ---------- C# public extension method ----------
-        // Async shapes take a trailing defaulted CancellationToken (matching every other
-        // async marshaller). Reserve the synthetic name against the user param identifiers
-        // so a Swift param literally named `cancellationToken` can't shadow it (CS0136).
-        var syntheticScope = new SyntheticNameScope(
-            new[] { "self" }.Concat(parameters.Select(p => p.Name)));
+        // The receiver is minted against the projected parameter names first, so a member that
+        // spells `self` as an argument label keeps its own parameter and the receiver moves aside
+        // instead of duplicating it. The synthetic CancellationToken then reserves against both:
+        // async shapes take a trailing defaulted token (matching every other async marshaller) and
+        // a Swift param literally named `cancellationToken` must not shadow it (CS0136).
+        var receiverScope = BuildReceiverScope(parameters.Select(p => p.Name));
+        var syntheticScope = receiverScope.BodyScope;
         string ctParamName = syntheticScope.Reserve("cancellationToken");
 
         csWriter.WriteLine();
-        var publicParams = new List<string> { $"this {origCSharpType} self" };
+        var publicParams = new List<string> { $"this {origCSharpType} {receiverScope.ReceiverName}" };
         foreach (var p in parameters)
             publicParams.Add($"{p.PublicCSharpType} {p.Name}");
         if (isAsync)
@@ -1153,7 +1208,9 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        var selfExpr = classDecl.IsObjCRooted ? "self.Handle" : "self.Payload.DangerousGetHandle()";
+        var selfExpr = classDecl.IsObjCRooted
+            ? $"{receiverScope.ReceiverName}.Handle"
+            : $"{receiverScope.ReceiverName}.Payload.DangerousGetHandle()";
 
         var nativeArgs = new List<string>();
         foreach (var p in parameters)
@@ -1167,7 +1224,7 @@ public static partial class CrossModuleExtensionEmitter
         if (!classDecl.IsObjCRooted)
         {
             csWriter.WriteLine("bool __payloadPinned = false;");
-            csWriter.WriteLine("self.Payload.DangerousAddRef(ref __payloadPinned);");
+            csWriter.WriteLine($"{receiverScope.ReceiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -1189,7 +1246,7 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.WriteLine("finally");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("if (__payloadPinned) self.Payload.DangerousRelease();");
+            csWriter.WriteLine($"if (__payloadPinned) {receiverScope.ReceiverName}.Payload.DangerousRelease();");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
@@ -1625,6 +1682,38 @@ public static partial class CrossModuleExtensionEmitter
             return "UInt8";
         return RenderPrimitiveSwiftType(spec);
     }
+
+    /// <summary>
+    /// Whether the trampoline can write this return value into the caller's buffer. The write is a
+    /// value-witness copy, so a noncopyable value has no way across — Swift rejects it at the
+    /// copy, not at the boundary, which would surface as a wrapper that does not compile rather
+    /// than as a declined member.
+    /// </summary>
+    private static bool IsCopyableIntoResultBuffer(TypeSpec? returnTypeSpec, ITypeDatabase typeDatabase)
+    {
+        if (returnTypeSpec is not NamedTypeSpec namedType)
+            return false;
+
+        try
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return false;
+            return !typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Name of the synthesized leading parameter a trampoline whose member returns a resilient
+    /// struct takes the caller's result buffer under, on both sides of the boundary. It is one of
+    /// <see cref="NameProvider.ReservedSwiftWrapperParamNames"/>, so a user parameter that spells
+    /// it is escaped aside rather than colliding with it.
+    /// </summary>
+    private const string SwiftResultPointerBinding = "resultPtr";
 
     /// <summary>
     /// The raw (pre-escape) sibling binding names for a cross-module-extension trampoline — its

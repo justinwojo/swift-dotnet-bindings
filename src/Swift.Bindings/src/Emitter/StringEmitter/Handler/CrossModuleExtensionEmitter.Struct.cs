@@ -359,8 +359,11 @@ public static partial class CrossModuleExtensionEmitter
             : ResolveCSharpTypeName(returnTypeSpec, typeDatabase);
         var publicReturnType = MapBoolType(csharpReturnType);
 
-        // Build public extension parameter list
-        var publicParamParts = new List<string> { $"this {origCSharpType} self" };
+        // Build public extension parameter list. The receiver is minted against the projected
+        // parameter names first, so a member that spells `self` as an argument label keeps its own
+        // parameter and the receiver moves aside instead of duplicating it.
+        var receiverScope = BuildReceiverScope(parameters.Select(p => p.Name));
+        var publicParamParts = new List<string> { $"this {origCSharpType} {receiverScope.ReceiverName}" };
         foreach (var p in parameters)
         {
             publicParamParts.Add($"{MapBoolType(p.CSharpType)} {p.Name}");
@@ -385,11 +388,11 @@ public static partial class CrossModuleExtensionEmitter
         {
             pinvokeCallArgs.Add(GetCdeclArgExpression(p));
         }
-        pinvokeCallArgs.Add($"(IntPtr)(&self)");
+        pinvokeCallArgs.Add($"(IntPtr)(&{receiverScope.ReceiverName})");
 
         var nativeCall = $"NativeMethods.{pinvokeName}({string.Join(", ", pinvokeCallArgs)})";
         EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicReturnType, returnEnumLowering,
-            BuildBodyScope(parameters.Select(p => p.Name)));
+            receiverScope.BodyScope);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -465,8 +468,13 @@ public static partial class CrossModuleExtensionEmitter
         var symbolName = $"SBW_{currentModule}_Ext_{SafeTypeName(structDecl.Name)}_get_{property.Name}_{symbolHash}";
         var pinvokeName = $"PInvoke_Get{propertyName}_{symbolHash}";
 
+        // A property getter has no Swift-authored parameters — only the receiver — so nothing
+        // here can collide and the mint always returns `self`. It is still built the same way as
+        // the method arm so the two paths cannot drift.
+        var getterReceiver = BuildReceiverScope(null);
+
         csWriter.WriteLine();
-        csWriter.WriteLine($"public static unsafe {publicType} Get{propertyName}(this {origCSharpType} self)");
+        csWriter.WriteLine($"public static unsafe {publicType} Get{propertyName}(this {origCSharpType} {getterReceiver.ReceiverName})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -477,13 +485,11 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.WriteLine($"{publicType} __result = default;");
             pinvokeCallArgs.Add("(IntPtr)(&__result)");
         }
-        pinvokeCallArgs.Add($"(IntPtr)(&self)");
+        pinvokeCallArgs.Add($"(IntPtr)(&{getterReceiver.ReceiverName})");
 
         var nativeCall = $"NativeMethods.{pinvokeName}({string.Join(", ", pinvokeCallArgs)})";
-        // A property getter has no Swift-authored parameters — only the receiver — so nothing
-        // here can collide. The scope is still built the same way so the two paths cannot drift.
         EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicType, returnEnumLowering,
-            BuildBodyScope(Array.Empty<string>()));
+            getterReceiver.BodyScope);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -520,17 +526,24 @@ public static partial class CrossModuleExtensionEmitter
             // the Swift trampoline body.
             var setterEnumLowering = returnEnumLowering;
 
+            // The setter's one parameter is the synthesized `value`; the receiver mints against it
+            // exactly as the method arm mints against a member's projected parameter names, and
+            // the pinned pointer local mints from the resulting body scope so it moves aside from
+            // both rather than assuming the receiver was never renamed.
+            var setterReceiver = BuildReceiverScope(new[] { SetterValueParameterName });
+            var pinnedSelfLocal = setterReceiver.BodyScope.Mint("__self");
+
             csWriter.WriteLine();
-            csWriter.WriteLine($"public static unsafe void Set{propertyName}(this ref {origCSharpType} self, {publicType} value)");
+            csWriter.WriteLine($"public static unsafe void Set{propertyName}(this ref {origCSharpType} {setterReceiver.ReceiverName}, {publicType} {SetterValueParameterName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"fixed ({origCSharpType}* __self = &self)");
+            csWriter.WriteLine($"fixed ({origCSharpType}* {pinnedSelfLocal} = &{setterReceiver.ReceiverName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             var setterValueExpr = setterEnumLowering is { } se
-                ? $"({se.UnderlyingCSType})value"
-                : "value";
-            csWriter.WriteLine($"NativeMethods.{setterPInvoke}({setterValueExpr}, (IntPtr)__self);");
+                ? $"({se.UnderlyingCSType}){SetterValueParameterName}"
+                : SetterValueParameterName;
+            csWriter.WriteLine($"NativeMethods.{setterPInvoke}({setterValueExpr}, (IntPtr){pinnedSelfLocal});");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.Indent--;

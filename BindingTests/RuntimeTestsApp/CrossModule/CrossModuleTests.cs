@@ -687,6 +687,34 @@ public class CrossModuleTests : TestBase
 
     #endregion
 
+    #region Cross-Module Extension Returning a Resilient Struct
+
+    public void TestDependencyServiceConfigTaggedReturnsResilientStruct()
+    {
+        // A resilient (non-@frozen) struct is returned indirectly: Swift writes it into a buffer
+        // the caller supplies in the indirect-result register rather than handing back registers.
+        // An extension member on a class the sibling module owns had no lane for that shape, so it
+        // was left unbound; the member existing at all is the first half of what this asserts.
+        //
+        // The parameters are spelled after the three locals that lane declares — the type
+        // metadata, the buffer it sizes and the indirect-result handle — and each is folded into
+        // the version with its own weight, so a body that passed one of its own locals where an
+        // argument belonged returns a different number instead of passing. The string field is
+        // read back out of the buffer, so it also says the value was materialized rather than the
+        // buffer being read before Swift wrote it.
+        using var active = new DependencyService("Worker");
+        using var tagged = active.ConfigTagged(1, 2, 3);
+        AssertEqual("tagged-active", tagged.Name, "the returned struct's string field came back through the buffer");
+        AssertEqual(123, tagged.Version, "each argument arrived in its own position");
+
+        using var idle = new DependencyService("Worker", false);
+        using var idleTagged = idle.ConfigTagged(4, 5, 6);
+        AssertEqual("tagged-inactive", idleTagged.Name, "the receiver still selected the arm");
+        AssertEqual(456, idleTagged.Version, "and a second call allocates its own buffer");
+    }
+
+    #endregion
+
     #region Cross-Module Existentials in Container Positions
 
     // A sibling module's protocol used as an existential inside a CONTAINER — an enum-case

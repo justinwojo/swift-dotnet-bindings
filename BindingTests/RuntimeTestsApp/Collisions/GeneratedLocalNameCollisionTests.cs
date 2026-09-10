@@ -599,4 +599,41 @@ public class GeneratedLocalNameCollisionTests : TestBase
         AssertEqual(42, stamped.Score, "the argument reached Swift rather than the result register");
         AssertEqual("stamped", stamped.Label, "the struct came back through the register the caller supplied");
     }
+
+    // ---------------------------------------------------------------------------------------
+    //  A parameter spelled like the extension's own receiver
+    // ---------------------------------------------------------------------------------------
+    //
+    //  `self` is a legal Swift argument label, and it projects to a C# parameter spelled `self`.
+    //  The emitted extension member also takes the receiver as its first parameter, and `self` is
+    //  the spelling that reads naturally there — so the two land in one parameter list. The
+    //  receiver is the synthesized name, so the receiver is what moves; the user's parameter keeps
+    //  the spelling Swift gave it. Each receiver kind below is written by a different emitter.
+
+    public void TestStructReceiverExtensionKeepsAParameterSpelledLikeTheReceiver()
+    {
+        // x and y take the argument with opposite signs, so a body that passed the receiver's
+        // coordinate where the argument belonged could not produce both answers.
+        var point = new SwiftBindingsTestLibDependency.DependencyPoint(4.0, 1.0);
+        var moved = point.OffsetWithSelfLabel(2.0);
+        AssertEqual(6.0, moved.X, "the self-labelled argument reached Swift on the struct-receiver path");
+        AssertEqual(-1.0, moved.Y, "and it arrived once, with its own sign");
+    }
+
+    public void TestClassReceiverExtensionKeepsAParameterSpelledLikeTheReceiver()
+    {
+        // The receiver still selects the arm, so it was not displaced by the argument either.
+        using var active = new SwiftBindingsTestLibDependency.DependencyService("s");
+        AssertEqual(15, active.TagWithSelfLabel(5), "the self-labelled argument reached Swift on the class path");
+
+        using var inactive = new SwiftBindingsTestLibDependency.DependencyService("s", false);
+        AssertEqual(-5, inactive.TagWithSelfLabel(5), "and the receiver still chose the arm");
+    }
+
+    public void TestForeignReceiverExtensionKeepsAParameterSpelledLikeTheReceiver()
+    {
+        // Foreign (ObjC-imported) receiver — a third emitter, same shape.
+        using var obj = new Foundation.NSObject();
+        AssertEqual(16, obj.ScoredWithSelfLabel(3), "the self-labelled argument reached Swift on the foreign path");
+    }
 }

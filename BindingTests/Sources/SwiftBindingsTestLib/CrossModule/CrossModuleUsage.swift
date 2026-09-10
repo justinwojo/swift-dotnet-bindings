@@ -227,6 +227,15 @@ extension DependencyPoint {
     public func tokenScaled(result: Double) -> DependencyToken {
         return DependencyToken(value: Int32(self.x * 10 + result))
     }
+
+    /// `self` is a legal Swift argument label, so a member can project a parameter spelled
+    /// exactly like the receiver the extension method declares. On a struct receiver the two
+    /// land in the same C# parameter list. The returned point folds the receiver and the
+    /// parameter together with different signs, so a body that read the wrong identifier
+    /// would change the answer rather than merely fail to compile.
+    public func offsetWithSelfLabel(self: Double) -> DependencyPoint {
+        return DependencyPoint(x: x + self, y: y - self)
+    }
 }
 
 /// A protocol with an EXTENSION-DEFAULT computed property (no per-conformer override).
@@ -382,6 +391,25 @@ extension DependencyService {
     /// the body that already holds this method's parameters.
     public func tokenTagged(result: Int32) -> DependencyToken {
         return DependencyToken(value: self.isActive ? result : -result)
+    }
+
+    /// Same `self`-argument-label shape as `DependencyPoint.offsetWithSelfLabel(self:)` but on
+    /// the class receiver, which is a different emitter. The result folds the receiver's own
+    /// state and the parameter together, so reading the wrong identifier changes the answer.
+    public func tagWithSelfLabel(self: Int32) -> Int32 {
+        return isActive ? self * 3 : -self
+    }
+
+    /// A resilient (non-`@frozen`) struct return on a class receiver. Swift cannot hand this
+    /// back in registers — the caller does not know the layout — so it writes it into a
+    /// caller-supplied buffer, which the call site sizes from the type's metadata. Those three
+    /// generated locals share the body with this member's parameters, and each parameter here
+    /// is spelled exactly like one of them; all three are folded into the returned version with
+    /// distinct weights so a body that read the wrong identifier changes the value.
+    public func configTagged(metadata: Int32, buffer: Int32, indirectResult: Int32) -> DependencyConfig {
+        return DependencyConfig(
+            name: isActive ? "tagged-active" : "tagged-inactive",
+            version: metadata * 100 + buffer * 10 + indirectResult)
     }
 }
 

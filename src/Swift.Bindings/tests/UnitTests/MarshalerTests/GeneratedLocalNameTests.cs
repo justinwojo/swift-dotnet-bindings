@@ -425,7 +425,7 @@ public class GeneratedLocalNameTests
     {
         // Nothing may move without a collision to justify it — otherwise the change would rewrite
         // the spelling of these locals across every extension member in the corpus.
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(new[] { "count", "label" });
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(new[] { "count", "label" }).BodyScope;
         Assert.Equal(spelling, scope.Mint(spelling));
     }
 
@@ -433,17 +433,50 @@ public class GeneratedLocalNameTests
     [MemberData(nameof(ExtensionBodySpellings))]
     public void ExtensionParameterSpellingABodyLocalMovesTheLocalAside(string spelling)
     {
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(new[] { spelling });
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(new[] { spelling }).BodyScope;
         Assert.NotEqual(spelling, scope.Mint(spelling));
+    }
+
+    [Fact]
+    public void ReceiverKeepsTheSelfSpellingWhenNothingClaimsIt()
+    {
+        // The receiver is the name a consumer reads in every emitted extension signature, so it may
+        // only move when a projected parameter actually claims that spelling.
+        var receiver = ExtensionMarshallingHelper.BuildReceiverScope(new[] { "count", "label" });
+        Assert.Equal("self", receiver.ReceiverName);
+    }
+
+    [Fact]
+    public void ParameterSpelledLikeTheReceiverMovesTheReceiverAside()
+    {
+        // Swift allows `self` as an argument label and the projected parameter keeps that spelling.
+        // The receiver is the synthesized name, so the receiver is what yields.
+        var receiver = ExtensionMarshallingHelper.BuildReceiverScope(new[] { "self" });
+        Assert.NotEqual("self", receiver.ReceiverName);
+        Assert.False(string.IsNullOrEmpty(receiver.ReceiverName));
     }
 
     [Fact]
     public void ExtensionReceiverIsInScopeForTheBodyLocals()
     {
-        // The emitted member takes the receiver as its first parameter, so it occupies the body
-        // scope exactly as a Swift-derived parameter does.
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(Array.Empty<string>());
-        Assert.NotEqual("self", scope.Mint("self"));
+        // The emitted member takes the receiver as its first parameter, so whatever the receiver was
+        // minted to is reserved for the body too: a local that wanted the same spelling has to move.
+        var receiver = ExtensionMarshallingHelper.BuildReceiverScope(Array.Empty<string>());
+        Assert.True(receiver.BodyScope.IsReserved(receiver.ReceiverName));
+        Assert.NotEqual(receiver.ReceiverName, receiver.BodyScope.Reserve(receiver.ReceiverName));
+    }
+
+    [Theory]
+    [MemberData(nameof(ExtensionBodySpellings))]
+    public void ExtensionBodyLocalNeverLandsOnTheReceiverName(string spelling)
+    {
+        // Holds whether or not a `self` parameter pushed the receiver off its preferred spelling —
+        // a body local colliding with the receiver would read the receiver instead of the call.
+        foreach (var parameters in new[] { new[] { spelling }, new[] { "self", spelling } })
+        {
+            var receiver = ExtensionMarshallingHelper.BuildReceiverScope(parameters);
+            Assert.NotEqual(receiver.ReceiverName, receiver.BodyScope.Mint(spelling));
+        }
     }
 
     [Theory]
@@ -454,7 +487,7 @@ public class GeneratedLocalNameTests
     {
         // A parameter spelled like the holder forces it aside; the read must follow it, otherwise
         // the body would return the parameter's value instead of the call's.
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(new[] { "result" });
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(new[] { "result" }).BodyScope;
         var body = EmitReturn(w => ExtensionMarshallingHelper.EmitReturnValueMarshalling(
             w, category, "NativeMethods.Call(result, self)", "Mod.Thing", scope));
 
@@ -470,8 +503,8 @@ public class GeneratedLocalNameTests
         // body does with them has to move with them: the allocation is sized from the metadata it
         // declared, the value is read back out of the buffer it allocated, and the failure path
         // frees that same buffer.
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(
-            new[] { "metadata", "buffer", ExtensionMarshallingHelper.IndirectResultLocalName });
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(
+            new[] { "metadata", "buffer", ExtensionMarshallingHelper.IndirectResultLocalName }).BodyScope;
         var indirectResult = scope.Mint(ExtensionMarshallingHelper.IndirectResultLocalName);
 
         var body = EmitReturn(w => ExtensionMarshallingHelper.EmitReturnValueMarshalling(
@@ -498,8 +531,8 @@ public class GeneratedLocalNameTests
         // The argument goes into the native call by one emitter and the declaration is written by
         // another. They share only the scope, so the mint has to be idempotent per spelling or the
         // body would pass an identifier it never declared.
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(
-            new[] { ExtensionMarshallingHelper.IndirectResultLocalName });
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(
+            new[] { ExtensionMarshallingHelper.IndirectResultLocalName }).BodyScope;
         var argument = scope.Mint(ExtensionMarshallingHelper.IndirectResultLocalName);
 
         var body = EmitReturn(w => ExtensionMarshallingHelper.EmitReturnValueMarshalling(
@@ -512,7 +545,7 @@ public class GeneratedLocalNameTests
     [Fact]
     public void ExtensionBodyScopeIsIdempotentAcrossSites()
     {
-        var scope = ExtensionMarshallingHelper.BuildBodyScope(new[] { "result", "metadata" });
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(new[] { "result", "metadata" }).BodyScope;
         foreach (var spelling in new[] { "result", "metadata", "buffer" })
             Assert.Equal(scope.Mint(spelling), scope.Mint(spelling));
     }

@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -365,6 +367,162 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Contains("Configure", result);
         Assert.Contains("NativeMethods", result);
         Assert.Contains("LibraryImport", result);
+    }
+
+    [Fact]
+    public void EmitCSharpExtensionClasses_ParameterSpelledLikeTheReceiver_KeepsTheParameterAndMovesTheReceiver()
+    {
+        // `self` is a legal Swift argument label, so a foreign-receiver member can project a
+        // parameter spelled exactly like the receiver the emitted extension method declares. The
+        // parameter is the one a caller can name at the call site, so the receiver is what moves.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("scoredWith", "public func scoredWith(self: Swift.Int) -> Swift.Int");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        var declaration = SingleForeignDeclarationOf("ScoredWith", csOutput.ToString());
+        Assert.Equal(1, CountForeignParametersNamed(declaration, "self"));
+        Assert.DoesNotContain("this UIKit.UIView self,", declaration);
+    }
+
+    [Fact]
+    public void EmitCSharpExtensionClasses_NoNameCollision_DeclaresTheReceiverAsSelf()
+    {
+        // The mint is idempotent when nothing collides, so the everyday member keeps declaring
+        // exactly the receiver it always did.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateExtMethod("scoredWith", "public func scoredWith(amount: Swift.Int) -> Swift.Int");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        var declaration = SingleForeignDeclarationOf("ScoredWith", csOutput.ToString());
+        Assert.Contains("this UIKit.UIView self", declaration);
+        Assert.Contains("amount", declaration);
+    }
+
+    [Fact]
+    public void EmitCSharpExtensionClasses_ForeignMemberReturningResilientStruct_BindsAndReadsTheValueBackOutOfTheBufferItSupplied()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase(RegisterStructReturnTypes);
+
+        var method = CreateExtMethod("tagged", "public func tagged() -> TestModule.ResilientTag");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        var result = csOutput.ToString();
+        Assert.Contains("Tagged", result);
+        Assert.Contains("MarshalFromSwift<TestModule.ResilientTag>", result);
+    }
+
+    [Fact]
+    public void EmitCSharpExtensionClasses_ForeignMemberReturningFrozenStructWithReferenceFields_DeclinesRatherThanReadAnUnwrittenBuffer()
+    {
+        // The emitted wrapper hands this shape back in registers, so a caller-supplied buffer would
+        // still hold the allocation's contents when the binding read the value out of it.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase(RegisterStructReturnTypes);
+
+        var method = CreateExtMethod("labeled", "public func labeled() -> TestModule.BoxedLabel");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { method }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+
+        Assert.DoesNotContain("Labeled", csOutput.ToString());
+    }
+
+    // A genuinely resilient struct alongside a frozen one carrying reference fields. Both classify
+    // as ReturnKind.NonFrozenStruct; only the first comes back through a caller-supplied buffer.
+    private static void RegisterStructReturnTypes(ModuleTypeDatabase testModule)
+    {
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ResilientTag"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ResilientTag"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ResilientTag"),
+                MetadataAccessor = "$s10TestModule12ResilientTagVMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BoxedLabel"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BoxedLabel"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BoxedLabel"),
+                MetadataAccessor = "$s10TestModule10BoxedLabelVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+    }
+
+    // Returns the single emitted declaration line whose name matches, so a per-parameter assertion
+    // reads one signature rather than the whole emitted file.
+    private static string SingleForeignDeclarationOf(string emittedName, string output)
+    {
+        var matches = output
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("public static") && line.Contains($" {emittedName}("))
+            .ToList();
+        Assert.Single(matches);
+        return matches[0];
+    }
+
+    // Counts parameters declared under exactly this identifier in one signature. Two of them is the
+    // duplicate-parameter shape the C# compiler rejects outright (CS0100).
+    private static int CountForeignParametersNamed(string declaration, string parameterName)
+    {
+        var open = declaration.IndexOf('(');
+        var close = declaration.LastIndexOf(')');
+        var parameterList = declaration.Substring(open + 1, close - open - 1);
+        return parameterList
+            .Split(',')
+            .Count(part => part.Trim().EndsWith($" {parameterName}"));
     }
 
     [Fact]
@@ -883,7 +1041,7 @@ public class ForeignTypeExtensionEmitterTests
         };
     }
 
-    private static TypeDatabase CreateTypeDatabase()
+    private static TypeDatabase CreateTypeDatabase(Action<ModuleTypeDatabase> seedTestModule = null)
     {
         var typeDatabase = new TypeDatabase();
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
@@ -920,6 +1078,7 @@ public class ForeignTypeExtensionEmitterTests
         typeDatabase.AddModuleDatabase(swiftModule);
 
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        seedTestModule?.Invoke(testModule);
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
     }

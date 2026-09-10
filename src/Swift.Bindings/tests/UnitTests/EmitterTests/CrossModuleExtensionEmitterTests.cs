@@ -958,6 +958,197 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+
+    #region Emit: receiver name is minted against the member's own parameters
+
+    [Fact]
+    public void Emit_MethodWhoseParameterIsSpelledLikeTheReceiver_KeepsTheParameterAndMovesTheReceiver()
+    {
+        // `self` is a legal Swift argument label, so a member can project a parameter spelled
+        // exactly like the receiver the emitted extension method declares. The parameter is the
+        // one a caller can name at the call site, so it is the receiver that has to move.
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        classDecl.Methods.Add(CreateMethodDeclWithIntParam("tagWith", "TestModule", classDecl, "self"));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var declaration = SingleDeclarationOf("TagWith", csOutput.ToString());
+        Assert.Equal(1, CountParametersNamed(declaration, "self"));
+        Assert.Contains("self)", declaration);
+        Assert.DoesNotContain("this OrigModule.OrigType self,", declaration);
+    }
+
+    [Fact]
+    public void Emit_MethodWithNoNameCollision_DeclaresTheReceiverAsSelf()
+    {
+        // The mint is idempotent when nothing collides, so the overwhelmingly common member
+        // keeps declaring exactly the receiver it always did.
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        classDecl.Methods.Add(CreateMethodDeclWithIntParam("tagWith", "TestModule", classDecl, "amount"));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var declaration = SingleDeclarationOf("TagWith", csOutput.ToString());
+        Assert.Contains("this OrigModule.OrigType self", declaration);
+        Assert.Contains("amount", declaration);
+    }
+
+    [Fact]
+    public void EmitStruct_MethodWhoseParameterIsSpelledLikeTheReceiver_KeepsTheParameterAndMovesTheReceiver()
+    {
+        // Same shape on the struct receiver, which is a separate signature builder.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+
+        structDecl.Methods.Add(CreateMethodDeclWithIntParam("offsetWith", "TestModule", structDecl, "self"));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var declaration = SingleDeclarationOf("OffsetWith", csOutput.ToString());
+        Assert.Equal(1, CountParametersNamed(declaration, "self"));
+        Assert.DoesNotContain("this OrigModule.OrigPoint self,", declaration);
+    }
+
+    [Fact]
+    public void EmitStruct_MethodWithNoNameCollision_DeclaresTheReceiverAsSelf()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+
+        structDecl.Methods.Add(CreateMethodDeclWithIntParam("offsetWith", "TestModule", structDecl, "amount"));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var declaration = SingleDeclarationOf("OffsetWith", csOutput.ToString());
+        Assert.Contains("this OrigModule.OrigPoint self", declaration);
+    }
+
+    #endregion
+
+    #region Emit: class receiver returning a resilient struct
+
+    [Fact]
+    public void Emit_ClassReceiverReturningResilientStruct_BindsAndReadsTheValueBackOutOfTheBufferItSupplied()
+    {
+        // A non-@frozen struct return cannot come back in registers — the caller does not know
+        // the layout — so the value only ever reaches it through a buffer it allocates and reads
+        // the carrier back out of. The member binds rather than being dropped, and every P/Invoke
+        // the extension declares is called by a member it emitted.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env)
+            = CreateClassSetupWithStructReturn(frozen: false, requiresMemoryManagement: false);
+
+        classDecl.Methods.Add(CreateMethodDeclReturningStruct("configTagged", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.Contains("ConfigTagged", result);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<OrigModule.OrigPoint>", result);
+        foreach (var declared in DeclaredPInvokeNames(result))
+            Assert.Contains($"NativeMethods.{declared}(", result);
+    }
+
+    [Fact]
+    public void Emit_ClassReceiverReturningResilientStruct_DoesNotPairAnIndirectResultWithAnUntypedSelfRegister()
+    {
+        // The receiver reaches Swift as an ordinary pointer argument on a generated entry point,
+        // not as an untyped value in the self register alongside an indirect result. That pairing
+        // was measured to overwrite the receiver object's metadata word, so the shape must not be
+        // reachable from this emitter at all.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env)
+            = CreateClassSetupWithStructReturn(frozen: false, requiresMemoryManagement: false);
+
+        classDecl.Methods.Add(CreateMethodDeclReturningStruct("configTagged", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.DoesNotContain("SwiftIndirectResult", result);
+        Assert.DoesNotContain("SwiftSelf", result);
+        Assert.Contains("CallConvCdecl", result);
+    }
+
+    [Fact]
+    public void Emit_ClassReceiverReturningResilientStruct_WritesTheValueThroughTheResultPointerItWasHanded()
+    {
+        // The Swift side of the boundary takes the buffer as a leading pointer parameter and
+        // value-witness-copies the returned struct into it, so any reference fields it carries are
+        // retained for the caller instead of being released on the way out.
+        var (csWriter, swiftWriter, _, swiftOutput, moduleDecl, classDecl, conductor, env)
+            = CreateClassSetupWithStructReturn(frozen: false, requiresMemoryManagement: false);
+
+        classDecl.Methods.Add(CreateMethodDeclReturningStruct("configTagged", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swift);
+        Assert.Contains("resultPtr.initializeMemory(as: OrigModule.OrigPoint.self, repeating:", swift);
+    }
+
+    [Fact]
+    public void Emit_ClassReceiverReturningFrozenStructWithReferenceFields_DeclinesRatherThanBindAnUnsupportedCarrier()
+    {
+        // A @frozen struct that carries reference fields (Swift.String is the everyday one) has a
+        // layout the caller DOES know: a direct call returns it in registers, and its C# projection
+        // is not a carrier that adopts a buffer either. It shares a return classification with the
+        // resilient shape above, so the arm has to separate them rather than key on that
+        // classification.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env)
+            = CreateClassSetupWithStructReturn(frozen: true, requiresMemoryManagement: true);
+
+        classDecl.Methods.Add(CreateMethodDeclReturningStruct("configTagged", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.DoesNotContain("ConfigTagged", result);
+        Assert.Empty(DeclaredPInvokeNames(result));
+    }
+
+    [Fact]
+    public void Emit_ClassReceiverReturningNoncopyableResilientStruct_DeclinesRatherThanEmitACopyItCannotMake()
+    {
+        // Writing the value into the caller's buffer is a value-witness COPY. A noncopyable value
+        // has no copy to make, and Swift rejects that at the write rather than at the boundary —
+        // so accepting the member here would produce a wrapper that does not compile.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env)
+            = CreateClassSetupWithStructReturn(frozen: false, requiresMemoryManagement: false, nonCopyable: true);
+
+        classDecl.Methods.Add(CreateMethodDeclReturningStruct("configTagged", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.DoesNotContain("ConfigTagged", result);
+        Assert.Empty(DeclaredPInvokeNames(result));
+    }
+
+    [Fact]
+    public void Emit_ClassReceiverReturningResilientStructWhoseParameterIsSpelledLikeTheResultPointer_DeclaresItOnce()
+    {
+        // A Swift signature is free to spell a parameter with the same name the arm synthesizes for
+        // the caller's buffer. Two parameters under one identifier is a declaration the C# compiler
+        // rejects outright, so the synthesized one has to be minted against the member's own names.
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env)
+            = CreateClassSetupWithStructReturn(frozen: false, requiresMemoryManagement: false);
+
+        classDecl.Methods.Add(CreateMethodDeclReturningStruct("configTagged", "TestModule", classDecl, "resultPtr"));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        Assert.Contains("ConfigTagged", result);
+        var declaration = Assert.Single(
+            result.Split('\n').Select(line => line.Trim()),
+            line => line.StartsWith("internal static") && line.Contains(" PInvoke_ConfigTagged"));
+        Assert.Equal(1, CountParametersNamed(declaration, "resultPtr"));
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput,
@@ -1432,6 +1623,214 @@ public class CrossModuleExtensionEmitterTests
             ModuleDecl = ownerModuleDecl,
             IsSynthesizedAccessor = false
         };
+    }
+
+
+    // Returns the single emitted declaration line whose name matches, so a per-parameter
+    // assertion reads one signature rather than the whole emitted file.
+    private static string SingleDeclarationOf(string emittedName, string output)
+    {
+        var matches = output
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("public static") && line.Contains($" {emittedName}("))
+            .ToList();
+        Assert.Single(matches);
+        return matches[0];
+    }
+
+    // Counts parameters declared under exactly this identifier in one signature. Two of them is
+    // the duplicate-parameter shape the C# compiler rejects outright (CS0100).
+    private static int CountParametersNamed(string declaration, string parameterName)
+    {
+        var open = declaration.IndexOf('(');
+        var close = declaration.LastIndexOf(')');
+        var parameterList = declaration.Substring(open + 1, close - open - 1);
+        return parameterList
+            .Split(',')
+            .Count(part => part.Trim().EndsWith($" {parameterName}"));
+    }
+
+    // Every P/Invoke the extension's NativeMethods block declares.
+    private static IEnumerable<string> DeclaredPInvokeNames(string output)
+    {
+        foreach (var raw in output.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (!line.Contains("partial") || !line.Contains("PInvoke_"))
+                continue;
+            var start = line.IndexOf("PInvoke_");
+            var end = line.IndexOf('(', start);
+            if (end > start)
+                yield return line.Substring(start, end - start);
+        }
+    }
+
+    private static MethodDecl CreateMethodDeclWithIntParam(
+        string name, string ownerModule, TypeDecl parentDecl, string parameterName)
+    {
+        var ownerModuleDecl = CreateFullModuleDecl(ownerModule);
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10{ownerModule}{name.Length}{name}ySiF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = ownerModuleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = parameterName,
+                    PrivateName = parameterName,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = ownerModuleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = ownerModuleDecl,
+            IsSynthesizedAccessor = false
+        };
+    }
+
+    // An instance method returning the struct registered by CreateTypeDatabaseWithStruct, with
+    // three primitive parameters spelled like the locals the resilient-return arm generates.
+    private static MethodDecl CreateMethodDeclReturningStruct(
+        string name, string ownerModule, TypeDecl parentDecl, params string[] parameterNames)
+    {
+        var ownerModuleDecl = CreateFullModuleDecl(ownerModule);
+        var parameters = (parameterNames.Length > 0 ? parameterNames : new[] { "metadata", "buffer", "indirectResult" })
+            .Select(parameterName => new ArgumentDecl
+            {
+                Name = parameterName,
+                PrivateName = parameterName,
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = ownerModuleDecl
+            });
+
+        var signature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                SwiftTypeSpec = new NamedTypeSpec("OrigModule.OrigPoint"),
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = ownerModuleDecl
+            }
+        };
+        signature.AddRange(parameters);
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10{ownerModule}{name.Length}{name}y10OrigModule9OrigPointVSi_S2itF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = ownerModuleDecl,
+            IsSynthesizedAccessor = false
+        };
+    }
+
+    // A CLASS receiver paired with the struct type database, so a class-receiver member can be
+    // given a struct return. CreateStructSetup pairs that database with a struct receiver.
+    private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput, StringWriter swiftOutput,
+        ModuleDecl moduleDecl, ClassDecl classDecl, Conductor conductor, MethodEnvironment env)
+        CreateClassSetupWithStructReturn(bool frozen, bool requiresMemoryManagement, bool nonCopyable = false)
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+
+        var structFlags = TypeRecordFlags.None;
+        if (frozen) structFlags |= TypeRecordFlags.Frozen;
+        if (requiresMemoryManagement) structFlags |= TypeRecordFlags.RequiresMemoryManagement;
+        if (nonCopyable) structFlags |= TypeRecordFlags.NonCopyable;
+        var origModule = new ModuleTypeDatabase("OrigModule", "/tmp/OrigModule.dylib");
+        origModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigType"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OrigModule", "OrigType"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigType"),
+                MetadataAccessor = "$s10OrigModule8OrigTypeCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        origModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigPoint"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OrigModule", "OrigPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigPoint"),
+                MetadataAccessor = "$s10OrigModule9OrigPointVMa",
+                Flags = structFlags,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(origModule);
+
+        var classDecl = new ClassDecl
+        {
+            Name = "OrigType",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigType"),
+            MangledName = "$s10OrigModule8OrigTypeCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var conductor = new Conductor(NullLoggerFactory.Instance);
+        var env = new MethodEnvironment(CreateMethodDecl("_dummy", "TestModule", classDecl), typeDatabase);
+        return (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, classDecl, conductor, env);
     }
 
     #endregion

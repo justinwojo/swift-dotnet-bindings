@@ -22,19 +22,60 @@ public static class ExtensionMarshallingHelper
     public const string IndirectResultLocalName = "indirectResult";
 
     /// <summary>
-    /// The receiver parameter every emitted extension member declares. It shares the body scope
-    /// with the generated locals exactly as the Swift-derived parameters do, so it is seeded
-    /// alongside them.
+    /// Preferred spelling of the receiver parameter every emitted extension member declares. It
+    /// shares the body scope with the generated locals exactly as the Swift-derived parameters do,
+    /// so it is minted against them rather than written as a literal.
     /// </summary>
     private const string ReceiverParameterName = "self";
 
     /// <summary>
-    /// Builds the name scope for one emitted extension member's body, seeded with the identifiers
-    /// already live in it: the receiver and the member's projected parameter names. Generated
-    /// locals minted against it move aside on a collision; the public parameters never do.
+    /// Name of the synthesized parameter an emitted extension property setter takes the new value
+    /// under. A setter has no Swift-authored parameter list, so this is the whole of it, and the
+    /// receiver mints against it exactly as a method's receiver mints against its projected names.
     /// </summary>
-    public static SyntheticNameScope BuildBodyScope(IEnumerable<string> parameterNames)
-        => new SyntheticNameScope(new[] { ReceiverParameterName }.Concat(parameterNames));
+    public const string SetterValueParameterName = "value";
+
+    /// <summary>
+    /// The name an extension member's <c>this</c> receiver is declared under, paired with the body
+    /// scope its generated locals mint from.
+    /// </summary>
+    /// <remarks>
+    /// <c>self</c> is a legal Swift argument label, so a member can project a parameter spelled
+    /// exactly like the receiver. The receiver is therefore minted FIRST, against the projected
+    /// parameter names — never the reverse: the receiver is the <c>this</c> parameter, so moving it
+    /// is invisible to every caller, while moving a user's parameter would break named-argument
+    /// call sites. A mint with nothing colliding returns <c>self</c>, so the overwhelmingly common
+    /// case emits exactly what it did before.
+    /// </remarks>
+    public readonly struct ExtensionReceiverScope
+    {
+        internal ExtensionReceiverScope(string receiverName, SyntheticNameScope bodyScope)
+        {
+            ReceiverName = receiverName;
+            BodyScope = bodyScope;
+        }
+
+        /// <summary>The identifier the <c>this</c> receiver is declared and referenced under.</summary>
+        public string ReceiverName { get; }
+
+        /// <summary>
+        /// The member's body scope. Already holds the projected parameter names and the receiver,
+        /// so any local minted from it moves aside from all of them.
+        /// </summary>
+        public SyntheticNameScope BodyScope { get; }
+    }
+
+    /// <summary>
+    /// Builds the receiver name and the body scope for one emitted extension member, seeded with
+    /// the identifiers already live in it: the member's projected parameter names, then the
+    /// receiver minted against them. Generated locals minted from the returned scope move aside
+    /// from both; the public parameters never do.
+    /// </summary>
+    public static ExtensionReceiverScope BuildReceiverScope(IEnumerable<string>? parameterNames)
+    {
+        var scope = new SyntheticNameScope(parameterNames ?? Enumerable.Empty<string>());
+        return new ExtensionReceiverScope(scope.Mint(ReceiverParameterName), scope);
+    }
 
     /// <summary>
     /// Categorizes return types for correct C# marshalling in extension methods.
@@ -117,6 +158,49 @@ public static class ExtensionMarshallingHelper
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// True when a return classified <see cref="ReturnKind.NonFrozenStruct"/> really is a resilient
+    /// struct — the shape whose value the caller materializes out of a buffer it supplied, as the
+    /// opaque-payload C# carrier.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ReturnKind.NonFrozenStruct"/> is a two-member bucket. One member is a genuinely
+    /// non-<c>@frozen</c> struct: the caller cannot know its layout, so the value only ever reaches
+    /// it through a buffer, and the C# projection of that type is a handle-backed carrier that can
+    /// adopt one. The other is a <c>@frozen</c> struct carrying reference fields
+    /// (<c>Swift.String</c>, <c>Swift.Array</c>) — its layout IS known, so a direct call hands it
+    /// back in registers and leaves a caller-allocated buffer untouched, and its C# projection is
+    /// not a buffer-adopting carrier either. An ObjC-bridged or ObjC-bridgeable struct is excluded
+    /// for the same reason: it crosses the boundary as a class pointer. Only the first member can
+    /// be read back out of a result buffer, so an arm that allocates one must ask this rather than
+    /// keying on the <see cref="ReturnKind"/> alone.
+    /// </remarks>
+    public static bool MaterializesFromResultBuffer(TypeSpec? returnTypeSpec, ITypeDatabase typeDatabase)
+    {
+        if (returnTypeSpec is not NamedTypeSpec namedType || namedType.ContainsGenericParameters)
+            return false;
+
+        try
+        {
+            if (TypeDatabaseExtensions.IsObjCModuleType(namedType))
+                return false;
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+            if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                return false;
+            if (typeRecord.Kind != TypeRecordKind.Struct)
+                return false;
+            if (MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCBridgeable(typeRecord))
+                return false;
+
+            return !MarshallingHelpers.IsTypeFrozen(typeRecord);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -463,30 +547,65 @@ public static class ExtensionMarshallingHelper
             }
 
             case ReturnKind.NonFrozenStruct:
-            {
-                var metadataLocal = bodyScope.Mint("metadata");
-                var bufferLocal = bodyScope.Mint("buffer");
-                var indirectResultLocal = bodyScope.Mint(IndirectResultLocalName);
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        var {{metadataLocal}} = SwiftObjectHelper<{{csharpType}}>.GetTypeMetadata();
-                        IntPtr {{bufferLocal}} = (IntPtr)NativeMemory.Alloc({{metadataLocal}}.Size);
-                        try
-                        {
-                            var {{indirectResultLocal}} = new SwiftIndirectResult((void*){{bufferLocal}});
-                            {{nativeCall}};
-                            return SwiftMarshal.MarshalFromSwift<{{csharpType}}>({{bufferLocal}});
-                        }
-                        catch
-                        {
-                            NativeMemory.Free((void*){{bufferLocal}});
-                            throw;
-                        }
-                    }
-                    """);
+                EmitResultBufferedReturn(csWriter, csharpType, bodyScope, bufferLocal =>
+                {
+                    // The direct swiftcc route carries the buffer in the indirect-result register,
+                    // so the register wrapper is declared here and the caller's nativeCall names it.
+                    var indirectResultLocal = bodyScope.Mint(IndirectResultLocalName);
+                    csWriter.WriteLine($"var {indirectResultLocal} = new SwiftIndirectResult((void*){bufferLocal});");
+                    csWriter.WriteLine($"{nativeCall};");
+                });
                 break;
-            }
         }
+    }
+
+    /// <summary>
+    /// Emits the whole caller-supplied-buffer protocol for a resilient struct return: size the
+    /// buffer from the type's own metadata, hand it to <paramref name="emitCall"/> to make the
+    /// native call against, then materialize the C# value out of it.
+    /// </summary>
+    /// <remarks>
+    /// Shared so the two routes that reach a resilient struct — the direct swiftcc call, which
+    /// carries the buffer in the indirect-result register, and a generated <c>@_cdecl</c>
+    /// trampoline, which takes it as an ordinary pointer parameter — cannot drift on the part that
+    /// is identical: who allocates, how big, and who owns it afterwards. Ownership is the reason
+    /// the free lives only on the throwing path: the carrier adopts the buffer on success and frees
+    /// it when the handle is released, so freeing here too would be a double free.
+    /// </remarks>
+    /// <param name="emitCall">
+    /// Writes the native call, given the name of the local holding the buffer pointer. Anything it
+    /// needs to declare alongside the call (a register wrapper, a transfer flag) belongs here — the
+    /// lines land inside the <c>try</c>, after the allocation and before the value is read back.
+    /// </param>
+    public static void EmitResultBufferedReturn(
+        CSharpWriter csWriter,
+        string csharpType,
+        SyntheticNameScope bodyScope,
+        Action<string> emitCall)
+    {
+        var metadataLocal = bodyScope.Mint("metadata");
+        var bufferLocal = bodyScope.Mint("buffer");
+
+        csWriter.WriteLine("unsafe");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"var {metadataLocal} = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
+        csWriter.WriteLine($"IntPtr {bufferLocal} = (IntPtr)NativeMemory.Alloc({metadataLocal}.Size);");
+        csWriter.WriteLine("try");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        emitCall(bufferLocal);
+        csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csharpType}>({bufferLocal});");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("catch");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"NativeMemory.Free((void*){bufferLocal});");
+        csWriter.WriteLine("throw;");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 }

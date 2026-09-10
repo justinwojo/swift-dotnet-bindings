@@ -431,15 +431,18 @@ public static partial class CrossModuleExtensionEmitter
         if (returnCategory == null)
             return false;
 
-        // Non-frozen-struct and frozen-value-struct returns require a @_cdecl Swift trampoline
-        // because Swift's CallConvSwift returns small structs in registers (x0+x1 for Swift.String,
-        // d0+d1 for `struct Point { Double; Double }`), not via the SwiftIndirectResult slot.
-        // The class-receiver path dispatches the raw CallConvSwift symbol — that works for void,
-        // primitive, SwiftClass, and ObjCClass returns (single-register or primitive returns).
-        // Struct returns silently leave the indirect buffer untouched and surface as empty results.
-        // The cross-module struct RECEIVER path (EmitStruct below) generates its own trampolines
-        // and can return frozen structs; that is gated to that path only.
-        if (returnCategory == ReturnKind.NonFrozenStruct || returnCategory == ReturnKind.FrozenStruct)
+        // No struct return on this route, resilient or frozen. A frozen struct comes back in
+        // registers (x0+x1 for Swift.String, d0+d1 for `struct Point { Double; Double }`), which
+        // this route has nothing to receive it in. A resilient struct is handed back through a
+        // caller-supplied buffer, which it could in principle allocate — but the call it emits
+        // reaches Swift through the real mangled symbol with an untyped receiver in the self
+        // register, and pairing that with an indirect result was measured to overwrite the
+        // receiver object's metadata word with a stack address: the value arrives intact and the
+        // next dispatch through the receiver segmentation-faults inside Swift. The class-receiver
+        // trampoline path takes that shape instead, through a generated @_cdecl entry point whose
+        // result pointer is an ordinary parameter, and is tried first. The cross-module struct
+        // RECEIVER path (EmitStruct below) generates its own trampolines and gates separately.
+        if (returnCategory == ReturnKind.FrozenStruct || returnCategory == ReturnKind.NonFrozenStruct)
             return false;
 
         // A SimpleEnum return folds into ReturnKind.Primitive above, but this path calls the
@@ -485,8 +488,11 @@ public static partial class CrossModuleExtensionEmitter
             ? "void"
             : ResolveCSharpTypeName(returnTypeSpec, typeDatabase);
 
-        // Build parameter string
-        var paramParts = new List<string> { $"this {origCSharpType} self" };
+        // Build parameter string. The receiver is minted against the projected parameter names
+        // first, so a member that spells `self` as an argument label keeps its own parameter and
+        // the receiver moves aside instead of duplicating it.
+        var receiverScope = BuildReceiverScope(parameters.Select(p => p.name));
+        var paramParts = new List<string> { $"this {origCSharpType} {receiverScope.ReceiverName}" };
         foreach (var (name, csharpType, _, _) in parameters)
         {
             if (MarshallingHelpers.IsBoolType(csharpType))
@@ -511,7 +517,7 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        EmitMethodBody(csWriter, method, pInvokeName, parameters, returnCategory.Value, csharpReturnType, isStatic, classDecl.IsObjCRooted, typeDatabase);
+        EmitMethodBody(csWriter, method, pInvokeName, parameters, receiverScope, returnCategory.Value, csharpReturnType, isStatic, classDecl.IsObjCRooted, typeDatabase);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -525,9 +531,9 @@ public static partial class CrossModuleExtensionEmitter
     /// The handle is wrapped in a SwiftSelf so the P/Invoke param type matches and the value
     /// lands in the swiftcc self register.
     /// </summary>
-    private static string GetSelfExpression(bool isObjCRooted)
+    private static string GetSelfExpression(string receiverName, bool isObjCRooted)
     {
-        var handle = isObjCRooted ? "self.Handle" : "self.Payload.DangerousGetHandle()";
+        var handle = isObjCRooted ? $"{receiverName}.Handle" : $"{receiverName}.Payload.DangerousGetHandle()";
         return $"new SwiftSelf((void*){handle})";
     }
 
@@ -536,6 +542,7 @@ public static partial class CrossModuleExtensionEmitter
         MethodDecl method,
         string pInvokeName,
         List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec)> parameters,
+        ExtensionReceiverScope receiverScope,
         ReturnKind returnCategory,
         string csharpReturnType,
         bool isStatic,
@@ -543,34 +550,25 @@ public static partial class CrossModuleExtensionEmitter
         ITypeDatabase typeDatabase)
     {
         var nativeArgs = new List<string>();
-        var bodyScope = BuildBodyScope(parameters.Select(p => p.name));
+        var bodyScope = receiverScope.BodyScope;
 
-        // CallConvSwift parameter ordering: SwiftIndirectResult first (x8 register),
-        // then regular args (x0..x7), then SwiftSelf last (x20). The .NET runtime
-        // routes SwiftSelf and SwiftIndirectResult to fixed registers, but we keep
-        // self last to match the convention used elsewhere in the runtime
-        // (SwiftArrayPInvokes / BlittableElementBuffer P/Invokes both put `self`
-        // last). This avoids a subtle no-crash empty-result failure observed when
-        // self_ sits between the indirect result and the first non-self arg.
-        // Unreachable today: TryEmitMethodExtension declines NonFrozenStruct returns on the
-        // class-receiver path before this runs. Minting rather than hardcoding keeps the arm
-        // correct if that gate is ever lifted, and matches the declaration site.
-        if (returnCategory == ReturnKind.NonFrozenStruct)
-            nativeArgs.Add(bodyScope.Mint(IndirectResultLocalName));
-
+        // CallConvSwift parameter ordering: regular args (x0..x7), then SwiftSelf last (x20). The
+        // .NET runtime routes SwiftSelf to a fixed register regardless of position, but self stays
+        // last to match the convention used elsewhere in the runtime (SwiftArrayPInvokes /
+        // BlittableElementBuffer P/Invokes both put `self` last).
         foreach (var (name, _, pinvokeExpr, _) in parameters)
         {
             nativeArgs.Add(pinvokeExpr);
         }
 
         if (!isStatic)
-            nativeArgs.Add(GetSelfExpression(isObjCRooted));
+            nativeArgs.Add(GetSelfExpression(receiverScope.ReceiverName, isObjCRooted));
 
         // Use the method's real mangled name as the NativeMethods entry
         var nativeMethodName = GetNativeMethodName(method);
         var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
-        EmitPayloadPinnedBody(csWriter, isStatic, isObjCRooted,
+        EmitPayloadPinnedBody(csWriter, receiverScope.ReceiverName, isStatic, isObjCRooted,
             () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType, bodyScope));
     }
 
@@ -583,6 +581,7 @@ public static partial class CrossModuleExtensionEmitter
     /// </summary>
     private static void EmitPayloadPinnedBody(
         CSharpWriter csWriter,
+        string receiverName,
         bool isStatic,
         bool isObjCRooted,
         Action emitBody)
@@ -594,7 +593,7 @@ public static partial class CrossModuleExtensionEmitter
         }
 
         csWriter.WriteLine("bool __payloadPinned = false;");
-        csWriter.WriteLine("self.Payload.DangerousAddRef(ref __payloadPinned);");
+        csWriter.WriteLine($"{receiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -604,7 +603,7 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("if (__payloadPinned) self.Payload.DangerousRelease();");
+        csWriter.WriteLine($"if (__payloadPinned) {receiverName}.Payload.DangerousRelease();");
         csWriter.Indent--;
         csWriter.WriteLine("}");
     }
@@ -631,8 +630,11 @@ public static partial class CrossModuleExtensionEmitter
         if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
             return false;
 
-        // Same limitation as TryEmitMethodExtension: struct returns need trampolines not available on the class-receiver path.
-        if (returnCategory.Value == ReturnKind.NonFrozenStruct || returnCategory.Value == ReturnKind.FrozenStruct)
+        // Same refusal as TryEmitMethodExtension, for the same two reasons: a frozen struct comes
+        // back in registers this route cannot receive, and a resilient struct would pair an
+        // indirect result with an untyped receiver in the self register — the combination measured
+        // to corrupt the receiver.
+        if (returnCategory.Value == ReturnKind.FrozenStruct || returnCategory.Value == ReturnKind.NonFrozenStruct)
             return false;
 
         // Same limitation as TryEmitMethodExtension: a SimpleEnum return has no synthesized
@@ -654,23 +656,21 @@ public static partial class CrossModuleExtensionEmitter
         var getterAccessor = property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getterAccessor != null)
         {
+            // A property getter has no Swift-authored parameters — only the receiver — so nothing
+            // here can collide and the mint always returns `self`. It is still built the same way
+            // as the method arm so the two cannot drift apart.
+            var getterReceiver = BuildReceiverScope(null);
+            var getterScope = getterReceiver.BodyScope;
+
             csWriter.WriteLine();
-            csWriter.WriteLine($"public static unsafe {csharpType} Get{propertyName}(this {origCSharpType} self)");
+            csWriter.WriteLine($"public static unsafe {csharpType} Get{propertyName}(this {origCSharpType} {getterReceiver.ReceiverName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
             var nativeMethodName = GetNativeMethodName(getterAccessor.Method);
-            var nativeArgs = new List<string>();
-            // A property getter has no Swift-authored parameters — only the receiver — so
-            // nothing here can collide; the scope is built the same way so the paths cannot
-            // drift. The NonFrozenStruct arm is additionally declined above.
-            var getterScope = BuildBodyScope(Array.Empty<string>());
-            if (returnCategory.Value == ReturnKind.NonFrozenStruct)
-                nativeArgs.Add(getterScope.Mint(IndirectResultLocalName));
-            nativeArgs.Add(GetSelfExpression(classDecl.IsObjCRooted));
-            var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
+            var nativeCall = $"NativeMethods.{nativeMethodName}({GetSelfExpression(getterReceiver.ReceiverName, classDecl.IsObjCRooted)})";
 
-            EmitPayloadPinnedBody(csWriter, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
+            EmitPayloadPinnedBody(csWriter, getterReceiver.ReceiverName, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
                 () => EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType, getterScope));
 
             csWriter.Indent--;
@@ -682,14 +682,18 @@ public static partial class CrossModuleExtensionEmitter
         if (setterAccessor != null && returnCategory.Value == ReturnKind.Primitive)
         {
             var setParamType = MarshallingHelpers.IsBoolType(csharpType) ? "bool" : csharpType;
+            // The setter's one parameter is the synthesized `value`; the receiver mints against it
+            // exactly as the method arm mints against a member's projected parameter names.
+            var setterReceiver = BuildReceiverScope(new[] { SetterValueParameterName });
+
             csWriter.WriteLine();
-            csWriter.WriteLine($"public static unsafe void Set{propertyName}(this {origCSharpType} self, {setParamType} value)");
+            csWriter.WriteLine($"public static unsafe void Set{propertyName}(this {origCSharpType} {setterReceiver.ReceiverName}, {setParamType} {SetterValueParameterName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
             var nativeMethodName = GetNativeMethodName(setterAccessor.Method);
-            EmitPayloadPinnedBody(csWriter, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
-                () => csWriter.WriteLine($"NativeMethods.{nativeMethodName}(value, {GetSelfExpression(classDecl.IsObjCRooted)});"));
+            EmitPayloadPinnedBody(csWriter, setterReceiver.ReceiverName, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
+                () => csWriter.WriteLine($"NativeMethods.{nativeMethodName}({SetterValueParameterName}, {GetSelfExpression(setterReceiver.ReceiverName, classDecl.IsObjCRooted)});"));
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -718,15 +722,17 @@ public static partial class CrossModuleExtensionEmitter
         if (returnCategory == null)
             return;
 
-        // Build P/Invoke parameters — skip if any param is unsupported.
-        // CallConvSwift ordering: SwiftIndirectResult first, then regular args,
-        // then SwiftSelf last. See EmitMethodBody for the matching call-site
-        // ordering and the rationale.
-        var pinvokeParams = new List<string>();
-        bool usesIndirectResult = returnCategory.Value == ReturnKind.NonFrozenStruct;
+        // Struct returns — resilient or frozen — are refused by TryEmitMethodExtension, so there is
+        // no caller for one here. Mirroring the refusal is what keeps that true: a type with any
+        // other emittable member reaches this block, and without the mirror the refused member
+        // still contributes a P/Invoke declaration nothing calls.
+        if (returnCategory.Value == ReturnKind.FrozenStruct || returnCategory.Value == ReturnKind.NonFrozenStruct)
+            return;
 
-        if (usesIndirectResult)
-            pinvokeParams.Add("SwiftIndirectResult result");
+        // Build P/Invoke parameters — skip if any param is unsupported.
+        // CallConvSwift ordering: regular args, then SwiftSelf last. See EmitMethodBody for the
+        // matching call-site ordering and the rationale.
+        var pinvokeParams = new List<string>();
 
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
@@ -754,7 +760,8 @@ public static partial class CrossModuleExtensionEmitter
             ? typeDatabase.AsyncLibraryName
             : moduleLibPath;
 
-        var pinvokeReturnType = ExtensionMarshallingHelper.ResolvePInvokeReturnType(returnTypeSpec, returnCategory.Value, typeDatabase, usesIndirectResult);
+        var pinvokeReturnType = ExtensionMarshallingHelper.ResolvePInvokeReturnType(
+            returnTypeSpec, returnCategory.Value, typeDatabase, usesIndirectResult: false);
 
         var nativeMethodName = GetNativeMethodName(method);
 
@@ -791,11 +798,11 @@ public static partial class CrossModuleExtensionEmitter
             return;
 
         var returnCategory = ClassifyReturnType(property.SwiftTypeSpec, typeDatabase);
-        // FrozenStruct returns are handled only in the struct-receiver path; suppress
-        // them here so TryEmitPropertyExtension's gate stays the single source of truth.
-        if (returnCategory == ReturnKind.FrozenStruct)
-            return;
         if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
+            return;
+        // Struct returns of either shape are refused by TryEmitPropertyExtension; mirror that here
+        // so a refused accessor on a type with other emittable members leaves no orphan P/Invoke.
+        if (returnCategory.Value == ReturnKind.FrozenStruct || returnCategory.Value == ReturnKind.NonFrozenStruct)
             return;
 
         // Getter P/Invoke
@@ -803,13 +810,7 @@ public static partial class CrossModuleExtensionEmitter
         if (getterAccessor != null)
         {
             var method = getterAccessor.Method;
-            var pinvokeParams = new List<string>();
-            bool usesIndirectResult = returnCategory.Value == ReturnKind.NonFrozenStruct;
-
-            if (usesIndirectResult)
-                pinvokeParams.Add("SwiftIndirectResult result");
-
-            pinvokeParams.Add("SwiftSelf self_");
+            var pinvokeParams = new List<string> { "SwiftSelf self_" };
 
             var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(
                 method, emissionContext?.GetMethodEmissionSymbolOrMangled(method) ?? method.MangledName);
@@ -817,7 +818,8 @@ public static partial class CrossModuleExtensionEmitter
                 ? typeDatabase.AsyncLibraryName
                 : moduleLibPath;
 
-            var pinvokeReturnType = ExtensionMarshallingHelper.ResolvePInvokeReturnType(property.SwiftTypeSpec, returnCategory.Value, typeDatabase, usesIndirectResult);
+            var pinvokeReturnType = ExtensionMarshallingHelper.ResolvePInvokeReturnType(
+                property.SwiftTypeSpec, returnCategory.Value, typeDatabase, usesIndirectResult: false);
 
             var nativeMethodName = GetNativeMethodName(method);
 
