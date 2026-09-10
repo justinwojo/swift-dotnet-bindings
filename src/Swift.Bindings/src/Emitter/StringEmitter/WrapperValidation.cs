@@ -1929,6 +1929,18 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when a property's declared type is a closure, bare or wrapped in a single
+    /// <c>Optional</c>. Those are the two shapes a property accessor can carry a closure in;
+    /// a closure nested any deeper (inside an Array, a tuple, a user generic) is refused
+    /// earlier by the collection-nesting gate and never reaches a wrapper.
+    /// </summary>
+    public static bool PropertyTypeIsClosureOrOptionalClosure(TypeSpec typeSpec)
+        => typeSpec is ClosureTypeSpec
+           || (typeSpec is NamedTypeSpec { Name: "Swift.Optional" } opt
+               && opt.GenericParameters.Count == 1
+               && opt.GenericParameters[0] is ClosureTypeSpec);
+
+    /// <summary>
     /// Returns true if the given parent type declaration is any generic type (class or struct).
     /// Used to determine whether generic wrapper emission is needed.
     /// </summary>

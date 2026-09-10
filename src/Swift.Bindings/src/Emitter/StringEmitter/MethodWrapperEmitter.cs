@@ -108,6 +108,17 @@ public static class MethodWrapperEmitter
                 return WrapperEligibility.Reject("async_closure");
         }
 
+        // 11a. An Optional of an ObjC-bridgeable container (`[URL]?`) leaves the wrapper as one
+        // nullable pointer, but the managed side still classifies that shape as a wide Optional and
+        // reshapes the call into a void return plus a trailing out-buffer. The two descriptions of
+        // the same member disagree on both arity and return shape, and nothing downstream
+        // reconciles them, so decline the wrapper instead of emitting a pair that only lines up by
+        // accident. The property route declines the same shape for the same reason.
+        var cdeclReturnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (IsOptionalType(cdeclReturnSpec)
+            && CdeclParamMapper.IsOptionalObjCBridgeableContainer(cdeclReturnSpec, env.TypeDatabase))
+            return WrapperEligibility.Reject("optional_bridged_container_return");
+
         // 11b. This ordinary synchronous producer owns initialized String storage through
         // MapInout + defer and the managed owning BufferRef/finally plan. Other producers
         // keep the shared capability off. Do not infer closure/generic/noncopyable
@@ -1604,12 +1615,6 @@ public static class MethodWrapperEmitter
     /// Delegates to <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
     /// </summary>
     internal static bool CanEmitGenericWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-        => GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
-
-    /// <summary>
-    /// Backward-compatible alias. Delegates to <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
-    /// </summary>
-    internal static bool CanEmitGenericClassWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
         => GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
 
     /// <summary>

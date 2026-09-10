@@ -186,10 +186,9 @@ public final class SyncCascadeService {
     }
 }
 
-/// Struct with a synchronous `get throws` computed property. The `@_cdecl` property wrapper
-/// declines a throwing getter, so this member is emitted as an ordinary direct call whose thrown
-/// error arrives in the dedicated Swift error register rather than through an explicit
-/// out-pointer — the third route a sync `throws` member can take.
+/// Struct with a synchronous `get throws` computed property. The parent is not generic, so this
+/// member reaches the `@_cdecl` property wrapper and its thrown error arrives through the
+/// wrapper's explicit error-out pointer rather than the dedicated Swift error register.
 public struct SyncCascadeGate {
     public let allow: Bool
 

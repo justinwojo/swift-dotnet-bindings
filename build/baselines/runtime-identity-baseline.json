@@ -1,8 +1,8 @@
 {
-  "git_sha": "765f4f2e3",
+  "git_sha": "7f7b4a077",
   "platforms": {
     "simulator": {
-      "pass_count": 3921,
+      "pass_count": 3927,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -38,16 +38,6 @@
           "class": "FoundationKvoTests",
           "method": "TestObserveCounter_HandlerThrows_FailsFast",
           "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRun",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRunWithFilter",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",

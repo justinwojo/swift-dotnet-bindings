@@ -48,6 +48,9 @@ public class KeyPathFactory {
     // OUT — PartialKeyPath upcast
     public class func makePartialPointXPath() -> PartialKeyPath<PointKP> { \PointKP.x }
 
+    // OUT — a second PartialKeyPath over the same root, so a caller can tell one from the other
+    public class func makePartialPointYPath() -> PartialKeyPath<PointKP> { \PointKP.y }
+
     // OUT — AnyKeyPath upcast
     public class func makeAnyPointXPath() -> AnyKeyPath { \PointKP.x }
 

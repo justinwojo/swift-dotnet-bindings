@@ -298,6 +298,28 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Does an Optional return on the @_cdecl arm have to travel through the resultPtr buffer?
+        /// Only two Optional shapes lower to a single nullable pointer the wrapper can return by
+        /// value: Optional&lt;reference&gt; (a class or ObjC object) and Optional&lt;ObjC-bridgeable
+        /// container&gt; such as <c>[URL]?</c>, which is handed over as a retained NSArray. Everything
+        /// else is wider than a register and needs the buffer.
+        ///
+        /// This is the C#-side twin of the Swift-side <c>CdeclReturnMapping.Classify</c> decision, and
+        /// both indirect-result deciders route through it. Restating the rule at each site is how the
+        /// two drifted apart before: the general fallback omitted the bridgeable-container arm, so a
+        /// <c>[URL]?</c> getter emitted a resultPtr P/Invoke against a pointer-returning wrapper.
+        ///
+        /// Agreeing here is necessary but not sufficient for an Optional-of-bridgeable-container to
+        /// cross the @_cdecl arm: <c>BoundGenericsHandler.IsLargeOptionalParam</c> is a third copy of
+        /// the same question and still calls that shape large, which sends the P/Invoke down the
+        /// out-buffer path. Until those agree too, the wrapper routes decline the shape.
+        /// </summary>
+        internal static bool CdeclOptionalReturnNeedsIndirectResult(TypeSpec returnSpec, ITypeDatabase typeDatabase)
+            => MethodWrapperEmitter.IsOptionalType(returnSpec)
+                && !CdeclParamMapper.IsOptionalWithReferenceInner(returnSpec, typeDatabase)
+                && !CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnSpec, typeDatabase);
+
+        /// <summary>
         /// Determines indirect result requirements specific to @_cdecl wrappers.
         /// Checks String, existential, Optional&lt;value&gt;, closure, DynamicSelf, and tuple returns.
         /// Returns null if no @_cdecl-specific decision applies (fall through to general logic).
@@ -333,10 +355,7 @@ namespace BindingsGeneration
                 return true;
 
             // Optional<value-type>: @_cdecl can't return generics directly.
-            // Exception: Optional<ObjC-bridgeable container> (e.g., [URL]?) returns as nullable ObjC pointer.
-            if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
-                !CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase) &&
-                !CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+            if (CdeclOptionalReturnNeedsIndirectResult(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
                 return true;
 
             // Closure returns: @_cdecl can't return closures directly — write to resultPtr buffer.
@@ -462,8 +481,7 @@ namespace BindingsGeneration
             {
                 // @_cdecl Optional<value-type> or Optional<existential>: force IndirectResult.
                 if (isCdeclNonSetter &&
-                    MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
-                    !CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, env.TypeDatabase))
+                    CdeclOptionalReturnNeedsIndirectResult(returnType.SwiftTypeSpec, env.TypeDatabase))
                 {
                     return true;
                 }

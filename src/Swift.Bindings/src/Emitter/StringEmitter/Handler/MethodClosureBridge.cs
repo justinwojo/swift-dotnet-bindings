@@ -37,18 +37,84 @@ public static class MethodClosureBridge
     /// <summary>
     /// Builds the wrapper symbol name for an MCB bridge. Uses the <c>SBSW_</c> prefix when the
     /// Swift wrapper must be a generic-extension <c>@_silgen_name</c> (generic parent + instance
-    /// method — <c>@_cdecl</c> is illegal on a generic extension method, so the Swift CC is the
-    /// only legal pairing). Uses the regular <c>SBW_</c> prefix otherwise, which signals the
-    /// matching <c>@_cdecl</c> + <c>CallConvCdecl</c> P/Invoke. The distinct prefix keeps the
-    /// (entry-point → calling-convention) pairing self-describing: <c>SBW_</c> ↔ Cdecl,
-    /// <c>SBSW_</c> ↔ Swift, enforced centrally by <see cref="PInvokeEmitHelper.SelectCallingConvention"/>.
+    /// method that cannot take the static-dispatch route — <c>@_cdecl</c> is illegal directly on
+    /// a generic extension method, so the Swift CC is the only legal pairing there). Uses the
+    /// regular <c>SBW_</c> prefix otherwise, which signals the matching <c>@_cdecl</c> +
+    /// <c>CallConvCdecl</c> P/Invoke. The distinct prefix keeps the (entry-point → calling-
+    /// convention) pairing self-describing: <c>SBW_</c> ↔ Cdecl, <c>SBSW_</c> ↔ Swift, enforced
+    /// centrally by <see cref="PInvokeEmitHelper.SelectCallingConvention"/>.
     /// </summary>
-    private static string BuildBridgeSymbolName(MethodDecl method, TypeDecl? parentDecl, string callbackBaseName)
+    private static string BuildBridgeSymbolName(
+        MethodDecl method, TypeDecl? parentDecl, string callbackBaseName, MethodEnvironment env)
     {
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         bool isGenericParent = parentDecl is TypeDecl ptd && ptd.IsGeneric;
-        var prefix = (isGenericParent && isInstance) ? "SBSW_" : "SBW_";
+        bool usesSilgenExtension = isGenericParent && isInstance
+            && !CanRerouteGenericParentToCdecl(method, parentDecl, env);
+        var prefix = usesSilgenExtension ? "SBSW_" : "SBW_";
         return $"{prefix}{callbackBaseName}_{method.Name}";
+    }
+
+    /// <summary>
+    /// True when a generic-parent instance bridge can be emitted as a <c>@_cdecl</c> free
+    /// function that dispatches through a private static-conformance protocol, instead of the
+    /// <c>@_silgen_name</c> generic-extension shim.
+    /// <para>
+    /// The shim's receiver rides in <c>x20</c> under the Swift calling convention, which is the
+    /// register Mono's full-AOT codegen uses for its GC safe-region cookie — an untyped
+    /// <c>SwiftSelf</c> on a direct <c>CallConvSwift</c> P/Invoke can have that cookie clobbered
+    /// and abort the process. The <c>@_cdecl</c> route passes the receiver as an ordinary pointer
+    /// argument, so nothing contends for <c>x20</c>.
+    /// </para>
+    /// <para>
+    /// The dispatch protocol is declared at module scope, where the parent's type parameters are
+    /// NOT in scope, so every type named in the requirement's signature has to be spellable
+    /// without them. Only the signature is constrained — the conformance extension body still
+    /// sees the parent's <c>T</c>. <see cref="WrapperValidation.TypeSpecReferencesGenericParam"/>
+    /// recurses through closure argument and return types, which is where an MCB signature
+    /// carries the parent's <c>T</c> if it carries it at all.
+    /// </para>
+    /// <para>
+    /// Declining is safe here in a way it is not on the wrapper-eligibility paths: the member
+    /// still binds, just over the pre-existing <c>@_silgen_name</c> route it uses today.
+    /// </para>
+    /// </summary>
+    internal static bool CanRerouteGenericParentToCdecl(
+        MethodDecl method, TypeDecl? parentDecl, MethodEnvironment env)
+    {
+        if (parentDecl is not { IsGeneric: true })
+            return false;
+        if (method.MethodType == MethodType.Static)
+            return false;
+
+        // The metadata + PWT arguments the trampoline needs come from the type's non-generic
+        // P/Invoke helper class. Without it there is nowhere to source them, and the Swift and
+        // C# signatures would disagree on arity.
+        if (env.PInvokeHelperContext == null)
+            return false;
+
+        var genericParamNames = parentDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+        foreach (var arg in method.CSSignature)
+        {
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+                return false;
+        }
+
+        // The same fail-closed metadata gates every other generic-parent @_cdecl route applies.
+        // The dlsym'd `…Ma` accessor's register signature has to match the wrapper's _metadata /
+        // _pwt slots exactly; an arity disagreement corrupts caller-saved registers and PAC-traps
+        // on arm64e.
+        if (GenericDispatchEmitter.HasWrapperHelperGateBlocker(parentDecl, env.TypeDatabase))
+            return false;
+
+        // A member declared in a CONSTRAINED extension is invisible to the unconditional
+        // conformance extension this route emits, so ask that question directly.
+        if (GenericDispatchEmitter.MemberNarrowsParentGenericSignature(method, parentDecl))
+            return false;
+
+        return true;
     }
 
     /// <summary>
@@ -245,7 +311,7 @@ public static class MethodClosureBridge
         // it at construction time. The contract check fires for both pairings now
         // (Cdecl + SBW_ and Swift + SBSW_), so both branches must register or the
         // matching P/Invoke would throw WrapperSymbolContractException.
-        var bridgeSilgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName);
+        var bridgeSilgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName, env);
         // the bridge symbol is keyed on the closure type's
         // CallbackBaseName, not the method's own mangled name. That namespace is owned
         // exclusively by MethodClosureBridge / NestedClosureBridge and cannot collide
@@ -253,7 +319,7 @@ public static class MethodClosureBridge
         ctx.TryAddMethodWrapperSymbol(bridgeSilgenName, DeclIdFactory.ForMethod(method));
 
         // Emit Swift wrapper
-        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closures, passableNonClosureParams);
+        EmitSwiftWrapper(swiftWriter, method, env, ctx, parentDecl, closures, passableNonClosureParams);
 
         // Set method flags for wrapper library routing
         method.UsesWrapperLibrary = true;
@@ -361,6 +427,7 @@ public static class MethodClosureBridge
         SwiftWriter swiftWriter,
         MethodDecl method,
         MethodEnvironment env,
+        ModuleEmissionContext ctx,
         TypeDecl? parentDecl,
         List<ClosureInfo> closures,
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams)
@@ -368,17 +435,27 @@ public static class MethodClosureBridge
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
 
-        // Generic parent types use @_silgen_name extension to inherit generic context.
-        // Non-generic types use @_cdecl free function with explicit self parameter.
+        // Generic parent types either dispatch through a private static-conformance protocol
+        // (@_cdecl free function, receiver as an ordinary pointer argument) or, when the
+        // signature names the parent's T and so cannot be spelled in a module-scope protocol,
+        // fall back to the @_silgen_name extension that inherits the generic context.
+        // Non-generic types use a @_cdecl free function with an explicit self parameter.
         bool isGenericParent = parentDecl is TypeDecl ptd && ptd.IsGeneric;
+        bool reroutesToCdecl = isGenericParent && isInstance
+            && CanRerouteGenericParentToCdecl(method, parentDecl, env);
+        bool usesSilgenExtension = isGenericParent && isInstance && !reroutesToCdecl;
 
         // SBW_ ↔ @_cdecl (Cdecl), SBSW_ ↔ @_silgen_name (Swift CC) — prefix selected by
         // BuildBridgeSymbolName so the (symbol → CC) pairing is self-describing and the
         // central PInvokeEmitHelper.SelectCallingConvention check stays an identity.
-        var silgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName);
+        var silgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName, env);
 
         // Build Swift wrapper params
         var swiftParams = new List<string>();
+        // (name, type) for each entry of swiftParams, in the same order. The static-dispatch
+        // route re-spells the identical parameters as LABELLED protocol-requirement params, so
+        // it needs them structured rather than pre-rendered.
+        var swiftParamPairs = new List<(string Name, string Type)>();
         // Track non-primitive params that need pointer-to-value loading inside the body.
         // isClass distinguishes Swift classes (Unmanaged unwrap) from non-frozen structs (.pointee load).
         var pointerLoadParams = new List<(string paramName, string swiftType, bool isClass)>();
@@ -395,6 +472,7 @@ public static class MethodClosureBridge
             if (category == ParamAbiCategory.PayloadHandle)
             {
                 swiftParams.Add($"    _ {paramName}: UnsafeRawPointer");
+                swiftParamPairs.Add((paramName, "UnsafeRawPointer"));
                 // Classes need Unmanaged unwrap; non-frozen structs need .pointee load
                 bool isClass = arg.SwiftTypeSpec is NamedTypeSpec named &&
                     IsClassTypeForSwift(named, env.TypeDatabase);
@@ -403,12 +481,15 @@ public static class MethodClosureBridge
             else if (category == ParamAbiCategory.Utf8Slice)
             {
                 swiftParams.Add($"    _ {paramName}Utf8Ptr: UnsafePointer<UInt8>");
+                swiftParamPairs.Add(($"{paramName}Utf8Ptr", "UnsafePointer<UInt8>"));
                 swiftParams.Add($"    _ {paramName}Utf8Len: Int");
+                swiftParamPairs.Add(($"{paramName}Utf8Len", "Int"));
                 utf8SliceParams.Add(paramName);
             }
             else
             {
                 swiftParams.Add($"    _ {paramName}: {swiftType}");
+                swiftParamPairs.Add((paramName, swiftType));
             }
         }
 
@@ -417,7 +498,9 @@ public static class MethodClosureBridge
         {
             var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
             swiftParams.Add($"    _ {closureCsName}FuncPtr: UnsafeMutableRawPointer?");
+            swiftParamPairs.Add(($"{closureCsName}FuncPtr", "UnsafeMutableRawPointer?"));
             swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
+            swiftParamPairs.Add(($"{closureCsName}Context", "UnsafeMutableRawPointer?"));
         }
 
         // The @_cdecl wrapper hardcodes synthetic Swift identifiers
@@ -449,7 +532,28 @@ public static class MethodClosureBridge
             parentDecl, method.IsMainActorIsolated, method.IsNonisolated);
         var availability = WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentDecl);
 
-        if (isGenericParent && isInstance)
+        // Static-dispatch route: the protocol requirement and its conformance extension take the
+        // receiver as an explicit pointer, exactly like the non-generic @_cdecl branch, and the
+        // module-scope trampoline emitted after the body forwards to it through the parent's
+        // erased metatype. Names are keyed on the wrapper symbol so two bridges on the same type
+        // never collide.
+        var dispatchHash = EmitterUtility.DeterministicHash8(silgenName);
+        var dispatchProtocolName = $"_SBW_GSMCB_{dispatchHash}";
+        var dispatchMethodName = $"_sbw_mcb_{dispatchHash}";
+        int dispatchPwtCount = reroutesToCdecl
+            ? MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentDecl!, env.TypeDatabase)
+            : 0;
+
+        // Self is an explicit parameter on every route except the @_silgen_name extension, where
+        // it is implicit in the receiver. Added here rather than inside the branch below so the
+        // static-dispatch route can re-spell it as a labelled protocol parameter.
+        if (isInstance && !usesSilgenExtension)
+        {
+            swiftParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
+            swiftParamPairs.Add((selfParamName, "UnsafeMutableRawPointer"));
+        }
+
+        if (usesSilgenExtension)
         {
             // Generic parent: emit @_silgen_name extension method.
             // Self is implicit (in x20 register via Swift calling convention).
@@ -468,13 +572,42 @@ public static class MethodClosureBridge
             swiftWriter.WriteLine(string.Join(",\n", swiftParams));
             swiftWriter.WriteLine($"){swiftReturnType} {{");
         }
+        else if (reroutesToCdecl)
+        {
+            // Generic parent, static-dispatch route: declare the requirement at module scope
+            // (no parent generics in view — CanRerouteGenericParentToCdecl has already proved the
+            // signature never names them), then satisfy it in an unconditional conformance
+            // extension where the parent's T IS in scope so the body can call the real member.
+            // Neither block carries a @_cdecl symbol, so both get an origin anchor pinning them to
+            // the owning method; a wrapper-compile failure inside either then attributes to this
+            // member instead of the whole module, and the post-processor strips the anchor with
+            // the block it names.
+            var labelledParams = string.Join(", ", swiftParamPairs.Select(p => $"{p.Name}: {p.Type}"));
+            var anchor = OriginAnchorEmitter.LineForWrapper(method);
+            var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availability, "");
+            var mainActorPrefix = needsMainActor ? "@MainActor " : "";
+
+            // The requirement carries the same isolation the witness below does. A synchronous
+            // @MainActor witness cannot satisfy a nonisolated requirement under Swift 6 concurrency
+            // checking, and that rejection lands at wrapper-compile time — which costs the member
+            // its binding entirely rather than falling back to the direct route.
+            swiftWriter.WriteLines($$"""
+                {{anchor}}
+                private protocol {{dispatchProtocolName}} {
+                    {{mainActorPrefix}}static func {{dispatchMethodName}}({{labelledParams}}){{swiftReturnType}}
+                }
+                """);
+            // The conformance extension needs the same @available floor as the wrapped method:
+            // Swift type-checks the extension against the deployment target, not the @_cdecl.
+            swiftWriter.WriteLine(anchor);
+            swiftWriter.WriteLine($"{availPrefix}extension {typeName}: {dispatchProtocolName} {{");
+            swiftWriter.WriteLine($"{mainActorPrefix}static func {dispatchMethodName}(");
+            swiftWriter.WriteLine(string.Join(",\n", swiftParamPairs.Select(p => $"    {p.Name}: {p.Type}")));
+            swiftWriter.WriteLine($"){swiftReturnType} {{");
+        }
         else
         {
             // Non-generic parent: emit @_cdecl free function with explicit self parameter.
-            if (isInstance)
-            {
-                swiftParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
-            }
             WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor, availability);
             swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
             swiftWriter.WriteLine(string.Join(",\n", swiftParams));
@@ -528,16 +661,23 @@ public static class MethodClosureBridge
             }
         }
 
-        // For non-generic parents, unwrap self from the explicit pointer parameter.
-        // For generic parents, self is implicit from the extension.
+        // Unwrap self from the explicit pointer parameter. Only the @_silgen_name extension route
+        // gets self implicitly from its receiver.
+        //
+        // Inside the conformance extension the receiver type must be spelled `Self`, not the bare
+        // `typeName`: that name carries no generic arguments, so `Unmanaged<Module.Box>` would not
+        // even parse. `Self` is the concrete instantiation the metatype dispatch selected.
         bool isMutatingValueType = isInstance && !(parentDecl is ClassDecl) && method.IsMutating;
-        if (isInstance && !isGenericParent && !isMutatingValueType)
+        var selfSwiftTypeName = reroutesToCdecl ? "Self" : typeName;
+        if (isInstance && !usesSilgenExtension && !isMutatingValueType)
         {
             bool isClassParent = parentDecl is ClassDecl;
-            if (isClassParent)
+            if (isClassParent && reroutesToCdecl)
+                swiftWriter.WriteLine($"    let {selfObjName} = Unmanaged<AnyObject>.fromOpaque({selfParamName}).takeUnretainedValue() as! Self");
+            else if (isClassParent)
                 swiftWriter.WriteLine($"    let {selfObjName} = Unmanaged<{typeName}>.fromOpaque({selfParamName}).takeUnretainedValue()");
             else
-                swiftWriter.WriteLine($"    let {selfObjName} = {selfParamName}.assumingMemoryBound(to: {typeName}.self).pointee");
+                swiftWriter.WriteLine($"    let {selfObjName} = {selfParamName}.assumingMemoryBound(to: {selfSwiftTypeName}.self).pointee");
         }
 
         // Build original method call arguments in parameter order
@@ -547,10 +687,10 @@ public static class MethodClosureBridge
             : "";
         var returnSuffix = returnsClass ? ").toOpaque()" : "";
         string callTarget;
-        if (isGenericParent && isInstance)
+        if (usesSilgenExtension)
             callTarget = "self"; // Extension method: self is implicit
         else if (isMutatingValueType)
-            callTarget = $"{selfParamName}.assumingMemoryBound(to: {typeName}.self).pointee";
+            callTarget = $"{selfParamName}.assumingMemoryBound(to: {selfSwiftTypeName}.self).pointee";
         else if (isInstance)
             callTarget = selfObjName;
         else
@@ -705,10 +845,83 @@ public static class MethodClosureBridge
         }
 
         swiftWriter.WriteLine("}");
-        // Close extension block for generic parent types
-        if (isGenericParent && isInstance)
+        // Close extension block for generic parent types (both generic routes emit one)
+        if (usesSilgenExtension || reroutesToCdecl)
             swiftWriter.WriteLine("}");
+
+        if (reroutesToCdecl)
+        {
+            EmitGenericParentDispatchTrampoline(
+                swiftWriter, method, env, ctx, parentDecl!, closures, swiftParamPairs, selfParamName,
+                silgenName, dispatchProtocolName, dispatchMethodName, dispatchPwtCount,
+                swiftReturnType, returnsValue, needsMainActor, availability);
+        }
+
         swiftWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the module-scope <c>@_cdecl</c> trampoline for a generic-parent bridge that took the
+    /// static-dispatch route: it recovers the parent's metadata from the type-parameter metadata
+    /// (and witness tables) the managed caller passed, erases it to <c>Any.Type</c>, casts to the
+    /// private dispatch protocol's metatype, and forwards every parameter unchanged.
+    /// <para>
+    /// The parameter order — bridge parameters, then metadata, then witness tables, then self —
+    /// is the contract the C# P/Invoke declaration and its call site both reproduce
+    /// (<see cref="EmitPInvoke"/>, <see cref="EmitPublicMethod"/>). All three have to agree or
+    /// arguments land in the wrong registers.
+    /// </para>
+    /// </summary>
+    private static void EmitGenericParentDispatchTrampoline(
+        SwiftWriter swiftWriter,
+        MethodDecl method,
+        MethodEnvironment env,
+        ModuleEmissionContext ctx,
+        TypeDecl parentDecl,
+        List<ClosureInfo> closures,
+        List<(string Name, string Type)> swiftParamPairs,
+        string selfParamName,
+        string silgenName,
+        string dispatchProtocolName,
+        string dispatchMethodName,
+        int pwtCount,
+        string swiftReturnType,
+        bool returnsValue,
+        bool needsMainActor,
+        IReadOnlyList<AvailabilityAnnotation>? availability)
+    {
+        // Self is the last entry of swiftParamPairs; the metadata block goes immediately ahead of
+        // it so the trailing receiver slot matches every other generic-parent @_cdecl wrapper.
+        var bridgeParams = swiftParamPairs.Take(swiftParamPairs.Count - 1).ToList();
+
+        var cdeclParams = bridgeParams.Select(p => $"    _ {p.Name}: {p.Type}").ToList();
+        for (int i = 0; i < parentDecl.GenericParameters.Count; i++)
+            cdeclParams.Add($"    _ _metadata{i}: UnsafeRawPointer");
+        for (int i = 0; i < pwtCount; i++)
+            cdeclParams.Add($"    _ _pwt{i}: UnsafeRawPointer");
+        cdeclParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
+
+        var helperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(
+            swiftWriter, parentDecl, ctx, pwtCount);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLine(
+            $"// Closure-bridge @_cdecl wrapper for {parentDecl.SwiftTypeName.ModuleQualifiedName}.{method.Name} (generic static dispatch).");
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor, availability);
+        swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
+        swiftWriter.WriteLine(string.Join(",\n", cdeclParams));
+        swiftWriter.WriteLine($"){swiftReturnType} {{");
+
+        var metaArgs = Enumerable.Range(0, parentDecl.GenericParameters.Count).Select(i => $"_metadata{i}")
+            .Concat(Enumerable.Range(0, pwtCount).Select(i => $"_pwt{i}"));
+        swiftWriter.WriteLine($"    let parentMeta = {helperName}({string.Join(", ", metaArgs)})");
+        swiftWriter.WriteLine(
+            $"    let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {dispatchProtocolName}.Type");
+
+        var forwarded = string.Join(", ", swiftParamPairs.Select(p => $"{p.Name}: {p.Name}"));
+        var returnKeyword = returnsValue ? "return " : "";
+        swiftWriter.WriteLine($"    {returnKeyword}metatype.{dispatchMethodName}({forwarded})");
+        swiftWriter.WriteLine("}");
     }
 
     /// <summary>
@@ -1158,7 +1371,16 @@ public static class MethodClosureBridge
         // non-null TypeDecl parent, matching BuildBridgeSymbolName (:48).
         bool isInstance = method.MethodType != MethodType.Static && method.ParentDecl is TypeDecl;
         bool isGenericParent = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
-        bool usesSwiftCallingConvention = isGenericParent && isInstance;
+        bool reroutesToCdecl = isGenericParent && isInstance
+            && CanRerouteGenericParentToCdecl(method, method.ParentDecl as TypeDecl, env);
+        bool usesSwiftCallingConvention = isGenericParent && isInstance && !reroutesToCdecl;
+
+        // Static-dispatch route: the trampoline resolves the parent's metadata from these, one
+        // per type parameter followed by one per resolvable witness table, immediately ahead of
+        // the receiver. Same order as the Swift @_cdecl signature and the call site.
+        if (reroutesToCdecl)
+            pinvokeParams.AddRange(env.PInvokeHelperContext!.GetTypeMetadataAccessorParameterDeclarations());
+
         if (isInstance)
         {
             // The trailing self param hardcodes `self_`; a user non-closure param
@@ -1185,7 +1407,7 @@ public static class MethodClosureBridge
             pinvokeReturnType = GetPInvokePrimitiveType(returnSpec);
         }
 
-        var silgenName = BuildBridgeSymbolName(method, method.ParentDecl as TypeDecl, closures[0].CallbackBaseName);
+        var silgenName = BuildBridgeSymbolName(method, method.ParentDecl as TypeDecl, closures[0].CallbackBaseName, env);
         var pInvokeName = $"PInvoke_{closures[0].CallbackBaseName}";
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
@@ -1480,7 +1702,14 @@ public static class MethodClosureBridge
         // the call must too. Require a non-null TypeDecl parent, matching BuildBridgeSymbolName (:48).
         if (!isStatic && method.ParentDecl is TypeDecl)
         {
-            bool usesSwiftSelf = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
+            bool reroutesToCdecl = method.ParentDecl is TypeDecl rTd && rTd.IsGeneric
+                && CanRerouteGenericParentToCdecl(method, rTd, env);
+            // Static-dispatch route: metadata + witness tables immediately ahead of the receiver,
+            // matching the Swift @_cdecl signature and the P/Invoke declaration.
+            if (reroutesToCdecl)
+                callArgs.AddRange(env.PInvokeHelperContext!.GetTypeMetadataAccessorArgumentList());
+
+            bool usesSwiftSelf = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric && !reroutesToCdecl;
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
             var selfHandle = isObjCRooted ? "Handle" : "Payload.DangerousGetHandle()";
             callArgs.Add(usesSwiftSelf

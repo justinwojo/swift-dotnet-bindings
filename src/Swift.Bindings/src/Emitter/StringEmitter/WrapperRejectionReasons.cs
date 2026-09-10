@@ -72,6 +72,7 @@ public static class WrapperRejectionReasons
         ["non_primitive_frozen_struct_index_param"] = "a subscript index that is a frozen struct of non-primitive fields",
         ["not_constructor"] = "the member is not an initializer",
         ["opaque_return_type"] = "the subscript returns an opaque type the wrapper cannot box",
+        ["optional_bridged_container_return"] = "an optional Objective-C-bridgeable collection return, such as an optional array of URLs",
         ["optional_closure_not_cdecl_compatible"] = "an optional closure whose shape the C wrapper bridge cannot marshal",
         ["optional_self_non_class"] = "an optional Self return on a struct or enum, which has no stable pointer representation",
         ["parent_module_internal"] = "the declaring type is internal to its Swift module",

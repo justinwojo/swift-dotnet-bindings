@@ -10,10 +10,9 @@ namespace BindingsGeneration;
 /// Four patterns:
 /// - Class: <c>let obj = Unmanaged&lt;ClassName&gt;.fromOpaque(self_).takeUnretainedValue()</c>
 /// - Struct (immutable): <c>let obj = self_.assumingMemoryBound(to: ClassName.self).pointee</c>
-/// - Struct (mutable copy): <c>var obj = self_.assumingMemoryBound(to: ClassName.self).pointee</c>
-///   used when the caller needs to invoke a mutating-getter computed property; mutations stay
-///   on the local copy (the wrapper exposes a read-only path to C# anyway).
-/// - Struct (mutating): no variable emitted — caller uses through-pointer access directly
+/// - Struct (mutating): no variable emitted — caller uses through-pointer access directly.
+///   This covers a <c>mutating get</c> computed property too: its side effect is part of what the
+///   property means, so it has to reach the caller's storage rather than a local copy.
 /// - Struct (noncopyable): no variable emitted — caller uses inline <c>self_.assumingMemoryBound(to:).pointee</c>
 ///   borrow without copying (let binding would require a copy, which ~Copyable types reject)
 /// - Protocol cast: <c>let/var obj = Unmanaged&lt;AnyObject&gt;.fromOpaque(self_).takeUnretainedValue() as! any {protocol}</c>
@@ -35,9 +34,7 @@ public static class SelfReconstructionEmitter
     /// <param name="isMutating">Whether the method is mutating (structs only).</param>
     /// <param name="moduleQualifiedName">The module-qualified Swift type name.</param>
     /// <param name="isNonCopyable">Whether the parent type is noncopyable (~Copyable).</param>
-    /// <param name="bindAsVar">Bind <c>obj</c> as <c>var</c> for the immutable-self struct path so the
-    /// caller can invoke a mutating-getter computed property. Ignored for class/mutating/noncopyable.</param>
-    public static void Emit(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedName, bool isNonCopyable = false, bool bindAsVar = false)
+    public static void Emit(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedName, bool isNonCopyable = false)
     {
         if (isClass)
         {
@@ -56,8 +53,7 @@ public static class SelfReconstructionEmitter
         }
         else
         {
-            var binding = bindAsVar ? "var" : "let";
-            swiftWriter.WriteLine($"{binding} obj = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee");
+            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee");
         }
     }
 

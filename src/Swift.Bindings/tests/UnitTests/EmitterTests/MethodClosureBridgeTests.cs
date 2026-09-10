@@ -1537,6 +1537,118 @@ public class MethodClosureBridgeTests
         Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
+    // ─── Generic-parent reroute: @_silgen_name extension vs @_cdecl trampoline ───
+
+    // A closure-bridge method on a generic parent used to have exactly one shape: an
+    // @_silgen_name extension entered with CallConvSwift and an untyped SwiftSelf. That
+    // self is the register Mono full-AOT can clobber, so the bridge now reroutes onto a
+    // @_cdecl trampoline — metadata passed explicitly, self an ordinary pointer — whenever
+    // the method's shape allows it. These tests pin which shapes allow it; each "false"
+    // arm keeps its member on the older path rather than dropping it.
+
+    [Fact]
+    public void CanRerouteGenericParentToCdecl_InstanceMethod_ConcreteClosureArg_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase, null,
+            new PInvokeHelperContext("GenericClass", new[] { "T" }));
+
+        Assert.True(MethodClosureBridge.CanRerouteGenericParentToCdecl(method, parentDecl, env));
+    }
+
+    [Fact]
+    public void CanRerouteGenericParentToCdecl_StaticMethod_ReturnsFalse()
+    {
+        // A static method has no self to reconstruct from a pointer, so the trampoline's
+        // self-reconstruction has nothing to stand on.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDatabase, null,
+            new PInvokeHelperContext("GenericClass", new[] { "T" }));
+
+        Assert.False(MethodClosureBridge.CanRerouteGenericParentToCdecl(method, parentDecl, env));
+    }
+
+    [Fact]
+    public void CanRerouteGenericParentToCdecl_SignatureMentionsParentGeneric_ReturnsFalse()
+    {
+        // A parameter typed in the parent's own T has no layout the @_cdecl signature can
+        // name. The @_silgen_name extension can, because it inherits the generic context.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("onResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler", new NamedTypeSpec("T"), "seed");
+        var env = new MethodEnvironment(method, typeDatabase, null,
+            new PInvokeHelperContext("GenericClass", new[] { "T" }));
+
+        Assert.False(MethodClosureBridge.CanRerouteGenericParentToCdecl(method, parentDecl, env));
+    }
+
+    [Fact]
+    public void CanRerouteGenericParentToCdecl_NonGenericParent_ReturnsFalse()
+    {
+        // Not a rejection: a non-generic parent never took the @_silgen_name extension path
+        // in the first place, so there is nothing here to reroute.
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+
+        Assert.False(MethodClosureBridge.CanRerouteGenericParentToCdecl(
+            method, method.ParentDecl as TypeDecl, env));
+    }
+
+    [Fact]
+    public void CanRerouteGenericParentToCdecl_NoPInvokeHelperContext_ReturnsFalse()
+    {
+        // The trampoline passes the parent's metadata explicitly and reads the argument list
+        // for it off the helper context. Without one there is no list to render, so rerouting
+        // would emit a call whose argument count disagrees with the wrapper's.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+
+        Assert.False(MethodClosureBridge.CanRerouteGenericParentToCdecl(method, parentDecl, env));
+    }
+
     // ─── Simple Enum Regression ────────────────────────────────────────
 
     [Fact]

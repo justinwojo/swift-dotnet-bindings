@@ -494,24 +494,23 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("GenericOptionalAbiBox<Animal>.TagIsPresent round-trips Some and None");
     }
 
-#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
-
-    public void TestDirectPathSingleWordPointerOptionalParamIsRefused()
+    public void TestWrapperArmSingleWordPointerOptionalParamRoundTrips()
     {
-        // The counter-example to "one word means it fits". OpaquePointer? measures 8 bytes, the
-        // same as the [String]? argument that round-trips fine, yet calling it with the floor
-        // lifted SIGSEGVs on the first call. Width is necessary but not sufficient for the direct
-        // argument slot, so this must stay refused; the assertion exists so that a future attempt
-        // to classify nullable pointers as SingleWord on the strength of their measured size
-        // fails here instead of shipping a crash.
+        // OpaquePointer? measures 8 bytes, the same as the [String]? argument that round-trips
+        // fine on the direct path, yet the direct argument slot cannot carry it — calling it
+        // there SIGSEGVs on the first call, which is why the width floor refuses the shape.
+        // A generic parent now takes the @_cdecl wrapper arm instead, where the argument travels
+        // as a pointer to an Optional buffer rather than in a value register, so the shape the
+        // direct slot could not carry is carried correctly and the member binds. The floor itself
+        // is unchanged and still governs every member that cannot reach a wrapper; the classifier
+        // decision it keys on is pinned by DirectOptionalAbiTests.
         using var box = new GenericOptionalAbiBox<Animal>(1);
-        AssertThrows<NotSupportedException>(
-            () => box.OpaqueWidth(null),
-            "Optional<OpaquePointer> parameter on the direct path throws instead of crashing");
-        TestLogger.Info("GenericOptionalAbiBox<Animal>.OpaqueWidth threw NotSupportedException");
+        AssertEqual(-1, box.OpaqueWidth(null),
+            "Optional<OpaquePointer> parameter None is seen as nil by Swift");
+        AssertEqual(8, box.OpaqueWidth(new IntPtr(1)),
+            "Optional<OpaquePointer> parameter Some is seen as non-nil by Swift");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.OpaqueWidth round-trips Some and None");
     }
-
-#pragma warning restore SB0009
 
     public void TestDirectPathOptionalStringPropertyRoundTrips()
     {
@@ -546,25 +545,28 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("GenericOptionalAbiBox<Animal> BoxedNames round-trips Some and None");
     }
 
-#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
-
-    public void TestDirectPathBridgedValueTypeOptionalIsRefused()
+    public void TestWrapperArmBridgedValueTypeOptionalReturnRoundTrips()
     {
         // Foundation.URL is a Swift *struct* that bridges to NSURL only at an ObjC boundary. The
         // direct CallConvSwift path has no such boundary, so the value arrives in its native
-        // 16-byte Swift layout — but the routing predicates classify it as a reference, which is
-        // why this shape slipped past a floor keyed on those predicates instead of on physical
-        // width. What used to be emitted was worse than truncation: the first word of a half-read
-        // struct handed to GetINativeObject(..., owns: true), i.e. reinterpreted as an ObjC object
-        // AND released. This must fail closed on both runtimes.
-        using var box = new GenericOptionalAbiBox<Animal>(-1);
-        AssertThrows<NotSupportedException>(
-            () => { _ = box.GetBoxedUrl(); },
-            "Optional<URL> on the direct path throws instead of projecting half a struct as NSURL");
-        TestLogger.Info("GenericOptionalAbiBox<Animal>(-1).GetBoxedUrl() threw NotSupportedException");
-    }
+        // 16-byte Swift layout while the routing predicates class it as a reference — the
+        // emitted read took the first word of a half-read struct and handed it to
+        // GetINativeObject(..., owns: true), reinterpreting it as an ObjC object AND releasing it.
+        // The width floor closes that on the direct path. The @_cdecl wrapper arm a generic parent
+        // now takes IS an ObjC boundary: the wrapper bridges the URL to a retained NSURL pointer,
+        // which is exactly the +1 object the managed read expects, so the member binds and answers
+        // correctly instead of being tombstoned. Both halves of the Optional are asserted, since a
+        // wrapper that returned a stale non-null for the nil case would still look alive.
+        using var none = new GenericOptionalAbiBox<Animal>(-1);
+        AssertNull(none.GetBoxedUrl(), "Optional<URL> None reads as null through the wrapper");
 
-#pragma warning restore SB0009
+        using var some = new GenericOptionalAbiBox<Animal>(7);
+        var url = some.GetBoxedUrl();
+        AssertNotNull(url, "Optional<URL> Some is not null through the wrapper");
+        AssertEqual("https://example.invalid/7", url!.AbsoluteString,
+            "Optional<URL> Some arrives as the bridged NSURL Swift built, not a reinterpreted word");
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.GetBoxedUrl round-trips Some and None");
+    }
 
     // The internal-parent half of the same story. GenericOptionalAbiBox is wrapper-INELIGIBLE
     // because its parent is generic; InternalOptionalAbiHost is wrapper-IMPOSSIBLE because its

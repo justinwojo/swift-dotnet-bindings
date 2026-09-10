@@ -311,6 +311,28 @@ internal static class GenericDispatchEmitter
     /// Unified logic: checks instance-only (methods), T-param simplicity,
     /// T-closure rejection (constructors), failable rejection (constructors).
     /// </summary>
+    /// <summary>
+    /// True when <paramref name="member"/> constrains one of the PARENT type's generic
+    /// parameters more tightly than the parent declares it — the constrained-extension shape
+    /// (<c>extension Box where T: UIView { … }</c>). Every generic-parent wrapper route emits
+    /// its conformance extension UNCONDITIONALLY, so a member that only exists under a
+    /// where-clause is not visible from inside that extension and swiftc rejects the wrapper.
+    ///
+    /// <para>Delegates to <see cref="ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint"/>,
+    /// which is the lossless form of the question. The plain conformance-list subtraction in
+    /// <see cref="WrapperValidation.GenericParamsNarrowParentConstraints"/> is a strict subset:
+    /// the signature parser drops <c>@_marker</c> layout requirements (<c>BitwiseCopyable</c>)
+    /// and concrete same-type pins it cannot represent (<c>where T == ()</c>) from
+    /// <c>GenericConformances</c>, and those survive only on the parsed-signature and
+    /// side-channel fields the delegate additionally reads. Both dropped shapes still fail the
+    /// unconditional extension in swiftc, so a gate built on the subset alone admits a member
+    /// whose wrapper cannot compile — and a wrapper that fails to compile costs the member its
+    /// binding entirely (the recovery loop withdraws it; there is no fall back onto the direct
+    /// route), where a refusal here merely leaves it on the direct route.</para>
+    /// </summary>
+    internal static bool MemberNarrowsParentGenericSignature(MethodDecl member, TypeDecl parentTypeDecl)
+        => ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(member, parentTypeDecl);
+
     internal static bool CanEmitStaticDispatch(
         MethodEnvironment env, TypeDecl parentTypeDecl, GenericDispatchKind kind)
     {
@@ -326,25 +348,16 @@ internal static class GenericDispatchEmitter
                 if (env.MethodDecl.MethodType == MethodType.Static)
                     return false;
 
-                // For non-class parents (structs), only allow methods that reference T in their
-                // signature. Methods with concrete-only signatures may come from constrained extensions.
-                //
-                // EXCEPTION — Collection-family conformers. Generic structs conforming to
-                // Swift.Collection / Sequence / BidirectionalCollection / RandomAccessCollection
-                // often declare nint-arithmetic methods (e.g. `index(_:offsetBy:) -> Int`,
-                // `distance(from:to:) -> Int`) whose signatures never mention the parent's
-                // generic parameter. Pre-fix these were rejected with skip reason
-                // `generic_parent`, leaving MusicKit's `MusicItemCollection<TMusicItemType>`
-                // with four SB0001s. Because Collection conformance is unconditional on the
-                // type's own generic signature, these methods are guaranteed witness-callable
-                // on every instantiation — the constrained-extension concern doesn't apply.
-                if (parentTypeDecl is not ClassDecl)
-                {
-                    bool signatureReferencesT = env.MethodDecl.CSSignature
-                        .Any(arg => WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
-                    if (!signatureReferencesT && !ParentHasCollectionFamilyConformance(parentTypeDecl))
-                        return false;
-                }
+                // A member declared in a CONSTRAINED extension is invisible to the
+                // unconditional conformance extension the static-dispatch pattern emits, so
+                // ask that question directly instead of inferring it from the signature's
+                // shape. The former proxy — "a concrete-only signature on a non-class parent
+                // MIGHT come from a constrained extension" — refused every concrete-signature
+                // method on every generic struct and enum, which is most of this bucket, and
+                // needed a Collection-family carve-out to claw back the witness methods
+                // (`index(_:offsetBy:)`, `distance(from:to:)`) that shape wrongly caught.
+                if (MemberNarrowsParentGenericSignature(env.MethodDecl, parentTypeDecl))
+                    return false;
 
                 // Check params: T-typed must be simple direct generic params
                 foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
@@ -353,6 +366,15 @@ internal static class GenericDispatchEmitter
                         continue;
                     if (arg.SwiftTypeSpec.IsEmptyTuple)
                         continue;
+
+                    // A closure crosses the C boundary as two words — the function pointer and the
+                    // captured context — and the managed side always writes both. The ordinary
+                    // method-wrapper argument loop splits them; this one maps every parameter to a
+                    // single word, so admitting a closure here emits two signatures that disagree
+                    // on how many arguments there are. Refusing costs the member the wrapper's
+                    // Mono-full-AOT safety; admitting it would corrupt the call.
+                    if (env.ClosureHandler.IsClosure(arg))
+                        return false;
 
                     if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
                     {
@@ -667,16 +689,4 @@ internal static class GenericDispatchEmitter
         return false;
     }
 
-    /// <summary>
-    /// Returns true when <paramref name="parentTypeDecl"/> is a struct that conforms to
-    /// Swift.Collection / Sequence / BidirectionalCollection / RandomAccessCollection.
-    /// Used by <see cref="CanEmitStaticDispatch"/> to relax the <c>signatureReferencesT</c>
-    /// hard-gate for nint-arithmetic Collection methods on generic structs (matches
-    /// MusicKit's <c>MusicItemCollection&lt;TMusicItemType&gt;</c> shape).
-    /// </summary>
-    private static bool ParentHasCollectionFamilyConformance(TypeDecl parentTypeDecl)
-    {
-        return parentTypeDecl is StructDecl structDecl
-            && CollectionProjectionEmitter.HasCollectionConformance(structDecl);
-    }
 }

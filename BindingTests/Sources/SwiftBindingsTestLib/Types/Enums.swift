@@ -122,6 +122,19 @@ public enum GenericResult<T> {
     }
 }
 
+/// Factory helpers for `GenericResult`. A generic enum's payload-case constructors
+/// have no exported function symbol, so C# cannot build one; these give the runtime
+/// tests a concrete `GenericResult<Int32>` to read `isSuccess` off. `isSuccess` is a
+/// concrete-typed property on a generic ENUM parent — the shape that proves the
+/// generic static-dispatch property wrapper admits enums, not just structs and classes.
+public func makeGenericResultSuccess(_ value: Int32) -> GenericResult<Int32> {
+    return .success(value)
+}
+
+public func makeGenericResultFailure(_ message: String) -> GenericResult<Int32> {
+    return .failure(message)
+}
+
 // MARK: - Generic Enum with Multi-Value Tuple Payload (StoreKit2 VerificationResult pattern)
 
 /// Error enum used by `PaymentOutcome` (top-level to avoid nested-generic

@@ -187,11 +187,14 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_ConcreteSignature_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_ConcreteSignature_ReturnsTrue()
     {
-        // Generic struct parent with concrete-only method signature — blocked because
-        // the method may come from a constrained extension. Only T-referencing methods
-        // are supported for generic struct static dispatch.
+        // Generic struct parent with a concrete-only method signature. This used to be refused
+        // on the theory that the method might come from a constrained extension the wrapper's
+        // unconditional conformance could not satisfy. That question is now asked directly
+        // (MemberNarrowsParentGenericSignature), and this method does not narrow T — so it takes
+        // the static-dispatch @_cdecl wrapper instead of a direct CallConvSwift P/Invoke and its
+        // untyped SwiftSelf.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -203,7 +206,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -255,11 +258,14 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_NoCollectionConformance_NintOnlyMethod_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_NoCollectionConformance_NintOnlyMethod_ReturnsTrue()
     {
-        // Negative control for the Collection-family relaxation above: same shape
-        // (generic struct, nint-arithmetic method, no T in signature) but NO Collection
-        // conformance. Must still be rejected to preserve the constrained-extension guard.
+        // Companion to the Collection-conformer case above: same shape (generic struct,
+        // nint-arithmetic method, no T in signature) but NO Collection conformance, and the
+        // answer is the same. The conformance was never what made the wrapper sound — it was a
+        // proxy for "this member is declared on the type, not in a constrained extension", and
+        // that is now asked directly. A member that does not narrow the parent's signature is
+        // wrappable whatever its parent conforms to.
         var (moduleDecl, typeDb) = CreateTestEnvironment("PlainBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -291,7 +297,7 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -5112,6 +5118,110 @@ public class MethodWrapperEmitterTests
         // the predicate must not fire on it (would otherwise mis-classify
         // unresolved parser artifacts).
         Assert.False(CdeclParamMapper.IsSimdVectorType(new NamedTypeSpec("Swift.SIMD3")));
+    }
+
+    #endregion
+
+    #region ABI-Safety Refusals — closure params and optional bridged-container returns
+
+    [Fact]
+    public void CanEmitStaticDispatch_GenericStructParent_ClosureParam_ReturnsFalse()
+    {
+        // A closure crosses the C boundary as two words — the function pointer and the captured
+        // context — and the managed P/Invoke always writes both. The static-dispatch argument
+        // loop maps every parameter to exactly ONE word, so admitting a closure would emit two
+        // descriptions of the same call that disagree on how many arguments there are. The
+        // control below is the same method with the closure swapped for an Int and nothing else,
+        // so a future change that broadens the refusal for an unrelated reason still reds here.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var closureMethod = CreateMethodWithParam(
+            "run", new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty), "handler", parentDecl, moduleDecl);
+        var closureEnv = new MethodEnvironment(closureMethod, typeDb);
+        Assert.False(GenericDispatchEmitter.CanEmitStaticDispatch(
+            closureEnv, parentDecl, GenericDispatchKind.Method));
+
+        var intMethod = CreateMethodWithParam(
+            "run", new NamedTypeSpec("Swift.Int"), "handler", parentDecl, moduleDecl);
+        var intEnv = new MethodEnvironment(intMethod, typeDb);
+        Assert.True(GenericDispatchEmitter.CanEmitStaticDispatch(
+            intEnv, parentDecl, GenericDispatchKind.Method));
+    }
+
+    [Fact]
+    public void CanEmitStaticDispatch_GenericStructParent_OptionalClosureParam_ReturnsFalse()
+    {
+        // Optional<() -> ()> is still a closure on the managed side — it occupies the same two
+        // slots — so the arity refusal has to see through the Optional wrapper too.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var optionalClosure = new NamedTypeSpec("Swift.Optional",
+            new TypeSpec[] { new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty) });
+        var method = CreateMethodWithParam("run", optionalClosure, "handler", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(GenericDispatchEmitter.CanEmitStaticDispatch(
+            env, parentDecl, GenericDispatchKind.Method));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalObjCBridgeableContainerReturn_IsRejected()
+    {
+        // Swift `[URL]?` lowers to ONE nullable retained collection pointer in the wrapper, but
+        // the managed side classifies the same Optional as wide and reshapes the call into a void
+        // return plus a trailing out-buffer. Declining keeps the member on the direct route
+        // rather than emitting a pair that only lines up by accident.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "MyType",
+            ("Foundation.URL", TypeRecordFlags.ObjCBridgeable, TypeRecordKind.Struct, (string?)null));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        // Extra types are queued on TestModule; TryGetTypeRecord keys by SwiftTypeName.Module,
+        // so drain the queued Foundation.URL record into its owning module.
+        typeDb.AddModuleDatabase(new ModuleTypeDatabase("Foundation", "/tmp/Foundation.dylib"));
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalUrlArray = new NamedTypeSpec("Swift.Optional",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Array", new TypeSpec[] { new NamedTypeSpec("Foundation.URL") }) });
+        var method = CreateMethodWithReturn("recentUrls", optionalUrlArray, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.Equal("optional_bridged_container_return",
+            MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason);
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalNonBridgeableContainerReturn_NotRejectedForBridging()
+    {
+        // Same Optional-of-Array shape with an element that does NOT bridge to an ObjC
+        // collection. Whatever else decides this member's fate, the bridged-container refusal
+        // must not be what fires — otherwise the guard is reading "Optional array" rather than
+        // "Optional array of a bridged element".
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalIntArray = new NamedTypeSpec("Swift.Optional",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Array", new TypeSpec[] { new NamedTypeSpec("Swift.Int") }) });
+        var method = CreateMethodWithReturn("recentCounts", optionalIntArray, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.NotEqual("optional_bridged_container_return",
+            MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason);
     }
 
     #endregion

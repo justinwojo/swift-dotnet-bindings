@@ -296,7 +296,7 @@ public static partial class ClosureEmitter
         if (WrapperValidation.IsXCFrameworkMode(typeDatabase) &&
             !declVisibleRefusal &&
             (property.ParentDecl is not TypeDecl { IsGeneric: true } genericParent ||
-             (PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper(property, genericParent) &&
+             (PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper(property, genericParent, typeDatabase) &&
               !WrapperValidation.IsInheritedGenericContext(genericParent))) &&
             property.SwiftTypeSpec is not ClosureTypeSpec &&
             IsClosureCdeclCompatible(spec, closureHandler))

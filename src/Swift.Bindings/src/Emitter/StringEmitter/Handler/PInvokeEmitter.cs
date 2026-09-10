@@ -32,10 +32,13 @@ namespace BindingsGeneration
             if (!_env.MethodDecl.IsConstructor && _env.BoundGenericsHandler.IsBoundGeneric(returnType))
             {
                 // @_cdecl Optional<value-type>: fall through to IndirectResult path.
-                // MethodRequiresIndirectResult returns true for these, adding resultPtr below.
+                // MethodRequiresIndirectResult returns true for these, adding resultPtr below —
+                // the same predicate decides both, so an Optional it answers "no" for (a nullable
+                // reference, or an ObjC-bridgeable container like [URL]? handed over as an NSArray)
+                // must not take this arm, or the signature ends up with neither a resultPtr nor a
+                // return type.
                 if (_env.MethodDecl.UsesCdeclWrapper &&
-                    MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
-                    !CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, _env.TypeDatabase))
+                    MarshallingHelpers.CdeclOptionalReturnNeedsIndirectResult(returnType.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     // Fall through to MethodRequiresIndirectResult check below
                 }

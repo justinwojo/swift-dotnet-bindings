@@ -57,3 +57,23 @@ public struct KeyPathGenericRefSort<TElement> {
     public let kp: ReferenceWritableKeyPath<TElement, Int>
     public init(kp: ReferenceWritableKeyPath<TElement, Int>) { self.kp = kp }
 }
+
+// MARK: - Settable KeyPath property on a generic host
+//
+// Every host above exposes the KeyPath family through `let` + a computed getter, so none of
+// them reaches the property SETTER on the generic static-dispatch route. A `var` whose type
+// is a KeyPath rooted at the host's own generic parameter does. The setter has to interpret
+// the incoming pointer as the class reference it already is rather than loading through it,
+// which is the same distinction the generic static factory draws on the parameter side.
+
+public struct KeyPathGenericSettableSort<TElement> {
+    public var by: PartialKeyPath<TElement>
+    public init(by: PartialKeyPath<TElement>) { self.by = by }
+
+    /// Reads through whatever key path `by` currently holds. Assigning a different key path and
+    /// then reading a value tells "the setter stored the key path it was handed" apart from
+    /// "the getter echoed a value the setter never wrote".
+    public func intValue(from element: TElement) -> Int {
+        (element[keyPath: by] as? Int) ?? -1
+    }
+}

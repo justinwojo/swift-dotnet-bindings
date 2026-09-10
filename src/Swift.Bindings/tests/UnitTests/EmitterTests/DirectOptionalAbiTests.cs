@@ -106,6 +106,27 @@ public class DirectOptionalAbiTests
         Assert.Equal(DirectOptionalAbiWidth.Unprovable, result);
     }
 
+    [Theory]
+    [InlineData("Swift.OpaquePointer")]
+    [InlineData("Swift.UnsafeRawPointer")]
+    [InlineData("Swift.UnsafeMutableRawPointer")]
+    public void Classify_OptionalPointer_IsUnprovable(string innerName)
+    {
+        // The counter-example to "one word means it fits". A nullable Swift pointer measures
+        // exactly 8 bytes, nil riding the null extra inhabitant, so on width alone it looks like
+        // it belongs with the single-pointer containers that DO fit the direct argument slot.
+        // It does not: passing one there faults on the first call. Being one machine word wide is
+        // necessary for the slot but not sufficient, so a future change that classifies pointers
+        // as SingleWord on the strength of their measured size has to fail here rather than ship
+        // a crash. Members carrying this shape reach it correctly through the @_cdecl wrapper
+        // arm, where the argument travels as a pointer to a buffer instead of in a register.
+        var typeDb = CreateTypeDatabase();
+
+        var result = DirectOptionalAbi.Classify(Optional(new NamedTypeSpec(innerName)), typeDb);
+
+        Assert.Equal(DirectOptionalAbiWidth.Unprovable, result);
+    }
+
     #endregion
 
     #region Classifier — shapes that DO fit (the over-broad-gate canaries)

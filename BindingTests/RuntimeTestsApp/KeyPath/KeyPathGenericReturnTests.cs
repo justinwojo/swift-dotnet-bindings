@@ -69,6 +69,21 @@ public class KeyPathGenericReturnTests : TestBase
         AssertTrue(lookup is global::Swift.PartialKeyPath<BoxKP>, "Container.Lookup is typed PartialKeyPath<BoxKP>");
     }
 
+    public void TestKeyPathGenericSettableSort_SetterStoresIncomingKeyPath()
+    {
+        // The getter alone cannot distinguish a setter that stored the incoming key path from one
+        // that stored garbage the getter happens to hand back, so the read-back goes through
+        // IntValue — a separate member that actually applies the stored key path to a value.
+        using var xPath = KeyPathFactory.MakePartialPointXPath();
+        using var sort = new KeyPathGenericSettableSort<PointKP>(xPath);
+        var point = new PointKP(3, 7);
+        AssertEqual(3, (int)sort.IntValue(point), "seeded key path projects PointKP.x");
+
+        using var yPath = KeyPathFactory.MakePartialPointYPath();
+        sort.By = yPath;
+        AssertEqual(7, (int)sort.IntValue(point), "setter stored the key path it was handed");
+    }
+
     public void TestKeyPathGenericTypedSort_KeyPathArityTwoCtor()
     {
         using var seedPath = KeyPathFactory.MakePointXPath();

@@ -48,7 +48,7 @@ public static class PropertyWrapperEmitter
         // (inherited generic context is already checked by CanEmitMember)
         if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
         {
-            if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
+            if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td, accessorEnv.TypeDatabase))
                 return WrapperEligibility.Reject("generic_parent_type");
 
             // Fail-closed wrapper-helper gates apply ONLY when this property would actually
@@ -133,9 +133,15 @@ public static class PropertyWrapperEmitter
         // Carry a stable SWIFTBIND diagnostic code so the decline is OBSERVABLE in the emission-report
         // skip-reason histogram, not an anonymous bucket. Reason is diagnostic-only and never reaches
         // generated code.
-        if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
+        // The wrapper now emits the throwing shape — an errorOut pointer and a do/catch that
+        // retains the thrown error into it — for the ordinary @_cdecl getter. The generic-parent
+        // static-dispatch getter still declines: its body lives in a conformance extension behind
+        // a protocol requirement, so the throwing shape would have to be threaded through the
+        // requirement and the trampoline too, and none of that is emitted yet.
+        if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws)
+            && WrapperValidation.IsGenericParent(accessorEnv.ParentDecl))
             return WrapperEligibility.Reject(
-                "SWIFTBIND107: throwing property getter takes the direct CallConvSwift path — the @_cdecl property wrapper does not emit try/catch for throwing accessors");
+                "SWIFTBIND107: throwing property getter on a generic parent takes the direct CallConvSwift path — the generic static-dispatch @_cdecl property wrapper does not emit try/catch for throwing accessors");
 
         // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types
         //    (Int32 raw value for simple enums, UnsafeRawPointer for complex types, void+resultPtr
@@ -253,14 +259,42 @@ public static class PropertyWrapperEmitter
             propertyReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
         }
 
-        // When property type is T, the return needs a resultPtr (to write the T value)
-        if (propertyReferencesT && !needsResultPtr)
+        // A return whose type mentions the parent's T has no layout the @_cdecl signature can
+        // name, so it goes out through a caller-provided result buffer instead of by value.
+        //
+        // The one exception is a class carrier: `Box<T>`, `KeyPath<T, V>` and friends are a
+        // single retained object pointer on the wire no matter what T is, so the by-value
+        // convention Classify already chose stays correct. Forcing a buffer on them would also
+        // disagree with the managed side, which derives its P/Invoke shape from the same
+        // classification and never learns about this override — the C# would declare an
+        // IntPtr-returning import while Swift emitted a void function taking a result pointer,
+        // and every argument would land one slot to the left. Both sides compile; the call
+        // corrupts at runtime.
+        if (propertyReferencesT && !needsResultPtr
+            && returnMapping.Kind != CdeclReturnKind.ClassPointer
+            && returnMapping.Kind != CdeclReturnKind.OptionalClassPointer)
         {
             needsResultPtr = true;
         }
 
         // Track whether this is a decomposed Optional getter (separate resultPtr + hasValuePtr)
         bool isDecomposedOptionalGetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+
+        // A struct getter spelled `mutating get` reads through the caller's storage, not a copy:
+        // the increment a memoized property performs on each read IS the property's meaning, and
+        // the direct CallConvSwift arm this wrapper replaces hands `self` over inout. So self
+        // arrives as a mutable pointer and the read goes through it — the same through-pointer
+        // shape the setter and mutating-method wrappers already use.
+        // The ABI digester drops `mutating` from accessors, so the trigger widens to "settable
+        // struct property": a non-frozen struct reads through `_modify` and needs mutable self
+        // even when the getter is not spelled `mutating`. Widening only costs a pointer type.
+        bool hasGetMutating = !isClass
+            && propertyDecl.Accessors
+                .OfType<GetAccessorDecl>()
+                .FirstOrDefault()?.Method.IsMutating == true;
+        bool hasSetterOnStruct = !isClass
+            && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
+        bool isMutatingGetter = hasGetMutating || hasSetterOnStruct;
 
         if (needsResultPtr)
         {
@@ -281,8 +315,14 @@ public static class PropertyWrapperEmitter
             {
                 case CdeclPhase.ResultPtr:
                     break; // Already handled above
+                case CdeclPhase.ErrorOut:
+                    // `get throws`. The C# side declares the matching `out IntPtr errorPtr`
+                    // (PInvokeEmitter.HandleSwiftError's @_cdecl branch); the contract places it
+                    // last for accessors, so both lists walk the phases rather than hardcode it.
+                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    break;
                 case CdeclPhase.Self:
-                    if (isClass)
+                    if (isClass || isMutatingGetter)
                         swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
                     else
                         swiftParams.Add($"_ self_: UnsafeRawPointer");
@@ -368,33 +408,20 @@ public static class PropertyWrapperEmitter
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
-        // Reconstruct self
-        // A struct getter declared as `mutating get { ... }` cannot be invoked on a `let`-bound
-        // copy. Bind `obj` as `var` for that case so the call site `obj.{property}` compiles.
-        // Class getters and noncopyable structs handle reconstruction differently and are unaffected.
-        // The ABI digester drops the `mutating` attribute on accessors, so for struct properties
-        // with both get and set we conservatively bind as `var` — non-frozen Swift structs use
-        // `_modify`-flavored accessors that require mutable self even on the read path
-        // (e.g. RealityKit ARView.Environment.sceneUnderstanding declares `mutating get`).
-        // The generator's IsMutating signal isn't always populated, so we widen the trigger
-        // to "settable struct property" — false positives become harmless `var was never
-        // mutated` warnings, never compile errors.
-        bool hasGetMutating = !isClass
-            && propertyDecl.Accessors
-                .OfType<GetAccessorDecl>()
-                .FirstOrDefault()?.Method.IsMutating == true;
-        bool hasSetterOnStruct = !isClass
-            && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
-        bool isMutatingGetter = hasGetMutating || hasSetterOnStruct;
+        // Reconstruct self. A mutating getter reads straight through the self pointer, so it
+        // binds no `obj` at all (see isMutatingGetter above); a noncopyable parent does the same
+        // because it cannot be copied into a binding. The generic-class-parent route casts to a
+        // protocol existential, which is a reference and writes back on its own.
+        bool readsSelfThroughPointer = isMutatingGetter && !isNonCopyableParent;
         if (!isStatic)
         {
             if (isGenericClassParent && protocolName != null)
             {
-                SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: isMutatingGetter);
+                SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName);
             }
-            else
+            else if (!readsSelfThroughPointer)
             {
-                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: isMutatingGetter, isNonCopyableParent);
+                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isNonCopyableParent);
             }
         }
 
@@ -403,10 +430,21 @@ public static class PropertyWrapperEmitter
         string propAccess;
         if (isStatic)
             propAccess = $"{moduleQualifiedName}.{propertyDecl.Name}";
-        else if (isNonCopyableParent)
+        else if (isNonCopyableParent || readsSelfThroughPointer)
             propAccess = $"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee.{propertyDecl.Name}";
         else
             propAccess = $"obj.{propertyDecl.Name}";
+
+        // `get throws`: reading the property is a throwing expression, and the whole read +
+        // return has to sit inside a do/catch that hands the error back through errorOut. Every
+        // branch below consumes propAccess as an expression, so the `try` rides along with it.
+        bool getterThrows = env.MethodDecl.Throws;
+        if (getterThrows)
+        {
+            propAccess = $"try {propAccess}";
+            swiftWriter.WriteLine("do {");
+            swiftWriter.Indent++;
+        }
 
         // Emit return based on type category
         if (isString)
@@ -485,6 +523,21 @@ public static class PropertyWrapperEmitter
         else
         {
             EmitDirectGetterReturn(swiftWriter, propAccess, propertyDecl.SwiftTypeSpec, env.TypeDatabase, returnMapping);
+        }
+
+        if (getterThrows)
+        {
+            swiftWriter.Indent--;
+            swiftWriter.WriteLines("""
+                } catch {
+                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                """);
+            // A getter that writes its value through resultPtr returns Void, so the catch block
+            // falls off the end. A direct-return getter needs a sentinel of the declared @_cdecl
+            // return type; managed code never reads it, because errorPtr came back non-null.
+            if (!needsResultPtr)
+                CdeclReturnRenderer.WriteErrorSentinel(swiftWriter, returnMapping);
+            swiftWriter.WriteLine("}");
         }
 
         swiftWriter.Indent--;
@@ -650,6 +703,14 @@ public static class PropertyWrapperEmitter
                     }
                     break;
 
+                case CdeclPhase.ErrorOut:
+                    // Swift has no throwing setter today, so this arm is unreachable. It exists so
+                    // that if one ever parses as throwing, the parameter is DECLARED rather than
+                    // silently dropped — a dropped slot would leave the C# P/Invoke one argument
+                    // wider than the wrapper and shift every register.
+                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    break;
+
                 case CdeclPhase.Self:
                     // Both class and struct setters use mutable self
                     swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
@@ -741,9 +802,9 @@ public static class PropertyWrapperEmitter
     /// Emits the self reconstruction line for the getter/setter body.
     /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
     /// </summary>
-    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName, bool isMutable, bool isNonCopyable = false)
+    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName, bool isNonCopyable = false)
     {
-        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName, isNonCopyable, bindAsVar: isMutable);
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName, isNonCopyable);
     }
 
     /// <summary>
@@ -777,7 +838,7 @@ public static class PropertyWrapperEmitter
     /// using protocol-based type erasure.
     /// </summary>
     internal static bool CanEmitGenericClassPropertyWrapper(
-        PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
+        PropertyDecl propertyDecl, TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
         // Static properties don't need self-based erasure, but static dispatch
         // uses wrong metadata for generic types — skip for now.
@@ -790,6 +851,13 @@ public static class PropertyWrapperEmitter
         if (propertyDecl.IsStatic)
             return ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl);
 
+        // A property declared in a CONSTRAINED extension is invisible to the unconditional
+        // conformance extension every generic-parent wrapper route emits, so ask that question
+        // directly. Property constraints live on the accessors' own generic signatures — a
+        // PropertyDecl carries none of its own.
+        if (PropertyNarrowsParentGenericSignature(propertyDecl, parentTypeDecl))
+            return false;
+
         // Check if property type references the parent's generic type parameters
         var genericParamNames = parentTypeDecl.GenericParameters
             .Select(p => p.TypeName)
@@ -800,11 +868,35 @@ public static class PropertyWrapperEmitter
         if (parentTypeDecl is ClassDecl && !referencesT)
             return true;
 
-        // Path 2: Generic struct/class with T-typed property — static protocol dispatch
-        // Only allow if the property type is a direct generic param (not complex composition).
-        // Concrete properties on generic structs are deferred — they may come from constrained
-        // extensions (e.g., `extension Wrapper where T: UIImage`) and unconditional protocol
-        // conformances can't access conditionally-available members.
+        // Everything below here is the STATIC-dispatch route, and it renders its accessor
+        // parameters through CdeclParamMapper, which has no closure arm: a closure newValue
+        // would fall through to UnsafeRawPointer reconstruction, which is not what a closure is
+        // on the wire (it is a function pointer plus a context box). The non-generic wrapper
+        // carries an Optional<closure> setter because it emits the funcPtr/context adapter by
+        // hand; the static-dispatch wrapper does not, and a wrapper that mis-renders here is
+        // worse than none — the member would be withdrawn at wrapper-compile, or bind to a
+        // signature the managed side does not agree with. Declining leaves it on the direct
+        // route, where the register-lowering gate judges it as it always has. The getter side
+        // declines with it: nothing on this route has ever carried a closure, and admitting one
+        // untested is the same bet in the other direction.
+        if (WrapperValidation.PropertyTypeIsClosureOrOptionalClosure(propertyDecl.SwiftTypeSpec))
+            return false;
+
+        // An Optional of an ObjC-bridgeable container ([URL]?, [String: URL]?, Set<URL>?) lowers
+        // on this route to a nullable retained NSArray/NSDictionary/NSSet pointer, which the Swift
+        // side gets right. The managed side does not: three separate predicates decide "is this
+        // Optional pointer-sized?" and only the @_cdecl-specific one knows about bridgeable
+        // containers, so the P/Invoke comes out with a result buffer the wrapper never writes.
+        // No member anywhere in the corpus has previously reached the @_cdecl arm with this shape,
+        // so there is no working precedent to copy — reconciling those predicates is a change to
+        // the shared Optional-ABI stack, not to this route. Until that happens, declining keeps
+        // the member on the direct path it took before generic parents became wrapper-eligible.
+        if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(propertyDecl.SwiftTypeSpec, typeDatabase))
+            return false;
+
+        // Path 2: Generic struct/class with T-typed property — static protocol dispatch.
+        // Only shapes the wrapper body can reconstruct are admitted; the rest keep the direct
+        // route rather than emit a wrapper the Swift compile would reject.
         if (referencesT)
         {
             if (propertyDecl.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
@@ -825,36 +917,42 @@ public static class PropertyWrapperEmitter
                     || GenericDispatchEmitter.IsArrayOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames)))
                 return true;
 
+            // KeyPath family rooted at a parent generic (PartialKeyPath<T>, KeyPath<T,V>,
+            // WritableKeyPath<T,V>, ReferenceWritableKeyPath<T,V>). KeyPaths are Swift classes,
+            // so the accessor returns the reference directly through CdeclReturnRenderer's
+            // ClassPointer arm (`Unmanaged.passRetained(…).toOpaque()`) rather than copying a
+            // value into a result buffer — the same carrier the non-generic property wrapper and
+            // the generic static factory already use for this family. Accepted for both parent
+            // kinds: the erasure is on `Self`, and the KeyPath's Root is the parent's own generic
+            // parameter either way.
+            if (GenericDispatchEmitter.IsKeyPathFamilyOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames))
+                return true;
+
             return false; // Complex generic composition, deferred
         }
 
-        // Generic struct with concrete property type — normally deferred because the property
-        // may come from a constrained extension (unconditional protocol conformance can't
-        // access conditionally-available members). Fall back to CallConvSwift.
+        // Concrete property type on a generic struct or enum — static protocol dispatch, the
+        // same route the Collection-family conformers already took (their witnesses
+        // `startIndex`/`endIndex`/`items` are declared on the type, never in a constrained
+        // extension, which is why that carve-out existed). The constrained-extension question
+        // is answered precisely at the top of this method, so the shape proxy that used to
+        // stand in for it here — and the carve-out that clawed back its false refusals — are
+        // both gone.
         //
-        // EXCEPTION — Collection-family conformers. When the generic struct conforms to
-        // Swift.Collection / Sequence / BidirectionalCollection / RandomAccessCollection,
-        // the stored/computed properties of the Collection protocol witnesses (startIndex,
-        // endIndex, items, etc.) are declared directly on the type — not inside a
-        // constrained extension. Falling through to direct CallConvSwift leaves these
-        // getters unreachable on Mono JIT (Issue 1 — jit-info.c:918 `!ji->async` assertion
-        // trips when the Swift runtime's metadata / value-witness calls flow through a
-        // direct CallConvSwift P/Invoke with 2+ type-metadata args). Routing them through
-        // the @_cdecl static-dispatch wrapper avoids the Mono pathology and mirrors the
-        // relaxation applied to Collection-family methods in
-        // GenericDispatchEmitter.CanEmitStaticDispatch. Matches the MusicKit
-        // MusicItemCollection<TMusicItemType> shape.
-        if (parentTypeDecl is not ClassDecl)
-        {
-            if (parentTypeDecl is StructDecl structDecl
-                && CollectionProjectionEmitter.HasCollectionConformance(structDecl))
-                return true;
-            return false;
-        }
-
-        // Generic class with concrete property type — use existing instance dispatch
+        // Generic class with a concrete property type keeps using instance dispatch.
         return true;
     }
+
+    /// <summary>
+    /// True when <paramref name="propertyDecl"/> constrains one of the parent type's generic
+    /// parameters more tightly than the parent declares it. A PropertyDecl has no generic
+    /// signature of its own, so the question is asked of every accessor: each carries the
+    /// merged parent + extension signature it was declared under.
+    /// </summary>
+    private static bool PropertyNarrowsParentGenericSignature(
+        PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
+        => propertyDecl.Accessors.Any(a =>
+            GenericDispatchEmitter.MemberNarrowsParentGenericSignature(a.Method, parentTypeDecl));
 
     /// <summary>
     /// Emits a parameter-free @_cdecl getter wrapper for the closed-static-factory shape
@@ -960,32 +1058,40 @@ public static class PropertyWrapperEmitter
             cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
         }
 
-        if (isClass)
-            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-        else
-            cdeclParams.Add("_ self_: UnsafeRawPointer");
-        protocolParams.Add(isClass ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
-        cdeclCallArgs.Add("selfPtr: self_");
-
-        string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
-
-        // A struct getter declared as `mutating get { ... }` cannot be invoked on a `let`-bound
-        // copy — same accommodation as the non-generic getter path (EmitSelfReconstruction above).
-        // Binding `var` here is a local copy, not a through-pointer write-back: the wrapper's
-        // C#-visible surface is read-only, so any mutation the getter performs is deliberately
-        // discarded once the call returns.
+        // A struct getter spelled `mutating get` reads through the caller's storage, not a copy:
+        // the increment a memoized property performs on each read IS the property's meaning, and
+        // the direct CallConvSwift arm this wrapper replaces hands `self` over inout. Binding a
+        // local `var` here would compile and then silently drop that write. So self arrives as a
+        // mutable pointer and the read goes through it, the same shape the setter wrapper below
+        // and the mutating-method wrappers already use.
+        // The ABI digester drops `mutating` from accessors, so the trigger widens to "settable
+        // struct property": a non-frozen struct reads through `_modify` and needs mutable self
+        // even when the getter is not spelled `mutating`. Widening only costs a pointer type.
         bool isMutatingGetter = !isClass
             && (propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method.IsMutating == true
                 || propertyDecl.Accessors.OfType<SetAccessorDecl>().Any());
+
+        if (isClass || isMutatingGetter)
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        else
+            cdeclParams.Add("_ self_: UnsafeRawPointer");
+        protocolParams.Add(isClass || isMutatingGetter
+            ? "selfPtr: UnsafeMutableRawPointer"
+            : "selfPtr: UnsafeRawPointer");
+        cdeclCallArgs.Add("selfPtr: self_");
+
+        string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
         // Build extension body lines
         var bodyLines = new List<string>();
         if (isClass)
             bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
-        else
-            bodyLines.Add($"{(isMutatingGetter ? "var" : "let")} obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
+        else if (!isMutatingGetter)
+            bodyLines.Add("let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
 
-        var propAccess = $"obj.{propertyDecl.Name}";
+        var propAccess = isMutatingGetter
+            ? $"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name}"
+            : $"obj.{propertyDecl.Name}";
 
         if (isString)
         {
@@ -1255,7 +1361,20 @@ public static class PropertyWrapperEmitter
         }
         else if (propertyReferencesT)
         {
-            bodyLines.Add($"let val = newValuePtr.assumingMemoryBound(to: {propertySwiftType}.self).pointee");
+            // KeyPath family is always a Swift class, and the marshalling site hands the class
+            // reference across as the pointer value itself rather than a pointer to a slot holding
+            // it. Loading through that address with assumingMemoryBound(to:).pointee would read the
+            // object's own metadata word and call it a KeyPath; fromOpaque interprets the value as
+            // the reference it already is. Same reconstruction the generic static factory uses for
+            // this family on the parameter side.
+            var setterGenericParamNames = parentTypeDecl.GenericParameters
+                .Select(gp => gp.TypeName)
+                .ToHashSet();
+            if (GenericDispatchEmitter.IsKeyPathFamilyOfParentGeneric(
+                    propertyDecl.SwiftTypeSpec, setterGenericParamNames))
+                bodyLines.Add($"let val = Unmanaged<{propertySwiftType}>.fromOpaque(newValuePtr).takeUnretainedValue()");
+            else
+                bodyLines.Add($"let val = newValuePtr.assumingMemoryBound(to: {propertySwiftType}.self).pointee");
             valueExpr = "val";
         }
         else if (isString)

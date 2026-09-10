@@ -9,7 +9,7 @@ namespace RuntimeTestsApp.Closures;
 
 /// <summary>
 /// Tests for closure bridge expansion:
-/// 1. MCB on generic parent types (MethodClosureBridge with @_silgen_name extension)
+/// 1. The method-closure bridge on generic parent types, rerouted onto a @_cdecl trampoline
 /// 2. GenericClosureBridge with non-closure parameters
 /// </summary>
 public class GenericClosureBridgeTests : TestBase
@@ -18,11 +18,12 @@ public class GenericClosureBridgeTests : TestBase
 
     // ─── MCB on Generic Parent ────────────────────────────────────────
 
-    [Skip("MCB entry points not exported from dylib for generic parent classes")]
     public void TestGenericProcessorRun()
     {
-        // GenericProcessor<T> is a generic class — MCB must use @_silgen_name extension
-        // to inherit the generic context, with CallConvSwift + SwiftSelf on the C# side.
+        // GenericProcessor<T> is a generic class. Its closure-bearing members reroute onto a
+        // @_cdecl trampoline (CallConvCdecl, self as an ordinary pointer argument) instead of the
+        // direct CallConvSwift path, so this exercises the rerouted parameter order, the metadata
+        // and self dispatch, and the callback actually firing.
         var processor = new GenericProcessor<SwiftString>(label: "test", initialValue: (SwiftString)"hello");
         ProcessResult? captured = null;
         processor.Run(result => { captured = result; });
@@ -34,7 +35,6 @@ public class GenericClosureBridgeTests : TestBase
         TestLogger.Info("GenericProcessor.Run MCB generic parent test passed");
     }
 
-    [Skip("MCB entry points not exported from dylib for generic parent classes")]
     public void TestGenericProcessorRunWithFilter()
     {
         var processor = new GenericProcessor<SwiftString>(label: "filter", initialValue: (SwiftString)"world");

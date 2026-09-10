@@ -44,19 +44,54 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void EvaluateWrapperEligibility_ThrowingGetter_RejectedWithSwiftbind107()
+    public void EvaluateWrapperEligibility_ThrowingGetter_NonGenericParent_IsWrappable()
     {
-        // A throwing property getter is declined by the wrapper gate — the @_cdecl property
-        // wrapper emits no try/catch for accessors. Declining is not dropping: emission falls
-        // through to a direct CallConvSwift P/Invoke, which is the ABI-correct shape for a
-        // SYNCHRONOUS throwing getter (swiftcc returns the error in the dedicated error
-        // register, which the `ref SwiftError` out-param reads). The rejection must carry the
-        // stable SWIFTBIND107 diagnostic so the fall-through is nameable in both the emission
-        // histogram and the binding report, not an anonymous bucket.
+        // A synchronous `get throws` on an ordinary parent IS wrappable: the wrapper declares an
+        // errorOut pointer, wraps the read in do/catch and retains the thrown error into it, and
+        // the managed side declares the matching `out IntPtr errorPtr`. Before that shape existed
+        // the gate declined here and the member fell through to a direct CallConvSwift P/Invoke —
+        // ABI-correct, but carrying an untyped SwiftSelf that Mono full-AOT can clobber.
         var (moduleDecl, typeDb) = CreateTestEnvironment("RiskyProp");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("RiskyProp", moduleDecl);
+        var getterMethod = CreateAccessorMethod("getter:risky", isGetter: true, parentDecl, moduleDecl);
+        getterMethod.Throws = true;
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "risky",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_ThrowingGetter_GenericParent_RejectedWithSwiftbind107()
+    {
+        // The generic-parent getter is a different wrapper: its body lives in a conformance
+        // extension behind a private protocol requirement, reached through a trampoline. The
+        // throwing shape would have to be threaded through the requirement and the trampoline
+        // too, and neither emits it — so this parent kind still declines. Declining is not
+        // dropping: emission falls through to a direct CallConvSwift P/Invoke, which is
+        // ABI-correct for a synchronous throwing getter. The rejection must keep the stable
+        // SWIFTBIND107 diagnostic so the fall-through stays nameable in the emission histogram
+        // and the binding report rather than landing in an anonymous bucket.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("RiskyBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("RiskyBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
         var getterMethod = CreateAccessorMethod("getter:risky", isGetter: true, parentDecl, moduleDecl);
         getterMethod.Throws = true;
         var propertyDecl = new PropertyDecl
@@ -80,10 +115,16 @@ public class PropertyWrapperEmitterTests
     {
         // Positive control: the IDENTICAL property with a non-throwing getter IS wrappable, so the
         // rejection above is attributable specifically to `Throws`, not to some unrelated gate.
+        // "Identical" has to include the parent: the rejection is narrowed to generic parents, so a
+        // control on a plain class would pass for the wrong reason and stop isolating `Throws`.
         var (moduleDecl, typeDb) = CreateTestEnvironment("RiskyProp");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
-        var parentDecl = CreateClassDecl("RiskyProp", moduleDecl);
+        var parentDecl = CreateStructDecl("RiskyProp", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
         var getterMethod = CreateAccessorMethod("getter:safe", isGetter: true, parentDecl, moduleDecl);
         getterMethod.Throws = false;
         var propertyDecl = new PropertyDecl
@@ -103,10 +144,15 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_ConcreteProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_ConcreteProperty_ReturnsTrue()
     {
-        // Generic struct parent with concrete property type — blocked because the property
-        // may come from a constrained extension. Only T-referencing properties are supported.
+        // Generic struct parent with a concrete property type. This used to be declined on the
+        // theory that the property might come from a constrained extension whose requirements the
+        // wrapper's unconditional conformance could not satisfy. That is a real hazard but a much
+        // narrower one, and it is now decided by asking the question directly
+        // (MemberNarrowsParentGenericSignature) instead of refusing every concrete-typed member.
+        // Refusing them all left each one on a direct CallConvSwift P/Invoke, carrying the
+        // untyped SwiftSelf that Mono full-AOT can clobber.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -117,7 +163,24 @@ public class PropertyWrapperEmitterTests
         };
         var (propertyDecl, env) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericEnumParent_ConcreteProperty_ReturnsTrue()
+    {
+        // Nothing in the generic static-dispatch wrapper is struct- or class-specific: it
+        // reconstructs the parent's bound metatype and calls through a private protocol
+        // requirement, which an enum satisfies exactly as a struct does. The gate must not
+        // silently exclude enums — an excluded generic enum keeps the direct CallConvSwift
+        // path and with it the Mono full-AOT hazard the wrapper exists to remove.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericOutcome");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateGenericEnumDecl("GenericOutcome", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("isSuccess", new NamedTypeSpec("Swift.Bool"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -197,6 +260,34 @@ public class PropertyWrapperEmitterTests
         var (propertyDecl, env) = CreatePropertyAndEnv("first", optionalOfT, parentDecl, moduleDecl, typeDb);
 
         Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_OptionalObjCBridgeableContainerProperty_ReturnsFalse()
+    {
+        // The generic static-dispatch wrapper declines Optional-of-an-ObjC-bridgeable-container
+        // (e.g. Swift `[URL]?` = Optional<Array<Foundation.URL>>). The Swift side lowers this
+        // to a nullable retained NSArray pointer, but the managed side has a separate predicate
+        // that still calls the Optional "large" and emits an out-buffer P/Invoke, so the two
+        // sides disagree on the call shape; declining keeps the member on the direct path.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("Foundation.URL", TypeRecordFlags.ObjCBridgeable, TypeRecordKind.Struct, null));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        // Extra types are registered on TestModule; TryGetTypeRecord keys by SwiftTypeName.Module,
+        // so drain the queued Foundation.URL record into its owning module.
+        typeDb.AddModuleDatabase(new ModuleTypeDatabase("Foundation", "/tmp/Foundation.dylib"));
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var optionalUrlArray = new NamedTypeSpec("Swift.Optional",
+            new[] { new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("Foundation.URL") }) });
+        var (propertyDecl, env) = CreatePropertyAndEnv("urls", optionalUrlArray, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -2319,6 +2410,32 @@ public class PropertyWrapperEmitterTests
             ModuleDecl = moduleDecl,
             IsFrozen = true,
             MetadataAccessor = "$sMa"
+        };
+        moduleDecl.Types.Add(decl);
+        return decl;
+    }
+
+    private static EnumDecl CreateGenericEnumDecl(string name, ModuleDecl moduleDecl)
+    {
+        var decl = new EnumDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}ON",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            Cases = new List<EnumCaseDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}OMa"
         };
         moduleDecl.Types.Add(decl);
         return decl;

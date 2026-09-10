@@ -143,15 +143,15 @@ extension AsyncConfig {
 }
 
 // MARK: - Synchronous throwing getter (NOT async)
-// The `@_cdecl` property wrapper declines a throwing getter (it emits no try/catch), so this
-// property is emitted through the ordinary direct CallConvSwift P/Invoke instead. That path DOES
-// carry the error: swiftcc returns a thrown error in the dedicated error register, which the
-// generated P/Invoke reads through its `ref SwiftError` out-parameter. This fixture is the
-// positive control for that fall-through — both the returning and the throwing outcome.
+// A `get throws` accessor on an ordinary (non-generic) parent reaches the `@_cdecl` property
+// wrapper: the wrapper takes a trailing error-out pointer, calls the getter inside do/catch, and
+// retains a thrown error into that pointer for the caller to read. This fixture is the positive
+// control for that wrapper — both the returning and the throwing outcome.
 
 /// Struct with a synchronous `get throws` property. Deliberately NOT async: it is the control
-/// that separates "the wrapper declined" (fine — the direct path is ABI-correct) from
-/// "we mistook an async getter for a sync one" (not fine — different entry point).
+/// that separates a correctly-wrapped synchronous throwing getter — the @_cdecl wrapper takes
+/// an errorOut pointer and hands the thrown error back through it — from "we mistook an async
+/// getter for a sync one" (not fine — different entry point).
 public struct ThrowingGetterBox {
     public let value: Int32
     public let shouldFail: Bool

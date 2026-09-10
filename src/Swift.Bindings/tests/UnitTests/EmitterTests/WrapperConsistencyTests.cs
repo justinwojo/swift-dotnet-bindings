@@ -155,8 +155,11 @@ public class WrapperConsistencyTests
     [Fact]
     public void GenericStructParent_ConstructorMethodPropertyAccept_SubscriptRejects()
     {
-        // Generic struct parents now supported for constructor, method, and property
-        // via protocol-based static dispatch. Subscript still blocked (separate emitter).
+        // Generic struct parents are supported for constructor, method and property via
+        // protocol-based static dispatch, including members whose signature is entirely
+        // concrete. The constrained-extension hazard those concrete members were once refused
+        // wholesale for is now decided per member by asking whether it narrows the parent's
+        // generic signature. Subscript still declines — a separate emitter with no such route.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -166,11 +169,11 @@ public class WrapperConsistencyTests
             new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
 
-        // Method with concrete signature on generic struct — blocked (may be from constrained extension)
+        // Method with concrete signature on generic struct — accepted; it does not narrow T.
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var methodEnv = new MethodEnvironment(method, typeDb);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(methodEnv),
-            "MethodWrapperEmitter should reject generic struct parent with concrete signature");
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(methodEnv),
+            "MethodWrapperEmitter should accept generic struct parent with concrete signature");
 
         // Constructor — now accepted
         var ctor = CreateConstructor("init", parentDecl, moduleDecl);
@@ -178,10 +181,10 @@ public class WrapperConsistencyTests
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(ctorEnv),
             "ConstructorWrapperEmitter should accept generic struct parent");
 
-        // Property with concrete type on generic struct — blocked (may be from constrained extension)
+        // Property with concrete type on generic struct — accepted, for the same reason.
         var (propertyDecl, propEnv) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, propEnv),
-            "PropertyWrapperEmitter should reject generic struct parent with concrete property type");
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, propEnv),
+            "PropertyWrapperEmitter should accept generic struct parent with concrete property type");
 
         // Subscript — still blocked (not yet implemented)
         var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };

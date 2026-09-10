@@ -219,10 +219,11 @@ internal enum InternalOptionalAbiHost {
 }
 
 /// Public, constructible generic struct carrying the same large-Optional
-/// shapes. A generic parent is one of the wrapper-ineligibility conditions, so
-/// these members decline the Optional-pointer wrapper and land on the direct
-/// CallConvSwift fallback — the same fallback the internal-parent members above
-/// would land on if their wrapper were declined rather than dangling.
+/// shapes. Most of these members now reach a `@_cdecl` wrapper through the
+/// generic static-dispatch route; the ones whose Optional shape the wrapper
+/// still cannot describe decline it and land on the direct CallConvSwift
+/// fallback — the same fallback the internal-parent members above would land on
+/// if their wrapper were declined rather than dangling.
 ///
 /// Unlike the internal-parent host, this type is public and constructible from
 /// C#, so its members are callable at runtime and can assert the actual
