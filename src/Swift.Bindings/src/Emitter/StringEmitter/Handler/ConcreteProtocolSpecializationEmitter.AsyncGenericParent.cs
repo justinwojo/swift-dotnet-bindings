@@ -345,7 +345,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         EmitParentOnlyAsyncCSharpExtension(
             csWriter, method, parentCsName, returnCsType,
             cdeclSymbol, csMethodName, wrapperLibPath, throws,
-            mergedAvailability, parentTypeDecl, typeDatabase, returnIsBlittable, isVoid);
+            mergedAvailability, parentTypeDecl, typeDatabase, emissionContext, returnIsBlittable, isVoid);
 
         method.MarkEmitted();
 
@@ -780,6 +780,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
         TypeDecl parentTypeDecl,
         ITypeDatabase typeDatabase,
+        ModuleEmissionContext emissionContext,
         bool returnIsBlittable,
         bool isVoid)
     {
@@ -992,14 +993,25 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine("else");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            // Build a SwiftException via the standard ThrowSwiftError helper. Wrap in
-            // try/catch so we capture the constructed exception without unwinding past
-            // the UnmanagedCallersOnly boundary (which would crash the process).
+            // Build a SwiftException and hand it to the TaskCompletionSource. Wrap in try/catch so
+            // we capture the constructed exception without unwinding past the UnmanagedCallersOnly
+            // boundary (which would crash the process).
+            //
+            // A plain `throws` carries no static error type, but the module may still have
+            // Error-conforming types registered. When it does, the raw error box goes through the
+            // module's registry helper, which classifies it and returns SwiftException<TError> with
+            // the marshalled payload, or the untyped SwiftException when nothing matched — the same
+            // shape the member routes surface, so a consumer awaiting this Task sees one typed
+            // exception for a given Swift error regardless of which route reached it. Either shape
+            // owns the box and releases it once, on finalization.
+            var asyncErrorRegistryRef = ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
+                method.ModuleDecl?.Name, emissionContext);
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine(
-                "global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);");
+            csWriter.WriteLine(asyncErrorRegistryRef != null
+                ? $"throw {asyncErrorRegistryRef}.CreateSyncException(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);"
+                : "global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("catch (global::System.Exception ex)");

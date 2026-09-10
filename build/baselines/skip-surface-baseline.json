@@ -1,5 +1,5 @@
 {
-  "git_sha": "ba8a4dfde",
+  "git_sha": "3bdc1fd5a",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -12,18 +12,6 @@
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (a generic container in the signature (such as an array, dictionary or Result) that the wrapper cannot bridge). P/Invoke calling convention may not match Swift ABI",
       "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "ObsoleteSB0001",
-      "reason": "No @_cdecl wrapper or native thunk available (a parameter that is a frozen struct containing another struct). P/Invoke calling convention may not match Swift ABI",
-      "count": 4
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "ObsoleteSB0001",
-      "reason": "No @_cdecl wrapper or native thunk available (a variadic parameter shape the wrapper bridge does not support). P/Invoke calling convention may not match Swift ABI",
-      "count": 9
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -41,7 +29,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
-      "count": 36
+      "count": 37
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -479,12 +467,6 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027MixedTupleHost.mixedStaticPair\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
-      "reason": "method \u0027NestedFrozenTokenHost.init\u0027 \u2014 consumed ~Copyable value on a call route with no move (the value would be destroyed twice) (\u0027SwiftBindingsTestLib.FrozenLabeledToken\u0027 is consumed but no wrapper is emitted to move it)",
       "count": 1
     },
     {

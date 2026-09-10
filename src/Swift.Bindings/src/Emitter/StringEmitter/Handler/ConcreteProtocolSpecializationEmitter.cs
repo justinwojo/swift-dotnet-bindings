@@ -1839,14 +1839,29 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         // For throws, all direct-return shapes must capture the P/Invoke result into a local
         // so the errorPtr check can run *after* the call but *before* we use the result.
-        // The result of `ThrowSwiftError` is unreachable — the call throws — so using it
-        // inline as the return expression is unsafe.
+        // The error check never falls through — it throws — so using its result inline as the
+        // return expression is unsafe.
         //
-        // The ownership-transfer arm needs no special free here: ThrowSwiftError aborts before
-        // the marshal call sets the ownership flag, so the finally below reclaims the buffer on
+        // The ownership-transfer arm needs no special free here: the check throws before the
+        // marshal call sets the ownership flag, so the finally below reclaims the buffer on
         // this path exactly as it does on every other pre-handoff throw.
+        //
+        // A plain `throws` carries no static error type, but the module may still have
+        // Error-conforming types registered. When it does, the raw error box goes through the
+        // module's registry helper, which classifies it and returns SwiftException<TError> with
+        // the marshalled payload, or the untyped SwiftException when nothing matched — the same
+        // shape the member routes surface, so a consumer sees one typed exception for a given
+        // Swift error regardless of which route reached it. Either shape owns the box and releases
+        // it once, on finalization, and the classification runs before the exception exists, so the
+        // throw itself still performs no P/Invoke. Without a registry the check keeps the untyped
+        // single source (SwiftMarshal.ThrowSwiftError), whose SwiftException still carries the live
+        // error box on .ErrorHandle.
+        var errorRegistryRef = ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
+            method.ModuleDecl?.Name, emissionContext);
         string errorCheck = throws
-            ? $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);"
+            ? (errorRegistryRef != null
+                ? $"if ({errorPtrName} != IntPtr.Zero) throw {errorRegistryRef}.CreateSyncException({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);"
+                : $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);")
             : string.Empty;
 
         if (isConstructor)

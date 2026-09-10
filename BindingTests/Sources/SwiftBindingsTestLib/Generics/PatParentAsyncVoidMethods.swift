@@ -97,6 +97,15 @@ public struct Donator<Item: DonationItem> {
         sink.record(name)
     }
 
+    /// async void, throwing, always faults with a class error embedding a
+    /// `LifetimeTracker`-counted ref. The parent-only async specialization's error
+    /// callback owns the Swift error box, so a lost or duplicated release is
+    /// observable rather than merely "did not crash". The name length becomes the
+    /// error's code so each call carries a distinguishable payload.
+    public func donateOrThrowTracked(_ name: String) async throws {
+        throw SyncCascadeTrackedClassError(code: Int32(name.count))
+    }
+
     /// async void, non-throwing, suspends on a cancellable sleep. Drives the void
     /// CANCELLATION path end-to-end: a pre-canceled C# token cancels the launched
     /// Task at birth via the producer-cancel registry (`SBW_CancelTask` lands

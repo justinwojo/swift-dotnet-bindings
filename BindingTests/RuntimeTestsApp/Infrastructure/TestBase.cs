@@ -403,7 +403,13 @@ public abstract class TestBase
     /// </summary>
     protected static async Task<T> WithTimeout<T>(Task<T> task, TimeSpan timeout)
     {
-        var timeoutTask = Task.Delay(timeout);
+        // The delay is cancelled as soon as the operation wins the race. An uncancelled
+        // Task.Delay stays on the timer queue for the whole timeout and its WhenAny continuation
+        // keeps `task` reachable until the timer fires — so anything the finished task's result
+        // or exception owns natively is released when the timer expires rather than when the
+        // caller drops it, which lands those releases inside whatever runs next.
+        using var timeoutCancellation = new CancellationTokenSource();
+        var timeoutTask = Task.Delay(timeout, timeoutCancellation.Token);
         var completedTask = await Task.WhenAny(task, timeoutTask);
 
         if (completedTask == timeoutTask)
@@ -411,6 +417,7 @@ public abstract class TestBase
             throw new TimeoutException($"Operation timed out after {timeout.TotalSeconds:F1}s");
         }
 
+        timeoutCancellation.Cancel();
         return await task;
     }
 
@@ -419,7 +426,9 @@ public abstract class TestBase
     /// </summary>
     protected static async Task WithTimeout(Task task, TimeSpan timeout)
     {
-        var timeoutTask = Task.Delay(timeout);
+        // Cancelled on the winning path for the same reason as the generic overload above.
+        using var timeoutCancellation = new CancellationTokenSource();
+        var timeoutTask = Task.Delay(timeout, timeoutCancellation.Token);
         var completedTask = await Task.WhenAny(task, timeoutTask);
 
         if (completedTask == timeoutTask)
@@ -427,6 +436,7 @@ public abstract class TestBase
             throw new TimeoutException($"Operation timed out after {timeout.TotalSeconds:F1}s");
         }
 
+        timeoutCancellation.Cancel();
         await task;
     }
 

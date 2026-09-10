@@ -440,6 +440,113 @@ public class GenericClosureBridgeEmitterTests
         Assert.DoesNotContain("SBW_ReleaseError(_errorPtr);", csResult);
     }
 
+    [Fact]
+    public void TryEmit_ThrowingMethod_WithErrorRegistry_RoutesBothArmsThroughSyncClassifier()
+    {
+        // The bridge emits two public arms for one Swift member — the value-returning arm and the
+        // void arm — each with its own error check. Both must consult the module's registry, or
+        // the same Swift error surfaces typed through one overload and untyped through the other.
+        var (csResult, _) = EmitThrowingBridge(ctx: CreateContextWithErrorRegistry());
+
+        const string classified =
+            "throw global::TestModule._SbwModuleErrorRegistry_TestModule.CreateSyncException(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);";
+        Assert.Equal(2, CountOccurrences(csResult, classified));
+        // The classifier owns the release; the unconditional helper must be off both arms or the
+        // box is released twice.
+        Assert.DoesNotContain("SwiftMarshal.ThrowSwiftError", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_ThrowingMethod_NoErrorRegistry_KeepsUntypedThrowOnBothArms()
+    {
+        // No registered error types means no helper class was emitted, so both arms keep the
+        // untyped throw rather than referencing a class that does not exist.
+        var (csResult, _) = EmitThrowingBridge(ctx: new ModuleEmissionContext());
+
+        Assert.Equal(2, CountOccurrences(csResult,
+            "SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);"));
+        Assert.DoesNotContain("CreateSyncException", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_ThrowingMethod_ForeignModuleMember_KeepsUntypedThrow()
+    {
+        // The registry belongs to the module being emitted; a member from another module has no
+        // helper class of its own in scope and must not be pointed at this one's classifier.
+        var (csResult, _) = EmitThrowingBridge(
+            ctx: CreateContextWithErrorRegistry(), memberModuleName: "OtherModule");
+
+        Assert.Contains("SwiftMarshal.ThrowSwiftError(_errorPtr", csResult);
+        Assert.DoesNotContain("CreateSyncException", csResult);
+    }
+
+    private static ModuleEmissionContext CreateContextWithErrorRegistry()
+    {
+        var ctx = new ModuleEmissionContext { ErrorRegistryModuleName = "TestModule" };
+        ctx.RegisterErrorTypeId("TestModule.ReadError");
+        return ctx;
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+        return count;
+    }
+
+    // Drives the bridge over `func read<T>(_ block: (Database) throws -> T) throws -> T` — the
+    // method-generic, closure-bearing throwing shape whose emission this lane rewires.
+    private static (string Cs, string Swift) EmitThrowingBridge(
+        ModuleEmissionContext ctx, string memberModuleName = "TestModule")
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var memberModule = memberModuleName == "TestModule" ? moduleDecl : CreateModuleDecl(memberModuleName);
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0"))
+        {
+            Throws = true
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s11RecordStore8Database4readyyF_v2",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                CreateArg("block", closureSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = memberModule,
+            IsSynthesizedAccessor = false
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        Assert.True(GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl, ctx));
+
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
     #endregion
 
     #region Gate (c): generic type parameter in closure ARGUMENT / non-closure position
@@ -1156,11 +1263,11 @@ public class GenericClosureBridgeEmitterTests
         return (csWriter, swiftWriter);
     }
 
-    private static ModuleDecl CreateModuleDecl()
+    private static ModuleDecl CreateModuleDecl(string name = "TestModule")
     {
         return new ModuleDecl
         {
-            Name = "TestModule",
+            Name = name,
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),

@@ -6161,6 +6161,103 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_ThrowingMethod_WithErrorRegistry_RoutesThroughSyncClassifier()
+    {
+        // A plain `throws` requirement carries no static error type, but the module's registry
+        // can still classify the box at run time. With a registry available the proxy must
+        // dispatch through it, or the same Swift error surfaces as SwiftException<T> from a free
+        // function and as the untyped shape when it comes back through a protocol.
+        var protocolDecl = CreateThrowingExistentialReturnProtocol();
+        var ctx = new ModuleEmissionContext { ErrorRegistryModuleName = "TestModule" };
+        ctx.RegisterErrorTypeId("TestModule.ConnectError");
+
+        var output = EmitProxyClassWithContext(protocolDecl, ctx);
+
+        Assert.Contains(
+            "throw global::TestModule._SbwModuleErrorRegistry_TestModule.CreateSyncException(errorOut, NativeMethods.SBW_GetErrorDescription(errorOut), NativeMethods.SBW_ReleaseError)",
+            output);
+        // The classifier owns the release; leaving the unconditional helper on this route as well
+        // would release the box twice.
+        Assert.DoesNotContain("SwiftMarshal.ThrowSwiftError", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingMethod_NoErrorRegistry_KeepsUntypedThrow()
+    {
+        // A module that registered no error types has no helper class to dispatch through, so the
+        // proxy keeps the untyped throw rather than referencing a class that was never emitted.
+        var protocolDecl = CreateThrowingExistentialReturnProtocol();
+
+        var output = EmitProxyClassWithContext(protocolDecl, new ModuleEmissionContext());
+
+        Assert.Contains(
+            "SwiftMarshal.ThrowSwiftError(errorOut, NativeMethods.SBW_GetErrorDescription(errorOut), NativeMethods.SBW_ReleaseError)",
+            output);
+        Assert.DoesNotContain("CreateSyncException", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ThrowingMethod_ForeignModuleMember_KeepsUntypedThrow()
+    {
+        // The registry belongs to the module being emitted. A requirement whose own module is a
+        // different one has no helper class of its own in scope here, so it must not be pointed at
+        // this module's classifier.
+        var protocolDecl = CreateThrowingExistentialReturnProtocol(memberModuleName: "OtherModule");
+        var ctx = new ModuleEmissionContext { ErrorRegistryModuleName = "TestModule" };
+        ctx.RegisterErrorTypeId("TestModule.ConnectError");
+
+        var output = EmitProxyClassWithContext(protocolDecl, ctx);
+
+        Assert.Contains("SwiftMarshal.ThrowSwiftError(errorOut", output);
+        Assert.DoesNotContain("CreateSyncException", output);
+    }
+
+    // A protocol carrying one throwing requirement whose return is an existential — the shape that
+    // reaches the proxy's shared Swift-error handling — with the requirement's own ModuleDecl set,
+    // which is what the classifier lookup keys on.
+    private ProtocolDecl CreateThrowingExistentialReturnProtocol(string memberModuleName = "TestModule")
+    {
+        RegisterProtocol("TargetProtocol");
+        var protocolDecl = CreateSimpleProtocol("SourceProtocol");
+        var memberModule = new ModuleDecl
+        {
+            Name = memberModuleName,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var existentialReturn = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+
+        protocolDecl.Methods.Add(new MethodDecl
+        {
+            Name = "connect",
+            MangledName = "$sconnect",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = existentialReturn,
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = memberModule,
+            Throws = true, IsAsync = false,
+            IsSynthesizedAccessor = false
+        });
+
+        return protocolDecl;
+    }
+
+    [Fact]
     public void EmitProxyClass_ExistentialReturnMethod_Throwing_FreeInFinally()
     {
         // Both error cleanup and success result must use finally blocks

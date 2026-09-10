@@ -514,10 +514,10 @@ public static class GenericClosureBridgeEmitter
             ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
             : "_payload.DangerousGetHandle()";
         EmitPublicReturningMethod(csWriter, methodDecl, methodName, closureArgs,
-            callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr, closureArg);
+            callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr, closureArg, ctx);
         if (emitVoidVariant)
             EmitPublicVoidMethod(csWriter, methodDecl, methodName, closureArgs,
-                callbackNameVoid, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr);
+                callbackNameVoid, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr, ctx);
     }
 
     private static void EmitReturningCallback(
@@ -746,7 +746,8 @@ public static class GenericClosureBridgeEmitter
         ClosureTypeSpec closureTypeSpec,
         MethodEnvironment env,
         string selfExpr,
-        ArgumentDecl closureArg)
+        ArgumentDecl closureArg,
+        ModuleEmissionContext ctx)
     {
         // Build Func<ArgTypes..., T> type — a generic closure arg surfaces as `T`, a concrete arg as
         // its projected C# type, then the (generic) return `T`. For `(T) throws -> T` this is Func<T,T>.
@@ -903,19 +904,9 @@ public static class GenericClosureBridgeEmitter
 
         if (methodDecl.Throws)
         {
-            // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so
-            // the thrown SwiftException carries the live error box on .ErrorHandle, identical to the
-            // canonical method path — instead of eagerly releasing it and throwing a message-only,
-            // identity-lossy SwiftRuntimeException. ThrowSwiftError reads + frees the description and
-            // transfers ownership of the error box to the exception (released on finalization). The
-            // surrounding try/finally blocks still run on the throw, freeing resultBuf and the GCHandle.
-            csWriter.WriteLine($"if ({swiftErrorName}.Value != null)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine($"var _errorPtr = (IntPtr){swiftErrorName}.Value;");
-            csWriter.WriteLine("global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
+            // The surrounding try/finally blocks still run on the throw, freeing resultBuf and the
+            // GCHandle.
+            EmitSwiftErrorCheck(csWriter, swiftErrorName, methodDecl, ctx);
         }
 
         // The callback wrote the closure result INTO resultBuf via MarshalToSwift, which for a
@@ -980,7 +971,8 @@ public static class GenericClosureBridgeEmitter
         string csClosureName,
         ClosureTypeSpec closureTypeSpec,
         MethodEnvironment env,
-        string selfExpr)
+        string selfExpr,
+        ModuleEmissionContext ctx)
     {
         // The void variant is only emitted when T is confined to the closure return, so every closure
         // arg here is concrete (no generic args) and no generic non-closure params exist.
@@ -1044,17 +1036,8 @@ public static class GenericClosureBridgeEmitter
 
         if (methodDecl.Throws)
         {
-            // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so
-            // the thrown SwiftException carries the live error box on .ErrorHandle, identical to the
-            // canonical method path — instead of eagerly releasing it and throwing a message-only,
-            // identity-lossy SwiftRuntimeException. The surrounding finally still frees the GCHandle.
-            csWriter.WriteLine($"if ({swiftErrorName}.Value != null)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine($"var _errorPtr = (IntPtr){swiftErrorName}.Value;");
-            csWriter.WriteLine("global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
+            // The surrounding finally still frees the GCHandle.
+            EmitSwiftErrorCheck(csWriter, swiftErrorName, methodDecl, ctx);
         }
 
         csWriter.Indent--;
@@ -1064,6 +1047,37 @@ public static class GenericClosureBridgeEmitter
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the bridge's post-call Swift error check. A plain <c>throws</c> carries no static error
+    /// type, but the module may still have Error-conforming types registered; when it does, the raw
+    /// error box goes through the module's registry helper, which classifies it and returns
+    /// <c>SwiftException&lt;TError&gt;</c> with the marshalled payload, or the untyped
+    /// <c>SwiftException</c> when nothing matched — the same shape the member routes surface, so a
+    /// consumer sees one typed exception for a given Swift error regardless of which route reached
+    /// it. Either shape owns the box and releases it once, on finalization, and the classification
+    /// runs before the exception exists, so the throw itself still performs no P/Invoke.
+    ///
+    /// Without a registry the check keeps the untyped single source
+    /// (<c>SwiftMarshal.ThrowSwiftError</c>), whose thrown <c>SwiftException</c> still carries the
+    /// live error box on <c>.ErrorHandle</c> rather than eagerly releasing it and throwing a
+    /// message-only, identity-lossy exception.
+    /// </summary>
+    private static void EmitSwiftErrorCheck(
+        CSharpWriter csWriter, string swiftErrorName, MethodDecl methodDecl, ModuleEmissionContext ctx)
+    {
+        var registryRef = ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
+            methodDecl.ModuleDecl?.Name, ctx);
+        csWriter.WriteLine($"if ({swiftErrorName}.Value != null)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"var _errorPtr = (IntPtr){swiftErrorName}.Value;");
+        csWriter.WriteLine(registryRef != null
+            ? $"throw {registryRef}.CreateSyncException(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);"
+            : "global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError(_errorPtr, SBW_GetErrorDescription(_errorPtr), SBW_ReleaseError);");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────

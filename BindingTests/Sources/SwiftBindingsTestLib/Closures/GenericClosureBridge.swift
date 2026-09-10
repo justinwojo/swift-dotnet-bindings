@@ -99,6 +99,15 @@ public class DatabaseReader {
         _ = try block(source)
         throw DatabaseReadError.afterRead
     }
+
+    /// Same throw-after-callback shape as `readThenThrow`, but the thrown error is a class error
+    /// embedding a `LifetimeTracker`-counted ref, so a bridge throw that leaks or double-releases
+    /// the Swift error box is observable rather than merely "did not crash". The signature is kept
+    /// identical to `readThenThrow` so both members take the same bridge route.
+    public func readThenThrowTracked<T>(from source: DatabaseReader, _ block: (DatabaseReader) throws -> T) throws -> T {
+        _ = try block(source)
+        throw SyncCascadeTrackedClassError(code: 77)
+    }
 }
 
 /// Error thrown by `DatabaseReader.readThenThrow` after a successful closure invocation, exercising

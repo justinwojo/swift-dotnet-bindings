@@ -249,7 +249,8 @@ public class CsmDataProtocolTests : TestBase
     // Mirrors CryptoKit AEAD (AES.GCM / ChaChaPoly) Seal/Open shape: caseless namespace
     // enum + static method with a DataProtocol generic + `throws`. The emitter must
     // produce a Swift do/catch @_cdecl wrapper with an `errorOut` parameter and a
-    // matching C# P/Invoke with `out IntPtr errorPtr` + SwiftMarshal.ThrowSwiftError.
+    // matching C# P/Invoke with `out IntPtr errorPtr` whose non-zero branch dispatches
+    // through the module's synchronous error classifier.
     // Each test stresses one of the four cdecl-return shapes the CSM path handles:
     // direct Int, direct Bool, void, and indirect struct result.
 
@@ -490,8 +491,9 @@ public class CsmDataProtocolTests : TestBase
     public void TestThrowingBytes_LocalizedDescription_Struct()
     {
         // Indirect-result (needsResultPtr) shape: catch path emits errorOut.pointee with
-        // no sentinel and the C# side frees the would-be ownership-transfer buffer before
-        // ThrowSwiftError. Same generic-return code path as a hypothetical `func transform<D>(_: D) throws -> D`.
+        // no sentinel and the C# side frees the would-be ownership-transfer buffer before the
+        // error is classified. Same generic-return code path as a hypothetical
+        // `func transform<D>(_: D) throws -> D`.
         var e = CaptureSwiftException(
             () => ThrowingBytesNamespace.MakeBytesSummary(System.Array.Empty<byte>()),
             "MakeBytesSummary(empty)");

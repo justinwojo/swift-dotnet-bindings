@@ -377,8 +377,9 @@ extension BytesNamespace {
 /// SearchableItem (not DataProtocol) — each protocol gets its own conformer-pairing
 /// run. Validates the @_cdecl wrapper's `returnsGenericParam=true → needsResultPtr=true`
 /// path under throws: the catch arm sets errorOut.pointee and returns Void; the C#
-/// side allocates a NativeMemory buffer and frees it on the error branch before
-/// SwiftMarshal.ThrowSwiftError fires. SongItem/AlbumItem/ArtistItem are empty marker
+/// side allocates a NativeMemory buffer and frees it on the error branch before the
+/// module's error classifier turns the box into the thrown exception.
+/// SongItem/AlbumItem/ArtistItem are empty marker
 /// structs so the assertion is "round-trip survives" rather than payload equality.
 public enum ThrowingItemNamespace {
     /// Generic return shape: returns the input directly so the conformer type T appears
@@ -408,6 +409,14 @@ extension ThrowingBytesNamespace {
         if bytes.count > 0x1000 { throw BytesValidationError.tooLarge(bytes.count) }
         if bytes.count == 0 { return .empty }
         return bytes.count < 8 ? .small : .large
+    }
+
+    /// Always throws a class error embedding a `LifetimeTracker`-counted ref, so a
+    /// specialization throw that leaks or double-releases the Swift error box is
+    /// observable rather than merely "did not crash". The byte count becomes the
+    /// error's code so each call carries a distinguishable payload.
+    public static func trackedThrowOnBytes<D: DataProtocol>(_ bytes: D) throws -> Int {
+        throw SyncCascadeTrackedClassError(code: Int32(bytes.count))
     }
 
     /// Direct ClassPointer return (BytesReport → UnsafeMutableRawPointer @_cdecl).

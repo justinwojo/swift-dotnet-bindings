@@ -85,9 +85,11 @@ public class ErrorIdentityCarriageTests : TestBase
 
     /// <summary>
     /// A throw from a method routed through the <c>GenericClosureBridge</c> (a method-generic,
-    /// throwing-closure-bearing method) also carries the live error box. Before F42 this path
-    /// hand-rolled an eager release + message-only <c>SwiftRuntimeException</c>; it now routes
-    /// through the single <see cref="SwiftMarshal.ThrowSwiftError"/> source like the canonical path.
+    /// throwing-closure-bearing method) also carries the live error box. This path once hand-rolled
+    /// an eager release + message-only <c>SwiftRuntimeException</c>; it now shares the canonical
+    /// path's error dispatch. <c>DatabaseReadError</c> is a registered error type of the module, so
+    /// the surfaced exception is the typed shape — asserted in
+    /// <see cref="RemainingLaneTypedErrorTests"/>; what this test pins is the carried box.
     /// </summary>
     public void TestGenericClosureBridgeThrowCarriesLiveErrorHandle()
     {
@@ -112,9 +114,10 @@ public class ErrorIdentityCarriageTests : TestBase
 
     /// <summary>
     /// A throw from a Swift protocol requirement dispatched through the generated witness proxy
-    /// (<c>ThrowingWitnessProxy</c>) carries the live error box. The shared proxy error helper now
-    /// routes through <see cref="SwiftMarshal.ThrowSwiftError"/> instead of eagerly releasing the box
-    /// and throwing a message-only exception.
+    /// (<c>ThrowingWitnessProxy</c>) carries the live error box. The shared proxy error helper no
+    /// longer eagerly releases the box and throws a message-only exception; it dispatches the same
+    /// way the canonical member routes do, so a registered error type surfaces typed — asserted in
+    /// <see cref="RemainingLaneTypedErrorTests"/>; what this test pins is the carried box.
     /// </summary>
     public void TestWitnessDispatchThrowCarriesLiveErrorHandle()
     {

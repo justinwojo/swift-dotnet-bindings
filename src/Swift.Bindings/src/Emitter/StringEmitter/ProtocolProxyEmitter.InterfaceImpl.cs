@@ -1989,7 +1989,7 @@ public partial class ProtocolProxyEmitter
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer, errorOutName);
+            EmitSwiftErrorHandling(writer, errorOutName, method);
             writer.Indent--;
             if (resultPreamble != null)
             {
@@ -2342,7 +2342,7 @@ public partial class ProtocolProxyEmitter
                     {
                     """);
                 writer.Indent++;
-                EmitSwiftErrorHandling(writer, errorOutName);
+                EmitSwiftErrorHandling(writer, errorOutName, method);
                 writer.Indent--;
                 writer.WriteLines($$"""
                     }
@@ -2371,7 +2371,7 @@ public partial class ProtocolProxyEmitter
                     {
                     """);
                 writer.Indent++;
-                EmitSwiftErrorHandling(writer, errorOutName);
+                EmitSwiftErrorHandling(writer, errorOutName, method);
                 writer.Indent--;
                 writer.WriteLines($$"""
                     }
@@ -2437,7 +2437,7 @@ public partial class ProtocolProxyEmitter
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer, errorOutName);
+            EmitSwiftErrorHandling(writer, errorOutName, method);
             writer.Indent--;
             writer.WriteLines("""
                 }
@@ -2518,7 +2518,7 @@ public partial class ProtocolProxyEmitter
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer, errorOutName);
+            EmitSwiftErrorHandling(writer, errorOutName, method);
             writer.Indent--;
             writer.WriteLines($$"""
                 }
@@ -2637,7 +2637,7 @@ public partial class ProtocolProxyEmitter
                         {
                 """);
             writer.Indent += 3;
-            EmitSwiftErrorHandling(writer, errorOutName);
+            EmitSwiftErrorHandling(writer, errorOutName, method);
             writer.Indent -= 3;
             writer.WriteLines($$"""
                         }
@@ -2965,7 +2965,7 @@ public partial class ProtocolProxyEmitter
                 {
                 """);
             writer.Indent++;
-            EmitSwiftErrorHandling(writer, errorOutName);
+            EmitSwiftErrorHandling(writer, errorOutName, method);
             writer.Indent--;
             writer.WriteLines($$"""
                 }
@@ -3002,13 +3002,32 @@ public partial class ProtocolProxyEmitter
     /// to a SwiftException. Used by all throwing witness dispatch paths.
     /// Caller must set writer.Indent to the correct level (typically inside an if-error block).
     /// </summary>
-    private static void EmitSwiftErrorHandling(CSharpWriter writer, string errorOutName)
+    /// <param name="member">The protocol requirement whose throw this is. Its module decides
+    /// whether the throw can be classified against a registered error registry.</param>
+    private void EmitSwiftErrorHandling(CSharpWriter writer, string errorOutName, MethodDecl member)
     {
-        // Route the untyped Swift throw through the single source (SwiftMarshal.ThrowSwiftError) so the
-        // thrown SwiftException carries the live error box on .ErrorHandle, identical to the canonical
-        // method path — instead of eagerly releasing it and throwing a message-only, identity-lossy
-        // exception. ThrowSwiftError reads + frees the description and transfers ownership of the error
-        // box to the exception (released on finalization).
+        // A plain `throws` requirement carries no static error type, but the module may still have
+        // Error-conforming types registered. When it does, route the raw error box through the
+        // module's registry helper: it classifies the box against the registered types and returns
+        // SwiftException<TError> with the marshalled payload, or the untyped SwiftException when
+        // nothing matched — the same shape the member routes surface, so a consumer sees one typed
+        // exception for a given Swift error regardless of which route reached it. Either shape owns
+        // the box and releases it once, on finalization, and the classification runs before the
+        // exception exists, so the throw itself still performs no P/Invoke.
+        //
+        // Without a registry the block keeps the untyped single source (SwiftMarshal.ThrowSwiftError),
+        // whose thrown SwiftException still carries the live error box on .ErrorHandle rather than
+        // eagerly releasing it and throwing a message-only, identity-lossy exception.
+        var registryRef = ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
+            member.ModuleDecl?.Name, _emissionContext);
+        if (registryRef != null)
+        {
+            writer.WriteLines($$"""
+                throw {{registryRef}}.CreateSyncException({{errorOutName}}, NativeMethods.SBW_GetErrorDescription({{errorOutName}}), NativeMethods.SBW_ReleaseError);
+                """);
+            return;
+        }
+
         writer.WriteLines($$"""
             global::Swift.Runtime.InteropServices.SwiftMarshal.ThrowSwiftError({{errorOutName}}, NativeMethods.SBW_GetErrorDescription({{errorOutName}}), NativeMethods.SBW_ReleaseError);
             """);

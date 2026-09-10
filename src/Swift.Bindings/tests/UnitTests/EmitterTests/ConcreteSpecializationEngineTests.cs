@@ -1650,6 +1650,135 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_ThrowingMember_WithErrorRegistry_RoutesThroughSyncClassifier()
+    {
+        // A specialized sync member reports its thrown error through an explicit out-pointer. With
+        // a registry available that pointer must be classified, or the same Swift error surfaces
+        // typed from an ordinary member and untyped from its specialization.
+        var cs = EmitThrowingSpecialization(CreateContextWithErrorRegistry("TestLib"));
+
+        Assert.Contains(
+            "if (errorPtr != IntPtr.Zero) throw global::TestLib._SbwModuleErrorRegistry_TestLib.CreateSyncException(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);",
+            cs);
+        // The classifier owns the release; the unconditional helper must be off this route or the
+        // box is released twice.
+        Assert.DoesNotContain("ThrowSwiftError", cs);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ThrowingMember_NoErrorRegistry_KeepsUntypedThrow()
+    {
+        // No registered error types means no helper class was emitted, so the specialization keeps
+        // the untyped throw rather than referencing a class that does not exist.
+        var cs = EmitThrowingSpecialization(new ModuleEmissionContext());
+
+        Assert.Contains(
+            "if (errorPtr != IntPtr.Zero) SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);",
+            cs);
+        Assert.DoesNotContain("CreateSyncException", cs);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ThrowingMember_ForeignModuleMember_KeepsUntypedThrow()
+    {
+        // The registry belongs to the module being emitted; a member from another module has no
+        // helper class of its own in scope and must not be pointed at this one's classifier.
+        var cs = EmitThrowingSpecialization(CreateContextWithErrorRegistry("OtherModule"));
+
+        Assert.Contains("SwiftMarshal.ThrowSwiftError(errorPtr", cs);
+        Assert.DoesNotContain("CreateSyncException", cs);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncVoidThrowing_WithErrorRegistry_RoutesThroughSyncClassifier()
+    {
+        // The async-generic-parent arm receives its error on an unmanaged callback and faults the
+        // Task with whatever it constructs there. That construction has to consult the registry
+        // too, or awaiting a specialized async member yields a different exception shape than
+        // calling its synchronous sibling.
+        var cs = EmitThrowingParentOnlyAsyncVoid(CreateContextWithErrorRegistry("SwiftBindingsTestLib"));
+
+        Assert.Contains(
+            "throw global::SwiftBindingsTestLib._SbwModuleErrorRegistry_SwiftBindingsTestLib.CreateSyncException(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);",
+            cs);
+        Assert.DoesNotContain("ThrowSwiftError", cs);
+        // The classified throw still happens inside the callback's try, so the constructed
+        // exception faults the Task instead of escaping an UnmanagedCallersOnly frame.
+        Assert.Contains("TrySetException", cs);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ParentOnlyAsyncVoidThrowing_NoErrorRegistry_KeepsUntypedThrow()
+    {
+        var cs = EmitThrowingParentOnlyAsyncVoid(new ModuleEmissionContext());
+
+        Assert.Contains(
+            "SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);",
+            cs);
+        Assert.DoesNotContain("CreateSyncException", cs);
+    }
+
+    private static ModuleEmissionContext CreateContextWithErrorRegistry(string moduleName)
+    {
+        var ctx = new ModuleEmissionContext { ErrorRegistryModuleName = moduleName };
+        ctx.RegisterErrorTypeId($"{moduleName}.SpecializationError");
+        return ctx;
+    }
+
+    // Drives the synchronous CSM arm over a throwing protocol-constrained initializer, with the
+    // member's own ModuleDecl set — that is what the classifier lookup keys on.
+    private static string EmitThrowingSpecialization(ModuleEmissionContext ctx)
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Outer.Inner"), "TestLib", "Outer.Inner");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Box"), "TestLib", "Box");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.Outer.Inner", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateStructWithProtocolConstrainedConstructor("Box", "TestLib.Processable", throws: true);
+        typeDecl.Methods[0].ModuleDecl = moduleDecl;
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), typeDecl, db, ctx, engine, NullLogger.Instance);
+
+        return csOutput.ToString();
+    }
+
+    // Drives the async-generic-parent arm over a throwing `func donate(_ name: String) async throws`.
+    private static string EmitThrowingParentOnlyAsyncVoid(ModuleEmissionContext ctx)
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var voidThrowing = CreateParentOnlyAsyncVoidMethodDecl(
+            "Donator", "donate", throws: true, withStringParam: true);
+        var typeDecl = CreateGenericStructWithParentOnlyAsyncVoidMethods(
+            "Donator", "SwiftBindingsTestLib.AsyncBagItem", voidThrowing);
+        voidThrowing.ModuleDecl = new ModuleDecl
+        {
+            Name = "SwiftBindingsTestLib",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), typeDecl, db, ctx, engine, NullLogger.Instance);
+
+        return csOutput.ToString();
+    }
+
+    [Fact]
     public void EmitConcreteSpecializations_ParentOnlyAsyncVoidOverloads_BothAritiesEmit()
     {
         // sigKey param-dedup: two same-named void async overloads on one parent —
