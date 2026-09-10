@@ -472,7 +472,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 thunkEligible = NativeThunkEmitter.ShouldEmitThunk(preflightCheckEnv);
                 if (!thunkEligible)
                 {
-                    cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, preflightCheckEnv) == WrapperDecision.WrapperRequired;
+                    cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, preflightCheckEnv, accessor) == WrapperDecision.WrapperRequired;
                     // Only check ObjC override if no accessor got @_cdecl or thunk
                     if (!cdeclEligible && !needsObjCOverrideWrapper)
                         needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, preflightCheckEnv);
@@ -606,7 +606,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     if (conductor.TryGetMethodHandler(acc.Method, out var skipCheckHandler))
                     {
                         var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(acc.Method, propertyEnv.TypeDatabase);
-                        var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, skipCheckEnv);
+                        var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, skipCheckEnv, acc);
                         if (skipReason != null)
                         {
                             context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
@@ -694,7 +694,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     if (conductor.TryGetMethodHandler(accessor.Method, out var fallbackHandler))
                     {
                         var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
-                        cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, fallbackEnv) == WrapperDecision.WrapperRequired;
+                        cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, fallbackEnv, accessor) == WrapperDecision.WrapperRequired;
                         if (cdeclEligible)
                             accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
                     }

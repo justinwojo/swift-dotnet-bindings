@@ -97,10 +97,13 @@ public static class ConstructorWrapperEmitter
                 !CdeclParamMapper.LowersNonCopyableDirectly(a.SwiftTypeSpec, env.TypeDatabase)))
             return WrapperEligibility.Reject("non_copyable_struct_parameter");
 
-        // Skip constructors with nested frozen struct parameters.
-        // @_cdecl can't represent nested Swift types (e.g. NestedOuter.Inner) in C ABI.
-        // The Swift compiler rejects these with: "type of the parameter cannot be represented in Objective-C".
-        if (HasNestedFrozenStructParameter(env))
+        // Nested frozen struct parameters — ALLOWED wherever the nested name stays in the wrapper
+        // body, matching the method wrapper gate. The constructor shares CdeclParamMapper, which
+        // transports a custom non-primitive frozen struct as UnsafeRawPointer rather than by value.
+        // The by-value arm it keeps for system/Apple frozen structs is the exception: that test is
+        // module-based, so a nested type from one of those modules would be written into the C
+        // signature under a spelling C cannot name.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => WrapperValidation.IsByValueNestedStructParam(a, env)))
             return WrapperEligibility.Reject("nested_frozen_struct_parameter");
 
         // Skip constructors with unsupported buffer pointer parameters
@@ -233,43 +236,6 @@ public static class ConstructorWrapperEmitter
         => env.MethodDecl.CSSignature.Skip(1)
             .Any(arg => WrapperValidation.IsNonCopyableType(
                 arg.SwiftTypeSpec, env.TypeDatabase, env.MethodDecl.ModuleDecl));
-
-    /// <summary>
-    /// Checks whether any constructor parameter is a nested frozen struct type.
-    /// @_cdecl can't represent nested Swift types (e.g. NestedOuter.Inner) in C ABI —
-    /// the Swift compiler rejects with "type of the parameter cannot be represented in Objective-C".
-    /// Non-frozen nested structs are fine because they're passed as UnsafeRawPointer.
-    /// </summary>
-    internal static bool HasNestedFrozenStructParameter(MethodEnvironment env)
-    {
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-        {
-            if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
-                continue;
-
-            if (!env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
-                continue;
-
-            if (typeRecord.Kind != TypeRecordKind.Struct)
-                continue;
-
-            if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
-                continue;
-
-            // Nested type: the name after stripping the module prefix still contains a dot.
-            // e.g. "ModuleName.NestedOuter.Inner" → "NestedOuter.Inner" (has dot = nested)
-            // vs   "ModuleName.Point" → "Point" (no dot = top-level)
-            var name = namedSpec.Name;
-            var dotIndex = name.IndexOf('.');
-            if (dotIndex >= 0)
-            {
-                var afterModule = name.Substring(dotIndex + 1);
-                if (afterModule.Contains('.'))
-                    return true;
-            }
-        }
-        return false;
-    }
 
     /// <summary>
     /// Checks if any parameter is an unsupported buffer pointer type:

@@ -356,6 +356,288 @@ public class SubscriptWrapperEmitterTests
 
     #endregion
 
+    #region Nested Type And Frozen Struct Index Eligibility
+
+    [Fact]
+    public void EvaluateWrapperEligibility_NestedTypeReturn_GetAccessor_NotRejectedWithNestedTypeReturn()
+    {
+        // Nested type names appear only in the wrapper BODY (`initializeMemory(as: Outer.Inner.self)`),
+        // never in the @_cdecl signature, so a nested return is no longer a distinguishing refusal.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Outer.Inner", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var getter = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var setter = new SetAccessorDecl { Method = CreateAccessorMethod("setter:subscript", false, parentDecl, moduleDecl) };
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("TestModule.Outer.Inner"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { getter, setter },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getter.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, getter, env);
+        Assert.NotEqual("nested_type_return", eligibility.Reason);
+        Assert.True(eligibility.IsWrappable);
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_NestedTypeReturn_SetAccessor_NotRejectedWithNestedTypeReturn()
+    {
+        // The setter direction is symmetric: newValue arrives as UnsafeRawPointer and is read
+        // back with `load(as: Outer.Inner.self)`, so the nested name still never reaches the signature.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Outer.Inner", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var getter = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var setter = new SetAccessorDecl { Method = CreateAccessorMethod("setter:subscript", false, parentDecl, moduleDecl) };
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("TestModule.Outer.Inner"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { getter, setter },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(setter.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, setter, env);
+        Assert.NotEqual("nested_type_return", eligibility.Reason);
+        Assert.True(eligibility.IsWrappable);
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_NestedFrozenStructIndexParam_NotRejectedWithRetiredNestedGuards()
+    {
+        // Index parameters of nested frozen structs travel as UnsafeRawPointer through
+        // CdeclParamMapper, the same lowering as a top-level frozen struct, so neither
+        // retired nested-struct index reason applies.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Outer.Inner", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var subscriptDecl = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", new NamedTypeSpec("TestModule.Outer.Inner"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, accessor, env);
+        Assert.NotEqual("nested_frozen_struct_index_param", eligibility.Reason);
+        Assert.NotEqual("non_primitive_frozen_struct_index_param", eligibility.Reason);
+        Assert.True(eligibility.IsWrappable);
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalExistentialElement_GetAccessor_IsWrappable()
+    {
+        // Optional<ExistentialContainer> is too large for CallConvSwift register return, so the
+        // GETTER takes the @_cdecl wrapper rather than declining, returning the whole Optional
+        // through the indirect result buffer.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var getter = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var setter = new SetAccessorDecl { Method = CreateAccessorMethod("setter:subscript", false, parentDecl, moduleDecl) };
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(new NamedTypeSpec("TestModule.SomeProtocol"));
+        var subscriptDecl = CreateSubscriptDecl(
+            optionalExistential,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { getter, setter },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getter.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, getter, env);
+        Assert.True(eligibility.IsWrappable);
+        Assert.Null(eligibility.Reason);
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalExistentialElement_SetAccessor_RejectedWithUnsupportedGenericContainer()
+    {
+        // Writing an Optional<any P> IN needs the existential re-boxed from the managed proxy,
+        // which the wrapper path does not emit, so the SETTER keeps the container refusal.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var getter = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var setter = new SetAccessorDecl { Method = CreateAccessorMethod("setter:subscript", false, parentDecl, moduleDecl) };
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SomeProtocol") }));
+        var subscriptDecl = CreateSubscriptDecl(
+            optionalExistential,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { getter, setter },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(setter.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, setter, env);
+        Assert.False(eligibility.IsWrappable);
+        Assert.Equal("unsupported_generic_container", eligibility.Reason);
+    }
+
+    #endregion
+
+    #region Optional-Existential Getter — Render And Gate Ordering
+
+    [Fact]
+    public void EmitGetterWrapper_OptionalExistentialElement_RendersExistentialAnyInTheMetatype()
+    {
+        // The element is a protocol, so the metatype has to name it as `any P`, parenthesized
+        // because it sits inside a generic argument. Rendering the bare protocol name compiles
+        // under the Swift 5 language mode and is rejected outright under Swift 6 — and a wrapper
+        // that stops compiling is withdrawn with its accessor group, so the member would vanish
+        // rather than fail loudly. Assert the shape, not the exact spelling of the whole line.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(new NamedTypeSpec("TestModule.SomeProtocol"));
+        var subscriptDecl = CreateSubscriptDecl(
+            optionalExistential,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(
+            swiftWriter, subscriptDecl, "SBW_SubGet_TestModule_MyType_exist001", env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("(any TestModule.SomeProtocol)", output);
+        // The bare-protocol spelling is the regression: `Optional<TestModule.SomeProtocol>` with
+        // no `any` is what the unshared renderer produced.
+        Assert.DoesNotContain("Optional<TestModule.SomeProtocol>", output);
+    }
+
+    [Fact]
+    public void EmitGetterWrapper_OptionalExistentialElementOnGenericParent_ParenthesizesAnyInTheBypassProtocol()
+    {
+        // A generic parent routes the call through a private bypass protocol whose signature
+        // restates the element type. That declaration needs the same `any` spelling the wrapper
+        // body needs, parenthesized inside the generic argument — `Optional<any P>` is not valid
+        // Swift, and a bypass protocol that does not compile is withdrawn with the accessor group.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        parentDecl.GenericParameters.Add(
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(new NamedTypeSpec("TestModule.SomeProtocol"));
+        var subscriptDecl = CreateSubscriptDecl(
+            optionalExistential,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(
+            swiftWriter, subscriptDecl, "SBW_SubGet_TestModule_MyType_gen001", env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("private protocol _SBW_SG_", output); // sanity: the bypass arm was taken
+        Assert.Contains("(any TestModule.SomeProtocol)", output);
+        Assert.DoesNotContain("Optional<any TestModule.SomeProtocol>", output);
+        Assert.DoesNotContain("Optional<TestModule.SomeProtocol>", output);
+        Assert.DoesNotContain("Optional<SomeProtocol>", output);
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalExistentialElement_StillRefusesARawGenericIndex()
+    {
+        // The optional-existential arm exempts the ELEMENT from the container check and nothing
+        // else. An early `Wrappable` there would carry the index parameters past every gate below
+        // it, so a raw ABI generic index (τ_0_0, which leaks from a generic parent and does not
+        // resolve in the wrapper module) would reach the wrapper unexamined purely because the
+        // element happened to take the carve-out.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.SomeProtocol") }));
+        var subscriptDecl = CreateSubscriptDecl(
+            optionalExistential,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("τ_0_0"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, accessor, env);
+        Assert.False(eligibility.IsWrappable);
+        Assert.Equal("raw_generic_type_params", eligibility.Reason);
+    }
+
+
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalExistentialElement_StillRefusesAByValueNestedIndex()
+    {
+        // The other half of the same ordering hole, and the one arm where the by-value nested
+        // guard is load-bearing: a nested struct from a system module is classified for by-value
+        // transport, so its Swift-only nested name would land directly in the @_cdecl signature,
+        // which Swift refuses. Deleting the guard has to turn this red rather than leave the
+        // suite green.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var systemModule = new ModuleTypeDatabase("CoreGraphics", "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics");
+        systemModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreGraphics.Outer.Inner"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "Outer.Inner"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.Outer.Inner"),
+                MetadataAccessor = "$sSo7CGInnerVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(systemModule);
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
+        var optionalExistential = new NamedTypeSpec("Swift.Optional");
+        optionalExistential.GenericParameters.Add(new NamedTypeSpec("TestModule.SomeProtocol"));
+        var subscriptDecl = CreateSubscriptDecl(
+            optionalExistential,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("CoreGraphics.Outer.Inner"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(accessor.Method, typeDb);
+        var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, accessor, env);
+        Assert.False(eligibility.IsWrappable);
+        Assert.Equal("nested_frozen_struct_index_param", eligibility.Reason);
+    }
+
+    #endregion
+
     #region Symbol Name Tests
 
     [Fact]

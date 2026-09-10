@@ -138,7 +138,7 @@ public static class MethodWrapperEmitter
             return WrapperEligibility.Reject("inout_abi_mismatch");
 
         // 11c. Variadic parameters are supported via the unsafeBitCast bridge when the shape is
-        // simple (static on non-generic parent, no throws, no closures, no inout, no method-own
+        // simple (non-generic parent, no throws, no closures, no inout, no method-own
         // generics). The wrapper assigns the variadic Swift method to a function reference of
         // type `(T...) -> R`, then bitCasts to `([T]) -> R` and calls with the runtime array.
         // Variadic-pack and traditional variadic share ABI (both lower to Array<T>); the type
@@ -155,8 +155,15 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsConstLiteral))
             return WrapperEligibility.Reject("const_literal_parameter");
 
-        // 12. No nested frozen struct parameters
-        if (HasNestedFrozenStructParameter(env))
+        // 12. Nested frozen struct parameters — ALLOWED wherever the nested name stays in the
+        // wrapper BODY, refused where it reaches the SIGNATURE. The older refusal read "@_cdecl
+        // can't represent nested Swift types in C ABI", which is true of passing such a struct BY
+        // VALUE and false of the lowering that runs for custom frozen structs: 12b transports
+        // those as UnsafeRawPointer and rebuilds them in the body, where a nested name is ordinary
+        // Swift. The by-value arm is the exception the narrowed check keeps — it writes the Swift
+        // type into the signature, and its system/Apple test is module-based, so a nested type
+        // from one of those modules reaches C under a spelling it has no name for.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => WrapperValidation.IsByValueNestedStructParam(a, env)))
             return WrapperEligibility.Reject("nested_frozen_struct_parameter");
 
         // 12b. Non-primitive frozen struct parameters are now handled via UnsafeRawPointer
@@ -1537,18 +1544,6 @@ public static class MethodWrapperEmitter
         => WrapperValidation.IsNonCopyableStructParent(parentDecl);
 
     /// <summary>
-    /// Checks whether any parameter is a nested frozen struct type.
-    /// </summary>
-    private static bool HasNestedFrozenStructParameter(MethodEnvironment env)
-        => env.MethodDecl.CSSignature.Skip(1).Any(arg => WrapperValidation.IsNestedFrozenStructParam(arg, env.TypeDatabase));
-
-    /// <summary>
-    /// Checks whether any parameter is a non-primitive frozen struct type.
-    /// </summary>
-    private static bool HasNonPrimitiveFrozenStructParameter(MethodEnvironment env)
-        => env.MethodDecl.CSSignature.Skip(1).Any(arg => WrapperValidation.IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase));
-
-    /// <summary>
     /// Checks whether any parameter or the return type is a generic container type
     /// that can't be handled by @_cdecl wrappers.
     /// Allows: Optional&lt;reference&gt; (nullable pointer ABI), Optional&lt;value-type&gt; (IndirectResult),
@@ -1739,7 +1734,21 @@ public static class MethodWrapperEmitter
     {
         var methodDecl = env.MethodDecl;
 
-        if (methodDecl.MethodType != MethodType.Static)
+        // Instance receivers are in scope: the bridge below bitCasts a function VALUE, and the
+        // receiver only decides how that value is spelled — `Type.method` for a static, `obj.method`
+        // for an instance, both of which are `(T...) -> R`. The wrapper already reconstructs `obj`
+        // for every other instance member.
+        //
+        // What the receiver does rule out is a receiver Swift refuses to partially apply. A
+        // `mutating` method cannot be referenced as a function value at all, and a consuming method
+        // on a non-copyable parent would form that value out of a moved-from receiver. Both are
+        // compile errors rather than ABI hazards, but neither is a shape the bridge can express, so
+        // decline them here instead of emitting a wrapper that cannot build.
+        if (methodDecl.IsMutating)
+            return false;
+
+        if (methodDecl.MethodType != MethodType.Static &&
+            WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
             return false;
 
         if (env.ParentDecl is TypeDecl td && td.IsGeneric)

@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// A class-valued setter reached by DIRECT CallConvSwift dispatch — no native assembly
-// thunk, no @_cdecl wrapper, no wrapper-library entry between C# and Swift's own accessor.
+// A CLASS-VALUED subscript setter, and what happens to the assigned object's reference on
+// the way across.
 //
 // Swift lowers a subscript setter as `(@owned Value, @owned Index…, self) -> ()`, so
 // the new value arrives at +1 exactly as on a stored property. The indices arrive at +1
@@ -10,26 +10,27 @@
 // accessor rather than the parameter position. That half is measured next door on
 // `OwnedArgKeyedHost`, whose index is a String and so carries a refcount to get wrong;
 // the `Int` index below is POD and can show nothing about index ownership either way.
-// The thunked arm of that hand-over is fixtured next door; this file exists for the arm where the P/Invoke names
-// the accessor's own `$s…` symbol, which until now had no first-party coverage and was
-// observed only in a shipped Apple binding (a subscript setter on a nested collection
-// struct, whose element type is nested and whose parent struct is resilient).
 //
-// Both halves of that shape are load-bearing and neither is incidental:
+// The value half is what this file is for. A class value is the case with nothing to hide
+// behind: it is not marshalled, so the call site hands the object's own payload handle
+// straight to the accessor and the +1 has to be established around that handle rather than
+// by the marshalling of a value. The shape was drawn from a subscript setter in a shipped
+// Apple binding — a nested collection struct with a nested element type on a resilient
+// parent — and both halves of that spelling are kept:
 //
-//   * the parent is a NON-frozen struct, so the accessor cannot be thunked — a resilient
-//     struct's opaque accessors move value-typed operands through indirect buffers, which
-//     the register-shifting thunk does not bridge;
-//   * the element type is NESTED, which is the one shape the @_cdecl subscript wrapper
-//     declines outright.
+//   * the parent is a NON-frozen struct, so the accessor moves value-typed operands through
+//     indirect buffers rather than in registers;
+//   * the element type is NESTED, so the generated wrapper has to name it inside its own
+//     body rather than in the C signature.
 //
-// With both wrapper paths declined the accessor falls through to the direct call, which is
-// what these declarations are for. Change either half and the fixture silently starts
-// measuring one of the already-covered arms instead.
+// The accessor reaches Swift through the generated `@_cdecl` wrapper. That frame borrows
+// what C# hands it and mints the +1 itself when it forwards to the consuming accessor, so
+// what is measured here is that the wrapper neither drops the assigned object nor leaves an
+// extra reference on it.
 
-/// The object whose retain count an assignment through the direct arm is measured on.
-/// Nested inside the collection so its projected Swift type name is nested — the shape the
-/// @_cdecl subscript wrapper refuses.
+/// The object whose retain count an assignment is measured on. Nested inside the collection
+/// so its projected Swift type name is nested, which is the spelling the generated wrapper has
+/// to rebuild in its own body.
 public struct DirectSetterSlots {
     public final class Slot {
         public let tag: Int
@@ -47,7 +48,7 @@ public struct DirectSetterSlots {
 
     /// The subscript under test. Deliberately non-optional and non-generic: an
     /// `Optional<class>` value would route through the carrier arm and a generic one
-    /// would not reach direct dispatch at all.
+    /// would not be bound at all.
     public subscript(index: Int) -> Slot {
         get { return storage[index] }
         set { storage[index] = newValue }

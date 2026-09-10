@@ -1101,12 +1101,11 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_VariadicInstanceMethod_ReturnsFalse()
+    public void ShouldEmitWrapper_VariadicInstanceMethod_ReturnsTrue()
     {
-        // Variadic on an instance (non-static) method falls outside the supported shape —
-        // the bitCast bridge only covers static methods on non-generic parents. Instance
-        // variadics still emit the [Obsolete(SB0001)] direct-CallConvSwift fallback so the
-        // wrapper isn't generated.
+        // The variadic bitCast bridge operates on a function VALUE: `obj.method` of an instance
+        // is the same `(T...) -> R` as `Type.method` of a static, and the wrapper already
+        // reconstructs `obj` for every other instance member.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1151,8 +1150,8 @@ public class MethodWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
-        Assert.False(MethodWrapperEmitter.IsSupportedVariadicShape(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.IsSupportedVariadicShape(env));
     }
 
     [Fact]
@@ -1475,6 +1474,123 @@ public class MethodWrapperEmitterTests
 
         var env = new MethodEnvironment(method, typeDb);
         Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+    }
+
+    #endregion
+
+    #region Nested Frozen Struct Parameter Eligibility
+
+    [Fact]
+    public void EvaluateWrapperEligibility_NestedFrozenStructParameter_NotRejectedWithNestedFrozenStructParameter()
+    {
+        // Non-primitive frozen structs (nested or not) are transported as UnsafeRawPointer and
+        // reconstructed in the wrapper body with `load(as: Outer.Inner.self)`, so nesting is
+        // no longer a distinguishing parameter refusal.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Outer.Inner", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam(
+            "useInner", new NamedTypeSpec("TestModule.Outer.Inner"), "inner", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var eligibility = MethodWrapperEmitter.EvaluateWrapperEligibility(env);
+        Assert.NotEqual("nested_frozen_struct_parameter", eligibility.Reason);
+        Assert.True(eligibility.IsWrappable);
+    }
+
+    #endregion
+
+    #region Variadic Instance Shape
+
+    [Fact]
+    public void IsSupportedVariadicShape_InstanceNonMutatingOnNonGenericStruct_ReturnsTrue()
+    {
+        // The variadic bitCast bridge operates on a function VALUE: `obj.method` of an instance
+        // is the same `(T...) -> R` as `Type.method` of a static, and the wrapper already
+        // reconstructs `obj` for every other instance member.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam(
+            "appendAll",
+            new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.Int32") } },
+            "values",
+            parentDecl, moduleDecl);
+        method.HasVariadicParameter = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.IsSupportedVariadicShape(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void IsSupportedVariadicShape_InstanceMutatingOnNonGenericStruct_ReturnsFalse()
+    {
+        // A `mutating` method cannot be referenced as a function value at all, so the bridge
+        // has no Swift that compiles.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam(
+            "appendAll",
+            new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.Int32") } },
+            "values",
+            parentDecl, moduleDecl);
+        method.HasVariadicParameter = true;
+        method.IsMutating = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.IsSupportedVariadicShape(env));
+    }
+
+    [Fact]
+    public void IsSupportedVariadicShape_StaticOnNonGenericStruct_ReturnsTrue()
+    {
+        // A static variadic on a non-generic parent remains the original supported shape:
+        // `Type.method` is already `(T...) -> R`, which the bitCast bridge assigns and recasts.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam(
+            "startsWith",
+            new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.Int32") } },
+            "values",
+            parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        method.HasVariadicParameter = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.IsSupportedVariadicShape(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void IsSupportedVariadicShape_InstanceOnGenericParent_ReturnsFalse()
+    {
+        // Generic parents still fall outside the bridge: forming the function value would
+        // require reconstructing the bound metatype, which this shape does not do.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethodWithParam(
+            "appendAll",
+            new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.Int32") } },
+            "values",
+            parentDecl, moduleDecl);
+        method.HasVariadicParameter = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.IsSupportedVariadicShape(env));
     }
 
     #endregion

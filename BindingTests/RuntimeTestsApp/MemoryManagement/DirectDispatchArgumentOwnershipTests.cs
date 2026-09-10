@@ -7,18 +7,23 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.MemoryManagement;
 
 /// <summary>
-/// Deterministic regression probe for argument ownership on the DIRECT CallConvSwift arm — the
-/// arm whose P/Invoke names Swift's own <c>$s…</c> symbol with no <c>@_cdecl</c> wrapper frame in
-/// between.
+/// Deterministic regression probe for argument ownership: what happens to a caller's reference
+/// when the callee is the one that releases it.
 ///
 /// <para>SILGen lowers an initializer as <c>(@owned A, …) -&gt; @owned Self</c> and a setter as
 /// <c>(@owned Value, @owned Index…, @inout self) -&gt; ()</c>: the callee RELEASES what it was
-/// handed. A plain method borrows instead — <c>(@guaranteed A, @guaranteed self)</c> — and a
-/// Swift-source wrapper is a borrowing frame too, because SILGen mints the transfer itself when
-/// that frame forwards to a consuming callee. So the direct arm is the only one that has to mint
-/// the transfer on the C# side, and before that mint existed it passed a reference-bearing frozen
-/// struct (or a Swift String) as a borrowed bitwise copy into a slot the callee then released —
-/// an under-retain that freed the payload while the caller's wrapper still owned it.</para>
+/// handed. A plain method borrows instead — <c>(@guaranteed A, @guaranteed self)</c>. A generated
+/// <c>@_cdecl</c> wrapper is a borrowing Swift frame, and SILGen mints the transfer inside it when
+/// that frame forwards to a consuming callee; a P/Invoke naming Swift's own <c>$s…</c> symbol has
+/// to mint the same transfer beside the call on the C# side. Before that mint existed the direct
+/// arm passed a reference-bearing frozen struct (or a Swift String) as a borrowed bitwise copy
+/// into a slot the callee then released — an under-retain that freed the payload while the
+/// caller's wrapper still owned it.</para>
+///
+/// <para>Most members here now reach Swift through the wrapper, so what they measure is that the
+/// wrapper frame neither drops nor duplicates a reference on the way through. The failable String
+/// initializer is the exception and is called out where it appears: a failable initializer has no
+/// wrapper form, so it is this file's one consuming call made straight from C#.</para>
 ///
 /// <para>The class payload is what makes this deterministic rather than a crash. It feeds the same
 /// allocation counters <see cref="LifetimeTracker"/> reads, so a missing hand-over shows up
@@ -51,8 +56,8 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
     }
 
     /// <summary>
-    /// Initializer arm. <c>OwnedArgInitHost.init(payload:)</c> takes the nested frozen carrier over
-    /// the direct symbol, so it consumes the carrier's references. The C# wrapper for the witness is
+    /// Initializer arm. <c>OwnedArgInitHost.init(payload:)</c> takes the nested frozen carrier and
+    /// consumes its references. The C# wrapper for the witness is
     /// deliberately still alive at the assertion: after the host and the carrier are both disposed,
     /// exactly ONE reference must remain — the wrapper's own. Without the hand-over the callee's
     /// release takes a count nobody transferred and the live count reads 0.
@@ -83,7 +88,7 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
         DrainFinalizers();
         LifetimeTracker.AssertLiveCount(0, "disposing the last C# wrapper must release the final reference");
 
-        TestLogger.Info("direct initializer: the frozen carrier's references survived the callee's release");
+        TestLogger.Info("initializer: the frozen carrier's references survived the callee's release");
     }
 
     /// <summary>
@@ -126,15 +131,20 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
         DrainFinalizers();
         LifetimeTracker.AssertLiveCount(0, "disposing the last C# wrappers must release the final references");
 
-        TestLogger.Info("direct subscript setter: the frozen carrier's references survived the callee's release");
+        TestLogger.Info("subscript setter: the frozen carrier's references survived the callee's release");
     }
 
     /// <summary>
-    /// Bare-String arm. A String parameter is lowered through a transient <c>SwiftString</c> the
-    /// emitted code disposes on the way out, so a consuming callee handed that transient's only
-    /// count leaves the stored String pointing at storage the transient then frees. The churn loop
-    /// is what turns that from latent into observable: it allocates and frees enough String storage
-    /// to reuse a prematurely-freed block, after which the host must still read back its own text.
+    /// Bare-String arm, and the one member here that reaches Swift on its own <c>$s…</c> symbol:
+    /// a failable initializer has no <c>@_cdecl</c> wrapper form, so the transfer is minted beside
+    /// the call on the C# side rather than inside a Swift frame. Make it non-failable and this
+    /// coverage moves to the wrapper with everything else, silently.
+    ///
+    /// <para>A String parameter is lowered through a transient <c>SwiftString</c> the emitted code
+    /// disposes on the way out, so a consuming callee handed that transient's only count leaves the
+    /// stored String pointing at storage the transient then frees. The churn loop is what turns
+    /// that from latent into observable: it allocates and frees enough String storage to reuse a
+    /// prematurely-freed block, after which the host must still read back its own text.</para>
     /// </summary>
     public void TestFailableStringInitializerHandsOverTheStringStorage()
     {
@@ -163,7 +173,7 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
         AssertFalse(OwnedArgStringHost.TryCreate(string.Empty, out _),
             "an empty text must take the failable initializer's nil arm");
 
-        TestLogger.Info("direct failable String initializer: stored storage survived transient disposal + churn");
+        TestLogger.Info("failable String initializer on Swift's own symbol: stored storage survived transient disposal + churn");
     }
 
     /// <summary>
@@ -200,7 +210,7 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
         DrainFinalizers();
         LifetimeTracker.AssertLiveCount(0, "disposing the last C# wrappers must release the final references");
 
-        TestLogger.Info("direct initializer: the class argument survived the callee's release");
+        TestLogger.Info("initializer: the class argument survived the callee's release");
     }
 
     /// <summary>
@@ -255,18 +265,19 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
         DrainFinalizers();
         LifetimeTracker.AssertLiveCount(0, "disposing the last C# wrappers must release the final references");
 
-        TestLogger.Info("direct subscript setter: 64 String-keyed assignments survived the callee's release");
+        TestLogger.Info("subscript setter: 64 String-keyed assignments survived the callee's release");
     }
 
     /// <summary>
-    /// Negative control on the same carriers and the same direct route: a plain method BORROWS its
-    /// argument. Minting a transfer here would leak one reference per call, so the loops make any
-    /// spurious hand-over unmissable — the final live count reads non-zero instead of 0.
+    /// Negative control on the same carriers and the same route as the consuming arms above: a
+    /// plain method BORROWS its argument. Minting a transfer here would leak one reference per
+    /// call, so the loops make any spurious hand-over unmissable — the final live count reads
+    /// non-zero instead of 0.
     ///
-    /// <para>Every call below is on Swift's own <c>$s…</c> symbol, which is the point: a control
-    /// driven through a <c>@_cdecl</c> frame would measure the already-correct wrapper arm and stay
-    /// green no matter what the direct arm emits. The class-argument control is the one that goes
-    /// red rather than merely staying green, since the tracker counts exactly the objects it
+    /// <para>Pairing each consuming arm with a borrowing one on the SAME route is what makes either
+    /// direction observable: a frame that hands over what it should borrow leaks, and one that
+    /// borrows what it should hand over frees early. The class-argument control is the one that
+    /// goes red rather than merely staying green, since the tracker counts exactly the objects it
     /// borrows.</para>
     /// </summary>
     public void TestBorrowingCallsDoNotHandOverTheirArguments()
@@ -284,8 +295,8 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
             for (int i = 0; i < 128; i++)
                 AssertTrue(host.MatchesNote(other), "the borrowing comparison must keep matching across repeats");
 
-            // The bare-String borrow, on the direct arm rather than through a wrapper: the nested
-            // carrier beside it is what declines the wrapper for this member.
+            // The bare-String borrow, carrying a String and a frozen carrier in one signature so a
+            // convention error on either operand shows up on the same call.
             for (int i = 0; i < 128; i++)
                 AssertTrue(host.NoteMatches(LongNote, other),
                     "the borrowing String comparison must keep matching across repeats");
@@ -308,6 +319,6 @@ public class DirectDispatchArgumentOwnershipTests : TestBase
         LifetimeTracker.AssertLiveCount(0,
             "a borrowing call must not have minted a reference of its own; the leaked ones would still be live here");
 
-        TestLogger.Info("direct borrowing calls: 128 repeats each left no extra reference behind");
+        TestLogger.Info("borrowing calls: 128 repeats each left no extra reference behind");
     }
 }

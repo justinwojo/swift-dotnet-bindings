@@ -314,11 +314,12 @@ extension DependencyService {
     }
 
     /// Synthetic-name collision on the SYNC closure trampoline (`EmitSwiftClosureTrampoline`).
-    /// A plain primitive sync method (`tagWithSelf`) routes through a direct CallConvSwift import
-    /// where `self_` is just an ordinary Swift parameter — no @_cdecl wrapper, so no collision.
-    /// A CLOSURE parameter, however, forces the class @_cdecl trampoline, which injects `self_`
-    /// for the receiver pointer. The user `self_` must escape the injected receiver binding;
-    /// the completion fires synchronously so a per-call GCHandle is sufficient.
+    /// The trampoline injects `self_` for the receiver pointer, so a user parameter of the same
+    /// name must escape the injected binding or the wrapper declares `self_` twice and is
+    /// silently dropped. `tagWithSelf` next door is the no-closure sibling of the same shape:
+    /// both now reach the trampoline, so the escape has to hold for a plain primitive method
+    /// and not only for a closure-bearing one. The completion fires synchronously here, so a
+    /// per-call GCHandle is sufficient.
     public func reportWithSelf(self_: Int32, completion: @escaping (Int32) -> Void) {
         completion(self.isActive ? self_ : -self_)
     }

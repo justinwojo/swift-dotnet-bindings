@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - ObjC-bridged containers on the DIRECT CallConvSwift arm
+// MARK: - ObjC-bridged containers beside a nested frozen struct
 //
 // `[URL]`, `[String: URL]`, `Set<URL>` and their optionals do not marshal element by element.
 // The C# side builds an NSArray / NSDictionary / NSSet and passes its handle, and that rendering
@@ -12,35 +12,35 @@ import Foundation
 // point has no such boundary. It expects its native array storage — one refcounted pointer that
 // is NOT an ObjC object — so a member reached on its own symbol with a bridged container in a
 // slot would receive the wrong value going in, and on the way out would hand back native storage
-// that C# then reads as an NSArray and takes ownership of.
+// that C# then reads as an NSArray and takes ownership of. The generator refuses a member in
+// that position rather than making the call.
 //
-// The generator refuses these members instead of making that call: the body throws
-// NotSupportedException and (for methods and initializers) the declaration carries the SB0009
-// marker. This fixture pins that refusal on every shape that reaches the direct arm, and pins
-// that it does NOT reach the wrapper arm, where the same shapes are ordinary and live.
+// Every member here pairs a bridged container with a NESTED frozen-struct operand, and that
+// pairing used to be what put them on Swift's own symbol: a nested frozen struct declined the
+// wrapper outright. It no longer does — such a struct now travels to the wrapper as a raw
+// pointer and is rebuilt inside the wrapper body, where a nested name is ordinary Swift — so
+// every member below reaches Swift through the `@_cdecl` frame, which is the boundary the
+// NSArray / NSDictionary / NSSet rendering is correct at. What the fixture pins is that the
+// container survives that frame: the values Swift sees going in and the values C# reads coming
+// back are the ones that were handed over.
 //
-// Every refused member here takes a NESTED frozen-struct parameter beside the container. That is
-// the lever that declines the wrapper: an ObjC-bridged parameter on its own is `@_cdecl`-
-// compatible, so `init(urls: [URL]?)` alone would be reached through the wrapper and would bind.
-// The nested frozen struct is what puts these members on Swift's own symbol.
+// Shapes, each carrying the container across the wrapper in a different position:
 //
-// Shapes, and the plan each reaches the direct arm through:
+//   * an initializer over an OPTIONAL container, so the nil arm crosses as well as the present
+//     one;
+//   * a static method over a BARE container (array and set), where the container is an ordinary
+//     borrowed parameter;
+//   * a subscript over a BARE container (array and dictionary), which carries it in both
+//     directions — in through the setter's new value, out through the getter's return.
 //
-//   * an initializer over an OPTIONAL container — the direct constructor path declines a bare
-//     Array/Dictionary/Set parameter outright, but takes the optional, so this is the only
-//     initializer shape that gets as far as the floor;
-//   * a static method over a BARE container (array and set) — no refusal ahead of the floor;
-//   * a subscript over a BARE container (array and dictionary) — both accessors land on the
-//     floor. Accessors are refused without a declaration marker, since a marker on the private
-//     synthesized accessor would stop the public indexer compiling; the indexer itself throws.
-//
-// The positive control is the same bare `[URL]` parameter on a member with NO frozen-struct
-// sibling: wrapper-eligible, reached through the `@_cdecl` frame, binds and answers.
+// The control is the same bare `[URL]` parameter on a member with NO frozen-struct sibling: it
+// was always wrapper-eligible, so it answers the same way its siblings now do.
 
-/// Host for the initializer and method shapes. Nothing here is constructible from C# — every
-/// initializer is refused — which is the point: the static members carry the method shapes.
+/// Host for the initializer and method shapes. The initializers store their container privately
+/// and expose `stamp`, so a construction is observed through the value that comes back out.
 public struct DirectBridgedContainerHost {
-    /// Nested and frozen purely to decline the wrapper for the member that takes it.
+    /// Nested and frozen: the operand the wrapper has to rebuild from a raw pointer beside the
+    /// bridged container.
     @frozen
     public struct BridgedMarker {
         public let value: Int32
@@ -55,7 +55,7 @@ public struct DirectBridgedContainerHost {
     private let unique: Set<URL>
     public let stamp: BridgedMarker
 
-    /// Refused: optional array of a bridged element type on the direct arm.
+    /// Optional array of a bridged element type, present and nil arms both live.
     public init(urls: [URL]?, stamp: BridgedMarker) {
         self.urls = urls ?? []
         self.lookup = [:]
@@ -63,7 +63,7 @@ public struct DirectBridgedContainerHost {
         self.stamp = stamp
     }
 
-    /// Refused: optional dictionary whose values are a bridged element type.
+    /// Optional dictionary whose values are a bridged element type.
     public init(lookup: [String: URL]?, stamp: BridgedMarker) {
         self.urls = []
         self.lookup = lookup ?? [:]
@@ -71,7 +71,7 @@ public struct DirectBridgedContainerHost {
         self.stamp = stamp
     }
 
-    /// Refused: optional set of a bridged element type.
+    /// Optional set of a bridged element type.
     public init(unique: Set<URL>?, stamp: BridgedMarker) {
         self.urls = []
         self.lookup = [:]
@@ -79,27 +79,39 @@ public struct DirectBridgedContainerHost {
         self.stamp = stamp
     }
 
-    /// Refused: a bare array of a bridged element type as a method parameter. Static so that it
-    /// stays reachable from C# on a host with no callable initializer.
+    /// Read-back for the initializer arms. A stamp-only assertion cannot separate a container
+    /// that crossed intact from one that arrived empty, because the nil arm stores an empty
+    /// container too — the present and nil arms would answer identically. These report what the
+    /// initializer actually stored.
+    public var urlCount: Int32 { return Int32(urls.count) }
+
+    /// Read-back for the dictionary arm, same reasoning.
+    public var lookupCount: Int32 { return Int32(lookup.count) }
+
+    /// Read-back for the set arm, same reasoning.
+    public var uniqueCount: Int32 { return Int32(unique.count) }
+
+    /// A bare array of a bridged element type as a method parameter. Static so it is reachable
+    /// without first choosing one of the initializers' container arms.
     public static func borrowedCount(_ others: [URL], stamp: BridgedMarker) -> Int32 {
         return Int32(others.count) &+ stamp.value
     }
 
-    /// Refused: the same shape over a bare set.
+    /// The same shape over a bare set.
     public static func borrowedUnique(_ unique: Set<URL>, stamp: BridgedMarker) -> Int32 {
         return Int32(unique.count) &+ stamp.value
     }
 
-    /// Positive control: the same bare `[URL]` parameter with no frozen-struct sibling, so the
-    /// member is wrapper-eligible and reached through the `@_cdecl` frame where the NSArray
-    /// rendering is the right one. Must bind and answer.
+    /// Control: the same bare `[URL]` parameter with no frozen-struct sibling. It was reached
+    /// through the `@_cdecl` frame before its siblings were, so it answers the same way and
+    /// isolates the container handling from the frozen-struct operand beside it.
     public static func liveCount(_ urls: [URL]) -> Int32 {
         return Int32(urls.count)
     }
 }
 
 /// Bare `[URL]` as a subscript element type, indexed by the nested frozen marker so both
-/// accessors stay on Swift's own symbols. Constructible, so the accessors are reachable.
+/// accessors carry the marker beside the container.
 public struct DirectBridgedSlotHost {
     private var urls: [URL]
 
@@ -107,8 +119,7 @@ public struct DirectBridgedSlotHost {
         self.urls = []
     }
 
-    /// Refused on both accessors: the getter would return native storage for C# to read as an
-    /// NSArray, the setter would receive an NSArray where native storage belongs.
+    /// Both accessors carry the container: the getter returns it, the setter receives it.
     public subscript(stamp: DirectBridgedContainerHost.BridgedMarker) -> [URL] {
         get { return urls }
         set { urls = newValue }

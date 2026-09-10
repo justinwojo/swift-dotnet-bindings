@@ -186,8 +186,18 @@ public static partial class CrossModuleExtensionEmitter
                     emittedCount++;
             }
 
-            // Emit methods. The simple direct-CallConvSwift path is tried first; methods
-            // it rejects (closure params, etc.) fall through to the trampoline path.
+            // Emit methods. The trampoline paths are tried first and the simple
+            // direct-CallConvSwift path is the fallback for shapes they cannot express.
+            //
+            // The order used to be the other way round, which handed the direct path every member
+            // whose signature happened to be simple enough for it — an all-primitive instance
+            // method reached Swift through a raw mangled symbol under CallConvSwift with an
+            // untyped self in the self register. That is a route chosen by signature shape, and a
+            // signature being simple today is not a property the binding can rely on. A trampoline
+            // is the same call through a @_cdecl entry point this repo emits and controls, so it
+            // is the route to prefer wherever it can be built; the direct path stays for the
+            // shapes it cannot (a struct return, a frozen-struct parameter) rather than
+            // disappearing, so no member loses its emission to the reorder.
             foreach (var method in methods)
             {
                 if (method.IsAccessor)
@@ -200,12 +210,6 @@ public static partial class CrossModuleExtensionEmitter
                 if (TryWithdrawAbsentAppleMethod(csWriter, method, typeDatabase))
                 {
                     withdrawnMethods.Add(method);
-                    continue;
-                }
-
-                if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
-                {
-                    emittedCount++;
                     continue;
                 }
 
@@ -224,7 +228,11 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     methodsRoutedToTrampoline.Add(method);
                     emittedCount++;
+                    continue;
                 }
+
+                if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                    emittedCount++;
             }
 
             // Emit NativeMethods if we emitted anything

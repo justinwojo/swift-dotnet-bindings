@@ -83,6 +83,32 @@ public static partial class CrossModuleExtensionEmitter
         if (method.IsGeneric || method.IsAsync || method.Throws || method.IsMutating || method.IsAccessor)
             return false;
 
+        // A member whose entry point the wrapper library already owns (DebugParam, ArraySlice and
+        // the other rewriting paths) must keep naming the symbol that path promoted for it. This
+        // trampoline mints its own SBW_ entry point, so taking such a member would silently point
+        // the P/Invoke at a symbol the promoted one was chosen instead of — a link-time failure at
+        // first call, not a compile error. The per-member wrapper emitters refuse the same shape.
+        if (method.UsesWrapperLibrary)
+            return false;
+
+        // A `_const` parameter must be handed a compile-time constant literal at the call site and
+        // an `inout` one must be forwarded through a mutable binding with `&`. This body declares
+        // ordinary immutable parameters and forwards them by value, so either modifier produces
+        // Swift that does not compile. The parameter classifier cannot see either flag (it is
+        // handed only the type), so the refusal belongs here.
+        //
+        // This is a choice between two routes that both work, not a stand-in for the compiler:
+        // the sync non-throwing fallback carries both shapes today, so declining keeps the member
+        // rather than trading a late withdrawal for an early one. The throwing and async arms are
+        // reached by a different emitter that has no such fallback, so the same refusal there
+        // would turn a reported withdrawal into a silent drop; those shapes stay with the
+        // verify-recover loop, which reports what it removes.
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            if (method.CSSignature[i].IsConstLiteral || method.CSSignature[i].IsInOut)
+                return false;
+        }
+
         bool isStatic = method.MethodType == MethodType.Static;
 
         // Return shape — restrict to the shapes the simple path already handles
@@ -464,7 +490,14 @@ public static partial class CrossModuleExtensionEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Cross-module class-extension @_cdecl trampoline for {origSwiftTypeQualified}.{method.Name}");
-        swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
+        // Carry the member's availability floors and main-actor isolation onto the trampoline.
+        // The wrapper is a separate module compiled against its own deployment target, so a
+        // member introduced above that floor stops compiling here and is withdrawn with the
+        // accessor group; a main-actor member called from a nonisolated entry point is rejected
+        // outright. Both were invisible while this path only took closure-bearing members.
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
+            WrapperValidation.NeedsMainActorAnnotation(classDecl, method.IsMainActorIsolated, method.IsNonisolated),
+            WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, classDecl));
         swiftWriter.WriteLine($"public func _sbw_clsext_{symbolName}({string.Join(", ", swiftParams)}){swiftReturn} {{");
         swiftWriter.Indent++;
 
@@ -1375,7 +1408,17 @@ public static partial class CrossModuleExtensionEmitter
     {
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Cross-module class-extension {(isAsync ? "async " : "")}{(isThrowing ? "throws " : "")}trampoline for {origSwiftTypeQualified}.{method.Name}");
-        swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
+        // The async arms hop through `Task { await ... }`, which re-enters the member's own
+        // isolation, so their entry point is correctly nonisolated. The sync-throws arm calls the
+        // member inline on whatever thread entered the trampoline, so it needs the isolation
+        // stated on the entry point exactly as the simple trampoline does — a main-actor member
+        // called from a nonisolated context is refused, and the trampoline is withdrawn with it.
+        // Availability is carried on both: the wrapper is a separate module compiled against its
+        // own deployment target, so a member introduced above that floor would not build.
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
+            !isAsync && WrapperValidation.NeedsMainActorAnnotation(
+                classDecl, method.IsMainActorIsolated, method.IsNonisolated),
+            WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, classDecl));
 
         // Seed each param's sibling-aware Swift binding before any SwiftBindingName read, so a
         // reserved-name escape (completionFn/completionCtx/self_) also dodges a sibling user

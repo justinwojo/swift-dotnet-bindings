@@ -97,6 +97,25 @@ internal class MethodMarshalPlanBuilder
     }
 
     /// <summary>
+    /// Whether the managed read of an Optional existential return adopts the payload's +1, which
+    /// decides whether the indirect-result buffer may simply be freed or still owes a value-witness
+    /// destroy. Answers false for anything that is not an existential inner projection, so an
+    /// unrecognised shape keeps the destroy rather than silently dropping a retain.
+    /// </summary>
+    private static bool OwnedExistentialReadAdopts(OptionalProjection optionalProjection) =>
+        optionalProjection.InnerProjection is ExistentialProjection existential && existential.AdoptsOwnedReturn;
+
+    /// <summary>
+    /// Projects a return argument in this member's own generic/parent context.
+    /// </summary>
+    private ITypeProjection? ProjectReturn(ArgumentDecl returnArg) =>
+        returnArg.SwiftTypeSpec is NamedTypeSpec returnNamed
+            ? s_projectionFactory.Project(returnNamed,
+                _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
+                    parentTypeDecl: _env.ParentDecl as TypeDecl))
+            : null;
+
+    /// <summary>
     /// The single predicate for "does the emitted return apply its type projection?" — i.e. does the
     /// method body CONSUME the wire value into a managed representation (<c>…ToByteArray()</c>,
     /// <c>…ToArray()</c>, …) before the finally runs, or does it hand the raw carrier back to a caller
@@ -115,7 +134,17 @@ internal class MethodMarshalPlanBuilder
     {
         if (returnArg.SwiftTypeSpec.IsEmptyTuple) return false;
         if (requiresSwiftAsync) return false;
-        if (env.MethodDecl.IsAccessor) return false;
+        // A subscript accessor returning an Optional existential is the one accessor seam that
+        // is itself the projection site: the emitted indexer getter forwards this method's value
+        // straight to its caller and applies nothing of its own, so nothing aliases the wire
+        // buffer after the finally. Consuming it here yields the same read the non-accessor sret
+        // path already uses for Optional<any P> (a metadata-pointer null check plus an adopting
+        // proxy), which is what the projected `IFoo?` return type on the seam requires. Handing
+        // the raw SwiftOptional<ExistentialContainerN> carrier back instead does not even compile.
+        if (env.MethodDecl.IsAccessor &&
+            !(env.MethodDecl.IsSubscriptAccessor &&
+              env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec)))
+            return false;
         if (env.ClosureHandler.IsClosure(returnArg)) return false;
         if (env.TupleHandler.IsTuple(returnArg)) return false;
         if (returnArg.IsGeneric) return false;
@@ -945,19 +974,29 @@ internal class MethodMarshalPlanBuilder
                         var returnProjection = s_projectionFactory.Project(returnNts,
                             _env.NewProjectionContext(isParameter: false, genericContext: _genericContext,
                                 parentTypeDecl: _env.ParentDecl as TypeDecl));
-                        if (returnProjection is OptionalProjection
-                            && WrapperValidation.IsOptionalClassBoundExistentialReturn(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                        if (returnProjection is OptionalProjection optionalExistentialReturn
+                            && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec)
+                            && OwnedExistentialReadAdopts(optionalExistentialReturn))
                         {
-                            // Class-bound Optional existential return: the wire buffer holds the compact
-                            // 2-word [classRef][witnessTable] cell, and the proxy reads it via
-                            // ClassExistentialContainer1.ReadHeapCell(..., ownsContainer: true) — it ADOPTS
-                            // the classRef +1 and balances it on Dispose/finalize. Running the opaque 5-word
-                            // SwiftOptional<ExistentialContainer1> VWT destroy over this buffer would be a
-                            // double-release of that same classRef; it is a no-op today ONLY because Swift
-                            // leaves the opaque-Optional discriminator region zero in the AllocZeroed buffer.
-                            // Don't lean on that coincidence — the proxy owns the sole release, so just free
-                            // the buffer (mirrors the non-cdecl SwiftIndirectResult path below, which already
-                            // skips the destroy for every Optional existential return).
+                            // Optional existential return whose managed read ADOPTS the payload: the
+                            // proxy wraps the container with ownsContainer: true and balances that +1 on
+                            // Dispose/finalize, so a value-witness destroy over the same buffer would
+                            // release the identical +1 a second time.
+                            //
+                            // The class-bound arity-1 shape makes that concrete: the buffer holds the
+                            // compact 2-word [classRef][witnessTable] cell read via
+                            // ClassExistentialContainer1.ReadHeapCell, and the opaque 5-word
+                            // SwiftOptional<ExistentialContainer1> destroy over it is a no-op today ONLY
+                            // because Swift leaves the opaque-Optional discriminator region zero in the
+                            // AllocZeroed buffer. The opaque 5-word shape has no such coincidence to hide
+                            // behind — there the destroy genuinely releases the container the proxy owns.
+                            // Free the storage and let the adopting carrier own the sole release.
+                            //
+                            // The adoption test is what makes this safe to state by container shape
+                            // rather than by protocol arity. A bare `Any?` unboxes by COPY and leaves
+                            // the container's retain exactly as Swift wrote it, so it falls through to
+                            // the copy-out arm below and keeps its destroy; skipping the destroy for
+                            // every Optional existential orphans that payload on every call.
                             cleanupCode = "NativeMemory.Free(_cdeclBuf);";
                         }
                         else if (returnProjection is ArrayProjection or DictionaryProjection or SetProjection
@@ -1146,6 +1185,18 @@ internal class MethodMarshalPlanBuilder
                 if (innerProtocolList != null && _env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
                 {
                     var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(innerProtocolList);
+                    // Same ownership split as the @_cdecl arm above: an adopting carrier owns the
+                    // sole release, so the buffer is only freed; a bare `Any?`, whose read unboxes
+                    // by copy, leaves the container's +1 for whoever allocated the buffer, which is
+                    // this frame. Destroy through the same wire type the allocation sized and the
+                    // unmarshal reads, so all three agree on one ABI shape.
+                    var optionalExistentialProjection = ProjectReturn(returnArg2);
+                    if (optionalExistentialProjection is not OptionalProjection optionalExistential
+                        || !OwnedExistentialReadAdopts(optionalExistential))
+                    {
+                        swiftIndirectCleanup = BuildCopyOutWireCleanup(
+                            returnArg2.SwiftTypeSpec, $"SwiftOptional<{containerType}>", out swiftIndirectTracksResultLive);
+                    }
                     return new IndirectResultSetup
                     {
                         IsConstructor = false,
@@ -1155,7 +1206,8 @@ internal class MethodMarshalPlanBuilder
                             _cdeclBuf = NativeMemory.AllocZeroed((nuint){{_env.SyntheticLocals.ReturnMetadata}}.Size);
                             var {{_env.SyntheticLocals.SwiftIndirectResult}} = new SwiftIndirectResult(_cdeclBuf);
                             """,
-                        CleanupCode = swiftIndirectCleanup
+                        CleanupCode = swiftIndirectCleanup,
+                        TracksResultLive = swiftIndirectTracksResultLive
                     };
                 }
             }

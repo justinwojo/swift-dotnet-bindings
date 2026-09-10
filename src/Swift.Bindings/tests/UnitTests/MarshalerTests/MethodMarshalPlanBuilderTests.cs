@@ -2062,6 +2062,100 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
+    public void IndirectResult_CdeclOptionalRenderableReturn_AdoptsPayload_FreesWithoutDestroy()
+    {
+        // Optional<any Renderable> through @_cdecl: the managed read constructs a proxy that
+        // adopts the payload's +1 and releases it on Dispose. A value-witness destroy over the
+        // same buffer would double-release, so cleanup only frees the storage.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Renderable") });
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(protocolList);
+        var plan = BuildOptionalExistentialIndirectResultPlan(optional, usesCdecl: true, "IRenderable?");
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclOptionalBareAnyReturn_CopiesPayload_DestroysWireBuffer()
+    {
+        // Optional<Any> through @_cdecl: a bare `Any` has no proxy, so the managed read copies
+        // the payload out and leaves the container's retain in place. Freeing the storage
+        // without a destroy would orphan that retain on every call.
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new ProtocolListTypeSpec());
+        var plan = BuildOptionalExistentialIndirectResultPlan(optional, usesCdecl: true, "object?");
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Contains("DestroyWireBufferRetains", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_NonCdeclOptionalRenderableReturn_AdoptsPayload_FreesWithoutDestroy()
+    {
+        // Optional<any Renderable> on the plain SwiftIndirectResult path follows the same
+        // ownership rule as @_cdecl: the proxy adopts the payload's +1 and releases it on
+        // Dispose, so a value-witness destroy over the same buffer would double-release.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Renderable") });
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(protocolList);
+        var plan = BuildOptionalExistentialIndirectResultPlan(optional, usesCdecl: false, "IRenderable?");
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_NonCdeclOptionalBareAnyReturn_CopiesPayload_DestroysWireBuffer()
+    {
+        // Optional<Any> on the plain SwiftIndirectResult path: a bare `Any` read copies the
+        // payload out and leaves the container's retain in place, so freeing the storage
+        // without a destroy orphans it. Both arms must destroy before free.
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new ProtocolListTypeSpec());
+        var plan = BuildOptionalExistentialIndirectResultPlan(optional, usesCdecl: false, "object?");
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Contains("DestroyWireBufferRetains", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    private static SyncMethodPlan BuildOptionalExistentialIndirectResultPlan(
+        TypeSpec returnSpec, bool usesCdecl, string wrapperReturnType)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getPrimary",
+            MangledName = usesCdecl
+                ? "SBW_TestModule_Loader_getPrimary"
+                : "$s10TestModule6Loader10getPrimaryAA10Renderable_pSgyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = usesCdecl,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", returnSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader");
+        RegisterType(testModule, "TestModule.Renderable", "TestModule", "IRenderable",
+            TypeRecordFlags.None, TypeRecordKind.Protocol);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature(wrapperReturnType, Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        return BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+    }
+
+    [Fact]
     public void IndirectResult_NonCdeclNonFrozenStructReturn_CleanupDefersToDeclaredSemantics()
     {
         // Non-cdecl SwiftIndirectResult carries the same owned value as the @_cdecl path, so it

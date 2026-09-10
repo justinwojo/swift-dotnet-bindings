@@ -503,6 +503,20 @@ public class ExistentialProjection : ITypeProjection
     /// <see cref="ExistentialHandler.IsOwnedExistentialContainerType"/>), not on protocol count —
     /// so composition (EC2+) proxies adopt the +1 here exactly like single-protocol (EC1) ones.
     /// </summary>
+    /// <summary>
+    /// Whether the owned-return read hands the payload to a carrier that ADOPTS its +1 and
+    /// balances it on Dispose/finalize. A caller that allocated the buffer the payload was
+    /// written into uses this to decide cleanup: an adopted payload must only have its storage
+    /// freed (a value-witness destroy would release the same retain twice), while a payload
+    /// nothing adopted still owes that destroy or its retain is orphaned on every call.
+    ///
+    /// False for bare <c>any</c>, whose read unboxes by COPY — the copy carries its own balanced
+    /// retain and the source container's retain is left exactly as Swift wrote it. True for the
+    /// proxy-backed containers (which take <c>ownsContainer: true</c>) and for the self-owning
+    /// well-known carriers.
+    /// </summary>
+    public bool AdoptsOwnedReturn => !_isBareAny;
+
     public string? GetOwnedReturnElementConversion(string elementVar)
     {
         // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` element construction (see GetReturnPlan).

@@ -1863,6 +1863,55 @@ public class ConstructorWrapperEmitterTests
 
     #endregion
 
+    #region Nested Frozen Struct Parameter Eligibility
+
+    [Fact]
+    public void EvaluateWrapperEligibility_NestedFrozenStructParameter_NotRejectedWithNestedFrozenStructParameter()
+    {
+        // The constructor shares CdeclParamMapper, which transports a non-primitive frozen struct
+        // as UnsafeRawPointer rather than by value, so the nested name reaches only the wrapper body.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Container",
+            ("TestModule.Outer.Inner", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule9ContainerCyAC5OuterV5InnerVcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "inner",
+                    PrivateName = "inner",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Outer.Inner"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        var eligibility = ConstructorWrapperEmitter.EvaluateWrapperEligibility(env);
+        Assert.NotEqual("nested_frozen_struct_parameter", eligibility.Reason);
+        Assert.True(eligibility.IsWrappable);
+    }
+
+    #endregion
+
     #region Enum Raw Value Type Mapping Tests
 
     [Fact]

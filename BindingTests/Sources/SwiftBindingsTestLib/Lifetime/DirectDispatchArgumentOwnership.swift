@@ -1,26 +1,31 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// Ownership of an ARGUMENT handed to Swift over the DIRECT CallConvSwift arm — the arm whose
-// P/Invoke names Swift's own `$s…` symbol with no @_cdecl wrapper, free-function wrapper or
-// wrapper-library frame in between.
+// Ownership of an ARGUMENT handed to Swift, across both arms that can carry one.
 //
 // SILGen lowers an initializer as `(@owned A, …, @thin Self.Type) -> @owned Self` and a
 // property setter as `(@owned Value, @inout self) -> ()`: the callee RELEASES what it was
 // handed. A plain `func` is the control — `(@guaranteed A, @guaranteed self) -> …`, a borrow
-// the caller still owns afterwards. A Swift-source wrapper is a borrowing frame too, because
-// SILGen mints the transfer itself when that frame forwards to a consuming callee, so the
-// direct arm is the only one that has to mint the transfer on the C# side.
+// the caller still owns afterwards.
 //
-// Reaching that arm is not automatic and is the reason for the shapes below:
+// Which arm a member lands on is a routing decision rather than a property of its shape. A
+// generated `@_cdecl` wrapper is itself a borrowing Swift frame, and SILGen mints the transfer
+// inside it when that frame forwards to a consuming callee; a P/Invoke naming Swift's own `$s…`
+// symbol has to mint the same transfer on the C# side. Most members below now reach Swift
+// through the wrapper, so what they measure is that the wrapper frame neither drops nor
+// duplicates a reference on the way through — the same counters, one frame further out.
 //
-//   * the frozen carrier is NESTED. A nested frozen-struct parameter is the one shape the
-//     @_cdecl wrapper declines outright, so the initializer, the setter and the control method
-//     that take it all fall through to Swift's own symbol. Un-nest it and every member here
-//     silently starts measuring the already-correct wrapper arm instead.
-//   * the String-taking initializer is FAILABLE. A failable initializer likewise takes the
-//     direct route, while a plain `init(text: String)` is wrapped — String is one of the types
-//     the @_cdecl parameter mapping does handle.
+// One arm still names Swift's own symbol, and is kept deliberately:
+//
+//   * the String-taking initializer is FAILABLE. A failable initializer has no wrapper form, so
+//     `init?(text:)` is this fixture's remaining first-party measurement of a consuming call
+//     made straight from C#. Make it non-failable and that coverage moves to the wrapper with
+//     everything else, silently.
+//
+// The frozen carrier stays NESTED. Nesting no longer decides the route — a nested frozen struct
+// travels to the wrapper as a raw pointer and is rebuilt in the wrapper body, where a nested
+// name is ordinary Swift — but it keeps the carrier exercising that rebuild rather than the
+// simpler file-scope spelling.
 //
 // Every string is deliberately built past 15 UTF-8 bytes at the call sites. At or below 15 a
 // Swift String is the inline small form — the bytes live in the value itself and there is no
@@ -53,7 +58,8 @@ public final class OwnedArgWitness {
 }
 
 /// Host for the frozen-carrier arms. The carrier is nested here rather than declared at file
-/// scope purely to reach the direct call; nothing else about the enclosing type matters.
+/// scope so the wrapper has to rebuild it from a raw pointer; nothing else about the enclosing
+/// type matters.
 public struct OwnedArgInitHost {
     /// The reference-bearing frozen struct under test. Frozen plus reference-typed fields is
     /// the `ClassWithBufferStruct` shape: it lowers to a by-value Buffer whose words carry the
@@ -93,9 +99,9 @@ public struct OwnedArgInitHost {
         return carried.note == other.note
     }
 
-    /// The same control for a bare String, kept on this host rather than the String host because
-    /// the nested carrier beside it is what declines the wrapper: a lone `func f(_ s: String)` is
-    /// wrapped, and would measure the borrowing frame instead of Swift's own symbol.
+    /// The same control for a bare String, kept on this host rather than the String host so one
+    /// call carries a String and a frozen carrier together — the two reference-managed operands
+    /// meet in one lowered signature, which is where a per-operand convention error shows up.
     public func noteMatches(_ note: String, other: Carrier) -> Bool {
         return carried.note == note && other.note == note
     }
@@ -113,10 +119,9 @@ public struct OwnedArgInitHost {
 /// a separate host from the initializer arm so a fix that covers construction but not assignment
 /// still leaves a red here.
 ///
-/// It is a SUBSCRIPT rather than a stored property because a property setter's @_cdecl wrapper
-/// takes its new value through an `UnsafeRawPointer` and so accepts a nested frozen struct
-/// happily — only the subscript wrapper declines one, which is what leaves the assignment on
-/// Swift's own `…cis` symbol.
+/// It is a SUBSCRIPT rather than a stored property because the subscript setter carries its
+/// indices alongside the new value, so the assignment arm and the index arm can be measured on
+/// the same lowering rather than on two unrelated ones.
 public struct OwnedArgSetterHost {
     private var slots: [OwnedArgInitHost.Carrier]
 
@@ -141,8 +146,8 @@ public struct OwnedArgSetterHost {
 /// Consuming arm for a plain CLASS argument, which is its own case rather than a variation on the
 /// frozen carrier: a class parameter is not marshalled at all — the call site passes the object's
 /// own payload handle straight through — so it is the one carrier whose transfer has nowhere to be
-/// spelled by the marshalling of the value. The nested frozen carrier beside it is only there to
-/// decline the wrapper and put the call on the direct arm.
+/// spelled by the marshalling of the value. The frozen carrier beside it keeps a marshalled
+/// operand in the same signature, so the two cannot be confused for each other.
 public struct OwnedArgClassHost {
     public let witness: OwnedArgWitness
     public let carried: OwnedArgInitHost.Carrier
@@ -152,9 +157,9 @@ public struct OwnedArgClassHost {
         self.carried = carrier
     }
 
-    /// Control arm: the same class type in a borrowing position on the same direct route. A
-    /// transfer minted here is a leak the live-object counter can see, which makes this the one
-    /// negative control that goes red rather than merely staying green.
+    /// Control arm: the same class type in a borrowing position on the same route. A transfer
+    /// minted here is a leak the live-object counter can see, which makes this the one negative
+    /// control that goes red rather than merely staying green.
     public func borrowedTag(_ other: OwnedArgWitness, carrier: OwnedArgInitHost.Carrier) -> Int32 {
         return other.tag &+ carrier.witness.tag
     }
@@ -198,8 +203,9 @@ public struct OwnedArgKeyedHost {
 public struct OwnedArgStringHost {
     public let text: String
 
-    /// Failable so the initializer takes the direct route rather than the @_cdecl wrapper.
-    /// The nil arm is real (an empty string), so the failure path is exercised too.
+    /// Failable, which is what keeps this initializer on Swift's own symbol: there is no wrapper
+    /// form for a failable init, so this is the fixture's one consuming call made straight from
+    /// C#. The nil arm is real (an empty string), so the failure path is exercised too.
     public init?(text: String) {
         if text.isEmpty {
             return nil

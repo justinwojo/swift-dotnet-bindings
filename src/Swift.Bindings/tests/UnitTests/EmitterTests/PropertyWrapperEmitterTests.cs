@@ -965,6 +965,181 @@ public class PropertyWrapperEmitterTests
 
     #endregion
 
+    #region Per-Accessor Direct Closure Setter Gate
+
+    [Fact]
+    public void EvaluateWrapperEligibility_DirectClosure_GetAccessor_NotRejectedWithDirectClosureSetter()
+    {
+        // Gate 3a is the SETTER: CdeclParamMapper has no inbound closure reconstruction, so a
+        // sibling getter is the same IndirectResult + invoke-thunk shape as a read-only closure
+        // getter and is not refused for a reason that describes the setter.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var getterMethod = CreateAccessorMethod("getter:handler", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:handler", isGetter: false, parentDecl, moduleDecl);
+        var getter = new GetAccessorDecl { Method = getterMethod };
+        var setter = new SetAccessorDecl { Method = setterMethod };
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = closureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { getter, setter },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env, getter).IsWrappable);
+        Assert.NotEqual("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env, getter));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env, getter));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_DirectClosure_SetAccessor_RejectedWithDirectClosureSetter()
+    {
+        // The setter of a direct closure property still has no cdecl reconstruction: it would
+        // fall through to UnsafeRawPointer, which is not a closure (funcPtr + context).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var getterMethod = CreateAccessorMethod("getter:handler", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:handler", isGetter: false, parentDecl, moduleDecl);
+        var getter = new GetAccessorDecl { Method = getterMethod };
+        var setter = new SetAccessorDecl { Method = setterMethod };
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = closureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { getter, setter },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(setterMethod, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env, setter).IsWrappable);
+        Assert.Equal("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env, setter));
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env, setter));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_DirectClosure_NullAccessor_RejectedWithDirectClosureSetter()
+    {
+        // A null accessor is the property-wide question, which is the stricter of the two:
+        // a writable direct closure still reports the setter refusal.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var getterMethod = CreateAccessorMethod("getter:handler", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:handler", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = closureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Equal("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_DirectClosure_ReadOnlyGetAccessor_NotRejectedWithDirectClosureSetter()
+    {
+        // A read-only closure property has no setter for gate 3a to fire on, so passing its
+        // GetAccessorDecl is the same as the property-wide answer: IndirectResult + invoke thunk.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var (propertyDecl, env) = CreatePropertyAndEnv("handler", closureType, parentDecl, moduleDecl, typeDb);
+        var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().Single();
+
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env, getter).IsWrappable);
+        Assert.NotEqual("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env, getter));
+    }
+
+    #endregion
+
+    #region Actor Isolation — Stored Immutable Properties Stay Behind The Gate
+
+    [Fact]
+    public void EvaluateWrapperEligibility_ActorIsolatedStoredInt32_RejectedWithActorIsolated()
+    {
+        // Swift makes a stored immutable property of a Sendable type implicitly nonisolated only
+        // *within the module that declares it*. The generated @_cdecl wrapper is a separate module
+        // that imports the source module, so a nonisolated synchronous read of the property is
+        // refused there no matter the property's mutability or the strict-concurrency level. The
+        // parent-level gate is therefore the accurate bar for every isolated stored property, and
+        // narrowing it per-member costs the member entirely: the wrapper fails to compile and
+        // verify-recover withdraws the accessor group rather than falling back to the direct route.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("count", new NamedTypeSpec("Swift.Int32"), parentDecl, moduleDecl, typeDb);
+        propertyDecl.IsActorIsolated = true;
+        propertyDecl.IsMainActorIsolated = false;
+
+        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Equal("actor_isolated", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void EvaluateWrapperEligibility_ActorIsolatedStoredString_RejectedWithActorIsolated()
+    {
+        // Same bar for a stored String: unconditional Sendability of the property's type does not
+        // make the property readable from a nonisolated context in an importing module.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("name", new NamedTypeSpec("Swift.String"), parentDecl, moduleDecl, typeDb);
+        propertyDecl.IsActorIsolated = true;
+        propertyDecl.IsMainActorIsolated = false;
+
+        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Equal("actor_isolated", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    #endregion
+
     #region Symbol Naming Tests
 
     [Fact]

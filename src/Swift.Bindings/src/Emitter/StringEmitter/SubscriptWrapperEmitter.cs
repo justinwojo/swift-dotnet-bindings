@@ -79,9 +79,30 @@ public static class SubscriptWrapperEmitter
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return WrapperEligibility.Reject("opaque_return_type");
 
+        // 7a. Optional<protocol existential> element, GETTER only — the same carve-out the property
+        //     wrapper gate takes before its own container check. Optional<ExistentialContainer> is
+        //     40+ bytes on arm64, too large to come back in registers under CallConvSwift, so the
+        //     wrapper is the correct route rather than a declined one; it returns through the
+        //     indirect result buffer.
+        //
+        //     The SETTER stays with the container check below: writing an Optional<any P> IN needs
+        //     the existential re-boxed from the managed proxy, which nothing on the wrapper path
+        //     emits yet — for properties either. That is a missing inbound mechanism, not a gate
+        //     to widen, so the setter keeps the direct route until it exists.
+        //
+        //     This exempts the element from the container check ONLY. It is not a verdict on the
+        //     rest of the signature: an early `Wrappable` here would carry the index parameters
+        //     past every gate below it, so a nested by-value index or a raw ABI generic would
+        //     reach the wrapper unexamined purely because the ELEMENT happened to take this arm.
+        var isOptionalExistentialGetter =
+            accessor is GetAccessorDecl &&
+            CdeclParamMapper.IsProtocolExistentialType(subscriptDecl.ReturnTypeSpec, env.TypeDatabase) &&
+            WrapperValidation.IsOptionalType(subscriptDecl.ReturnTypeSpec);
+
         // 8. No unsupported generic container params/returns (Result<T,E>, Optional<existential>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
-        if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
+        if (!isOptionalExistentialGetter &&
+            WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
             return WrapperEligibility.Reject("unsupported_generic_container");
 
         foreach (var param in subscriptDecl.IndexParameters)
@@ -96,37 +117,22 @@ public static class SubscriptWrapperEmitter
 
         // 10. Tuple return types: allowed — routed through IndirectResult (resultPtr buffer).
 
-        // 11. No nested type returns
-        if (WrapperValidation.IsNestedType(subscriptDecl.ReturnTypeSpec))
-            return WrapperEligibility.Reject("nested_type_return");
+        // 11. Nested type returns — ALLOWED, on the same terms the method and property wrapper
+        //     gates already grant. Only the @_cdecl SIGNATURE has to be C-representable, and it
+        //     never names the nested type: an indirect result travels through a resultPtr buffer
+        //     and a class pointer through UnsafeMutableRawPointer. `Outer.Inner` appears only in
+        //     the wrapper BODY (`resultPtr.initializeMemory(as: Outer.Inner.self, ...)`), which is
+        //     ordinary Swift. The setter direction is symmetric — newValue arrives as an
+        //     UnsafeRawPointer and is read back with `load(as: Outer.Inner.self)`.
 
-        // 12. No nested frozen struct index parameters
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (param.SwiftTypeSpec is not NamedTypeSpec namedSpec)
-                continue;
-            if (!env.TypeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
-                continue;
-            if (typeRecord.Kind != TypeRecordKind.Struct || !MarshallingHelpers.IsTypeFrozen(typeRecord))
-                continue;
-            var name = namedSpec.Name;
-            var dotIndex = name.IndexOf('.');
-            if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
-                return WrapperEligibility.Reject("nested_frozen_struct_index_param");
-        }
-
-        // 13. No non-primitive frozen struct index parameters
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (CdeclParamMapper.IsCdeclPrimitive(param.SwiftTypeSpec))
-                continue;
-            if (param.SwiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
-                continue;
-            if (env.TypeDatabase.TryGetTypeRecord(param.SwiftTypeSpec, out var typeRecord) &&
-                typeRecord.Kind == TypeRecordKind.Struct &&
-                MarshallingHelpers.IsTypeFrozen(typeRecord))
-                return WrapperEligibility.Reject("non_primitive_frozen_struct_index_param");
-        }
+        // 12. Nested/non-primitive frozen struct index parameters — ALLOWED wherever the nested
+        //     name stays in the wrapper body. Index parameters are lowered by the same
+        //     CdeclParamMapper the method wrapper uses, which transports a custom frozen struct as
+        //     UnsafeRawPointer and reconstructs it in the body. The older refusal described passing
+        //     such a struct BY VALUE, which is the one arm that still applies: the mapper keeps it
+        //     for system/Apple frozen structs on a module-based test a nested type also satisfies.
+        if (subscriptDecl.IndexParameters.Any(p => WrapperValidation.IsByValueNestedStructParam(p, env)))
+            return WrapperEligibility.Reject("nested_frozen_struct_index_param");
 
         // 14. Skip subscripts with raw ABI generic type params (τ_0_0) in return type or index params.
         // These leak from parent type generics and cause Swift compilation failures.
@@ -292,7 +298,7 @@ public static class SubscriptWrapperEmitter
         if (isGenericParent)
         {
             protocolName = EmitGetterProtocolAndConformance(
-                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName, parentTypeDecl!);
+                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName, parentTypeDecl!, env.TypeDatabase);
         }
 
         // Emit the @_cdecl function
@@ -347,7 +353,14 @@ public static class SubscriptWrapperEmitter
         }
         else if (needsResultPtr)
         {
-            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+            // Ask the shared renderer rather than the bare one: a protocol element has to reach
+            // the metatype as `any P`, and inside a generic argument it has to be parenthesized
+            // (`Optional<(any P)>`). The bare renderer drops the keyword entirely, which the
+            // compiler still accepts in the Swift 5 language mode and rejects outright in Swift 6
+            // — and a wrapper that stops compiling is withdrawn along with its accessor group,
+            // so the member would disappear rather than fail loudly.
+            var swiftType = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
+                subscriptDecl.ReturnTypeSpec, env.TypeDatabase);
             var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
             swiftWriter.WriteLine($"let result = {subscriptAccess}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
@@ -489,7 +502,7 @@ public static class SubscriptWrapperEmitter
         if (isGenericParent)
         {
             protocolName = EmitSetterProtocolAndConformance(
-                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName, parentTypeDecl!);
+                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName, parentTypeDecl!, env.TypeDatabase);
         }
 
         // Emit the @_cdecl function
@@ -670,10 +683,19 @@ public static class SubscriptWrapperEmitter
     /// </summary>
     private static string EmitGetterProtocolAndConformance(
         SwiftWriter swiftWriter, SubscriptDecl subscriptDecl, string symbolName,
-        string moduleQualifiedName, TypeDecl parentTypeDecl)
+        string moduleQualifiedName, TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
         var protocolName = $"_SBW_SG_{EmitterUtility.DeterministicHash8(symbolName)}";
-        var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+        // A protocol element has to be spelled `any P` in the bypass protocol's own signature
+        // too, and parenthesized when it sits inside a generic argument (`Optional<(any P)>`).
+        // The bare renderer drops the keyword, which the Swift 5 language mode accepts with a
+        // warning and Swift 6 rejects outright — and a bypass protocol that does not compile is
+        // withdrawn along with the accessor group, so the member disappears rather than failing
+        // loudly. Only the existential shape is re-rendered; every other return type keeps the
+        // spelling this declaration has always used.
+        var returnSwiftType = CdeclParamMapper.IsProtocolExistentialType(subscriptDecl.ReturnTypeSpec, typeDatabase)
+            ? CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(subscriptDecl.ReturnTypeSpec, typeDatabase)
+            : ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
 
         // Build subscript signature for protocol. Swift subscripts default to NO external label
         // when only one name is written (`subscript(at: Int)` parses as external=_, internal=at),
@@ -714,10 +736,19 @@ public static class SubscriptWrapperEmitter
     /// </summary>
     private static string EmitSetterProtocolAndConformance(
         SwiftWriter swiftWriter, SubscriptDecl subscriptDecl, string symbolName,
-        string moduleQualifiedName, TypeDecl parentTypeDecl)
+        string moduleQualifiedName, TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
         var protocolName = $"_SBW_SS_{EmitterUtility.DeterministicHash8(symbolName)}";
-        var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+        // A protocol element has to be spelled `any P` in the bypass protocol's own signature
+        // too, and parenthesized when it sits inside a generic argument (`Optional<(any P)>`).
+        // The bare renderer drops the keyword, which the Swift 5 language mode accepts with a
+        // warning and Swift 6 rejects outright — and a bypass protocol that does not compile is
+        // withdrawn along with the accessor group, so the member disappears rather than failing
+        // loudly. Only the existential shape is re-rendered; every other return type keeps the
+        // spelling this declaration has always used.
+        var returnSwiftType = CdeclParamMapper.IsProtocolExistentialType(subscriptDecl.ReturnTypeSpec, typeDatabase)
+            ? CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(subscriptDecl.ReturnTypeSpec, typeDatabase)
+            : ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
 
         // Build subscript signature for protocol. See EmitGetterProtocolAndConformance for why
         // the explicit `<external> <internal>:` form is required for subscripts.

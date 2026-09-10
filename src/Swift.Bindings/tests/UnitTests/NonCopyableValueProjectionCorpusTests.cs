@@ -245,24 +245,29 @@ public class NonCopyableValueProjectionCorpusTests
     }
 
     /// <summary>
-    /// The route half of the ownership story, which the runtime suite cannot cover by construction:
-    /// the refused member is not emitted, so there is nothing to call.
+    /// The route half of the ownership story: a <c>consuming</c> <c>~Copyable</c> argument is only
+    /// bindable where something downstream can MOVE it, and the emitted pairing that does so is the
+    /// wrapper's <c>.move()</c> — which empties the caller's buffer — with the C# side's
+    /// <c>MarkConsumed()</c>, which disarms the caller's own destroy. Emit one without the other
+    /// and the value is destroyed twice (Swift's <c>deinit</c> in the callee, the handle's
+    /// value-witness destroy in C#) or not at all; both compilers accept either emission, so only
+    /// an assertion over the generated text catches it.
     ///
-    /// <para>The move that empties the caller's buffer — and the <c>MarkConsumed</c> that disarms
-    /// the caller's own destroy — live in the <c>@_cdecl</c> wrapper. Whether a member gets one is
-    /// decided by its WHOLE signature, so a parameter with nothing to do with ownership (here a
-    /// nested frozen struct) can send the call to Swift's own symbol, where the consumed value runs
-    /// its deinit in the callee and is destroyed again by its value witness on return. Both
-    /// compilers accept that emission, so it must be refused at generation.</para>
+    /// <para>Whether a member reaches a move-capable route is decided by its WHOLE signature, which
+    /// is why the fixture puts a parameter with nothing to do with ownership — a nested frozen
+    /// struct — beside the token. Members shaped like this were refused outright while that
+    /// parameter denied them a wrapper; they now reach one, so what has to hold is the pairing
+    /// rather than the refusal. The refusal itself stays covered against a synthesised
+    /// wrapper-less route in <c>CalleeArgumentOwnershipTests</c>.</para>
     ///
     /// <para>The fixture declares the two initializers side by side — same nested parameter, same
-    /// token type, differing only in <c>consuming</c> versus <c>borrowing</c> — so a refusal that
-    /// widens or narrows moves exactly one of them: the marker must name the token type, and
-    /// exactly one public constructor (the borrowing one) must survive.</para>
+    /// token type, differing only in <c>consuming</c> versus <c>borrowing</c> — so an emission that
+    /// widens or narrows moves exactly one of them: both must bind, and exactly the consuming one
+    /// may mark its payload consumed.</para>
     /// </summary>
     [SkippableFact]
     [Trait("Category", GeneratedBindingsOutputRequirement.TraitCategory)]
-    public void ConsumedNonCopyable_WithoutAMoveCapableRoute_IsRefused_LeavingItsBorrowingSiblingBound()
+    public void ConsumedNonCopyable_OnAMoveCapableRoute_MarksItsPayloadConsumed_LeavingItsBorrowingSiblingUntouched()
     {
         const string hostType = "NestedFrozenTokenHost";
 
@@ -280,6 +285,7 @@ public class NonCopyableValueProjectionCorpusTests
             ?? throw new InvalidOperationException(
                 "SkipReason.NonCopyableWithoutMoveCapableRoute has no description; the emitted marker would be unattributable.");
 
+        var text = File.ReadAllText(declaring!);
         var lines = File.ReadAllLines(declaring!).Select(l => l.TrimStart()).ToList();
 
         var markers = lines
@@ -287,17 +293,43 @@ public class NonCopyableValueProjectionCorpusTests
                         && l.Contains("Unsupported:", StringComparison.Ordinal)
                         && l.Contains(reason, StringComparison.Ordinal))
             .ToList();
-        Assert.True(markers.Count == 1,
-            $"{where}: expected exactly one route refusal on '{hostType}', found {markers.Count}.");
-        Assert.Contains(AdmittedType, markers[0]);
+        Assert.True(markers.Count == 0,
+            $"{where}: '{hostType}' reaches a move-capable route, so no member may carry a route " +
+            $"refusal; found {markers.Count}:{Environment.NewLine}{string.Join(Environment.NewLine, markers)}");
 
         var constructors = lines
             .Where(l => l.StartsWith($"public {hostType}(", StringComparison.Ordinal))
             .ToList();
-        Assert.True(constructors.Count == 1,
-            $"{where}: exactly the borrowing initializer must survive, found {constructors.Count} public constructor(s):" +
+        Assert.True(constructors.Count == 2,
+            $"{where}: both the consuming and the borrowing initializer must bind, found " +
+            $"{constructors.Count} public constructor(s):" +
             $"{Environment.NewLine}{string.Join(Environment.NewLine, constructors)}");
-        Assert.Contains("borrowedToken", constructors[0]);
+        Assert.Contains(constructors, c => c.Contains(AdmittedType, StringComparison.Ordinal)
+                                           && !c.Contains("borrowedToken", StringComparison.Ordinal));
+        Assert.Contains(constructors, c => c.Contains("borrowedToken", StringComparison.Ordinal));
+
+        // The hand-over is the pairing, so it is counted rather than merely found: exactly the
+        // consuming initializer disarms the caller's destroy. A second MarkConsumed would mean the
+        // borrowing sibling was swept up with it and its caller's value silently emptied.
+        var consumedMarks = CountOccurrences(text, ".MarkConsumed()");
+        Assert.True(consumedMarks == 1,
+            $"{where}: exactly the consuming initializer may mark its payload consumed, found " +
+            $"{consumedMarks} MarkConsumed() call(s).");
+
+        // The other half of the double-destroy: a value-witness copy of a ~Copyable payload is
+        // `__swift_cannot_copy_noncopyable_type`, an unconditional trap both compilers accept.
+        Assert.DoesNotContain("OwnedArgument.BeginValueTransfer", text);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+        return count;
     }
 
     private static List<string> LoadCorpus(out string repoRoot, out string outputDir)

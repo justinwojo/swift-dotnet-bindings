@@ -93,9 +93,9 @@ public static class WrapperValidation
     /// Centralized decision for property @_cdecl wrapper emission.
     /// All eligible properties get @_cdecl wrappers — CallConvSwift is eliminated.
     /// </summary>
-    public static WrapperDecision DeterminePropertyWrapperDecision(PropertyDecl propertyDecl, MethodEnvironment env)
+    public static WrapperDecision DeterminePropertyWrapperDecision(PropertyDecl propertyDecl, MethodEnvironment env, AccessorDecl? accessor = null)
     {
-        if (!PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env))
+        if (!PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env, accessor))
             return WrapperDecision.CannotWrap;
         return WrapperDecision.WrapperRequired;
     }
@@ -1738,6 +1738,31 @@ public static class WrapperValidation
         if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
             return true;
         return false;
+    }
+
+    /// <summary>
+    /// Whether a nested Swift type (<c>Outer.Inner</c>) reaches the wrapper's C signature
+    /// <em>by value</em>, which <c>@_cdecl</c> refuses with "type of the parameter cannot be
+    /// represented in Objective-C".
+    /// </summary>
+    /// <remarks>
+    /// Nesting on its own stopped being disqualifying once non-primitive frozen structs began
+    /// travelling as <c>UnsafeRawPointer</c> and being rebuilt in the wrapper body: a nested name
+    /// in the body is ordinary Swift, and only the signature has to be C-representable. One arm of
+    /// the lowering still writes the Swift type into the signature, though — the system/Apple
+    /// frozen structs the mapper passes by value because they are C-representable. That test is
+    /// module-based, so a <em>nested</em> type from one of those modules satisfies it and lands in
+    /// the signature under a spelling C has no name for.
+    /// <para>The category is read back from the mapper rather than re-derived here. The by-value
+    /// arm is guarded by its own SIMD and ObjC-bridged wedges, and a copy of that condition would
+    /// be free to drift away from the lowering it is supposed to describe; asking which category a
+    /// parameter actually lowers to cannot.</para>
+    /// </remarks>
+    public static bool IsByValueNestedStructParam(ArgumentDecl arg, MethodEnvironment env)
+    {
+        if (!IsNestedType(arg.SwiftTypeSpec))
+            return false;
+        return CdeclParamMapper.Describe(arg, "p", env).Category == CdeclParamCategory.SystemFrozenStruct;
     }
 
     /// <summary>

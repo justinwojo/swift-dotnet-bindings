@@ -1272,9 +1272,9 @@ public class MemberValidationPipeline
     /// Validates whether a property accessor should have a @_cdecl wrapper generated.
     /// Routes through <see cref="PropertyWrapperEmitter.EvaluateWrapperEligibility"/> (Finding 12).
     /// </summary>
-    public WrapperValidationResult ValidatePropertyWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
+    public WrapperValidationResult ValidatePropertyWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv, AccessorDecl? accessor = null)
     {
-        var eligibility = PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, accessorEnv);
+        var eligibility = PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, accessorEnv, accessor);
         return eligibility.IsWrappable
             ? WrapperValidationResult.Wrap
             : WrapperValidationResult.Reject(eligibility.Reason!);

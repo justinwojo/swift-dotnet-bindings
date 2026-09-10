@@ -78,11 +78,19 @@ public struct VariadicHolder {
         self.values = values
     }
 
+    /// Array-taking sibling of the variadic init. A variadic *constructor* is still declined
+    /// (the wrapper bridge's function-value bitCast has no initializer form), which left the
+    /// variadic *method* below with no way to be reached from a test. This gives it one.
+    public init(list: [Int32]) {
+        self.values = list
+    }
+
     public func sum() -> Int32 {
         return values.reduce(0, +)
     }
 
-    /// Variadic method param — should be suppressed.
+    /// Variadic instance method — reaches Swift through the wrapper bridge's
+    /// `(T...) -> R` → `([T]) -> R` bitCast with a reconstructed receiver.
     public func append(more: Int32...) -> [Int32] {
         return values + more
     }

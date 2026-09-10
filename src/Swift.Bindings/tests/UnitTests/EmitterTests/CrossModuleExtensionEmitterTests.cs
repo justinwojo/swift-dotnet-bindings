@@ -247,10 +247,10 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
-    #region Emit: calling convention — all cross-module P/Invokes use CallConvSwift
+    #region Emit: calling convention
 
     [Fact]
-    public void Emit_MethodPInvoke_UsesCallConvSwift()
+    public void Emit_MethodPInvoke_PrefersCdeclTrampolineOverUntypedSelf()
     {
         var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
 
@@ -259,11 +259,77 @@ public class CrossModuleExtensionEmitterTests
         CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
 
         var result = csOutput.ToString();
-        // Cross-module extension P/Invokes always use CallConvSwift because both direct
-        // symbols and @_silgen_name wrappers use swiftcc. SwiftSelf (x20) and
-        // SwiftIndirectResult (x8) only map to correct registers under swiftcc.
-        Assert.Contains("CallConvSwift", result);
+        // A method with no closure and no async/throws still takes the generated trampoline: it
+        // is entered under plain C, which carries the receiver as an ordinary pointer argument.
+        // The alternative is a swiftcc import whose receiver rides the untyped self register, and
+        // nothing about an ordinary primitive method makes that the safer of the two.
+        Assert.Contains("CallConvCdecl", result);
+        Assert.DoesNotContain("SwiftSelf", result);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Emit_MethodWithConstOrInoutParam_DeclinesTheCdeclTrampolineAndKeepsTheMember(
+        bool isConstLiteral, bool isInOut)
+    {
+        // A `_const` argument has to be a compile-time constant literal at the call site and an
+        // `inout` one has to be forwarded through a mutable binding with `&`. The trampoline
+        // declares ordinary immutable parameters and forwards them by value, so taking either
+        // shape emits Swift that does not compile — and a wrapper that does not compile is
+        // stripped, taking the member's emission with it. Both shapes belong on the route that
+        // already carries them.
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        var method = CreateMethodDecl("doAction", "TestModule", classDecl);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value",
+            PrivateName = "value",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = isInOut,
+            IsConstLiteral = isConstLiteral,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        });
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
         Assert.DoesNotContain("CallConvCdecl", result);
+        // The member must not silently vanish either — an absence assertion on its own would be
+        // satisfied by dropping it entirely, and keeping it is the whole reason to decline here
+        // rather than let the wrapper fail to compile.
+        Assert.Contains("DoAction", result);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Emit_ThrowsOrAsyncTrampolineOnIsolatedParent_StatesIsolationOnlyWhereItIsEntered(
+        bool isAsync, bool expectMainActor)
+    {
+        // The async arm hops through a detached task that re-enters the member's own isolation,
+        // so its entry point is correctly nonisolated. The sync-throws arm calls the member
+        // inline on whatever thread entered the trampoline, so the isolation has to be stated on
+        // the entry point — a main-actor member called from a nonisolated context is refused, and
+        // a trampoline that does not compile is withdrawn along with the member.
+        var (csWriter, swiftWriter, _, swiftOutput, moduleDecl, classDecl, conductor, env) =
+            CreateSetupWithSwiftCapture();
+        classDecl.IsMainActorIsolated = true;
+
+        var method = CreateMethodDecl("doAction", "TestModule", classDecl);
+        method.IsAsync = isAsync;
+        method.Throws = !isAsync;
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("@_cdecl", swift); // sanity: the trampoline actually emitted
+        Assert.Equal(expectMainActor, swift.Contains("@MainActor"));
     }
 
     [Fact]

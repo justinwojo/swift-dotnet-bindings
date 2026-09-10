@@ -9,22 +9,22 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
-/// Asserts the ownership convention of a class-valued Swift setter the binding reaches by
-/// DIRECT dispatch — the P/Invoke names the accessor's own <c>$s…</c> symbol under
-/// <c>CallConvSwift</c>, with no assembly thunk and no Swift-source wrapper in between.
+/// Asserts the ownership convention of a class-valued Swift subscript setter — the case with
+/// nothing to hide behind, since a class value is not marshalled and the call site hands the
+/// object's own payload handle across.
 ///
 /// <para>SILGen lowers this subscript setter as
 /// <c>(@owned Slot, Int, @inout DirectSetterSlots) -&gt; ()</c>: the new value is a loadable
-/// class reference passed directly at +1, and the callee releases whatever the slot held
-/// before. Nothing between C# and that accessor can supply the +1, so the call site has to.
-/// Handing the object over borrowed costs it a retain it never received; the assignment still
-/// succeeds and the over-release lands later, when the slot is written again or the owner is
+/// class reference passed at +1, and the callee releases whatever the slot held before. Handing
+/// the object over borrowed costs it a retain it never received; the assignment still succeeds
+/// and the over-release lands later, when the slot is written again or the owner is
 /// deinitialized.</para>
 ///
-/// <para>The thunked arm of the same convention is covered next door. This class exists
-/// because the direct arm had no first-party coverage at all: its only known instance was a
-/// subscript setter in a shipped Apple binding, where the absence of a wrapper library is what
-/// puts every member on the direct path.</para>
+/// <para>The accessor reaches Swift through the generated <c>@_cdecl</c> wrapper, which borrows
+/// what C# hands it and mints the +1 itself when it forwards to the consuming accessor. The
+/// assertions below measure the object's reference count either side of the assignment, so they
+/// say the same thing about that frame as they did about a call straight to the accessor: the
+/// slot must end up owning exactly one reference more than the caller gave away.</para>
 ///
 /// <para>Every assertion reads <c>swift_retainCount</c> through <see cref="Arc.RetainCount"/>
 /// on a pointer the test holds, so it is independent of GC timing and reads the same on Mono
@@ -50,8 +50,8 @@ public class DirectDispatchSetterOwnershipTests : TestBase
     }
 
     /// <summary>
-    /// Assigning through the directly-dispatched subscript setter must leave the assigned
-    /// object with exactly one more reference: the collection's slot now owns it.
+    /// Assigning through the subscript setter must leave the assigned object with exactly one
+    /// more reference: the collection's slot now owns it.
     /// </summary>
     public void TestDirectSubscriptSetterTakesOwnership()
     {
@@ -67,9 +67,9 @@ public class DirectDispatchSetterOwnershipTests : TestBase
 
         AssertEqual<long>(before + 1, Arc.RetainCount(assignedPtr),
             "a subscript setter consumes a +1 on its new value exactly as a stored-property "
-            + "setter does, and reaching the accessor directly rather than through a wrapper "
-            + "does not change that; an unchanged count means the value was handed over "
-            + "borrowed and the callee released a count it was never given");
+            + "setter does, and the frame the call arrives through does not change that; an "
+            + "unchanged count means the value was handed over borrowed and the callee "
+            + "released a count it was never given");
 
         AssertEqual<long>(3L, (long)slots.TagAt(0),
             "the slot must hold the object that was handed over");

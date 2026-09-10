@@ -1,8 +1,8 @@
 {
-  "git_sha": "07cb89884",
+  "git_sha": "564112d56",
   "platforms": {
     "simulator": {
-      "pass_count": 3936,
+      "pass_count": 3941,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -153,27 +153,12 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderConstruction",
-          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderSum",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "device": {
-      "pass_count": 3940,
+      "pass_count": 3945,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -304,27 +289,12 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderConstruction",
-          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderSum",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 3936,
+      "pass_count": 3941,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -475,21 +445,6 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderConstruction",
-          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderSum",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []

@@ -93,31 +93,61 @@ public class WrapperStrippingTests : TestBase
 
     #region VariadicHolder — Variadic Param via IEnumerable
 
-    [Skip("Variadic constructor suppressed by non-blittable CallConvSwift guard — no public init(values:) emitted")]
+    /// <summary>
+    /// The array-taking sibling of the variadic initializer. A variadic <i>constructor</i> is still
+    /// declined — the wrapper bridge's function-value bitCast has no initializer form — so this
+    /// overload is how the type gets built at all, and constructing through it pins that the
+    /// decline is scoped to the one initializer rather than taking the whole type with it.
+    /// </summary>
     public void TestVariadicHolderConstruction()
     {
-        TestLogger.Info("Skipped: VariadicHolder constructor not emitted");
+        using var holder = new VariadicHolder(new[] { 10, 20, 30 });
+
+        var values = holder.Values;
+        AssertEqual(3, values.Count, "Values should carry every element the initializer was handed");
+        AssertEqual("10,20,30", string.Join(",", values),
+            "the stored array should come back in the order the initializer received it");
+        TestLogger.Info($"VariadicHolder(list:) → [{string.Join(", ", values)}]");
     }
 
-    [Skip("Variadic constructor suppressed — can't construct VariadicHolder")]
+    /// <summary>
+    /// A method reading the constructed value's own storage. <c>sum()</c> reduces the stored array
+    /// Swift-side, so a correct total means the payload the initializer wrote is the one Swift
+    /// reads back — not a separately-allocated buffer that happens to project the same elements.
+    /// </summary>
     public void TestVariadicHolderSum()
     {
-        TestLogger.Info("Skipped: VariadicHolder constructor not emitted");
+        using var holder = new VariadicHolder(new[] { 10, 20, 30 });
+
+        var sum = holder.Sum();
+        AssertEqual(60, sum, "Sum should reduce the array the initializer stored");
+        TestLogger.Info($"VariadicHolder.Sum() = {sum}");
     }
 
-    [Skip("Variadic constructor suppressed — can't construct VariadicHolder")]
-    public void TestVariadicMethodEmittedViaCallConvSwift()
+    /// <summary>
+    /// The variadic instance <i>method</i>. It reaches Swift through the wrapper bridge, which
+    /// bitCasts the <c>(T...) -&gt; R</c> function value to <c>([T]) -&gt; R</c> and reconstructs the
+    /// receiver, so C# hands it an ordinary sequence. Order is the assertion that carries weight:
+    /// the result is the receiver's own elements followed by the appended ones, so a swap of the
+    /// two operands crossing the seam shows up as a reversal rather than as a length that still
+    /// happens to match.
+    /// </summary>
+    public void TestVariadicMethodRoundTripsThroughTheWrapperBridge()
     {
-        // Variadic methods (T...) ARE emitted — ABI JSON represents T... as Array<T>,
-        // which is identical at the binary level. CallConvSwift dispatches correctly
-        // using SwiftArray<T> as a single pointer parameter.
-        // NOTE: Can't test without constructor. Keeping test for when variadic init is supported.
-        /*
-        var holder = new VariadicHolder(values: new[] { 10, 20, 30 });
-        var result = holder.Append(new[] { 40, 50 });
-        AssertEqual(5, result.Count, "Append returns combined array");
-        */
-        TestLogger.Info("Skipped: VariadicHolder constructor not emitted");
+        using var holder = new VariadicHolder(new[] { 10, 20, 30 });
+
+        var appended = holder.Append(new[] { 40, 50 });
+        AssertEqual(5, appended.Count, "Append returns the receiver's elements plus the appended ones");
+        AssertEqual("10,20,30,40,50", string.Join(",", appended),
+            "the appended elements should follow the receiver's, in order");
+
+        // Empty is the arm where a length-only check would pass on a dropped receiver: appending
+        // nothing has to give the receiver back unchanged rather than an empty array.
+        var unchanged = holder.Append(new int[0]);
+        AssertEqual("10,20,30", string.Join(",", unchanged),
+            "appending nothing should leave the receiver's own elements alone");
+
+        TestLogger.Info($"VariadicHolder.Append(40,50) → [{string.Join(", ", appended)}]");
     }
 
     #endregion

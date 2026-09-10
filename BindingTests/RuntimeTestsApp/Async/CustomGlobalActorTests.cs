@@ -402,4 +402,64 @@ public class CustomGlobalActorTests : TestBase
             "delegate=nil path should resolve `delegate?.describe() ?? \"none\"` to \"none\"; " +
             "if this returns the wrong value, the optional existential param marshalled incorrectly.");
     }
+    /// <summary>
+    /// The storage boundary of a custom-global-actor class, read synchronously from C#.
+    ///
+    /// Every stored shape on this type is global-actor isolated in the module's exported
+    /// interface, so a nonisolated synchronous read of any of them is refused inside a
+    /// separately-compiled wrapper — immutability and the Sendability of the property's type do
+    /// not move that line. The accessors therefore stay on Swift's own symbols. What this test
+    /// pins is that they stay <i>bound</i>: the failure mode of getting the eligibility decision
+    /// wrong here is not an accessor that misbehaves but one that disappears, because a wrapper
+    /// that cannot compile is withdrawn along with the whole accessor group it belongs to.
+    ///
+    /// The immutable half (<c>stableTag</c>, <c>stableDepth</c>) and the getter-only-from-outside
+    /// half (<c>privatelySet</c>) are covered together on purpose: the last reads identically to a
+    /// `let` from another module, so a narrowing based on the absence of a public setter would
+    /// admit it and lose it.
+    /// </summary>
+    public async Task TestGlobalActorStorageBoundary_StoredAccessorsStayReadable()
+    {
+        using var instance = await WithTimeout(
+            GlobalActorStorageBoundary.CreateAsync("tagged", 7),
+            DefaultAsyncTimeout);
+
+        AssertNotNull(instance, "CreateAsync must return a non-null instance");
+
+        AssertEqual("tagged", instance.StableTag.ToString(),
+            "immutable stored String did not survive the initializer");
+        AssertEqual(7, instance.StableDepth,
+            "immutable stored Int32 did not survive the initializer");
+        AssertEqual(41, instance.PrivatelySet,
+            "externally-get-only stored property should report its Swift-side initial value");
+    }
+
+    /// <summary>
+    /// The mutable and computed halves of the same boundary. Writing through the setter and
+    /// reading the computed property back is what separates a live accessor pair from two
+    /// independently-correct-looking constants: <c>doubledCount</c> is derived Swift-side from
+    /// <c>mutableCount</c>, so it can only answer 42 if the write actually landed on the
+    /// instance's own storage.
+    /// </summary>
+    public async Task TestGlobalActorStorageBoundary_MutableAndComputedAccessorsRoundTrip()
+    {
+        using var instance = await WithTimeout(
+            GlobalActorStorageBoundary.CreateAsync(),
+            DefaultAsyncTimeout);
+
+        AssertEqual("boundary", instance.StableTag.ToString(), "default stableTag was not applied");
+        AssertEqual(3, instance.StableDepth, "default stableDepth was not applied");
+        AssertEqual(0, instance.MutableCount, "mutable stored property should start at its Swift-side initial value");
+        AssertEqual(0, instance.DoubledCount, "computed property should agree with the initial stored value");
+
+        instance.MutableCount = 21;
+        AssertEqual(21, instance.MutableCount, "setter did not land on the instance's own storage");
+        AssertEqual(42, instance.DoubledCount, "computed property should observe the value the setter wrote");
+
+        // The method on this type is actor-isolated and therefore async; it mutates the
+        // externally-get-only property, which is the only way C# can move that value at all.
+        await WithTimeout(instance.BumpPrivatelySetAsync(), DefaultAsyncTimeout);
+        AssertEqual(42, instance.PrivatelySet,
+            "the async mutating method's write should be visible through the synchronous getter");
+    }
 }

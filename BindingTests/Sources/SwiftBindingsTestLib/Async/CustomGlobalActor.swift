@@ -187,3 +187,37 @@ public final class PipelineLikeNonisolatedInit: Sendable {
         self.delegateDescription = delegate?.describe() ?? "none"
     }
 }
+
+// MARK: - Stored properties on a globally-isolated parent
+
+// Swift makes a stored `let` of a Sendable type implicitly nonisolated only inside the module
+// that declares it. The generated `@_cdecl` wrapper is a separate module that imports this one,
+// so a nonisolated synchronous read of ANY stored property here — `let` included — is refused
+// there, at every strict-concurrency level and in both language modes. Immutability, and the
+// Sendability of the property's type, do not move that line.
+//
+// So every stored shape below is expected to bind through the direct route, and none of them is
+// expected to grow a wrapper. The type exists to hold that in place: the failure mode of getting
+// it wrong is not a wrapper that misbehaves but a member that disappears, because a wrapper that
+// cannot compile is withdrawn along with the accessor group it belongs to. `stableTag` and
+// `stableDepth` cover the immutable half; `mutableCount`, `doubledCount` and `privatelySet` cover
+// the mutable, computed and getter-only-from-outside halves — the last being the shape that reads
+// identically to a `let` from another module and would hide an inference-based narrowing.
+@BindingsTestGlobalActor
+public class GlobalActorStorageBoundary {
+    public let stableTag: String
+    public let stableDepth: Int32
+
+    public var mutableCount: Int32 = 0
+    public var doubledCount: Int32 { mutableCount * 2 }
+    public private(set) var privatelySet: Int32 = 41
+
+    public init(stableTag: String = "boundary", stableDepth: Int32 = 3) {
+        self.stableTag = stableTag
+        self.stableDepth = stableDepth
+    }
+
+    public func bumpPrivatelySet() {
+        privatelySet += 1
+    }
+}

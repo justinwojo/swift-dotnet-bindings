@@ -644,10 +644,10 @@ public class CrossModuleTests : TestBase
 
     public void TestDependencyServiceTagWithSelfCollision()
     {
-        // CONTROL (not a trampoline repro): a plain primitive sync class-extension method routes
-        // through a direct CallConvSwift import of the Swift symbol, not the @_cdecl trampoline —
-        // `self_` is just an ordinary Swift parameter and there is no injected-receiver collision.
-        // The escape on the SYNC closure trampoline is exercised by ReportWithSelf below.
+        // The no-closure sibling of ReportWithSelf below: a plain primitive sync class-extension
+        // method now reaches the same @_cdecl trampoline, which injects `self_` for the receiver
+        // pointer. So the escape that keeps the user's own `self_` parameter from colliding with
+        // the injected binding has to hold here too, not only on the closure-bearing arm.
         using var active = new DependencyService("Worker", true);
         AssertEqual(9, active.TagWithSelf(9), "tagWithSelf(self_:) returns self_ when active");
 

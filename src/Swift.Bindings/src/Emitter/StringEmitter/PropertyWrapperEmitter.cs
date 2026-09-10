@@ -23,8 +23,8 @@ public static class PropertyWrapperEmitter
     /// no closures, no async, no non-copyable structs, no nested types,
     /// no unsupported generic containers.
     /// </summary>
-    public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
-        => EvaluateWrapperEligibility(propertyDecl, accessorEnv).IsWrappable;
+    public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv, AccessorDecl? accessor = null)
+        => EvaluateWrapperEligibility(propertyDecl, accessorEnv, accessor).IsWrappable;
 
     /// <summary>
     /// Single eligibility traversal for property @_cdecl wrappers: returns whether the property's
@@ -32,7 +32,12 @@ public static class PropertyWrapperEmitter
     /// <see cref="ShouldEmitWrapper"/> is its boolean shim, so the predicate and the rejection
     /// diagnostic can never drift (Finding 12).
     /// </summary>
-    public static WrapperEligibility EvaluateWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
+    /// <param name="accessor">
+    /// The accessor the caller is asking about, when it knows. Gates whose subject is one accessor
+    /// rather than the property answer for that accessor; pass null and they answer for the
+    /// property as a whole, which is the stricter of the two.
+    /// </param>
+    public static WrapperEligibility EvaluateWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv, AccessorDecl? accessor = null)
     {
         // Shared guards: xcframework, internal, SPI, non-copyable, actor, inherited generic context
         var memberReason = WrapperValidation.GetMemberRejectionReason(accessorEnv, MemberKind.Property,
@@ -93,8 +98,16 @@ public static class PropertyWrapperEmitter
         // 3a. Direct closure setter: not supported — CdeclParamMapper has no closure handling,
         //     so the setter would fall through to UnsafeRawPointer reconstruction which is invalid
         //     for closures (they need funcPtr + context marshalling). Read-only closure properties are fine.
+        //
+        //     The subject of this gate is the SETTER, so it is asked of the setter. A read-write
+        //     closure property's getter is the same shape as a read-only one's — step 3 above
+        //     routes both through IndirectResult with an invoke thunk — and refusing it because a
+        //     sibling accessor is refused drops it onto the direct CallConvSwift P/Invoke for a
+        //     reason that does not describe it. When the caller does not say which accessor it
+        //     means, the property-wide answer stands.
         if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
-            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
+            (accessor is SetAccessorDecl ||
+             (accessor is null && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())))
             return WrapperEligibility.Reject("direct_closure_setter");
 
         // 3b. Optional<closure> setter: the closure's params/return must be cdecl-compatible
@@ -183,8 +196,8 @@ public static class PropertyWrapperEmitter
     /// passes all gates. Diagnostic shim over <see cref="EvaluateWrapperEligibility"/> — single source
     /// of truth for the predict/emit decision (Finding 12).
     /// </summary>
-    public static string? GetRejectionReason(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
-        => EvaluateWrapperEligibility(propertyDecl, accessorEnv).Reason;
+    public static string? GetRejectionReason(PropertyDecl propertyDecl, MethodEnvironment accessorEnv, AccessorDecl? accessor = null)
+        => EvaluateWrapperEligibility(propertyDecl, accessorEnv, accessor).Reason;
 
     /// <summary>
     /// Gets the @_cdecl symbol name for a property accessor wrapper.
