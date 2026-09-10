@@ -569,10 +569,12 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         _payload.DangerousAddRef(ref success);
         try
         {
-            SwiftSetPInvokes.RemoveAll(
+            // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
+            // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.SetRemoveAll(
                 0, // keepingCapacity: false
                 metadata,
-                new SwiftSelf((void*)_payload.DangerousGetHandle()));
+                _payload.DangerousGetHandle());
         }
         finally
         {
@@ -878,13 +880,12 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
 
 // Direct CallConvSwift bindings for Swift stdlib `Set` operations.
 //
-// Three of these — `Insert`, `Remove` and `IteratorNext` — are declared but not
-// called: their ABI shapes are mishandled by a Mono CallConvSwift trampoline, so
-// live dispatch goes through the C-side cdecl shims in
-// `SwiftCollectionCdeclWrappers` instead. The declarations stay because they are
-// the executable record of each op's register layout, kept next to the call
-// sites that consume them; the shim's C declaration must agree with them.
-// Adding a caller back to one of the three re-introduces the crash.
+// Only the non-mutating ops live here. Everything that takes `self` as an
+// untyped `SwiftSelf` — `insert`, `remove`, `removeAll` and `Iterator.next` —
+// dispatches through the C-side cdecl shims in `SwiftCollectionCdeclWrappers`,
+// and its register layout is recorded there and in the C wrapper's own
+// declaration. Adding a direct `SwiftSelf`-carrying P/Invoke back here puts
+// the member back in reach of the register clobber those shims exist to avoid.
 internal static class SwiftSetPInvokes
 {
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
@@ -905,31 +906,6 @@ internal static class SwiftSetPInvokes
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh8containsySbxF")]
     public static extern byte Contains(IntPtr element, IntPtr handle, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
 
-    // Set.insert(_:): $sSh6insertySb8inserted_x17memberAfterInserttxnF
-    // SIL: (@in Element, @inout Set<Element>) -> (Bool, @out Element)
-    // The @out Element in the return tuple becomes a regular x0 parameter (NOT SwiftIndirectResult/x8).
-    // Bool is returned directly in x0. Generic context = full Set metadata.
-    // ARM64: x0=outMemberBuffer, x1=element, x2=setMetadata, x20=self, return byte
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh6insertySb8inserted_x17memberAfterInserttxnF")]
-    public static extern byte Insert(IntPtr outMemberBuffer, IntPtr element, TypeMetadata setMetadata, SwiftSelf self);
-
-    // Set.remove(_:): $sSh6removeyxSgxF
-    // SIL: (@in_guaranteed Element, @inout Set<Element>) -> @out Optional<Element>
-    // Pure @out return uses SwiftIndirectResult (x8). Generic context = full Set metadata.
-    // ARM64: x0=element, x1=setMetadata, x8=result, x20=self
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh6removeyxSgxF")]
-    public static extern void Remove(SwiftIndirectResult result, IntPtr element, TypeMetadata setMetadata, SwiftSelf self);
-
-    // Set.removeAll(keepingCapacity:): $sSh9removeAll15keepingCapacityySb_tF
-    // SIL: (Bool, @inout Set<Element>) -> ()
-    // Void return, direct Bool parameter. Generic context = full Set metadata.
-    // ARM64: x0=keepCapacity, x1=setMetadata, x20=self
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh9removeAll15keepingCapacityySb_tF")]
-    public static extern void RemoveAll(byte keepCapacity, TypeMetadata setMetadata, SwiftSelf self);
-
     // Set.Iterator metadata accessor: $sSh8IteratorVMa
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh8IteratorVMa")]
@@ -941,12 +917,6 @@ internal static class SwiftSetPInvokes
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh12makeIteratorSh0B0Vyx_GyF")]
     public static extern void MakeIterator(SwiftIndirectResult result, IntPtr handle, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
-
-    // Set.Iterator.next(): $sSh8IteratorV4nextxSgyF
-    // Mutating on Iterator: returns Optional<Element> via SwiftIndirectResult
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh8IteratorV4nextxSgyF")]
-    public static extern void IteratorNext(SwiftIndirectResult result, TypeMetadata iteratorMetadata, SwiftSelf self);
 }
 
 /// <summary>

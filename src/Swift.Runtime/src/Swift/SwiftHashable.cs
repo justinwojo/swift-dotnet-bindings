@@ -13,25 +13,6 @@ namespace Swift.Runtime
     /// </summary>
     public static class SwiftHashable
     {
-        // P/Invoke declaration for Swift's Hashable protocol hashValue getter dispatch thunk.
-        // Symbol: Swift.Hashable.hashValue.getter : Swift.Int
-        //
-        // Disassembly of $sSH9hashValueSivgTj on arm64 is:
-        //     ldr x2, [x1, #0x10]
-        //     br  x2
-        // So x1 must hold the witness table (the thunk reads the function pointer at
-        // witness-table index 2). Concrete witnesses such as Int's `_$sSiSHsSH9hashValueSivgTW`
-        // do `ldr x1, [x20]` to read self, confirming SwiftSelf (x20) carries the self
-        // pointer and x0 carries the type metadata. Get the register placement wrong and
-        // the dispatch thunk computes a garbage function pointer and jumps into it (SIGSEGV).
-        // Returns nint (Swift.Int) which is 64-bit on arm64.
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSH9hashValueSivgTj")]
-        private static extern nint PInvoke_SwiftHashValue(
-            TypeMetadata typeMetadata,
-            ProtocolWitnessTable hashableProtocolWitnessTable,
-            SwiftSelf selfInSwiftSelf);
-
         /// <summary>
         /// Computes the hash code of an object using Swift's Hashable protocol.
         /// Folds the 64-bit Swift hash value to a 32-bit int for .NET GetHashCode().
@@ -98,10 +79,13 @@ namespace Swift.Runtime
 
                 if (TryGetHashableWitnessTable<T>(out var hashablePwt))
                 {
-                    nint h = PInvoke_SwiftHashValue(
+                    // Cdecl-wrapped: `self` reaches the dispatch thunk as an untyped
+                    // SwiftSelf, which collides with Mono's GC-safe-region cookie
+                    // register; see SwiftCollectionCdeclWrappers.
+                    nint h = SwiftCollectionCdeclWrappers.HashableHashValue(
                         metadata,
                         hashablePwt,
-                        new SwiftSelf((void*)payload));
+                        payload);
 
                     // Fold 64-bit Swift hash to 32-bit .NET hash
                     return unchecked((int)h ^ (int)(h >> 32));

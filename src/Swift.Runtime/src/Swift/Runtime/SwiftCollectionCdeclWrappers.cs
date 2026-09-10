@@ -7,16 +7,18 @@ using System.Runtime.InteropServices;
 namespace Swift.Runtime;
 
 /// <summary>
-/// Plain-<see cref="CallingConvention.Cdecl"/> P/Invokes into the seven
+/// Plain-<see cref="CallingConvention.Cdecl"/> P/Invokes into the fourteen
 /// C-side wrappers in <c>SwiftBindingsRuntimeCollections.c</c>. Each entry
-/// mirrors a Swift stdlib generic-collection operation whose direct
-/// <c>CallConvSwift</c> P/Invoke shape is mishandled by a Mono CallConvSwift
-/// trampoline. Two distinct broken shapes are covered, with different
-/// reproduction footprints.
+/// mirrors a Swift stdlib entry point this runtime calls by hand and whose
+/// direct <c>CallConvSwift</c> P/Invoke shape is mishandled by a Mono
+/// CallConvSwift trampoline. Two distinct broken shapes are covered, with
+/// different reproduction footprints.
 ///
 /// <para><b>Shape A</b> — <c>SwiftIndirectResult</c> + intermediate integer
-/// args + <c>SwiftSelf</c>. Six entries: the Dictionary/Set/Array ops other
-/// than <see cref="SetInsert"/>. Broken only on the Mac Catalyst-x64 workload
+/// args + <c>SwiftSelf</c>. Six entries: <see cref="DictUpdateValue"/>,
+/// <see cref="DictRemoveValue"/>, <see cref="DictIteratorNext"/>,
+/// <see cref="SetRemove"/>, <see cref="SetIteratorNext"/>,
+/// <see cref="ArrayRemove"/>. Broken only on the Mac Catalyst-x64 workload
 /// Mono runtime: the trampoline writes the correct sret result but corrupts
 /// the caller's <c>self</c> slot when explicit integer args are interleaved
 /// between the indirect-result and self registers. The same managed code +
@@ -27,24 +29,26 @@ namespace Swift.Runtime;
 /// <para><b>Shape B</b> — unlike shape A this is not really a *shape*. Its
 /// eligible population is every <c>CallConvSwift</c> call carrying an untyped
 /// <c>SwiftSelf</c>; which of those actually break is a per-member outcome of
-/// Mono's register allocator, not a property of the signature. One entry is
-/// wrapped here because one is what was observed failing: <see cref="SetInsert"/>.
-/// Broken on the iOS Simulator Mono runtime (isolated on arm64 simulator; x86_64
+/// Mono's register allocator, not a property of the signature. Mono's
+/// managed-to-native wrapper parks its GC-safe-region cookie in a callee-saved
+/// register chosen by that allocator, which does not exclude x20 — the
+/// register CallConvSwift reserves for an untyped <c>SwiftSelf</c> — and the
+/// wrapper's own argument setup then destroys it, so the exit call is handed a
+/// <c>self</c> pointer where a <c>MonoThreadInfo*</c> should be.
+/// <see cref="SetInsert"/> is the member that was observed failing, on the iOS
+/// Simulator Mono runtime (isolated on arm64 simulator; x86_64
 /// simulator/Catalyst share that wrapper codegen). The failure is not a wrong
 /// value — it corrupts Mono's own thread state: an immediate SIGABRT with
 /// <c>Cannot transition thread 0x0 from STARTING with DONE_BLOCKING</c>, or a
-/// Set whose <c>count</c> reads garbage after a scratch address is
-/// written into the caller's <c>self</c> slot, then a SIGSEGV on a later
-/// insert or on the Set's release. Not reproduced on NativeAOT (device) or
-/// CoreCLR (macOS). The SIGABRT arm is understood at register level: Mono's
-/// managed-to-native wrapper parks its GC-safe-region cookie in a callee-saved
-/// register chosen by its register allocator, which does not exclude x20 —
-/// the register CallConvSwift reserves for an untyped <c>SwiftSelf</c> — and
-/// the wrapper's own argument setup then destroys it. This doc comment
-/// previously scoped shape B to the
-/// <c>(inserted: Bool, memberAfterInsert: Element)</c> tuple return, on the
-/// basis that <c>Dictionary.updateValue</c> and <c>Set.contains</c> pass; that
-/// was a correlation across three samples, not the cause.</para>
+/// Set whose <c>count</c> reads garbage after a scratch address is written
+/// into the caller's <c>self</c> slot, then a SIGSEGV on a later insert or on
+/// the Set's release. Not reproduced on NativeAOT (device) or CoreCLR (macOS).
+/// The other seven shape-B entries — <see cref="ArraySet"/>,
+/// <see cref="ArrayAppend"/>, <see cref="ArrayInsert"/>,
+/// <see cref="ArrayRemoveAll"/>, <see cref="SetRemoveAll"/>,
+/// <see cref="DictRemoveAll"/> and <see cref="HashableHashValue"/> — are here
+/// under the coverage rule below rather than because each was seen to
+/// crash.</para>
 ///
 /// The C wrappers redeclare the stdlib symbols with clang's
 /// <c>__attribute__((swiftcall))</c> + <c>swift_indirect_result</c> /
@@ -56,18 +60,32 @@ namespace Swift.Runtime;
 /// including ones that do not exhibit either bug, so there is a single
 /// dispatch path everywhere.
 ///
-/// Coverage rule: only those seven ops are wrapped. Non-mutating reads
-/// (<c>Dictionary.subscript</c>, <c>Set.contains</c>,
-/// <c>Array.subscript</c>, <c>count</c>, <c>makeIterator</c>,
-/// <c>removeAll(keepingCapacity:)</c>, <c>Array.append/insert/set</c>) keep
-/// their direct CallConvSwift P/Invoke. They do not match shape A, and while
-/// the SwiftSelf-carrying ones among them are inside shape B's eligible
-/// population, they pass on every runtime today because Mono did not allocate
-/// their cookie to x20. That is an observed outcome, not a guarantee: a Mono
-/// codegen change could move one of them onto the defect without anything on
-/// our side changing. Pre-emptively wrapping all of them would be churn — the
-/// wrapper route is the remedy when one is observed to break, and the coverage
-/// here is deliberately reactive.
+/// <para><b>Coverage rule.</b> Every hand-written <c>Swift.Runtime</c>
+/// P/Invoke carrying an untyped <c>SwiftSelf</c> is wrapped, plus the six
+/// shape-A ops. Nothing else. This replaces a deliberately reactive rule —
+/// wrap a member only once it is seen to break — which does not survive the
+/// register-level account of shape B: which member parks its cookie in x20 is
+/// a property of one compiled binary, so a member that is safe today moves
+/// onto the defect from a Mono codegen change, a .NET update, or an unrelated
+/// edit to the calling method, with nothing on our side changing and no test
+/// that would have gone red first. What stands in for a crash is a direct
+/// measurement — disassembling the Mono full-AOT app binary and reading, for
+/// every <c>wrapper_managed_to_native_*</c> symbol carrying a
+/// <c>SwiftSelf</c>, which callee-saved register receives the cookie and
+/// whether the argument setup writes it before the native call. Two
+/// independently built binaries produced the same clobbering members in the
+/// same register, so the allocation is reproducible per call site rather than
+/// a per-build coin flip. Reproducible register-allocation evidence for a
+/// known defect class counts as an observed failure, and the remedy is applied
+/// to the class rather than to whichever members happened to be unlucky in the
+/// last binary anyone looked at.</para>
+///
+/// <para>Calls with no untyped <c>SwiftSelf</c> are outside the eligible
+/// population and keep their direct CallConvSwift P/Invoke: metadata accessors
+/// (<c>…Ma</c>), the <c>init</c> entry points, <c>Set.contains</c>,
+/// <c>Array.subscript</c>'s getter, <c>count</c> and <c>makeIterator</c> all
+/// pass <c>self</c> as an ordinary pointer argument, so there is no cookie
+/// register for the argument setup to clobber.</para>
 /// </summary>
 internal static class SwiftCollectionCdeclWrappers
 {
@@ -113,6 +131,20 @@ internal static class SwiftCollectionCdeclWrappers
     [DllImport(LibraryName, EntryPoint = "SBW_Dict_IteratorNext", CallingConvention = CallingConvention.Cdecl)]
     public static extern void DictIteratorNext(
         IntPtr result, TypeMetadata iteratorMetadata, IntPtr self);
+
+    /// <summary>
+    /// Cdecl wrapper for <c>Dictionary.removeAll(keepingCapacity:)</c>
+    /// (<c>$sSD9removeAll15keepingCapacityySb_tF</c>).
+    /// </summary>
+    /// <param name="keepCapacity">Swift's <c>keepingCapacity:</c> flag. Any
+    /// non-zero byte means <c>true</c>; the C wrapper narrows it to one bit
+    /// before the swiftcc call, which expects an <c>i1</c>.</param>
+    /// <param name="dictionaryMetadata">Full <c>Dictionary&lt;K,V&gt;</c>
+    /// type metadata (hidden generic-context arg).</param>
+    /// <param name="self">Pointer to the dictionary's storage slot.</param>
+    [DllImport(LibraryName, EntryPoint = "SBW_Dict_RemoveAll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void DictRemoveAll(
+        byte keepCapacity, TypeMetadata dictionaryMetadata, IntPtr self);
 
     // -----------------------------------------------------------------
     // Set<Element>
@@ -170,6 +202,19 @@ internal static class SwiftCollectionCdeclWrappers
     public static extern void SetIteratorNext(
         IntPtr result, TypeMetadata iteratorMetadata, IntPtr self);
 
+    /// <summary>
+    /// Cdecl wrapper for <c>Set.removeAll(keepingCapacity:)</c>
+    /// (<c>$sSh9removeAll15keepingCapacityySb_tF</c>).
+    /// </summary>
+    /// <param name="keepCapacity">Swift's <c>keepingCapacity:</c> flag; any
+    /// non-zero byte means <c>true</c>.</param>
+    /// <param name="setMetadata">Full <c>Set&lt;Element&gt;</c> type metadata
+    /// (hidden generic-context arg).</param>
+    /// <param name="self">Pointer to the set's storage slot.</param>
+    [DllImport(LibraryName, EntryPoint = "SBW_Set_RemoveAll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void SetRemoveAll(
+        byte keepCapacity, TypeMetadata setMetadata, IntPtr self);
+
     // -----------------------------------------------------------------
     // Array<Element>
     // -----------------------------------------------------------------
@@ -183,4 +228,78 @@ internal static class SwiftCollectionCdeclWrappers
     public static extern void ArrayRemove(
         IntPtr result, nint index,
         TypeMetadata arrayMetadata, IntPtr self);
+
+    /// <summary>
+    /// Cdecl wrapper for <c>Array.subscript(_:)</c>'s setter
+    /// (<c>$sSayxSicis</c>).
+    /// </summary>
+    /// <param name="value">Pointer to the element's marshalled payload.
+    /// Passed <c>@in</c> consuming — the call takes over its +1 and the caller
+    /// must NOT destroy it.</param>
+    /// <param name="index">Zero-based element index; the caller has already
+    /// bounds-checked it.</param>
+    /// <param name="arrayMetadata">Full <c>Array&lt;Element&gt;</c> type
+    /// metadata (hidden generic-context arg).</param>
+    /// <param name="self">Pointer to the array's storage slot.</param>
+    [DllImport(LibraryName, EntryPoint = "SBW_Array_Set", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ArraySet(
+        IntPtr value, nint index,
+        TypeMetadata arrayMetadata, IntPtr self);
+
+    /// <summary>
+    /// Cdecl wrapper for <c>Array.append(_:)</c>
+    /// (<c>$sSa6appendyyxnF</c>). <paramref name="value"/> is consumed by the
+    /// call — the caller must NOT destroy it.
+    /// </summary>
+    [DllImport(LibraryName, EntryPoint = "SBW_Array_Append", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ArrayAppend(
+        IntPtr value, TypeMetadata arrayMetadata, IntPtr self);
+
+    /// <summary>
+    /// Cdecl wrapper for <c>Array.insert(_:at:)</c>
+    /// (<c>$sSa6insert_2atyxn_SitF</c>). <paramref name="value"/> is consumed
+    /// by the call — the caller must NOT destroy it.
+    /// </summary>
+    [DllImport(LibraryName, EntryPoint = "SBW_Array_Insert", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ArrayInsert(
+        IntPtr value, nint index,
+        TypeMetadata arrayMetadata, IntPtr self);
+
+    /// <summary>
+    /// Cdecl wrapper for <c>Array.removeAll(keepingCapacity:)</c>
+    /// (<c>$sSa9removeAll15keepingCapacityySb_tF</c>).
+    /// </summary>
+    /// <param name="keepCapacity">Swift's <c>keepingCapacity:</c> flag; any
+    /// non-zero byte means <c>true</c>.</param>
+    /// <param name="arrayMetadata">Full <c>Array&lt;Element&gt;</c> type
+    /// metadata (hidden generic-context arg).</param>
+    /// <param name="self">Pointer to the array's storage slot.</param>
+    [DllImport(LibraryName, EntryPoint = "SBW_Array_RemoveAll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ArrayRemoveAll(
+        byte keepCapacity, TypeMetadata arrayMetadata, IntPtr self);
+
+    // -----------------------------------------------------------------
+    // Hashable
+    // -----------------------------------------------------------------
+
+    /// <summary>
+    /// Cdecl wrapper for Swift's <c>Hashable.hashValue</c> getter dispatch
+    /// thunk (<c>$sSH9hashValueSivgTj</c>). Unlike every other entry here this
+    /// targets a protocol <c>…Tj</c> thunk rather than a concrete stdlib
+    /// function: the thunk loads the requirement's function pointer out of
+    /// <paramref name="hashableWitnessTable"/> and branches to it, so the
+    /// conforming type's own <c>hashValue</c> runs. That makes the register
+    /// contract unforgiving — a misplaced argument here does not yield a wrong
+    /// hash, it yields a garbage function pointer the thunk jumps to.
+    /// </summary>
+    /// <param name="selfMetadata">Type metadata for the conforming type.</param>
+    /// <param name="hashableWitnessTable">The type's <c>Hashable</c> protocol
+    /// witness table.</param>
+    /// <param name="self">Pointer to the marshalled value. Borrowed — the
+    /// requirement is <c>@in_guaranteed</c>, so the buffer stays the caller's
+    /// to destroy.</param>
+    /// <returns>Swift's 64-bit <c>Int</c> hash value.</returns>
+    [DllImport(LibraryName, EntryPoint = "SBW_Hashable_HashValue", CallingConvention = CallingConvention.Cdecl)]
+    public static extern nint HashableHashValue(
+        TypeMetadata selfMetadata, ProtocolWitnessTable hashableWitnessTable, IntPtr self);
 }

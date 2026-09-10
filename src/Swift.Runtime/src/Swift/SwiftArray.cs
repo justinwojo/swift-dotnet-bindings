@@ -300,7 +300,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         Span<byte> span = stackalloc byte[(int)ElementSize];
         IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
         SwiftMarshal.MarshalToSwift(item, ref span);
-        SwiftArrayPInvokes.Append(payload, metadata, new SwiftSelf((void*)handle));
+        // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
+        // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
+        SwiftCollectionCdeclWrappers.ArrayAppend(payload, metadata, handle);
     }
 
     /// <summary>
@@ -317,7 +319,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             Span<byte> span = stackalloc byte[(int)ElementSize];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
             SwiftMarshal.MarshalToSwift(item, ref span);
-            SwiftArrayPInvokes.Insert(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
+            // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
+            // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.ArrayInsert(payload, index, metadata, _payload.DangerousGetHandle());
         }
         finally
         {
@@ -360,7 +364,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         try
         {
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
-            SwiftArrayPInvokes.RemoveAll(1, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
+            // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
+            // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.ArrayRemoveAll(1, metadata, _payload.DangerousGetHandle());
         }
         finally
         {
@@ -465,7 +471,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             Span<byte> span = stackalloc byte[(int)ElementSize];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
             SwiftMarshal.MarshalToSwift(value, ref span);
-            SwiftArrayPInvokes.Set(payload, index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
+            // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
+            // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.ArraySet(payload, index, metadata, _payload.DangerousGetHandle());
         }
     }
 
@@ -738,26 +746,6 @@ internal static class SwiftArrayPInvokes
     public static extern void Get(SwiftIndirectResult result, nint index, IntPtr handle, TypeMetadata elementMetadata);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSayxSicis")]
-    public static extern void Set(IntPtr value, nint index, TypeMetadata elementMetadata, SwiftSelf self);
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa5countSivg")]
     public static extern nint Count(IntPtr handle, TypeMetadata elementMetadata);
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa6appendyyxnF")]
-    public static extern void Append(IntPtr value, TypeMetadata metadata, SwiftSelf self);
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa9removeAll15keepingCapacityySb_tF")]
-    public static extern void RemoveAll(byte keepCapacity, TypeMetadata metadata, SwiftSelf self);
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa6remove2atxSi_tF")]
-    public static extern void Remove(SwiftIndirectResult result, nint index, TypeMetadata metadata, SwiftSelf self);
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa6insert_2atyxn_SitF")]
-    public static extern void Insert(IntPtr value, nint index, TypeMetadata metadata, SwiftSelf self);
 }

@@ -575,10 +575,12 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         _payload.DangerousAddRef(ref success);
         try
         {
-            SwiftDictionaryPInvokes.RemoveAll(
+            // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
+            // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.DictRemoveAll(
                 1, // keepingCapacity: true
                 metadata,
-                new SwiftSelf((void*)_payload.DangerousGetHandle()));
+                _payload.DangerousGetHandle());
         }
         finally
         {
@@ -749,6 +751,13 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
+// Direct CallConvSwift bindings for Swift stdlib `Dictionary` operations.
+//
+// Only the non-mutating ops live here. Everything that takes `self` as an
+// untyped `SwiftSelf` — `updateValue`, `removeValue`, `removeAll` and
+// `Iterator.next` — dispatches through the C-side cdecl shims in
+// `SwiftCollectionCdeclWrappers`, and its register layout is recorded there
+// and in the C wrapper's own declaration.
 internal static class SwiftDictionaryPInvokes
 {
     // Dictionary metadata accessor: $sSDMa
@@ -759,13 +768,6 @@ internal static class SwiftDictionaryPInvokes
         TypeMetadata keyTypeMetadata,
         TypeMetadata valueTypeMetadata,
         ProtocolWitnessTable witnessTable);
-
-    // Dictionary init: $sS2Dyxq_GycfC (init())
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sS2Dyxq_GycfC")]
-    public static extern IntPtr Init(
-        IntPtr keyTypeMetadata,
-        IntPtr valueTypeMetadata,
-        IntPtr witnessTable);
 
     // Dictionary count: $sSD5countSivg
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
@@ -787,36 +789,6 @@ internal static class SwiftDictionaryPInvokes
         TypeMetadata valueTypeMetadata,
         ProtocolWitnessTable witnessTable);
 
-    // Dictionary updateValue(_:forKey:): $sSD11updateValue_6forKeyq_Sgq_n_xtF
-    // Mutating method: hidden generic arg is full Dictionary<K,V> metadata (not K, V, WT separately)
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD11updateValue_6forKeyq_Sgq_n_xtF")]
-    public static extern void UpdateValue(
-        SwiftIndirectResult result,
-        IntPtr value,
-        IntPtr key,
-        TypeMetadata dictionaryMetadata,
-        SwiftSelf self);
-
-    // Dictionary removeAll(keepingCapacity:): $sSD9removeAll15keepingCapacityySb_tF
-    // Mutating method: hidden generic arg is full Dictionary<K,V> metadata
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD9removeAll15keepingCapacityySb_tF")]
-    public static extern void RemoveAll(
-        byte keepCapacity,
-        TypeMetadata dictionaryMetadata,
-        SwiftSelf self);
-
-    // Dictionary removeValue(forKey:): $sSD11removeValue6forKeyq_Sgx_tF
-    // Mutating method: hidden generic arg is full Dictionary<K,V> metadata
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD11removeValue6forKeyq_Sgx_tF")]
-    public static extern void RemoveValue(
-        SwiftIndirectResult result,
-        IntPtr key,
-        TypeMetadata dictionaryMetadata,
-        SwiftSelf self);
-
     // Dictionary.Iterator metadata accessor: $sSD8IteratorVMa
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD8IteratorVMa")]
@@ -835,13 +807,4 @@ internal static class SwiftDictionaryPInvokes
         TypeMetadata keyTypeMetadata,
         TypeMetadata valueTypeMetadata,
         ProtocolWitnessTable witnessTable);
-
-    // Dictionary.Iterator.next(): $sSD8IteratorV4nextx3key_q_5valuetSgyF
-    // Mutating method on Iterator: hidden generic arg is full Iterator metadata
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD8IteratorV4nextx3key_q_5valuetSgyF")]
-    public static extern void IteratorNext(
-        SwiftIndirectResult result,
-        TypeMetadata iteratorMetadata,
-        SwiftSelf self);
 }
