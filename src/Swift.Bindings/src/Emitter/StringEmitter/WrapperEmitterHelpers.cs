@@ -358,7 +358,7 @@ public static class WrapperEmitterHelpers
     /// <c>AnyObject</c>/<c>Any</c>: those are NOT marker protocols, so a conditional conformance may
     /// legally depend on them and their factory body needs the clause to type-check.
     /// </summary>
-    private static bool IsStdlibMarkerProtocol(string target)
+    internal static bool IsStdlibMarkerProtocol(string target)
     {
         var lastDot = target.LastIndexOf('.');
         var module = lastDot >= 0 ? target[..lastDot] : null;

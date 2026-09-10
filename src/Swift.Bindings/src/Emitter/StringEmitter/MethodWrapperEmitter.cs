@@ -83,11 +83,14 @@ public static class MethodWrapperEmitter
                 return WrapperEligibility.Reject("generic_parent_inout");
         }
 
-        // 6. No method-level generics (e.g., func pair<T,U>(...)).
+        // 6. Method-level generics (e.g., func pair<T,U>(...)) have no C-callable ABI of their
+        // own, so they route through the opening wrapper when their constraint shape can be
+        // reconstructed from type-argument metadata alone, and are refused otherwise.
         // MethodDecl.IsGeneric is true for ALL methods on generic types because the ABI JSON
         // includes the parent's generic signature in each method's GenericSig. Only block methods
         // that have their OWN generic parameters (not inherited from the parent type).
-        if (WrapperValidation.HasMethodOwnGenericParameters(env.MethodDecl))
+        if (WrapperValidation.HasMethodOwnGenericParameters(env.MethodDecl)
+            && !MethodLevelGenericOpening.IsOpenable(env))
             return WrapperEligibility.Reject("method_level_generics");
 
         // 8. Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
@@ -329,6 +332,17 @@ public static class MethodWrapperEmitter
             ?? string.Empty;
         if (!ctx.TryClaimWrapperSymbol(sourceTypeName, methodDecl.Name, sourceKey, symbolName, DeclIdFactory.ForMethod(methodDecl)))
             return; // Already emitted
+
+        // Method-level generics: a @_cdecl function cannot carry generic context, so the wrapper
+        // is a free function that takes the type-argument metadata as ordinary pointers and
+        // re-enters the generic context by opening them. Route selection happened at guard 6 and
+        // is recorded on the decl, so a synthesized decl can never fall in here by accident.
+        if (methodDecl.UsesMethodLevelGenericOpening
+            && MethodLevelGenericOpening.TryBuildPlan(env, out var openedGenerics))
+        {
+            MethodLevelGenericWrapperEmitter.Emit(swiftWriter, env, ctx, symbolName, openedGenerics);
+            return;
+        }
 
         var moduleName = parentTypeDecl?.SwiftTypeName.Module ?? parentModuleDecl!.Name;
         var moduleQualifiedSwiftName = parentTypeDecl?.SwiftTypeName.ModuleQualifiedName ?? "";
@@ -735,15 +749,6 @@ public static class MethodWrapperEmitter
         {
             EmitStringReturnBody(swiftWriter, callExpr);
         }
-        else if (needsResultPtr && returnTypeSpec is ClosureTypeSpec)
-        {
-            // Closure returns: strip @escaping/@Sendable (parameter attributes, not valid
-            // in metatype position) and wrap in parens for correct .self binding.
-            var closureType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)
-                .Replace("@escaping ", "").Replace("@Sendable ", "");
-            swiftWriter.WriteLine($"let result = {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({closureType}).self, repeating: result, count: 1)");
-        }
         else if (needsResultPtr)
         {
             // Non-frozen struct, complex enum, Optional<value-type>: write to result buffer
@@ -762,11 +767,9 @@ public static class MethodWrapperEmitter
             }
             else
             {
-                // Protocol existentials (any Protocol1 & Protocol2) need parentheses before .self
-                // to prevent .self from binding to only the last protocol in the composition.
-                var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
                 swiftWriter.WriteLine($"let result = {callExpr}");
-                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+                swiftWriter.WriteLine(
+                    $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
             }
         }
         else
@@ -1369,7 +1372,7 @@ public static class MethodWrapperEmitter
     /// Emits self reconstruction for instance methods.
     /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
     /// </summary>
-    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedSwiftName, bool isNonCopyable = false)
+    internal static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedSwiftName, bool isNonCopyable = false)
     {
         SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName, isNonCopyable);
     }
@@ -1377,7 +1380,7 @@ public static class MethodWrapperEmitter
     /// <summary>
     /// Emits the body of a throwing method wrapper.
     /// </summary>
-    private static void EmitThrowingMethodBody(
+    internal static void EmitThrowingMethodBody(
         SwiftWriter swiftWriter,
         string callExpr,
         TypeSpec returnTypeSpec,
@@ -1398,13 +1401,6 @@ public static class MethodWrapperEmitter
         {
             EmitStringReturnBody(swiftWriter, $"try {callExpr}");
         }
-        else if (needsResultPtr && returnTypeSpec is ClosureTypeSpec)
-        {
-            var closureType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)
-                .Replace("@escaping ", "").Replace("@Sendable ", "");
-            swiftWriter.WriteLine($"let result = try {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({closureType}).self, repeating: result, count: 1)");
-        }
         else if (needsResultPtr)
         {
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
@@ -1422,9 +1418,9 @@ public static class MethodWrapperEmitter
             }
             else
             {
-                var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
                 swiftWriter.WriteLine($"let result = try {callExpr}");
-                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+                swiftWriter.WriteLine(
+                    $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
             }
         }
         else
@@ -1453,7 +1449,7 @@ public static class MethodWrapperEmitter
     /// Emits the string return body using SBW_Utf8Slice pattern.
     /// Delegates to <see cref="StringReturnEmitter.EmitReturnBody"/>.
     /// </summary>
-    private static void EmitStringReturnBody(SwiftWriter swiftWriter, string callExpr)
+    internal static void EmitStringReturnBody(SwiftWriter swiftWriter, string callExpr)
     {
         StringReturnEmitter.EmitReturnBody(swiftWriter, callExpr);
     }
@@ -1461,7 +1457,27 @@ public static class MethodWrapperEmitter
     /// <summary>
     /// Emits a direct return statement for non-string, non-indirect-result returns.
     /// </summary>
-    private static void EmitDirectReturn(SwiftWriter swiftWriter, string callExpr,
+    /// <summary>
+    /// Renders the metatype expression an indirect result is initialized through — the
+    /// <c>X.self</c> argument to <c>initializeMemory(as:repeating:count:)</c>. Two shapes need
+    /// more than a bare <c>.self</c>: a protocol existential (<c>any P1 &amp; P2</c>), where an
+    /// unparenthesized <c>.self</c> binds to the last protocol in the composition alone, and a
+    /// closure, whose rendering carries <c>@escaping</c>/<c>@Sendable</c> — parameter attributes
+    /// that are not valid in metatype position. Shared by every wrapper route that writes an
+    /// indirect result so the routes cannot drift on which shapes they handle.
+    /// </summary>
+    internal static string RenderIndirectResultMetatype(TypeSpec returnTypeSpec)
+    {
+        var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
+        if (returnTypeSpec is ClosureTypeSpec)
+            swiftType = swiftType.Replace("@escaping ", "").Replace("@Sendable ", "");
+
+        return returnTypeSpec is ClosureTypeSpec || swiftType.StartsWith("any ", StringComparison.Ordinal)
+            ? $"({swiftType}).self"
+            : $"{swiftType}.self";
+    }
+
+    internal static void EmitDirectReturn(SwiftWriter swiftWriter, string callExpr,
         TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
         => CdeclReturnRenderer.Write(swiftWriter, callExpr, typeSpec, typeDatabase, mapping, scalarParens: true);
 

@@ -1,8 +1,8 @@
 {
-  "git_sha": "7f7b4a077",
+  "git_sha": "ba8a4dfde",
   "platforms": {
     "simulator": {
-      "pass_count": 3927,
+      "pass_count": 3930,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -63,11 +63,6 @@
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
           "reason": "weak/unowned references not supported by generator"
-        },
-        {
-          "class": "MethodLevelGenericTests",
-          "method": "TestGenericMethodHost_MixedParams",
-          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
@@ -178,7 +173,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 3925,
+      "pass_count": 3934,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -216,16 +211,6 @@
           "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRun",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRunWithFilter",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
           "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
@@ -254,11 +239,6 @@
           "class": "MainActorTests",
           "method": "TestMainActorGuard_OffMainThread_Throws",
           "reason": "Device: MainActorGuard is [Conditional(\u0022DEBUG\u0022)]; the device app is a Release build with the guard compiled out, so an off-main-thread call does not throw."
-        },
-        {
-          "class": "MethodLevelGenericTests",
-          "method": "TestGenericMethodHost_MixedParams",
-          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
@@ -344,7 +324,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 3914,
+      "pass_count": 3930,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -382,16 +362,6 @@
           "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
         },
         {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRun",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRunWithFilter",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
           "class": "InoutStructDispatchTests",
           "method": "TestReverseInoutNonFrozenStructDispatch",
           "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
@@ -415,11 +385,6 @@
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
           "reason": "weak/unowned references not supported by generator"
-        },
-        {
-          "class": "MethodLevelGenericTests",
-          "method": "TestGenericMethodHost_MixedParams",
-          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",

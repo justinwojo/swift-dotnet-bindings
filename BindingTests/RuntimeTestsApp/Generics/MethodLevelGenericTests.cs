@@ -41,15 +41,51 @@ public class MethodLevelGenericTests : TestBase
         TestLogger.Info($"GenericMethodHost.StaticDescribe = {result}");
     }
 
-    [Skip("Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug ('Cannot transition thread from STARTING with DONE_BLOCKING') in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics.")]
     public void TestGenericMethodHost_MixedParams()
     {
         var host = new GenericMethodHost(label: "tagged");
         var item = new SimpleDescribable(description: "item");
-#pragma warning disable CS0618 // [Obsolete] — CallConvSwift fallback for class-instance method-level generics
         var result = host.DescribeWithTag(item, tag: 42);
-#pragma warning restore CS0618
         AssertEqual("[42] tagged: item", result, "DescribeWithTag<T>(_, tag:)");
         TestLogger.Info($"GenericMethodHost.DescribeWithTag = {result}");
+    }
+
+    /// Calls the fully generic arm of `SimpleRowAdapter.layoutedAdapter&lt;T&gt;` at a type
+    /// argument the concrete-specialization engine declines to specialize, so there is no
+    /// closed overload to fall back on. This is the shape that aborts under Mono full-AOT
+    /// when the binding dispatches directly on the Swift ABI thunk.
+    public void TestLayoutedAdapter_GenericArm_NoClosedSpecialization()
+    {
+        var adapter = Functions.MakeSimpleRowAdapter();
+        var layout = new FrozenRowLayout(columnCount: 7);
+        var result = adapter.LayoutedAdapter(layout);
+        AssertEqual("adapted:7", result, "layoutedAdapter<T: RowLayout>(from:) generic arm");
+        TestLogger.Info($"SimpleRowAdapter.LayoutedAdapter<FrozenRowLayout> = {result}");
+    }
+
+    /// Adversarial: a type argument that satisfies the binding's managed constraint but whose
+    /// Swift metadata carries no `RowLayout` conformance. The opening wrapper casts the metadata
+    /// before it reads the payload, so the call must come back as a typed managed exception
+    /// rather than reinterpreting the bytes at the wrong type.
+    public void TestLayoutedAdapter_NonConformingTypeArgument_Refused()
+    {
+        var adapter = Functions.MakeSimpleRowAdapter();
+        var impostor = new NotARowLayout(columnCount: 3);
+        try
+        {
+            var result = adapter.LayoutedAdapter(impostor);
+            AssertTrue(false, $"expected a refusal for a non-conforming type argument, got '{result}'");
+        }
+        catch (Swift.Runtime.SwiftRuntimeException ex)
+        {
+            AssertTrue(ex.Message.Contains("NotARowLayout"),
+                $"refusal names the offending type argument (was: {ex.Message})");
+            // Module-qualified, and paired with the "does not conform" wording: a bare "RowLayout"
+            // is already a substring of the impostor's own name, so it would pass on any message
+            // that merely mentions the type argument.
+            AssertTrue(ex.Message.Contains("does not conform to Swift protocol 'SwiftBindingsTestLib.RowLayout'"),
+                $"refusal names the unsatisfied constraint (was: {ex.Message})");
+            TestLogger.Info($"SimpleRowAdapter.LayoutedAdapter<NotARowLayout> refused: {ex.Message}");
+        }
     }
 }

@@ -985,21 +985,21 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 3927,
+      "pass": 3930,
       "fail": 0,
-      "skip": 34,
+      "skip": 33,
       "crash": 0
     },
     "device": {
-      "pass": 3925,
+      "pass": 3934,
       "fail": 0,
-      "skip": 32,
+      "skip": 29,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 3914,
+      "pass": 3930,
       "fail": 0,
-      "skip": 36,
+      "skip": 33,
       "crash": 0
     },
     "macos": {
@@ -1034,6 +1034,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 18641
+    "swift_bindings_unit_pass_floor": 18686
   }
 }

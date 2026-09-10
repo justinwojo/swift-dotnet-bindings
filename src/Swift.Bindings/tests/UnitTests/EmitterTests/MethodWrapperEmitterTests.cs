@@ -427,7 +427,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericMethod_ReturnsFalse()
+    public void ShouldEmitWrapper_OpenableGenericMethod_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -440,6 +440,29 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
+        // An unconstrained method-own generic parameter is reconstructed by opening its metadata
+        // pointer inside the wrapper, so the member routes through a wrapper rather than a direct
+        // CallConvSwift P/Invoke that would have to pass an untyped self.
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericMethodReturningItsOwnParameter_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithReturn("doWork", new NamedTypeSpec("T"), parentDecl, moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        // A return position that mentions an own generic parameter needs the indirect-result
+        // buffer sized from the opened layout, which the opening wrapper does not derive — the
+        // member stays on the direct route and emits no wrapper.
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
@@ -700,12 +723,30 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_FreeFunction_GenericMethod_ReturnsFalse()
+    public void ShouldEmitWrapper_FreeFunction_OpenableGenericMethod_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var method = CreateFreeFunction("globalHelper", moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        // A free function is already at module scope, which is where the opening wrapper has to
+        // live, so its own generic parameters open exactly as an instance method's do.
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_FreeFunction_GenericMethodReturningItsOwnParameter_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var method = CreateFreeFunctionWithReturn("globalHelper", new NamedTypeSpec("T"), moduleDecl);
         method.GenericParameters = new List<GenericArgumentDecl>
         {
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
@@ -5225,4 +5266,33 @@ public class MethodWrapperEmitterTests
     }
 
     #endregion
+
+    [Fact]
+    public void RenderIndirectResultMetatype_ClosureReturn_DropsParameterAttributes()
+    {
+        // `@escaping`/`@Sendable` describe how a closure is passed, not what it is: carried into
+        // metatype position they emit Swift that does not compile, and a wrapper swiftc rejects is
+        // stripped from the dylib rather than failing the build. Every wrapper route that writes an
+        // indirect result shares this renderer so no route can miss the strip on its own.
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var metatype = MethodWrapperEmitter.RenderIndirectResultMetatype(closure);
+
+        Assert.DoesNotContain("@escaping", metatype);
+        Assert.DoesNotContain("@Sendable", metatype);
+        // The parentheses are what make `.self` bind to the whole closure type.
+        Assert.StartsWith("(", metatype);
+        Assert.EndsWith(").self", metatype);
+    }
+
+    [Fact]
+    public void RenderIndirectResultMetatype_ExistentialReturn_ParenthesizesTheComposition()
+    {
+        // Without the parens `.self` binds to the last protocol of the composition alone.
+        var metatype = MethodWrapperEmitter.RenderIndirectResultMetatype(
+            new NamedTypeSpec("any TestModule.Alpha & TestModule.Beta"));
+
+        Assert.Equal("(any TestModule.Alpha & TestModule.Beta).self", metatype);
+    }
 }

@@ -63,10 +63,12 @@ public class NoncopyableArgumentEmitterTests
     /// <c>ObjectDisposedException</c> from its own consumed-state guard) then unwinds into a Destroy
     /// over undefined stack bytes. Marshalling first makes a non-null pointer mean "live value".
     /// </summary>
-    [Fact]
-    public void GenericArgument_PublishesItsBufferPointerOnlyAfterTheValueIsInIt()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GenericArgument_PublishesItsBufferPointerOnlyAfterTheValueIsInIt(bool opened)
     {
-        var (cs, _, _) = EmitGeneric(ParameterOwnership.Shared);
+        var (cs, _, _) = EmitGeneric(ParameterOwnership.Shared, opened);
         int marshal = cs.IndexOf("SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);", StringComparison.Ordinal);
         int publish = cs.IndexOf("valuePayload = (IntPtr)Unsafe.AsPointer", StringComparison.Ordinal);
         Assert.True(marshal >= 0 && publish > marshal, cs);
@@ -82,7 +84,7 @@ public class NoncopyableArgumentEmitterTests
     [Fact]
     public void BorrowedGenericArgument_StillDestroysItsBuffer()
     {
-        var (cs, _, _) = EmitGeneric(ParameterOwnership.Shared);
+        var (cs, _, _) = EmitGeneric(ParameterOwnership.Shared, opened: false);
         Assert.Contains("ValueWitnessTable->Destroy((void *)valuePayload", cs);
     }
 
@@ -94,12 +96,41 @@ public class NoncopyableArgumentEmitterTests
     [Fact]
     public void ConsumedGenericArgument_LeavesTheBufferToTheCallee()
     {
-        var (cs, _, _) = EmitGeneric(ParameterOwnership.Owned);
+        var (cs, _, _) = EmitGeneric(ParameterOwnership.Owned, opened: false);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);", cs);
         Assert.DoesNotContain("ValueWitnessTable->Destroy((void *)valuePayload", cs);
     }
 
-    private static (string cs, string swift, MethodDecl method) EmitGeneric(ParameterOwnership ownership)
+    /// <summary>
+    /// The opening wrapper reads the payload back with <c>.pointee</c>, which is a copy — the
+    /// buffer the caller filled is still initialised when the wrapper returns, whatever ownership
+    /// the Swift declaration gave the parameter. So the <c>@in</c> hand-off above does not apply
+    /// on this route: the one Destroy that has to run is the caller's, for both ownerships. Losing
+    /// it on the consuming arm would leak every value passed through an opened generic slot.
+    /// </summary>
+    [Theory]
+    [InlineData(ParameterOwnership.Shared)]
+    [InlineData(ParameterOwnership.Owned)]
+    public void OpenedGenericArgument_DestroysItsOwnBufferForEitherOwnership(ParameterOwnership ownership)
+    {
+        var (cs, swift, _) = EmitGeneric(ownership, opened: true);
+        Assert.Contains("SwiftMarshal.MarshalToSwift(value, ref valuePayloadSpan);", cs);
+        Assert.Contains("ValueWitnessTable->Destroy((void *)valuePayload", cs);
+        // The wrapper copies out of the buffer rather than moving out of it — the read that makes
+        // the caller-side Destroy the correct and only one.
+        Assert.Contains(".pointee", swift);
+        Assert.DoesNotContain(".move()", swift);
+    }
+
+    /// <param name="opened">
+    /// <c>true</c> builds the shape the method-level-generic opening wrapper admits, so the member
+    /// routes through a <c>@_cdecl</c> wrapper. <c>false</c> constrains the parameter on a marker
+    /// protocol, which leaves no runtime conformance record to cast metadata against — the member
+    /// is declined by the opening analysis and keeps the direct <c>CallConvSwift</c> P/Invoke,
+    /// where Swift's own <c>@in</c>/<c>@in_guaranteed</c> conventions decide who destroys.
+    /// </param>
+    private static (string cs, string swift, MethodDecl method) EmitGeneric(
+        ParameterOwnership ownership, bool opened = true)
     {
         var database = new TypeDatabase { AsyncLibraryName = "TestModuleSwiftBindings" };
         var module = new ModuleDecl
@@ -117,6 +148,7 @@ public class NoncopyableArgumentEmitterTests
             {
                 new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
             },
+            RawGenericSig = opened ? null : "<T where T : Swift.Sendable>",
             ParentDecl = module, ModuleDecl = module,
             CSSignature = new List<ArgumentDecl>
             {

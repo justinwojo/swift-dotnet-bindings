@@ -1181,6 +1181,9 @@ namespace BindingsGeneration
                             // to instantiate the specialized metatype.
                             pInvokeSignature.HandleProtocolConformance();
                             break;
+                        case CdeclPhase.OpenRefusal:
+                            pInvokeSignature.HandleOpenRefusal();
+                            break;
                     }
                 }
 

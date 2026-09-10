@@ -979,6 +979,7 @@ namespace BindingsGeneration
             EmitStringInoutWritebackScopeStart(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitMethodLevelGenericRefusal(csWriter);
             EmitCdeclResultLiveMarker(csWriter);
             EmitConsumedNonCopyableParamCleanup(csWriter);
             EmitConsumedNonCopyableSelfCleanup(csWriter);
@@ -1791,6 +1792,24 @@ namespace BindingsGeneration
         /// operation can throw. Error conversion need not have run: the raw null test already tells
         /// us whether native code initialized the result. Failable factories share this authority.
         /// </summary>
+        /// <summary>
+        /// Emits the method-level-generic refusal check. The opening wrapper reports a type argument
+        /// whose Swift metadata failed the conformance cast through its own out-parameter; this turns
+        /// that into a typed exception. It sits immediately after the P/Invoke and BEFORE the result
+        /// live marker, so a refused call leaves the indirect-result buffer marked uninitialized and
+        /// the cleanup frees it without destroying bytes Swift never wrote.
+        /// </summary>
+        private void EmitMethodLevelGenericRefusal(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesMethodLevelGenericOpening) return;
+            if (!MethodLevelGenericOpening.TryBuildPlan(_env, out var opened)) return;
+
+            var refusalParameterName =
+                MethodLevelGenericOpening.ResolveRefusalParameterName(_pInvokeSignature.Parameters);
+            foreach (var line in MethodLevelGenericOpening.BuildRefusalCheckLines(_env, opened, refusalParameterName))
+                csWriter.WriteLine(line);
+        }
+
         private void EmitCdeclResultLiveMarker(CSharpWriter csWriter)
         {
             if (_env.MethodDecl.IsConstructor) return;

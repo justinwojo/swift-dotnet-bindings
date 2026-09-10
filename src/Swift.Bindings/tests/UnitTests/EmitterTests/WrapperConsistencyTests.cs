@@ -942,7 +942,27 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void GetRejectionReason_GenericMethod_ReturnsReason()
+    public void GetRejectionReason_GenericMethodReturningItsOwnParameter_ReturnsReason()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("transform", parentDecl, moduleDecl);
+        method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec("T");
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        // A return position that mentions the method's own generic parameter is outside the
+        // opening route, so the member keeps the direct P/Invoke and reports the same reason.
+        Assert.Equal("method_level_generics", WrapperValidation.GetRejectionReason(env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_OpenableGenericMethod_ReturnsNull()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -955,7 +975,9 @@ public class WrapperConsistencyTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("method_level_generics", WrapperValidation.GetRejectionReason(env));
+        // The method's own generic parameter is opened from its metadata pointer, so there is
+        // nothing left to reject and the member is wrapper-eligible.
+        Assert.Null(WrapperValidation.GetRejectionReason(env));
     }
 
     [Fact]

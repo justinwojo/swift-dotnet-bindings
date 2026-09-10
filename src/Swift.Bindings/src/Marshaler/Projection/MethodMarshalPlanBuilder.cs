@@ -246,6 +246,14 @@ internal class MethodMarshalPlanBuilder
         if (IsClosedStaticFactoryAccessorCall())
             return lines;
 
+        // Method-level-generic opening route: the wrapper's existential cast is the conformance
+        // check and it runs before the payload is dereferenced, so no witness table crosses the
+        // seam. Must stay in lockstep with PInvokeSignatureBuilder.HandleProtocolConformance —
+        // declaring a PWT here that the signature does not take is a compile error, and taking one
+        // the wrapper does not declare shifts every later argument by a register.
+        if (MethodLevelGenericOpening.AppliesTo(_env))
+            return lines;
+
         // GSF cdecl-constructor on a generic parent type also materializes PAT /
         // Self-requirement conformances with captured descriptor symbols via the
         // dynamic-PWT helper on the parent's PInvokeHelperContext. The match must stay

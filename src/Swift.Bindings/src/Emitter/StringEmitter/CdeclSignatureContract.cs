@@ -23,7 +23,16 @@ public enum CdeclPhase
     Arguments,
 
     /// <summary>Generic type metadata and protocol conformance witnesses.</summary>
-    Metadata
+    Metadata,
+
+    /// <summary>
+    /// Refusal out-pointer for the method-level-generic opening route: the wrapper writes 0 on
+    /// success, or the 1-based ordinal of the generic parameter whose type argument failed the
+    /// conformance cast. Always last, so it is additive to every other phase, and separate from
+    /// both the C return channel (which a Bool-returning member already owns) and
+    /// <see cref="ErrorOut"/> (which keeps meaning "the Swift method threw").
+    /// </summary>
+    OpenRefusal
 }
 
 /// <summary>
@@ -67,7 +76,7 @@ public static class CdeclSignatureContract
     /// - [ResultPtr?] [Self?] [Arguments?] [Metadata] [ErrorOut?]
     ///
     /// Regular methods, property/subscript accessors:
-    /// - [ResultPtr?] [Arguments?] [Metadata] [Self?] [ErrorOut?]
+    /// - [ResultPtr?] [Arguments?] [Metadata] [Self?] [ErrorOut?] [OpenRefusal?]
     /// </summary>
     /// <param name="env">The method environment.</param>
     /// <param name="overrideNeedsResultPtr">
@@ -140,6 +149,10 @@ public static class CdeclSignatureContract
                 phases.Add(CdeclPhase.Self);
             if (throws)
                 phases.Add(CdeclPhase.ErrorOut);
+            // Appended last so the opening route is purely additive over the shape every other
+            // regular method already has — nothing before it shifts position.
+            if (MethodLevelGenericOpening.AppliesTo(env))
+                phases.Add(CdeclPhase.OpenRefusal);
         }
 
         return new CdeclParameterOrder(phases, needsResultPtr);

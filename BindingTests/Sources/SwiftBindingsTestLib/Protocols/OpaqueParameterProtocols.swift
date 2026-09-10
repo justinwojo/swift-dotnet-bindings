@@ -47,3 +47,28 @@ public class SimpleRowAdapter: @unchecked Sendable, RowAdapter {
 public func makeSimpleRowAdapter() -> SimpleRowAdapter {
     return SimpleRowAdapter()
 }
+
+/// A `@frozen` conformer of `RowLayout`. Frozen structs project to C# as blittable
+/// structs, which the concrete-specialization engine declines to specialize, so
+/// `layoutedAdapter(from:)` at this type argument exists ONLY as the fully generic arm —
+/// the shape a consumer hits when no closed specialization is available.
+@frozen
+public struct FrozenRowLayout: RowLayout {
+    public let columnCount: Int32
+    public init(columnCount: Int32) {
+        self.columnCount = columnCount
+    }
+}
+
+/// Shaped exactly like `FrozenRowLayout` but deliberately NOT a `RowLayout` conformer.
+/// The adversarial fixture declares the C# projection of this type as an `IRowLayout`
+/// implementer, which satisfies the binding's managed constraint while the Swift metadata
+/// still carries no conformance — the one case where the opening wrapper's runtime cast is
+/// all that stands between the caller and a payload read at the wrong type.
+@frozen
+public struct NotARowLayout {
+    public let columnCount: Int32
+    public init(columnCount: Int32) {
+        self.columnCount = columnCount
+    }
+}

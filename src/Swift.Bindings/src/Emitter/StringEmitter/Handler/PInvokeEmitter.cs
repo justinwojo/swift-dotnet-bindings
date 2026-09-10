@@ -957,10 +957,31 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Handles the refusal out-parameter of the method-level-generic opening route. The wrapper
+        /// writes 0 on success, or the 1-based ordinal of the generic parameter whose type argument
+        /// failed the conformance cast, and the managed side turns a non-zero value into a typed
+        /// exception before it reads any result.
+        /// </summary>
+        public void HandleOpenRefusal()
+        {
+            AddParameter("byte", MethodLevelGenericWrapperEmitter.RefusalParameterName, "out");
+        }
+
+        /// <summary>
         /// Handles the protocol conformances of the generic parameters of the method.
         /// </summary>
         public void HandleProtocolConformance()
         {
+            // Method-level-generic opening route: the wrapper's `as? any P.Type` cast IS the
+            // conformance check, and it runs before the payload is dereferenced. Threading a
+            // witness table as well would mean the Swift emitter re-deriving this admit predicate
+            // and its ordinal sort to declare matching ignored slots — a drift whose failure mode
+            // is a shifted register, not a compile error. Suppress on both sides instead; the
+            // managed `ProtocolWitnessTable.GetOrThrow` this removes ran strictly later than the
+            // wrapper's cast anyway (after the payload had already been marshalled).
+            if (MethodLevelGenericOpening.AppliesTo(_env))
+                return;
+
             // Closed static factory @_cdecl wrapper takes only resultPtr — no PWT threading.
             // See ClosedStaticFactoryGate.
             if (_env.MethodDecl.IsAccessor &&

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "7f7b4a077",
+  "git_sha": "ba8a4dfde",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -990,7 +990,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ApplyFourProtocols(T,int,int,int,int)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib18applyFourProtocols_1a1b1c1ds5Int32Vx_A4HtAA7AddableRzAA9DividableRzAA12MultipliableRzAA12SubtractableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_applyFourProtocols_4675963C"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -1000,7 +1000,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ApplyThreeProtocols(T,int,int,int)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib19applyThreeProtocols_1a1b1cs5Int32Vx_A3GtAA7AddableRzAA12MultipliableRzAA12SubtractableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_applyThreeProtocols_952D693F"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -5845,7 +5845,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "CompareIdentifiables(T,U)\u00602",
-      "symbol": "$s20SwiftBindingsTestLib20compareIdentifiablesySbx_q_tAA11DescribableRzAA0C12IdentifiableRzAaDR_r0_lF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_compareIdentifiables_105E4FE7"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -6085,7 +6085,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "CompositionItemProcessor.DescribeBoth(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib24CompositionItemProcessorV12describeBothySSxAA11DescribableRzAA0C12IdentifiableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_CompositionItemProcessor_describeBoth_C11092BB"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -6095,7 +6095,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "CompositionItemProcessor.TagBoth(T,int)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib24CompositionItemProcessorV7tagBoth_0H0SSx_s5Int32VtAA11DescribableRzAA0C12IdentifiableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_CompositionItemProcessor_tagBoth_D67837A1"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -6360,7 +6360,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "Constrained(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib11constrainedySSxAA11DescribableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_constrained_BBA98441"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -8500,7 +8500,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "DescribeConstrained(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib19describeConstrainedySSxAA11DescribableRzAA0C12IdentifiableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_describeConstrained_CA6FF0E0"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -8555,7 +8555,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "DescribeLocalConformant(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib23describeLocalConformantySSx0abcD10Dependency0H8ProtocolRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_describeLocalConformant_430F5289"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -8570,7 +8570,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "DescribeName(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib12describeNameySSxAA5NamedRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_describeName_E53CA03C"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -8650,7 +8650,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "DescribePriority(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib16describePriorityySSxAA11PrioritizedRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_describePriority_FFCBFB08"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -8695,7 +8695,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "DescribeTask(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib12describeTaskySSxAA0F10DescriptorRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_describeTask_859F36AC"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -9360,27 +9360,27 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "EdCurve.Signing.PrivateKey.Sign(D)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib7EdCurveO7SigningO10PrivateKeyV4sign3for10Foundation4DataVx_tKAA12MessageBytesRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_PrivateKey_sign_7A8F5E54"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "EdCurve.Signing.PrivateKey.SignBlob(D)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib7EdCurveO7SigningO10PrivateKeyV8signBlob3forAA09SignatureK0Vx_tKAA12MessageBytesRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_PrivateKey_signBlob_308EFA2D"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "EdCurve.Signing.PrivateKey.SignWithContext(D,C)\u00602",
-      "symbol": "$s20SwiftBindingsTestLib7EdCurveO7SigningO10PrivateKeyV15signWithContext3for7context10Foundation4DataVx_q_tKAA12MessageBytesRzAaNR_r0_lF"
+      "symbol": "SBW_SwiftBindingsTestLib_PrivateKey_signWithContext_F74A4EED"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "EdCurve.Signing.PrivateKey.Verify(S,D)\u00602",
-      "symbol": "$s20SwiftBindingsTestLib7EdCurveO7SigningO10PrivateKeyV6verify_3forSbx_q_tAA12MessageBytesRzAaJR_r0_lF"
+      "symbol": "SBW_SwiftBindingsTestLib_PrivateKey_verify_64F14279"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "EdCurve.Signing.PrivateKey.VerifyWithContext(S,D,C)\u00603",
-      "symbol": "$s20SwiftBindingsTestLib7EdCurveO7SigningO10PrivateKeyV17verifyWithContext_3for7contextSbx_q_q0_tAA12MessageBytesRzAaKR_AaKR0_r1_lF"
+      "symbol": "SBW_SwiftBindingsTestLib_PrivateKey_verifyWithContext_5CFE7B70"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -10804,6 +10804,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "FrozenRowLayout.ColumnCount",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_FrozenRowLayout_columnCount"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FrozenRowLayout.FrozenRowLayout(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_FrozenRowLayout_init_A5DE66AE"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "FrozenScalarOptionalPair.First",
       "symbol": "SBW_Get_SwiftBindingsTestLib_FrozenScalarOptionalPair_first|SBW_Set_SwiftBindingsTestLib_FrozenScalarOptionalPair_first"
     },
@@ -11265,7 +11275,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "GenericMethodHost.DescribeWithTag(T,int)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib17GenericMethodHostC15describeWithTag_3tagSSx_s5Int32VtAA11DescribableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_GenericMethodHost_describeWithTag_7EB1D669"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -11275,17 +11285,17 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "GenericMethodHost.GetDescription(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib17GenericMethodHostC14getDescriptionySSxAA11DescribableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_GenericMethodHost_getDescription_F4FBD323"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "GenericMethodHost.PrintDescription(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib17GenericMethodHostC16printDescriptionyyxAA11DescribableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_GenericMethodHost_printDescription_D247565F"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "GenericMethodHost.StaticDescribe(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib17GenericMethodHostC14staticDescribeySSxAA11DescribableRzlFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_GenericMethodHost_staticDescribe_BD0B6D5E"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -11615,7 +11625,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "GetOwnerId(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib10getOwnerIdys5Int32VxAA7OwnableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_getOwnerId_F31D8BE1"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -12915,7 +12925,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "IsSameType(T,U)\u00602",
-      "symbol": "$s20SwiftBindingsTestLib10isSameTypeySbx_q_tr0_lF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_isSameType_5031699D"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -12965,7 +12975,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ItemProcessor.Describe(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib13ItemProcessorV8describeySSxAA11ProcessableRzlFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_ItemProcessor_describe_7ABC8A8C"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -12980,7 +12990,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ItemProcessor.ProcessItem(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib13ItemProcessorV07processE0ySSxAA11ProcessableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_ItemProcessor_processItem_8ADE508C"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -13200,7 +13210,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "KeyRegistrar.RegisterKey(K)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib12KeyRegistrarV08registerE0ySSxAA06NestedE8MaterialRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_KeyRegistrar_registerKey_F6B8FE45"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -13935,7 +13945,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "LeaseProbe.ConsumeGated(M,SwiftBindingsTestLib.LeaseContext)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib10LeaseProbeV12consumeGated_7contextSSx_AA0E7ContextCtAA14LeasedMaterialRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_LeaseProbe_consumeGated_96BBE5F3"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -13950,7 +13960,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "LeaseProbeRef.ConsumeGated(M)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib13LeaseProbeRefC12consumeGatedySSxAA14LeasedMaterialRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_LeaseProbeRef_consumeGated_3BE7FE49"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -16425,7 +16435,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "MultiConstrained(T)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib16multiConstrainedySSxAA11DescribableRzAA0C12IdentifiableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_multiConstrained_09235B5F"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -17429,6 +17439,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "NotARowLayout.ColumnCount",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_NotARowLayout_columnCount"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NotARowLayout.NotARowLayout(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_NotARowLayout_init_F5A9A1AE"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "NotSendablePlain.NotSendablePlain(int)",
       "symbol": "SBW_SwiftBindingsTestLib_NotSendablePlain_init_5FDEC7DF"
     },
@@ -17825,7 +17845,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OpaqueLabelCharacterCount(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib25opaqueLabelCharacterCountys5Int32VxAA17OpaqueDescribableRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_opaqueLabelCharacterCount_44F7BDE2"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -18750,7 +18770,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OwnedDataVault.Produce(S)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib14OwnedDataVaultV7producey10Foundation0F0VxAA0eF4SeedRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_OwnedDataVault_produce_B2E0CCA0"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -21530,7 +21550,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "RunProcessor(T0,string)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib12runProcessor_5inputSSx_SStAA06StringF0RzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_runProcessor_9985F4C4"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -22685,7 +22705,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "SimpleRowAdapter.LayoutedAdapter(T0)\u00601",
-      "symbol": "$s20SwiftBindingsTestLib16SimpleRowAdapterC08layoutedG04fromSSx_tKAA0F6LayoutRzlF"
+      "symbol": "SBW_SwiftBindingsTestLib_SimpleRowAdapter_layoutedAdapter_34B71DED"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26980,7 +27000,7 @@
     {
       "module": "SwiftBindingsTestLibDependency",
       "signature": "DescribeDependency(T0)\u00601",
-      "symbol": "$s30SwiftBindingsTestLibDependency08describeE0ySSxAA0E8ProtocolRzlF"
+      "symbol": "SBW_SwiftBindingsTestLibDependency_Free_describeDependency_E703B346"
     },
     {
       "module": "SwiftBindingsTestLibDependency",

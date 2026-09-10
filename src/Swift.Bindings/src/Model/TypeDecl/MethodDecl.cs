@@ -476,6 +476,16 @@ namespace BindingsGeneration
         public bool HasClosureParams { get; set; } = false;
 
         /// <summary>
+        /// Whether this method's @_cdecl wrapper opens the method's OWN generic parameters from
+        /// type-argument metadata instead of carrying generic context it cannot express.
+        /// Set by MethodHandler alongside <see cref="UsesCdeclMethodWrapper"/>; read by the
+        /// signature contract, the P/Invoke emitter and the marshal plan so both sides of the
+        /// seam agree on the parameter list. Explicit rather than re-derived at each site so a
+        /// synthesized decl can never be routed here by a predicate that happens to match.
+        /// </summary>
+        public bool UsesMethodLevelGenericOpening { get; set; } = false;
+
+        /// <summary>
         /// True when closure params should use Cdecl marshalling (IntPtr funcPtr + IntPtr context).
         /// Covers standalone closure wrappers (HasClosureCdeclWrapper) and @_cdecl wrappers
         /// (method or constructor) that handle closure params inline.

@@ -1355,7 +1355,13 @@ namespace BindingsGeneration
                 !methodEnv.MethodDecl.UsesNativeThunk)
             {
                 methodEnv.MethodDecl.UsesWrapperLibrary = false;
-                bool debugCdeclEligible = WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired;
+                // Method-own generics are excluded here even when the wrapper decision admits them:
+                // this path routes the wrapper body through a `_dbg_` @_silgen_name shim, and the
+                // opening wrapper calls the Swift member by name so it can pass the opened type
+                // argument. Combining the two is a shape of its own; these members keep the direct
+                // route until it exists.
+                bool debugCdeclEligible = !WrapperValidation.HasMethodOwnGenericParameters(methodEnv.MethodDecl)
+                    && WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
 
                 if (debugCdeclEligible)
@@ -1416,6 +1422,14 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
                 methodEnv.PromoteSymbol(cdeclSymbol);
+
+                // A member with its own generic parameters has no C-callable ABI to wrap directly:
+                // its wrapper is a free @_cdecl that takes the type-argument metadata as ordinary
+                // pointers and re-enters the generic context by opening them. Recorded explicitly
+                // so the signature contract, the P/Invoke emitter and the marshal plan all see the
+                // same route, and so a decl synthesized elsewhere cannot land on it by accident.
+                if (MethodLevelGenericOpening.IsOpenable(methodEnv))
+                    methodEnv.MethodDecl.UsesMethodLevelGenericOpening = true;
 
                 // Mark if this @_cdecl method wrapper handles closure params inline
                 if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
