@@ -152,7 +152,16 @@ internal static class MethodLevelGenericOpening
         // Return position: v1 keeps the return on shapes the managed side already proves. A return
         // that MENTIONS an own generic parameter needs the indirect-result buffer sized from the
         // opened layout, which is a separate managed change.
-        if (TypeSpecMentionsAny(methodDecl.CSSignature.First().SwiftTypeSpec, ownNames))
+        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+        if (TypeSpecMentionsAny(returnSpec, ownNames))
+            return false;
+
+        // A dynamic `Self` return has to be written as the parent type inside the opened bodies — a
+        // local generic function has no enclosing type for `Self` to resolve against. The renderer
+        // owns which shapes it can spell; one it cannot is declined here so the member keeps its
+        // working direct route instead of emitting a wrapper the Swift compile then withdraws.
+        if (returnSpec.HasDynamicSelf
+            && MethodLevelGenericWrapperEmitter.TryRenderDynamicSelfReturn(env.ParentDecl, returnSpec) == null)
             return false;
 
         // Parameter positions: an own generic parameter may appear only as a whole by-value

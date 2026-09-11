@@ -356,11 +356,67 @@ internal static class MethodLevelGenericWrapperEmitter
     /// <summary>
     /// The Swift return clause for the opened bodies. The bodies return the ORIGINAL Swift value —
     /// result lowering (utf8 slice, indirect buffer, error sentinel) happens once, outside them.
+    ///
+    /// <para>
+    /// <c>Self</c> is the one spelling that cannot be carried through verbatim: the opened bodies are
+    /// LOCAL functions inside a free <c>@_cdecl</c>, which has no enclosing type, so swiftc rejects
+    /// "local function cannot return 'Self'" and the whole wrapper is withdrawn. It resolves to the
+    /// parent type, which is also the static type the inner call actually produces — self was
+    /// reconstructed as the concrete parent by <see cref="SelfReconstructionEmitter"/>. A dynamic
+    /// <c>Self</c> return is admitted for class parents only (the guard in
+    /// <see cref="WrapperValidation"/>), which is what makes the parent name always available here;
+    /// the same substitution is why the async free-function wrapper resolves it too.
+    /// </para>
     /// </summary>
     private static string ReturnClauseFor(MethodEnvironment env, TypeSpec returnTypeSpec, bool isVoidReturn)
-        => isVoidReturn
-            ? ""
-            : $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)}";
+    {
+        if (isVoidReturn)
+            return "";
+
+        if (returnTypeSpec.HasDynamicSelf)
+        {
+            // TryBuildPlan asks the same question and declines a shape this cannot spell, so a null
+            // here means the plan builder and the renderer have drifted apart. Interpolating the
+            // null would write `-> ` and hand swiftc a wrapper it rejects — back to the silent
+            // withdrawal this pair exists to prevent — so fail where the drift is, not downstream.
+            var selfReturn = TryRenderDynamicSelfReturn(env.ParentDecl, returnTypeSpec)
+                ?? throw new InvalidOperationException(
+                    $"Opening wrapper for '{env.MethodDecl.Name}' reached emission with a dynamic Self "
+                    + "return the renderer cannot spell; MethodLevelGenericOpening.TryBuildPlan should "
+                    + "have declined it.");
+            return $" -> {selfReturn}";
+        }
+
+        return $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)}";
+    }
+
+    /// <summary>
+    /// The parent-type spelling that stands in for a dynamic <c>Self</c> return inside the opened
+    /// bodies, or <c>null</c> when this shape cannot be spelled there at all.
+    ///
+    /// <para>
+    /// Bare <c>Self</c> and <c>Optional&lt;Self&gt;</c> are the two shapes the wrapper gates admit —
+    /// the same pair <see cref="CdeclReturnMapping.Classify"/> maps to the (optional) class-pointer
+    /// return — and the only two that rewrite to a name without rebuilding the spec structurally.
+    /// <see cref="MethodLevelGenericOpening.TryBuildPlan"/> asks this question too, so a shape this
+    /// cannot spell is declined off the route rather than emitted and then withdrawn.
+    /// </para>
+    /// </summary>
+    internal static string? TryRenderDynamicSelfReturn(BaseDecl? parentDecl, TypeSpec returnTypeSpec)
+    {
+        // A dynamic Self return is admitted for class parents only (the guard in WrapperValidation),
+        // so the parent is always a nominal type whose name can be written here.
+        if (parentDecl is not TypeDecl parentTypeDecl)
+            return null;
+
+        var parentName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        if (returnTypeSpec.IsDynamicSelf)
+            return parentName;
+        if (returnTypeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optSelf
+            && optSelf.GenericParameters[0].IsDynamicSelf)
+            return $"{parentName}?";
+        return null;
+    }
 
     /// <summary>
     /// The local generic parameter name introduced by the opened body at this level. This one is a

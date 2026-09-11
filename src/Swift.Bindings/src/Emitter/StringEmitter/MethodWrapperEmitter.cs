@@ -1358,7 +1358,12 @@ public static class MethodWrapperEmitter
                 """);
             if (!isVoidReturn && !cdeclNeedsResultPtr)
             {
-                swiftWriter.WriteLine("    return 0"); // sentinel
+                // The sentinel has to be a value of the DECLARED cdecl return type, which is
+                // returnMapping.CdeclReturnType above — a pointer for a class return, nil for an
+                // optional one. An integer literal only happens to fit the scalar kinds; on the
+                // pointer kinds swiftc rejects the whole wrapper, and a rejected wrapper is
+                // withdrawn rather than failing loudly.
+                CdeclReturnRenderer.WriteErrorSentinel(swiftWriter, returnMapping);
             }
             swiftWriter.WriteLine("}");
         }

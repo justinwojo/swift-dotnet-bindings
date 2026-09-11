@@ -42,16 +42,6 @@ Standing framing, extracted from the 0.18.0 regression (16 red corpus cells behi
 
 ---
 
-## Pending agreed work
-
-Small leftovers we already committed to, not a new program.
-
-| Item | Notes |
-|------|-------|
-| **Reroute untyped-`SwiftSelf` members onto `@_cdecl` wrappers** | Mono's managed-to-native wrapper can park its GC-safe-region cookie in `x20`, which `CallConvSwift` reserves for `SwiftSelf`; the reroute removes the register collision by removing the reserved register from the signature. The generator is already wrapper-by-default and the direct route is the fallback taken when an eligibility guard rejects, so the work is closing those eligibility buckets — roughly 149 untyped-`SwiftSelf` direct P/Invokes in the current corpus — rather than adding a Mono-shaped predicate. Opens with an inventory of why direct is still the default for each of them and what widening the wrapper rate costs. Design brief: `src/docs/mono-x20-cdecl-reroute.md`. |
-
----
-
 ## Demand-driven capability backlog
 
 Real capability gaps with an active incremental trajectory — closed shape-by-shape as consumer demand or validation signal arrives, not scheduled as sessions.

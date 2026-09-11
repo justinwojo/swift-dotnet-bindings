@@ -119,6 +119,8 @@ This shape was originally reported as the trigger, on the basis that `Set.contai
 
 Route the member through an `@_cdecl` Swift wrapper. A `CallConvCdecl` signature carries neither `SwiftSelf` nor `SwiftError`, so `x20`/`x21` are ordinary callee-saved registers the wrapper may legally park the cookie in — there is no reserved register for it to collide with. (The original rationale given here — "avoids the mixed tuple-return ABI" — was based on the superseded shape hypothesis; the workaround is effective, but for the register reason.)
 
+**Status (2026-09-10):** applied in this repo — the generator's wrapper route was widened to cover the reroutable population, taking direct `CallConvSwift` declarations carrying an untyped `SwiftSelf` from 149 to 85 and typed `SwiftSelf<T>` to 0; what remains is held open by obstructions above the ABI rather than by the wrapper route, and is registered in `src/docs/not-planned.md`.
+
 ```swift
 @_cdecl("swiftset_insert")
 public func swiftset_insert(_ setPtr: UnsafeMutableRawPointer, _ value: Int) -> Int32 {

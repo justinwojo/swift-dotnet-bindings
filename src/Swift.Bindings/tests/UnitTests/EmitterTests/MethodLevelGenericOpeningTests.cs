@@ -201,6 +201,57 @@ public class MethodLevelGenericOpeningTests
         Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TryBuildPlan_DynamicSelfReturn_OpensAndNamesTheParentInstead(bool optional)
+    {
+        // The opened bodies are LOCAL functions inside a free @_cdecl, which has no enclosing type
+        // for `Self` to resolve against, so the route admits the member only because the renderer
+        // can write the parent's name in its place. Both admitted shapes — bare `Self` and
+        // `Optional<Self>` — resolve to that name.
+        TypeSpec selfSpec = new NamedTypeSpec("Self");
+        if (optional)
+            selfSpec = new NamedTypeSpec("Swift.Optional", selfSpec);
+
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: selfSpec);
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var expected = optional ? "TestModule.MyType?" : "TestModule.MyType";
+        Assert.Equal(expected, MethodLevelGenericWrapperEmitter.TryRenderDynamicSelfReturn(env.ParentDecl, selfSpec));
+
+        // The renderer agreeing in isolation is not the defect this covers: the bug was the
+        // emitted local function still saying `-> Self`. Assert on the Swift text so reverting
+        // the renderer's use at the emission site fails here too.
+        var sw = new StringWriter();
+        MethodLevelGenericWrapperEmitter.Emit(
+            new SwiftWriter(sw), env, new ModuleEmissionContext(), "SBW_TestModule_MyType_describe_TEST", opened);
+        var swift = sw.ToString();
+
+        Assert.Contains($"-> {expected}", swift);
+        Assert.DoesNotContain("-> Self", swift);
+    }
+
+    [Fact]
+    public void TryBuildPlan_DynamicSelfReturnTheRendererCannotSpell_Declines()
+    {
+        // A `Self` buried in a shape the renderer cannot rewrite to a name is declined here rather
+        // than emitted and then withdrawn by the Swift compile — a decline leaves the member on the
+        // direct route it already has, which works.
+        TypeSpec nestedSelf = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Self"));
+
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: nestedSelf);
+
+        Assert.Null(MethodLevelGenericWrapperEmitter.TryRenderDynamicSelfReturn(env.ParentDecl, nestedSelf));
+        Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
+    }
+
     [Fact]
     public void TryBuildPlan_InOutGenericParameter_Declines()
     {

@@ -1,8 +1,8 @@
 {
-  "git_sha": "1bd6dc49f",
+  "git_sha": "53a79aac3",
   "platforms": {
     "simulator": {
-      "pass_count": 3994,
+      "pass_count": 4000,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -158,7 +158,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 3998,
+      "pass_count": 4004,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -294,7 +294,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 3941,
+      "pass_count": 4000,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -450,7 +450,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 2997,
+      "pass_count": 3152,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -466,16 +466,6 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRun",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRunWithFilter",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
@@ -501,11 +491,6 @@
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
           "reason": "weak/unowned references not supported by generator"
-        },
-        {
-          "class": "MethodLevelGenericTests",
-          "method": "TestGenericMethodHost_MixedParams",
-          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
@@ -571,27 +556,12 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderConstruction",
-          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderSum",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 2999,
+      "pass_count": 3154,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -607,16 +577,6 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRun",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRunWithFilter",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
@@ -642,11 +602,6 @@
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
           "reason": "weak/unowned references not supported by generator"
-        },
-        {
-          "class": "MethodLevelGenericTests",
-          "method": "TestGenericMethodHost_MixedParams",
-          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
@@ -737,27 +692,12 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderConstruction",
-          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderSum",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3106,
+      "pass_count": 3261,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -773,16 +713,6 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRun",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
-        },
-        {
-          "class": "GenericClosureBridgeTests",
-          "method": "TestGenericProcessorRunWithFilter",
-          "reason": "MCB entry points not exported from dylib for generic parent classes"
         },
         {
           "class": "InoutStructDispatchTests",
@@ -808,11 +738,6 @@
           "class": "LeakDetectionTests",
           "method": "TestTreeCycleWithWeakParent",
           "reason": "weak/unowned references not supported by generator"
-        },
-        {
-          "class": "MethodLevelGenericTests",
-          "method": "TestGenericMethodHost_MixedParams",
-          "reason": "Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug (\u0027Cannot transition thread from STARTING with DONE_BLOCKING\u0027) in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics."
         },
         {
           "class": "NestedOfParentTests",
@@ -903,21 +828,6 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderConstruction",
-          "reason": "Variadic constructor suppressed by non-blittable CallConvSwift guard \u2014 no public init(values:) emitted"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicHolderSum",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
-        },
-        {
-          "class": "WrapperStrippingTests",
-          "method": "TestVariadicMethodEmittedViaCallConvSwift",
-          "reason": "Variadic constructor suppressed \u2014 can\u0027t construct VariadicHolder"
         }
       ],
       "known_fails": []

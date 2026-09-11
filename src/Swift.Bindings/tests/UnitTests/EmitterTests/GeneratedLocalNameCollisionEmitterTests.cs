@@ -90,6 +90,103 @@ public class GeneratedLocalNameCollisionEmitterTests
         Assert.DoesNotContain(locals, n => n.StartsWith("__", StringComparison.Ordinal));
     }
 
+    // The body locals a parameter spawns are named by suffixing it — `{param}Ptr` for a pinned
+    // pointer, `{param}Buffer` for a payload copy — so a parameter can collide with a synthetic
+    // local without being spelled like one. Those names are composed and read back as bare strings
+    // at their own emission sites, which is why the SYNTHETIC one is the side that has to move.
+    [Theory]
+    [InlineData("result", "resultPtr")]
+    [InlineData("result", "resultBuffer")]
+    [InlineData("buffer", "bufferPtr")]
+    [InlineData("payload", "payloadBuffer")]
+    [InlineData("hasValue", "hasValuePtr")]
+    public void ParameterWhoseDerivedLocalSpellsASynthetic_MovesTheSynthetic(
+        string parameterName, string derivedLocal)
+    {
+        var names = SyntheticLocalNames.Resolve(MethodTakingOneParameterNamed(parameterName));
+
+        // The derived local is left free for the marshalling site that composes it, so the
+        // synthetic that wanted the same spelling comes back under a different one.
+        Assert.DoesNotContain(derivedLocal, AllSyntheticNames(names));
+    }
+
+    [Fact]
+    public void ParameterSpawningNoCollision_LeavesEverySyntheticAtItsPreferredSpelling()
+    {
+        // The other half of the contract: seeding the derived family is inert unless something
+        // actually collides, so generated output for ordinary members is unchanged.
+        var names = SyntheticLocalNames.Resolve(MethodTakingOneParameterNamed("count"));
+
+        Assert.Equal("resultPtr", names.ResultPtr);
+        Assert.Equal("hasValuePtr", names.HasValuePtr);
+        Assert.Equal("bufferPtr", names.BufferPtr);
+        Assert.Equal("resultBuffer", names.ResultBuffer);
+        Assert.Equal("payloadBuffer", names.PayloadBuffer);
+    }
+
+    [Fact]
+    public void EverySyntheticNameIsDistinct_WhenAParameterCollidesWithOne()
+    {
+        // Moving one synthetic aside must not land it on another: they share a body.
+        var names = AllSyntheticNames(SyntheticLocalNames.Resolve(MethodTakingOneParameterNamed("result")));
+
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    private static List<string> AllSyntheticNames(SyntheticLocalNames names)
+        => new List<string>
+        {
+            names.ResultPtr, names.HasValuePtr, names.SwiftIndirectResult, names.BufferPtr,
+            names.ReturnMetadata, names.InnerMetadata, names.SelfMetadata, names.OptionalMetadata,
+            names.ResultBuffer, names.Tag, names.PayloadBuffer, names.ExistentialResult,
+            names.SwiftResult, names.SwiftResultValue, names.Success, names.AsyncHandle,
+        };
+
+    /// <summary>
+    /// The minimum a <see cref="SyntheticLocalNames.Resolve"/> needs: a member whose single emitted
+    /// parameter carries the requested name. Nothing here depends on the parameter's type, which is
+    /// the point — the derived-local seed is an over-approximation taken from the name alone.
+    /// </summary>
+    private static MethodDecl MethodTakingOneParameterNamed(string parameterName)
+    {
+        var argument = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            Name = parameterName,
+            PrivateName = parameterName,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var returnArgument = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            Name = string.Empty,
+            PrivateName = string.Empty,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        return new MethodDecl
+        {
+            Name = "compute",
+            MangledName = "$s10TestModule7computeyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { returnArgument, argument },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+    }
+
     [Fact]
     public void TheDuplicateCheckSeesDeclarationsOfEveryTypeShape()
     {

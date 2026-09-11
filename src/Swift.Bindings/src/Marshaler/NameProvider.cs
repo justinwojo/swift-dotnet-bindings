@@ -799,6 +799,68 @@ public static class NameProvider
             .SelectMany(p => new[] { GetCSharpParameterName(p), GetMarshallingBaseName(p) });
 
     /// <summary>
+    /// The suffixes the marshalling emitters append to a parameter's name to spell the scratch
+    /// locals that parameter spawns in the wrapper body — <c>{param}Ptr</c> for a pinned pointer,
+    /// <c>{param}Buffer</c> for a payload copy, and so on. Nothing consults this list at the sites
+    /// that write those locals; they are string-composed there and read back the same way. It exists
+    /// so the synthetic-local scope can know which identifiers the parameters will occupy before it
+    /// resolves names of its own.
+    /// <para>
+    /// It is deliberately an over-approximation: a parameter contributes every suffix here whether
+    /// or not its type actually allocates that local. Over-reserving costs nothing — the synthetic
+    /// spelling only moves when it would have collided, and a spelling nothing claims comes back
+    /// unchanged. Under-approximating is what fails, and fails as a redeclaration error in the
+    /// emitted C#. Suffixes the generated code prefixes with <c>_</c> or <c>__</c> are absent on
+    /// purpose: those cannot collide with an unprefixed synthetic in the first place.
+    /// </para>
+    /// </summary>
+    private static readonly string[] _parameterDerivedLocalSuffixes =
+    {
+        "Box", "Buf", "Buffer", "Bytes", "Closure", "Constant", "Container", "Context",
+        "CopyBuffer", "CopyBufferWrapper", "Disposable", "FuncPtr", "Handle", "Heap",
+        "HeapBuffer", "KeepAlive", "Len", "Metadata", "NonCopyablePayload", "NonCopyablePin",
+        "Owns", "Pin", "PinnedPtr", "Ptr", "SelfPtr", "Span", "StartFunc", "Swift",
+        "SwiftTemp", "Transferred", "TupleMeta", "Utf8Len", "Utf8Ptr", "Val",
+    };
+
+    /// <summary>
+    /// How many indexed <c>{param}Container{i}</c> locals one parameter is credited with. The
+    /// existential-container emitters index a container per composed protocol, so the count is a
+    /// property of the parameter's type rather than a constant; this is a ceiling generous enough to
+    /// cover the compositions the marshaler admits at all.
+    /// </summary>
+    private const int ParameterDerivedIndexedLocalCeiling = 8;
+
+    /// <summary>
+    /// Every identifier the member's parameters will occupy in its emitted body once the marshalling
+    /// emitters have spelled their derived locals — <c>{param}{suffix}</c> over
+    /// <see cref="_parameterDerivedLocalSuffixes"/>, under both spellings of each parameter.
+    /// <para>
+    /// This is the other half of what a synthetic local has to avoid. The parameter's own name is not
+    /// enough: a parameter named <c>result</c> spells <c>resultPtr</c>, which is also the preferred
+    /// spelling of the indirect-result buffer, and the two land in one method body. Neither side can
+    /// resolve that at its own emission site — the derived local is composed and read back as a bare
+    /// string by the signature builder, so it is the SYNTHETIC name that has to move, which it can
+    /// only do if the scope was told about the derived family up front.
+    /// </para>
+    /// </summary>
+    internal static IEnumerable<string> GetParameterDerivedLocalNames(MethodDecl method)
+    {
+        foreach (var name in GetEmittedParameterNames(method))
+        {
+            if (string.IsNullOrEmpty(name))
+                continue;
+
+            var bare = StripVerbatimPrefix(name);
+            foreach (var suffix in _parameterDerivedLocalSuffixes)
+                yield return bare + suffix;
+
+            for (var i = 0; i < ParameterDerivedIndexedLocalCeiling; i++)
+                yield return $"{bare}Container{i}";
+        }
+    }
+
+    /// <summary>
     /// Derives a meaningful parameter name from a Swift type specification.
     /// Strips module prefixes and common type prefixes (UI, NS) to produce
     /// short, idiomatic camelCase names.
@@ -2450,9 +2512,20 @@ public sealed class SyntheticLocalNames
     /// Resolves the synthetic-local bundle for a method, seeded from every identifier the member's
     /// parameters occupy in its body — both spellings of each emitted parameter, the public one and
     /// the marshalling base that also lives there as a <c>ref</c> alias when a sibling shadows one
-    /// of its derived locals. Declared parameters the signature builders drop contribute neither,
-    /// so a name only a dropped parameter holds cannot move a body local.
+    /// of its derived locals, AND the scratch locals those parameters spawn by suffixing
+    /// (<see cref="NameProvider.GetParameterDerivedLocalNames"/>). Declared parameters the signature
+    /// builders drop contribute none of the three, so a name only a dropped parameter holds cannot
+    /// move a body local.
+    /// <para>
+    /// The derived family belongs in the seed rather than being minted at its own emission site: the
+    /// emitters compose those names as bare strings and the signature builder reads them back the
+    /// same way, so minting them here would only hand back the synthetic name they collide with —
+    /// <see cref="SyntheticNameScope.Mint"/> answers one name per spelling. Seeding instead moves the
+    /// synthetic, which every reader already reaches through these properties.
+    /// </para>
     /// </summary>
     public static SyntheticLocalNames Resolve(MethodDecl method)
-        => new SyntheticLocalNames(new SyntheticNameScope(NameProvider.GetEmittedParameterNames(method)));
+        => new SyntheticLocalNames(new SyntheticNameScope(
+            NameProvider.GetEmittedParameterNames(method)
+                .Concat(NameProvider.GetParameterDerivedLocalNames(method))));
 }
