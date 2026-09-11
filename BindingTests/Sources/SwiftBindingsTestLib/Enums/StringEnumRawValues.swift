@@ -218,3 +218,73 @@ public func validateCaseSensitiveRoundTrip(_ rawValue: String) -> Bool {
     }
     return value.rawValue == rawValue
 }
+
+// MARK: - String-Raw Enum Returns Across the Wrapper Boundary
+
+/// String-raw enum returned by value from members that take the generated `@_cdecl` wrapper
+/// route. A `String` raw value is not a C-ABI scalar, so `.rawValue` is not what crosses the
+/// boundary: the case ordinal does, matching the `int` underlying type the managed enum
+/// declares. Covers the non-throwing conversion and the throwing wrapper's catch-block
+/// sentinel on both the method and the property emitter.
+@frozen public enum TransferMode: String {
+    case fast = "fast"
+    case slow = "slow"
+    case idle = "idle"
+}
+
+/// Exercises a String-raw enum return from the member kinds that reach the `@_cdecl` wrapper
+/// emitters. `pick` is the control that stays on the native-thunk route; `pickChecked` carries
+/// an `inout` parameter, which the thunk refuses, so its throwing body is emitted by the
+/// method wrapper emitter.
+public final class TransferModeSelector {
+    private let fallback: TransferMode
+
+    public init(fallback: String) {
+        self.fallback = TransferMode(rawValue: fallback) ?? .idle
+    }
+
+    /// Non-throwing method returning a String-raw enum by value (native-thunk control).
+    public func pick(_ wantFast: Bool) -> TransferMode {
+        return wantFast ? .fast : .slow
+    }
+
+    /// Throwing method returning a String-raw enum by value, with an `inout` parameter so the
+    /// member takes the wrapper route and reaches the throwing wrapper's catch-block sentinel.
+    public func pickChecked(_ attempts: inout Int32, wantFast: Bool) throws -> TransferMode {
+        attempts += 1
+        if fallback == .idle {
+            throw TransferModeError.unavailable
+        }
+        return wantFast ? .fast : .slow
+    }
+}
+
+/// Non-frozen struct parent: its property accessors use opaque (indirect-buffer) conventions
+/// that the native thunk refuses, so the String-raw enum getters are emitted by the property
+/// wrapper emitter — including the throwing getter's catch-block sentinel.
+public struct TransferModeBox {
+    private let stored: TransferMode
+
+    public init(mode: String) {
+        self.stored = TransferMode(rawValue: mode) ?? .idle
+    }
+
+    /// Non-throwing property returning a String-raw enum by value.
+    public var preferred: TransferMode {
+        return stored
+    }
+
+    /// Throwing property returning a String-raw enum by value.
+    public var validated: TransferMode {
+        get throws {
+            if stored == .idle {
+                throw TransferModeError.unavailable
+            }
+            return stored
+        }
+    }
+}
+
+public enum TransferModeError: Error {
+    case unavailable
+}

@@ -123,3 +123,18 @@ public func makeAlwaysThrowingIntClosure() -> () throws -> Int32 {
 public func makeNeverThrowingIntClosure() -> () throws -> Int32 {
     return { 99 }
 }
+
+// MARK: - Throwing Closure Returns That Are Not Integer-Literal Expressible
+
+/// Accepts a throwing closure whose return type is a frozen struct carrying no integer-literal
+/// initializer. A catch path that produced "zero of the declared type" by spelling it as an
+/// integer conversion could not name this type, so the shape pins which carrier the closure
+/// marshaller actually picks: the callback returns a heap pointer the adapter reads through, and
+/// the error arm rethrows rather than handing back a sentinel value.
+public func callThrowingClosureReturningPoint(_ callback: @escaping (Int32) throws -> CGPoint) -> Double {
+    do {
+        return try callback(3).x
+    } catch {
+        return -1
+    }
+}

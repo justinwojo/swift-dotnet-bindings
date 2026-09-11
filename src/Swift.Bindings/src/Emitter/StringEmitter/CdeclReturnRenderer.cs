@@ -100,20 +100,21 @@ internal static class CdeclReturnRenderer
     {
         switch (mapping.Kind)
         {
-            case CdeclReturnKind.Bool:
-                swiftWriter.WriteLine("    return 0");
-                break;
-            case CdeclReturnKind.SimpleEnum:
-                swiftWriter.WriteLine("    return 0");
-                break;
             case CdeclReturnKind.ClassPointer:
                 swiftWriter.WriteLine("    return UnsafeMutableRawPointer(bitPattern: 1)!");
                 break;
             case CdeclReturnKind.OptionalClassPointer:
                 swiftWriter.WriteLine("    return nil");
                 break;
+            case CdeclReturnKind.Bool:
+            case CdeclReturnKind.SimpleEnum:
             case CdeclReturnKind.Direct:
-                swiftWriter.WriteLine("    return 0");
+                // Zero of the DECLARED cdecl return type. Spelling it as a conversion from the
+                // same mapping that chose that type is what keeps the sentinel honest: a bare
+                // `return 0` is an untyped assumption that the declared type is integer-literal
+                // expressible, and when the mapping picks something else the catch block stops
+                // compiling — which takes the whole wrapper down and withdraws the member.
+                swiftWriter.WriteLine($"    return {mapping.CdeclReturnType}(0)");
                 break;
         }
     }
@@ -154,9 +155,15 @@ internal static class CdeclReturnRenderer
         }
     }
 
+    /// <summary>
+    /// Whether the enum's <c>.rawValue</c> is what crosses the boundary. Shares its single oracle
+    /// with the wire type chosen in <see cref="CdeclReturnMapping.Classify"/>: a non-integral raw
+    /// value (Bool, floating-point, String) crosses as the case ordinal, so the conversion must
+    /// take the tag copy below rather than read <c>.rawValue</c> into a scalar it does not fit.
+    /// </summary>
     private static bool HasRawValue(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         => typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord)
-           && !string.IsNullOrEmpty(enumRecord.RawValueTypeName);
+           && CdeclParamMapper.HasCdeclScalarRawValue(enumRecord.RawValueTypeName);
 
     /// <summary>
     /// The raw-value conversion used to hand a Swift enum back across the <c>@_cdecl</c> boundary.

@@ -171,14 +171,13 @@ public static partial class ClosureEmitter
                 // Swift return type is non-optional. Construct a bitPattern-0 pointer; C#
                 // ignores the return when _errorOut is non-zero.
                 defaultReturnExpr = "return UnsafeMutableRawPointer(bitPattern: -1)!";
-            else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
-            {
-                var enumInfo = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType);
-                var scalar = enumInfo?.swiftScalar ?? "Int";
-                defaultReturnExpr = $"return {scalar}(0)";
-            }
             else
-                // Primitive: use 0-initialised value. C# discards the result on error.
+                // Primitive or simple enum: zero of the type the thunk actually declares. Reading
+                // that off `swiftReturnType` rather than re-deriving a scalar here is what keeps
+                // the sentinel and the signature from drifting apart — a second derivation can
+                // disagree with the first (an enum whose info lookup declines where the simple-enum
+                // predicate accepted it), and the mismatch surfaces as a wrapper that stops
+                // compiling. C# discards the result when the error out-param is set.
                 defaultReturnExpr = $"return {swiftReturnType}(0)";
 
             string successReturn = returnsVoid

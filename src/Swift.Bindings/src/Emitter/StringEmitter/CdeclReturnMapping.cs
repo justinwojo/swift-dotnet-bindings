@@ -120,10 +120,12 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
             if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
                 return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
-            // Simple enums: return raw value type
+            // Simple enums: return the scalar the value actually crosses as. An integral raw value
+            // crosses as itself; a Bool, floating-point or String raw value is not C-representable,
+            // so it crosses as the case ordinal — the same transport the managed enum declares.
             if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var rawType = CdeclParamMapper.GetSwiftRawValueType(typeRecord.RawValueTypeName);
+                var rawType = CdeclParamMapper.GetCdeclEnumTransportType(typeRecord.RawValueTypeName);
                 return (new CdeclReturnMapping(rawType, CdeclReturnKind.SimpleEnum), false);
             }
 

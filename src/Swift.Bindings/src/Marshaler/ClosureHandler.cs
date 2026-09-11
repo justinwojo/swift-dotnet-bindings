@@ -2482,11 +2482,13 @@ public partial class ClosureHandler
 
         var csUnderlying = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
         var swiftScalar = EnumHandler.GetSwiftScalarType(csUnderlying);
-        // hasRawValue is true only for numeric raw values where .rawValue/init(rawValue:)
-        // matches the integer callback ABI. String-backed enums use .rawValue -> String
-        // which doesn't match the Int32 ABI, so they must use the tag-only pointer path.
-        var hasRawValue = !string.IsNullOrEmpty(typeRecord.RawValueTypeName) &&
-                          typeRecord.RawValueTypeName != "String";
+        // hasRawValue is true only for integral raw values, where .rawValue/init(rawValue:)
+        // matches the integer callback ABI. A String-, Bool- or floating-point-backed enum's
+        // .rawValue is not that integer, so those take the tag-only pointer path. Shares the
+        // @_cdecl carriers' single oracle rather than naming the excluded types again here —
+        // spelling the rule twice is how the module-qualified "Swift.String" spelling slipped
+        // past an unqualified-only exclusion.
+        var hasRawValue = CdeclParamMapper.HasCdeclScalarRawValue(typeRecord.RawValueTypeName);
         // swiftRawType: the actual Swift raw value type (e.g., "Int") which may differ
         // from swiftScalar (e.g., "Int64"). Needed for init(rawValue:) casts where
         // Swift treats Int and Int64 as distinct types.

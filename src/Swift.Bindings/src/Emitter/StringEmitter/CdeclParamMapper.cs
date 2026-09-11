@@ -563,7 +563,7 @@ public static class CdeclParamMapper
             if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-                var rawType = GetSwiftRawValueType(typeRecord.RawValueTypeName);
+                var rawType = GetCdeclEnumTransportType(typeRecord.RawValueTypeName);
 
                 // The raw-value argument to init(rawValue:). For an enum parsed from Swift the cdecl
                 // integer type IS the declared RawValue, so the label binds directly. For an Apple
@@ -587,7 +587,7 @@ public static class CdeclParamMapper
                     // and a `guard let` / force-unwrap on a non-optional would not compile.
                     conversion = $"let {label}Val = {swiftType}(rawValue: {rawArg})";
                 }
-                else if (!string.IsNullOrEmpty(typeRecord.RawValueTypeName))
+                else if (HasCdeclScalarRawValue(typeRecord.RawValueTypeName))
                 {
                     // RawRepresentable enum: init(rawValue:) safely maps raw value → case
                     // regardless of in-memory storage size. The synthesized init?(rawValue:)
@@ -609,9 +609,11 @@ public static class CdeclParamMapper
                 }
                 else
                 {
-                    // Tag-only enum (no RawRepresentable): C# sends the case index as
-                    // a widened integer. Extract the tag from the low bytes via safe
-                    // memory load (little-endian: tag is in the first N bytes).
+                    // The case index crosses instead of a raw value — either because the enum has
+                    // no RawValue at all, or because its RawValue is not a C-ABI scalar (Bool,
+                    // floating-point, String), in which case the managed enum carries ordinals
+                    // too. C# sends that index as a widened integer; extract the tag from the low
+                    // bytes via a safe memory load (little-endian: tag is in the first N bytes).
                     conversion = $"var {label}Raw = {label}; let {label}Val = withUnsafeMutablePointer(to: &{label}Raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }}";
                 }
 
@@ -1047,6 +1049,44 @@ public static class CdeclParamMapper
 
         return $"{NameProvider.EscapeSwiftArgumentLabel(swiftLabel)}: ";
     }
+
+    /// <summary>
+    /// True when a simple enum's declared <c>RawValue</c> is an integral type — the only case in
+    /// which <c>.rawValue</c> / <c>init(rawValue:)</c> speak the same value the <c>@_cdecl</c>
+    /// boundary transports.
+    /// <para>
+    /// A raw value that is <c>Bool</c>, floating-point or <c>String</c> is not a C-ABI scalar, and
+    /// the managed surface does not try to make it one: the emitted C# enum carries the case
+    /// ORDINAL and an <c>int</c> underlying type. Those enums therefore cross as the ordinal, via
+    /// the tag copy, and asking for <c>.rawValue</c> is a category error — it yields an NSString
+    /// pointer, a floating-point register or a 1-byte Bool where the C# P/Invoke reads an
+    /// <c>Int32</c>. This is the one place that rule is decided, so the wire type, the wrapper's
+    /// conversion and the throwing wrapper's sentinel cannot disagree about it.
+    /// </para>
+    /// </summary>
+    internal static bool HasCdeclScalarRawValue(string? rawValueTypeName) => rawValueTypeName switch
+    {
+        "Swift.Int" or "Int" or "Swift.UInt" or "UInt" or
+        "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" or
+        "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" or
+        "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or
+        "Swift.Int64" or "Int64" or "Swift.UInt64" or "UInt64" => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// The type a simple enum's value is declared as when it crosses the <c>@_cdecl</c> boundary.
+    /// <para>
+    /// An integral raw value crosses as itself. Everything else — no raw value at all, or a Bool,
+    /// floating-point or String raw value — crosses as the case ordinal, whose width is whatever
+    /// the managed enum declares (<see cref="EnumHandler.GetCSharpEnumUnderlyingType"/>), so the
+    /// two sides agree by construction rather than by coincidence.
+    /// </para>
+    /// </summary>
+    internal static string GetCdeclEnumTransportType(string? rawValueTypeName)
+        => HasCdeclScalarRawValue(rawValueTypeName)
+            ? GetSwiftRawValueType(rawValueTypeName)
+            : EnumHandler.GetSwiftScalarType(EnumHandler.GetCSharpEnumUnderlyingType(rawValueTypeName));
 
     internal static string GetSwiftRawValueType(string? rawValueTypeName) => rawValueTypeName switch
     {

@@ -104,8 +104,8 @@ public class CdeclReturnRendererTests
     }
 
     [Fact]
-    public void Bool_Sentinel_IsZero()
-        => Assert.Equal("    return 0", WriteSentinel(Map(CdeclReturnKind.Bool, "Int8")));
+    public void Bool_Sentinel_IsZeroOfDeclaredCdeclType()
+        => Assert.Equal("    return Int8(0)", WriteSentinel(Map(CdeclReturnKind.Bool, "Int8")));
 
     // ----- SimpleEnum (raw value) ----------------------------------------------------------
 
@@ -202,8 +202,8 @@ public class CdeclReturnRendererTests
     }
 
     [Fact]
-    public void SimpleEnum_Sentinel_IsZero()
-        => Assert.Equal("    return 0", WriteSentinel(Map(CdeclReturnKind.SimpleEnum, "Int")));
+    public void SimpleEnum_Sentinel_IsZeroOfDeclaredCdeclType()
+        => Assert.Equal("    return Int32(0)", WriteSentinel(Map(CdeclReturnKind.SimpleEnum, "Int32")));
 
     // ----- ClassPointer --------------------------------------------------------------------
 
@@ -322,8 +322,29 @@ public class CdeclReturnRendererTests
     }
 
     [Fact]
-    public void Direct_Sentinel_IsZero()
-        => Assert.Equal("    return 0", WriteSentinel(Map(CdeclReturnKind.Direct, "Int")));
+    public void Direct_Sentinel_IsZeroOfDeclaredCdeclType()
+        => Assert.Equal("    return Int(0)", WriteSentinel(Map(CdeclReturnKind.Direct, "Int")));
+
+    /// <summary>
+    /// The sentinel's type must be the one the wrapper declared, not a fixed spelling: a catch
+    /// block that returns a bare <c>0</c> stops compiling the moment the mapping picks a type that
+    /// is not integer-literal expressible, and a wrapper that does not compile is withdrawn — the
+    /// member loses its binding with no gate going red. Covers every kind that renders a zero.
+    /// </summary>
+    [Theory]
+    [InlineData("Double")]
+    [InlineData("UInt64")]
+    [InlineData("Int8")]
+    [InlineData("Int")]
+    [InlineData("UInt8")]
+    public void ZeroSentinel_NamesTheDeclaredCdeclReturnType(string cdeclType)
+    {
+        var expected = $"    return {cdeclType}(0)";
+
+        Assert.Equal(expected, WriteSentinel(Map(CdeclReturnKind.Direct, cdeclType)));
+        Assert.Equal(expected, WriteSentinel(Map(CdeclReturnKind.Bool, cdeclType)));
+        Assert.Equal(expected, WriteSentinel(Map(CdeclReturnKind.SimpleEnum, cdeclType)));
+    }
 
     // ----- Write/Lines equivalence (the consolidation contract) ----------------------------
 

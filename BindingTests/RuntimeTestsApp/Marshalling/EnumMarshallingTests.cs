@@ -540,4 +540,73 @@ public class EnumMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region String-Raw Enum Returns Across the @_cdecl Wrapper Boundary
+
+    // A String raw value is not a C-ABI scalar, so the case ordinal is what crosses — matching
+    // the `int` underlying type the managed enum declares. These exercise every carrier: the
+    // native-thunk control, the method wrapper (throwing, via an inout parameter the thunk
+    // refuses) and the property wrapper on a non-frozen struct parent (non-throwing getter and
+    // throwing getter, both success and error arms).
+
+    public void TestStringRawEnumReturnFromThunkMethod()
+    {
+        using var selector = new TransferModeSelector("fast");
+        AssertEqual(TransferMode.Fast, selector.Pick(true), "Pick(true) returns .fast");
+        AssertEqual(TransferMode.Slow, selector.Pick(false), "Pick(false) returns .slow");
+    }
+
+    public void TestStringRawEnumReturnFromThrowingWrapperMethod()
+    {
+        using var selector = new TransferModeSelector("slow");
+        int attempts = 0;
+        AssertEqual(TransferMode.Fast, selector.PickChecked(ref attempts, true), "PickChecked returns .fast");
+        AssertEqual(1, attempts, "inout parameter written back");
+        AssertEqual(TransferMode.Slow, selector.PickChecked(ref attempts, false), "PickChecked returns .slow");
+        AssertEqual(2, attempts, "inout parameter accumulates");
+    }
+
+    public void TestStringRawEnumThrowingWrapperMethodSurfacesError()
+    {
+        using var selector = new TransferModeSelector("unrecognized"); // falls back to .idle
+        int attempts = 0;
+        AssertThrows<Exception>(() => selector.PickChecked(ref attempts, true),
+            "PickChecked throws instead of returning a sentinel value");
+    }
+
+    public void TestStringRawEnumReturnFromPropertyWrapperGetter()
+    {
+        using var box = new TransferModeBox("slow");
+        AssertEqual(TransferMode.Slow, box.Preferred, "Preferred returns .slow");
+        using var fast = new TransferModeBox("fast");
+        AssertEqual(TransferMode.Fast, fast.Preferred, "Preferred returns .fast");
+        using var unknown = new TransferModeBox("nope");
+        AssertEqual(TransferMode.Idle, unknown.Preferred, "Unrecognized raw value falls back to .idle");
+    }
+
+    public void TestStringRawEnumReturnFromThrowingPropertyWrapperGetter()
+    {
+        using var box = new TransferModeBox("fast");
+        AssertEqual(TransferMode.Fast, box.Validated, "Validated returns .fast on the success arm");
+    }
+
+    public void TestStringRawEnumThrowingPropertyWrapperGetterSurfacesError()
+    {
+        using var box = new TransferModeBox("nope"); // stored == .idle
+        AssertThrows<Exception>(() => { var _ = box.Validated; },
+            "Validated throws instead of returning a sentinel value");
+    }
+
+    public void TestStringRawEnumOrdinalMatchesDeclarationOrder()
+    {
+        // The transport is the declaration ordinal, not the raw string — so the managed enum's
+        // member values must equal the Swift case indices, and the raw value stays reachable
+        // through the generated extension rather than through the wire.
+        AssertEqual(0, (int)TransferMode.Fast, "Fast is ordinal 0");
+        AssertEqual(1, (int)TransferMode.Slow, "Slow is ordinal 1");
+        AssertEqual(2, (int)TransferMode.Idle, "Idle is ordinal 2");
+        AssertEqual("slow", TransferMode.Slow.ToRawValue(), "Raw value still round-trips off-wire");
+    }
+
+    #endregion
 }
