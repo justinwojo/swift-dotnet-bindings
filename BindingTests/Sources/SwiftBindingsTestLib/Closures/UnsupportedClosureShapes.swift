@@ -11,17 +11,28 @@ import Foundation
 // `// Unsupported: ... closure signature not yet supported` markers so any future fix
 // is forced to ratchet `build/baselines/skip-surface-baseline.json` downward in the same commit.
 //
-// Shape catalog:
+// Shape catalog, with the shapes that have since been bridged marked BOUND. The type names
+// are kept as they were so the corpus keeps one stable identity per shape; what a shape does
+// today is stated here rather than in its name.
 //   OptionalExistentialReturn   — closure return is `(any Error)?`
 //   AsyncThrowingClosureParam   — async+throwing closure parameter
-//   ArrayOfExistentialReturn    — closure returning `[any P]`
+//   ArrayOfExistentialReturn    — closure returning `[any P]`                        BOUND
 //   SendableOptionalExistential — optional existential with @Sendable
 //   AsyncVoidReturn             — `@escaping (Args) async -> Void` (not baseline-async)
-//   InoutClosureParameter       — the closure's OWN parameter is `inout`
+//   InoutClosureParameter       — the closure's OWN parameter is `inout`              BOUND
 //
-// All six shapes degrade today. Fixing each is a separate Closure-handler session
-// (per-shape evidence + indirect-return marshalling). Layer B's job here is to keep
-// the count visible.
+// The `inout` parameter rides a two-pointer @convention(c) lowering with a Swift-owned
+// write-back cell, and has runtime coverage (`InOutClosureParamTests`) so it cannot silently
+// regress. The array-of-existential return binds for the same reason it is safe to: a collection
+// carries its own Swift type metadata and boxes each element through its own element path, so the
+// existential is never marshalled on its own; `ExistentialClosureReturnTests` dispatches a protocol
+// requirement on each returned element to keep that honest.
+//
+// The two BARE existential returns and the two async shapes still degrade; fixing each is its own
+// pass. The bare returns are blocked on the managed side of the indirect-return channel rather than
+// on the channel itself: the projection of an existential payload carries no Swift type metadata,
+// so marshalling one into the adapter's buffer has no implementation to call. Layer B's job here is
+// to keep the remaining count visible.
 
 public protocol UnsupportedClosureSignal {
     func describe() -> String
@@ -63,6 +74,15 @@ public class UnsupportedClosureArrayOfExistentialReturn {
         _ collect: @escaping (UnsupportedClosureRequest) -> [any UnsupportedClosureSignal]
     ) -> Int32 {
         return Int32(collect(UnsupportedClosureRequest(id: 2)).count)
+    }
+
+    /// Dispatches through every element the block returned. Counting the array only proves the
+    /// collection crossed; calling a protocol requirement on each element proves each box carries
+    /// a witness table Swift can actually dispatch on.
+    public func describeAll(
+        _ collect: @escaping (UnsupportedClosureRequest) -> [any UnsupportedClosureSignal]
+    ) -> String {
+        return collect(UnsupportedClosureRequest(id: 3)).map { $0.describe() }.joined(separator: ",")
     }
 }
 

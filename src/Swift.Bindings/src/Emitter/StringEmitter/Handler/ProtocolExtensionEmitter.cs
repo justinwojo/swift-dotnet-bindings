@@ -1162,6 +1162,13 @@ public static class ProtocolExtensionEmitter
     {
         if (closure.IsAsync) return false;
 
+        // This predicate is also the admission exception that routes a member PAST the closure
+        // tombstone and on to ProtocolExtensionClosureBridge. The bridge lowers each closure
+        // argument by value and so declines `inout` outright, and the two have to agree: a shape
+        // admitted here but refused there is not skipped and not bridged, it just reaches ordinary
+        // emission with the delegate projected against a by-value parameter.
+        if (ClosureHandler.HasInOutArgument(closure)) return false;
+
         foreach (var arg in closure.EachArgument())
         {
             if (!IsClosureArgBridgeable(arg, typeDatabase))

@@ -985,13 +985,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 3954,
+      "pass": 3994,
       "fail": 0,
       "skip": 30,
       "crash": 0
     },
     "device": {
-      "pass": 3954,
+      "pass": 3998,
       "fail": 0,
       "skip": 26,
       "crash": 0
@@ -1034,6 +1034,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 18746
+    "swift_bindings_unit_pass_floor": 18771
   }
 }

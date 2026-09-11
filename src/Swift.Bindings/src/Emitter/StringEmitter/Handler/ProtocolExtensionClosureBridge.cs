@@ -50,6 +50,12 @@ public static class ProtocolExtensionClosureBridge
         if (closureTypeSpec == null || closureArg == null)
             return false;
 
+        // The write-back cell an `inout` closure parameter needs is emitted only by the ordinary
+        // @_cdecl closure adapter. This bridge lowers each closure argument by value, so admitting
+        // one would hand the caller a mutation that never reaches Swift.
+        if (ClosureHandler.HasInOutArgument(closureTypeSpec))
+            return false;
+
         // Analyze closure shape
         var closureArgs = closureTypeSpec.EachArgument().ToList();
         var closureReturnIsVoid = closureTypeSpec.ReturnType.IsEmptyTuple;

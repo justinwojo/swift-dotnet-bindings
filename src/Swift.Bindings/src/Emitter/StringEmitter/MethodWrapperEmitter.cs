@@ -807,7 +807,7 @@ public static class MethodWrapperEmitter
         }
         if (needsResultPtr && closureReturnSpec != null
             && env.ClosureHandler != null
-            && env.ClosureHandler.IsSupportedClosure(closureReturnSpec)
+            && env.ClosureHandler.IsSupportedClosure(closureReturnSpec, allowInOutArguments: false)
             && ClosureEmitter.CanUseInvokeThunk(closureReturnSpec, env.ClosureHandler))
         {
             var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);

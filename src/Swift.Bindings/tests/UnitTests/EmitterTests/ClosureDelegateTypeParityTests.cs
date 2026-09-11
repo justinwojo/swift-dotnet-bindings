@@ -193,36 +193,71 @@ public class ClosureDelegateTypeParityTests
     public void VoidClosure_PublicTypeMatchesCastTarget()
         => AssertPublicTypeMatchesCastTarget(Closure(null, null));
 
-    // ─── inout closure arguments are declined ───
+    // ─── inout closure arguments ride the cdecl route, and only that route ───
 
     /// <summary>
-    /// An `inout` parameter in the closure's own signature has no write-back channel: both closure
-    /// ABIs marshal by value, and C#'s <c>Action</c>/<c>Func</c> cannot express `ref` at all. Emitting
-    /// it produces a member that compiles on both sides and silently discards every mutation the
-    /// consumer makes, so the closure is refused and the member becomes a tombstone instead.
+    /// An `inout` parameter in the closure's own signature carries its write-back on the ordinary
+    /// <c>@convention(c)</c> adapter: the adapter hands the block the address of its copy of the
+    /// seeded value plus an empty cell, then assigns the cell into the caller's storage. Both gates
+    /// have to agree on the carrier — a shape the first admits and the second refuses falls to the
+    /// by-value direct lane, which lowers the argument by value and drops the mutation.
     /// </summary>
     [Fact]
-    public void InOutClosureArgument_IsNotSupported()
-    {
-        var handler = new ClosureHandler(CreateTypeDatabase());
-        var inoutArg = Named("Swift.Dictionary", Named("Swift.String"), Named("Swift.Int32"));
-        inoutArg.IsInOut = true;
-
-        Assert.False(handler.IsSupportedClosure(Closure(inoutArg, null)));
-    }
-
-    /// <summary>
-    /// A blittable `inout` is refused for the same reason. The mutation-dropping is a property of the
-    /// closure boundary, not of the argument being container-shaped.
-    /// </summary>
-    [Fact]
-    public void InOutBlittableClosureArgument_IsNotSupported()
+    public void InOutBlittableClosureArgument_IsSupportedAndCdeclCompatible()
     {
         var handler = new ClosureHandler(CreateTypeDatabase());
         var inoutArg = Named("Swift.Int32");
         inoutArg.IsInOut = true;
 
-        Assert.False(handler.IsSupportedClosure(Closure(inoutArg, Named("Swift.Int32"))));
+        Assert.True(handler.IsSupportedClosure(Closure(inoutArg, Named("Swift.Int32"))));
+        Assert.True(ClosureEmitter.IsCdeclCompatibleType(inoutArg, handler));
+    }
+
+    /// <summary>
+    /// A memory-managed carrier rides the same two-pointer lowering — the ABI is keyed on `inout`,
+    /// not on the carrier's own by-value lowering.
+    /// </summary>
+    [Fact]
+    public void InOutStringClosureArgument_IsSupportedAndCdeclCompatible()
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var inoutArg = Named("Swift.String");
+        inoutArg.IsInOut = true;
+
+        Assert.True(handler.IsSupportedClosure(Closure(inoutArg, null)));
+        Assert.True(ClosureEmitter.IsCdeclCompatibleType(inoutArg, handler));
+    }
+
+    /// <summary>
+    /// Every route WITHOUT a write-back cell — the invoke thunk, the closure bridges, a
+    /// closure-typed property — asks the same gate with the `inout` arm switched off, and must get
+    /// a refusal for the very carrier the cdecl adapter accepts.
+    /// </summary>
+    [Fact]
+    public void InOutClosureArgument_IsRefusedForRoutesWithoutWriteBack()
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var inoutArg = Named("Swift.Int32");
+        inoutArg.IsInOut = true;
+
+        Assert.False(handler.IsSupportedClosure(
+            Closure(inoutArg, Named("Swift.Int32")), allowInOutArguments: false));
+    }
+
+    /// <summary>
+    /// A reference cell stays refused on every route: Swift's `inout` of a class is a slot it
+    /// load/stores and releases the displaced object through, and the projection carries the object
+    /// rather than the slot.
+    /// </summary>
+    [Fact]
+    public void InOutClassClosureArgument_IsNotSupported()
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var inoutArg = Named(PayloadClass);
+        inoutArg.IsInOut = true;
+
+        Assert.False(handler.IsSupportedClosure(Closure(inoutArg, null)));
+        Assert.False(ClosureEmitter.IsCdeclCompatibleType(inoutArg, handler));
     }
 
     /// <summary>

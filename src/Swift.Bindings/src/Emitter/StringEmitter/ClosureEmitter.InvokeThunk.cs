@@ -656,6 +656,13 @@ public static partial class ClosureEmitter
     /// </summary>
     private static bool IsInvokeThunkCompatibleArg(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
+        // An `inout` argument is a cell Swift reads back after the call. The thunk lowers every
+        // argument by value, and the tests below match on the underlying type alone — an Int32
+        // still looks like a cdecl primitive, a struct still looks like a by-value struct — so
+        // without this the mutation would be silently discarded. Refuse the shape here so the
+        // whole thunk is declined rather than emitted with a dropped write-back.
+        if (typeSpec.IsInOut)
+            return false;
         if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
             return true;
         if (closureHandler.IsSimpleEnum(typeSpec))

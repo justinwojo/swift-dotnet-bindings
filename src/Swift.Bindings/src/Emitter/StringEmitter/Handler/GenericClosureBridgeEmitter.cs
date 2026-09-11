@@ -73,6 +73,11 @@ public static class GenericClosureBridgeEmitter
 
         var (closureArg, closureTypeSpec) = closureInfo.Value;
 
+        // As in the sibling closure bridges: closure `inout` parameters are written back only by
+        // the ordinary @_cdecl closure adapter, and every argument here is lowered by value.
+        if (ClosureHandler.HasInOutArgument(closureTypeSpec))
+            return false;
+
         // Get module name for SBW_CreateError
         var moduleName = methodDecl.ModuleDecl?.Name ?? "SwiftBindings";
 

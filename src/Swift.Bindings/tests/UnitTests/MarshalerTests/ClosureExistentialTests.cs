@@ -482,6 +482,37 @@ public class ClosureExistentialTests
     }
 
     [Fact]
+    public void IsSupportedClosure_InOutArgumentWithSuppressedProxySibling_IsRefused()
+    {
+        // The `inout` write-back is emitted by the escaping-closure trampoline, whose body
+        // collapses to a no-op when ANY argument needs a proxy that was never emitted; a collapsed
+        // body returns without writing the out-cell the Swift adapter then moves out of. This
+        // asserts the end behaviour — such a closure is not admitted — rather than which gate
+        // refuses it. Today closure-parameter admission already rejects a suppressed-proxy
+        // carrier, and the explicit sibling walk in the inout arm is a second line of defence, so
+        // removing either one alone leaves this green. What it does catch is a future widening of
+        // parameter admission that let the shape through with no inout-side guard in place.
+        var typeDatabase = CreateTypeDatabaseWithProtocol(
+            "TestModule.ImageProcessing", TypeRecordFlags.HasAssociatedTypes);
+        var handler = new ClosureHandler(typeDatabase);
+
+        var suppressedSibling = new NamedTypeSpec("Swift.Array", ConstrainedExistentialSpec);
+        Assert.True(handler.IsProxyReferenceSuppressed(suppressedSibling));
+
+        // Positive control: the inout carrier on its own IS admitted in this database, so the
+        // refusal below is attributable to the sibling rather than to the inout argument.
+        var inoutArg = new NamedTypeSpec("Swift.Int") { IsInOut = true };
+        Assert.True(handler.IsSupportedClosure(
+            new ClosureTypeSpec(new NamedTypeSpec("Swift.Int") { IsInOut = true },
+                TupleTypeSpec.Empty)));
+
+        var closure = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { suppressedSibling, inoutArg }), TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
     public void IsProxyReferenceSuppressed_ContainerOfConstrainedSelfATExistential_True()
     {
         // Container recursion: an Array whose ELEMENT is the never-emitted-proxy existential must

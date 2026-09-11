@@ -62,6 +62,15 @@ public static class NestedClosureBridge
 
         if (closureArgs.Count == 0) return false;
 
+        // Same reason as the sibling closure bridge: this emitter lowers every closure argument
+        // by value, and only the ordinary @_cdecl closure adapter carries the write-back cell an
+        // `inout` parameter needs. Refuse the shape rather than emit a silently lossy bridge.
+        foreach (var closureArg in closureArgs)
+        {
+            if (ClosureHandler.HasInOutArgument(closureHandler.GetClosureTypeSpec(closureArg)!))
+                return false;
+        }
+
         // Validate each outer closure
         foreach (var closureArg in closureArgs)
         {

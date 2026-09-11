@@ -323,7 +323,7 @@ namespace BindingsGeneration
                     _env.ClosureHandler.IsOptionalClosure(returnArg.SwiftTypeSpec))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
-                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                     {
                         // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
                         var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
@@ -510,7 +510,7 @@ namespace BindingsGeneration
                 if (_env.MethodDecl.UsesCdeclWrapper && _env.ClosureHandler.IsClosure(returnArg))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
-                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                     {
                         // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
                         var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
@@ -864,7 +864,7 @@ namespace BindingsGeneration
             if (_env.ClosureHandler.IsClosure(returnArg))
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
-                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                 {
                     // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
                     var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);

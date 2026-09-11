@@ -144,6 +144,16 @@ public partial class ClosureHandler
             return new DirectClosureArgLowering(
                 DirectClosureArgAbi.Unmodelled, Array.Empty<string>(), typeSpec.ToString());
 
+        // An `inout` argument is a cell the callee is expected to write through. This lane hands the
+        // trampoline a register holding a COPY of the value and has no channel back, so lowering one
+        // here produces a member that compiles and drops every mutation. The write-back bridge lives
+        // on the @_cdecl adapter, which builds a second cell for the result and assigns it into the
+        // caller's storage; this lane has no adapter to build one in, so the shape is failed closed
+        // and the member is skipped rather than lowered by value.
+        if (typeSpec.IsInOut)
+            return new DirectClosureArgLowering(
+                DirectClosureArgAbi.Unmodelled, Array.Empty<string>(), typeSpec.ToString());
+
         // Anything the P/Invoke translation already declares as a concrete blittable type
         // (primitive, Bool, tuple, supported existential container) is passed in the shape the
         // declaration says, so the register content already matches. No-payload enums are the one

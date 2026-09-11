@@ -103,6 +103,16 @@ public static class CompletionHandlerDetector
         if (closureSpec.HasReturn())
             return CallbackShape.Unsupported;
 
+        // An `inout` argument is a cell the block writes back into, not a result delivered once.
+        // A Task can only observe a value, and the slot stops being writable the moment the block
+        // returns — so there is no honest Task projection of the shape. Leave it to the ordinary
+        // callback overload, which hands the consumer the live slot.
+        foreach (var arg in closureSpec.EachArgument())
+        {
+            if (arg.IsInOut)
+                return CallbackShape.Unsupported;
+        }
+
         int argCount = closureSpec.ArgumentCount();
         if (!closureSpec.HasArguments())
         {

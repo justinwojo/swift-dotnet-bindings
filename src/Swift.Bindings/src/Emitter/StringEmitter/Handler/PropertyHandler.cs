@@ -182,7 +182,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (isClosure)
         {
             var closureTypeSpec = propertyEnv.ClosureHandler.GetClosureTypeSpec(propertyDecl);
-            if (closureTypeSpec == null || !propertyEnv.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+            // allowInOutArguments: false — a closure-typed property is read back OUT to C# through
+            // the invoke-thunk lane, which has no write-back cell for a closure `inout` parameter.
+            if (closureTypeSpec == null || !propertyEnv.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
             {
                 _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} with unsupported closure type.");
                 SkipProperty(SkipReason.UnsupportedClosure, "Closure type is not supported.");
@@ -1925,7 +1927,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         if (closureReturnSpec == null) return;
-        if (!closureHandler.IsSupportedClosure(closureReturnSpec)) return;
+        if (!closureHandler.IsSupportedClosure(closureReturnSpec, allowInOutArguments: false)) return;
         if (!ClosureEmitter.CanUseInvokeThunk(closureReturnSpec, closureHandler)) return;
 
         var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);

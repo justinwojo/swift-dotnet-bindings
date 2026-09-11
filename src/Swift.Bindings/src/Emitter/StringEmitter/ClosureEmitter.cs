@@ -87,6 +87,10 @@ public static partial class ClosureEmitter
                 // Direct lane: a loadable argument arrives exploded across registers, so declare the
                 // words past the first as their own parameters.
                 AppendDirectLaneExtraWordParameters(parameters, arg, argIndex, closureHandler, useCdecl);
+                // Write-back cell for an `inout` argument: uninitialized storage the Swift adapter
+                // allocated and this callback initializes with the value the block left in its slot.
+                if (useCdecl && arg.IsInOut)
+                    parameters.Add($"IntPtr arg{argIndex}_out");
             }
             argTypes.Add(arg);
             argIndex++;
@@ -146,33 +150,70 @@ public static partial class ClosureEmitter
         // Build argument list for invoking the delegate
         // Handle type conversions: byte->bool, void*->struct marshalling
         var invokeArgs = new List<string>();
+        // An `inout` argument is handed to the consumer as a mutable slot rather than a value, and
+        // whatever the block leaves in it is published to Swift after the block returns.
+        var inOutSlotLines = new List<string>();
+        var inOutWriteBackLines = new List<string>();
         for (int i = 0; i < argIndex; i++)
         {
             var argExpr = GetInvokeArgExpression(argTypes[i], i, closureHandler, useCdecl);
+            if (useCdecl && argTypes[i].IsInOut)
+            {
+                var slotVar = $"__inout{i}";
+                var slotType = closureHandler.GetCSharpClosureArgumentType(argTypes[i]);
+                inOutSlotLines.Add($"var {slotVar} = new {slotType}({argExpr});");
+                inOutWriteBackLines.Add(BuildInOutWriteBackStatement(argTypes[i], i, closureHandler, slotVar));
+                argExpr = slotVar;
+            }
             invokeArgs.Add(argExpr);
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
 
+        // With a write-back pending, the delegate's result is held in a local so the mutations land
+        // in Swift's cells before the callback returns or writes its own result buffer.
+        var delegateCallExpr = $"del({invokeArgsString})";
+        var inOutPrologue = string.Empty;
+        if (inOutWriteBackLines.Count > 0)
+        {
+            var statements = new List<string>(inOutSlotLines);
+            if (hasReturn)
+            {
+                statements.Add($"var __delegateResult = {delegateCallExpr};");
+                statements.AddRange(inOutWriteBackLines);
+                delegateCallExpr = "__delegateResult";
+            }
+            else
+            {
+                statements.Add($"{delegateCallExpr};");
+                statements.AddRange(inOutWriteBackLines);
+                delegateCallExpr = string.Empty;
+            }
+
+            inOutPrologue = string.Join("\n" + InOutStatementIndent, statements) + "\n" + InOutStatementIndent;
+        }
+
         // Build the return statement using the shared conversion logic
         string returnStatement;
-        if (isIndirectReturn && hasReturn)
+        if (!hasReturn)
+        {
+            // The void case already ran the delegate inside the prologue when a write-back was
+            // pending; otherwise the call is the whole statement.
+            returnStatement = delegateCallExpr.Length == 0 ? string.Empty : $"{delegateCallExpr};";
+        }
+        else if (isIndirectReturn)
         {
             returnStatement = BuildCallbackIndirectReturnStatement(
                 closureTypeSpec.ReturnType,
-                $"del({invokeArgsString})",
+                delegateCallExpr,
                 closureHandler);
-        }
-        else if (!hasReturn)
-        {
-            returnStatement = $"del({invokeArgsString});";
         }
         else
         {
             returnStatement = BuildCallbackReturnStatement(
                 closureTypeSpec.ReturnType,
-                $"del({invokeArgsString})",
+                delegateCallExpr,
                 closureHandler,
                 returnType);
         }
@@ -209,7 +250,7 @@ public static partial class ClosureEmitter
                 try
                 {
                     {{argPrologue}}var del = {{extractCall}};
-                    {{returnStatement}}
+                    {{inOutPrologue}}{{returnStatement}}
                 }
                 catch (global::System.Exception __ex)
                 {
@@ -737,14 +778,21 @@ public static partial class ClosureEmitter
     internal static string BuildCallbackIndirectReturnStatement(
         TypeSpec returnType,
         string resultExpr,
-        ClosureHandler closureHandler)
+        ClosureHandler closureHandler,
+        string bufferExpr = "resultBuffer",
+        string localPrefix = "_result",
+        string? csharpTypeOverride = null)
     {
+        var local = localPrefix;
+        var spanLocal = $"{localPrefix}Span";
+        var metadataLocal = $"{localPrefix}Metadata";
+
         // Class type: write retained pointer to buffer
         if (closureHandler.IsClassType(returnType))
         {
             return $$"""
-                    var _result = {{resultExpr}};
-                            *(IntPtr*)(void*)resultBuffer = _result.Payload.DangerousGetHandle();
+                    var {{local}} = {{resultExpr}};
+                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}.Payload.DangerousGetHandle();
                 """;
         }
 
@@ -752,8 +800,8 @@ public static partial class ClosureEmitter
         if (closureHandler.IsObjCBridgedClass(returnType))
         {
             return $$"""
-                    var _result = {{resultExpr}};
-                            *(IntPtr*)(void*)resultBuffer = _result.Handle;
+                    var {{local}} = {{resultExpr}};
+                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}.Handle;
                 """;
         }
 
@@ -761,21 +809,111 @@ public static partial class ClosureEmitter
         if (WitnessDispatchEmitter.IsStringType(returnType))
         {
             return $$"""
-                    var _result = {{resultExpr}};
-                            using var _swiftStr = new Swift.SwiftString(_result);
-                            var _resultSpan = new Span<byte>((void*)resultBuffer, (int)Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata().Size);
-                            ((Swift.Runtime.ISwiftObject)_swiftStr).MarshalToSwift(ref _resultSpan);
+                    var {{local}} = {{resultExpr}};
+                            using var {{local}}Str = new Swift.SwiftString({{local}});
+                            var {{spanLocal}} = new Span<byte>((void*){{bufferExpr}}, (int)Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata().Size);
+                            ((Swift.Runtime.ISwiftObject){{local}}Str).MarshalToSwift(ref {{spanLocal}});
                 """;
         }
 
         // General struct/value type: use SwiftMarshal.MarshalToSwift to write to buffer
-        var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);
+        var csharpRetType = csharpTypeOverride
+            ?? closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);
         return $$"""
-                var _result = {{resultExpr}};
-                        var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{csharpRetType}}>();
-                        var _resultSpan = new Span<byte>((void*)resultBuffer, (int)_resultMetadata.Size);
-                        SwiftMarshal.MarshalToSwift(_result, ref _resultSpan);
+                var {{local}} = {{resultExpr}};
+                        var {{metadataLocal}} = TypeMetadata.GetTypeMetadataOrThrow<{{csharpRetType}}>();
+                        var {{spanLocal}} = new Span<byte>((void*){{bufferExpr}}, (int){{metadataLocal}}.Size);
+                        SwiftMarshal.MarshalToSwift({{local}}, ref {{spanLocal}});
             """;
+    }
+
+    /// <summary>
+    /// Statement that publishes an <c>inout</c> argument's final value back to Swift: it closes the
+    /// consumer's slot, takes the value the block left in it, and initializes the Swift-allocated
+    /// write-back cell with it. The cell is fresh, uninitialized storage, so this is the same
+    /// "initialize a Swift buffer from a managed value" operation an indirect closure return
+    /// performs — and it is built by the same code so the two cannot drift apart.
+    /// </summary>
+    /// <param name="argType">The closure argument's type.</param>
+    /// <param name="argIndex">The argument's position in the closure signature.</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <param name="slotVar">Name of the local holding the consumer's slot.</param>
+    /// <returns>The write-back statement.</returns>
+    /// <summary>
+    /// Expression that reads an <c>inout</c> argument's seeded value out of the cell the Swift
+    /// adapter handed over. The adapter value-witness-copies the parameter into that cell and keeps
+    /// ownership of it, so every arm here takes an independent copy rather than adopting the buffer.
+    /// The inverse of <see cref="BuildInOutWriteBackStatement"/>.
+    /// </summary>
+    /// <param name="typeSpec">The closure argument's type.</param>
+    /// <param name="argIndex">The argument's position in the closure signature.</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <returns>An expression of the argument's projected C# type.</returns>
+    private static string BuildInOutArgReadExpression(
+        TypeSpec typeSpec,
+        int argIndex,
+        ClosureHandler closureHandler)
+    {
+        var address = $"new IntPtr(arg{argIndex})";
+
+        // Bool is a byte in memory; the projection is C#'s bool.
+        if (MarshallingHelpers.IsBoolType(typeSpec))
+            return $"*(byte*)arg{argIndex} != 0";
+
+        // A no-payload enum sits in the cell as its underlying integer.
+        if (closureHandler.IsSimpleEnum(typeSpec))
+        {
+            var enumType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+            var csUnderlying = closureHandler.GetSimpleEnumInfo(typeSpec)?.csUnderlying ?? "int";
+            return $"({enumType})(*({csUnderlying}*)arg{argIndex})";
+        }
+
+        if (typeSpec is NamedTypeSpec named)
+        {
+            // The cell holds the pointer VALUE, so the read loads it rather than taking the cell's
+            // own address — the one carrier where those two are the same shape and not the same
+            // thing. (An `inout` pointer is declined at admission for want of a write-back path;
+            // this arm stays correct so the by-value classifier it shares can rely on it.)
+            if (TypeDatabaseExtensions.IsPointerType(named))
+                return $"*(IntPtr*)arg{argIndex}";
+
+            // System.String carries no Swift metadata — read the SwiftString and project it, the
+            // same asymmetry the write-back side resolves in the other direction.
+            if (WitnessDispatchEmitter.IsStringType(named))
+                return $"SwiftMarshal.MarshalCallbackArg<Swift.SwiftString>({address}).ToString()";
+
+            // Scalars are read straight out of the cell at their projected width.
+            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
+            {
+                var primitiveType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+                return $"*({primitiveType}*)arg{argIndex}";
+            }
+        }
+
+        // Everything else is a wrapper over Swift storage: the ONE classifier decides how to read a
+        // borrowed cell for it, and every arm it picks takes an independent copy — which is what
+        // makes it safe for the adapter to release the cell when the block returns.
+        var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+        return closureHandler.BorrowedCallbackArgMarshal(
+            typeSpec, delegateType, address, nonNullObjCBridge: true);
+    }
+
+    private static string BuildInOutWriteBackStatement(
+        TypeSpec argType,
+        int argIndex,
+        ClosureHandler closureHandler,
+        string slotVar)
+    {
+        return BuildCallbackIndirectReturnStatement(
+            argType,
+            $"{slotVar}.Close()",
+            closureHandler,
+            bufferExpr: $"arg{argIndex}_out",
+            localPrefix: $"_inout{argIndex}",
+            // The slot is typed with the argument's PARAMETER projection, which is the type the
+            // consumer's delegate stores, so the write-back has to name that same type — the return
+            // projection of the same carrier is not guaranteed to be the same string.
+            csharpTypeOverride: closureHandler.TranslateTypeSpecToCSharp(argType));
     }
 
     /// <summary>
@@ -786,6 +924,14 @@ public static partial class ClosureEmitter
     /// passes a pointer to a heap-allocated ExistentialContainer{N}; the native
     /// @convention(c) ABI cannot receive Swift existential containers by value.
     /// </summary>
+    /// <summary>
+    /// Leading whitespace for the second and later statements of the <c>inout</c> slot prologue.
+    /// The prologue is interpolated at one statement depth inside the callback's <c>try</c>, and the
+    /// writer indents a rendered line by whatever it already carries, so only the first line
+    /// inherits the template's indentation.
+    /// </summary>
+    private const string InOutStatementIndent = "        ";
+
     private static string GetCallbackParameterType(TypeSpec typeSpec, ClosureHandler closureHandler, bool useCdecl = false)
     {
         // Cdecl existential: Swift adapter passes a UnsafeMutableRawPointer (void*) to a
@@ -793,6 +939,13 @@ public static partial class ClosureEmitter
         // (multi-proto) and NamedTypeSpec { IsAny = true } (single-proto parser output).
         if (useCdecl && (typeSpec is ProtocolListTypeSpec || typeSpec is NamedTypeSpec { IsAny: true }))
             return "void*";
+
+        // An `inout` arg arrives as the address of the adapter's own copy of the value Swift
+        // seeded, whatever the carrier is — the two-pointer lowering is uniform, so the by-value
+        // translation below never describes it.
+        if (useCdecl && typeSpec.IsInOut)
+            return "void*";
+
         return closureHandler.TranslateTypeSpecToPInvokeType(typeSpec);
     }
 
@@ -808,6 +961,12 @@ public static partial class ClosureEmitter
     /// <returns>The expression string to use when invoking the delegate.</returns>
     private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler, bool useCdecl = false)
     {
+        // `inout`: the slot's seeded value is read from the address the adapter handed over, which
+        // is the same shape for every carrier. Runs before every arm below because those read the
+        // by-value lowering the two-pointer ABI replaces.
+        if (useCdecl && typeSpec.IsInOut)
+            return BuildInOutArgReadExpression(typeSpec, argIndex, closureHandler);
+
         // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: reconstruct the 16-byte
         // struct from the (ptr, len) pair the Swift @convention(c) callback handed us.
         if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(typeSpec))
@@ -1261,6 +1420,10 @@ public static partial class ClosureEmitter
             {
                 types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
                 AppendDirectLaneExtraWordTypes(types, arg, closureHandler, useCdecl);
+                // Write-back cell for an `inout` argument — mirrors the adapter's two-slot lowering
+                // and EmitEscapingClosureCallback's parameter expansion.
+                if (useCdecl && arg.IsInOut)
+                    types.Add("IntPtr");
             }
         }
 

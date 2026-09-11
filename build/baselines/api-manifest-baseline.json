@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "3bdc1fd5a",
+  "git_sha": "1bd6dc49f",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -3739,6 +3739,31 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "BuilderBox.BuilderBox(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_ba7f093d"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BuilderBox.Value",
+      "symbol": "thunk_SwiftBindingsTestLib_5d3060ed|thunk_SwiftBindingsTestLib_49304171"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BuilderViewport.BuilderViewport(int,int)",
+      "symbol": "SBW_SwiftBindingsTestLib_BuilderViewport_init_43829ACA"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BuilderViewport.Height",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_BuilderViewport_height|SBW_Set_SwiftBindingsTestLib_BuilderViewport_height"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BuilderViewport.Width",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_BuilderViewport_width|SBW_Set_SwiftBindingsTestLib_BuilderViewport_width"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "Bundle05CondEqBox.Bundle05CondEqBox(TItem)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_Bundle05CondEqBox_init_9BD7D5A7"
     },
@@ -6869,6 +6894,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "CountingResourceLoader.CountingResourceLoader(global::System.Func\u003Cint, int\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_CountingResourceLoader_init_1FA43941"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CountingResourceLoader.Weight(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_91fd7269"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "CreateActorEventStream()",
       "symbol": "thunk_SwiftBindingsTestLib_cf5be2e8"
     },
@@ -8804,8 +8839,8 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "DictionaryBuilderHost.Build(object?)",
-      "symbol": "$s20SwiftBindingsTestLib21DictionaryBuilderHostC5buildySDySSs5Int32VGyAGzXEF"
+      "signature": "DictionaryBuilderHost.Build(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftDictionary\u003CSwift.SwiftString, int\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_DictionaryBuilderHost_build_36B97726"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -9236,6 +9271,51 @@
       "module": "SwiftBindingsTestLib",
       "signature": "DumpLiveTrackedObjects()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_dumpLiveTrackedObjects_4CAA0788"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientProvider.ColorCount(double)",
+      "symbol": "thunk_SwiftBindingsTestLib_1ee71b5e"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientProvider.Colors(double)",
+      "symbol": "SBW_SwiftBindingsTestLib_DynamicGradientProvider_colors_8D195038"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientProvider.DynamicGradientProvider(global::System.Func\u003Cdouble, Swift.SwiftArray\u003CSwiftBindingsTestLib.ProviderColor\u003E\u003E,global::System.Func\u003Cdouble, Swift.SwiftArray\u003Cdouble\u003E\u003E?)",
+      "symbol": "SBW_SwiftBindingsTestLib_DynamicGradientProvider_init_C7C6661E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientProvider.FirstColorChecksum(double)",
+      "symbol": "thunk_SwiftBindingsTestLib_03c7e2d8"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientProvider.LocationCount(double)",
+      "symbol": "thunk_SwiftBindingsTestLib_7427941b"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientProvider.LocationSum(double)",
+      "symbol": "thunk_SwiftBindingsTestLib_2074ed05"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientTarget.DynamicGradientTarget()",
+      "symbol": "thunk_SwiftBindingsTestLib_6c60dc25"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientTarget.RenderedChecksum(double)",
+      "symbol": "thunk_SwiftBindingsTestLib_4150a8a8"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DynamicGradientTarget.SetProvider(SwiftBindingsTestLib.DynamicGradientProvider)",
+      "symbol": "thunk_SwiftBindingsTestLib_4856f8e4"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -12371,6 +12451,66 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ImmediateConfirmationConfiguration.Resolved",
       "symbol": "thunk_SwiftBindingsTestLib_f525d285"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.AdjustAndReport(global::System.Func\u003Cglobal::Swift.SwiftInOut\u003Cint\u003E, bool\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_adjustAndReport_057D5132"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.AdjustCount(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003Cint\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_adjustCount_5F3DBC62"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.AdjustPair(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003Cint\u003E, int, global::Swift.SwiftInOut\u003Cint\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_adjustPair_459E072A"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.AdjustTags(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftArray\u003CSwift.SwiftString\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_adjustTags_68EC1784"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.AdjustTitle(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003Cstring\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_adjustTitle_0120F3F6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.AdjustViewport(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwiftBindingsTestLib.BuilderViewport\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_adjustViewport_2F6E2432"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.InOutClosureCarriers()",
+      "symbol": "thunk_SwiftBindingsTestLib_96357873"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.InstallAdjuster(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003Cint\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_InOutClosureCarriers_installAdjuster_40C79B8B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureCarriers.RunInstalledAdjuster(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_5e47c3c1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureRefusedCarriers.AdjustBox(object?)",
+      "symbol": "$s20SwiftBindingsTestLib27InOutClosureRefusedCarriersC9adjustBoxys5Int32VyAA07BuilderK0CzXEF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureRefusedCarriers.AdjustMaybe(object?)",
+      "symbol": "$s20SwiftBindingsTestLib27InOutClosureRefusedCarriersC11adjustMaybeys5Int32VyAFSgzXEF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InOutClosureRefusedCarriers.InOutClosureRefusedCarriers()",
+      "symbol": "thunk_SwiftBindingsTestLib_efe5134e"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -18469,6 +18609,46 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.AnimationOptions(string,global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftDictionary\u003CSwift.SwiftString, Swift.Runtime.ExistentialContainer0\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionsBuilderHost_animationOptions_A7E05192"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.Builders.DirectionsOptions(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftDictionary\u003CSwift.SwiftString, Swift.Runtime.ExistentialContainer0\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Builders_directionsOptions_88E8ACEB"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.Builders.GetDirectionsOptions()",
+      "symbol": "SBW_SwiftBindingsTestLib_Builders_directionsOptions_69925669"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.FocusOptions(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftDictionary\u003CSwift.SwiftString, Swift.Runtime.ExistentialContainer0\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionsBuilderHost_focusOptions_E1E29B46"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.MarkerOptions(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftDictionary\u003CSwift.SwiftString, Swift.Runtime.ExistentialContainer0\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionsBuilderHost_markerOptions_1D6B55A7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.OptionsBuilderHost()",
+      "symbol": "thunk_SwiftBindingsTestLib_13fad6de"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.ShowMapOptions()",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionsBuilderHost_showMapOptions_17C4F660"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionsBuilderHost.ShowMapOptions(global::System.Action\u003Cglobal::Swift.SwiftInOut\u003CSwift.SwiftDictionary\u003CSwift.SwiftString, Swift.Runtime.ExistentialContainer0\u003E\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionsBuilderHost_showMapOptions_ECAE4B93"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OrderContainer.OrderContainer(string,SwiftBindingsTestLib.OrderContainer.StatusKind)",
       "symbol": "SBW_SwiftBindingsTestLib_OrderContainer_init_A551FAD8"
     },
@@ -20174,6 +20354,31 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ProviderColor.A",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ProviderColor_a|SBW_Set_SwiftBindingsTestLib_ProviderColor_a"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ProviderColor.B",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ProviderColor_b|SBW_Set_SwiftBindingsTestLib_ProviderColor_b"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ProviderColor.G",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ProviderColor_g|SBW_Set_SwiftBindingsTestLib_ProviderColor_g"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ProviderColor.ProviderColor(double,double,double,double)",
+      "symbol": "SBW_SwiftBindingsTestLib_ProviderColor_init_6DB8E61A"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ProviderColor.R",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ProviderColor_r|SBW_Set_SwiftBindingsTestLib_ProviderColor_r"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ProviderRangeIsNil(IRangeBoundsProvider)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_providerRangeIsNil_3B558C20"
     },
@@ -21616,6 +21821,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "RunProcessorExistential(IStringProcessor,string)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_runProcessorExistential_BD76386F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "RunResourceLoader(IResourceLoading,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_runResourceLoader_AEF452C7"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -25794,8 +26004,13 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "UnsupportedClosureArrayOfExistentialReturn.Enumerate(object?)",
-      "symbol": "$s20SwiftBindingsTestLib42UnsupportedClosureArrayOfExistentialReturnC9enumerateys5Int32VSayAA0eF6Signal_pGAA0eF7RequestVcF"
+      "signature": "UnsupportedClosureArrayOfExistentialReturn.DescribeAll(global::System.Func\u003CSwiftBindingsTestLib.UnsupportedClosureRequest, Swift.SwiftArray\u003CSwift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnsupportedClosureArrayOfExistentialReturn_describeAll_01161E6E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnsupportedClosureArrayOfExistentialReturn.Enumerate(global::System.Func\u003CSwiftBindingsTestLib.UnsupportedClosureRequest, Swift.SwiftArray\u003CSwift.Runtime.ExistentialContainer1\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnsupportedClosureArrayOfExistentialReturn_enumerate_13A328DB"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -25824,8 +26039,8 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "UnsupportedClosureInoutParam.Generate(object?)",
-      "symbol": "$s20SwiftBindingsTestLib28UnsupportedClosureInoutParamC8generateys5Int32VA2FzXEF"
+      "signature": "UnsupportedClosureInoutParam.Generate(global::System.Func\u003Cglobal::Swift.SwiftInOut\u003Cint\u003E, int\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnsupportedClosureInoutParam_generate_CFD7EFB7"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26021,6 +26236,36 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ValidatedName.TryCreate(string,out ValidatedName)",
       "symbol": "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ValidatingResourceLoader.DefaultValidate(ref int)",
+      "symbol": "SBW_SwiftBindingsTestLib_ValidatingResourceLoader_defaultValidate_CC139968"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ValidatingResourceLoader.Load(string,global::System.Action\u003Cint\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_ValidatingResourceLoader_load_1F7619D9"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ValidatingResourceLoader.ValidateStatus(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_80b08bba"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ValidatingResourceLoader.ValidatingResourceLoader()",
+      "symbol": "SBW_SwiftBindingsTestLib_ValidatingResourceLoader_init_FA2237BD"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ValidatingResourceLoader.ValidatingResourceLoader(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_ValidatingResourceLoader_init_F7223304"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ValidatingResourceLoader.ValidatingResourceLoader(int,global::System.Func\u003Cglobal::Swift.SwiftInOut\u003Cint\u003E, bool\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_ValidatingResourceLoader_init_3615C1FA"
     },
     {
       "module": "SwiftBindingsTestLib",

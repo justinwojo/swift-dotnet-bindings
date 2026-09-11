@@ -325,7 +325,7 @@ public partial class ClosureHandler
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
-    public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
+    public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec, bool allowInOutArguments = true)
     {
         // Async closures — throwing OR non-throwing — are supported ONLY in the
         // baseline bridge shapes, and the accepted RETURN set differs by throwing-ness:
@@ -376,23 +376,55 @@ public partial class ClosureHandler
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             // An `inout` parameter in the closure's OWN signature — `(inout [String: Any]) -> Void`,
-            // `(inout Int32) -> Int32` — has no write-back channel across the closure boundary. Both
-            // closure ABIs marshal each argument BY VALUE: the CallConvSwift trampoline reads the
-            // Swift cell once (MarshalCallbackArg) and hands the delegate an independent managed
-            // value, and the @convention(c) bridge boxes a by-value context. Nothing stores the
-            // mutated value back into the Swift cell the caller passed by reference, and C#'s
-            // Action<>/Func<> cannot even express a `ref` parameter, so the emitted delegate silently
-            // drops `inout` from the type — a member that compiles on both sides and then discards
-            // every mutation the consumer makes. That is a soundness condition neither compiler can
-            // see, so it is declined here rather than predicted-away downstream: the member skips
-            // with SkipReason.UnsupportedClosure and surfaces as a closure tombstone.
+            // `(inout Int32) -> Bool`. Swift hands the parameter to the block by reference and reads
+            // back whatever the block left in the cell, so a bridge that marshals the argument by
+            // value delivers a member that compiles on both sides and silently discards every
+            // mutation the consumer makes. That is a soundness condition neither compiler can see,
+            // which is why the shape is gated here rather than left to the verify-recover loop.
             //
-            // Restoring this shape needs three things that do not exist yet: a generator-emitted
-            // named `ref` delegate type per closure signature (no BCL delegate can carry `ref`), an
-            // ARC-correct store-back of the mutated carrier into the Swift inout cell, and the same
-            // support on the MethodClosureBridge / protocol-proxy / Swift-wrapper closure paths.
+            // The write-back bridge exists on ONE route: the ordinary @convention(c) adapter, which
+            // declares the adapter closure's parameter `inout`, passes a Swift-allocated cell for
+            // the block's result alongside the value Swift seeded, and assigns the cell back into
+            // the caller's storage after the call — so ARC and value-witness correctness of the
+            // store belong to the Swift compiler. Callers standing for any other route pass
+            // allowInOutArguments: false, and the member skips with SkipReason.UnsupportedClosure
+            // and surfaces as a closure tombstone instead of emitting a by-value approximation.
             if (arg.IsInOut)
-                return false;
+            {
+                if (!allowInOutArguments)
+                    return false;
+
+                // The bridge writes the block's result back synchronously, on the same call. An
+                // async block returns before there is a value to store, and a throwing block has an
+                // error channel the adapter's store-back is not sequenced against.
+                if (closureTypeSpec.IsAsync || closureTypeSpec.Throws)
+                    return false;
+
+                // The write-back lives on ONE managed trampoline — the direct-return escaping
+                // callback. A closure whose RETURN needs indirect marshalling is emitted by a
+                // different trampoline that declares one parameter per argument and knows nothing
+                // about the out-cell, while the Swift adapter would still pass two pointers and
+                // move a cell that trampoline never initialized. Admitting the shape here would
+                // claim support the emitted code does not have, so it tombstones instead.
+                if (RequiresIndirectReturnMarshalling(closureTypeSpec))
+                    return false;
+
+                // Same reasoning for the suppressed-proxy trampoline: when any argument needs a
+                // protocol proxy that was not emitted, the callback body is a no-op that returns
+                // without writing any out-cell, and the adapter moves out of memory nothing ever
+                // initialized. The check covers every argument, not just the inout one, because it
+                // is the BODY that collapses.
+                foreach (var sibling in closureTypeSpec.EachArgument())
+                {
+                    if (IsProxyReferenceSuppressed(sibling))
+                        return false;
+                }
+
+                if (!IsSupportedInOutClosureArgument(arg))
+                    return false;
+
+                continue;
+            }
 
             if (!IsSupportedClosureParameterType(arg))
                 return false;
@@ -524,11 +556,35 @@ public partial class ClosureHandler
                 // Recursively check all generic parameters are supported
                 foreach (var genericParam in namedType.GenericParameters)
                 {
-                    // Existential generic parameters (e.g., Optional<any Protocol>) are NOT supported
-                    // for closure return types because the emitter can't marshal void* back to the
-                    // bound generic type (e.g., SwiftOptional<ExistentialContainer1>)
+                    // An existential generic argument is marshalled by whatever carrier encloses
+                    // it, so whether the shape has a write-back path depends on that carrier.
+                    //
+                    // A collection container carries its own Swift type metadata and boxes each
+                    // element through its own element path, so `Dictionary<String, Any>` marshals
+                    // as a dictionary and the existential never has to be marshalled on its own.
+                    //
+                    // Every other bound generic hands the callback's projected return value
+                    // straight to the buffer marshal, and the projection of a bare existential
+                    // payload carries no Swift metadata to marshal through: for `Optional<any
+                    // Error>` the boxed-error carrier is refused by `SwiftMarshal.MarshalToSwift`
+                    // outright, and for `Optional<any Proto>` the carrier resolves its metadata via
+                    // `TypeMetadata.GetTypeMetadataOrThrow<T>()`, which has no entry for a managed
+                    // `Nullable<T>`. Both faults land inside a non-throwing callback, where the
+                    // closure marshaller fail-fasts the process rather than surfacing an exception
+                    // — a soundness condition neither compiler can see, so it is declined here
+                    // rather than left to the verify-recover loop, and the member skips with
+                    // SkipReason.UnsupportedClosure.
                     if (_existentialHandler.IsExistential(genericParam))
-                        return false;
+                    {
+                        if (!IsCollectionContainerName(namedType.Name))
+                            return false;
+
+                        var elementProtocols = _existentialHandler.ToProtocolListTypeSpec(genericParam);
+                        if (elementProtocols == null || !_existentialHandler.IsSupportedExistential(elementProtocols))
+                            return false;
+
+                        continue;
+                    }
 
                     if (!IsSupportedClosureParameterType(genericParam))
                         return false;
@@ -614,6 +670,108 @@ public partial class ClosureHandler
     public bool RequiresThunk(ClosureTypeSpec closureTypeSpec, string methodMangledName, int closureParamCount = 1)
     {
         return !IsConventionC(closureTypeSpec, methodMangledName, closureParamCount);
+    }
+
+    /// <summary>
+    /// Whether a closure's own <c>inout</c> argument can carry a mutation back to Swift.
+    /// </summary>
+    /// <remarks>
+    /// The bridge composes two mechanisms that already exist: the closure-PARAMETER machinery reads
+    /// the value Swift seeded into the cell, and the closure-RETURN machinery writes the value the
+    /// block left behind into a fresh Swift-owned cell the adapter then assigns back. A carrier is
+    /// therefore admitted only when both directions already carry it. Reference cells are excluded
+    /// on top of that: Swift's <c>inout</c> of a class is a slot that load/stores and releases the
+    /// displaced object, and the projection carries the object rather than the slot, so a consumer
+    /// that replaced the reference would publish a retain the Swift side never balances — the same
+    /// reason a method-level <c>inout</c> of a class is refused.
+    /// </remarks>
+    /// <param name="typeSpec">The closure argument, which must be <c>inout</c>.</param>
+    /// <returns><c>true</c> when the argument has a write-back-capable bridge.</returns>
+    public bool IsSupportedInOutClosureArgument(TypeSpec typeSpec)
+    {
+        if (!typeSpec.IsInOut)
+            return false;
+
+        // An existential cell carries a witness table beside the value; storing a different
+        // conformance back through it is a wider question than the value store-back below.
+        if (_existentialHandler.IsExistential(typeSpec) || typeSpec is ProtocolListTypeSpec)
+            return false;
+
+        if (typeSpec is NamedTypeSpec named)
+        {
+            if (named.IsAny)
+                return false;
+
+            // Reference cells — see the remarks above.
+            if (IsClassType(named) || IsObjCBridgedClass(named))
+                return false;
+
+            // An unresolvable carrier has no metadata for either half of the round trip.
+            if (IsGenericTypeParameter(named.Name))
+                return false;
+
+            // Optional carriers are read back out of the cell by testing a discriminator, and every
+            // Optional flavour spells that discriminator differently — a nil pointer for a class or
+            // a nil-for-none payload, the second word for a String, a trailing tag byte for a wide
+            // scalar. The seeded value arrives here as a buffer address, which is never null, so the
+            // pointer-shaped tests would all report a present value. Reading the tag out of the
+            // buffer per flavour is the missing piece, not a soundness barrier.
+            if (named.Name == "Swift.Optional")
+                return false;
+
+            // Carriers whose C# projection is not the Swift value's own carrier: Foundation.Data
+            // projects to byte[] and an ObjC-remapped value type (URL -> NSUrl) to its ObjC peer,
+            // and neither carries the Swift type metadata the write-back cell is sized and
+            // initialized from. Swift.String has the same asymmetry but the write path converts
+            // through SwiftString explicitly, which is why it stays admitted.
+            if (named.Name == "Foundation.Data" || HasObjCNativeRemap(named, out _))
+                return false;
+        }
+
+        // A tuple carrier reaches the managed callback as a by-value ValueTuple rather than through
+        // the address-based read every other carrier shares, so the seeded value would have to be
+        // rebuilt element-wise from the cell.
+        if (typeSpec is TupleTypeSpec)
+            return false;
+
+        // A raw buffer pointer is lowered as a (pointer, count) PAIR, and that split is classified
+        // ahead of `inout` on both the Swift convention-C type and the managed parameter list — so
+        // the signatures would describe a length where the adapter passes an out-cell.
+        if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(typeSpec))
+            return false;
+
+        // A pointer projects to IntPtr, which is a managed carrier with no Swift type metadata, so
+        // the write-back's metadata lookup has nothing to size or initialize the out-cell from and
+        // faults inside a non-throwing callback. Pointing the store-back at the pointee instead is a
+        // different contract — the callee would be mutating through the caller's pointer rather than
+        // replacing it — so this carrier needs its own lowering on both halves, not a wider gate.
+        if (typeSpec is NamedTypeSpec pointerCandidate && TypeDatabaseExtensions.IsPointerType(pointerCandidate))
+            return false;
+
+        return IsSupportedClosureParameterType(typeSpec) && IsSupportedClosureReturnType(typeSpec);
+    }
+
+    /// <summary>
+    /// Whether any of the closure's own arguments is <c>inout</c>. Routes without a write-back
+    /// bridge use this to decline a closure outright rather than lower it by value.
+    /// </summary>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <returns><c>true</c> when at least one argument is <c>inout</c>.</returns>
+    public static bool HasInOutArgument(ClosureTypeSpec closureTypeSpec)
+    {
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (arg.IsInOut)
+                return true;
+
+            // A nested closure's own inout parameter is just as unbridged on the routes that
+            // ask this question, so the walk descends instead of only reading the top level.
+            if (arg is ClosureTypeSpec nestedArg && HasInOutArgument(nestedArg))
+                return true;
+        }
+
+        return closureTypeSpec.ReturnType is ClosureTypeSpec nestedReturn
+            && HasInOutArgument(nestedReturn);
     }
 
     /// <summary>
@@ -972,12 +1130,26 @@ public partial class ClosureHandler
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The C# delegate type name (Action&lt;&gt; or Func&lt;&gt;).</returns>
+    /// <summary>
+    /// The C# type one of a closure's own arguments takes in the projected delegate. An
+    /// <c>inout</c> argument becomes a <see cref="Swift.SwiftInOut{T}"/> slot: the consumer reads
+    /// what Swift seeded and assigns to publish a mutation, which keeps the projection on a BCL
+    /// <c>Action&lt;&gt;</c>/<c>Func&lt;&gt;</c> instead of an invented per-signature delegate type.
+    /// </summary>
+    /// <param name="arg">The closure argument.</param>
+    /// <returns>The C# type string for the argument's position in the delegate.</returns>
+    public string GetCSharpClosureArgumentType(TypeSpec arg)
+    {
+        var argType = TranslateTypeSpecToCSharp(arg);
+        return arg.IsInOut ? $"global::Swift.SwiftInOut<{argType}>" : argType;
+    }
+
     public string GetCSharpDelegateType(ClosureTypeSpec closureTypeSpec)
     {
         var argTypes = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            argTypes.Add(TranslateTypeSpecToCSharp(arg));
+            argTypes.Add(GetCSharpClosureArgumentType(arg));
         }
 
         bool hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;

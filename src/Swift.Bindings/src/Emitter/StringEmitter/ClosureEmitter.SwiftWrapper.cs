@@ -70,6 +70,16 @@ public static partial class ClosureEmitter
             yield return "Int";
             yield break;
         }
+
+        if (arg.IsInOut)
+        {
+            // (in, out): the address of the adapter's copy of the seeded value, then the address of
+            // the empty cell the managed block's result is written into.
+            yield return "UnsafeMutableRawPointer";
+            yield return "UnsafeMutableRawPointer";
+            yield break;
+        }
+
         yield return GetSwiftCdeclParamType(arg, closureHandler);
     }
 
@@ -252,6 +262,11 @@ public static partial class ClosureEmitter
         var nonFrozenHeapArgs = new List<(int index, string swiftType)>();
         var nilForNoneArgs = new List<(int index, string innerSwiftType)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
         var existentialArgs = new List<(int index, string swiftType)>(); // `any Protocol`: heap-allocated ExistentialContainer pointer
+        // `inout` args: the adapter takes the parameter by reference, hands the cdecl callback a
+        // second, uninitialized cell for whatever the managed block leaves behind, and assigns that
+        // cell back into the caller's storage once the call returns. The input side is unchanged —
+        // reading an `inout` parameter is an ordinary read — so every conversion above still applies.
+        var inOutArgs = new List<(int index, string swiftType)>();
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
@@ -263,12 +278,19 @@ public static partial class ClosureEmitter
             // ProtocolListTypeSpec already renders with the `any` prefix.
             if (arg is NamedTypeSpec { IsAny: true })
                 swiftType = $"any {swiftType}";
-            closureParams.Add($"p{argIndex}: {swiftType}");
+            closureParams.Add($"p{argIndex}: {(arg.IsInOut ? "inout " : "")}{swiftType}");
 
             // Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
             // Exclude types that pass directly through @convention(c): primitives, Bool, pointers,
             // classes, ObjC-bridged, and simple enums (these are handled by GetSwiftArgConversion).
-            if (closureHandler != null)
+            if (arg.IsInOut)
+            {
+                // An `inout` arg takes the two-pointer lowering for EVERY carrier, so none of the
+                // by-value classifications below apply to it — matching IsCdeclCompatibleType, which
+                // answers `inout` without consulting the by-value arms either.
+                inOutArgs.Add((argIndex, swiftType));
+            }
+            else if (closureHandler != null)
             {
                 if (closureHandler.IsComplexEnum(arg))
                     heapAllocArgs.Add((argIndex, swiftType));
@@ -342,6 +364,14 @@ public static partial class ClosureEmitter
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
+            if (arg.IsInOut)
+            {
+                cdeclArgs.Add($"__in_{argIndex}");
+                cdeclArgs.Add($"__out_{argIndex}");
+                argIndex++;
+                continue;
+            }
+
             var heapArg = heapAllocArgs.FirstOrDefault(h => h.index == argIndex);
             var heapCopiedArg = heapAllocCopiedArgs.FirstOrDefault(h => h.index == argIndex);
             var blittableFrozenHeapArg = blittableFrozenHeapArgs.FirstOrDefault(h => h.index == argIndex);
@@ -395,6 +425,7 @@ public static partial class ClosureEmitter
             {
                 cdeclArgs.Add(GetSwiftArgConversion(arg, $"p{argIndex}", closureHandler));
             }
+
             argIndex++;
         }
 
@@ -490,6 +521,30 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
         }
 
+        // `inout` cells. The IN cell holds the adapter's own copy of the value Swift seeded —
+        // `initializeMemory(as:repeating:count:)` is a value-witness copy, so an ARC-owning payload
+        // is retained — and stays Swift-owned, hence the defer: the managed callback reads through
+        // the address and takes its own independent copy, it does not adopt the buffer. The OUT cell
+        // is deliberately left UNINITIALIZED; the managed callback initializes it with the value the
+        // consumer's block left in its slot and the `.move()` below takes it straight back out.
+        // Assigning the moved value into `p{idx}` is a plain Swift assignment, so releasing whatever
+        // the caller's storage held and taking ownership of the new value is the Swift compiler's
+        // job rather than marshalling code's.
+        foreach (var (idx, swiftType) in inOutArgs)
+        {
+            heapAllocLines.Add($"{indent}    let __in_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    __in_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
+            heapAllocLines.Add($"{indent}    defer {{ __in_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __in_{idx}.deallocate() }}");
+            heapAllocLines.Add($"{indent}    let __out_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+        }
+
+        var inOutWriteBackLines = new List<string>();
+        foreach (var (idx, swiftType) in inOutArgs)
+        {
+            inOutWriteBackLines.Add($"{indent}    p{idx} = __out_{idx}.assumingMemoryBound(to: {swiftType}.self).move()");
+            inOutWriteBackLines.Add($"{indent}    __out_{idx}.deallocate()");
+        }
+
         if (isIndirectReturn)
         {
             // Indirect return: closure writes result to buffer, returns void
@@ -500,6 +555,7 @@ public static partial class ClosureEmitter
             lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{returnSwiftType}>.size, alignment: MemoryLayout<{returnSwiftType}>.alignment)");
             lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
+            lines.AddRange(inOutWriteBackLines);
             lines.Add($"{indent}    let result = resultBuf.assumingMemoryBound(to: {returnSwiftType}.self).move()");
             lines.Add($"{indent}    resultBuf.deallocate()");
             lines.Add($"{indent}    return result");
@@ -548,12 +604,25 @@ public static partial class ClosureEmitter
 
             if (hasReturn)
             {
-                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler);
-                lines.Add($"{indent}    return {returnConversion}");
+                if (inOutWriteBackLines.Count > 0)
+                {
+                    // The write-back has to land before the closure returns, so the cdecl result is
+                    // held in a local rather than converted inline.
+                    lines.Add($"{indent}    let __cdeclResult = {cdeclVarName}({cdeclArgsStr})");
+                    lines.AddRange(inOutWriteBackLines);
+                    var hoistedConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__cdeclResult", closureHandler);
+                    lines.Add($"{indent}    return {hoistedConversion}");
+                }
+                else
+                {
+                    var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler);
+                    lines.Add($"{indent}    return {returnConversion}");
+                }
             }
             else
             {
                 lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
+                lines.AddRange(inOutWriteBackLines);
             }
 
             lines.Add($"{indent}}}");
@@ -759,14 +828,18 @@ public static partial class ClosureEmitter
         if (typeSpec.IsEmptyTuple)
             return true;
 
-        // `inout` closure args require the adapter closure to take `inout p0: T` and write
-        // back to the caller's storage. The @convention(c) bridge can't plumb an inout across
-        // a C function pointer — the C# side receives a borrowed pointer and has no way to
-        // signal mutation back. Reject early so higher-level gates fall back to the
-        // non-Cdecl path (which may or may not support inout, but at least won't mis-compile).
-        // Surfaces on methods whose trailing closure is `(inout T) -> Void`.
+        // `inout` closure args ride a two-pointer ABI across @convention(c) that is the same for
+        // every carrier: the adapter heap-copies the value Swift seeded and hands over its address,
+        // then hands over a second, empty cell for whatever the managed block leaves behind and
+        // assigns that cell into the caller's storage. Both slots are raw pointers, always
+        // representable in C, so the carrier's own by-value lowering never enters the question —
+        // which is why this returns rather than falling through to the by-value arms below. It also
+        // means a carrier the by-value lanes cannot pass in registers (a COW container, say) still
+        // rides this one. The admission test is the same one IsSupportedClosure applies, so the two
+        // gates agree: were this to refuse what that admits, the member would fall to the direct
+        // CallConvSwift lane, which lowers the argument by value and drops the mutation.
         if (typeSpec.IsInOut)
-            return false;
+            return closureHandler.IsSupportedInOutClosureArgument(typeSpec);
 
         // `any Error` stays on MCB (pointer-wraps the 5-word container via its own
         // IsEligible path). Non-Error existentials use the heap-allocated pointer
@@ -1280,7 +1353,7 @@ public static partial class ClosureEmitter
                     closureReturnSpec = optNts.GenericParameters[0] as ClosureTypeSpec;
             }
             if (cdeclNeedsResultPtr && closureReturnSpec != null
-                && closureHandler.IsSupportedClosure(closureReturnSpec)
+                && closureHandler.IsSupportedClosure(closureReturnSpec, allowInOutArguments: false)
                 && CanUseInvokeThunk(closureReturnSpec, closureHandler))
             {
                 var thunkEntryPoint = GetInvokeThunkEntryPoint(env.EmissionSymbol);

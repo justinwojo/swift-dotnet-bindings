@@ -1996,6 +1996,11 @@ public static class MethodClosureBridge
     /// </summary>
     private static bool IsClosureArgSupported(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
+        // `inout` needs the paired write-back cell only the ordinary @_cdecl closure adapter
+        // emits. Every arm below lowers by value, so admitting one here would drop whatever the
+        // managed block wrote. Decline, and the member falls to the closure tombstone.
+        if (typeSpec.IsInOut) return false;
+
         // any Swift.Error — bridged through ExistentialContainer1 pointer, wrapped as AnyError in C#.
         if (IsAnyErrorExistential(typeSpec)) return true;
 

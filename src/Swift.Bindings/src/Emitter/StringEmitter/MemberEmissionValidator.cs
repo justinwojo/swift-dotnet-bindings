@@ -293,7 +293,11 @@ public static class MemberEmissionValidator
         if (isClosure)
         {
             var closureTypeSpec = closureHandler.GetClosureTypeSpec(property);
-            if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec))
+            // allowInOutArguments: false to match PropertyHandler, which declines an `inout`
+            // argument on a closure handed OUT to C#. Prevalidating on the permissive default
+            // would approve a member the emitter then refuses, which is how a shape ends up
+            // neither emitted nor recorded as skipped.
+            if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
             {
                 skipDetails = "Closure type is not supported.";
                 return SkipReason.UnsupportedClosure;
@@ -531,7 +535,9 @@ public static class MemberEmissionValidator
         if (!closureHandler.IsClosure(property))
             return false;
         var closureTypeSpec = closureHandler.GetClosureTypeSpec(property);
-        if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec))
+        // Same inout view as the CanEmitProperty gate above, so the two agree on which
+        // properties are skipped outright versus degraded to setter-only.
+        if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
             return false; // Would be skipped entirely, not setter-only
         if (!closureHandler.CanInvokeFromCSharp(closureTypeSpec))
             return true;
@@ -719,7 +725,10 @@ public static class MemberEmissionValidator
             if (closureHandler.IsClosure(returnArg))
             {
                 var closureTypeSpec = closureHandler.GetClosureTypeSpec(returnArg);
-                if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec))
+                // allowInOutArguments: false to match the returned-closure emission path, which
+                // declines `inout` because the write-back lives on the callback the binding
+                // SUPPLIES, not on a function pointer it receives and invokes.
+                if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                 {
                     skipDetails = "Return type is an unsupported closure type.";
                     return SkipReason.UnsupportedClosure;

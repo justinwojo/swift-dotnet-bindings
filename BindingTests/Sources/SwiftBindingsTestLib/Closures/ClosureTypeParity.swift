@@ -272,7 +272,7 @@ public class CollectionCallbackHost {
     }
 }
 
-// MARK: - inout closure argument (declined, not bridged)
+// MARK: - inout closure argument (bridged via a mutable slot projection)
 
 public class DictionaryBuilderHost {
     public init() {}
@@ -280,12 +280,12 @@ public class DictionaryBuilderHost {
     /// The closure receives the builder dictionary `inout` and Swift reads it back afterwards, so a
     /// value the C# body adds would have to reach Swift for this to mean anything.
     ///
-    /// Nothing can carry it: both closure ABIs marshal the argument by value, and C#'s
-    /// `Action`/`Func` cannot express `ref` at all, so an emitted binding would compile on both
-    /// sides and silently discard every mutation. The member is therefore refused and emitted as a
-    /// tombstone — this fixture pins that refusal on the exact reported shape (a mutable options
-    /// dictionary handed to a configuration block), and is where a future writeback implementation
-    /// would first turn green.
+    /// The write-back rides a two-pointer `@convention(c)` lowering: the adapter hands the block
+    /// the address of its own copy of the value Swift seeded plus an empty cell, and assigns that
+    /// cell into the caller's storage once the block returns. C#'s `Action`/`Func` still cannot
+    /// express `ref`, so the projection carries the cell as a mutable slot object instead. This
+    /// fixture pins the reported shape end to end — a mutable options dictionary handed to a
+    /// configuration block — with a value type a consumer can insert from C# unaided.
     public func build(_ mutate: (inout [String: Int32]) -> Void) -> [String: Int32] {
         var options: [String: Int32] = ["seed": 1]
         mutate(&options)
