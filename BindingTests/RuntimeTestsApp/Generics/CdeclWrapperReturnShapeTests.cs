@@ -8,8 +8,8 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Three wrapper shapes whose emitted code has to be spelled in the declared return type rather
-/// than a convenient stand-in, plus one whose C# body has to keep two same-named locals apart.
+/// Wrapper shapes whose emitted code has to be spelled in the declared return type rather than a
+/// convenient stand-in, plus one whose C# body has to keep two same-named locals apart.
 ///
 /// <para>
 /// Each of these is a compile assertion before it is a value assertion, and the compile failure is
@@ -67,6 +67,39 @@ public class CdeclWrapperReturnShapeTests : TestBase
         AssertThrows<SwiftException<TokenError>>(
             () => request.GetIssueOptionalReceipt()?.Dispose(),
             "issueOptionalReceipt() should surface TokenError.refused for a negative code");
+    }
+
+    // MARK: Closure returns, where the return type is written in a position that rejects `@escaping`
+
+    /// A closure is not C-representable, so it leaves the wrapper through the indirect-result
+    /// buffer, and that buffer is initialized through a METATYPE (`initializeMemory(as: X.self)`) —
+    /// a position where `@escaping` is illegal Swift. The closure also needs an invoke thunk on
+    /// both sides of the boundary, and the C# half of that thunk is a <c>[DllImport]</c>, which
+    /// cannot be declared inside a generic type; on a generic parent it and its invoker class move
+    /// into the non-generic <c>{Parent}_PInvoke</c> helper. Any of those going wrong withdraws the
+    /// member silently, so reaching the call at all is the primary assertion.
+    public void TestGenericStaticDispatch_ClosureReturn_Invokes()
+    {
+        using var request = new TokenRequest<int>(code: 42);
+
+        var reader = request.MakeCodeReader();
+        AssertNotNull(reader, "TokenRequest<Int>.makeCodeReader() should return a delegate");
+        AssertEqual(42, reader(), "makeCodeReader()'s closure should report the captured code");
+    }
+
+    /// The same return-position question on the other reroute lane: a method-level generic opens
+    /// into nested LOCAL generic functions, so the closure return is written into those functions'
+    /// own RETURN CLAUSES rather than a metatype — also a position `@escaping` is illegal in. The
+    /// parent is not generic here, so the invoke thunk's <c>[DllImport]</c> stays in place and the
+    /// hoist above must not fire.
+    public void TestMethodLevelGenericOpening_ClosureReturn_Invokes()
+    {
+        using var spec = new ColumnSpec(name: "created_at");
+        using var seed = new SimpleDescribable(description: "abcdefg");
+
+        var reader = spec.LengthReader(seed);
+        AssertNotNull(reader, "ColumnSpec.lengthReader(seededBy:) should return a delegate");
+        AssertEqual(7, reader(), "lengthReader(seededBy:)'s closure should report the seed's length");
     }
 
     // MARK: Method-level-generic opening wrapper returning `Self`

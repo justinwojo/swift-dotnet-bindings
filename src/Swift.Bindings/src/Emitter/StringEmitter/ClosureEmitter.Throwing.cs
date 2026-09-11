@@ -232,7 +232,8 @@ public static partial class ClosureEmitter
         string resultVariableName = "result",
         string? invokeThunkEntryPoint = null,
         string? invokeThunkLibrary = null,
-        string? invokeThunkHelper = null)
+        string? invokeThunkHelper = null,
+        string? invokerQualifier = null)
     {
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
@@ -247,7 +248,7 @@ public static partial class ClosureEmitter
         // EmitClosureReturnInvokeThunkHelper whenever CanUseInvokeThunk holds.
         if (invokeThunkEntryPoint != null && invokeThunkHelper != null)
         {
-            var invokerClassName = GetInvokerClassName(invokeThunkHelper);
+            var invokerClassName = $"{invokerQualifier}{GetInvokerClassName(invokeThunkHelper)}";
             csWriter.WriteLines($$"""
                 // Wrap Swift closure in SwiftEscapingClosure for ARC management
                 var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);

@@ -317,13 +317,21 @@ public static partial class ClosureEmitter
     /// Direct [DllImport] on the method itself is handled natively by the runtime and avoids
     /// the !ji->async assertion at jit-info.c:918.
     /// </summary>
+    /// <param name="invokerIsExternallyVisible">
+    /// True when the invoker class is emitted somewhere other than the member that constructs it —
+    /// on a generic parent both declarations are hoisted into the non-generic <c>{Parent}_PInvoke</c>
+    /// class, because a <c>[DllImport]</c> inside a generic type is CS7042. The class must then be
+    /// <c>internal</c> rather than <c>private</c> so the member's body can still name it. The
+    /// <c>[DllImport]</c> itself stays private either way: only the invoker calls it.
+    /// </param>
     public static void EmitCSharpInvokeThunkHelper(
         CSharpWriter csWriter,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         string helperMethodName,
         string entryPointName,
-        string libraryName)
+        string libraryName,
+        bool invokerIsExternallyVisible = false)
     {
         var isThrowing = closureTypeSpec.Throws;
 
@@ -608,8 +616,9 @@ public static partial class ClosureEmitter
         // returns, leaking its Arc.Retain'd Swift context permanently — and if a finalizer
         // is ever added to SwiftEscapingClosure, that same path would flip to a dangling
         // pointer because the captured Action holds only raw nint pointers.
+        var invokerAccessibility = invokerIsExternallyVisible ? "internal" : "private";
         csWriter.WriteLines($$"""
-            private sealed class {{invokerClassName}}
+            {{invokerAccessibility}} sealed class {{invokerClassName}}
             {
                 private readonly nint _funcPtr;
                 private readonly nint _ctx;

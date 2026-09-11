@@ -60,6 +60,16 @@ public struct TokenRequest<Slot> {
         if _code < 0 { throw TokenError.refused(_code) }
         return _code == 0 ? nil : TokenReceipt(code: _code)
     }
+
+    /// A CLOSURE return on the same generic-static-dispatch route. A closure is not
+    /// C-representable, so it leaves through the indirect-result buffer, and the buffer is
+    /// initialized through a metatype — a position that rejects the `@escaping` a closure's
+    /// parameter-position rendering carries. `Slot` is again unmentioned, so this is the
+    /// generic parent's route rather than the T-return one.
+    public func makeCodeReader() -> () -> Int32 {
+        let captured = _code
+        return { captured }
+    }
 }
 
 // MARK: 2. Method-level-generic opening wrapper returning `Self`
@@ -86,6 +96,16 @@ public class ColumnSpec {
     public func defaulting<T: Describable>(to value: T) -> Self {
         _defaultDescription = value.describe()
         return self
+    }
+
+    /// Method-level generic + a CLOSURE return that never mentions `T`. The opening route
+    /// spells the return in the nested LOCAL generic functions' own return clauses, and a
+    /// return clause cannot carry `@escaping` either — so this covers the same
+    /// return-position rendering question as the metatype shape in section 1, on the other
+    /// reroute lane.
+    public func lengthReader<T: Describable>(seededBy value: T) -> () -> Int32 {
+        let length = Int32(value.describe().count)
+        return { length }
     }
 }
 

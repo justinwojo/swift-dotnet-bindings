@@ -266,7 +266,9 @@ public static partial class ClosureEmitter
         // second, uninitialized cell for whatever the managed block leaves behind, and assigns that
         // cell back into the caller's storage once the call returns. The input side is unchanged —
         // reading an `inout` parameter is an ordinary read — so every conversion above still applies.
-        var inOutArgs = new List<(int index, string swiftType)>();
+        // The tuple carries the CELL's type rather than the argument's, because for one carrier
+        // the two differ: see the `inout` arm below.
+        var inOutArgs = new List<(int index, string cellType, string seedExpr, string writeBackExpr)>();
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
@@ -288,7 +290,31 @@ public static partial class ClosureEmitter
                 // An `inout` arg takes the two-pointer lowering for EVERY carrier, so none of the
                 // by-value classifications below apply to it — matching IsCdeclCompatibleType, which
                 // answers `inout` without consulting the by-value arms either.
-                inOutArgs.Add((argIndex, swiftType));
+                //
+                // What the cell CONTAINS is a separate question from how the argument is lowered,
+                // and for a no-payload enum it is not the enum. Swift stores such an enum as a
+                // compact case tag whose width and numbering are both unrelated to the raw value
+                // the managed side reads and writes — a three-case Int32-raw enum occupies one
+                // byte and holds 0/1/2, not its raw values. So the cell carries the same
+                // underlying scalar the by-value arms carry, seeded and read back by the same two
+                // conversions, rather than the enum itself: a cell typed by the enum would hand
+                // the block a tag where it expects a raw value (over-reading the one-byte
+                // allocation at the scalar's width) and take a raw value back where Swift expects
+                // a tag (materializing a case that does not exist).
+                var inOutEnumInfo = closureHandler?.GetSimpleEnumInfo(arg);
+                if (inOutEnumInfo != null)
+                {
+                    var cellType = inOutEnumInfo.Value.swiftScalar;
+                    var moved = $"__out_{argIndex}.assumingMemoryBound(to: {cellType}.self).move()";
+                    inOutArgs.Add((argIndex, cellType,
+                        GetSwiftArgConversion(arg, $"p{argIndex}", closureHandler),
+                        GetSwiftReturnConversion(arg, moved, closureHandler)));
+                }
+                else
+                {
+                    inOutArgs.Add((argIndex, swiftType, $"p{argIndex}",
+                        $"__out_{argIndex}.assumingMemoryBound(to: {swiftType}.self).move()"));
+                }
             }
             else if (closureHandler != null)
             {
@@ -530,18 +556,18 @@ public static partial class ClosureEmitter
         // Assigning the moved value into `p{idx}` is a plain Swift assignment, so releasing whatever
         // the caller's storage held and taking ownership of the new value is the Swift compiler's
         // job rather than marshalling code's.
-        foreach (var (idx, swiftType) in inOutArgs)
+        foreach (var (idx, cellType, seedExpr, _) in inOutArgs)
         {
-            heapAllocLines.Add($"{indent}    let __in_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
-            heapAllocLines.Add($"{indent}    __in_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
-            heapAllocLines.Add($"{indent}    defer {{ __in_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __in_{idx}.deallocate() }}");
-            heapAllocLines.Add($"{indent}    let __out_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __in_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{cellType}>.size, alignment: MemoryLayout<{cellType}>.alignment)");
+            heapAllocLines.Add($"{indent}    __in_{idx}.initializeMemory(as: {cellType}.self, repeating: {seedExpr}, count: 1)");
+            heapAllocLines.Add($"{indent}    defer {{ __in_{idx}.assumingMemoryBound(to: {cellType}.self).deinitialize(count: 1); __in_{idx}.deallocate() }}");
+            heapAllocLines.Add($"{indent}    let __out_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{cellType}>.size, alignment: MemoryLayout<{cellType}>.alignment)");
         }
 
         var inOutWriteBackLines = new List<string>();
-        foreach (var (idx, swiftType) in inOutArgs)
+        foreach (var (idx, _, _, writeBackExpr) in inOutArgs)
         {
-            inOutWriteBackLines.Add($"{indent}    p{idx} = __out_{idx}.assumingMemoryBound(to: {swiftType}.self).move()");
+            inOutWriteBackLines.Add($"{indent}    p{idx} = {writeBackExpr}");
             inOutWriteBackLines.Add($"{indent}    __out_{idx}.deallocate()");
         }
 

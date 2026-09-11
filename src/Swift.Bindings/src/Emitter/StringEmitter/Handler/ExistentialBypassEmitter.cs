@@ -1497,6 +1497,16 @@ public static class ExistentialBypassEmitter
         => RenderSwiftTypeSpecCore(typeSpec, QualificationPolicy.All);
 
     /// <summary>
+    /// Module-qualified rendering (see <see cref="RenderModuleQualifiedSwiftTypeSpec"/>) for return
+    /// position, which cannot carry <c>@escaping</c> — the same asymmetry
+    /// <see cref="RenderSwiftTypeSpecForReturnType"/> resolves for the unqualified render. Used
+    /// where a generated function's own return clause is spelled from a module-qualified render;
+    /// leaving the attribute in place compiles nowhere and withdraws the member.
+    /// </summary>
+    public static string RenderModuleQualifiedSwiftTypeSpecForReturnType(TypeSpec typeSpec)
+        => RenderModuleQualifiedSwiftTypeSpec(typeSpec).Replace("@escaping ", "");
+
+    /// <summary>
     /// Renders a TypeSpec for a generated wrapper function's own signature, qualifying references
     /// to <paramref name="boundModuleName"/>'s types and leaving every other name bare.
     ///

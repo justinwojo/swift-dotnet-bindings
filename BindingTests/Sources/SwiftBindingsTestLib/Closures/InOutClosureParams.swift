@@ -30,6 +30,33 @@ public struct BuilderViewport {
     }
 }
 
+/// Raw-valued no-payload enum carried through an `inout` closure parameter. Two facts about
+/// it have to survive the round trip: Swift stores a three-case enum in a single byte as a
+/// case TAG (0/1/2), while the value the binding exposes is the RAW value — and the raw
+/// values here are deliberately nowhere near the tags, so a tag delivered in place of a raw
+/// value is a wrong answer rather than a coincidence.
+///
+/// `@objc` is load-bearing, for the same reason it is on `AuthErrorCodeLike`: the Swift
+/// compiler preserves explicit enum raw values in the textual `.swiftinterface` — the
+/// generator's source of truth — only for `@objc` enums. A plain `enum: Int32` has its
+/// `= 4100` stripped to a bare `case queued`, so the binding can only fall back to
+/// declaration-order ordinals for the C# member while the Swift side still marshals
+/// `.rawValue`; that pairing is the divergence recorded in `not-planned.md`, not a shape
+/// this fixture can assert on.
+@objc public enum BuilderStage: Int {
+    case queued = 4100
+    case running = 4200
+    case settled = 4300
+}
+
+/// Tag-only sibling: no raw value at all, so the case tag is the only representation and the
+/// scalar the boundary carries is a widened copy of it. The other half of the enum carrier.
+public enum BuilderPhase {
+    case start
+    case middle
+    case end
+}
+
 /// Host mirroring the option-builder family: static factories whose only configuration
 /// hook is a block receiving the option bag by reference.
 public final class OptionsBuilderHost {
@@ -104,6 +131,27 @@ public final class InOutClosureCarriers {
         var tags = ["one"]
         block(&tags)
         return tags
+    }
+
+    /// Raw-valued no-payload enum by reference. Returns the raw value so the C# side can tell
+    /// a raw value apart from a case tag, and the seed is the MIDDLE case so a cell that never
+    /// got written back reads as a distinguishable value rather than the first case.
+    public func advanceStage(_ block: (inout BuilderStage) -> Void) -> Int32 {
+        var stage = BuilderStage.running
+        block(&stage)
+        return Int32(stage.rawValue)
+    }
+
+    /// Tag-only enum by reference. Reported as a number the switch derives, since the enum has
+    /// no raw value of its own to report.
+    public func advancePhase(_ block: (inout BuilderPhase) -> Void) -> Int32 {
+        var phase = BuilderPhase.middle
+        block(&phase)
+        switch phase {
+        case .start: return 10
+        case .middle: return 20
+        case .end: return 30
+        }
     }
 
     /// Two `inout` parameters plus a by-value sibling in one signature.

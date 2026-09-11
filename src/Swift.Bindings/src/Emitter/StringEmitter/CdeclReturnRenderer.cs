@@ -98,24 +98,38 @@ internal static class CdeclReturnRenderer
     /// </summary>
     internal static void WriteErrorSentinel(SwiftWriter swiftWriter, CdeclReturnMapping mapping)
     {
+        foreach (var line in ErrorSentinelLines(mapping))
+            swiftWriter.WriteLine($"    {line}");
+    }
+
+    /// <summary>
+    /// The same sentinel statements as <see cref="WriteErrorSentinel"/>, unindented, for emitters
+    /// whose catch block sits at a caller-chosen depth.
+    /// </summary>
+    internal static List<string> ErrorSentinelLines(CdeclReturnMapping mapping)
+    {
         switch (mapping.Kind)
         {
             case CdeclReturnKind.ClassPointer:
-                swiftWriter.WriteLine("    return UnsafeMutableRawPointer(bitPattern: 1)!");
-                break;
+                return new List<string> { "return UnsafeMutableRawPointer(bitPattern: 1)!" };
             case CdeclReturnKind.OptionalClassPointer:
-                swiftWriter.WriteLine("    return nil");
-                break;
+                return new List<string> { "return nil" };
+            case CdeclReturnKind.String:
+            case CdeclReturnKind.IndirectResult:
+                // Both leave through the result pointer, so the wrapper's declared cdecl return is
+                // Void and the catch block has no value to return. Callers already gate on that;
+                // an empty list keeps this total without inventing a sentinel for a void return.
+                return new List<string>();
             case CdeclReturnKind.Bool:
             case CdeclReturnKind.SimpleEnum:
             case CdeclReturnKind.Direct:
+            default:
                 // Zero of the DECLARED cdecl return type. Spelling it as a conversion from the
                 // same mapping that chose that type is what keeps the sentinel honest: a bare
                 // `return 0` is an untyped assumption that the declared type is integer-literal
                 // expressible, and when the mapping picks something else the catch block stops
                 // compiling — which takes the whole wrapper down and withdraws the member.
-                swiftWriter.WriteLine($"    return {mapping.CdeclReturnType}(0)");
-                break;
+                return new List<string> { $"return {mapping.CdeclReturnType}(0)" };
         }
     }
 

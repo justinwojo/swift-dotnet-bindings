@@ -24,11 +24,12 @@ namespace BindingsGeneration
                 : string.Empty;
 
         /// <summary>
-        /// Returns the invoke thunk info (entry point, library name, helper method name) if the
-        /// closure return type can use one. Returns null if the closure has struct/class params
-        /// or is async (CanUseInvokeThunk gates those out). Throwing closures ARE supported.
+        /// Returns the invoke thunk info (entry point, library name, helper method name, and the
+        /// member-access prefix the invoker class is reachable through) if the closure return type
+        /// can use one. Returns null if the closure has struct/class params or is async
+        /// (CanUseInvokeThunk gates those out). Throwing closures ARE supported.
         /// </summary>
-        private (string entryPoint, string libraryName, string helperName)? GetInvokeThunkInfoIfAvailable(ClosureTypeSpec closureTypeSpec)
+        private (string entryPoint, string libraryName, string helperName, string invokerQualifier)? GetInvokeThunkInfoIfAvailable(ClosureTypeSpec closureTypeSpec)
         {
             if (!_env.MethodDecl.UsesCdeclWrapper)
                 return null;
@@ -40,8 +41,23 @@ namespace BindingsGeneration
             if (moduleDecl == null) return null;
             var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var libraryName = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
-            return (entryPoint, libraryName, helperName);
+            return (entryPoint, libraryName, helperName, ClosureReturnInvokerQualifier);
         }
+
+        /// <summary>
+        /// The member-access prefix through which the closure-return invoker class is reachable
+        /// from the public member's body — empty when the invoker is nested in the member's own
+        /// type, and <c>"{Parent}_PInvoke."</c> when it had to be hoisted out of a generic parent.
+        /// A <c>[DllImport]</c> is illegal inside a generic type (CS7042), so on a generic parent
+        /// the P/Invoke and the invoker class that calls it both live in the non-generic helper
+        /// class — the same hoist the closure-PARAMETER bridges already do. Both the emission site
+        /// and every reference read this one property, so the two cannot disagree about where the
+        /// invoker was put.
+        /// </summary>
+        private string ClosureReturnInvokerQualifier =>
+            _env.PInvokeHelperContext == null
+                ? string.Empty
+                : $"{_env.PInvokeHelperContext.HelperClassName}.";
 
         /// <summary>
         /// Emits the return statement for the constructor.
@@ -330,6 +346,7 @@ namespace BindingsGeneration
                         var invokeThunkName = invokeThunkInfo?.entryPoint;
                         var invokeThunkLib = invokeThunkInfo?.libraryName;
                         var invokeThunkHelper = invokeThunkInfo?.helperName;
+                        var invokeThunkQualifier = invokeThunkInfo?.invokerQualifier;
 
                         // A returned closure's INVOKER marshals its ARGUMENTS C#→Swift; a suppressed-proxy
                         // existential arg drops its wrap fallback (GetSwiftInvokeArgExpression / struct-param
@@ -342,13 +359,13 @@ namespace BindingsGeneration
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
                         else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -517,6 +534,7 @@ namespace BindingsGeneration
                         var invokeThunkName = invokeThunkInfo?.entryPoint;
                         var invokeThunkLib = invokeThunkInfo?.libraryName;
                         var invokeThunkHelper = invokeThunkInfo?.helperName;
+                        var invokeThunkQualifier = invokeThunkInfo?.invokerQualifier;
 
                         // See the sibling closure-return block above: record the returned closure's
                         // invoker-ARGUMENT CONSUME degrade for any suppressed proxy. Pure read.
@@ -527,13 +545,13 @@ namespace BindingsGeneration
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
                         else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                             ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -871,6 +889,7 @@ namespace BindingsGeneration
                     var invokeThunkName = invokeThunkInfo?.entryPoint;
                     var invokeThunkLib = invokeThunkInfo?.libraryName;
                     var invokeThunkHelper = invokeThunkInfo?.helperName;
+                    var invokeThunkQualifier = invokeThunkInfo?.invokerQualifier;
 
                     // See the sibling closure-return blocks: record the returned closure's invoker-ARGUMENT
                     // CONSUME degrade for any suppressed proxy. Pure read: byte-identical.
@@ -879,7 +898,7 @@ namespace BindingsGeneration
                     // Throwing closures need special marshalling to handle SwiftError
                     if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
                     }
                     // Use non-frozen struct marshalling if any parameter is a non-frozen struct
                     // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy).
@@ -897,7 +916,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
                     }
                     return;
                 }

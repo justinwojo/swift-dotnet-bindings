@@ -399,6 +399,138 @@ public class CdeclReturnRendererTests
             WriteLines(Expr, spec, db, mapping, scalarParens));
     }
 
+    // ----- Optional-pointer lane parity (the seventh switch) -------------------------------
+
+    /// <summary>
+    /// Captures the optional-pointer/ArraySlice-normalized wrapper lane's return statement(s).
+    /// That lane carried its own copy of the per-kind switch instead of calling the renderer, so
+    /// its output is pinned against the renderer here — the contract the consolidation claims.
+    /// </summary>
+    private static string[] OptPtrLines(string valueExpr, TypeSpec spec, ITypeDatabase db,
+        CdeclReturnMapping mapping)
+    {
+        var sw = new StringWriter();
+        var w = new SwiftWriter(sw);
+        OptionalPointerWrapperEmitter.EmitCdeclDirectReturn(w, valueExpr, spec, db, mapping, indent: "");
+        return sw.ToString().Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+    }
+
+    private static string OptPtrSentinel(CdeclReturnMapping mapping)
+    {
+        var sw = new StringWriter();
+        var w = new SwiftWriter(sw);
+        OptionalPointerWrapperEmitter.EmitCdeclSentinelReturn(w, mapping, indent: "    ");
+        return sw.ToString().Replace("\r\n", "\n").TrimEnd('\n');
+    }
+
+    [Theory]
+    [MemberData(nameof(AllInlineCases))]
+    public void OptionalPointerLane_EmitsExactlyWhatTheRendererDoes(
+        string kindName, string cdeclType, bool scalarParens)
+    {
+        // The lane has no scalarParens axis — it always wraps scalars, i.e. the method form.
+        if (!scalarParens)
+            return;
+
+        var (spec, db) = EmptyDb();
+        var mapping = Map(ParseKind(kindName), cdeclType);
+
+        Assert.Equal(
+            CdeclReturnRenderer.Lines(Expr, spec, db, mapping, scalarParens: true).ToArray(),
+            OptPtrLines(Expr, spec, db, mapping));
+    }
+
+    [Theory]
+    [InlineData("Swift.Int")]
+    [InlineData("Swift.Int32")]
+    [InlineData("Swift.UInt64")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Swift.String")]
+    [InlineData("String")]
+    [InlineData("Swift.Bool")]
+    [InlineData("Swift.Double")]
+    [InlineData("Swift.Float")]
+    public void OptionalPointerLane_SimpleEnum_EmitsExactlyWhatTheRendererDoes(string? rawValueType)
+    {
+        var (spec, db) = EnumDb(rawValueType);
+        var mapping = Map(CdeclReturnKind.SimpleEnum,
+            CdeclParamMapper.GetCdeclEnumTransportType(rawValueType));
+
+        Assert.Equal(
+            CdeclReturnRenderer.Lines(Expr, spec, db, mapping, scalarParens: true).ToArray(),
+            OptPtrLines(Expr, spec, db, mapping));
+    }
+
+    /// <summary>
+    /// A raw value that is not a C-ABI integer crosses as the case ordinal, so no lane may read
+    /// <c>.rawValue</c> for one. Reading it emits <c>Int32(someString)</c> — which does not
+    /// compile and withdraws the wrapper — or, for a floating-point raw value,
+    /// <c>Int32(someDouble)</c>, which compiles and silently sends the truncated raw value where
+    /// the managed side reads an ordinal.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.String")]
+    [InlineData("String")]
+    [InlineData("Swift.Bool")]
+    [InlineData("Bool")]
+    [InlineData("Swift.Double")]
+    [InlineData("Swift.Float")]
+    public void OptionalPointerLane_NonIntegralRawValue_DoesNotReadRawValue(string rawValueType)
+    {
+        var (spec, db) = EnumDb(rawValueType);
+        var mapping = Map(CdeclReturnKind.SimpleEnum,
+            CdeclParamMapper.GetCdeclEnumTransportType(rawValueType));
+
+        Assert.DoesNotContain("rawValue", string.Join("\n", OptPtrLines(Expr, spec, db, mapping)));
+    }
+
+    /// <summary>
+    /// An enum whose record was synthesized from the managed Apple surface can disagree with the
+    /// Swift <c>RawValue</c> in signedness, so the conversion must be bit-for-bit. An exact
+    /// conversion traps at runtime for any value above the signed maximum.
+    /// </summary>
+    [Fact]
+    public void OptionalPointerLane_ExternalAppleEnum_ConvertsBitForBit()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyEnum"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyEnum"),
+                MetadataAccessor = "$s10TestModule6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.ExternalAppleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Swift.UInt32",
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var spec = new NamedTypeSpec("TestModule.MyEnum");
+        var mapping = Map(CdeclReturnKind.SimpleEnum, "Int32");
+
+        Assert.Equal(
+            CdeclReturnRenderer.Lines(Expr, spec, typeDatabase, mapping, scalarParens: true).ToArray(),
+            OptPtrLines(Expr, spec, typeDatabase, mapping));
+        Assert.Contains("truncatingIfNeeded",
+            string.Join("\n", OptPtrLines(Expr, spec, typeDatabase, mapping)));
+    }
+
+    [Theory]
+    [InlineData("Bool", "Int8")]
+    [InlineData("SimpleEnum", "Int32")]
+    [InlineData("Direct", "Double")]
+    [InlineData("Direct", "Int")]
+    [InlineData("ClassPointer", "UnsafeMutableRawPointer")]
+    [InlineData("OptionalClassPointer", "UnsafeMutableRawPointer?")]
+    public void OptionalPointerLane_Sentinel_MatchesTheRenderer(string kindName, string cdeclType)
+    {
+        var mapping = Map(ParseKind(kindName), cdeclType);
+        Assert.Equal(WriteSentinel(mapping), OptPtrSentinel(mapping));
+    }
+
     private static void AssertRetainCountIsOne(IEnumerable<string> lines)
     {
         var count = lines.Sum(l =>

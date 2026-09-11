@@ -1160,6 +1160,36 @@ public class ExistentialBypassEmitterTests
         Assert.Equal("(Swift.Int, Swift.String)", result);
     }
 
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeSpecForReturnType_EscapingClosure_DropsTheAttribute()
+    {
+        // `@escaping` describes how a closure is PASSED, so the general module-qualified render
+        // spells it for parameter position. A function's own return clause cannot carry it, and a
+        // wrapper Swift rejects is stripped from the dylib rather than failing the build — so the
+        // member would silently lose its wrapper.
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var parameterPosition = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closure);
+        var returnPosition =
+            ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpecForReturnType(closure);
+
+        Assert.Contains("@escaping", parameterPosition);
+        Assert.DoesNotContain("@escaping", returnPosition);
+        // Only the attribute differs — the qualification policy is the same render.
+        Assert.Equal(parameterPosition.Replace("@escaping ", ""), returnPosition);
+    }
+
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeSpecForReturnType_NonClosure_RendersIdentically()
+    {
+        var typeSpec = new NamedTypeSpec("AttributedTextKit.StringStyle");
+
+        Assert.Equal(
+            ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec),
+            ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpecForReturnType(typeSpec));
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // EC-16: IsAnyObjectType + AnyObject return mapping tests
     // ═══════════════════════════════════════════════════════════════════════

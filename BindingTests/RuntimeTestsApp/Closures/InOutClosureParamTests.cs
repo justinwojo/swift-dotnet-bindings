@@ -91,6 +91,55 @@ public class InOutClosureParamTests : TestBase
         AssertEqual("two", result[1], "Appended element reaches Swift");
     }
 
+    /// <summary>
+    /// Raw-valued enum carrier. Swift stores a three-case enum as a one-byte case tag, while the
+    /// scalar this boundary carries is the enum's raw value — a wider and differently-numbered
+    /// thing. Both ends of the slot have to agree on which of the two is in the cell: a cell sized
+    /// or numbered for the tag delivers a value that is not any declared case, and the seeded
+    /// <c>.running</c> is the middle case so a cell that was never written back reads as something
+    /// other than the first case.
+    /// </summary>
+    public void TestRawValueEnumInOutMutationReachesSwift()
+    {
+        var carriers = new InOutClosureCarriers();
+        BuilderStage observed = default;
+        var result = carriers.AdvanceStage(slot =>
+        {
+            observed = slot.Value;
+            slot.Value = BuilderStage.Settled;
+        });
+        AssertEqual(BuilderStage.Running, observed, "Block observes the case Swift seeded");
+        AssertEqual(4300, result, "Swift observes the case the block left in the slot, by raw value");
+    }
+
+    /// <summary>
+    /// Tag-only sibling: no raw value exists, so the case tag IS the representation and the cell
+    /// carries a widened copy of it. The Swift host reports a number its own switch derives, which
+    /// is independent of both the tag and any raw value.
+    /// </summary>
+    public void TestTagOnlyEnumInOutMutationReachesSwift()
+    {
+        var carriers = new InOutClosureCarriers();
+        BuilderPhase observed = default;
+        var result = carriers.AdvancePhase(slot =>
+        {
+            observed = slot.Value;
+            slot.Value = BuilderPhase.End;
+        });
+        AssertEqual(BuilderPhase.Middle, observed, "Block observes the case Swift seeded");
+        AssertEqual(30, result, "Swift observes the case the block left in the slot");
+    }
+
+    /// <summary>An enum slot the block never assigns must leave the seeded case untouched.</summary>
+    public void TestEnumInOutWithoutAssignmentPreservesSeed()
+    {
+        var carriers = new InOutClosureCarriers();
+        AssertEqual(4200, carriers.AdvanceStage(_ => { }),
+            "An untouched raw-valued enum slot writes the seeded case back unchanged");
+        AssertEqual(20, carriers.AdvancePhase(_ => { }),
+            "An untouched tag-only enum slot writes the seeded case back unchanged");
+    }
+
     /// <summary>Two slots plus a by-value sibling in one signature stay distinct.</summary>
     public void TestTwoInOutSlotsAndByValueSiblingAreDistinct()
     {

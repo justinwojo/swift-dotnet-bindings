@@ -67,7 +67,7 @@ justified only when the failure it prevents would otherwise *compile*.
 |---|---|
 | Method | `SBW_{module}_{type}_{method}_{hash8}` |
 | Constructor | `SBW_{module}_{type}_init_{hash8}` |
-| Subscript accessor | `SBW_{Get\|Set}_{module}_{type}_{hash8}` |
+| Subscript accessor | `SBW_{SubGet\|SubSet}_{module}_{type}_{hash8}` |
 | Property accessor | `SBW_{Get\|Set}_{module}_{type}_{property}` — **no hash** |
 | `@_silgen_name` (Swift-convention) shims | `SBSW_…` |
 

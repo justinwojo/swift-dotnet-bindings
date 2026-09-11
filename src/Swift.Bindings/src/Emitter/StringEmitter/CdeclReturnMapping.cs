@@ -149,7 +149,11 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
 /// </summary>
 internal enum CdeclReturnKind
 {
-    Direct,               // Primitive, frozen struct — return by value
+    // Produced only for the closed set of primitives IsCdeclPrimitive admits (the fixed-width
+    // integers, Float, Double, CGFloat), Bool excepted — it takes the Bool arm. Structs, frozen
+    // or not, are IndirectResult, so a Direct cdecl return type is always integer-literal
+    // expressible; the error sentinel relies on that.
+    Direct,               // Primitive — return by value
     Bool,                 // Bool → Int8 conversion
     String,               // String → SBW_Utf8Slice
     SimpleEnum,           // Enum → raw value type

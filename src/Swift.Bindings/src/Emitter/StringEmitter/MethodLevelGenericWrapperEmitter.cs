@@ -255,6 +255,9 @@ internal static class MethodLevelGenericWrapperEmitter
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+
+        MethodWrapperEmitter.EmitClosureReturnInvokeThunkIfNeeded(
+            swiftWriter, env, ctx, symbolName, returnTypeSpec, needsResultPtr);
     }
 
     /// <summary>
@@ -387,7 +390,12 @@ internal static class MethodLevelGenericWrapperEmitter
             return $" -> {selfReturn}";
         }
 
-        return $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)}";
+        // Return position, not parameter position: the general renderer spells an escaping closure
+        // as `@escaping () -> T`, and `@escaping` is only legal on a function parameter. Written
+        // into these local functions' return clauses it fails the wrapper's Swift compile and
+        // withdraws the member, so the module-qualified render is taken through the return-position
+        // variant that drops the attribute.
+        return $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpecForReturnType(returnTypeSpec)}";
     }
 
     /// <summary>

@@ -1,8 +1,8 @@
 {
-  "git_sha": "1011efc4f",
+  "git_sha": "328d740f9",
   "platforms": {
     "simulator": {
-      "pass_count": 4007,
+      "pass_count": 4012,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -158,7 +158,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4004,
+      "pass_count": 4016,
       "skips": [
         {
           "class": "AsyncClosureTests",

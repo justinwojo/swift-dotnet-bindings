@@ -642,73 +642,37 @@ public static class OptionalPointerWrapperEmitter
 
     /// <summary>
     /// Emits a direct return with cdecl type conversion (Bool→Int8, Class→Unmanaged, etc.).
+    /// <para>
+    /// Delegates to <see cref="CdeclReturnRenderer"/>, the single source of truth the other wrapper
+    /// lanes already share, and re-indents its lines for this lane's nested bodies. This lane used
+    /// to carry its own copy of the per-kind switch, and the copy had drifted twice: it read
+    /// <c>.rawValue</c> off any enum with a non-empty raw-value type, which for a String, Bool or
+    /// floating-point raw value is not what crosses the boundary (the managed enum carries the case
+    /// ordinal), and it converted a synthesized Apple enum exactly rather than bit-for-bit.
+    /// </para>
     /// </summary>
     internal static void EmitCdeclDirectReturn(SwiftWriter swiftWriter, string callExpr,
         TypeSpec returnTypeSpec, ITypeDatabase typeDatabase,
         CdeclReturnMapping? mapping, string indent)
     {
-        var kind = mapping?.Kind ?? CdeclReturnKind.Direct;
-        switch (kind)
-        {
-            case CdeclReturnKind.Bool:
-                swiftWriter.WriteLine($"{indent}return ({callExpr}) ? 1 : 0");
-                break;
-            case CdeclReturnKind.SimpleEnum:
-                if (typeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord) &&
-                    !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
-                {
-                    swiftWriter.WriteLine($"{indent}return {mapping!.CdeclReturnType}(({callExpr}).rawValue)");
-                }
-                else
-                {
-                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                    // Compute size before closures to avoid Swift exclusivity checker error.
-                    // The shared tag-only helper emits unindented lines, so this indent-aware
-                    // optional-pointer site emits the same shape inline.
-                    swiftWriter.WriteLine($"{indent}var result = {callExpr}");
-                    swiftWriter.WriteLine($"{indent}let resultSize = MemoryLayout.size(ofValue: result)");
-                    swiftWriter.WriteLine($"{indent}var tag: {mapping!.CdeclReturnType} = 0");
-                    swiftWriter.WriteLine($"{indent}withUnsafeMutablePointer(to: &tag) {{ tagPtr in withUnsafePointer(to: &result) {{ resultPtr in UnsafeMutableRawPointer(tagPtr).copyMemory(from: UnsafeRawPointer(resultPtr), byteCount: resultSize) }} }}");
-                    swiftWriter.WriteLine($"{indent}return tag");
-                }
-                break;
-            case CdeclReturnKind.ClassPointer:
-                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
-                swiftWriter.WriteLine($"{indent}return Unmanaged.passRetained({callExpr} as AnyObject).toOpaque()");
-                break;
-            case CdeclReturnKind.OptionalClassPointer:
-                // Use `as AnyObject` — ObjC-bridged structs (e.g., NSZone, IndexPath) need bridge cast.
-                swiftWriter.WriteLine($"{indent}if let result = {callExpr} {{ return Unmanaged.passRetained(result as AnyObject).toOpaque() }}");
-                swiftWriter.WriteLine($"{indent}return nil");
-                break;
-            default:
-                swiftWriter.WriteLine($"{indent}return {callExpr}");
-                break;
-        }
+        var effective = mapping ?? new CdeclReturnMapping("Int", CdeclReturnKind.Direct);
+        foreach (var line in CdeclReturnRenderer.Lines(
+                     callExpr, returnTypeSpec, typeDatabase, effective, scalarParens: true))
+            swiftWriter.WriteLine($"{indent}{line}");
     }
 
     /// <summary>
     /// Emits a sentinel return value in the catch block for non-void direct @_cdecl returns.
+    /// Shares <see cref="CdeclReturnRenderer"/>'s sentinel so the value is a zero of the type this
+    /// lane actually declared — a bare <c>0</c> assumes the declared type is integer-literal
+    /// expressible, and a catch block that stops compiling withdraws the whole wrapper.
     /// </summary>
     internal static void EmitCdeclSentinelReturn(SwiftWriter swiftWriter,
         CdeclReturnMapping? mapping, string indent)
     {
-        var kind = mapping?.Kind ?? CdeclReturnKind.Direct;
-        switch (kind)
-        {
-            case CdeclReturnKind.Bool:
-            case CdeclReturnKind.SimpleEnum:
-            case CdeclReturnKind.Direct:
-                swiftWriter.WriteLine($"{indent}return 0");
-                break;
-            case CdeclReturnKind.ClassPointer:
-                swiftWriter.WriteLine($"{indent}return UnsafeMutableRawPointer(bitPattern: 1)!");
-                break;
-            case CdeclReturnKind.OptionalClassPointer:
-                swiftWriter.WriteLine($"{indent}return nil");
-                break;
-        }
+        var effective = mapping ?? new CdeclReturnMapping("Int", CdeclReturnKind.Direct);
+        foreach (var line in CdeclReturnRenderer.ErrorSentinelLines(effective))
+            swiftWriter.WriteLine($"{indent}{line}");
     }
 
 }

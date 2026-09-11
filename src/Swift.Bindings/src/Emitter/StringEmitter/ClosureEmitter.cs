@@ -346,6 +346,9 @@ public static partial class ClosureEmitter
     /// Required when invokeThunkEntryPoint is non-null.</param>
     /// <param name="invokeThunkHelper">The name of the [LibraryImport] P/Invoke method for the thunk.
     /// Required when invokeThunkEntryPoint is non-null.</param>
+    /// <param name="invokerQualifier">Member-access prefix the invoker class is reachable through
+    /// (empty/null when it is nested in the member's own type; <c>"{Parent}_PInvoke."</c> when it
+    /// had to be hoisted out of a generic parent, where a [DllImport] is illegal).</param>
     public static void EmitClosureReturnMarshalling(
         CSharpWriter csWriter,
         ClosureTypeSpec closureTypeSpec,
@@ -353,7 +356,8 @@ public static partial class ClosureEmitter
         string resultVariableName = "result",
         string? invokeThunkEntryPoint = null,
         string? invokeThunkLibrary = null,
-        string? invokeThunkHelper = null)
+        string? invokeThunkHelper = null,
+        string? invokerQualifier = null)
     {
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
@@ -377,7 +381,7 @@ public static partial class ClosureEmitter
         // the delegate is created via method group, eliminating the display class entirely.
         if (invokeThunkEntryPoint != null && invokeThunkHelper != null)
         {
-            var invokerClassName = GetInvokerClassName(invokeThunkHelper);
+            var invokerClassName = $"{invokerQualifier}{GetInvokerClassName(invokeThunkHelper)}";
 
             csWriter.WriteLines($$"""
                 // Wrap Swift closure in SwiftEscapingClosure for ARC management
@@ -904,6 +908,17 @@ public static partial class ClosureEmitter
         ClosureHandler closureHandler,
         string slotVar)
     {
+        // A no-payload enum's cell carries the underlying scalar, not the enum — Swift stores the
+        // enum as a compact case tag whose width and numbering are unrelated to the raw value this
+        // side reads and writes, so the boundary carries the scalar in both directions (the read
+        // side takes the same view). Writing it through the metadata-sized marshal below would put
+        // raw-value bytes into a tag-sized slot, so this one carrier writes the scalar directly.
+        if (closureHandler.IsSimpleEnum(argType))
+        {
+            var csUnderlying = closureHandler.GetSimpleEnumInfo(argType)?.csUnderlying ?? "int";
+            return $"*({csUnderlying}*)(void*)arg{argIndex}_out = ({csUnderlying}){slotVar}.Close();";
+        }
+
         return BuildCallbackIndirectReturnStatement(
             argType,
             $"{slotVar}.Close()",

@@ -1514,6 +1514,26 @@ namespace BindingsGeneration
             var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
             var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             var libPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+
+            // A [DllImport] cannot sit inside a generic type (CS7042), and the invoker class that
+            // calls it has to sit beside it. On a generic parent both go into the non-generic
+            // {Parent}_PInvoke helper class instead — the hoist the closure-PARAMETER bridges
+            // already perform for their callbacks and P/Invokes. Neither declaration mentions the
+            // parent's type parameters (the thunk takes the closure as two nints, and a closure
+            // whose own signature names an unresolved generic is refused by CanUseInvokeThunk), so
+            // the move costs nothing. References read ClosureReturnInvokerQualifier, which is
+            // derived from the same PInvokeHelperContext this branch tests.
+            if (_env.PInvokeHelperContext != null)
+            {
+                var helperWriter = new System.IO.StringWriter();
+                var helperCsWriter = new CSharpWriter(helperWriter) { Indent = 0 };
+                ClosureEmitter.EmitCSharpInvokeThunkHelper(helperCsWriter, closureTypeSpec, _env.ClosureHandler,
+                    helperName, entryPoint, libPath, invokerIsExternallyVisible: true);
+                helperCsWriter.Flush();
+                _env.PInvokeHelperContext.RawCodeBlocks.Add(helperWriter.ToString());
+                return;
+            }
+
             ClosureEmitter.EmitCSharpInvokeThunkHelper(csWriter, closureTypeSpec, _env.ClosureHandler,
                 helperName, entryPoint, libPath);
         }

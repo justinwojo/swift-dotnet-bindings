@@ -795,9 +795,27 @@ public static class MethodWrapperEmitter
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
 
-        // Emit invoke thunk for closure returns — a separate @_cdecl function that C# calls
-        // via CallConvCdecl to invoke the returned closure, avoiding delegate* unmanaged[Swift].
-        // Handles both direct closure returns and Optional<Closure> returns.
+        EmitClosureReturnInvokeThunkIfNeeded(swiftWriter, env, ctx, symbolName, returnTypeSpec, needsResultPtr);
+    }
+
+    /// <summary>
+    /// Emits the @_cdecl invoke thunk a closure RETURN needs, when the member's declared cdecl
+    /// return leaves through the result pointer. C# receives the closure as a (funcPtr, context)
+    /// pair and cannot call it through <c>delegate* unmanaged[Swift]</c>, so it calls this thunk
+    /// instead; the C# side plans the P/Invoke against the thunk symbol from the member alone,
+    /// without knowing which wrapper route carried it. Every route that can carry a closure
+    /// return therefore has to emit it — a route that skips it leaves the planned P/Invoke
+    /// pointing at a symbol no wrapper defines.
+    /// Handles both a direct closure return and <c>Optional&lt;Closure&gt;</c>.
+    /// </summary>
+    internal static void EmitClosureReturnInvokeThunkIfNeeded(
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ModuleEmissionContext? ctx,
+        string symbolName,
+        TypeSpec returnTypeSpec,
+        bool needsResultPtr)
+    {
         ClosureTypeSpec? closureReturnSpec = returnTypeSpec as ClosureTypeSpec;
         if (closureReturnSpec == null && env.ClosureHandler != null && env.ClosureHandler.IsOptionalClosure(returnTypeSpec))
         {
@@ -1218,10 +1236,14 @@ public static class MethodWrapperEmitter
         }
         else if (cdeclNeedsResultPtr)
         {
-            var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
-            var metatype = returnSwiftType.StartsWith("any ") ? $"({returnSwiftType}).self" : $"{returnSwiftType}.self";
+            // Share the metatype renderer the other indirect-result sites use. This site used to
+            // carry its own `.self` append that parenthesized only an `any` composition, so a
+            // closure return reached initializeMemory still wearing the `@escaping` its parameter-
+            // position rendering adds — an attribute that is not legal in metatype position, which
+            // fails the wrapper's Swift compile and withdraws the member.
             extensionBodyLines.Add($"let result = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
-            extensionBodyLines.Add($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+            extensionBodyLines.Add(
+                $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
         }
         else
         {
@@ -1378,6 +1400,9 @@ public static class MethodWrapperEmitter
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+
+        EmitClosureReturnInvokeThunkIfNeeded(
+            swiftWriter, env, ctx, symbolName, returnTypeSpec, cdeclNeedsResultPtr);
     }
 
     /// <summary>
