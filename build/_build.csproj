@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="Nuke.Build" Version="10.1.0" />
     <PackageReference Include="Nuke.Common" Version="10.1.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
   </ItemGroup>
   <!-- The x64-thunk-gate Driver is a standalone osx-x64 project published by the
        X64ThunkGate target; it is not part of the build assembly. Exclude its
