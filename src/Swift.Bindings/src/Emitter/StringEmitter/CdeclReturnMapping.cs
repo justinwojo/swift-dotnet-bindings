@@ -87,6 +87,13 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase))
             return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
 
+        // Optional<any Error> is the one optional existential whose Swift representation is a
+        // single nullable error-box pointer. Return that pointer by value and transfer an owned +1
+        // through the dedicated renderer; treating it as the ordinary 5-word existential buffer
+        // makes every present value look nil and strands its retain.
+        if (ExistentialHandler.IsOptionalAnyErrorSpec(typeSpec))
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalErrorPointer), false);
+
         // Generic containers (Optional, Array, etc.): need result pointer
         if (CdeclParamMapper.IsGenericContainerType(typeSpec))
             return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
@@ -159,5 +166,6 @@ internal enum CdeclReturnKind
     SimpleEnum,           // Enum → raw value type
     ClassPointer,         // Class → Unmanaged.passRetained().toOpaque()
     OptionalClassPointer, // Optional<Class> → result.map { Unmanaged.passRetained($0).toOpaque() }
+    OptionalErrorPointer, // Optional<any Error> → owned error-box pointer or nil
     IndirectResult        // Non-frozen struct, complex enum → writes to resultPtr
 }

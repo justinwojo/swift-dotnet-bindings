@@ -527,6 +527,29 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitGetterWrapper_OptionalAnyError_ReturnsOwnedBoxPointerByValue()
+    {
+        var errorExistential = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+        var optionalError = new NamedTypeSpec("Swift.Optional");
+        optionalError.GenericParameters.Add(errorExistential);
+        var (swiftWriter, sw, subscriptDecl, env, ctx) = CreateGetterTestSetup(
+            optionalError,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), env: null) },
+            isClass: false);
+
+        SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(
+            swiftWriter, subscriptDecl, "SBW_SubGet_TestModule_MyType_error001", env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains(") -> UnsafeMutableRawPointer? {", output);
+        Assert.DoesNotContain("_ resultPtr:", output);
+        Assert.Contains("guard let _sbwError = obj[", output);
+        Assert.Contains("else { return nil }", output);
+        Assert.Contains("initializeMemory(as: (any Error).self", output);
+        Assert.Contains("return _sbwErrorBox", output);
+    }
+
+    [Fact]
     public void EmitGetterWrapper_OptionalExistentialElementOnGenericParent_ParenthesizesAnyInTheBypassProtocol()
     {
         // A generic parent routes the call through a private bypass protocol whose signature

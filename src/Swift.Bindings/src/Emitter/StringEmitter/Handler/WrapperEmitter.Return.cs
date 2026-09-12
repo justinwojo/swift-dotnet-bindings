@@ -378,6 +378,7 @@ namespace BindingsGeneration
                 // Buffer allocation and hasValuePtr are set up by MethodMarshalPlanBuilder.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
+                    !ExistentialHandler.IsOptionalAnyErrorSpec(returnArg.SwiftTypeSpec) &&
                     OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
@@ -720,6 +721,18 @@ namespace BindingsGeneration
                         """);
                     return;
                 }
+            }
+
+            // @_cdecl Optional<any Error> accessor returns use the compact nullable owned-box
+            // pointer ABI, not SwiftOptional<ExistentialContainer1>. Treat the returned word the
+            // same way as method/subscript wrappers: nil is null; non-nil is adopted by AnyError.
+            if (_env.MethodDecl.IsAccessor &&
+                _env.MethodDecl.UsesCdeclPropertyWrapper &&
+                ExistentialHandler.IsOptionalAnyErrorSpec(returnArg.SwiftTypeSpec))
+            {
+                var errorResult = ReturnLocalName;
+                csWriter.WriteLine($"return {errorResult} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {errorResult} }}, ownsContainer: true);");
+                return;
             }
 
             // Accessor-only: Optional-existential returns — P/Invoke returns IntPtr for Optional<existential>,

@@ -1632,6 +1632,33 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftGetterWrapper_OptionalAnyError_UsesOwnedPointerReturnNotDecomposedBuffers()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var anyError = new NamedTypeSpec("Swift.Error") { IsAny = true };
+        var optionalError = new NamedTypeSpec("Swift.Optional");
+        optionalError.GenericParameters.Add(anyError);
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "lastError", optionalError, parentDecl, moduleDecl, typeDb);
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+            swiftWriter, propertyDecl, "SBW_Get_TestModule_MyType_lastError", env,
+            new ModuleEmissionContext());
+
+        var output = sw.ToString();
+        Assert.Contains(") -> UnsafeMutableRawPointer? {", output);
+        Assert.DoesNotContain("_ resultPtr:", output);
+        Assert.DoesNotContain("_ hasValuePtr:", output);
+        Assert.Contains("guard let _sbwError = obj.lastError else { return nil }", output);
+        Assert.Contains("initializeMemory(as: (any Error).self", output);
+        Assert.Contains("return _sbwErrorBox", output);
+    }
+
+    [Fact]
     public void EmitSwiftGetterWrapper_OptionalClass_DoesNotUseDecomposedPattern()
     {
         // Optional<Class> should NOT use decomposed pattern — classes use nullable pointer ABI.
@@ -2159,6 +2186,37 @@ public class PropertyWrapperEmitterTests
 
         Assert.True(needsPtr);
         Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_OptionalAnyError_IsOwnedPointerReturn()
+    {
+        var (_, typeDb) = CreateTestEnvironment("MyType");
+        var errorExistential = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(errorExistential);
+
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(optionalSpec, typeDb);
+
+        Assert.False(needsPtr);
+        Assert.Equal("UnsafeMutableRawPointer?", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.OptionalErrorPointer, mapping.Kind);
+        Assert.False(MarshallingHelpers.CdeclOptionalReturnNeedsIndirectResult(optionalSpec, typeDb));
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_BareErrorNames_DoNotSelectErrorBoxAbi()
+    {
+        var (_, typeDb) = CreateTestEnvironment("MyType");
+
+        foreach (var name in new[] { "Swift.Error", "Error", "Foundation.AnyError", "AnyError" })
+        {
+            var optionalSpec = new NamedTypeSpec("Swift.Optional");
+            optionalSpec.GenericParameters.Add(new NamedTypeSpec(name));
+
+            var (mapping, _) = CdeclReturnMapping.Classify(optionalSpec, typeDb);
+            Assert.NotEqual(CdeclReturnKind.OptionalErrorPointer, mapping.Kind);
+        }
     }
 
     [Fact]

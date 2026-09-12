@@ -785,6 +785,97 @@ public class OperatorHandlerOutputTests
         Assert.DoesNotContain("CallConvCdecl", output);
     }
 
+    [Fact]
+    public void EmitOperator_ClassOperandsWithShadowedMarshallingBase_DeclaresRefAlias()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClasses(
+            ("OperatorValue", TypeRecordFlags.RequiresMemoryManagement),
+            ("OperatorValueOther", TypeRecordFlags.RequiresMemoryManagement));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("OperatorValue", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.OperatorValue");
+        op.UnderlyingMethod.CSSignature[2].SwiftTypeSpec = new NamedTypeSpec("TestModule.OperatorValueOther");
+        SetOperatorAliasCollisionNames(op);
+
+        var output = EmitOperator(op, typeDatabase);
+
+        Assert.Contains("operator +(TestModule.OperatorValue operatorValue, TestModule.OperatorValueOther", output);
+        Assert.Contains("ref var __operatorValue = ref operatorValue;", output);
+        Assert.Contains("PInvoke_op_Addition(__operatorValue.Payload,", output);
+        Assert.DoesNotContain("ref var operatorValue = ref operatorValue;", output);
+    }
+
+    [Fact]
+    public void EmitOperator_ObjCRootedOperandWithShadowedBase_ExtractsHandleFromAlias()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClasses(
+            ("OperatorValue", TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCRooted),
+            ("OperatorValueOther", TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCRooted));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("OperatorValue", moduleDecl);
+        parentType.IsObjCRooted = true;
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.OperatorValue");
+        op.UnderlyingMethod.CSSignature[2].SwiftTypeSpec = new NamedTypeSpec("TestModule.OperatorValueOther");
+        SetOperatorAliasCollisionNames(op);
+
+        var output = EmitOperator(op, typeDatabase);
+
+        Assert.Contains("ref var __operatorValue = ref operatorValue;", output);
+        var handleLine = output.Split('\n').Single(line => line.Contains(" = __operatorValue.Handle;"));
+        var handleName = handleLine.Trim().Split(' ')[1];
+        Assert.Contains($"PInvoke_op_Addition({handleName},", output);
+    }
+
+    private static void SetOperatorAliasCollisionNames(OperatorDecl op)
+    {
+        var left = op.UnderlyingMethod.CSSignature[1];
+        left.Name = "operatorValue";
+        left.PrivateName = "operatorValue";
+        left.CSharpName = "operatorValue";
+        left.MarshallingBaseName = "__operatorValue";
+
+        var right = op.UnderlyingMethod.CSSignature[2];
+        right.Name = "operatorValueOther";
+        right.PrivateName = "operatorValueOther";
+        right.CSharpName = "operatorValueOther";
+        right.MarshallingBaseName = "operatorValueOther";
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClasses(
+        params (string name, TypeRecordFlags flags)[] classes)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        foreach (var (name, flags) in classes)
+        {
+            module.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", name),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    MetadataAccessor = $"$s10TestModule{name.Length}{name}CMa",
+                    Flags = flags,
+                    Kind = TypeRecordKind.Class
+                });
+        }
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithClass(string moduleName, string typeName)
     {
         var typeDatabase = new TypeDatabase();

@@ -316,6 +316,7 @@ namespace BindingsGeneration
         /// </summary>
         internal static bool CdeclOptionalReturnNeedsIndirectResult(TypeSpec returnSpec, ITypeDatabase typeDatabase)
             => MethodWrapperEmitter.IsOptionalType(returnSpec)
+                && !ExistentialHandler.IsOptionalAnyErrorSpec(returnSpec)
                 && !CdeclParamMapper.IsOptionalWithReferenceInner(returnSpec, typeDatabase)
                 && !CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnSpec, typeDatabase);
 
@@ -344,6 +345,11 @@ namespace BindingsGeneration
             // otherwise force the 40-byte opaque-container indirect path. (Checked here, ahead of the
             // generic existential branches that follow.)
             if (ExistentialHandler.IsObjCProtocolExistentialSpec(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                return false;
+
+            // Unlike every ordinary optional existential, Optional<any Error> is one nullable
+            // error-box pointer and the cdecl wrapper transfers it directly at +1.
+            if (ExistentialHandler.IsOptionalAnyErrorSpec(returnTypeForCdecl.SwiftTypeSpec))
                 return false;
 
             // Existential returns: @_cdecl can't return existential containers directly.
@@ -492,7 +498,7 @@ namespace BindingsGeneration
                 // body uses the returned pointer instead of a never-written sret buffer.
                 // Both predicates (IsOptionalExistential + IsProtocolExistentialType) match
                 // Optional<any Error>, so the AnyError exclusion has to gate the whole branch.
-                if (!env.ExistentialHandler.IsOptionalAnyError(returnType.SwiftTypeSpec) &&
+                if (!ExistentialHandler.IsOptionalAnyErrorSpec(returnType.SwiftTypeSpec) &&
                     (env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec) ||
                      CdeclParamMapper.IsProtocolExistentialType(returnType.SwiftTypeSpec, env.TypeDatabase)))
                 {

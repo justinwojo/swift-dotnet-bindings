@@ -496,6 +496,38 @@ public class MethodGenericBridgeEmitterTests
         Assert.DoesNotContain("Payload", csResult);
     }
 
+    [Fact]
+    public void TryEmit_OptionalAnyErrorReturn_UsesOwnedErrorBoxRenderer()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var method = CreateMethodDeclWithGenericParam();
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var anyError = new NamedTypeSpec("Swift.Error") { IsAny = true };
+        var optionalError = new NamedTypeSpec("Swift.Optional");
+        optionalError.GenericParameters.Add(anyError);
+        method.CSSignature[0] = CreateArg("", optionalError, method.ModuleDecl);
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+
+        var handled = MethodGenericBridgeEmitter.TryEmit(
+            csWriter, swiftWriter, new MethodEnvironment(method, typeDatabase), parent,
+            new ModuleEmissionContext());
+
+        Assert.True(handled);
+        var swiftResult = swiftOutput.ToString();
+        Assert.Contains(") -> UnsafeMutableRawPointer? {", swiftResult);
+        Assert.Contains("guard let _sbwError = result else { return nil }", swiftResult);
+        Assert.Contains("initializeMemory(as: (any Error).self", swiftResult);
+        Assert.DoesNotContain("Unmanaged.passRetained(", swiftResult);
+        var csResult = csOutput.ToString();
+        Assert.Contains("ownsContainer: true", csResult);
+        Assert.Contains("== IntPtr.Zero ? null", csResult);
+    }
+
     #endregion
 
     #region Indirect-result ownership

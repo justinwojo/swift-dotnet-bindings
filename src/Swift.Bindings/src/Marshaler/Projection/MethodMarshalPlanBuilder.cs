@@ -840,6 +840,7 @@ internal class MethodMarshalPlanBuilder
                     // The Swift wrapper writes inner payload and hasValue separately (no Optional<T> VWT).
                     if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                         !_env.MethodDecl.IsSubscriptAccessor &&
+                        !ExistentialHandler.IsOptionalAnyErrorSpec(returnArg.SwiftTypeSpec) &&
                         OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         var innerSpec = ((NamedTypeSpec)returnArg.SwiftTypeSpec).GenericParameters[0];
@@ -938,6 +939,7 @@ internal class MethodMarshalPlanBuilder
                 bool tracksResultLive = false;
                 bool isDecomposedOptional = _env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
+                    !ExistentialHandler.IsOptionalAnyErrorSpec(returnArg.SwiftTypeSpec) &&
                     OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase);
                 if (isDecomposedOptional)
                 {

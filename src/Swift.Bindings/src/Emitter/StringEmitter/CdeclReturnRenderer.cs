@@ -84,6 +84,9 @@ internal static class CdeclReturnRenderer
                     "return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }",
                 };
 
+            case CdeclReturnKind.OptionalErrorPointer:
+                return BuildOptionalErrorPointerLines(callExpr, bindResult: true);
+
             case CdeclReturnKind.Direct:
             default:
                 return new List<string> { $"return {callExpr}" };
@@ -113,6 +116,7 @@ internal static class CdeclReturnRenderer
             case CdeclReturnKind.ClassPointer:
                 return new List<string> { "return UnsafeMutableRawPointer(bitPattern: 1)!" };
             case CdeclReturnKind.OptionalClassPointer:
+            case CdeclReturnKind.OptionalErrorPointer:
                 return new List<string> { "return nil" };
             case CdeclReturnKind.String:
             case CdeclReturnKind.IndirectResult:
@@ -163,10 +167,38 @@ internal static class CdeclReturnRenderer
                 // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
                 return new List<string> { $"return ({valueExpr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}" };
 
+            case CdeclReturnKind.OptionalErrorPointer:
+                return BuildOptionalErrorPointerLines(valueExpr, bindResult: false);
+
             case CdeclReturnKind.Direct:
             default:
                 return new List<string> { $"return {valueExpr}" };
         }
+    }
+
+    /// <summary>
+    /// Transfers the single boxed reference stored by <c>(any Error)?</c> across a cdecl return.
+    /// Initializing temporary existential storage takes the return's +1; deallocating the raw bytes
+    /// without deinitializing deliberately hands that +1 to the managed <c>AnyError</c>, whose owned
+    /// constructor balances it through <c>SBW_AnyError_Destroy</c>.
+    /// </summary>
+    private static List<string> BuildOptionalErrorPointerLines(string valueExpr, bool bindResult)
+    {
+        var lines = new List<string>();
+        var optionalExpr = valueExpr;
+        if (bindResult)
+        {
+            lines.Add($"let result = {valueExpr}");
+            optionalExpr = "result";
+        }
+
+        lines.Add($"guard let _sbwError = {optionalExpr} else {{ return nil }}");
+        lines.Add("let _sbwErrorStorage = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<any Error>.size, alignment: MemoryLayout<any Error>.alignment)");
+        lines.Add("_sbwErrorStorage.initializeMemory(as: (any Error).self, repeating: _sbwError, count: 1)");
+        lines.Add("let _sbwErrorBox = _sbwErrorStorage.load(as: UnsafeMutableRawPointer.self)");
+        lines.Add("_sbwErrorStorage.deallocate()");
+        lines.Add("return _sbwErrorBox");
+        return lines;
     }
 
     /// <summary>

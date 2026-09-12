@@ -1252,6 +1252,28 @@ namespace BindingsGeneration
     internal static class PInvokeEmitter
     {
         /// <summary>
+        /// Declares ref aliases that connect public parameter names to the collision-free bases
+        /// used by P/Invoke argument marshalling. Wrapper and operator bodies share this preamble
+        /// so every call site that reads a moved base has a declaration in the same scope.
+        /// </summary>
+        internal static void EmitMarshallingBaseAliases(CSharpWriter csWriter, MethodEnvironment env)
+        {
+            foreach (var argumentDecl in env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(argumentDecl) ||
+                    argumentDecl.SwiftTypeSpec.IsEmptyTuple)
+                {
+                    continue;
+                }
+
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                var baseName = NameProvider.GetMarshallingBaseName(argumentDecl);
+                if (!string.Equals(csName, baseName, StringComparison.Ordinal))
+                    csWriter.WriteLine($"ref var {baseName} = ref {csName};");
+            }
+        }
+
+        /// <summary>
         /// Computes the P/Invoke entry point symbol and whether the method needs the wrapper library,
         /// over an explicit <paramref name="emissionSymbol"/> base. The wrapper/thunk entry point is
         /// reconstructed from the caller-supplied promoted emission symbol (plus the wrapper-kind

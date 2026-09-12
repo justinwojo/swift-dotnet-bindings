@@ -296,6 +296,44 @@ public class CdeclReturnRendererTests
         => Assert.Equal("    return nil",
             WriteSentinel(Map(CdeclReturnKind.OptionalClassPointer, "UnsafeMutableRawPointer?")));
 
+    // ----- OptionalErrorPointer ------------------------------------------------------------
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OptionalErrorPointer_Inline_TransfersOneOwnedBox(bool scalarParens)
+    {
+        var (spec, db) = EmptyDb();
+        var mapping = Map(CdeclReturnKind.OptionalErrorPointer, "UnsafeMutableRawPointer?");
+
+        var lines = CdeclReturnRenderer.Lines(Expr, spec, db, mapping, scalarParens);
+
+        Assert.Equal("guard let _sbwError = foo else { return nil }", lines[0]);
+        Assert.Contains(lines, line => line.Contains("initializeMemory(as: (any Error).self", System.StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("load(as: UnsafeMutableRawPointer.self)", System.StringComparison.Ordinal));
+        Assert.Contains("_sbwErrorStorage.deallocate()", lines);
+        Assert.Equal("return _sbwErrorBox", lines[^1]);
+        Assert.DoesNotContain(lines, line => line.Contains("deinitialize", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void OptionalErrorPointer_BindingResult_EvaluatesCallOnceBeforeTransfer()
+    {
+        var (spec, db) = EmptyDb();
+        var mapping = Map(CdeclReturnKind.OptionalErrorPointer, "UnsafeMutableRawPointer?");
+
+        var lines = CdeclReturnRenderer.LinesBindingResult(Expr, spec, db, mapping);
+
+        Assert.Equal("let result = foo", lines[0]);
+        Assert.Equal("guard let _sbwError = result else { return nil }", lines[1]);
+        Assert.Equal(1, lines.Count(line => line.Contains("foo", System.StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void OptionalErrorPointer_Sentinel_IsNil()
+        => Assert.Equal("    return nil",
+            WriteSentinel(Map(CdeclReturnKind.OptionalErrorPointer, "UnsafeMutableRawPointer?")));
+
     // ----- Direct --------------------------------------------------------------------------
 
     [Theory]
@@ -358,6 +396,8 @@ public class CdeclReturnRendererTests
         yield return new object[] { "ClassPointer", "UnsafeMutableRawPointer", false };
         yield return new object[] { "OptionalClassPointer", "UnsafeMutableRawPointer?", true };
         yield return new object[] { "OptionalClassPointer", "UnsafeMutableRawPointer?", false };
+        yield return new object[] { "OptionalErrorPointer", "UnsafeMutableRawPointer?", true };
+        yield return new object[] { "OptionalErrorPointer", "UnsafeMutableRawPointer?", false };
         yield return new object[] { "Direct", "Int", true };
         yield return new object[] { "Direct", "Int", false };
     }
@@ -380,6 +420,7 @@ public class CdeclReturnRendererTests
         "SimpleEnum" => CdeclReturnKind.SimpleEnum,
         "ClassPointer" => CdeclReturnKind.ClassPointer,
         "OptionalClassPointer" => CdeclReturnKind.OptionalClassPointer,
+        "OptionalErrorPointer" => CdeclReturnKind.OptionalErrorPointer,
         "Direct" => CdeclReturnKind.Direct,
         _ => throw new System.ArgumentOutOfRangeException(nameof(kindName), kindName, null),
     };
@@ -525,6 +566,7 @@ public class CdeclReturnRendererTests
     [InlineData("Direct", "Int")]
     [InlineData("ClassPointer", "UnsafeMutableRawPointer")]
     [InlineData("OptionalClassPointer", "UnsafeMutableRawPointer?")]
+    [InlineData("OptionalErrorPointer", "UnsafeMutableRawPointer?")]
     public void OptionalPointerLane_Sentinel_MatchesTheRenderer(string kindName, string cdeclType)
     {
         var mapping = Map(ParseKind(kindName), cdeclType);

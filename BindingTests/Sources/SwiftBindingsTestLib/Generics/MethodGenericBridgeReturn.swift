@@ -53,6 +53,10 @@ public final class BridgeRefHolder {
     public init(tag: Int32) { self.tag = tag }
 }
 
+public enum BridgeLookupError: Error {
+    case rejected
+}
+
 /// Non-generic host so the MGB "skip generic parent" gate passes. Each method has exactly one
 /// method-own generic param constrained to the plain class-bound `BridgeProvider`.
 public final class BridgeHost {
@@ -66,6 +70,12 @@ public final class BridgeHost {
     /// Wire-destroy branch: frozen-with-ref struct return.
     public func makeRefBox<T: BridgeProvider>(_ provider: T) -> BridgeRefBox {
         return BridgeRefBox(holder: BridgeRefHolder(tag: provider.bridgeTag))
+    }
+
+    /// Direct optional-error return control for the synchronous `_XM` wrapper. This must use the
+    /// dedicated owned error-box renderer rather than the class `as AnyObject` retain path.
+    public func lookupError<T: BridgeProvider>(_ provider: T) -> (any Error)? {
+        provider.bridgeTag < 0 ? BridgeLookupError.rejected : nil
     }
 
     // ── Synthetic-name collisions on the MGB path ──────────────────────

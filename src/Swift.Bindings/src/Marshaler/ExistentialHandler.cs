@@ -634,11 +634,30 @@ public class ExistentialHandler
     /// </para>
     /// </summary>
     public bool IsOptionalAnyError(TypeSpec typeSpec)
+        => IsOptionalAnyErrorSpec(typeSpec);
+
+    /// <summary>
+    /// Static form of <see cref="IsOptionalAnyError(TypeSpec)"/> for shared ABI classifiers that
+    /// do not otherwise need an <see cref="ExistentialHandler"/> instance.
+    /// </summary>
+    internal static bool IsOptionalAnyErrorSpec(TypeSpec typeSpec)
     {
-        var inner = UnwrapOptionalExistential(typeSpec);
-        if (inner is null || inner.Protocols.Count != 1)
+        if (typeSpec is not NamedTypeSpec optional ||
+            optional.Name != "Swift.Optional" ||
+            optional.GenericParameters.Count != 1)
+        {
             return false;
-        return inner.Protocols.Keys.First().Name == "Swift.Error";
+        }
+
+        // TypeSpecParser represents `any Swift.Error` as a named type with IsAny set. Do not
+        // accept bare/unqualified Error or AnyError spellings here: those can be ordinary
+        // user-defined payload types and do not have the compact error-box ABI.
+        if (optional.GenericParameters[0] is NamedTypeSpec named)
+            return named.IsAny && named.Name == "Swift.Error";
+
+        return optional.GenericParameters[0] is ProtocolListTypeSpec inner &&
+            inner.Protocols.Count == 1 &&
+            inner.Protocols.Keys.First().Name == "Swift.Error";
     }
 
     /// <summary>

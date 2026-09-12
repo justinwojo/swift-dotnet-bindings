@@ -99,3 +99,46 @@ public struct ItemBag {
 
     public func count() -> Int32 { Int32(storage.count) }
 }
+
+// MARK: - Optional Error Subscript
+
+/// A value-type subscript returning the compact, one-word `(any Error)?` existential.
+/// Unlike an ordinary optional protocol existential, Swift transports this value as a nullable
+/// retained error-box pointer. The generated cdecl wrapper and managed projection must agree on
+/// that direct-pointer ABI for both the present and nil cases.
+public enum LookupFailure: Error {
+    case missing
+}
+
+public struct ErrorBag {
+    public init() {}
+
+    public subscript(id: String) -> (any Error)? {
+        id.isEmpty ? nil : LookupFailure.missing
+    }
+}
+
+/// Ownership companion to `ErrorBag`. `TrackedError` records allocation/deallocation through the
+/// shared BindingTests lifetime counters, so the managed `AnyError` returned by this subscript must
+/// keep the box alive until disposal and release it exactly once afterward.
+public struct TrackedErrorBag {
+    public init() {}
+
+    public subscript(tag: Int32) -> (any Error)? {
+        tag < 0 ? nil : TrackedError(tag: tag)
+    }
+}
+
+/// Property-getter control for the same compact optional-error ABI. Property wrappers have a
+/// decomposed optional-existential branch that must not capture this one-word special case.
+public struct ErrorPropertyHolder {
+    private let hasError: Bool
+
+    public init(hasError: Bool) {
+        self.hasError = hasError
+    }
+
+    public var lastError: (any Error)? {
+        hasError ? LookupFailure.missing : nil
+    }
+}

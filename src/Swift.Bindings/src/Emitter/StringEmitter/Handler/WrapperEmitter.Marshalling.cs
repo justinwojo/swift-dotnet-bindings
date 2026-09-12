@@ -26,22 +26,7 @@ namespace BindingsGeneration
         /// the parameters that actually moved, so a signature with no such shadowing is unchanged.</para>
         /// </summary>
         private void EmitMarshallingBaseAliases(CSharpWriter csWriter)
-        {
-            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
-            {
-                if (DefaultParameterOverloadEmitter.IsDebugParameter(argumentDecl))
-                    continue;
-                if (argumentDecl.SwiftTypeSpec.IsEmptyTuple)
-                    continue;
-
-                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
-                var baseName = NameProvider.GetMarshallingBaseName(argumentDecl);
-                if (string.Equals(csName, baseName, StringComparison.Ordinal))
-                    continue;
-
-                csWriter.WriteLine($"ref var {baseName} = ref {csName};");
-            }
-        }
+            => PInvokeEmitter.EmitMarshallingBaseAliases(csWriter, _env);
 
         /// <summary>
         /// Emits a Swift wrapper for methods returning opaque types (some Protocol).

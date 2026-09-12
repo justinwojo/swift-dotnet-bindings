@@ -2112,6 +2112,31 @@ public class PropertyHandlerTests
         Assert.Contains("CallConvCdecl", csOutput);
     }
 
+    [Fact]
+    public void Emit_GetterOnlyOptionalAnyError_UsesOwnedPointerOnBothSides()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("ErrorHolder", moduleDecl);
+        var optionalErrorType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(
+            classDecl, moduleDecl, "lastError", optionalErrorType, hasGetter: true, hasSetter: false);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("Swift.Foundation.AnyError? LastError_Get()", csOutput);
+        Assert.Contains("result == IntPtr.Zero ? null : new Swift.Foundation.AnyError", csOutput);
+        Assert.Contains("ownsContainer: true", csOutput);
+        Assert.DoesNotContain("SwiftOptional<Swift.Runtime.ExistentialContainer1>", csOutput);
+        Assert.Contains(") -> UnsafeMutableRawPointer? {", swiftOutput);
+        Assert.Contains("guard let _sbwError", swiftOutput);
+        Assert.DoesNotContain("_ hasValuePtr:", swiftOutput);
+    }
+
     #endregion
 
     #region Nullable struct setter pins value SafeHandle for the P/Invoke

@@ -504,17 +504,20 @@ public static class MethodGenericBridgeEmitter
         // Note: throwing methods are excluded at TryEmit entry (v1 limitation)
 
         // Determine return type for @_cdecl function
+        var returnMapping = new CdeclReturnMapping(string.Empty, CdeclReturnKind.Direct);
         var returnKind = CdeclReturnKind.Direct;
         if (!isVoidReturn && !isStringReturn)
         {
-            var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
-            returnKind = mapping.Kind;
+            (returnMapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
+            returnKind = returnMapping.Kind;
         }
-        bool isClassPointerReturn = returnKind is CdeclReturnKind.ClassPointer or CdeclReturnKind.OptionalClassPointer;
+        bool isClassPointerReturn = returnKind is CdeclReturnKind.ClassPointer
+            or CdeclReturnKind.OptionalClassPointer
+            or CdeclReturnKind.OptionalErrorPointer;
         string cdeclReturnType;
         if (isVoidReturn || isStringReturn || needsResultPtr) cdeclReturnType = "";
         else if (isClassPointerReturn)
-            cdeclReturnType = returnKind == CdeclReturnKind.OptionalClassPointer
+            cdeclReturnType = returnKind is CdeclReturnKind.OptionalClassPointer or CdeclReturnKind.OptionalErrorPointer
                 ? " -> UnsafeMutableRawPointer?" : " -> UnsafeMutableRawPointer";
         else if (returnKind == CdeclReturnKind.Direct)
             cdeclReturnType = $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}";
@@ -557,6 +560,14 @@ public static class MethodGenericBridgeEmitter
             var renderedReturn = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
             swiftWriter.WriteLine($"    let _result = {methodCall}");
             swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: ({renderedReturn}).self, repeating: _result, count: 1)");
+        }
+        else if (returnKind == CdeclReturnKind.OptionalErrorPointer)
+        {
+            foreach (var line in CdeclReturnRenderer.LinesBindingResult(
+                methodCall, returnTypeSpec, env.TypeDatabase, returnMapping))
+            {
+                swiftWriter.WriteLine($"    {line}");
+            }
         }
         else if (isClassPointerReturn)
         {
@@ -948,7 +959,8 @@ public static class MethodGenericBridgeEmitter
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
         var returnMapping = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
         bool isClassPointerReturn = returnMapping.mapping.Kind is CdeclReturnKind.ClassPointer
-            or CdeclReturnKind.OptionalClassPointer;
+            or CdeclReturnKind.OptionalClassPointer
+            or CdeclReturnKind.OptionalErrorPointer;
         if (isVoidReturn)
         {
             csWriter.WriteLine($"{callExpr};");
@@ -987,7 +999,12 @@ public static class MethodGenericBridgeEmitter
             // `new T(new SwiftHandle(ptr))` — a cross-module class's (SwiftHandle) ctor is internal
             // and invisible across generated assemblies (CS1729). The factory adopts the +1, so the
             // ownership transfer is identical.
-            if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalClassPointer)
+            if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalErrorPointer)
+            {
+                csWriter.WriteLine($"var {resultLocal} = {callExpr};");
+                csWriter.WriteLine($"return {resultLocal} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocal} }}, ownsContainer: true);");
+            }
+            else if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalClassPointer)
             {
                 // Optional class pointer: nil arrives as a null pointer. Null-check before the
                 // factory (which does not short-circuit on IntPtr.Zero); the factory's T must be the

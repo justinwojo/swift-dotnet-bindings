@@ -592,6 +592,7 @@ namespace BindingsGeneration
             // and constructs T? without going through SwiftOptional<T> / VWT operations.
             if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                 !_env.MethodDecl.IsSubscriptAccessor &&
+                !ExistentialHandler.IsOptionalAnyErrorSpec(argument.SwiftTypeSpec) &&
                 OptionalMarshalClassifier.IsDecomposed(argument.SwiftTypeSpec, _env.TypeDatabase))
             {
                 var projection = _factory.Project(argument.SwiftTypeSpec,

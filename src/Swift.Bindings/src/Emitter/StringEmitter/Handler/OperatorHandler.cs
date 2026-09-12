@@ -435,13 +435,19 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Non-cdecl operators consume the P/Invoke signature's collision-free marshalling
+                // bases directly. Declare the same aliases ordinary wrapper bodies do before any
+                // handle extraction or call argument reads them.
+                if (!usesCdeclWrapper)
+                    PInvokeEmitter.EmitMarshallingBaseAliases(csWriter, methodEnv);
+
                 // The Swift @_cdecl operator wrapper is availability-gated (see EmitSwiftWrapper), so on an
                 // OS below the operator's effective floor its body dereferences a weak-linked, null gated
                 // symbol — an uncatchable SIGSEGV. Throw a catchable exception before reaching the P/Invoke.
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature, methodEnv.SyntheticLocals);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv.SyntheticLocals);
 
                 if (usesCdeclWrapper)
                 {
@@ -482,11 +488,14 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
+                if (!usesCdeclWrapper)
+                    PInvokeEmitter.EmitMarshallingBaseAliases(csWriter, methodEnv);
+
                 // See the binary-operator note above: guard the weak-linked gated-symbol crash before the P/Invoke.
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature, methodEnv.SyntheticLocals);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv.SyntheticLocals);
 
                 if (usesCdeclWrapper)
                 {
@@ -747,17 +756,17 @@ namespace BindingsGeneration
         /// site both mint the name through the body's scope, which answers the same for the same
         /// spelling — and answers with the plain spelling whenever no operand holds it.</para>
         /// </summary>
-        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, Signature wrapperSignature, SyntheticLocalNames? bodyScope)
+        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, SyntheticLocalNames? bodyScope)
         {
             foreach (var param in pInvokeSignature.Parameters)
             {
                 if (param.Type is MarshalledType.ObjCBridged)
                 {
-                    // Find the matching wrapper parameter name for the source object
-                    var wrapperParam = wrapperSignature.Parameters.FirstOrDefault(p => p.Name == param.Name);
-                    var sourceName = wrapperParam?.Name ?? param.Name;
-                    var handleName = Signature.ObjCHandleLocalName(param with { Name = sourceName }, bodyScope);
-                    csWriter.WriteLine($"IntPtr {handleName} = {sourceName}.Handle;");
+                    // The P/Invoke parameter name is the authoritative marshalling base. When it
+                    // differs from the public operand, EmitMarshallingBaseAliases declared it just
+                    // above, so both this handle local and CallArgumentsString read the same source.
+                    var handleName = Signature.ObjCHandleLocalName(param, bodyScope);
+                    csWriter.WriteLine($"IntPtr {handleName} = {param.Name}.Handle;");
                 }
             }
         }

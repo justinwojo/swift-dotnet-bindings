@@ -2011,6 +2011,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // internal ctor); a null pointer projects to a null reference.
                     csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
                     break;
+                case CdeclReturnKind.OptionalErrorPointer:
+                    // Optional<any Error> is a nullable owned error-box pointer, not an optional
+                    // class bridged through NewFromPayload (that factory is intentionally borrowed).
+                    csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocalName} }}, ownsContainer: true);");
+                    break;
                 default:
                     csWriter.WriteLine($"return {resultLocalName};");
                     break;

@@ -1,8 +1,8 @@
 {
-  "git_sha": "328d740f9",
+  "git_sha": "b8a965e5f",
   "platforms": {
     "simulator": {
-      "pass_count": 4012,
+      "pass_count": 4015,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -95,6 +95,21 @@
           "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
+          "class": "OperatorTests",
+          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
           "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
@@ -158,7 +173,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4016,
+      "pass_count": 4019,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -256,6 +271,21 @@
           "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
+          "class": "OperatorTests",
+          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
           "class": "OwnershipGCStressTests",
           "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
           "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
@@ -294,7 +324,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4000,
+      "pass_count": 4003,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -387,6 +417,21 @@
           "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
         },
         {
+          "class": "OperatorTests",
+          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
           "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
@@ -450,7 +495,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3152,
+      "pass_count": 3155,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -521,6 +566,21 @@
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
           "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OwnershipGCStressTests",
@@ -561,7 +621,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3154,
+      "pass_count": 3157,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -632,6 +692,21 @@
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
           "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OptionalMarshallingTests",
@@ -697,7 +772,7 @@
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3261,
+      "pass_count": 3264,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -768,6 +843,21 @@
           "class": "OperatorTests",
           "method": "TestClassReturningOperatorSubtract",
           "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
+        },
+        {
+          "class": "OperatorTests",
+          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
+          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OptionalMarshallingTests",

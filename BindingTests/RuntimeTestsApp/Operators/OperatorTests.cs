@@ -121,6 +121,51 @@ public class OperatorTests : TestBase
         TestLogger.Info($"Vector2D scalar multiply: ({result.X}, {result.Y})");
     }
 
+    // These assertions remain as the activation contract for Issue 2. Class-parent operators use
+    // CallConvSwift with SafeHandle operands and currently terminate before managed execution on
+    // CoreCLR as well as being rejected by Mono and NativeAOT. The compile fixture and focused
+    // emitter tests prove this release fix without expanding it into a new operator transport.
+    [Skip("Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands.")]
+    public void TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult()
+    {
+        using var value = new NumberBox(11);
+        using var valueOther = new NumberBox(31);
+        using var result = value + valueOther;
+
+        AssertEqual(42, result.Value, "NumberBox operator returns the summed value");
+        result.Payload.Dispose();
+        AssertThrows<ObjectDisposedException>(() => _ = result.Value,
+            "Disposing the operator result releases its owned Swift object");
+        TestLogger.Info("NumberBox class operator returned and released its generated result");
+    }
+
+    [Skip("Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands.")]
+    public void TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures()
+    {
+        using var live = new NumberBox(1);
+        NumberBox? missing = null;
+        AssertThrows<NullReferenceException>(() => _ = missing! + live,
+            "A null class operand retains the existing null-reference contract");
+
+        using var disposed = new NumberBox(2);
+        disposed.Payload.Dispose();
+        AssertThrows<ObjectDisposedException>(() => _ = disposed + live,
+            "A disposed class operand is rejected before native execution");
+        TestLogger.Info("NumberBox class operator preserved null/disposed operand behavior");
+    }
+
+    [Skip("Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands.")]
+    public void TestHeterogeneousClassOperatorUsesMarshallingAlias()
+    {
+        using var operatorValue = new OperatorValue(11);
+        using var operatorValueOther = new OperatorValueOther(31);
+        using var result = operatorValue + operatorValueOther;
+
+        AssertEqual(42, result.Value,
+            "Heterogeneous class operator returns the summed value through the escaped operand alias");
+        TestLogger.Info("Heterogeneous class operator executed through its marshalling-base alias");
+    }
+
     #endregion
 
     #region Tier 2 — Comparison

@@ -986,27 +986,27 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 4012,
+      "pass": 4015,
       "fail": 0,
-      "skip": 30,
+      "skip": 33,
       "crash": 0
     },
     "device": {
-      "pass": 4016,
+      "pass": 4019,
       "fail": 0,
-      "skip": 26,
+      "skip": 29,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 4000,
+      "pass": 4003,
       "fail": 0,
-      "skip": 30,
+      "skip": 33,
       "crash": 0
     },
     "macos": {
-      "pass": 3152,
+      "pass": 3155,
       "fail": 0,
-      "skip": 21,
+      "skip": 24,
       "crash": 0
     },
     "macos_x64": {
@@ -1016,9 +1016,9 @@
       "crash": 0
     },
     "maccatalyst": {
-      "pass": 3154,
+      "pass": 3157,
       "fail": 0,
-      "skip": 26,
+      "skip": 29,
       "crash": 0
     },
     "maccatalyst_x64": {
@@ -1028,13 +1028,13 @@
       "crash": 0
     },
     "tvos_simulator": {
-      "pass": 3261,
+      "pass": 3264,
       "fail": 0,
-      "skip": 26,
+      "skip": 29,
       "crash": 0
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 18860
+    "swift_bindings_unit_pass_floor": 18875
   }
 }

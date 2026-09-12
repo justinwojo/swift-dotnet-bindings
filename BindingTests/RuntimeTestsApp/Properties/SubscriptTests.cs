@@ -249,4 +249,64 @@ public class SubscriptTests : TestBase
     }
 
     #endregion
+
+    #region ErrorBag — Optional Error Subscript
+
+    public void TestErrorBagSubscriptSomeAndNone()
+    {
+        using var bag = new ErrorBag();
+
+        var none = bag[""];
+        AssertNull(none, "Empty lookup key returns nil");
+
+        using var failure = bag["missing"];
+        AssertNotNull(failure, "Non-empty lookup key returns an AnyError");
+        AssertEqual("missing", failure!.LocalizedDescription,
+            "Present optional error preserves the Swift error payload");
+        TestLogger.Info("ErrorBag optional-error subscript returned correct Some/None values");
+    }
+
+    public void TestTrackedErrorBagSubscriptOwnsReturnedErrorUntilDispose()
+    {
+        LifetimeTracker.Reset();
+
+        using (var bag = new TrackedErrorBag())
+        {
+            var none = bag[-1];
+            AssertNull(none, "Negative tag returns nil without allocating a tracked error");
+            var nilStats = LifetimeTracker.GetStats();
+            AssertEqual(0, nilStats.allocations, "Nil subscript result performs no tracked allocation");
+
+            var error = bag[42];
+            AssertNotNull(error, "Non-negative tag returns a tracked AnyError");
+            var liveStats = LifetimeTracker.GetStats();
+            AssertEqual(1, liveStats.allocations, "Present result constructs exactly one tracked error");
+            AssertEqual(0, liveStats.deallocations, "Returned error remains alive before consumer disposal");
+            AssertEqual(1, liveStats.live, "Returned error has one live owner before disposal");
+
+            error!.Dispose();
+        }
+
+        LifetimeTracker.AssertNoLeaks("optional-error subscript return must release its adopted box");
+        var finalStats = LifetimeTracker.GetStats();
+        AssertEqual(1, finalStats.allocations, "Lifetime probe constructed exactly one tracked error");
+        AssertEqual(1, finalStats.deallocations, "Consumer disposal destroys the tracked error exactly once");
+        AssertEqual(0, finalStats.live, "No optional-error subscript payload remains live");
+        TestLogger.Info("TrackedErrorBag optional-error subscript balanced one owned error box");
+    }
+
+    public void TestErrorPropertyHolderReturnsSomeAndNoneThroughDirectPointerWrapper()
+    {
+        using var empty = new ErrorPropertyHolder(false);
+        AssertNull(empty.LastError, "False property state returns nil");
+
+        using var populated = new ErrorPropertyHolder(true);
+        using var failure = populated.LastError;
+        AssertNotNull(failure, "True property state returns an AnyError");
+        AssertEqual("missing", failure!.LocalizedDescription,
+            "Optional-error property preserves the Swift payload");
+        TestLogger.Info("ErrorPropertyHolder bypassed the decomposed existential getter path");
+    }
+
+    #endregion
 }

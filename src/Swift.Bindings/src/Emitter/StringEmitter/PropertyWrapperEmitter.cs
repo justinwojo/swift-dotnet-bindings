@@ -285,13 +285,19 @@ public static class PropertyWrapperEmitter
         // corrupts at runtime.
         if (propertyReferencesT && !needsResultPtr
             && returnMapping.Kind != CdeclReturnKind.ClassPointer
-            && returnMapping.Kind != CdeclReturnKind.OptionalClassPointer)
+            && returnMapping.Kind != CdeclReturnKind.OptionalClassPointer
+            && returnMapping.Kind != CdeclReturnKind.OptionalErrorPointer)
         {
             needsResultPtr = true;
         }
 
-        // Track whether this is a decomposed Optional getter (separate resultPtr + hasValuePtr)
-        bool isDecomposedOptionalGetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+        // Track whether this is a decomposed Optional getter (separate resultPtr + hasValuePtr).
+        // Optional<any Error> is the one protocol existential with a one-word nullable pointer
+        // representation, so its dedicated direct-return mapping must bypass this generic
+        // existential strategy. Otherwise the signature omits resultPtr while the body still
+        // writes resultPtr/hasValuePtr and the wrapper is stripped by swiftc.
+        bool isDecomposedOptionalGetter = returnMapping.Kind != CdeclReturnKind.OptionalErrorPointer &&
+            OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
 
         // A struct getter spelled `mutating get` reads through the caller's storage, not a copy:
         // the increment a memoized property performs on each read IS the property's meaning, and
@@ -1039,7 +1045,13 @@ public static class PropertyWrapperEmitter
         var cdeclParams = new List<string>();
         var cdeclCallArgs = new List<string>();
 
-        bool isDecomposedOptionalGetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+        // Return transport can be narrower than the general Optional marshalling strategy:
+        // Optional<any Error> is decomposed for setter inputs, but its cdecl getter adopts a
+        // nullable owned error-box pointer. Keep this guard explicit even though result-buffer
+        // writes are also gated by needsResultPtr, so a future getter consumer cannot observe
+        // the contradictory decomposed classification.
+        bool isDecomposedOptionalGetter = returnMapping.Kind != CdeclReturnKind.OptionalErrorPointer &&
+            OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
 
         if (needsResultPtr)
         {
