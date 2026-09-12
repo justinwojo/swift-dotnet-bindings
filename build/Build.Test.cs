@@ -71,12 +71,13 @@ partial class Build
     // ============================================================
 
     Target Test => _ => _
-        .DependsOn(UnitTests, RuntimeUnitTests, AnalyzerTests)
+        .DependsOn(UnitTests, RuntimeUnitTests, AnalyzerTests, WithdrawalGateTests)
         .After(ValidateAppleTypesManifest)
         .ProceedAfterFailure()
         .Executes(() =>
         {
-            // Unit tests, analyzer tests, and runtime unit tests are run via DependsOn.
+            // Unit tests, analyzer tests, runtime unit tests, and withdrawal fail-closed
+            // harness tests are run via DependsOn.
             // BindingTests regression + simulator/device/macOS/catalyst/tvOS runtime
             // gates are handled by the consolidated BindingTests target (and by the
             // separate CI job). No need to duplicate that work here.

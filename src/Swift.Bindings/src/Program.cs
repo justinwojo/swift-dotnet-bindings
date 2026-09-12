@@ -994,7 +994,7 @@ namespace BindingsGeneration
                 // The verify-recover loop's settled disabled set, hoisted out of the loop branch so the
                 // emission report can record it as the on-disk settled disabled set. Empty on every
                 // non-loop path.
-                IReadOnlyList<string> loopWithdrawnUnits = System.Array.Empty<string>();
+                var withdrawalEvidence = WithdrawalEvidence.NotRun();
 
                 // True only when the loop's wired C# verifier actually ran and returned Clean — the sole
                 // honest proof the emitted C# compiled. Hoisted out so the publication ledger keys the
@@ -1112,7 +1112,8 @@ namespace BindingsGeneration
                             recovery.SearchIsolated.Length, decl.Name);
                     }
 
-                    loopWithdrawnUnits = recovery.Denylist.Select(unit => unit.Describe()).ToList();
+                    withdrawalEvidence = WithdrawalEvidence.FromController(
+                        recovery, swiftConfigured: compileWrapper != null, csharpConfigured: verifyRecoverCsharp != null);
                     convergedWithNoWrapperSurface = driver.NoWrapperSurfaceConverged;
                     loopCSharpVerifiedClean = driver.CSharpVerifiedClean;
                 }
@@ -1223,7 +1224,6 @@ namespace BindingsGeneration
                 // the emission report must record it on every loop path. The obligation LEDGER stays keyed
                 // on the wrapper plane below — its evidence is largely wrapper-shaped, and a C#-only mode
                 // keeps its standalone post-generation publication gate as the authority.
-                IReadOnlyList<string> settledWithdrawnUnits = loopWithdrawnUnits;
                 PublicationObligationLedger? publicationLedger = null;
                 // Reconcile every emitted wrapper-symbol P/Invoke reference against the wrapper functions
                 // this generation emitted. This is the verifier that discharges obligation 4's existence
@@ -1277,7 +1277,7 @@ namespace BindingsGeneration
 
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
                 EmissionReportEmitter.Emit(
-                    emissionContext, moduleName, outputDirectory, logger, settledWithdrawnUnits, publicationLedger);
+                    emissionContext, moduleName, outputDirectory, logger, withdrawalEvidence, publicationLedger);
 
                 // Build and write the binding artifact manifest. The main generation pass
                 // owns this output directory and replaces any prior artifact wholesale —
@@ -1299,7 +1299,7 @@ namespace BindingsGeneration
                     WrapperRequirementEvaluator.Evaluate(report, outputDirectory);
 
                     var emissionReport = EmissionReportEmitter.BuildReport(
-                        emissionContext, moduleName, settledWithdrawnUnits, publicationLedger);
+                        emissionContext, moduleName, withdrawalEvidence, publicationLedger);
                     var manifest = new BindingArtifactManifest
                     {
                         Module = moduleName,

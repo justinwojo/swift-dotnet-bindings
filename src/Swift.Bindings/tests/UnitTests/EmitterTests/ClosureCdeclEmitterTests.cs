@@ -17,7 +17,94 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ClosureCdeclEmitterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_OptionalCallbackAndInoutString_OwnsStorageAndWritesBack(bool throws)
+    {
+        var db = CreateTypeDatabase();
+        db.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = CreateModuleDecl("TestModule");
+        var parent = CreateClassDecl("Loader", module);
+        var method = CreateMethodDecl("update", parent, module,
+            new NamedTypeSpec("Swift.Int32"), false, throws, MethodType.Instance);
+        var text = CreateArgument("text", new NamedTypeSpec("Swift.String"), module);
+        text.IsInOut = true;
+        method.CSSignature.Add(text);
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty));
+        var callback = CreateArgument("callback", optional, module);
+        callback.HasDefaultArg = true;
+        method.CSSignature.Add(callback);
+        var originalTrim = DefaultParameterOverloadEmitter.BuildOverloadDecl(method, 1);
+        var trimExport = MethodWrapperEmitter.GetMethodSymbolName("TestModule", "Loader", "update", originalTrim.MangledName);
+        var env = new MethodEnvironment(method, db);
+        Assert.False(WrapperValidation.HasCdeclCompatibleFunctionShape(env));
+        Assert.True(ClosureEmitter.CanConvertToCdecl(env));
+
+        var (cs, swift) = EmitMethod(method, db, emitDefaults: true);
+        Assert.Contains(originalTrim.MangledName, swift);
+        Assert.Contains(trimExport, swift);
+        Assert.Contains(trimExport, cs);
+        Assert.Contains("@_cdecl", swift);
+        Assert.Contains("_ text: UnsafeMutableRawPointer", swift);
+        Assert.Contains("var textVal = text.assumingMemoryBound(to: Swift.String.self).pointee", swift);
+        Assert.Contains("defer { text.assumingMemoryBound(to: Swift.String.self).pointee = textVal }", swift);
+        Assert.Contains("&textVal", swift);
+        Assert.Contains("_sbWrapClosureContext", swift); // Optional closures escape without an attribute.
+        Assert.Contains("ref string text", cs);
+        Assert.Contains("ref textDisposable.BufferRef", cs);
+        Assert.Contains("text = textSwift.ToString()", cs);
+        Assert.Contains("finally", cs);
+        Assert.Contains("CallConvCdecl", cs);
+        Assert.DoesNotContain("CallConvSwift", cs);
+    }
+
     #region Detection Helper Tests (NeedsClosureCdeclWrapper)
+
+    [Theory]
+    [InlineData("async")]
+    [InlineData("constructor")]
+    [InlineData("no-callback")]
+    [InlineData("inout-class")]
+    [InlineData("generic-method")]
+    [InlineData("generic-parent")]
+    [InlineData("static")]
+    [InlineData("mutating")]
+    public void CanConvertToCdecl_InoutStringCapabilityIsRouteLocal(string nearMiss)
+    {
+        var db = CreateTypeDatabase();
+        db.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = CreateModuleDecl("TestModule");
+        var parent = CreateClassDecl("Loader", module);
+        var method = CreateMethodDecl("update", parent, module,
+            TupleTypeSpec.Empty, nearMiss == "async", false, MethodType.Instance);
+        method.IsConstructor = nearMiss == "constructor";
+        method.IsMutating = nearMiss == "mutating";
+        if (nearMiss == "static") method.MethodType = MethodType.Static;
+        if (nearMiss == "generic-method")
+            method.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        if (nearMiss == "generic-parent")
+            parent.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        var text = CreateArgument("text", new NamedTypeSpec("Swift.String"), module);
+        text.IsInOut = true;
+        method.CSSignature.Add(text);
+        if (nearMiss != "no-callback")
+        {
+            var optional = new NamedTypeSpec("Swift.Optional");
+            optional.GenericParameters.Add(new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty));
+            method.CSSignature.Add(CreateArgument("callback", optional, module));
+        }
+        if (nearMiss == "inout-class")
+        {
+            var value = CreateArgument("value", new NamedTypeSpec("TestModule.Loader"), module);
+            value.IsInOut = true;
+            method.CSSignature.Add(value);
+        }
+        var env = new MethodEnvironment(method, db);
+        Assert.False(WrapperValidation.HasCdeclCompatibleFunctionShape(env));
+        Assert.False(ClosureEmitter.CanConvertToCdecl(env));
+    }
 
     [Fact]
     public void NeedsClosureCdeclWrapper_NonAsyncMethodWithEscapingClosure_ReturnsTrue()
@@ -2088,7 +2175,8 @@ public class ClosureCdeclEmitterTests
 
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
-        TypeDatabase typeDatabase)
+        TypeDatabase typeDatabase,
+        bool emitDefaults = false)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -2099,6 +2187,8 @@ public class ClosureCdeclEmitterTests
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
         handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        if (emitDefaults)
+            DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, env, NullLogger.Instance);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

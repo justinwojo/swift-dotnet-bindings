@@ -1002,7 +1002,20 @@ public static partial class ClosureEmitter
     /// </summary>
     public static bool CanConvertToCdecl(MethodEnvironment env)
     {
-        if (!MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env))
+        // This producer owns a synchronous String BufferRef on the managed side and
+        // MapInout + defer below on the Swift side. Keep the capability local: other
+        // secondary producers still use the default-off function-shape contract.
+        var method = env.MethodDecl;
+        bool supportsInoutString = !method.IsAsync && !method.IsGeneric &&
+            !method.IsConstructor && !method.IsMutating &&
+            (env.ParentDecl as TypeDecl)?.IsGeneric != true &&
+            (method.MethodType != MethodType.Static || env.ParentDecl is ModuleDecl) &&
+            NeedsClosureCdeclWrapper(method, env.ClosureHandler) &&
+            !env.ClosureHandler.IsClosure(method.CSSignature[0]) &&
+            !WrapperValidation.IsNonCopyableStructParent(env.ParentDecl) &&
+            !method.CSSignature.Any(a => WrapperValidation.IsNonCopyableType(
+                a.SwiftTypeSpec, env.TypeDatabase, method.ModuleDecl));
+        if (!WrapperValidation.HasCdeclCompatibleFunctionShape(env, supportsInoutString))
             return false;
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
@@ -1114,6 +1127,16 @@ public static partial class ClosureEmitter
                 // PropertyWrapperEmitter uses, instead of re-deriving the suffix here.
                 var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                 label_ = CdeclParamMapper.BuildSwiftBindingName(label_, closureSiblings);
+                if (arg.IsInOut)
+                {
+                    var (inoutParam, inoutReconstruction, inoutCallArg, writeBack) =
+                        CdeclParamMapper.MapInout(arg, label_, env, omitLabels: false, reservedSiblings: closureSiblings);
+                    argParams.Add(inoutParam);
+                    adapterCode.Add(inoutReconstruction);
+                    adapterCode.Add($"defer {{ {writeBack} }}");
+                    callArgs.Add(inoutCallArg);
+                    continue;
+                }
                 var (cdeclParam, reconstruction, callArg) =
                     CdeclParamMapper.Map(arg, label_, env, omitLabels: false, reservedSiblings: closureSiblings);
                 argParams.Add(cdeclParam);

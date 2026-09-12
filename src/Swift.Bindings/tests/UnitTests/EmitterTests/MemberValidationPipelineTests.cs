@@ -2369,6 +2369,28 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
+    public void ValidateMethodEmission_FoundationNSInvocation_ReturnsSkip()
+    {
+        var pipeline = new MemberValidationPipeline(CreateTypeDatabase());
+        var method = CreateMethodWithArgs("init", TupleTypeSpec.Empty,
+            new NamedTypeSpec("Foundation.NSInvocation"));
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void SwiftUnavailableTypeCheck_SameSpelledOtherModule_IsNearMiss()
+    {
+        var method = CreateMethodWithArgs("consume", TupleTypeSpec.Empty,
+            new NamedTypeSpec("FixtureKit.NSInvocation"));
+
+        Assert.False(MemberValidationPipeline.SignatureReachesSwiftUnavailableType(method));
+    }
+
+    [Fact]
     public void ValidateMethodEmission_NoInternalTypeNames_PassesGate()
     {
         // Module hasn't populated InternalTypeNames (e.g., dependency module). Gate should no-op.

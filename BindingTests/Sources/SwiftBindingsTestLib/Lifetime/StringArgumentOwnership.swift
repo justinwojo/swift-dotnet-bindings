@@ -95,8 +95,7 @@ public struct StringOwnershipReceiver {
         return value.number + bias + extra
     }
 
-    // Recovery contract: the full closure wrapper is outside the new admission and may be
-    // withdrawn. Its independently eligible no-callback trim must survive that withdrawal.
+    // Full callback and omitted-default entry points independently preserve inout storage.
     @inline(never) public func droppingClosureDefault(_ text: inout String, callback: (() -> Void)? = {}) -> Int32 {
         text += "|trimmed"
         callback?()
@@ -117,4 +116,41 @@ public struct StringOwnershipReceiver {
 @inline(never) public func stringOwnershipFreeText(_ text: inout String) -> Int32 {
     text += "|free"
     return 29
+}
+
+@frozen public struct StringOwnershipFrozenCallbackReceiver {
+    public let bias: Int32
+    public init(_ bias: Int32) { self.bias = bias }
+    @inline(never) public func update(_ before: Int32, text: inout String, after: Int32,
+                                     callback: (() -> Void)?) -> Int32 {
+        text += "|callback"
+        callback?()
+        return before + bias + after
+    }
+}
+
+// Non-final reference receiver with an observable ARC lifetime.
+public class StringOwnershipCallbackReceiver {
+    private let token: StringOwnershipToken
+    public init(_ bias: Int32) { token = StringOwnershipToken(bias) }
+    @inline(never) public func update(_ before: Int32, text: inout String, after: Int32,
+                                     callback: (() -> Void)?) -> Int32 {
+        text += "|callback"
+        callback?()
+        return before + token.number + after
+    }
+    @inline(never) public func updateAndThrow(_ before: Int32, text: inout String, after: Int32,
+                                             callback: (() -> Void)?) throws -> Int32 {
+        text += "|throwing-callback"
+        callback?()
+        if before < 0 { throw StringOwnershipFailure.expected }
+        return before + token.number + after
+    }
+}
+
+@inline(never) public func stringOwnershipFreeCallback(_ before: Int32, text: inout String,
+                                                      after: Int32, callback: (() -> Void)?) -> Int32 {
+    text += "|callback"
+    callback?()
+    return before + after
 }

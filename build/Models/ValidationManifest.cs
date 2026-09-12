@@ -64,7 +64,8 @@ public record ValidationManifest
                         WrapperDeps: product.WrapperDeps ?? [],
                         FrameworkModule: product.Framework,
                         PlatformVersion: lib.PlatformVersion,
-                        NamespacePattern: product.NamespacePattern));
+                        NamespacePattern: product.NamespacePattern,
+                        VerificationPlanes: product.VerificationPlanes));
                 }
             }
         }
@@ -116,6 +117,8 @@ public record ValidationLibrary
 
 public record ValidationProduct
 {
+    // Explicit input/configuration contract, e.g. swift-only for a mixed ObjC companion.
+    [JsonPropertyName("verificationPlanes")] public IReadOnlyList<string>? VerificationPlanes { get; init; }
     [JsonPropertyName("framework")] public string Framework { get; init; } = "";
     [JsonPropertyName("scheme")] public string? Scheme { get; init; }
     [JsonPropertyName("project")] public string? Project { get; init; }
@@ -131,4 +134,5 @@ public record ValidationTarget(
     IReadOnlyList<string> Dependencies, IReadOnlyList<string> WrapperDeps,
     string? FrameworkModule = null,
     string? PlatformVersion = null,
-    string? NamespacePattern = null);
+    string? NamespacePattern = null,
+    IReadOnlyList<string>? VerificationPlanes = null);

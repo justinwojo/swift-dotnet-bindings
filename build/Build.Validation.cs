@@ -17,6 +17,51 @@ using Serilog;
 
 partial class Build
 {
+    ValidationPromotion? validationPromotion;
+    string? withdrawalSourceHash;
+    string? withdrawalGeneratorHash;
+    string? withdrawalManifestHash;
+
+    string WithdrawalSourceFingerprint()
+    {
+        var files = ProcessTasks.StartProcess("git",
+            "ls-files --cached --others --exclude-standard -- src/Swift.Bindings/src src/Swift.Runtime/src BindingTests/Sources build",
+            workingDirectory: RootDirectory, logOutput: false).AssertZeroExitCode().Output
+            .Select(line => line.Text).Where(path => !path.StartsWith("build/baselines/", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        return WithdrawalProvenance.HashText(string.Join("\n", files.Select(path => path + ":" +
+            (File.Exists(RootDirectory / path) ? WithdrawalProvenance.HashFile(RootDirectory / path) : "deleted"))));
+    }
+
+    WithdrawalProvenance CaptureWithdrawalProvenance(ValidationTarget target, IEnumerable<string> inputs)
+    {
+        var toolchain = CaptureWithdrawalToolchain(ApplePlatform.FromName(target.Platform));
+        return new(withdrawalSourceHash!, withdrawalGeneratorHash!, withdrawalManifestHash!,
+            toolchain.Platform, toolchain.Architecture, toolchain.TargetTriple, toolchain.Sdk,
+            inputs.Distinct(StringComparer.Ordinal).ToDictionary(path => path, WithdrawalProvenance.HashTree));
+    }
+
+    WithdrawalToolchain CaptureWithdrawalToolchain(ApplePlatform platform)
+    {
+        var sdk = RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-path");
+        var sdkVersion = RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-version");
+        return new(platform.Name, platform.SimulatorTarget.Split('-')[0], platform.SimulatorTarget, sdk + "@" + sdkVersion);
+    }
+
+    void ArchivePriorWithdrawalEvidence(AbsolutePath outputBase, ValidationTarget target)
+    {
+        var archive = WithdrawalEvidenceArchive.Rotate(outputBase / target.Name,
+            outputBase / ".withdrawal-evidence-archive" / target.Name);
+        if (archive != null) Log.Information("{Target}: previous withdrawal evidence archived at {Path}", target.Name, archive);
+    }
+
+    Target PromoteValidationBaseline => _ => _
+        .After(SurfaceAccounting)
+        .Executes(() =>
+        {
+            if (validationPromotion?.Promote() != true)
+                Log.Information("Validation baseline unchanged: candidate lacks complete qualification receipts.");
+        });
     // --- Computed validation paths ---
     AbsolutePath GeneratorProject => RootDirectory / "src" / "Swift.Bindings" / "src" / "Swift.Bindings.csproj";
     AbsolutePath RuntimeProject => RootDirectory / "src" / "Swift.Runtime" / "src" / "Swift.Runtime.csproj";
@@ -54,6 +99,9 @@ partial class Build
 
             var manifest = WithDerivedDependencies(ValidationManifest.Load(ManifestPath));
             var targets = manifest.ExpandTargets(Filter, Tier, LibrariesDir);
+            var baselineAtStart = File.ReadAllBytes(BaselinePath);
+            if (targets.Count == 0)
+                throw new InvalidDataException("Withdrawal gate: selected target inventory is empty");
 
             // --- Resolve parallel job count ---
             int maxJobs;
@@ -149,8 +197,12 @@ partial class Build
                     Log.Warning("No libraries match filter: {Filter}", Filter);
                 else
                     Log.Error("No libraries available. Run: nuke fetch");
-                return;
+                throw new InvalidDataException("Withdrawal gate: selected targets have no available inputs");
             }
+
+            if (availableTargets.Count != targets.Count)
+                throw new InvalidDataException("Withdrawal gate: selected target inputs missing: " +
+                    string.Join(", ", targets.Except(availableTargets).Select(t => $"{t.Name}: {t.XcframeworkPath}")));
 
             var totalTargets = availableTargets.Count;
             Log.Debug("Runtime version: {Version}", GetRuntimeVersion());
@@ -166,6 +218,13 @@ partial class Build
             // --- Build Generator ---
             if (!Quick)
                 BuildGeneratorIfChanged(outputBase);
+            if (!Quick)
+            {
+                withdrawalSourceHash = WithdrawalSourceFingerprint();
+                withdrawalGeneratorHash = WithdrawalProvenance.HashFile(GeneratorDll);
+                withdrawalManifestHash = WithdrawalProvenance.HashText(WithdrawalProvenance.HashFile(ManifestPath) +
+                    "\n" + string.Join("\n", targets.Select(t => t.Name).Order(StringComparer.Ordinal)));
+            }
 
             // --- Determine which targets have declared dependencies ---
             // Apple-framework targets resolve cross-module qualifications via dep
@@ -507,6 +566,68 @@ partial class Build
 
             // Load previous baseline for comparison
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
+            if (!baselineAtStart.SequenceEqual(File.ReadAllBytes(BaselinePath)))
+                throw new InvalidDataException("Baseline changed during Validate; candidate cannot be promoted");
+            validationPromotion = new ValidationPromotion(BaselinePath, isFullRun && !Quick, currentResults,
+                "Validate", "PackGate", "BehaviorTier", "WithdrawalEvidence");
+            var candidatePath = outputBase / ("validation-candidate-" + Guid.NewGuid().ToString("N") + ".json");
+            validationPromotion.WriteInspection(candidatePath);
+            Log.Information("Validation candidate (inspection only): {Path}", candidatePath);
+            if (!Quick)
+            {
+                var finalSourceHash = WithdrawalSourceFingerprint();
+                var finalGeneratorHash = WithdrawalProvenance.HashFile(GeneratorDll);
+                var finalManifestHash = WithdrawalProvenance.HashText(WithdrawalProvenance.HashFile(ManifestPath) +
+                    "\n" + string.Join("\n", targets.Select(t => t.Name).Order(StringComparer.Ordinal)));
+                var finalToolchains = targets.Select(target => target.Platform).Distinct(StringComparer.Ordinal)
+                    .ToDictionary(platform => platform, platform => CaptureWithdrawalToolchain(ApplePlatform.FromName(platform)));
+                foreach (var target in targets)
+                {
+                    var result = results[target.Name];
+                    var provenance = result.WithdrawalProvenance ??
+                        throw new InvalidDataException($"Missing generation provenance for {target.Name}");
+                    provenance.Verify(finalSourceHash, finalGeneratorHash, finalManifestHash, finalToolchains[target.Platform]);
+                    var reportPath = outputBase / target.Name / "binding-emission-report.json";
+                    var expectedPlanes = target.VerificationPlanes ?? new[] { "csharp", "swift" };
+                    var pureObjCManifestPath = outputBase / target.Name / "binding-artifact-manifest.json";
+                    var evidencePath = expectedPlanes.Count == 0 ? pureObjCManifestPath : reportPath;
+                    var receipt = new WithdrawalReceipt(provenance, WithdrawalProvenance.HashFile(evidencePath),
+                        result.GeneratorExitCode ?? -1, result.Compile, result.SwiftCompile, result.DepCompile ?? "none");
+                    File.WriteAllText(outputBase / target.Name / "withdrawal-receipt.json",
+                        System.Text.Json.JsonSerializer.Serialize(receipt, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                    if (expectedPlanes.Count == 0)
+                    {
+                        if (File.Exists(reportPath))
+                            throw new InvalidDataException($"Explicit pure-ObjC target {target.Name} unexpectedly emitted Swift withdrawal evidence");
+                        receipt.RequirePureObjCSuccess(pureObjCManifestPath, target.FrameworkModule ?? target.Name);
+                        Log.Information("{Target}: explicit pure-ObjC withdrawal policy not applicable", target.Name);
+                        continue;
+                    }
+                    receipt.RequireSuccess(reportPath, target.Name, target.FrameworkModule ?? target.Name);
+                    if (WithdrawalGate.IsPureObjCUmbrella(target.Name, target.FrameworkModule ?? target.Name) && result.SwiftCompile == "no_wrapper")
+                    {
+                        Log.Information("ObjCUmbrella: explicit pure-ObjC withdrawal policy not applicable");
+                        continue;
+                    }
+                    var evidence = WithdrawalGate.Read(reportPath,
+                        target.FrameworkModule ?? target.Name, expectedPlanes, WithdrawalGate.ParseIdentity);
+                    prevBaseline.Gate.Libraries.TryGetValue(target.Name, out var accepted);
+                    var profile = target.Name + "/" + target.Platform + "/" + provenance.Architecture + "/" + provenance.TargetTriple + "/" + provenance.Sdk;
+                    if (accepted?.WithdrawalPolicy == null)
+                    {
+                        WithdrawalGate.RequireZero(evidence);
+                        currentResults[target.Name] = currentResults[target.Name] with
+                        {
+                            WithdrawalPolicy = new WithdrawalPolicy(1, profile, [])
+                        };
+                        Log.Information("{Target}: fresh zero-withdrawal policy enrollment candidate", target.Name);
+                    }
+                    else
+                        WithdrawalGate.Compare(accepted.WithdrawalPolicy, profile, evidence, target.FrameworkModule ?? target.Name);
+                }
+            }
+            validationPromotion.UpdateResults(currentResults);
+            validationPromotion.WriteInspection(candidatePath);
 
             // Baseline is saved AFTER the regression gate below (Finding 29). Saving it here —
             // before the gate — let a failing run ratchet its own failures into the baseline, so
@@ -689,16 +810,13 @@ partial class Build
                 // Preserve the baseline blocks owned by other gates (runtime_tests is populated
                 // by a separate nuke binding-tests --sim run, unit_tests by the nuke test pass
                 // floor) so a validate pass doesn't stomp them to null.
-                var newBaseline = new ValidationBaseline
-                {
-                    GitSha = GetGitShortSha(),
-                    Gate = new() { Libraries = currentResults },
-                    SkipMetrics = skipMetrics,
-                    RuntimeTests = prevBaseline.RuntimeTests,
-                    UnitTests = prevBaseline.UnitTests
-                };
-                newBaseline.Save(BaselinePath);
-                Log.Debug("  Baseline: {Path} (updated — green run)", BaselinePath);
+                if (!baselineAtStart.SequenceEqual(File.ReadAllBytes(BaselinePath)))
+                    throw new InvalidDataException("Baseline changed during Validate; candidate cannot be promoted");
+                validationPromotion.UpdateResults(currentResults);
+                validationPromotion.WriteInspection(candidatePath);
+                validationPromotion.Record("Validate");
+                if (!Quick) validationPromotion.Record("WithdrawalEvidence");
+                Log.Information("  Baseline: {Path} (candidate staged; awaiting qualification)", BaselinePath);
             }
             else if (isFullRun)
                 Log.Warning("  Baseline: {Path} (NOT updated — validation failed; prior baseline preserved)", BaselinePath);
@@ -730,6 +848,7 @@ partial class Build
 
         if (!Quick)
         {
+            ArchivePriorWithdrawalEvidence(outputBase, target);
             if (Directory.Exists(outdir))
                 ((AbsolutePath)outdir).DeleteDirectory();
             Directory.CreateDirectory(outdir);
@@ -740,7 +859,6 @@ partial class Build
             var genArgs = new List<string>
             {
                 $"\"{GeneratorDll}\"",
-                "--skip-wrapper-compilation",
                 "--xcframework", $"\"{target.XcframeworkPath}\"",
                 "-o", $"\"{outdir}\"",
                 "--platform", target.Platform,
@@ -750,6 +868,9 @@ partial class Build
             // Without these the import graph is not closed and any multi-module SDK fails
             // SWIFTBIND119 at parse, emitting nothing.
             genArgs.AddRange(CollectFrameworkDependencyArgs(target, fwToLib));
+            result.WithdrawalProvenance = CaptureWithdrawalProvenance(target,
+                new[] { (string)target.XcframeworkPath }.Concat(target.Dependencies.Select(dependency =>
+                    (string)(LibrariesDir / fwToLib.GetValueOrDefault(dependency, dependency) / $"{dependency}.xcframework"))));
 
             try
             {
@@ -757,12 +878,14 @@ partial class Build
                     "dotnet", string.Join(" ", genArgs),
                     logOutput: false);
                 process.AssertWaitForExit();
+                result.GeneratorExitCode = process.ExitCode;
 
                 var hasCs = EmittedCsFiles(outdir).Length > 0;
 
                 if (process.ExitCode == 0 && hasCs)
                 {
                     result.Gen = "ok";
+                    result.SwiftCompile = CheckSwiftWrapper(outdir);
                 }
                 else
                 {
@@ -850,6 +973,7 @@ partial class Build
             return;
         }
 
+        ArchivePriorWithdrawalEvidence(outputBase, target);
         if (Directory.Exists(outdir))
             outdir.DeleteDirectory();
         Directory.CreateDirectory(outdir);
@@ -986,10 +1110,13 @@ partial class Build
                 genArgs.Add($"--module-database \"{depDbPath}\"");
             genArgs.Add($"-o \"{outdir}\"");
             genArgs.Add($"-v {verbosity}");
+            result.WithdrawalProvenance = CaptureWithdrawalProvenance(target,
+                new[] { (string)abiJsonPath, (string)swiftinterfacePath, (string)tbdPath }.Concat(depDatabasePaths.Select(path => (string)path)));
 
             var genProc = ProcessTasks.StartProcess("dotnet", string.Join(" ", genArgs),
                 workingDirectory: outdir, logOutput: false);
             genProc.AssertWaitForExit();
+            result.GeneratorExitCode = genProc.ExitCode;
 
             // Snapshot generator output once — the wrapper compile runs inline inside
             // genProc, so swiftc diagnostics surface here. Threaded into
@@ -1515,7 +1642,7 @@ partial class Build
         // apple-framework direct mode compiles the wrapper inline during generation
         // (no --skip-wrapper-compilation). The SwiftCompile status is stamped by the
         // generator pass; nothing to do here.
-        if (target.Mode == "apple-framework")
+        if (target.Mode == "apple-framework" || !Quick)
             return;
 
         if (!Quick)
@@ -2768,6 +2895,8 @@ $"""
 /// </summary>
 class TargetResult
 {
+    public WithdrawalProvenance? WithdrawalProvenance { get; set; }
+    public int? GeneratorExitCode { get; set; }
     // Generation
     public string Gen { get; set; } = "unknown";
     public int GenSeconds { get; set; }

@@ -57,6 +57,7 @@ partial class Build
     // non-sink because RegenerateStoreKitSnapshot depends on it), and Nuke --strict
     // requires a total peel order.
     Target BehaviorTier => _ => _
+        .Triggers(PromoteValidationBaseline)
         .DependsOn(Compile)
         .After(Validate, PackGate, RegenerateStoreKitSnapshot)
         .Executes(() =>
@@ -191,6 +192,7 @@ partial class Build
             }
 
             Log.Information("BehaviorTier OK — {Count} fixture(s) round-tripped through Swift", ran);
+            validationPromotion?.Record("BehaviorTier");
         });
 
     void RunFoundationBehaviorFixture(AbsolutePath scratch, AbsolutePath nupkgDir)

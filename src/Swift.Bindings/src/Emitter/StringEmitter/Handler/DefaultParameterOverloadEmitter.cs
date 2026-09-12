@@ -13,6 +13,15 @@ namespace BindingsGeneration;
 /// </summary>
 public static class DefaultParameterOverloadEmitter
 {
+    // Closure + inout String previously reached a silgen primary (then recovery could
+    // withdraw it), while its independent trim was already emitted from the original
+    // Swift symbol. Qualifying the primary for Cdecl must not rename that shipped trim.
+    private static string GetOverloadSymbolBase(MethodEnvironment env)
+        => env.MethodDecl.HasClosureCdeclWrapper && env.MethodDecl.UsesCdeclMethodWrapper &&
+           env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut && MarshallingHelpers.IsSwiftString(a.SwiftTypeSpec))
+            ? env.MethodDecl.MangledName
+            : env.EmissionSymbol;
+
     /// <summary>
     /// Maximum number of overloads to generate per method.
     /// Limits combinatorial explosion for methods with many defaults.
@@ -220,7 +229,7 @@ public static class DefaultParameterOverloadEmitter
             // no trace anywhere — the one decline in this emitter a reader could not account for.
             else
             {
-                var allDefaultsDecl = BuildOverloadDeclDropping(env.EmissionSymbol, methodDecl, defaultedIndices);
+                var allDefaultsDecl = BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, defaultedIndices);
                 if (TryFindSignatureCollision(allDefaultsDecl, out var collidingSibling))
                 {
                     var declinedKey = GetProjectedOverloadKey(
@@ -275,8 +284,8 @@ public static class DefaultParameterOverloadEmitter
         {
             int trim = symbolTrim;
             var overloadDecl = dropIndices == null
-                ? BuildOverloadDecl(env.EmissionSymbol, methodDecl, trim)
-                : BuildOverloadDeclDropping(env.EmissionSymbol, methodDecl, dropIndices);
+                ? BuildOverloadDecl(GetOverloadSymbolBase(env), methodDecl, trim)
+                : BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, dropIndices);
 
             // Identity is fixed by the captured producer symbol. Deny before preparation or
             // reservations so a withdrawn trim cannot consume a healthy sibling's name.
@@ -609,7 +618,7 @@ public static class DefaultParameterOverloadEmitter
                 {
                     // Use the canonical trim count from the loop variable to ensure the
                     // silgen function name matches what EmitSwiftWrapper emitted.
-                    var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
+                    var silgenFuncName = GetSilgenFuncName(GetOverloadSymbolBase(env), methodDecl, trim);
                     ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
                         swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
                 }
@@ -622,7 +631,7 @@ public static class DefaultParameterOverloadEmitter
                 {
                     // Use the canonical trim count from the loop variable to ensure the
                     // silgen function name matches what EmitSwiftWrapper emitted.
-                    var silgenFuncName = GetSilgenFuncName(env.EmissionSymbol, methodDecl, trim);
+                    var silgenFuncName = GetSilgenFuncName(GetOverloadSymbolBase(env), methodDecl, trim);
                     bool silgenUsesResultBuf = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
                     MethodWrapperEmitter.EmitSwiftMethodWrapper(
                         swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName,
@@ -1232,7 +1241,7 @@ public static class DefaultParameterOverloadEmitter
         var tryPrefix = throws ? "try " : "";
         // Use the canonical trim count passed from the loop, not a recomputed value.
         // This ensures the silgen function name matches the @_cdecl dispatch reference.
-        var swiftFuncName = GetSilgenFuncName(env.EmissionSymbol, originalMethodDecl, trim);
+        var swiftFuncName = GetSilgenFuncName(GetOverloadSymbolBase(env), originalMethodDecl, trim);
 
         swiftWriter.WriteLine();
 

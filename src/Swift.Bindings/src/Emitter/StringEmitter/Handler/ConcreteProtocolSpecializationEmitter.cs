@@ -2379,6 +2379,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // at all — single-case no-payload).
         foreach (var (_, conformer) in pairing)
         {
+            // The ordinary member pipeline rejects a signature that directly reaches
+            // an internal type, but CSM substitutes generic parameters afterwards.
+            // A pairing can therefore reintroduce an internal conformer into an
+            // otherwise-public `func unbox<T>() -> T` wrapper. The post-processor
+            // strips that wrapper and leaves the specialized C# P/Invoke dangling.
+            // Apply the same exact module-aware identity rule to the substituted
+            // conformer before either side is emitted.
+            if (ConformerReferencesInternalType(method, conformer))
+            {
+                rejectReason = $"conformer '{conformer.SwiftQualifiedName}' is internal to the emitted module";
+                return false;
+            }
+
             switch (ClassifyConformerStructurally(conformer, typeDatabase))
             {
                 case StructuralEmitReject.WithdrawnType:
@@ -2681,6 +2694,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         rejectReason = null;
         return true;
+    }
+
+    internal static bool ConformerReferencesInternalType(
+        MethodDecl method,
+        ConcreteSpecializationEngine.ConcreteConformer conformer)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        var module = method.ModuleDecl;
+        if (module?.InternalTypeNames is not { Count: > 0 } internalNames)
+            return false;
+
+        return InternalTypeReferenceWalker.Reaches(
+            new NamedTypeSpec(conformer.SwiftQualifiedName), internalNames, module.Name);
     }
 
     /// <summary>

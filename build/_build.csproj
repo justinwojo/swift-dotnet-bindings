@@ -23,6 +23,8 @@
        cannot drift. No project reference: the build project stays generator-assembly-
        independent so `nuke pack` doesn't need a generator build. -->
   <ItemGroup>
+    <Compile Include="..\src\Swift.Bindings\src\Model\Identity\CanonicalIdentityCodec.cs"
+             Link="Helpers\CanonicalIdentityCodec.cs" />
     <Compile Include="..\src\Swift.Bindings\src\Emitter\RuntimeVersionRange.cs"
              Link="Helpers\RuntimeVersionRange.cs" />
     <!-- Link-compile the generator's canonical wrapper post-processor so the harness

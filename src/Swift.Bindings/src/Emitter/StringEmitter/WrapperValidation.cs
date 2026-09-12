@@ -1810,7 +1810,7 @@ public static class WrapperValidation
     /// Per-param checks are NOT included — each wrapper path has its own param-level gates
     /// because different wrappers transform different param types before checking.
     /// </summary>
-    public static bool HasCdeclCompatibleFunctionShape(MethodEnvironment env)
+    public static bool HasCdeclCompatibleFunctionShape(MethodEnvironment env, bool supportsInoutString = false)
     {
         // Guard 4: xcframework mode required
         if (!IsXCFrameworkMode(env.TypeDatabase))
@@ -1839,9 +1839,10 @@ public static class WrapperValidation
         // Guard 5d: inout params with types that have C# ABI mismatch.
         // MapInout produces one address. These secondary producers have not qualified the
         // primary method wrapper's initialized String storage/writeback capability, so keep
-        // that opt-in off here. Other mismatched carriers and non-copyable values also retain
+        // that opt-in off by default. Qualified synchronous closure wrappers opt in explicitly.
+        // Other mismatched carriers and non-copyable values also retain
         // their existing restrictions; pointer width alone does not establish a sound contract.
-        if (HasInoutWithAbiMismatch(env))
+        if (HasInoutWithAbiMismatch(env, supportsInoutString))
             return false;
         // Guard 6: No method-level generics
         if (env.MethodDecl.IsGeneric)

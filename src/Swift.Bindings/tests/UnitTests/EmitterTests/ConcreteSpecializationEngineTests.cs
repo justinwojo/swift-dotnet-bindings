@@ -2205,6 +2205,42 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void ConformerReferencesInternalType_CurrentModuleExactIdentity_ReturnsTrue()
+    {
+        var module = BuildEmptyModule("XMLCoder");
+        module.InternalTypeNames = new HashSet<string>
+        {
+            "BoolBox",
+            "XMLCoder.BoolBox",
+        };
+        var method = CreateMethodWithSig("unbox", "<T>");
+        method.ModuleDecl = module;
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            "XMLCoder.BoolBox", "BoolBox");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .ConformerReferencesInternalType(method, conformer));
+    }
+
+    [Fact]
+    public void ConformerReferencesInternalType_CrossModuleShortNameNearMiss_ReturnsFalse()
+    {
+        var module = BuildEmptyModule("XMLCoder");
+        module.InternalTypeNames = new HashSet<string>
+        {
+            "BoolBox",
+            "XMLCoder.BoolBox",
+        };
+        var method = CreateMethodWithSig("unbox", "<T>");
+        method.ModuleDecl = module;
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            "OtherModule.BoolBox", "OtherModule.BoolBox");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ConformerReferencesInternalType(method, conformer));
+    }
+
+    [Fact]
     public void ClassifyConformerStructurally_WithdrawnGenericConformerNullSwiftType_ReturnsWithdrawnType()
     {
         // A generic conformer (e.g. Array<UInt8>) has a null SwiftType and carries its identity

@@ -21,6 +21,8 @@ partial class Build
     readonly string? SurfaceOutput;
 
     Target SurfaceAccounting => _ => _
+        // Ordering only: keep standalone sinks totally ordered for Nuke --strict.
+        .After(ReleaseGatesAttest)
         .Executes(() =>
         {
             if (string.IsNullOrWhiteSpace(SurfaceRequest))

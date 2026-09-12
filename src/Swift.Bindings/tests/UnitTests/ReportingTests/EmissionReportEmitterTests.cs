@@ -112,13 +112,20 @@ public class EmissionReportEmitterTests
     [Fact]
     public void BuildReport_WithdrawnUnits_SortedFromParameter()
     {
+        var units = System.Collections.Immutable.ImmutableArray.Create(
+            DeclId.Create("TestModule", "T", BindingItemKind.Method, "foo").Unit(RecoveryScope.LeafApi),
+            DeclId.Create("TestModule", "T", BindingItemKind.Property, "bar").Unit(RecoveryScope.AccessorGroup));
+        var evidence = WithdrawalEvidence.FromController(new Diagnostics.WrapperRecoveryResult
+        {
+            Converged = true, Cause = Diagnostics.WrapperRecoveryFailureCause.None, Rounds = 2, Denylist = units,
+        }, swiftConfigured: true, csharpConfigured: false);
         var report = EmissionReportEmitter.BuildReport(
             new ModuleEmissionContext(),
             "TestModule",
-            withdrawnUnits: new[] { "Mod.T.foo() (leaf)", "Mod.T.bar (accessor-group)" });
+            withdrawalEvidence: evidence);
 
         // Sorted for deterministic output.
-        Assert.Equal(new[] { "Mod.T.bar (accessor-group)", "Mod.T.foo() (leaf)" }, report.WithdrawnUnits);
+        Assert.Equal(new[] { "TestModule.T.bar (accessor-group)", "TestModule.T.foo (leaf-api)" }, report.WithdrawnUnits);
     }
 
     [Fact]

@@ -36,20 +36,6 @@ namespace BindingsGeneration;
 /// </remarks>
 public readonly record struct DeclId
 {
-    /// <summary>Field separator in <see cref="Canonical"/>.</summary>
-    private const char FieldSeparator = '|';
-
-    /// <summary>Separator between parameter entries inside the parameter field.</summary>
-    private const char ParameterSeparator = ',';
-
-    /// <summary>Separator between a parameter's label and its Swift type expression.</summary>
-    private const char LabelSeparator = ':';
-
-    private const char EscapePrefix = '\\';
-
-    /// <summary>Number of <see cref="FieldSeparator"/>-delimited fields in <see cref="Canonical"/>.</summary>
-    private const int FieldCount = 9;
-
     /// <summary>
     /// Owning Swift module (e.g. <c>"MusicKit"</c>). Empty for a declaration with no module.
     /// </summary>
@@ -180,33 +166,10 @@ public readonly record struct DeclId
     /// <see cref="Parse"/> accepts only this exact shape, so <c>Parse(x).Canonical == x</c> holds
     /// for every string it accepts — two distinct persisted strings can never name one declaration.
     /// </summary>
-    public string Canonical
-    {
-        get
-        {
-            var sb = new StringBuilder();
-            AppendEscaped(sb, Module).Append(FieldSeparator);
-            AppendEscaped(sb, DeclPath).Append(FieldSeparator);
-            sb.Append(Kind).Append(FieldSeparator);
-            AppendEscaped(sb, Name).Append(FieldSeparator);
-
-            var labels = Normalize(ParameterLabels);
-            var types = Normalize(ParameterTypes);
-            for (var i = 0; i < labels.Length; i++)
-            {
-                if (i > 0) sb.Append(ParameterSeparator);
-                AppendEscaped(sb, labels[i]).Append(LabelSeparator);
-                AppendEscaped(sb, types[i]);
-            }
-            sb.Append(FieldSeparator);
-
-            sb.Append(Accessor).Append(FieldSeparator);
-            AppendEscaped(sb, GenericContext).Append(FieldSeparator);
-            AppendEscaped(sb, Symbol).Append(FieldSeparator);
-            AppendEscaped(sb, Discriminator);
-            return sb.ToString();
-        }
-    }
+    public string Canonical => new CanonicalIdentityCodec.Declaration(
+        Module ?? string.Empty, DeclPath ?? string.Empty, Kind.ToString(), Name ?? string.Empty,
+        Normalize(ParameterLabels).ToArray(), Normalize(ParameterTypes).ToArray(), Accessor.ToString(),
+        GenericContext ?? string.Empty, Symbol ?? string.Empty, Discriminator ?? string.Empty).Canonical;
 
     /// <summary>
     /// 8-character uppercase-hex FNV-1a digest of <see cref="Canonical"/> — the compact form for
@@ -234,73 +197,23 @@ public readonly record struct DeclId
     public static bool TryParse(string? canonical, out DeclId id)
     {
         id = default;
-        if (canonical is null)
+        if (!CanonicalIdentityCodec.TryParseDeclaration(canonical, out var parsed))
             return false;
-
-        var fields = SplitUnescaped(canonical, FieldSeparator);
-        if (fields.Count != FieldCount)
-            return false;
-
-        if (!TryParseEnumName(fields[2], out BindingItemKind kind))
-            return false;
-        if (!TryParseEnumName(fields[5], out AccessorKind accessor))
-            return false;
-
-        var labels = ImmutableArray.CreateBuilder<string>();
-        var types = ImmutableArray.CreateBuilder<string>();
-        if (fields[4].Length > 0)
-        {
-            foreach (var entry in SplitUnescaped(fields[4], ParameterSeparator))
-            {
-                var parts = SplitUnescaped(entry, LabelSeparator);
-                if (parts.Count != 2)
-                    return false;
-                if (!TryUnescape(parts[0], out var label) || !TryUnescape(parts[1], out var type))
-                    return false;
-                labels.Add(label);
-                types.Add(type);
-            }
-        }
-
-        if (!TryUnescape(fields[0], out var module) ||
-            !TryUnescape(fields[1], out var declPath) ||
-            !TryUnescape(fields[3], out var name) ||
-            !TryUnescape(fields[6], out var genericContext) ||
-            !TryUnescape(fields[7], out var symbol) ||
-            !TryUnescape(fields[8], out var discriminator))
-        {
-            return false;
-        }
-
+        var value = parsed!;
         id = new DeclId
         {
-            Module = module,
-            DeclPath = declPath,
-            Kind = kind,
-            Name = name,
-            ParameterLabels = labels.ToImmutable(),
-            ParameterTypes = types.ToImmutable(),
-            Accessor = accessor,
-            GenericContext = genericContext,
-            Symbol = symbol,
-            Discriminator = discriminator,
+            Module = value.Module,
+            DeclPath = value.DeclPath,
+            Kind = Enum.Parse<BindingItemKind>(value.Kind),
+            Name = value.Name,
+            ParameterLabels = value.ParameterLabels.ToImmutableArray(),
+            ParameterTypes = value.ParameterTypes.ToImmutableArray(),
+            Accessor = Enum.Parse<AccessorKind>(value.Accessor),
+            GenericContext = value.GenericContext,
+            Symbol = value.Symbol,
+            Discriminator = value.Discriminator,
         };
         return true;
-    }
-
-    /// <summary>
-    /// Parses an enum by NAME only. <see cref="Enum.TryParse{TEnum}(string, bool, out TEnum)"/>
-    /// also accepts a bare integer and undefined values, which would let two different strings
-    /// parse to the same id and break the <c>Parse(x).Canonical == x</c> guarantee that makes the
-    /// canonical form usable as a persisted key.
-    /// </summary>
-    private static bool TryParseEnumName<TEnum>(string text, out TEnum value)
-        where TEnum : struct, Enum
-    {
-        value = default;
-        if (text.Length == 0 || char.IsAsciiDigit(text[0]) || text[0] == '-' || text[0] == '+')
-            return false;
-        return Enum.TryParse(text, ignoreCase: false, out value) && Enum.IsDefined(value);
     }
 
     /// <inheritdoc />
@@ -401,86 +314,4 @@ public readonly record struct DeclId
         return sb.ToString();
     }
 
-    private static StringBuilder AppendEscaped(StringBuilder sb, string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-            return sb;
-
-        foreach (var c in value)
-        {
-            if (c is EscapePrefix or FieldSeparator or ParameterSeparator or LabelSeparator)
-                sb.Append(EscapePrefix);
-            sb.Append(c);
-        }
-        return sb;
-    }
-
-    /// <summary>
-    /// Splits on <paramref name="separator"/> occurrences that are not escape-prefixed. Always
-    /// returns at least one (possibly empty) segment.
-    /// </summary>
-    private static List<string> SplitUnescaped(string value, char separator)
-    {
-        var segments = new List<string>();
-        var start = 0;
-        var escaped = false;
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (escaped)
-            {
-                escaped = false;
-                continue;
-            }
-            if (value[i] == EscapePrefix)
-            {
-                escaped = true;
-                continue;
-            }
-            if (value[i] == separator)
-            {
-                segments.Add(value.Substring(start, i - start));
-                start = i + 1;
-            }
-        }
-        segments.Add(value.Substring(start));
-        return segments;
-    }
-
-    /// <summary>
-    /// Reverses <see cref="AppendEscaped"/>, rejecting any escape sequence that writer could not
-    /// have produced: a prefix before a non-structural character, or a trailing lone prefix.
-    /// Accepting those would let <c>foo\q</c> and <c>fooq</c> both parse to the same id — two
-    /// persisted strings naming one declaration, which breaks the canonical form as a key.
-    /// </summary>
-    private static bool TryUnescape(string value, out string result)
-    {
-        result = value;
-        if (value.IndexOf(EscapePrefix) < 0)
-            return true;
-
-        var sb = new StringBuilder(value.Length);
-        var escaped = false;
-        foreach (var c in value)
-        {
-            if (escaped)
-            {
-                if (c is not (EscapePrefix or FieldSeparator or ParameterSeparator or LabelSeparator))
-                    return false;
-                sb.Append(c);
-                escaped = false;
-                continue;
-            }
-            if (c == EscapePrefix)
-            {
-                escaped = true;
-                continue;
-            }
-            sb.Append(c);
-        }
-        if (escaped)
-            return false;
-
-        result = sb.ToString();
-        return true;
-    }
 }

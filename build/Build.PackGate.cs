@@ -579,6 +579,7 @@ partial class Build
             //     wrapper is sole carrier, consumer launches with no duplicate-class
             //     warning). See Build.PackGate.MixedFixture.cs.
             RunPackGateMixedLegs(scratch, nupkgDir);
+            validationPromotion?.Record("PackGate");
         });
 
     // Expected nupkg layout for the 4-TFM TipKit fixture. Keyed by NuGet RID

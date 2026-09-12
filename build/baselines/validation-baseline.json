@@ -3,6 +3,11 @@
   "compile_gate": {
     "libraries": {
       "AppIntents": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "AppIntents/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 56548,
@@ -10,6 +15,11 @@
         "swift_compile": "ok"
       },
       "ActivityKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "ActivityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 5258,
@@ -17,6 +27,11 @@
         "swift_compile": "ok"
       },
       "CryptoKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CryptoKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 48277,
@@ -24,6 +39,11 @@
         "swift_compile": "ok"
       },
       "CryptoKit@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CryptoKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 48277,
@@ -31,6 +51,11 @@
         "swift_compile": "ok"
       },
       "CryptoKit@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CryptoKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 48277,
@@ -38,6 +63,11 @@
         "swift_compile": "ok"
       },
       "CryptoKit@tvos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CryptoKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 48119,
@@ -45,6 +75,11 @@
         "swift_compile": "ok"
       },
       "FamilyControls": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FamilyControls/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 2010,
@@ -52,6 +87,11 @@
         "swift_compile": "ok"
       },
       "LiveCommunicationKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 10960,
@@ -59,6 +99,11 @@
         "swift_compile": "ok"
       },
       "LiveCommunicationKit@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 45,
@@ -66,6 +111,11 @@
         "swift_compile": "ok"
       },
       "LiveCommunicationKit@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 9744,
@@ -73,6 +123,11 @@
         "swift_compile": "ok"
       },
       "MusicKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "MusicKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 88861,
@@ -80,6 +135,11 @@
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "MusicKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 80244,
@@ -87,6 +147,11 @@
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "MusicKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 80478,
@@ -94,6 +159,11 @@
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "MusicKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 88022,
@@ -101,6 +171,11 @@
         "swift_compile": "ok"
       },
       "ProximityReader": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "ProximityReader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 39247,
@@ -108,6 +183,11 @@
         "swift_compile": "ok"
       },
       "ProximityReader@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "ProximityReader@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 39247,
@@ -115,6 +195,11 @@
         "swift_compile": "ok"
       },
       "RealityKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "RealityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 11275,
@@ -122,6 +207,282 @@
         "swift_compile": "ok"
       },
       "RealityFoundation": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "RealityFoundation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "RealityFoundation|BlendTreeAnimation|Property|blendLayer||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|BlendTreeAnimation|Property|delay||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|BlendTreeAnimation|Property|offset||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|BlendTreeAnimation|Property|speed||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|ForceEffectEvent|Property|parameters||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|ForceEffect|Property|spatialFalloff||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|ForceEffect|Property|strengthScale||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|ForceEffect|Property|timedFalloff||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|FromToByAnimation|Property|blendLayer||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|FromToByAnimation|Property|delay||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|FromToByAnimation|Property|duration||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|FromToByAnimation|Property|offset||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|FromToByAnimation|Property|speed||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|PostProcessEffectContext|Property|device||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|PostProcessEffectContext|Property|projection||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|PostProcessEffectContext|Property|sourceColorTexture||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|PostProcessEffectContext|Property|sourceDepthTexture||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|PostProcessEffectContext|Property|targetColorTexture||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|PostProcessEffectContext|Property|time||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|blendLayer||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|delay||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|duration||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|end||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|frameInterval||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|offset||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|speed||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "RealityFoundation|SampledAnimation|Property|start||None|||!accessor-group",
+              "reason": "Recovered generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter RealityFoundation",
+              "diagnostic": "swiftc stderr sha256=6d454e50ca16371ed77b364fb85201f8c3d479ca6256bf990244a342910922c2",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 236108,
@@ -129,6 +490,11 @@
         "swift_compile": "ok"
       },
       "RoomPlan": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "RoomPlan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 14651,
@@ -136,6 +502,11 @@
         "swift_compile": "ok"
       },
       "StoreKit2": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StoreKit2/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 39218,
@@ -143,6 +514,11 @@
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StoreKit2@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 35238,
@@ -150,6 +526,11 @@
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StoreKit2@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 39218,
@@ -157,6 +538,11 @@
         "swift_compile": "ok"
       },
       "StoreKit2@tvos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StoreKit2@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 34167,
@@ -164,6 +550,72 @@
         "swift_compile": "ok"
       },
       "TipKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 12787,
@@ -171,6 +623,72 @@
         "swift_compile": "ok"
       },
       "TipKit@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 11331,
@@ -178,6 +696,72 @@
         "swift_compile": "ok"
       },
       "TipKit@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 12787,
@@ -185,6 +769,72 @@
         "swift_compile": "ok"
       },
       "TipKit@tvos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            },
+            {
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter TipKit",
+              "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
+              "disposition": "active-transfer:P6",
+              "acceptance": "0.20.0 P2 R3 exact-profile acceptance",
+              "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 10307,
@@ -192,6 +842,11 @@
         "swift_compile": "ok"
       },
       "Translation": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Translation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 4368,
@@ -199,6 +854,22 @@
         "swift_compile": "ok"
       },
       "WeatherKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WeatherKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
+              "reason": "Availability-sensitive generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter WeatherKit",
+              "diagnostic": "swiftc stderr sha256=56a02ae43b006ab94cfe7d35137ecb6914426003d662040673e4354922a1ad87; Deviation is only available in iOS 18 or newer",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies availability-correct public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 31494,
@@ -206,6 +877,22 @@
         "swift_compile": "ok"
       },
       "WeatherKit@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WeatherKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
+              "reason": "Availability-sensitive generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter WeatherKit",
+              "diagnostic": "swiftc stderr sha256=221fbf94b25f26a21434251865fffa521e2bc481cebe99e5e20ea2eb1cfe1860; Deviation is only available in macOS 15 or newer",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies availability-correct public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 31494,
@@ -213,6 +900,22 @@
         "swift_compile": "ok"
       },
       "WeatherKit@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WeatherKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
+              "reason": "Availability-sensitive generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter WeatherKit",
+              "diagnostic": "swiftc stderr sha256=9b0525d1e6375ef5b25f80f43fc768dedb2f39d045b4cf72b03f7119097f2f27; Deviation is only available in iOS 18 or newer",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies availability-correct public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 31494,
@@ -220,6 +923,22 @@
         "swift_compile": "ok"
       },
       "WeatherKit@tvos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WeatherKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "exceptions": [
+            {
+              "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
+              "reason": "Availability-sensitive generic-property accessor remains outside the P2 repair slice.",
+              "reproducer": "nuke validate --filter WeatherKit",
+              "diagnostic": "swiftc stderr sha256=54fdec204854e798373006a95d357cf4c38224759299a6415272cd34ffe722d3; Deviation is only available in tvOS 18 or newer",
+              "disposition": "active-transfer:P5",
+              "acceptance": "0.20.0 P2 R2 exact-profile acceptance",
+              "reopenTrigger": "P5 supplies availability-correct public/accessor/route/runtime proof for this identity.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
+            }
+          ]
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 31494,
@@ -227,6 +946,11 @@
         "swift_compile": "ok"
       },
       "WorkoutKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WorkoutKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 12565,
@@ -234,6 +958,11 @@
         "swift_compile": "ok"
       },
       "WorkoutKit@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WorkoutKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 12733,
@@ -241,6 +970,11 @@
         "swift_compile": "ok"
       },
       "WorkoutKit@maccatalyst": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WorkoutKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 12565,
@@ -248,13 +982,23 @@
         "swift_compile": "ok"
       },
       "Alamofire": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Alamofire/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 62829,
+        "lines": 62816,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BlinkID": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "BlinkID/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 57912,
@@ -262,13 +1006,23 @@
         "swift_compile": "ok"
       },
       "BlinkIDUX": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "BlinkIDUX/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 17149,
+        "lines": 17136,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "BRLMPrinterKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "BRLMPrinterKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 3000,
@@ -276,6 +1030,11 @@
         "swift_compile": "ok"
       },
       "CryptoSwift": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CryptoSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 28798,
@@ -283,6 +1042,11 @@
         "swift_compile": "ok"
       },
       "GRDB": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "GRDB/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 127164,
@@ -290,6 +1054,11 @@
         "swift_compile": "ok"
       },
       "KeychainAccess": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "KeychainAccess/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 5530,
@@ -297,6 +1066,11 @@
         "swift_compile": "ok"
       },
       "Kingfisher": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Kingfisher/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 65713,
@@ -304,6 +1078,11 @@
         "swift_compile": "ok"
       },
       "Lottie": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Lottie/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 41022,
@@ -311,6 +1090,11 @@
         "swift_compile": "ok"
       },
       "Mappedin": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Mappedin/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 60030,
@@ -318,6 +1102,11 @@
         "swift_compile": "ok"
       },
       "MicroblinkPlatform": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "MicroblinkPlatform/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 5231,
@@ -325,6 +1114,11 @@
         "swift_compile": "ok"
       },
       "Mixpanel": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Mixpanel/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 12153,
@@ -332,34 +1126,59 @@
         "swift_compile": "ok"
       },
       "Nuke": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 28613,
+        "lines": 28600,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 28613,
+        "lines": 28600,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 28613,
+        "lines": 28600,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "RxSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 15881,
+        "lines": 15868,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SkeletonView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 9125,
@@ -367,6 +1186,11 @@
         "swift_compile": "ok"
       },
       "SmartCardIO": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SmartCardIO/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 6966,
@@ -374,6 +1198,11 @@
         "swift_compile": "ok"
       },
       "SnapKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SnapKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 15757,
@@ -381,6 +1210,11 @@
         "swift_compile": "ok"
       },
       "Starscream": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Starscream/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 25302,
@@ -388,6 +1222,11 @@
         "swift_compile": "ok"
       },
       "Stripe": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Stripe/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 75,
@@ -395,6 +1234,11 @@
         "swift_compile": "ok"
       },
       "StripeApplePay": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeApplePay/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 6369,
@@ -402,6 +1246,11 @@
         "swift_compile": "ok"
       },
       "StripeCameraCore": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeCameraCore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 78,
@@ -409,6 +1258,11 @@
         "swift_compile": "ok"
       },
       "StripeCardScan": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeCardScan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 2737,
@@ -416,6 +1270,11 @@
         "swift_compile": "ok"
       },
       "StripeConnect": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeConnect/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 8780,
@@ -423,6 +1282,11 @@
         "swift_compile": "ok"
       },
       "StripeCore": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeCore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 5033,
@@ -430,6 +1294,11 @@
         "swift_compile": "ok"
       },
       "StripeCryptoOnramp": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeCryptoOnramp/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 90,
@@ -437,6 +1306,11 @@
         "swift_compile": "ok"
       },
       "StripeFinancialConnections": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeFinancialConnections/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 6251,
@@ -444,6 +1318,11 @@
         "swift_compile": "ok"
       },
       "StripeIdentity": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeIdentity/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1481,
@@ -451,6 +1330,11 @@
         "swift_compile": "ok"
       },
       "StripeIssuing": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeIssuing/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 2950,
@@ -458,20 +1342,35 @@
         "swift_compile": "ok"
       },
       "StripePayments": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripePayments/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 74586,
+        "lines": 74565,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripePaymentSheet/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 35845,
+        "lines": 35832,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentsUI": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripePaymentsUI/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 8019,
@@ -479,6 +1378,11 @@
         "swift_compile": "ok"
       },
       "StripeUICore": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "StripeUICore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 129,
@@ -500,6 +1404,11 @@
         "swift_compile": "no_wrapper"
       },
       "DeviceKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "DeviceKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 6845,
@@ -507,6 +1416,11 @@
         "swift_compile": "ok"
       },
       "Swinject": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Swinject/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 7889,
@@ -514,6 +1428,11 @@
         "swift_compile": "ok"
       },
       "PhoneNumberKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "PhoneNumberKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 17650,
@@ -521,6 +1440,11 @@
         "swift_compile": "ok"
       },
       "Valet": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Valet/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 4671,
@@ -528,6 +1452,11 @@
         "swift_compile": "ok"
       },
       "SwiftyBeaver": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SwiftyBeaver/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 11640,
@@ -535,6 +1464,11 @@
         "swift_compile": "ok"
       },
       "Reachability": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Reachability/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1543,
@@ -542,6 +1476,11 @@
         "swift_compile": "ok"
       },
       "NVActivityIndicatorView": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "NVActivityIndicatorView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 8845,
@@ -549,6 +1488,11 @@
         "swift_compile": "ok"
       },
       "ObjectMapper": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "ObjectMapper/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 7611,
@@ -556,6 +1500,11 @@
         "swift_compile": "ok"
       },
       "BonMot": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "BonMot/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 17690,
@@ -563,6 +1512,11 @@
         "swift_compile": "ok"
       },
       "Parchment": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Parchment/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 22795,
@@ -570,6 +1524,11 @@
         "swift_compile": "ok"
       },
       "KeychainSwift": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "KeychainSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1184,
@@ -577,6 +1536,11 @@
         "swift_compile": "ok"
       },
       "SwipeCellKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SwipeCellKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 10798,
@@ -584,6 +1548,11 @@
         "swift_compile": "ok"
       },
       "FSPagerView": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FSPagerView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 4911,
@@ -591,6 +1560,11 @@
         "swift_compile": "ok"
       },
       "SwiftyGif": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SwiftyGif/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1460,
@@ -598,13 +1572,23 @@
         "swift_compile": "ok"
       },
       "Quick": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Quick/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 6059,
+        "lines": 6040,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "DifferenceKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "DifferenceKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 3116,
@@ -612,6 +1596,11 @@
         "swift_compile": "ok"
       },
       "TinyConstraints": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "TinyConstraints/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1695,
@@ -619,6 +1608,11 @@
         "swift_compile": "ok"
       },
       "AMPopTip": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "AMPopTip/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 5168,
@@ -626,13 +1620,23 @@
         "swift_compile": "ok"
       },
       "XMLCoder": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "XMLCoder/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 15169,
+        "lines": 14889,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "AnimatedCollectionViewLayout": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "AnimatedCollectionViewLayout/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 3823,
@@ -640,6 +1644,11 @@
         "swift_compile": "ok"
       },
       "SVGView": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "SVGView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 15719,
@@ -668,6 +1677,11 @@
         "swift_compile": "no_wrapper"
       },
       "CocoaLumberjackSwift": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CocoaLumberjackSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1551,
@@ -689,6 +1703,11 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseAnalytics": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseAnalytics/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 267,
@@ -710,6 +1729,11 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseAuth": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseAuth/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 25157,
@@ -738,6 +1762,11 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseCoreInternal": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseCoreInternal/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 2205,
@@ -745,6 +1774,11 @@
         "swift_compile": "ok"
       },
       "FirebaseCrashlytics": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseCrashlytics/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1520,
@@ -752,6 +1786,11 @@
         "swift_compile": "ok"
       },
       "FirebaseDatabase": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseDatabase/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1452,
@@ -759,6 +1798,11 @@
         "swift_compile": "ok"
       },
       "FirebaseFirestore": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseFirestore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 75244,
@@ -773,6 +1817,11 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseFunctions": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseFunctions/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1958,
@@ -780,6 +1829,11 @@
         "swift_compile": "ok"
       },
       "FirebaseInAppMessaging": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseInAppMessaging/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1800,
@@ -808,6 +1862,11 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseMLModelDownloader": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseMLModelDownloader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 2005,
@@ -822,6 +1881,11 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseRemoteConfig": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseRemoteConfig/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1740,
@@ -829,6 +1893,11 @@
         "swift_compile": "ok"
       },
       "FirebaseRemoteConfigInterop": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseRemoteConfigInterop/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 2014,
@@ -836,6 +1905,11 @@
         "swift_compile": "ok"
       },
       "FirebaseSessions": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseSessions/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1903,
@@ -843,6 +1917,11 @@
         "swift_compile": "ok"
       },
       "FirebaseSharedSwift": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseSharedSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 4606,
@@ -850,9 +1929,14 @@
         "swift_compile": "ok"
       },
       "FirebaseStorage": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "FirebaseStorage/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 8992,
+        "lines": 8971,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -864,6 +1948,11 @@
         "swift_compile": "no_wrapper"
       },
       "GTMAppAuth": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "GTMAppAuth/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 5129,
@@ -885,13 +1974,23 @@
         "swift_compile": "no_wrapper"
       },
       "Promises": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "Promises/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 1375,
+        "lines": 1362,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CodeScanner": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "CodeScanner/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 1124,
@@ -899,6 +1998,11 @@
         "swift_compile": "ok"
       },
       "AlertToast": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "AlertToast/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 241,
@@ -906,6 +2010,11 @@
         "swift_compile": "ok"
       },
       "RichTextKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "RichTextKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 31225,
@@ -913,6 +2022,11 @@
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "WhatsNewKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
         "lines": 9746,
@@ -920,9 +2034,14 @@
         "swift_compile": "ok"
       },
       "YouTubePlayerKit": {
+        "withdrawal_policy": {
+          "schemaVersion": 1,
+          "profile": "YouTubePlayerKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "exceptions": []
+        },
         "compile": "ok",
         "errors": 0,
-        "lines": 36706,
+        "lines": 36693,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
@@ -986,19 +2105,19 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 4015,
+      "pass": 4021,
       "fail": 0,
       "skip": 33,
       "crash": 0
     },
     "device": {
-      "pass": 4019,
+      "pass": 4025,
       "fail": 0,
       "skip": 29,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 4003,
+      "pass": 4021,
       "fail": 0,
       "skip": 33,
       "crash": 0
@@ -1035,6 +2154,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 18922
+    "swift_bindings_unit_pass_floor": 18958
   }
 }

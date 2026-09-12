@@ -18,6 +18,7 @@ partial class Build
 {
     const string ModuleName = "SwiftBindingsTestLib";
     const string DepModuleName = "SwiftBindingsTestLibDependency";
+    WithdrawalProvenance? healthyWithdrawalProvenance;
     const string WrapperModule = "SwiftBindings";
     const string BridgeModule = "SwiftBindingsTestLibBridge";
 
@@ -405,6 +406,16 @@ partial class Build
         if (Directory.Exists(BtOutputDir))
             ((AbsolutePath)BtOutputDir).DeleteDirectory();
         BtOutputDir.CreateDirectory();
+        if (CompileOnly)
+        {
+            var healthyPlatform = platformOverride ?? ResolvedPlatform;
+            healthyWithdrawalProvenance = new WithdrawalProvenance(WithdrawalSourceFingerprint(),
+                WithdrawalProvenance.HashFile(GeneratorDll), WithdrawalProvenance.HashText(ModuleName + "\n" + DepModuleName),
+                healthyPlatform.Name, healthyPlatform.SimulatorTarget.Split('-')[0], healthyPlatform.SimulatorTarget,
+                RunAppleCapture("xcrun", $"--sdk {healthyPlatform.SimulatorSdkName} --show-sdk-path") + "@" +
+                RunAppleCapture("xcrun", $"--sdk {healthyPlatform.SimulatorSdkName} --show-sdk-version"),
+                new[] { (string)BtXcframeworkDir, (string)BtDepXcframeworkDir }.ToDictionary(path => path, WithdrawalProvenance.HashTree));
+        }
 
         // Build generator arguments. --platform threads through the generator so
         // tvOS and Catalyst emit their own TPV-aware csprojs (and skip bindings
@@ -525,6 +536,17 @@ partial class Build
                 if (GeneratorExitGate.ShouldWarn(depExitCode, strict, Permissive))
                     Log.Warning("{Message}", GeneratorExitGate.WarningMessage(legLabel, DepModuleName, depExitCode));
             }
+
+            // Move the dependency C# alongside the main bindings: the {DepModule}.cs prelude
+            var dependencyEvidence = BtOutputDir / "withdrawal-evidence" / DepModuleName;
+            dependencyEvidence.CreateDirectory();
+            foreach (var reportName in new[] { "binding-emission-report.json", "binding-report.json" })
+            {
+                var reportPath = depOutputDir / reportName;
+                if (File.Exists(reportPath))
+                    File.Copy(reportPath, dependencyEvidence / reportName, overwrite: true);
+            }
+            File.WriteAllText(dependencyEvidence / "generator-exit-code", depExitCode.ToString());
 
             // Move the dependency C# alongside the main bindings: the {DepModule}.cs prelude
             // plus every {DepModule}.Types.*.cs per-type file from the file-per-type split.
@@ -1077,7 +1099,33 @@ partial class Build
 
                 // One policy for every leg (see AssertAsyncWrapperBuilt): hard-fail by default,
                 // --permissive downgrades to a warning.
-                AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(), "--compile-only");
+                var swiftCompilePassed = RunBuildAsyncWrapper();
+                AssertAsyncWrapperBuilt(swiftCompilePassed, "--compile-only");
+                // This outcome policy is unconditional, including --permissive. The external
+                // C# compile above is a distinct verdict from the Swift wrapper compile.
+                if (!swiftCompilePassed)
+                    throw new InvalidDataException("Healthy withdrawal gate: final Swift compile failed");
+                var healthyProvenance = healthyWithdrawalProvenance ??
+                    throw new InvalidDataException("Missing current-invocation healthy withdrawal provenance");
+                healthyProvenance.Verify(WithdrawalSourceFingerprint(), WithdrawalProvenance.HashFile(GeneratorDll),
+                    WithdrawalProvenance.HashText(ModuleName + "\n" + DepModuleName), CaptureWithdrawalToolchain(ResolvedPlatform));
+                foreach (var exitPath in new[] { BtOutputDir / "generator-exit-code",
+                    BtOutputDir / "withdrawal-evidence" / DepModuleName / "generator-exit-code" })
+                    if (!File.Exists(exitPath) || File.ReadAllText(exitPath).Trim() != "0")
+                        throw new InvalidDataException($"Healthy withdrawal gate: missing/failed generator receipt {exitPath}");
+                foreach (var entry in new[]
+                {
+                    (ModuleName, BtOutputDir / "binding-emission-report.json"),
+                    (DepModuleName, BtOutputDir / "withdrawal-evidence" / DepModuleName / "binding-emission-report.json")
+                })
+                {
+                    WithdrawalGate.RequireZero(WithdrawalGate.Read(entry.Item2, entry.Item1,
+                        new[] { "swift" }, WithdrawalGate.ParseIdentity));
+                    var receipt = new WithdrawalReceipt(healthyProvenance, WithdrawalProvenance.HashFile(entry.Item2),
+                        0, "ok", "ok", "ok");
+                    File.WriteAllText(Path.Combine(Path.GetDirectoryName(entry.Item2)!, "withdrawal-receipt.json"),
+                        System.Text.Json.JsonSerializer.Serialize(receipt));
+                }
 
                 RunBuildBridge();
                 ReportBindingTestResults();

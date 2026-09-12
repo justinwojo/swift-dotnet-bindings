@@ -105,6 +105,9 @@ public class EmissionReport
     [JsonProperty("withdrawnUnits")]
     public List<string> WithdrawnUnits { get; set; } = new();
 
+    [JsonProperty("withdrawalEvidence")]
+    public WithdrawalEvidence WithdrawalEvidence { get; set; } = WithdrawalEvidence.NotRun();
+
     /// <summary>
     /// The adapted publication obligation ledger, present only on the verify-recover loop path. Each
     /// entry names an obligation, the verifier that discharges it, and the verdict for this module. A
@@ -165,7 +168,7 @@ public static class EmissionReportEmitter
         string moduleName,
         string outputDirectory,
         ILogger logger,
-        IReadOnlyList<string>? withdrawnUnits = null,
+        WithdrawalEvidence? withdrawalEvidence = null,
         PublicationObligationLedger? publicationObligations = null)
     {
         ArgumentNullException.ThrowIfNull(emissionContext);
@@ -174,7 +177,7 @@ public static class EmissionReportEmitter
 
         AssertSilentTombstoneInvariant(emissionContext, moduleName);
 
-        var report = BuildReport(emissionContext, moduleName, withdrawnUnits, publicationObligations);
+        var report = BuildReport(emissionContext, moduleName, withdrawalEvidence, publicationObligations);
 
         var reportPath = Path.Combine(outputDirectory, "binding-emission-report.json");
         var json = JsonConvert.SerializeObject(report, Formatting.Indented);
@@ -352,7 +355,7 @@ public static class EmissionReportEmitter
     internal static EmissionReport BuildReport(
         ModuleEmissionContext emissionContext,
         string moduleName,
-        IReadOnlyList<string>? withdrawnUnits = null,
+        WithdrawalEvidence? withdrawalEvidence = null,
         PublicationObligationLedger? publicationObligations = null)
     {
         var report = new EmissionReport { Module = moduleName };
@@ -408,9 +411,10 @@ public static class EmissionReportEmitter
             .OrderBy(entry => entry, StringComparer.Ordinal)
             .ToList();
 
-        report.WithdrawnUnits = (withdrawnUnits ?? Array.Empty<string>())
-            .OrderBy(unit => unit, StringComparer.Ordinal)
-            .ToList();
+        report.WithdrawalEvidence = withdrawalEvidence ?? WithdrawalEvidence.NotRun();
+        if (report.WithdrawalEvidence.UnitIds.Any(id => RecoveryUnitId.Parse(id).Decl.Module != moduleName))
+            throw new ArgumentException("Withdrawal evidence contains an identity from another module.", nameof(withdrawalEvidence));
+        report.WithdrawnUnits = report.WithdrawalEvidence.Descriptions.ToList();
         report.PublicationObligations = publicationObligations is { } ledger
             ? ledger.Entries.ToList()
             : new List<ObligationLedgerEntry>();

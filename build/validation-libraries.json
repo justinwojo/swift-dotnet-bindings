@@ -210,7 +210,8 @@
       "minIOS": "15.0",
       "products": [
         {
-          "framework": "BlinkID"
+          "framework": "BlinkID",
+          "verificationPlanes": ["swift"]
         }
       ],
       "tier": 1
@@ -232,7 +233,8 @@
       "mode": "manual",
       "products": [
         {
-          "framework": "BRLMPrinterKit"
+          "framework": "BRLMPrinterKit",
+          "verificationPlanes": ["swift"]
         }
       ],
       "note": "Brother Print SDK \u2014 place xcframework in .libraries/BRLMPrinterKit/",
@@ -327,7 +329,8 @@
       "mode": "manual",
       "products": [
         {
-          "framework": "Mappedin"
+          "framework": "Mappedin",
+          "verificationPlanes": ["swift"]
         }
       ],
       "note": "Proprietary SDK \u2014 place xcframework in .libraries/Mappedin/",
@@ -545,7 +548,8 @@
       "mode": "manual",
       "products": [
         {
-          "framework": "Realm"
+          "framework": "Realm",
+          "verificationPlanes": []
         }
       ],
       "note": "Realm ObjC SDK",
@@ -556,7 +560,8 @@
       "mode": "manual",
       "products": [
         {
-          "framework": "Stripe3DS2"
+          "framework": "Stripe3DS2",
+          "verificationPlanes": []
         }
       ],
       "note": "Stripe 3DS2 SDK",
@@ -775,7 +780,8 @@
       "products": [
         {
           "scheme": "Quick",
-          "framework": "Quick"
+          "framework": "Quick",
+          "verificationPlanes": ["swift"]
         }
       ],
       "tier": 2
@@ -877,11 +883,13 @@
       "products": [
         {
           "scheme": "SDWebImage",
-          "framework": "SDWebImage"
+          "framework": "SDWebImage",
+          "verificationPlanes": []
         },
         {
           "scheme": "SDWebImageMapKit",
-          "framework": "SDWebImageMapKit"
+          "framework": "SDWebImageMapKit",
+          "verificationPlanes": []
         }
       ],
       "tier": 2
@@ -895,7 +903,8 @@
       "products": [
         {
           "scheme": "CocoaLumberjack",
-          "framework": "CocoaLumberjack"
+          "framework": "CocoaLumberjack",
+          "verificationPlanes": []
         },
         {
           "scheme": "CocoaLumberjackSwift",
@@ -912,7 +921,8 @@
       "products": [
         {
           "scheme": "MBProgressHUD",
-          "framework": "MBProgressHUD"
+          "framework": "MBProgressHUD",
+          "verificationPlanes": []
         }
       ],
       "tier": 2
@@ -921,35 +931,35 @@
       "name": "Firebase",
       "mode": "manual",
       "products": [
-        { "framework": "FirebaseABTesting" },
-        { "framework": "FirebaseAnalytics" },
-        { "framework": "FirebaseAppCheck" },
-        { "framework": "FirebaseAppCheckInterop" },
-        { "framework": "FirebaseAuth" },
-        { "framework": "FirebaseAuthInterop" },
-        { "framework": "FirebaseCore" },
-        { "framework": "FirebaseCoreExtension" },
+        { "framework": "FirebaseABTesting", "verificationPlanes": [] },
+        { "framework": "FirebaseAnalytics", "verificationPlanes": ["swift"] },
+        { "framework": "FirebaseAppCheck", "verificationPlanes": [] },
+        { "framework": "FirebaseAppCheckInterop", "verificationPlanes": [] },
+        { "framework": "FirebaseAuth", "verificationPlanes": ["swift"] },
+        { "framework": "FirebaseAuthInterop", "verificationPlanes": [] },
+        { "framework": "FirebaseCore", "verificationPlanes": [] },
+        { "framework": "FirebaseCoreExtension", "verificationPlanes": [] },
         { "framework": "FirebaseCoreInternal" },
-        { "framework": "FirebaseCrashlytics" },
-        { "framework": "FirebaseDatabase" },
+        { "framework": "FirebaseCrashlytics", "verificationPlanes": ["swift"] },
+        { "framework": "FirebaseDatabase", "verificationPlanes": ["swift"] },
         { "framework": "FirebaseFirestore" },
-        { "framework": "FirebaseFirestoreInternal" },
+        { "framework": "FirebaseFirestoreInternal", "verificationPlanes": [] },
         { "framework": "FirebaseFunctions" },
-        { "framework": "FirebaseInAppMessaging" },
-        { "framework": "FirebaseInstallations" },
-        { "framework": "FirebaseMessaging" },
-        { "framework": "FirebaseMessagingInterop" },
+        { "framework": "FirebaseInAppMessaging", "verificationPlanes": ["swift"] },
+        { "framework": "FirebaseInstallations", "verificationPlanes": [] },
+        { "framework": "FirebaseMessaging", "verificationPlanes": [] },
+        { "framework": "FirebaseMessagingInterop", "verificationPlanes": [] },
         { "framework": "FirebaseMLModelDownloader" },
-        { "framework": "FirebasePerformance" },
-        { "framework": "FirebaseRemoteConfig" },
+        { "framework": "FirebasePerformance", "verificationPlanes": [] },
+        { "framework": "FirebaseRemoteConfig", "verificationPlanes": ["swift"] },
         { "framework": "FirebaseRemoteConfigInterop" },
-        { "framework": "FirebaseSessions", "knownErrors": 27 },
+        { "framework": "FirebaseSessions", "knownErrors": 27, "verificationPlanes": ["swift"] },
         { "framework": "FirebaseSharedSwift" },
-        { "framework": "FirebaseStorage" },
-        { "framework": "GoogleSignIn", "knownErrors": 1 },
+        { "framework": "FirebaseStorage", "verificationPlanes": ["swift"] },
+        { "framework": "GoogleSignIn", "knownErrors": 1, "verificationPlanes": [] },
         { "framework": "GTMAppAuth" },
-        { "framework": "GTMSessionFetcher" },
-        { "framework": "AppAuth" },
+        { "framework": "GTMSessionFetcher", "verificationPlanes": [] },
+        { "framework": "AppAuth", "verificationPlanes": [] },
         { "framework": "Promises" }
       ],
       "note": "Firebase iOS SDK + Google SDKs — download xcframeworks from https://github.com/firebase/firebase-ios-sdk/releases and place in .libraries/Firebase/",

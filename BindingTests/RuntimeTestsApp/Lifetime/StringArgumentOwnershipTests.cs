@@ -173,4 +173,157 @@ public class StringArgumentOwnershipTests : TestBase
         AssertEqual("start|default|chosen|full|trimmed|debug", text, "debug shim inout writeback");
         AssertEqual(7, value.Number, "caller survives default shims");
     }
+
+    public void TestOptionalCallbackStringFullAndTrim()
+    {
+        using var receiver = new StringOwnershipReceiver(11);
+        int calls = 0;
+        foreach (var initial in new[] { "", new string('漢', 4096) })
+        {
+            string text = initial;
+            string expected = initial;
+            for (int i = 0; i < 32; i++)
+            {
+                AssertEqual(11, receiver.DroppingClosureDefault(ref text, null), "full null callback result");
+                expected += "|trimmed";
+                AssertEqual(expected, text, "null callback mutation");
+                AssertEqual(11, receiver.DroppingClosureDefault(ref text, () => calls++), "full callback result");
+                expected += "|trimmed";
+                AssertEqual(expected, text, "non-null callback mutation");
+                AssertEqual(11, receiver.DroppingClosureDefault(ref text), "independent trim result");
+                expected += "|trimmed";
+                AssertEqual(expected, text, "trim mutation");
+            }
+        }
+        AssertEqual(64, calls, "one invocation per non-null callback");
+    }
+
+    [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(StringOwnershipReceiver))]
+    public void TestOptionalCallbackStringImportsPreserveFullAndTrim()
+    {
+        int count = 0;
+        foreach (var import in typeof(StringOwnershipReceiver).GetMethods(BindingFlags.Static | BindingFlags.NonPublic))
+        {
+            if (!import.Name.StartsWith("PInvoke_droppingClosureDefault_", StringComparison.Ordinal)) continue;
+            count++;
+            var parameters = import.GetParameters();
+            AssertTrue(parameters.Length is 2 or 4, "trim or full pointer-pair signature");
+            AssertEqual(typeof(Swift.SwiftString.Buffer).MakeByRefType(), parameters[0].ParameterType);
+            AssertEqual(typeof(IntPtr), parameters[^1].ParameterType, "receiver address");
+            var library = import.GetCustomAttribute<LibraryImportAttribute>();
+            AssertEqual("SwiftBindings", library?.LibraryName);
+            AssertEqual(parameters.Length == 2
+                ? "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_droppingClosureDefault_7386B826"
+                : "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_droppingClosureDefault_C7CC85E1_cdecl", library?.EntryPoint);
+            var conventions = import.GetCustomAttribute<UnmanagedCallConvAttribute>()?.CallConvs;
+            AssertTrue(conventions != null && Array.IndexOf(conventions,
+                typeof(System.Runtime.CompilerServices.CallConvCdecl)) >= 0);
+        }
+        AssertEqual(2, count, "full overload and independently named trim");
+    }
+
+    public void TestOptionalCallbackStringReceiverAndScalarControls()
+    {
+        int allocations = TestLibFunctions.GetStringOwnershipAllocationCount();
+        int deinits = TestLibFunctions.GetStringOwnershipDeinitCount();
+        var receiver = new StringOwnershipCallbackReceiver(11);
+        var frozen = new StringOwnershipFrozenCallbackReceiver(13);
+        int calls = 0;
+        string text = "";
+        string expected = "";
+        for (int i = 0; i < 64; i++)
+        {
+            Action? callback = (i & 1) == 0 ? null : () => calls++;
+            AssertEqual(19, receiver.Update(3, ref text, 5, callback), "non-final self between scalar neighbors");
+            AssertEqual(21, frozen.Update(3, ref text, 5, callback), "frozen self between scalar neighbors");
+            AssertEqual(8, TestLibFunctions.StringOwnershipFreeCallback(3, ref text, 5, callback), "free function scalar neighbors");
+            expected += "|callback|callback|callback";
+            AssertEqual(expected, text, "all three routes copy back");
+            AssertEqual(deinits, TestLibFunctions.GetStringOwnershipDeinitCount(), "receiver remains live");
+        }
+        AssertEqual(96, calls, "callback count across receiver shapes");
+        AssertEqual(allocations + 1, TestLibFunctions.GetStringOwnershipAllocationCount(), "one receiver token");
+        receiver.Dispose();
+        AssertEqual(deinits + 1, TestLibFunctions.GetStringOwnershipDeinitCount(), "receiver releases once");
+        receiver.Dispose();
+        AssertEqual(deinits + 1, TestLibFunctions.GetStringOwnershipDeinitCount(), "no double release");
+        AssertEqual(expected, text, "result survives receiver disposal");
+    }
+
+    private sealed class CallbackSentinel { public int Calls; }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private WeakReference InvokeUnstoredEscapingCallback()
+    {
+        var sentinel = new CallbackSentinel();
+        using var receiver = new StringOwnershipReceiver(11);
+        string text = "";
+        AssertEqual(11, receiver.DroppingClosureDefault(ref text, () => sentinel.Calls++));
+        AssertEqual(1, sentinel.Calls);
+        AssertEqual("|trimmed", text);
+        return new WeakReference(sentinel);
+    }
+
+    public void TestOptionalCallbackStringReleasesEscapingContext()
+    {
+        var reference = InvokeUnstoredEscapingCallback();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        AssertFalse(reference.IsAlive, "unstored optional escaping callback releases managed capture");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private WeakReference InvokeThrowingEscapingCallback()
+    {
+        var sentinel = new CallbackSentinel();
+        using var receiver = new StringOwnershipCallbackReceiver(11);
+        string text = "";
+        bool threw = false;
+        try { receiver.UpdateAndThrow(-3, ref text, 5, () => sentinel.Calls++); }
+        catch (SwiftException) { threw = true; }
+        AssertTrue(threw);
+        AssertEqual(1, sentinel.Calls);
+        AssertEqual("|throwing-callback", text);
+        return new WeakReference(sentinel);
+    }
+
+    public void TestOptionalCallbackStringThrowReleasesEscapingContext()
+    {
+        var reference = InvokeThrowingEscapingCallback();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        AssertFalse(reference.IsAlive, "throwing invocation releases optional escaping capture");
+    }
+
+    public void TestOptionalCallbackStringMutationBeforeThrow()
+    {
+        int deinits = TestLibFunctions.GetStringOwnershipDeinitCount();
+        var receiver = new StringOwnershipCallbackReceiver(11);
+        int callbacks = 0;
+        string text = new string('x', 4096), expected = text;
+        for (int i = 0; i < 32; i++)
+        {
+            bool shouldThrow = (i & 1) == 0;
+            bool threw = false;
+            try
+            {
+                AssertEqual(19, receiver.UpdateAndThrow(shouldThrow ? -3 : 3, ref text, 5, () => callbacks++));
+            }
+            catch (SwiftException ex)
+            {
+                AssertTrue(ex.Message.Contains("expected", StringComparison.Ordinal));
+                threw = true;
+            }
+            AssertEqual(shouldThrow, threw);
+            expected += "|throwing-callback";
+            AssertEqual(expected, text, "mutation before error is copied back");
+            AssertEqual(i + 1, callbacks, "callback before error runs once");
+            AssertEqual(deinits, TestLibFunctions.GetStringOwnershipDeinitCount(), "receiver survives thrown call");
+        }
+        receiver.Dispose();
+        AssertEqual(deinits + 1, TestLibFunctions.GetStringOwnershipDeinitCount(), "throwing receiver released exactly once");
+        AssertEqual(expected, text, "mutated result survives disposal");
+    }
 }

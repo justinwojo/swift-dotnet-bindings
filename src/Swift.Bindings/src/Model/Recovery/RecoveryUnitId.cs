@@ -132,16 +132,11 @@ public readonly record struct RecoveryUnitId
     public static bool TryParse(string? canonical, out RecoveryUnitId id)
     {
         id = default;
-        if (string.IsNullOrEmpty(canonical))
+        if (!CanonicalIdentityCodec.TryParseUnit(canonical, out var parsed))
             return false;
-
-        var split = canonical.LastIndexOf(ScopeSeparator);
-        if (split < 0)
+        if (!RecoveryScopeLattice.TryParseToken(parsed!.Scope, out var scope))
             return false;
-
-        if (!RecoveryScopeLattice.TryParseToken(canonical[(split + 1)..], out var scope))
-            return false;
-        if (!DeclId.TryParse(canonical[..split], out var decl))
+        if (!DeclId.TryParse(canonical![..canonical!.LastIndexOf(ScopeSeparator)], out var decl))
             return false;
 
         id = new RecoveryUnitId { Decl = decl, Scope = scope };

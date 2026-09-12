@@ -14,6 +14,7 @@ using Nuke.Common.IO;
 /// </summary>
 public record ValidationBaseline
 {
+    [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
     [JsonPropertyName("git_sha")] public string GitSha { get; init; } = "";
 
     [JsonPropertyName("compile_gate")]
@@ -30,6 +31,7 @@ public record ValidationBaseline
 
     public record CompileGate
     {
+        [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
         [JsonPropertyName("libraries")]
         public IDictionary<string, LibraryResult> Libraries { get; init; }
             = new Dictionary<string, LibraryResult>();
@@ -37,6 +39,10 @@ public record ValidationBaseline
 
     public record LibraryResult
     {
+        [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
+        [JsonPropertyName("withdrawal_policy")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public WithdrawalPolicy? WithdrawalPolicy { get; init; }
         [JsonPropertyName("compile")] public string Compile { get; init; } = "unknown";
         [JsonPropertyName("errors")] public int Errors { get; init; }
         [JsonPropertyName("lines")] public int Lines { get; init; }
@@ -46,6 +52,7 @@ public record ValidationBaseline
 
     public record RuntimeTestsBaseline
     {
+        [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
         [JsonPropertyName("simulator")]
         public RuntimeTestsPlatformCounts? Simulator { get; init; }
 
@@ -81,6 +88,7 @@ public record ValidationBaseline
 
     public record RuntimeTestsPlatformCounts
     {
+        [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
         [JsonPropertyName("pass")] public int Pass { get; init; }
         [JsonPropertyName("fail")] public int Fail { get; init; }
         [JsonPropertyName("skip")] public int Skip { get; init; }
@@ -95,12 +103,14 @@ public record ValidationBaseline
     /// </summary>
     public record UnitTestsBaseline
     {
+        [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
         [JsonPropertyName("swift_bindings_unit_pass_floor")]
         public int SwiftBindingsUnitPassFloor { get; init; }
     }
 
     public record SkipMetricsBaseline
     {
+        [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
         [JsonPropertyName("total_emitted_members")] public int TotalEmittedMembers { get; init; }
         [JsonPropertyName("total_skipped_members")] public int TotalSkippedMembers { get; init; }
         [JsonPropertyName("skip_rate_pct")] public double SkipRatePct { get; init; }
@@ -120,10 +130,15 @@ public record ValidationBaseline
     }
 
     public static ValidationBaseline Load(AbsolutePath path)
-        => File.Exists(path)
-            ? JsonSerializer.Deserialize<ValidationBaseline>(File.ReadAllText(path),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!
-            : new();
+    {
+        if (!File.Exists(path)) return new();
+        var json = File.ReadAllText(path);
+        using var document = JsonDocument.Parse(json);
+        WithdrawalGate.RejectDuplicateProperties(document.RootElement);
+        return JsonSerializer.Deserialize<ValidationBaseline>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidDataException($"Null validation baseline: {path}");
+    }
 
     public void Save(AbsolutePath path)
         => File.WriteAllText(path, JsonSerializer.Serialize(this,

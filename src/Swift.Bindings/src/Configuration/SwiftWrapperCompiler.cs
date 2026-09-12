@@ -2008,12 +2008,18 @@ namespace BindingsGeneration
                     var retryArgs = BuildArgs(retryFlags);
                     logger.LogDebug("Retrying: xcrun {Args}", retryArgs);
                     (exitCode, stdout, stderr) = commandRunner.Run("xcrun", retryArgs, timeoutMs: swiftcTimeoutMs);
+                    args = retryArgs;
                 }
             }
 
             if (exitCode != 0)
             {
                 logger.LogDebug("Full swiftc stderr:\n{Stderr}", stderr);
+                // Optional forensic receipt: recovery rewrites these files on its next round.
+                // Never let evidence collection change the compilation/recovery outcome.
+                WrapperFailureEvidence.Capture(
+                    Environment.GetEnvironmentVariable("SWIFT_BINDINGS_WRAPPER_FAILURE_EVIDENCE"),
+                    wrapperModuleName, targetTriple, args, stderr, swiftFiles, logger);
                 // Dump full stderr to a sibling file so callers can inspect it even when the
                 // preview is filtered/truncated. Stable filename next to the output binary.
                 try
