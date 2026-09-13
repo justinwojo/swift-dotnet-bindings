@@ -2105,19 +2105,19 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 4021,
+      "pass": 4022,
       "fail": 0,
       "skip": 33,
       "crash": 0
     },
     "device": {
-      "pass": 4025,
+      "pass": 4026,
       "fail": 0,
       "skip": 29,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 4021,
+      "pass": 4022,
       "fail": 0,
       "skip": 33,
       "crash": 0

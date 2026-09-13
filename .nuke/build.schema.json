@@ -36,6 +36,7 @@
         "CompileCheckBindings",
         "CompileSwiftInterfaceParser",
         "Fetch",
+        "NativeThunkProbe",
         "Pack",
         "PackGate",
         "PromoteValidationBaseline",

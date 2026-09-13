@@ -170,6 +170,30 @@ partial class Build
     {
         Log.Information("--- Building {Module} ({Target}) ---", moduleName, target);
 
+        // P4's register-preservation sentinel is a test-fixture export, not production thunk
+        // machinery. Link the architecture-matched assembly into every SwiftBindingsTestLib
+        // slice so the ordinary simulator/device apps can wrap the exact generated thunk they
+        // resolve at runtime. The x20-clobbering negative control remains confined to the
+        // opt-in host-only NativeThunkProbe target and is never embedded in a test framework.
+        var effectiveSourceFiles = sourceFiles.ToList();
+        if (string.Equals(moduleName, NativeThunkProbeModule, StringComparison.Ordinal))
+        {
+            var sentinelArchitecture = target.StartsWith("x86_64-", StringComparison.Ordinal)
+                ? "x86_64"
+                : target.StartsWith("arm64-", StringComparison.Ordinal)
+                    ? "arm64"
+                    : throw new PlatformNotSupportedException(
+                        $"Native-thunk sentinel has no assembly implementation for target '{target}'.");
+            Directory.CreateDirectory(frameworkDir);
+            var sentinelSource = NativeThunkProbeAssets / $"sentinel-{sentinelArchitecture}.S";
+            // Keep the intermediate beside the framework, not inside its bundle, and use the
+            // same SDK as swiftc so cross-platform slices do not inherit the host macOS sysroot.
+            var sentinelObject = $"{frameworkDir}.native-thunk-sentinel-{sentinelArchitecture}.o";
+            XcRunTool(
+                $"clang -c \"{sentinelSource}\" -o \"{sentinelObject}\" -target {target} -isysroot \"{sdkPath}\"");
+            effectiveSourceFiles.Add(sentinelObject);
+        }
+
         var moduleDir = Path.Combine(frameworkDir, "Modules", $"{moduleName}.swiftmodule");
         Directory.CreateDirectory(moduleDir);
 
@@ -186,7 +210,7 @@ partial class Build
             .SetOutputPath(Path.Combine(frameworkDir, moduleName))
             .SetModulePath(Path.Combine(moduleDir, $"{moduleSuffix}.swiftmodule"))
             .SetModuleInterfacePath(Path.Combine(moduleDir, $"{moduleSuffix}.swiftinterface"))
-            .AddSourceFiles(sourceFiles);
+            .AddSourceFiles(effectiveSourceFiles);
 
         if (frameworkSearchPaths != null)
             foreach (var path in frameworkSearchPaths)
