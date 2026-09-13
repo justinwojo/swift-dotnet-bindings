@@ -38,6 +38,7 @@
         "Fetch",
         "Pack",
         "PackGate",
+        "PromoteValidationBaseline",
         "RegenerateAppleSnapshot",
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
@@ -50,11 +51,16 @@
         "SeedSkipSurfaceBaseline",
         "SeedWrapperStripBaseline",
         "SmokeTest",
+        "SurfaceAccounting",
         "Test",
         "UnitTests",
         "Validate",
         "ValidateAppleTypesManifest",
         "ValidateBlastRadius",
+        "WithdrawalGateTests",
+        "WithdrawalInvocationGate",
+        "WithdrawalInvocationPromotion",
+        "WithdrawalInvocationTest",
         "X64PackGate",
         "X64SimGate",
         "X64ThunkGate"
@@ -356,6 +362,14 @@
           "type": "boolean",
           "description": "Fail on non-zero generator exit"
         },
+        "SurfaceOutput": {
+          "type": "string",
+          "description": "New output directory for immutable surface-accounting/1 artifacts"
+        },
+        "SurfaceRequest": {
+          "type": "string",
+          "description": "Path to a surface-accounting-request/1 JSON file containing frozen capture metadata and the explicit target roster"
+        },
         "Tier": {
           "type": "integer",
           "description": "Validation tier (1, 2, or 0 for all)",
@@ -377,6 +391,10 @@
         "Version": {
           "type": "string",
           "description": "Package version for NuGet"
+        },
+        "WithdrawalOrderFailure": {
+          "type": "boolean",
+          "description": "Inject a downstream failure into the withdrawal promotion invocation test"
         },
         "WriteBack": {
           "type": "boolean",
