@@ -2334,6 +2334,21 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Method-aware effective escaping decision. A closure assigned through a property setter is
+    /// stored by Swift and therefore escapes regardless of the parser attributes on the synthetic
+    /// setter parameter.
+    /// </summary>
+    public static bool IsEffectivelyEscaping(
+        ClosureTypeSpec closureTypeSpec,
+        TypeSpec originalType,
+        ClosureHandler closureHandler,
+        MethodDecl methodDecl)
+    {
+        return methodDecl.IsStoredClosurePropertySetter ||
+            IsEffectivelyEscaping(closureTypeSpec, originalType, closureHandler);
+    }
+
+    /// <summary>
     /// Detects the genuine ABI-unsafe direct-CallConvSwift case: an async method that lost
     /// its <c>@_cdecl</c> wrapper and would otherwise emit a P/Invoke against Swift's mangled
     /// async symbol with <see cref="CallConvSwift"/>. The Swift async ABI is not stable

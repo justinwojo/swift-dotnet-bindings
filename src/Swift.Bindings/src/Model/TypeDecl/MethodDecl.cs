@@ -476,6 +476,15 @@ namespace BindingsGeneration
         public bool HasClosureParams { get; set; } = false;
 
         /// <summary>
+        /// Whether this accessor installs a closure into Swift property storage. Stored property
+        /// closures escape by construction even when the ABI parser does not stamp the synthetic
+        /// setter parameter with <c>@escaping</c>. Managed handle declaration, callback recovery,
+        /// transfer and cleanup all consult this flag through
+        /// <see cref="WrapperValidation.IsEffectivelyEscaping(ClosureTypeSpec, TypeSpec, ClosureHandler, MethodDecl)"/>.
+        /// </summary>
+        public bool IsStoredClosurePropertySetter { get; set; } = false;
+
+        /// <summary>
         /// Whether this method's @_cdecl wrapper opens the method's OWN generic parameters from
         /// type-argument metadata instead of carrying generic context it cannot express.
         /// Set by MethodHandler alongside <see cref="UsesCdeclMethodWrapper"/>; read by the

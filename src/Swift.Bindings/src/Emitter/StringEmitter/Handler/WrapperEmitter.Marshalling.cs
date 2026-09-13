@@ -681,6 +681,8 @@ namespace BindingsGeneration
                     {
                         // Cdecl wrapper (standalone or @_cdecl inline): just allocate the GCHandle if closure is non-null.
                         // The call-argument mapping (MethodSignature) handles passing func ptr and context.
+                        if (_env.MethodDecl.IsStoredClosurePropertySetter && !isOptional)
+                            csWriter.WriteLine($"ArgumentNullException.ThrowIfNull({csName});");
                         if (isOptional)
                         {
                             csWriter.WriteLine($"if ({csName} != null)");
@@ -703,7 +705,7 @@ namespace BindingsGeneration
                         // not packaged — preserving prior behaviour (leak rather than crash).
                         var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.EmissionSymbol);
                         bool legacyEscaping = WrapperValidation.IsEffectivelyEscaping(
-                            closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
+                            closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl);
 
                         if (isOptional)
                         {
@@ -1414,7 +1416,8 @@ namespace BindingsGeneration
                     // callback shapes cannot drift out of sync — that drift was the original
                     // defect (throwing + indirect-return read raw while the setter boxed).
                     bool useBoxedContext = !useCdecl
-                        && WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
+                        && WrapperValidation.IsEffectivelyEscaping(
+                            closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl);
 
                     // Baseline async closures (throwing or non-throwing) emit the
                     // Start-thunk callback pair. Non-baseline async closures no longer
@@ -2008,7 +2011,7 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                     var cleanupClosureCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
                     bool isEffectivelyEscaping = WrapperValidation.IsEffectivelyEscaping(
-                        closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
+                        closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl);
 
                     // Restore the @convention(c) [ThreadStatic] slot to the occupant captured before
                     // the call (EmitConventionCSlotSaveDeclarations). Restoring rather than clearing to

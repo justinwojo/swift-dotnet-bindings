@@ -130,6 +130,15 @@ public static class SwiftBuilder
                 return "UnsafeMutableRawPointer?";
             }
 
+            // Optional<Array/Dictionary> callback arguments use nil for .none and otherwise
+            // carry the address of a typed temporary containing the unwrapped collection value.
+            if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
+                named.GenericParameters.Count == 1 &&
+                named.GenericParameters[0] is NamedTypeSpec { Name: "Swift.Array" or "Swift.Dictionary" })
+            {
+                return "UnsafeMutableRawPointer?";
+            }
+
             return GetSwiftCdeclParamType(named);
         }
 

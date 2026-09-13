@@ -752,10 +752,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ClosureProperty_Writable_ReturnsFalse()
+    public void ShouldEmitWrapper_ClosureProperty_WritableStoredClass_ReturnsTrue()
     {
-        // Writable direct closure properties are rejected — CdeclParamMapper has no closure
-        // handling for the setter path (would fall through to invalid UnsafeRawPointer reconstruction)
+        // A stored direct closure on a nongeneric class uses the same func-ptr/context adapter as
+        // the optional setter; only the optional form admits nil.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -783,7 +783,7 @@ public class PropertyWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(getterMethod, typeDb);
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -844,9 +844,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void GetRejectionReason_DirectClosure_Writable_ReturnsDirectClosureSetter()
+    public void GetRejectionReason_DirectClosure_WritableSupportedClass_ReturnsNull()
     {
-        // Writable direct closure properties are rejected — setter path has no closure handling
+        // Writable direct closure properties on nongeneric classes reuse the same funcPtr/context
+        // adapter as Optional<Closure>; the stored value is always treated as escaping.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -874,6 +875,30 @@ public class PropertyWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetRejectionReason_DirectClosure_WritableStructOrGenericClass_RemainsRejected(bool genericClass)
+    {
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var (_, _, propertyDecl, env, _) = CreateSetterTestSetup(
+            "handler", closureType, isClass: genericClass);
+        if (genericClass)
+        {
+            ((ClassDecl)propertyDecl.ParentDecl!).GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            };
+        }
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
         Assert.Equal("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
     }
 
@@ -1081,10 +1106,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void EvaluateWrapperEligibility_DirectClosure_SetAccessor_RejectedWithDirectClosureSetter()
+    public void EvaluateWrapperEligibility_DirectClosure_SetAccessor_IsWrappableForNongenericClass()
     {
-        // The setter of a direct closure property still has no cdecl reconstruction: it would
-        // fall through to UnsafeRawPointer, which is not a closure (funcPtr + context).
+        // The setter of a direct closure property now reconstructs from funcPtr + context using
+        // the same escaping adapter as Optional<Closure>.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1110,16 +1135,16 @@ public class PropertyWrapperEmitterTests
         };
         var env = new MethodEnvironment(setterMethod, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env, setter).IsWrappable);
-        Assert.Equal("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env, setter));
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env, setter));
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env, setter).IsWrappable);
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env, setter));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env, setter));
     }
 
     [Fact]
-    public void EvaluateWrapperEligibility_DirectClosure_NullAccessor_RejectedWithDirectClosureSetter()
+    public void EvaluateWrapperEligibility_DirectClosure_NullAccessor_IsWrappableForNongenericClass()
     {
-        // A null accessor is the property-wide question, which is the stricter of the two:
-        // a writable direct closure still reports the setter refusal.
+        // A null accessor asks whether the complete property can use the wrapper. Both getter and
+        // setter are supported for this nongeneric class closure shape.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1147,8 +1172,8 @@ public class PropertyWrapperEmitterTests
         };
         var env = new MethodEnvironment(getterMethod, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
-        Assert.Equal("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, env).IsWrappable);
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
     }
 
     [Fact]
@@ -3418,6 +3443,44 @@ public class PropertyWrapperEmitterTests
         Assert.Contains("_adapted_newValue", output);
         Assert.Contains("@convention(c)", output);
         // Must assign adapter to property
+        Assert.Contains("obj.onAction = _adapted_newValue", output);
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_DirectClosure_FuncPtrContextAndEscapingOwner()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
+            TupleTypeSpec.Empty);
+        var setterMethod = CreateAccessorMethod("setter:onAction", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "onAction",
+            SwiftTypeSpec = closureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(
+            swiftWriter, propertyDecl, "SBW_Set_TestModule_MyType_onAction", env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ newValueFuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ newValueContext: UnsafeMutableRawPointer?", output);
+        Assert.Contains("let _box_newValue: AnyObject = _sbWrapClosureContext(newValueContext!)", output);
+        Assert.Contains("let _adapted_newValue", output);
         Assert.Contains("obj.onAction = _adapted_newValue", output);
     }
 

@@ -32,6 +32,113 @@ public class ArgumentOwnershipTests : TestBase
     public void TestFailableCallbackSomeOwnsValue() => RunCase("failable-some");
     public void TestFailableCallbackNilOwnsValue() => RunCase("failable-nil");
 
+    public void TestDirectStoredCallbackSetter_ReplacesAndSupportsReentrancy()
+    {
+        using var owner = new OwnershipCallbackOwner();
+        int firstCalls = 0;
+        int secondCalls = 0;
+        Action<CallbackOwnedValue> second = value =>
+        {
+            secondCalls++;
+            AssertEqual(71, value.Number, "replacement callback payload");
+            value.Dispose();
+        };
+        owner.Callback = value =>
+        {
+            firstCalls++;
+            AssertEqual(71, value.Number, "initial callback payload");
+            value.Dispose();
+            owner.Callback = second;
+        };
+
+        owner.Invoke();
+        owner.Invoke();
+
+        AssertEqual(1, firstCalls, "reentrant replacement invokes the displaced callback once");
+        AssertEqual(1, secondCalls, "the replacement is installed for the next invocation");
+    }
+
+    public void TestDirectStoredCallbackSetter_GetterCopySurvivesReplacementAndOwnerDispose()
+    {
+        int retainedCalls = 0;
+        var owner = new OwnershipCallbackOwner();
+        owner.Callback = value =>
+        {
+            retainedCalls++;
+            AssertEqual(88, value.Number, "getter-retained callback payload");
+        };
+        var retained = owner.Callback;
+        owner.Callback = value => value.Dispose();
+        owner.Dispose();
+
+        using var argument = new CallbackOwnedValue(88);
+        retained(argument);
+        AssertEqual(1, retainedCalls, "getter copy owns an independent Swift closure value");
+    }
+
+    public void TestDirectStoredCallbackSetter_TwoOwnersRemainIndependent()
+    {
+        using var first = new OwnershipCallbackOwner();
+        using var second = new OwnershipCallbackOwner();
+        int firstCalls = 0;
+        int secondCalls = 0;
+        first.PodCallback = value => { firstCalls++; AssertEqual(72, value.Number, "first owner"); };
+        second.PodCallback = value => { secondCalls++; AssertEqual(72, value.Number, "second owner"); };
+
+        first.InvokePod();
+        second.InvokePod();
+        first.InvokePod();
+
+        AssertEqual(2, firstCalls, "first owner retains its callback");
+        AssertEqual(1, secondCalls, "second owner retains its callback");
+    }
+
+    public void TestDirectStoredCallbackSetter_StaticResetDisplacesCallback()
+    {
+        int calls = 0;
+        try
+        {
+            OwnershipCallbackOwner.StaticPodCallback = value =>
+            {
+                calls++;
+                AssertEqual(77, value.Number, "static callback payload");
+            };
+            OwnershipCallbackOwner.InvokeStaticPod();
+            AssertEqual(1, calls, "static callback invoked");
+        }
+        finally
+        {
+            OwnershipCallbackOwner.ResetStaticPodCallback();
+        }
+
+        OwnershipCallbackOwner.InvokeStaticPod();
+        AssertEqual(1, calls, "static reset displaces the installed callback");
+    }
+
+    public void TestDirectStoredCallbackSetter_NonoptionalRejectsNull()
+    {
+        using var owner = new OwnershipCallbackOwner();
+        AssertThrows<ArgumentNullException>(() => owner.Callback = null!,
+            "nonoptional stored closure rejects null before native entry");
+    }
+
+    public void TestDirectStoredCallbackSetter_OptionalClearDisplacesCallback()
+    {
+        using var owner = new OwnershipCallbackOwner();
+        int calls = 0;
+        owner.OptionalCallback = value =>
+        {
+            calls++;
+            AssertEqual(74, value.Number, "optional callback payload");
+        };
+
+        owner.InvokeOptional();
+        owner.OptionalCallback = null;
+        owner.InvokeOptional();
+
+        AssertEqual(1, calls, "clearing the optional callback displaces the installed callback");
+    }
+
     public void TestConsumingNonFrozenStructPreservesCallerOwnership() => RunStructCase("consume");
     public void TestBorrowingNonFrozenStructPreservesCallerOwnership() => RunStructCase("borrow");
     public void TestConsumingNonFrozenStructSwiftThrowBalances() => RunStructCase("throw");

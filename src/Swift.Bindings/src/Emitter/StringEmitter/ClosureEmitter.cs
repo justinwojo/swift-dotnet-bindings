@@ -1119,16 +1119,28 @@ public static partial class ClosureEmitter
                 return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
             }
 
+            // Result<Optional<Class/Any>, any Error> on the ordinary @_cdecl adapter arrives at
+            // an initialized Swift value. MarshalFromSwift performs the required metadata-driven
+            // heap copy; the resulting SwiftResult owns that copy after Swift destroys its
+            // temporary. The borrowed helper is deliberately not used because suppressing the
+            // copied SafeHandle would leak the Result payload.
+            if (useCdecl && ClosureEmitter.IsSupportedResultErrorCallbackInput(namedType, closureHandler))
+            {
+                var resultType = closureHandler.TranslateTypeSpecToCSharp(namedType);
+                return $"SwiftMarshal.MarshalFromSwift<{resultType}>({valueAddress})";
+            }
+
             // Optional<Array/Dictionary/Set/ContiguousArray> arriving by value: the register IS the
             // container's buffer reference, and Swift spells .none as a zero word. Marshalling the
             // zero word instead of testing it yields a live wrapper over a null buffer, which reads
             // as "an empty collection was delivered" rather than "nothing was". An empty container
             // is a non-zero shared singleton, so the test separates absent from empty.
-            if (isExploded && closureHandler.IsOptionalSingleWordContainerArg(namedType))
+            if ((isExploded || useCdecl) && closureHandler.IsOptionalSingleWordContainerArg(namedType))
             {
-                var containerType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+                var containerSpec = useCdecl ? namedType.GenericParameters[0] : typeSpec;
+                var containerType = closureHandler.TranslateTypeSpecToCSharp(containerSpec);
                 var containerMarshal = closureHandler.BorrowedCallbackArgMarshal(
-                    typeSpec, containerType, valueAddress, nonNullObjCBridge: true);
+                    containerSpec, containerType, valueAddress, nonNullObjCBridge: true);
                 return $"arg{argIndex} != null ? {containerMarshal} : null";
             }
 

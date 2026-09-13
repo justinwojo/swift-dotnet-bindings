@@ -40,10 +40,8 @@ public final class GenerateContentClient {
         return parts.map { $0.label }.joined(separator: ",")
     }
 
-    /// Broken stream shape: sync method taking an escaping closure whose param is
-    /// `[any PartsRepresentable]`. This is the genuinely JIT-risky shape — the
-    /// existential-array param flows through a @convention(c) callback that can't
-    /// spell it in Swift. SB0001 is the correct outcome here.
+    /// Sync stream shape: the outer array and callback array both cross typed Swift
+    /// storage, with the callback edge copied through collection metadata.
     public func generateContentStream(
         parts: [any PartsRepresentable],
         onChunk: @escaping ([any PartsRepresentable]) -> Void

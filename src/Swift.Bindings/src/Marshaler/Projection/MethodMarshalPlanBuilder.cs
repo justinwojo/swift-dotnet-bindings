@@ -506,7 +506,8 @@ internal class MethodMarshalPlanBuilder
                 // construct the `_SBClosureCtx` from C# (via the runtime helper)
                 // because there is no Swift-side wrapper to do it for us.
                 if (!_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
-                    WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argument.SwiftTypeSpec, _env.ClosureHandler))
+                    WrapperValidation.IsEffectivelyEscaping(
+                        closureTypeSpec, argument.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl))
                 {
                     lines.Add($"bool {csName}Transferred = false;");
                     if (!_env.MethodDecl.HasCdeclClosureMarshalling)

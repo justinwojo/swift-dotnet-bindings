@@ -721,13 +721,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     accessor.Method.UsesFreeFunctionWrapper = true;
                     promotedSymbol = symbol;
 
-                    // Optional<closure> setter: mark closure params for Cdecl marshalling
-                    // so PInvokeEmitter emits IntPtr funcPtr + IntPtr context params.
-                    if (!isGetter && propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosureNts &&
-                        optClosureNts.Name == "Swift.Optional" && optClosureNts.GenericParameters.Count == 1 &&
-                        optClosureNts.GenericParameters[0] is ClosureTypeSpec)
+                    // Stored closure setter: mark closure params for Cdecl marshalling so
+                    // PInvokeEmitter emits funcPtr + context. The setter-specific escaping flag
+                    // keeps handle declaration, callback recovery, transfer and finally cleanup
+                    // on the same ownership decision even when a direct ClosureTypeSpec lacks an
+                    // @escaping parser attribute.
+                    if (!isGetter && propertyEnv.ClosureHandler.IsClosure(propertyDecl))
                     {
                         accessor.Method.HasClosureParams = true;
+                        accessor.Method.IsStoredClosurePropertySetter = true;
                     }
 
                     // Get the accessor env for emission

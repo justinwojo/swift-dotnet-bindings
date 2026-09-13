@@ -231,7 +231,8 @@ namespace BindingsGeneration
                     !_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) ||
                     !_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.EmissionSymbol, closureParamCount) ||
                     _env.ClosureHandler.IsAsyncClosure(closureTypeSpec) ||
-                    !WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, arg.SwiftTypeSpec, _env.ClosureHandler))
+                    !WrapperValidation.IsEffectivelyEscaping(
+                        closureTypeSpec, arg.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl))
                     continue;
                 var csName = NameProvider.GetMarshallingBaseName(arg);
                 if (UsesConventionCThreadStaticSlot(arg, closureTypeSpec, closureParamCount))

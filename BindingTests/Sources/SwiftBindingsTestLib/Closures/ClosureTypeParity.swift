@@ -225,7 +225,11 @@ public class WrapperPathValueHost {
     /// `[Double]?` — one word, zero for `.none`.
     public init(optionalValuesMode: Int32, completion: @escaping ([Double]?) -> Void) {
         deliveredCode = optionalValuesMode
-        completion(optionalValuesMode == 0 ? nil : [1.5, 2.5, 3.5])
+        switch optionalValuesMode {
+        case 0: completion(nil)
+        case 1: completion([])
+        default: completion([1.5, 2.5, 3.5])
+        }
     }
 }
 

@@ -27,12 +27,9 @@ namespace RuntimeTestsApp.Closures;
 /// They have no CallConvSwift frame, so Mono Issue 1 (`!ji-&gt;async`) cannot apply and they run
 /// on BOTH simulator and device.
 ///
-/// The ONE remaining simulator skip is <see cref="TestHolder_SetValidator_DelegateThrows_GracefulFault"/>:
-/// the NON-optional `Validator` setter is the video-player library `HtmlProvider` bypass site that
-/// emits a genuine CallConvSwift P/Invoke (`$s…OptionalThrowingModifierHolderC9validatoryyKcvs`,
-/// `SwiftSelf` self, `delegate* unmanaged[Swift]` callback) instead of routing through the
-/// `@_cdecl` wrapper — so it is the only path here with a CallConvSwift frame. The durable fix is
-/// to funnel that setter through a wrapper; until then it runs under NativeAOT on device only.
+/// The non-optional `Validator` setter now uses that same Cdecl func-ptr/context route. Its
+/// managed-throw test therefore runs on simulator as well as device instead of carrying the former
+/// CallConvSwift Mono-JIT skip.
 /// </summary>
 public class OptionalThrowingVoidClosureTests : TestBase
 {
@@ -226,8 +223,6 @@ public class OptionalThrowingVoidClosureTests : TestBase
         TestLogger.Info($"RunWithOptionalModifier(delegate throws) = {result}");
     }
 
-    // CallConvSwift entry point on this path: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs
-    [SkipOnMonoJit("upstream Issue 1 (!ji->async, jit-info.c:918) — the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator + Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs")]
     public void TestHolder_SetValidator_DelegateThrows_GracefulFault()
     {
         // Settable NON-OPTIONAL throwing-void closure property — the video-player library `HtmlProvider`
@@ -239,6 +234,14 @@ public class OptionalThrowingVoidClosureTests : TestBase
         AssertFalse(result,
             "Throwing validator delegate (non-optional setter) must surface as a Swift error → false, never SIGABRT");
         TestLogger.Info($"SetValidator(delegate throws) RunValidator() = {result}");
+    }
+
+    public void TestHolder_SetValidator_NullThrowsBeforeNativeEntry()
+    {
+        using var holder = new OptionalThrowingModifierHolder();
+        AssertThrows<ArgumentNullException>(() => holder.Validator = null!,
+            "nonoptional throwing closure setter rejects null before allocating native storage");
+        AssertTrue(holder.RunValidator(), "the original validator remains installed after null rejection");
     }
 
     #endregion

@@ -422,6 +422,20 @@ public class ClosureTypeParityTests : TestBase
         AssertApproxEqual(7.5, seen.Sum(), message: $"Expected 1.5 + 2.5 + 3.5 = 7.5, got {seen.Sum()}");
     }
 
+    public void TestArrayCallbackArgument_CopyOutlivesCallbackAndHost()
+    {
+        SwiftArray<double>? captured = null;
+        var host = new CollectionCallbackHost();
+        host.EmitDoubles(values => captured = values);
+        host.Dispose();
+        ForceGC();
+
+        AssertNotNull(captured, "callback produced an independently owned array wrapper");
+        AssertEqual(3, captured!.Count, "copied array remains readable after callback and host disposal");
+        AssertApproxEqual(7.5, captured.Sum(), message: "copied array preserves its elements");
+        captured.Dispose();
+    }
+
     /// <summary>The struct-element variant of the same argument shape.</summary>
     public void TestStructArrayCallbackArgument()
     {
@@ -590,6 +604,7 @@ public class ClosureTypeParityTests : TestBase
     public void TestByValueOptionalArrayCallbackArgument()
     {
         int seenCount = -1;
+        int emptyCount = -1;
         bool sawNull = false;
 
         Action<SwiftArray<double>?> observeSome = values =>
@@ -597,10 +612,14 @@ public class ClosureTypeParityTests : TestBase
             if (values != null)
                 seenCount = values.Count;
         };
-        using (var some = new WrapperPathValueHost(1, observeSome))
+        using (var some = new WrapperPathValueHost(2, observeSome))
         {
-            AssertEqual(1, some.DeliveredCode, $"Expected DeliveredCode 1, got {some.DeliveredCode}");
+            AssertEqual(2, some.DeliveredCode, $"Expected DeliveredCode 2, got {some.DeliveredCode}");
         }
+
+        Action<SwiftArray<double>?> observeEmpty = values => emptyCount = values?.Count ?? -1;
+        using (var empty = new WrapperPathValueHost(1, observeEmpty))
+            AssertEqual(1, empty.DeliveredCode, $"Expected DeliveredCode 1, got {empty.DeliveredCode}");
 
         Action<SwiftArray<double>?> observeNone = values => sawNull = values == null;
         using (var none = new WrapperPathValueHost(0, observeNone))
@@ -609,6 +628,7 @@ public class ClosureTypeParityTests : TestBase
         }
 
         AssertEqual(3, seenCount, $"Expected the present array to carry 3 values, got {seenCount}");
+        AssertEqual(0, emptyCount, "Expected the present empty array to remain distinct from nil");
         AssertTrue(sawNull, "Expected the absent case to arrive as null");
     }
 

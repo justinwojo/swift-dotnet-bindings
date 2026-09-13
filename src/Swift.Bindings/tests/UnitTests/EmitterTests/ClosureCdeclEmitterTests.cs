@@ -1304,6 +1304,78 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void IsClosureCdeclCompatible_ArrayAndDictionaryInputs_ReturnTrue()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")),
+                new NamedTypeSpec("Swift.Dictionary",
+                    new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int32"))
+            }),
+            TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_CollectionInputs_UseTypedInitializedTemporaries()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var optionalArray = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Double")),
+                optionalArray
+            }),
+            TupleTypeSpec.Empty);
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureType, closureHandler, isOptional: false));
+
+        Assert.Contains("UnsafeMutablePointer<Swift.Array<Swift.Double>>.allocate(capacity: 1)", swift);
+        Assert.Contains("__collection_0.initialize(to: p0)", swift);
+        Assert.Contains("__collection_0.deinitialize(count: 1); __collection_0.deallocate()", swift);
+        Assert.Contains("if let __value_1 = p1", swift);
+        Assert.Contains("__collection_1.map { UnsafeMutableRawPointer($0) }", swift);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ResultOptionalClass_UsesTypedInitializedTemporary()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var result = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")),
+            new NamedTypeSpec("Swift.Error") { IsAny = true });
+        var closureType = new ClosureTypeSpec(result, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsSupportedResultErrorCallbackInput(result, closureHandler));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "completion", closureType, closureHandler, isOptional: false));
+        Assert.Contains("UnsafeMutablePointer<Swift.Result", swift);
+        Assert.Contains("__collection_0.initialize(to: p0)", swift);
+        Assert.Contains("__collection_0.deinitialize(count: 1); __collection_0.deallocate()", swift);
+    }
+
+    [Fact]
+    public void ResultErrorCallbackInput_NearMissesRemainRejected()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var error = new NamedTypeSpec("Swift.Error") { IsAny = true };
+
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result", new NamedTypeSpec("Swift.Int32"), error), closureHandler));
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result",
+                new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int32")), error), closureHandler));
+    }
+
+    [Fact]
     public void IsClosureCdeclCompatible_AnyErrorParam_ReturnsFalse()
     {
         // Closure: (any Swift.Error) -> Void is intentionally NOT cdecl-compatible

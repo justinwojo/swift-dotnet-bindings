@@ -99,19 +99,16 @@ public static class PropertyWrapperEmitter
         // with invoke thunk for closure invocation (same pattern as MethodWrapperEmitter).
         // Optional<closure> getter also allowed — routes through IndirectResult buffer with null check.
 
-        // 3a. Direct closure setter: not supported — CdeclParamMapper has no closure handling,
-        //     so the setter would fall through to UnsafeRawPointer reconstruction which is invalid
-        //     for closures (they need funcPtr + context marshalling). Read-only closure properties are fine.
-        //
-        //     The subject of this gate is the SETTER, so it is asked of the setter. A read-write
-        //     closure property's getter is the same shape as a read-only one's — step 3 above
-        //     routes both through IndirectResult with an invoke thunk — and refusing it because a
-        //     sibling accessor is refused drops it onto the direct CallConvSwift P/Invoke for a
-        //     reason that does not describe it. When the caller does not say which accessor it
-        //     means, the property-wide answer stands.
-        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
+        // 3a. Direct closure setters use the same funcPtr/context adapter as Optional<Closure>.
+        // Keep the admission deliberately narrow: nongeneric class storage only, and only when
+        // every callback argument/result has an implemented C adapter. Generic and value parents
+        // retain their existing direct-route refusal until their own receiver/write-back contract
+        // is proved. Read-only direct closure properties remain independently wrappable.
+        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec directClosure &&
             (accessor is SetAccessorDecl ||
-             (accessor is null && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())))
+             (accessor is null && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())) &&
+            (accessorEnv.ParentDecl is not ClassDecl { IsGeneric: false } ||
+             !ClosureEmitter.IsClosureCdeclCompatible(directClosure, accessorEnv.ClosureHandler)))
             return WrapperEligibility.Reject("direct_closure_setter");
 
         // 3b. Optional<closure> setter: the closure's params/return must be cdecl-compatible
@@ -656,21 +653,20 @@ public static class PropertyWrapperEmitter
                         reconstructionLines.Add(OptionalMarshalClassifier.SwiftReconstructOptional(
                             OptionalMarshalClassifier.SwiftHasValueParam, "newValue", innerSwiftType, "newValueVal"));
                     }
-                    else if (propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosureNts &&
-                             optClosureNts.Name == "Swift.Optional" && optClosureNts.GenericParameters.Count == 1 &&
-                             optClosureNts.GenericParameters[0] is ClosureTypeSpec closureSpec)
+                    else if (WrapperValidation.PropertyTypeIsClosureOrOptionalClosure(propertyDecl.SwiftTypeSpec))
                     {
-                        // Optional<closure> setter: accept funcPtr + context, adapt to Swift closure.
-                        // Same pattern as method closure parameters in MethodWrapperEmitter.
-                        // Property setters always store the closure beyond the call, so the
-                        // adapter must wrap the GCHandle context in an _SBClosureCtx box —
-                        // closes the property-setter handler subscription leak.
+                        // Stored closure setter: accept funcPtr + context and adapt to a Swift
+                        // closure. Direct and Optional property closures both escape because the
+                        // setter stores them beyond this call, so both capture an _SBClosureCtx
+                        // owner box. Only Optional permits a nil function pointer.
+                        bool isOptionalClosure = env.ClosureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec);
+                        var closureSpec = env.ClosureHandler.GetClosureTypeSpec(propertyDecl.SwiftTypeSpec)!;
                         swiftParams.Add("_ newValueFuncPtr: UnsafeMutableRawPointer?");
                         swiftParams.Add("_ newValueContext: UnsafeMutableRawPointer?");
 
                         ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
                         var adapterLines = ClosureEmitter.GetSwiftClosureAdapterCode(
-                            "newValue", closureSpec, env.ClosureHandler, isOptional: true, isEscaping: true,
+                            "newValue", closureSpec, env.ClosureHandler, isOptional: isOptionalClosure, isEscaping: true,
                             swiftWriter: swiftWriter, ctx: ctx,
                             moduleName: propertyDecl.ModuleDecl?.Name ?? "SwiftBindings");
                         reconstructionLines.AddRange(adapterLines);

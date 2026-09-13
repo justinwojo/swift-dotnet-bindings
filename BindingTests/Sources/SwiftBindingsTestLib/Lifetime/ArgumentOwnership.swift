@@ -37,12 +37,15 @@ public final class OwnershipCallbackOwner {
     public var podCallback: (CallbackPodValue) -> Void = { _ in }
     public var classCallback: (OwnershipToken) -> Void = { _ in }
     public var optionalCallback: ((CallbackOwnedValue) -> Void)?
+    public nonisolated(unsafe) static var staticPodCallback: (CallbackPodValue) -> Void = { _ in }
     public init() {}
     public func invoke() { callback(CallbackOwnedValue(71)) }
     public func invokePod() { podCallback(CallbackPodValue(72)) }
     public func invokeClass() { classCallback(OwnershipToken(73)) }
     public func invokeOptional() { optionalCallback?(CallbackOwnedValue(74)) }
     public func ordinary(_ body: (CallbackOwnedValue) -> Void) { body(CallbackOwnedValue(75)) }
+    public static func invokeStaticPod() { staticPodCallback(CallbackPodValue(77)) }
+    public static func resetStaticPodCallback() { staticPodCallback = { _ in } }
 }
 public struct OwnershipCallbackFactory {
     public let number: Int32

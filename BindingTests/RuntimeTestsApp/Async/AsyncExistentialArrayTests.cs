@@ -4,6 +4,7 @@
 using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
+using SwiftBindingsTestLib.SwiftInterop;
 
 namespace RuntimeTestsApp.Async;
 
@@ -12,8 +13,8 @@ namespace RuntimeTestsApp.Async;
 /// parameter is an existential array (<c>[any Proto]</c>). Those shapes round-trip
 /// cleanly through the async wrapper path — the C# P/Invoke surface is uniformly
 /// blittable because <c>HasNonBlittablePInvokeTypes</c> early-returns <c>false</c>
-/// for async methods. The matching sync-with-closure shape IS genuinely JIT-risky
-/// and must keep its SB0001 warning so consumers have a signal to avoid it.
+/// for async methods. The matching sync-with-closure shape now takes the typed-address
+/// collection adapter and must remain callable without SB0001.
 /// </summary>
 public class AsyncExistentialArrayTests : TestBase
 {
@@ -81,13 +82,48 @@ public class AsyncExistentialArrayTests : TestBase
             "generateContentFreeAsync(parts:) must NOT be flagged SB0001 — free-function async shape is equally safe.");
     }
 
-    public void TestBrokenStreamShape_MarkedSb0001()
+    public void TestStreamShape_RoundTripsBothExistentialArrayEdges()
+    {
+        using var client = new GenerateContentClient();
+        var parts = new IPartsRepresentable[]
+        {
+            new TextPart("first"),
+            new TextPart("second"),
+        };
+        int calls = 0;
+        var labels = new List<string>();
+
+        client.GenerateContentStream(parts, containers =>
+        {
+            calls++;
+            foreach (var container in containers)
+            {
+                using var part = new PartsRepresentableProxy(container);
+                labels.Add(part.Label);
+            }
+        });
+
+        AssertEqual(1, calls, "GenerateContentStream invokes its callback exactly once");
+        AssertEqual(2, labels.Count, "callback preserves the existential array count");
+        AssertEqual("first", labels[0], "callback preserves first label and order");
+        AssertEqual("second", labels[1], "callback preserves second label and order");
+    }
+
+    public void TestStreamShape_EmptyArray()
+    {
+        using var client = new GenerateContentClient();
+        int count = -1;
+        client.GenerateContentStream(Array.Empty<IPartsRepresentable>(), values => count = values.Count);
+        AssertEqual(0, count, "empty existential array survives both edges");
+    }
+
+    public void TestStreamShape_NotMarkedSb0001()
     {
         var method = typeof(GenerateContentClient).GetMethod(
             nameof(GenerateContentClient.GenerateContentStream),
             BindingFlags.Public | BindingFlags.Instance);
         AssertNotNull(method, "GenerateContentStream should exist on GenerateContentClient");
-        AssertTrue(HasSb0001Obsolete(method!),
-            "GenerateContentStream(parts:onChunk:) IS a sync method with an existential-array closure — SB0001 is the correct flag.");
+        AssertFalse(HasSb0001Obsolete(method!),
+            "GenerateContentStream(parts:onChunk:) uses a Cdecl outer wrapper and typed-address callback adapter.");
     }
 }

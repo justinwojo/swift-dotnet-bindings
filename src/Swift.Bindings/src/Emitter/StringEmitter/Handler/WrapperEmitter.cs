@@ -1399,7 +1399,8 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                if (!WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
+                if (!WrapperValidation.IsEffectivelyEscaping(
+                    closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl))
                     continue;
 
                 // Both cdecl and legacy SwiftClosureData escaping paths declare the

@@ -262,6 +262,12 @@ public static partial class ClosureEmitter
         var nonFrozenHeapArgs = new List<(int index, string swiftType)>();
         var nilForNoneArgs = new List<(int index, string innerSwiftType)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
         var existentialArgs = new List<(int index, string swiftType)>(); // `any Protocol`: heap-allocated ExistentialContainer pointer
+        // Collection callback inputs use the address of a typed, initialized Swift value. The
+        // managed borrowed reader takes an independent metadata-driven copy before Swift destroys
+        // this temporary on callback return. Optional collections carry nil for .none and the
+        // address of the unwrapped collection for .some (including an empty collection).
+        var typedAddressArgs = new List<(int index, string swiftType)>();
+        var optionalCollectionArgs = new List<(int index, string innerSwiftType)>();
         // `inout` args: the adapter takes the parameter by reference, hands the cdecl callback a
         // second, uninitialized cell for whatever the managed block leaves behind, and assigns that
         // cell back into the caller's storage once the call returns. The input side is unchanged —
@@ -318,7 +324,32 @@ public static partial class ClosureEmitter
             }
             else if (closureHandler != null)
             {
-                if (closureHandler.IsComplexEnum(arg))
+                if (arg is NamedTypeSpec collectionNamed &&
+                    collectionNamed.Name is "Swift.Array" or "Swift.Dictionary")
+                {
+                    typedAddressArgs.Add((argIndex, swiftType));
+                }
+                else if (IsSupportedResultErrorCallbackInput(arg, closureHandler))
+                {
+                    // Result's discriminator and payload layout belong to Swift. Hand the managed
+                    // callback an initialized value address and let MarshalFromSwift copy through
+                    // the Result metadata instead of reconstructing either from registers.
+                    typedAddressArgs.Add((argIndex, swiftType));
+                }
+                else if (arg is NamedTypeSpec
+                         {
+                             Name: "Swift.Optional",
+                             GenericParameters.Count: 1
+                         } optionalNamed &&
+                         optionalNamed.GenericParameters[0] is NamedTypeSpec
+                         {
+                             Name: "Swift.Array" or "Swift.Dictionary"
+                         } optionalInner)
+                {
+                    optionalCollectionArgs.Add((argIndex,
+                        ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(optionalInner)));
+                }
+                else if (closureHandler.IsComplexEnum(arg))
                     heapAllocArgs.Add((argIndex, swiftType));
                 else if (arg is NamedTypeSpec frozenNamed && closureHandler.IsFrozenStruct(frozenNamed) &&
                          !IsSwiftPrimitive(frozenNamed.Name) && frozenNamed.Name != "Swift.Bool" &&
@@ -405,6 +436,8 @@ public static partial class ClosureEmitter
             var nonFrozenHeapArg = nonFrozenHeapArgs.FirstOrDefault(h => h.index == argIndex);
             var nilForNoneArg = nilForNoneArgs.FirstOrDefault(h => h.index == argIndex);
             var existentialArg = existentialArgs.FirstOrDefault(h => h.index == argIndex);
+            var typedAddressArg = typedAddressArgs.FirstOrDefault(h => h.index == argIndex);
+            var optionalCollectionArg = optionalCollectionArgs.FirstOrDefault(h => h.index == argIndex);
             if (heapArg != default)
             {
                 // Complex enum: owning-transfer heap pointer.
@@ -439,6 +472,14 @@ public static partial class ClosureEmitter
             {
                 // `any Protocol`: heap-allocated ExistentialContainer pointer
                 cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else if (typedAddressArg != default)
+            {
+                cdeclArgs.Add($"UnsafeMutableRawPointer(__collection_{argIndex})");
+            }
+            else if (optionalCollectionArg != default)
+            {
+                cdeclArgs.Add($"__collection_{argIndex}.map {{ UnsafeMutableRawPointer($0) }}");
             }
             else if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
             {
@@ -533,6 +574,22 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: ({swiftType}).self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: ({swiftType}).self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
+        }
+        foreach (var (idx, swiftType) in typedAddressArgs)
+        {
+            heapAllocLines.Add($"{indent}    let __collection_{idx} = UnsafeMutablePointer<{swiftType}>.allocate(capacity: 1)");
+            heapAllocLines.Add($"{indent}    __collection_{idx}.initialize(to: p{idx})");
+            heapAllocLines.Add($"{indent}    defer {{ __collection_{idx}.deinitialize(count: 1); __collection_{idx}.deallocate() }}");
+        }
+        foreach (var (idx, innerSwiftType) in optionalCollectionArgs)
+        {
+            heapAllocLines.Add($"{indent}    var __collection_{idx}: UnsafeMutablePointer<{innerSwiftType}>? = nil");
+            heapAllocLines.Add($"{indent}    if let __value_{idx} = p{idx} {{");
+            heapAllocLines.Add($"{indent}        let __typed_{idx} = UnsafeMutablePointer<{innerSwiftType}>.allocate(capacity: 1)");
+            heapAllocLines.Add($"{indent}        __typed_{idx}.initialize(to: __value_{idx})");
+            heapAllocLines.Add($"{indent}        __collection_{idx} = __typed_{idx}");
+            heapAllocLines.Add($"{indent}    }}");
+            heapAllocLines.Add($"{indent}    defer {{ if let __typed_{idx} = __collection_{idx} {{ __typed_{idx}.deinitialize(count: 1); __typed_{idx}.deallocate() }} }}");
         }
         // Non-frozen struct allocation: VWT-managed copy of the struct value transferred to C#.
         // `initializeMemory(as:repeating:count:)` invokes VWT.initializeWithCopy which retains
@@ -890,6 +947,19 @@ public static partial class ClosureEmitter
             if (named.Name.Contains("Pointer") || named.Name == "Swift.OpaquePointer")
                 return true;
 
+            // Array and Dictionary callback inputs are passed as the address of a typed Swift
+            // temporary. The C# callback copies through collection metadata before the adapter's
+            // defer destroys the temporary. Other collection families remain excluded.
+            if (named.ContainsGenericParameters &&
+                named.Name is "Swift.Array" or "Swift.Dictionary")
+                return true;
+
+            // The initializer reuse is intentionally limited to the two proven Result shapes:
+            // Result<Optional<Class>, any Error> and Result<Optional<Any>, any Error>. Swift owns
+            // enum layout and exposes a typed temporary; managed code copies via Result metadata.
+            if (IsSupportedResultErrorCallbackInput(named, closureHandler))
+                return true;
+
             // Classes and ObjC-bridged types pass as UnsafeMutableRawPointer (pointer ABI)
             if (closureHandler.IsClassType(named))
                 return true;
@@ -928,6 +998,9 @@ public static partial class ClosureEmitter
                 named.GenericParameters.Count == 1)
             {
                 var inner = named.GenericParameters[0];
+                if (inner is NamedTypeSpec { ContainsGenericParameters: true } innerCollection &&
+                    innerCollection.Name is "Swift.Array" or "Swift.Dictionary")
+                    return true;
                 // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
                     return true;
@@ -954,6 +1027,30 @@ public static partial class ClosureEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The two Result callback-input families authorized for the ordinary closure adapter.
+    /// MethodClosureBridge keeps ownership of method siblings; this predicate only makes the
+    /// representation available to other already-eligible producers such as constructors.
+    /// </summary>
+    internal static bool IsSupportedResultErrorCallbackInput(TypeSpec typeSpec, ClosureHandler closureHandler)
+    {
+        if (!MethodClosureBridge.IsSwiftResultWithAnyErrorFailure(typeSpec) ||
+            typeSpec is not NamedTypeSpec result ||
+            result.GenericParameters[0] is not NamedTypeSpec
+            {
+                Name: "Swift.Optional",
+                GenericParameters.Count: 1
+            } optional)
+        {
+            return false;
+        }
+
+        var success = optional.GenericParameters[0];
+        return success is NamedTypeSpec { Name: "Swift.Any" } ||
+            success is ProtocolListTypeSpec { Protocols.Count: 0 } ||
+            closureHandler.IsClassType(success);
     }
 
     /// <summary>
