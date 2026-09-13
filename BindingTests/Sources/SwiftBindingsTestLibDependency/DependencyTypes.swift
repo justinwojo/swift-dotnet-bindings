@@ -51,6 +51,21 @@ public struct DependencyConfig {
     }
 }
 
+/// Cross-module concrete carrier for a main-module `Collection<String>` method generic.
+/// Its private backing prevents generated callers from substituting a visible Array sibling.
+public struct DependencyStringCollection: Collection {
+    private let storage: [String]
+
+    public init(first: String, second: String, third: String) {
+        storage = [first, second, third]
+    }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> String { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
+}
+
 /// Class from the dependency module.
 /// Tests cross-module class reference handling.
 public class DependencyService {

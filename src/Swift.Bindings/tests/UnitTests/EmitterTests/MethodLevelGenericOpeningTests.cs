@@ -125,25 +125,66 @@ public class MethodLevelGenericOpeningTests
     }
 
     [Fact]
-    public void TryBuildPlan_ParameterizedProtocolConstraint_Declines()
+    public void TryBuildPlan_ParameterizedCollectionString_UsesExactExistential()
     {
         var env = CreateGenericMethodEnv(
             rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Collection<Swift.String>>",
             genericParamNames: new[] { "τ_0_0" });
 
-        Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var only = Assert.Single(opened);
+        Assert.Equal(MlgOpeningStrategy.ParameterizedExistential, only.Strategy);
+        Assert.Equal(new[] { "Swift.Collection<Swift.String>" }, only.ConstraintTargets);
+        Assert.Equal("any Swift.Collection<Swift.String>.Type", only.ExistentialMetatype);
     }
 
     [Fact]
-    public void TryBuildPlan_ClassBoundConstraint_Declines()
+    public void TryBuildPlan_CollectionElementSameType_NormalizesToParameterizedExistential()
     {
-        // A superclass bound resolves to a class record, and a class is not a protocol — the
-        // existential metatype cannot express it.
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element == Swift.String>",
+            genericParamNames: new[] { "τ_0_0" });
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var only = Assert.Single(opened);
+        Assert.Equal(MlgOpeningStrategy.ParameterizedExistential, only.Strategy);
+        Assert.Equal(new[] { "Swift.Collection<Swift.String>" }, only.ConstraintTargets);
+        Assert.Equal(
+            new[]
+            {
+                "τ_0_0 : Swift.Collection",
+                "τ_0_0.Element == Swift.String",
+            },
+            only.DiagnosticRequirements);
+    }
+
+    [Fact]
+    public void TryBuildPlan_RedundantParameterizedCollectionSpelling_ConsumesBothAndPreservesComposition()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Collection<Swift.String>, τ_0_0.Element == Swift.String, τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" });
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var only = Assert.Single(opened);
+        Assert.Equal(MlgOpeningStrategy.ParameterizedExistential, only.Strategy);
+        Assert.Equal(
+            new[] { "Swift.Collection<Swift.String>", "TestModule.Describable" },
+            only.ConstraintTargets);
+        Assert.Equal(3, only.DiagnosticRequirements.Count);
+    }
+
+    [Fact]
+    public void TryBuildPlan_ClassBoundConstraint_UsesSuperclassCarrier()
+    {
         var env = CreateGenericMethodEnv(
             rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.BaseWidget>",
             genericParamNames: new[] { "τ_0_0" });
 
-        Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var only = Assert.Single(opened);
+        Assert.Equal(MlgOpeningStrategy.SuperclassCarrier, only.Strategy);
+        Assert.Equal("TestModule.BaseWidget", only.SuperclassTarget);
     }
 
     [Fact]
@@ -157,13 +198,38 @@ public class MethodLevelGenericOpeningTests
     }
 
     [Fact]
-    public void TryBuildPlan_AssociatedTypeClause_Declines()
+    public void TryBuildPlan_ElementProtocolClause_UsesConditionalCarrier()
     {
-        // `τ_0_0.Element : P` cannot be said by an existential metatype — it needs a carrier whose
-        // conformance is conditional on the clause. Declining keeps the member's working route.
         var env = CreateGenericMethodEnv(
             rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable, τ_0_0.Element : TestModule.Identifiable>",
             genericParamNames: new[] { "τ_0_0" });
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var only = Assert.Single(opened);
+        Assert.Equal(MlgOpeningStrategy.AssociatedTypeCarrier, only.Strategy);
+        Assert.Equal("Element", only.ConditionalRequirement?.MemberPath);
+        Assert.Equal("TestModule.Identifiable", only.ConditionalRequirement?.Target);
+    }
+
+    [Fact]
+    public void TryBuildPlan_ElementSuperclassClause_UsesConditionalCarrier()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Sequence, τ_0_0.Element : TestModule.BaseWidget>",
+            genericParamNames: new[] { "τ_0_0" });
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        Assert.Equal(MlgOpeningStrategy.AssociatedTypeCarrier, Assert.Single(opened).Strategy);
+    }
+
+    [Theory]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.Collection<τ_0_1>>")]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element == Swift.Int>")]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.Sequence, τ_0_0.Element.Value : TestModule.Identifiable>")]
+    [InlineData("<τ_0_0 where τ_0_0 : TestModule.BaseWidget, τ_0_0 : TestModule.Describable>")]
+    public void TryBuildPlan_UnprovedExpandedConstraint_Declines(string rawGenericSig)
+    {
+        var env = CreateGenericMethodEnv(rawGenericSig, new[] { "τ_0_0" });
 
         Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
     }
@@ -259,6 +325,26 @@ public class MethodLevelGenericOpeningTests
             rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
             genericParamNames: new[] { "τ_0_0" },
             paramIsInOut: true);
+
+        Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
+    }
+
+    [Fact]
+    public void TryBuildPlan_NonGenericInOutSibling_Declines()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m => m.CSSignature.Add(new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                Name = "counter",
+                PrivateName = "counter",
+                IsInOut = true,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = m.ModuleDecl,
+            }));
 
         Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
     }
@@ -403,8 +489,11 @@ public class MethodLevelGenericOpeningTests
             configure: m =>
             {
                 m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.UsesWrapperLibrary = true;
                 m.Throws = throws;
             });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_TEST");
 
         Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
 
@@ -421,6 +510,65 @@ public class MethodLevelGenericOpeningTests
             swiftParams.Select(p => ClassifySlot(ParameterBindingName(p))).ToList());
         Assert.Contains("openRefusal", swiftParams.Select(p => ClassifySlot(ParameterBindingName(p))));
         Assert.Equal(throws, pInvokeParams.Any(p => ClassifySlot(p.Name) == "errorOut"));
+
+        // F3: phase agreement is necessary but not sufficient. The production route sets BOTH
+        // flags, and its receiver must be an ordinary C pointer under the resolved C convention;
+        // an untyped SwiftSelf in the same semantic slot would still pass the normalized comparison
+        // above while targeting x20 instead of the C argument register.
+        var receiver = Assert.Single(pInvokeParams, p => ClassifySlot(p.Name) == "self");
+        Assert.Equal("IntPtr", receiver.TypeString());
+        Assert.Equal(
+            PInvokeCallingConvention.Cdecl,
+            PInvokeEmitHelper.SelectCallingConvention(
+                env.EmissionSymbol,
+                WrapperValidation.GetCallingConvention(env.MethodDecl)));
+
+        var pInvokeText = EmitPInvokeText(env);
+        Assert.True(pInvokeText.Contains("CallConvCdecl", StringComparison.Ordinal), pInvokeText);
+        Assert.Contains($"EntryPoint = \"{env.EmissionSymbol}\"", pInvokeText);
+        Assert.Contains($"IntPtr {receiver.Name}", pInvokeText);
+        Assert.DoesNotContain("SwiftSelf", pInvokeText);
+
+        var actualCarriers = pInvokeParams
+            .Select(p => (Phase: ClassifySlot(p.Name), Carrier: p.TypeString()))
+            .ToList();
+        var mismatchedCarriers = actualCarriers
+            .Select(slot => slot.Phase == "self" ? (slot.Phase, Carrier: "SwiftSelf") : slot)
+            .ToList();
+
+        // Negative control: a phase-only oracle accepts this deliberately bad receiver, while the
+        // carrier-aware oracle rejects it. This keeps the assertions above load-bearing.
+        Assert.Equal(actualCarriers.Select(s => s.Phase), mismatchedCarriers.Select(s => s.Phase));
+        Assert.NotEqual(actualCarriers, mismatchedCarriers);
+    }
+
+    [Fact]
+    public void OpeningWrapper_MutatingStructReceiver_EmitsMutablePointerAndCdeclIntPtr()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            structParent: true,
+            configure: m =>
+            {
+                m.IsMutating = true;
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.UsesWrapperLibrary = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_MUTATING_STRUCT");
+
+        var swift = EmitOpeningSwift(env);
+        var pInvoke = EmitPInvokeText(env);
+        var receiver = Assert.Single(
+            new SignatureHandler(env).GetPInvokeSignature().Parameters,
+            p => ClassifySlot(p.Name) == "self");
+
+        Assert.Contains("_ self_: UnsafeMutableRawPointer", swift);
+        Assert.Equal("IntPtr", receiver.TypeString());
+        Assert.True(pInvoke.Contains("CallConvCdecl", StringComparison.Ordinal), pInvoke);
+        Assert.Contains($"IntPtr {receiver.Name}", pInvoke);
+        Assert.DoesNotContain("SwiftSelf", pInvoke);
     }
 
     [Fact]
@@ -481,6 +629,234 @@ public class MethodLevelGenericOpeningTests
         Assert.DoesNotContain(
             new SignatureHandler(env).GetPInvokeSignature().Parameters,
             p => p.Name.Contains("Pwt", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void OpeningWrapper_ParameterizedCollectionString_CastsTheExactExistential()
+    {
+        // BindingTests compile wrappers at an iOS 15 deployment floor. Swiftc rejects an
+        // unguarded parameterized-protocol cast there with: "runtime support for parameterized
+        // protocol types is only available in iOS 16.0.0 or newer". The availability branch is
+        // therefore required even though the generic declaration itself is legal at the floor.
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Collection<Swift.String>>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_COLLECTION");
+
+        var swift = EmitOpeningSwift(env);
+
+        Assert.Contains("if #available(iOS 16.0, macOS 13.0, tvOS 16.0", swift);
+        Assert.Contains("as? any Swift.Collection<Swift.String>.Type", swift);
+        Assert.Contains("func _mlgBody0<_MLG0: Swift.Collection<Swift.String>>", swift);
+        Assert.DoesNotContain("_pwt", swift);
+
+        var wrapper = swift[swift.IndexOf("public func ", StringComparison.Ordinal)..];
+        var availability = wrapper.IndexOf("if #available(iOS 16.0", StringComparison.Ordinal);
+        var metadataRead = wrapper.IndexOf("unsafeBitCast(_metadata0", StringComparison.Ordinal);
+        var existentialCast = wrapper.IndexOf("as? any Swift.Collection<Swift.String>.Type", StringComparison.Ordinal);
+        var payloadRead = wrapper.IndexOf("assumingMemoryBound(to: _MLG0.self)", StringComparison.Ordinal);
+        var oldRuntimeRefusal = wrapper.IndexOf("} else {", StringComparison.Ordinal);
+        Assert.True(availability >= 0 && metadataRead > availability);
+        Assert.True(existentialCast > metadataRead && payloadRead > existentialCast && oldRuntimeRefusal > payloadRead);
+
+        var oldRuntimeBranch = wrapper[oldRuntimeRefusal..];
+        Assert.Contains("_openRefused.pointee = 1", oldRuntimeBranch);
+        Assert.DoesNotContain("unsafeBitCast", oldRuntimeBranch);
+        Assert.DoesNotContain("assumingMemoryBound", oldRuntimeBranch);
+        Assert.DoesNotContain("resultPtr.storeBytes", oldRuntimeBranch);
+    }
+
+    [Fact]
+    public void OpeningWrapper_AssociatedTypeCarrier_ProvesBothConstraintsBeforeReadingPayloadOrSelf()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Sequence, τ_0_0.Element : TestModule.Identifiable>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_ASSOCIATED");
+
+        var swift = EmitOpeningSwift(env);
+
+        Assert.Contains("private protocol _SBW_MLG_", swift);
+        Assert.Contains("private enum _SBW_MLG_", swift);
+        Assert.Contains("where _MLG0.Element: TestModule.Identifiable", swift);
+        Assert.Contains("as? any Swift.Sequence.Type", swift);
+        Assert.Contains("as? any _SBW_MLG_", swift);
+        Assert.DoesNotContain("_pwt", swift);
+
+        var wrapper = swift[swift.IndexOf("public func ", StringComparison.Ordinal)..];
+        var rootProof = wrapper.IndexOf("as? any Swift.Sequence.Type", StringComparison.Ordinal);
+        var conditionalProof = wrapper.IndexOf("as? any _SBW_MLG_", StringComparison.Ordinal);
+        var carrierCall = wrapper.IndexOf("carrier._sbw_mlg_call_", StringComparison.Ordinal);
+        Assert.True(rootProof >= 0 && conditionalProof > rootProof);
+        Assert.True(carrierCall > conditionalProof);
+        Assert.DoesNotContain("assumingMemoryBound", wrapper);
+        Assert.Contains("assumingMemoryBound(to: _MLG0.self)", swift[..swift.IndexOf("public func ", StringComparison.Ordinal)]);
+    }
+
+    [Fact]
+    public void OpeningWrapper_AssociatedTypeCarrier_PrivateDispatchCarriesAvailabilityAndMainActor()
+    {
+        // The public @_cdecl already carries these annotations, but the carrier extension is a
+        // separate declaration that mentions and calls the real API. RealityFoundation exposed
+        // this distinction: its iOS-18 @MainActor EntityCollection methods were withdrawn because
+        // swiftc checked the unannotated private dispatch body at the iOS-15 deployment target.
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Sequence, τ_0_0.Element : TestModule.BaseWidget>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.IsMainActorIsolated = true;
+                m.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+                {
+                    new("iOS", "18.0", null, null, false, false, null, null),
+                };
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_ASSOCIATED_AVAILABLE");
+
+        var swift = EmitOpeningSwift(env);
+        var extension = swift[swift.IndexOf("extension _SBW_MLG_", StringComparison.Ordinal)..];
+        var hash = EmitterUtility.DeterministicHash8(env.EmissionSymbol);
+        var availability = "@available(iOS 18.0, *)\n";
+        var anchor = OriginAnchorEmitter.LineForWrapper(env.MethodDecl);
+
+        Assert.Contains("@MainActor static func _sbw_mlg_call_", swift);
+        Assert.Contains($"{availability}private enum _SBW_MLG_{hash}Outcome", swift);
+        Assert.Contains($"{availability}private protocol _SBW_MLG_{hash}Carrier", swift);
+        Assert.Contains($"{availability}private enum _SBW_MLG_{hash}Open", swift);
+        Assert.Contains($"{availability}extension _SBW_MLG_{hash}Open", swift);
+        Assert.Contains("@MainActor static func _sbw_mlg_call_", extension);
+        Assert.Contains("@available(iOS 18.0, *)\n@MainActor\n@_cdecl", swift);
+        Assert.Equal(4, swift.Split(anchor, StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void OpeningWrapper_AssociatedTypeCarrier_ThrowingResultSeparatesRefusalFromSwiftError()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Swift.Sequence, τ_0_0.Element : TestModule.Identifiable>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.Throws = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_THROWING_ASSOCIATED");
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        var swift = EmitOpeningSwift(env, opened);
+        var refusal = string.Join("\n", MethodLevelGenericOpening.BuildRefusalCheckLines(
+            env, opened, MethodLevelGenericWrapperEmitter.RefusalParameterName));
+
+        Assert.Contains("do {", swift);
+        Assert.Contains("switch try _mlgBody0", swift);
+        Assert.Contains("case .refused:", swift);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained", swift);
+        Assert.Contains("τ_0_0 : Swift.Sequence", refusal);
+        Assert.Contains("τ_0_0.Element : TestModule.Identifiable", refusal);
+
+        var refusedStart = swift.IndexOf("case .refused:", StringComparison.Ordinal);
+        var successStart = swift.IndexOf("case .success", refusedStart, StringComparison.Ordinal);
+        var refusedArm = swift[refusedStart..successStart];
+        Assert.Contains("_openRefused.pointee = 1", refusedArm);
+        Assert.DoesNotContain("errorOut", refusedArm);
+
+        var catchStart = swift.IndexOf("} catch {", StringComparison.Ordinal);
+        Assert.True(catchStart > successStart);
+        Assert.DoesNotContain("errorOut.pointee", swift[..catchStart]);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained", swift[catchStart..]);
+        Assert.Equal(1, CountOccurrences(swift, "errorOut.pointee"));
+    }
+
+    [Fact]
+    public void OpeningWrapper_SuperclassCarrier_PrivateScaffoldingCarriesAvailabilityActorAndOrigin()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.BaseWidget>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.IsMainActorIsolated = true;
+                m.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+                {
+                    new("iOS", "18.0", null, null, false, false, null, null),
+                };
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_SUPERCLASS_AVAILABLE");
+
+        var swift = EmitOpeningSwift(env);
+        var hash = EmitterUtility.DeterministicHash8(env.EmissionSymbol);
+        var availability = "@available(iOS 18.0, *)\n";
+        var anchor = OriginAnchorEmitter.LineForWrapper(env.MethodDecl);
+
+        Assert.Contains($"{availability}private enum _SBW_MLG_{hash}Outcome", swift);
+        Assert.Contains($"{availability}private protocol _SBW_MLG_{hash}Carrier", swift);
+        Assert.Contains($"{availability}extension TestModule.BaseWidget: _SBW_MLG_{hash}Carrier", swift);
+        Assert.Contains("@MainActor static func _sbw_mlg_call_", swift);
+        Assert.Contains("@available(iOS 18.0, *)\n@MainActor\n@_cdecl", swift);
+        Assert.Equal(3, swift.Split(anchor, StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void OpeningWrapper_LocalizedStringResourceBodyReturnsConvertedSwiftString()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: new NamedTypeSpec("Foundation.LocalizedStringResource"),
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_LSR");
+
+        var swift = EmitOpeningSwift(env);
+
+        Assert.Contains("func _mlgBody0<_MLG0: TestModule.Describable>(_: _MLG0.Type) -> Swift.String", swift);
+        Assert.Contains("return String(localized: obj.describe(item: item))", swift);
+        Assert.DoesNotContain("_MLG0.Type) -> Foundation.LocalizedStringResource", swift);
+    }
+
+    [Fact]
+    public void OpeningWrapper_SuperclassCarrier_ReconstructsPayloadAsSelfAfterTheCarrierCast()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.BaseWidget>",
+            genericParamNames: new[] { "τ_0_0" },
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_SUPERCLASS");
+
+        var swift = EmitOpeningSwift(env);
+
+        Assert.Contains("extension TestModule.BaseWidget: _SBW_MLG_", swift);
+        Assert.Contains("assumingMemoryBound(to: Self.self)", swift);
+        Assert.Contains("as? any _SBW_MLG_", swift);
+        Assert.DoesNotContain("_pwt", swift);
+
+        var wrapper = swift[swift.IndexOf("public func ", StringComparison.Ordinal)..];
+        var carrierProof = wrapper.IndexOf("as? any _SBW_MLG_", StringComparison.Ordinal);
+        var carrierCall = wrapper.IndexOf("carrier._sbw_mlg_call_", StringComparison.Ordinal);
+        Assert.True(carrierProof >= 0 && carrierCall > carrierProof);
+        Assert.DoesNotContain("assumingMemoryBound", wrapper);
     }
 
     [Theory]
@@ -678,6 +1054,36 @@ public class MethodLevelGenericOpeningTests
         return words[^1];
     }
 
+    private static string EmitOpeningSwift(
+        MethodEnvironment env,
+        IReadOnlyList<MlgOpenedGeneric>? opened = null)
+    {
+        if (opened == null)
+            Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out opened));
+
+        var sw = new StringWriter();
+        MethodLevelGenericWrapperEmitter.Emit(
+            new SwiftWriter(sw), env, new ModuleEmissionContext(), env.EmissionSymbol, opened);
+        return sw.ToString();
+    }
+
+    private static string EmitPInvokeText(MethodEnvironment env)
+    {
+        var sw = new StringWriter();
+        var writer = new CSharpWriter(sw);
+        PInvokeEmitter.EmitPInvoke(writer, env, new SignatureHandler(env));
+        writer.Flush();
+        return sw.ToString();
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        for (var index = 0; (index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0; index += value.Length)
+            count++;
+        return count;
+    }
+
     /// <summary>
     /// Builds a class-parented instance method <c>describe(item:)</c> returning
     /// <c>Swift.Int</c>, with one parameter typed as the first declared generic parameter.
@@ -688,10 +1094,13 @@ public class MethodLevelGenericOpeningTests
         TypeSpec? returnType = null,
         TypeSpec? paramType = null,
         bool paramIsInOut = false,
+        bool structParent = false,
         Action<MethodDecl>? configure = null)
     {
-        var (moduleDecl, typeDb) = CreateTestEnvironment();
-        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (moduleDecl, typeDb) = CreateTestEnvironment(structParent);
+        TypeDecl parentDecl = structParent
+            ? CreateStructDecl("MyType", moduleDecl)
+            : CreateClassDecl("MyType", moduleDecl);
 
         var method = new MethodDecl
         {
@@ -760,7 +1169,30 @@ public class MethodLevelGenericOpeningTests
         return decl;
     }
 
-    private static (ModuleDecl moduleDecl, TypeDatabase typeDb) CreateTestEnvironment()
+    private static StructDecl CreateStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        var decl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(decl);
+        return decl;
+    }
+
+    private static (ModuleDecl moduleDecl, TypeDatabase typeDb) CreateTestEnvironment(bool structParent = false)
     {
         var typeDb = new TypeDatabase();
 
@@ -786,7 +1218,7 @@ public class MethodLevelGenericOpeningTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyType"),
                 MetadataAccessor = "$s10TestModule6MyTypeCMa",
                 Flags = TypeRecordFlags.None,
-                Kind = TypeRecordKind.Class
+                Kind = structParent ? TypeRecordKind.Struct : TypeRecordKind.Class
             });
         foreach (var protocolName in new[] { "Describable", "Identifiable" })
         {

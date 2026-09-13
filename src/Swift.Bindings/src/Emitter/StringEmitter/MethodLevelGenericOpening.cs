@@ -22,6 +22,24 @@ internal sealed record MlgOpenedGeneric(
     string CSharpName,
     IReadOnlyList<string> ConstraintTargets)
 {
+    /// <summary>The runtime proof used to open this parameter.</summary>
+    public MlgOpeningStrategy Strategy { get; init; } = MlgOpeningStrategy.Existential;
+
+    /// <summary>
+    /// The one-level associated-type conformance proved by a conditional carrier. Null on the
+    /// ordinary and direct-superclass routes.
+    /// </summary>
+    public GenericRequirement? ConditionalRequirement { get; init; }
+
+    /// <summary>The direct Swift superclass adopted by the wrapper-private carrier protocol.</summary>
+    public string? SuperclassTarget { get; init; }
+
+    /// <summary>
+    /// Every requirement on this root in parser order. ConstraintTargets is the normalized Swift
+    /// spelling used by the opening cast; this list remains faithful for refusal diagnostics.
+    /// </summary>
+    public IReadOnlyList<string> DiagnosticRequirements { get; init; } = Array.Empty<string>();
+
     /// <summary>The Swift constraint clause for a local generic function, or "" when unconstrained.</summary>
     public string ConstraintClause =>
         ConstraintTargets.Count == 0 ? "" : ": " + string.Join(" & ", ConstraintTargets);
@@ -31,6 +49,22 @@ internal sealed record MlgOpenedGeneric(
         ConstraintTargets.Count == 1
             ? $"any {ConstraintTargets[0]}.Type"
             : $"any ({string.Join(" & ", ConstraintTargets)}).Type";
+}
+
+/// <summary>The bounded runtime proof mechanisms admitted by the method-generic opening route.</summary>
+internal enum MlgOpeningStrategy
+{
+    /// <summary>Ordinary protocol existential cast, composition, or unconstrained opening.</summary>
+    Existential,
+
+    /// <summary>Exact primary-associated-type cast, currently Collection&lt;Swift.String&gt; only.</summary>
+    ParameterizedExistential,
+
+    /// <summary>A wrapper-private generic carrier with one conditional Element conformance.</summary>
+    AssociatedTypeCarrier,
+
+    /// <summary>A wrapper-private protocol adopted by one public Swift superclass.</summary>
+    SuperclassCarrier,
 }
 
 /// <summary>
@@ -134,6 +168,13 @@ internal static class MethodLevelGenericOpening
         if (methodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
             return false;
 
+        // The opening wrapper's ordinary argument mapper is a by-value transport. Even when an
+        // inout argument does not mention the method's own generic parameter, routing it through
+        // CdeclParamMapper.Map would erase the caller-visible write-back contract. Keep the B1
+        // route deliberately narrower until it has an explicit inout carrier on both sides.
+        if (methodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+            return false;
+
         var parentTypeParamNames = env.ParentDecl is TypeDecl { IsGeneric: true } parentTypeDecl
             ? new HashSet<string>(parentTypeDecl.GenericParameters.Select(p => p.TypeName), StringComparer.Ordinal)
             : new HashSet<string>(StringComparer.Ordinal);
@@ -164,15 +205,14 @@ internal static class MethodLevelGenericOpening
             && MethodLevelGenericWrapperEmitter.TryRenderDynamicSelfReturn(env.ParentDecl, returnSpec) == null)
             return false;
 
-        // Parameter positions: an own generic parameter may appear only as a whole by-value
-        // payload. A composite (`Pair<A, B>`) or `inout` position cannot bind a typed pointer from
-        // the opened type without a second layout derivation.
+        // Parameter positions: this route has already established that every argument is by value,
+        // and an own generic parameter may appear only as a whole payload. A composite
+        // (`Pair<A, B>`) cannot bind a typed pointer from the opened type without a second layout
+        // derivation.
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (!TypeSpecMentionsAny(arg.SwiftTypeSpec, ownNames))
                 continue;
-            if (arg.IsInOut)
-                return false;
             if (arg.SwiftTypeSpec is not NamedTypeSpec named
                 || named.GenericParameters.Count > 0
                 || !ownNames.Contains(named.Name))
@@ -187,39 +227,18 @@ internal static class MethodLevelGenericOpening
             if (!ownNames.Contains(name))
                 continue;
 
-            var targets = new List<string>();
-            foreach (var requirement in sig.Requirements)
-            {
-                if (!string.Equals(requirement.SubjectRoot, name, StringComparison.Ordinal))
-                    continue;
-
-                // An associated-type clause (`S.Element : P`) or a same-type clause cannot be said
-                // by an existential metatype; it needs a generic carrier whose conformance is
-                // conditional on the clause. Deferred — decline so the member keeps its current,
-                // working direct route rather than silently losing a constraint.
-                if (!requirement.IsDirect || requirement.Kind != GenericRequirementKind.Conformance)
-                    return false;
-
-                if (MarkerOrNonCastableTargets.Contains(requirement.TargetSimpleName)
-                    || WrapperEmitterHelpers.IsStdlibMarkerProtocol(requirement.Target)
-                    || WrapperEmitterHelpers.IsStdlibMarkerProtocol(requirement.TargetSimpleName))
-                    return false;
-                if (requirement.Target.Contains('<'))
-                    return false;   // parameterized protocol (`Collection<String>`) — carrier work
-                if (!IsCastableProtocol(requirement.Target, env.TypeDatabase))
-                    return false;   // class bound, or a target we cannot name in the wrapper
-
-                if (!targets.Contains(requirement.Target, StringComparer.Ordinal))
-                    targets.Add(requirement.Target);
-            }
-
-            // Deterministic composition order so the emitted existential is stable across runs.
-            targets.Sort(StringComparer.Ordinal);
-
             var csName = env.GenericTypeMapping.TryGetValue(name, out var mapped)
                 ? mapped.TypeParameter
                 : name;
-            plan.Add(new MlgOpenedGeneric(name, i, csName, targets));
+            var requirements = sig.Requirements
+                .Where(r => string.Equals(r.SubjectRoot, name, StringComparison.Ordinal))
+                .ToList();
+
+            if (!TryBuildOpenedGeneric(
+                    name, i, csName, requirements, ownNames.Count, env.TypeDatabase, out var openedGeneric))
+                return false;
+
+            plan.Add(openedGeneric);
         }
 
         if (plan.Count == 0)
@@ -228,6 +247,255 @@ internal static class MethodLevelGenericOpening
         opened = plan;
         return true;
     }
+
+    private static bool TryBuildOpenedGeneric(
+        string swiftName,
+        int ordinal,
+        string csharpName,
+        IReadOnlyList<GenericRequirement> requirements,
+        int ownGenericCount,
+        ITypeDatabase typeDatabase,
+        out MlgOpenedGeneric opened)
+    {
+        opened = null!;
+        var diagnostics = requirements.Select(RenderRequirement).ToList();
+
+        if (requirements.Count == 0)
+        {
+            opened = new MlgOpenedGeneric(swiftName, ordinal, csharpName, Array.Empty<string>())
+            {
+                DiagnosticRequirements = diagnostics,
+            };
+            return true;
+        }
+
+        if (TryBuildCollectionStringTargets(requirements, typeDatabase, out var collectionTargets))
+        {
+            opened = new MlgOpenedGeneric(swiftName, ordinal, csharpName, collectionTargets)
+            {
+                Strategy = MlgOpeningStrategy.ParameterizedExistential,
+                DiagnosticRequirements = diagnostics,
+            };
+            return true;
+        }
+
+        // Conditional carrier scope is deliberately one-root in B1. A relationship involving
+        // another root belongs to the dependent-constraint work; independently opening the roots
+        // would not prove the relationship between them.
+        if (ownGenericCount == 1
+            && TryBuildAssociatedCarrier(requirements, typeDatabase, out var rootTargets, out var conditional))
+        {
+            opened = new MlgOpenedGeneric(swiftName, ordinal, csharpName, rootTargets)
+            {
+                Strategy = MlgOpeningStrategy.AssociatedTypeCarrier,
+                ConditionalRequirement = conditional,
+                DiagnosticRequirements = diagnostics,
+            };
+            return true;
+        }
+
+        // One direct Swift superclass only. Mixed superclass/protocol bounds, generic targets and
+        // ObjC-rooted classes remain probe-first rather than being silently weakened.
+        if (ownGenericCount == 1
+            && requirements.Count == 1
+            && requirements[0] is { IsDirect: true, Kind: GenericRequirementKind.Conformance } classReq
+            && TryResolveSwiftSuperclass(classReq.Target, typeDatabase))
+        {
+            opened = new MlgOpenedGeneric(swiftName, ordinal, csharpName, new[] { classReq.Target })
+            {
+                Strategy = MlgOpeningStrategy.SuperclassCarrier,
+                SuperclassTarget = classReq.Target,
+                DiagnosticRequirements = diagnostics,
+            };
+            return true;
+        }
+
+        var targets = new List<string>();
+        foreach (var requirement in requirements)
+        {
+            if (!requirement.IsDirect || requirement.Kind != GenericRequirementKind.Conformance)
+                return false;
+            if (!IsPlainCastableProtocol(requirement.Target, typeDatabase))
+                return false;
+            if (!targets.Contains(requirement.Target, StringComparer.Ordinal))
+                targets.Add(requirement.Target);
+        }
+
+        // Preserve the existing byte-stable composition order on the v1 route.
+        targets.Sort(StringComparer.Ordinal);
+        opened = new MlgOpenedGeneric(swiftName, ordinal, csharpName, targets)
+        {
+            DiagnosticRequirements = diagnostics,
+        };
+        return true;
+    }
+
+    private static bool TryBuildCollectionStringTargets(
+        IReadOnlyList<GenericRequirement> requirements,
+        ITypeDatabase typeDatabase,
+        out IReadOnlyList<string> targets)
+    {
+        targets = Array.Empty<string>();
+        var consumed = new HashSet<GenericRequirement>();
+
+        var constructed = requirements
+            .Where(r => r.IsDirect
+                && r.Kind == GenericRequirementKind.Conformance
+                && IsExactCollectionString(r.Target))
+            .ToList();
+        if (constructed.Count == 1)
+        {
+            consumed.Add(constructed[0]);
+
+            // Swift interfaces can redundantly preserve the primary-associated-type spelling and
+            // its desugared same-type proof. They express one constraint, so consume both while
+            // leaving every unrelated direct protocol requirement available for composition.
+            var redundantElementString = requirements
+                .Where(r => !r.IsDirect
+                    && r.Kind == GenericRequirementKind.SameType
+                    && string.Equals(r.MemberPath, "Element", StringComparison.Ordinal)
+                    && IsSwiftString(r.Target))
+                .ToList();
+            if (redundantElementString.Count > 1)
+                return false;
+            if (redundantElementString.Count == 1)
+                consumed.Add(redundantElementString[0]);
+        }
+        else if (constructed.Count > 1)
+        {
+            return false;
+        }
+        else
+        {
+            var collection = requirements
+                .Where(r => r.IsDirect
+                    && r.Kind == GenericRequirementKind.Conformance
+                    && IsPlainCollection(r.Target))
+                .ToList();
+            var elementString = requirements
+                .Where(r => !r.IsDirect
+                    && r.Kind == GenericRequirementKind.SameType
+                    && string.Equals(r.MemberPath, "Element", StringComparison.Ordinal)
+                    && IsSwiftString(r.Target))
+                .ToList();
+            if (collection.Count != 1 || elementString.Count != 1)
+                return false;
+            consumed.Add(collection[0]);
+            consumed.Add(elementString[0]);
+        }
+
+        var additional = new List<string>();
+        foreach (var requirement in requirements)
+        {
+            if (consumed.Contains(requirement))
+                continue;
+            if (!requirement.IsDirect
+                || requirement.Kind != GenericRequirementKind.Conformance
+                || !IsPlainCastableProtocol(requirement.Target, typeDatabase))
+                return false;
+            additional.Add(requirement.Target);
+        }
+
+        additional.Sort(StringComparer.Ordinal);
+        targets = new[] { "Swift.Collection<Swift.String>" }.Concat(additional).ToList();
+        return true;
+    }
+
+    private static bool TryBuildAssociatedCarrier(
+        IReadOnlyList<GenericRequirement> requirements,
+        ITypeDatabase typeDatabase,
+        out IReadOnlyList<string> rootTargets,
+        out GenericRequirement conditional)
+    {
+        rootTargets = Array.Empty<string>();
+        conditional = null!;
+
+        var memberRequirements = requirements.Where(r => !r.IsDirect).ToList();
+        if (memberRequirements.Count != 1
+            || memberRequirements[0] is not { Kind: GenericRequirementKind.Conformance } member
+            || !string.Equals(member.MemberPath, "Element", StringComparison.Ordinal)
+            || !TryResolveCarrierTarget(member.Target, typeDatabase))
+            return false;
+
+        var directTargets = new List<string>();
+        foreach (var requirement in requirements.Where(r => r.IsDirect))
+        {
+            if (requirement.Kind != GenericRequirementKind.Conformance
+                || !IsPlainCastableProtocol(requirement.Target, typeDatabase))
+                return false;
+            directTargets.Add(requirement.Target);
+        }
+        if (directTargets.Count == 0)
+            return false;
+
+        directTargets = directTargets.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        rootTargets = directTargets;
+        conditional = member;
+        return true;
+    }
+
+    private static bool TryResolveCarrierTarget(string target, ITypeDatabase typeDatabase)
+    {
+        if (!TryGetTypeRecord(target, typeDatabase, out var record))
+            return false;
+        if (record.Kind == TypeRecordKind.Protocol)
+            return !IsMarkerOrNonCastable(target);
+        if (record.Kind == TypeRecordKind.Class)
+            return !record.Flags.HasFlag(TypeRecordFlags.ObjCRooted)
+                && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridged);
+        return false;
+    }
+
+    private static bool TryResolveSwiftSuperclass(string target, ITypeDatabase typeDatabase)
+    {
+        if (target.Contains('<') || !TryGetTypeRecord(target, typeDatabase, out var record))
+            return false;
+        return record.Kind == TypeRecordKind.Class
+            && !record.Flags.HasFlag(TypeRecordFlags.ObjCRooted)
+            && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridged);
+    }
+
+    private static bool TryGetTypeRecord(string target, ITypeDatabase typeDatabase, out TypeRecord record)
+    {
+        record = null!;
+        if (!SwiftTypeName.TryFromModuleQualifiedName(target, out var typeName)
+            || typeName == null
+            || !typeDatabase.TryGetTypeRecord(typeName, out var resolved)
+            || resolved == null)
+            return false;
+        record = resolved;
+        return true;
+    }
+
+    private static bool IsPlainCastableProtocol(string target, ITypeDatabase typeDatabase)
+        => !target.Contains('<') && !IsMarkerOrNonCastable(target) && IsCastableProtocol(target, typeDatabase);
+
+    private static bool IsMarkerOrNonCastable(string target)
+    {
+        var simple = target.Contains('.') ? target[(target.LastIndexOf('.') + 1)..] : target;
+        return MarkerOrNonCastableTargets.Contains(simple)
+            || WrapperEmitterHelpers.IsStdlibMarkerProtocol(target)
+            || WrapperEmitterHelpers.IsStdlibMarkerProtocol(simple);
+    }
+
+    private static bool IsPlainCollection(string target)
+        => string.Equals(target, "Collection", StringComparison.Ordinal)
+            || string.Equals(target, "Swift.Collection", StringComparison.Ordinal);
+
+    private static bool IsSwiftString(string target)
+        => string.Equals(target, "String", StringComparison.Ordinal)
+            || string.Equals(target, "Swift.String", StringComparison.Ordinal);
+
+    private static bool IsExactCollectionString(string target)
+        => string.Equals(target, "Collection<String>", StringComparison.Ordinal)
+            || string.Equals(target, "Collection<Swift.String>", StringComparison.Ordinal)
+            || string.Equals(target, "Swift.Collection<String>", StringComparison.Ordinal)
+            || string.Equals(target, "Swift.Collection<Swift.String>", StringComparison.Ordinal);
+
+    private static string RenderRequirement(GenericRequirement requirement)
+        => $"{string.Join('.', requirement.Subject)} "
+            + (requirement.Kind == GenericRequirementKind.Conformance ? ":" : "==")
+            + $" {requirement.Target}";
 
     /// <summary>
     /// The name the refusal out-parameter actually carries in the emitted P/Invoke. The slot is
@@ -285,7 +553,11 @@ internal static class MethodLevelGenericOpening
 
         foreach (var og in opened)
         {
-            var constraints = og.ConstraintTargets.Count == 0
+            var constraints = og.Strategy != MlgOpeningStrategy.Existential
+                && og.DiagnosticRequirements.Count > 0
+                ? "Swift requirement" + (og.DiagnosticRequirements.Count == 1 ? " " : "s ")
+                  + string.Join(" & ", og.DiagnosticRequirements.Select(r => $"'{r}'"))
+                : og.ConstraintTargets.Count == 0
                 ? "the method's Swift constraints"
                 : "Swift protocol" + (og.ConstraintTargets.Count == 1 ? " " : "s ")
                   + string.Join(" & ", og.ConstraintTargets.Select(t => $"'{t}'"));

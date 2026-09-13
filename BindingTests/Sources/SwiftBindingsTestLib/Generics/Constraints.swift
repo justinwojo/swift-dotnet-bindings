@@ -151,8 +151,38 @@ public class CollectionHost {
     /// Accepts any collection whose Element is String. Should specialize to
     /// Array<String> (see Swift.Collection hint in specialization-hints.json).
     public func joinItems(_ items: some Collection<String>) -> String {
+        _mlgCollectionEntryCount += 1
         return items.joined(separator: separator)
     }
+}
+
+/// Concrete same-module carrier for the fully generic `Collection<String>` arm.
+/// CSM discovery may also emit a closed sibling for this public conformer. Runtime tests use
+/// explicit generic arguments and inspect the resulting MethodInfo so that sibling cannot satisfy
+/// the generic-arm assertion.
+public struct MlgStringCollection: Collection {
+    private let storage: [String]
+
+    public init(first: String, second: String, third: String) {
+        storage = [first, second, third]
+    }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> String { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
+}
+
+/// Mismatched negative-control carrier: it is a Collection, but not Collection<String>.
+public struct MlgIntCollection: Collection {
+    private let storage: [Int32]
+
+    public init(first: Int32, second: Int32) { storage = [first, second] }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> Int32 { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
 }
 
 // MARK: - Generic Constructor with PWT
@@ -440,6 +470,7 @@ public struct AnimalRoster {
     public mutating func insert<S: Sequence>(
         contentsOf source: S, beforeIndex i: Int
     ) where S.Element : Animal {
+        _mlgAnimalRosterEntryCount += 1
         let upcast: [Animal] = source.map { $0 as Animal }
         animals.insert(contentsOf: upcast, at: i)
     }
@@ -457,6 +488,34 @@ public func makeAnimalRoster(firstName: String, secondName: String) -> AnimalRos
         Animal(name: secondName, sound: "Howl"),
     ])
 }
+
+/// Same-module positive carrier for `S.Element : Animal`, preserving object identity. CSM may
+/// discover a closed sibling; the explicit-generic runtime call is structurally pinned separately.
+public struct MlgDogSequence: Collection {
+    private let storage: [Dog]
+
+    public init(first: Dog, second: Dog) { storage = [first, second] }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> Dog { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
+}
+
+/// Associated-type negative control whose Element does not inherit from Animal.
+public struct MlgNonAnimalSequence: Collection {
+    private let storage: [Int32]
+
+    public init(first: Int32, second: Int32) { storage = [first, second] }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> Int32 { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
+}
+
+/// Lets managed tests verify that insertion preserved the exact class instances.
+public func animalsAreIdentical(_ lhs: Animal, _ rhs: Animal) -> Bool { lhs === rhs }
 
 // MARK: - Protocol-target associated-type constraint
 //
@@ -514,17 +573,84 @@ public struct NonHashableBox {
 /// parents; this fixture sidesteps it by following the existing class-shape
 /// convention rather than expanding scope.
 public struct HashSink {
-    public init() {}
+    // Keeps this resilient value non-empty. The native refusal probe protects the receiver page;
+    // reconstructing HashSink before the conditional carrier proof must therefore fault rather
+    // than becoming a vacuous zero-sized load that accidentally passes the ordering canary.
+    private let receiverMarker: Int32
+
+    public init() { receiverMarker = 0 }
 
     /// `S.Element : HashLike` — protocol-conformance bound on a method-level
     /// generic. The bilateral filter must accept the `[HashableBox]` pairing
     /// (Element conforms) and reject the `[NonHashableBox]` pairing (Element
     /// does not conform).
     public func sumHashes<S: Sequence>(_ source: S) -> Int where S.Element : HashLike {
+        _mlgHashEntryCount += 1
         var sum = 0
         for item in source { sum += item.hashCode }
-        return sum
+        return sum + Int(receiverMarker)
     }
+
+    /// Throwing concrete-result sibling used to distinguish carrier refusal from Swift errors.
+    public func sumHashesOrThrow<S: Sequence>(_ source: S) throws -> Int where S.Element : HashLike {
+        let result = sumHashes(source)
+        if result < 0 { throw MlgHashError.negativeTotal }
+        return result
+    }
+}
+
+public enum MlgHashError: Error { case negativeTotal }
+
+/// Same-module positive carrier for the protocol-target associated-type requirement. CSM may
+/// discover a closed sibling; the explicit-generic runtime call is structurally pinned separately.
+public struct MlgHashSequence: Collection {
+    private let storage: [HashableBox]
+
+    public init(first: Int32, second: Int32, third: Int32) {
+        storage = [HashableBox(value: first), HashableBox(value: second), HashableBox(value: third)]
+    }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> HashableBox { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
+}
+
+/// Protocol-target negative control: Sequence conformance holds, Element: HashLike does not.
+public struct MlgNonHashSequence: Collection {
+    private let storage: [NonHashableBox]
+
+    public init(first: Int32, second: Int32) {
+        storage = [NonHashableBox(label: first), NonHashableBox(label: second)]
+    }
+
+    public var startIndex: Int { storage.startIndex }
+    public var endIndex: Int { storage.endIndex }
+    public subscript(position: Int) -> NonHashableBox { storage[position] }
+    public func index(after i: Int) -> Int { storage.index(after: i) }
+}
+
+// MARK: - Direct superclass method constraints
+
+/// Instance/static controls for the private-protocol superclass carrier route.
+public final class ClassBoundGenericHost {
+    private let prefix: String
+
+    public init(prefix: String) { self.prefix = prefix }
+
+    public func inspect<T: Animal>(_ value: T) -> String {
+        _mlgSuperclassEntryCount += 1
+        return "\(prefix): \(value.describe())"
+    }
+
+    public static func inspectStatic<T: Animal>(_ value: T) -> String {
+        return "static: \(value.describe())"
+    }
+}
+
+/// Free-function control for the same direct-superclass opening route.
+public func inspectAnimal<T: Animal>(_ value: T) -> String {
+    return "free: \(value.describe())"
 }
 
 // MARK: - HasSelfRequirement existential boxing

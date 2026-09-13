@@ -24,7 +24,7 @@ namespace BindingsGeneration;
 /// <c>errorOut</c>. <see cref="MethodLevelGenericOpening"/> decides which shapes qualify.
 /// </para>
 /// </summary>
-internal static class MethodLevelGenericWrapperEmitter
+internal static partial class MethodLevelGenericWrapperEmitter
 {
     /// <summary>The Swift binding for the refusal out-pointer, and its C# P/Invoke parameter name.</summary>
     internal const string RefusalParameterName = "_openRefused";
@@ -74,8 +74,10 @@ internal static class MethodLevelGenericWrapperEmitter
 
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
-        var payloadBindings = new List<string>();
+        var payloadBindings = new List<MlgPayloadBinding>();
         var callArgs = new List<string>();
+        var carrierParams = new List<string>();
+        var carrierCallArgs = new List<string>();
         var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
 
@@ -116,9 +118,12 @@ internal static class MethodLevelGenericWrapperEmitter
                     break;
 
                 case CdeclPhase.Self:
-                    swiftParams.Add(isClass || isMutating
+                    var selfParam = isClass || isMutating
                         ? "_ self_: UnsafeMutableRawPointer"
-                        : "_ self_: UnsafeRawPointer");
+                        : "_ self_: UnsafeRawPointer";
+                    swiftParams.Add(selfParam);
+                    carrierParams.Add(selfParam);
+                    carrierCallArgs.Add("self_");
                     break;
 
                 case CdeclPhase.Metadata:
@@ -160,10 +165,11 @@ internal static class MethodLevelGenericWrapperEmitter
                         {
                             var binding = CdeclParamMapper.BuildSwiftBindingName(label, siblings);
                             var payloadParam = names.Reserve($"{binding}Payload");
-                            swiftParams.Add($"_ {payloadParam}: UnsafeRawPointer");
-                            var localGenericName = LocalGenericName(payloadGeneric);
-                            payloadBindings.Add(
-                                $"let {binding} = {payloadParam}.assumingMemoryBound(to: {localGenericName}.self).pointee");
+                            var rawParam = $"_ {payloadParam}: UnsafeRawPointer";
+                            swiftParams.Add(rawParam);
+                            carrierParams.Add(rawParam);
+                            carrierCallArgs.Add(payloadParam);
+                            payloadBindings.Add(new MlgPayloadBinding(binding, payloadParam, payloadGeneric));
                             callArgs.Add($"{CdeclParamMapper.BuildSwiftCallArgLabel(arg)}{binding}");
                             continue;
                         }
@@ -171,6 +177,8 @@ internal static class MethodLevelGenericWrapperEmitter
                         var (cdeclParam, reconstruction, callArg) =
                             CdeclParamMapper.Map(arg, label, env, reservedSiblings: siblings);
                         swiftParams.Add(cdeclParam);
+                        carrierParams.Add(cdeclParam);
+                        carrierCallArgs.AddRange(ExtractSwiftParameterBindingNames(cdeclParam));
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);
                         callArgs.Add(callArg);
@@ -201,6 +209,20 @@ internal static class MethodLevelGenericWrapperEmitter
         if (isLsrReturn)
             innerCallExpr = $"String(localized: {innerCallExpr})";
 
+        if (opened.Count == 1
+            && opened[0].Strategy is MlgOpeningStrategy.AssociatedTypeCarrier
+                or MlgOpeningStrategy.SuperclassCarrier)
+        {
+            EmitCarrierBackedWrapper(
+                swiftWriter, env, ctx, symbolName, opened[0], localNames, refusalParam,
+                swiftParams, carrierParams, carrierCallArgs, reconstructionLines, payloadBindings,
+                innerCallExpr, moduleQualifiedSwiftName, isClass, isStatic, isMutating,
+                returnTypeSpec, returnMapping, needsResultPtr, isVoidReturn, isString, throws);
+            MethodWrapperEmitter.EmitClosureReturnInvokeThunkIfNeeded(
+                swiftWriter, env, ctx, symbolName, returnTypeSpec, needsResultPtr);
+            return;
+        }
+
         swiftWriter.WriteLine();
         var wrapperTarget = string.IsNullOrEmpty(moduleQualifiedSwiftName)
             ? $"free function {methodDecl.Name}"
@@ -220,6 +242,22 @@ internal static class MethodLevelGenericWrapperEmitter
         swiftWriter.Indent++;
 
         swiftWriter.WriteLine($"{refusalParam}.pointee = 0");
+
+        // Parameterized existential metadata uses Swift runtime support introduced with the
+        // primary-associated-type runtime in the Swift 5.7 OS generation. Binding generation can
+        // still target older deployment floors, so keep the cast in an availability branch: current
+        // systems take the exact proof, while older systems safely refuse before touching payload,
+        // receiver, result storage, or an error object.
+        var parameterized = opened
+            .Where(o => o.Strategy == MlgOpeningStrategy.ParameterizedExistential)
+            .OrderBy(o => o.Ordinal)
+            .FirstOrDefault();
+        if (parameterized != null)
+        {
+            swiftWriter.WriteLine(
+                "if #available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, macCatalyst 16.0, *) {");
+            swiftWriter.Indent++;
+        }
 
         // Cast each metadata pointer to its existential metatype BEFORE anything reads a payload.
         // A refusal here leaves every payload untouched.
@@ -253,6 +291,20 @@ internal static class MethodLevelGenericWrapperEmitter
         EmitOpenedBodies(swiftWriter, env, opened, localNames, 0, payloadBindings, innerCallExpr,
             returnTypeSpec, returnMapping, needsResultPtr, isVoidReturn, isString, throws);
 
+        if (parameterized != null)
+        {
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("} else {");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine($"{refusalParam}.pointee = {parameterized.Ordinal + 1}");
+            if (!isVoidReturn && !needsResultPtr)
+                CdeclReturnRenderer.WriteErrorSentinel(swiftWriter, returnMapping);
+            else
+                swiftWriter.WriteLine("return");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+        }
+
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
 
@@ -273,7 +325,7 @@ internal static class MethodLevelGenericWrapperEmitter
         IReadOnlyList<MlgOpenedGeneric> opened,
         MlgLocalNames localNames,
         int depth,
-        IReadOnlyList<string> payloadBindings,
+        IReadOnlyList<MlgPayloadBinding> payloadBindings,
         string innerCallExpr,
         TypeSpec returnTypeSpec,
         CdeclReturnMapping returnMapping,
@@ -289,7 +341,9 @@ internal static class MethodLevelGenericWrapperEmitter
 
         // The innermost body returns the Swift value; the outer levels forward it. The result is
         // only handled once, at the @_cdecl level, by the shared body emitters.
-        var bodyReturn = ReturnClauseFor(env, returnTypeSpec, isVoidReturn);
+        var bodyReturn = !isVoidReturn && MarshallingHelpers.IsLocalizedStringResource(returnTypeSpec)
+            ? " -> Swift.String"
+            : ReturnClauseFor(env, returnTypeSpec, isVoidReturn);
 
         swiftWriter.WriteLine(
             $"func {bodyName}<{localName}{og.ConstraintClause}>(_: {localName}.Type){throwsClause}{bodyReturn} {{");
@@ -303,7 +357,7 @@ internal static class MethodLevelGenericWrapperEmitter
         else
         {
             foreach (var binding in payloadBindings)
-                swiftWriter.WriteLine(binding);
+                swiftWriter.WriteLine(binding.Render(LocalGenericName(binding.Generic)));
             var call = throws ? $"try {innerCallExpr}" : innerCallExpr;
             swiftWriter.WriteLine(isVoidReturn ? call : $"return {call}");
         }
@@ -432,6 +486,40 @@ internal static class MethodLevelGenericWrapperEmitter
     /// participate in the parameter-name allocation above.
     /// </summary>
     private static string LocalGenericName(MlgOpenedGeneric og) => $"_MLG{og.Ordinal}";
+
+    private static IReadOnlyList<string> ExtractSwiftParameterBindingNames(string parameters)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i <= parameters.Length; i++)
+        {
+            if (i < parameters.Length)
+            {
+                if (parameters[i] == '<') depth++;
+                else if (parameters[i] == '>' && depth > 0) depth--;
+                if (parameters[i] != ',' || depth != 0)
+                    continue;
+            }
+
+            var parameter = parameters[start..i].Trim();
+            var beforeColon = parameter.Split(':')[0].Trim();
+            var words = beforeColon.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length > 0)
+                result.Add(words[^1]);
+            start = i + 1;
+        }
+        return result;
+    }
+
+    private sealed record MlgPayloadBinding(
+        string Binding,
+        string PayloadParameter,
+        MlgOpenedGeneric Generic)
+    {
+        internal string Render(string swiftType) =>
+            $"let {Binding} = {PayloadParameter}.assumingMemoryBound(to: {swiftType}.self).pointee";
+    }
 
     /// <summary>
     /// The collision-checked names this wrapper injects into one <c>@_cdecl</c> scope, keyed by
