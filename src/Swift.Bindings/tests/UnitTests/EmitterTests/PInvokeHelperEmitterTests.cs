@@ -835,6 +835,7 @@ public class PInvokeHelperEmitterTests
         // Param T0: (Alpha, Beta), Param T1: (Carrier)
         Assert.Equal(new[] { "Alpha", "Beta", "Carrier" },
             ctx.PwtEntries.Select(e => e.ProtocolName).ToArray());
+        Assert.All(ctx.PwtEntries, entry => Assert.False(entry.IsRegisterEligible));
     }
 
     [Fact]
@@ -860,6 +861,11 @@ public class PInvokeHelperEmitterTests
         Assert.Equal(2, ctx.PwtEntries.Count);
         Assert.Equal("Alpha", ctx.PwtEntries[0].ProtocolName);
         Assert.Equal("Beta", ctx.PwtEntries[1].ProtocolName);
+        Assert.Equal(0, ctx.PwtEntries[0].WitnessOrdinal);
+        Assert.Equal(1, ctx.PwtEntries[1].WitnessOrdinal);
+        Assert.All(ctx.PwtEntries, entry => Assert.True(entry.IsRegisterEligible));
+        Assert.All(ctx.PwtEntries, entry =>
+            Assert.Equal(HelperPwtResolutionMode.StaticInterface, entry.ResolutionMode));
     }
 
     [Fact]
@@ -886,6 +892,9 @@ public class PInvokeHelperEmitterTests
         Assert.Single(ctx.PwtEntries);
         var entry = ctx.PwtEntries[0];
         Assert.False(entry.IsResolvable);
+        Assert.Equal(0, entry.WitnessOrdinal);
+        Assert.True(entry.IsRegisterEligible);
+        Assert.Equal(HelperPwtResolutionMode.Descriptor, entry.ResolutionMode);
         Assert.Equal("$s10TestModule17AnyInterpolatableMp", entry.DescriptorSymbol);
         Assert.Equal("/tmp/TestModule.dylib", entry.LibraryPath);
 

@@ -363,7 +363,11 @@ namespace BindingsGeneration
                 if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType)
                     continue;
 
-                if (propertyDecl.IsStatic)
+                // For generic frozen structs the inline-carrier decision must follow stored
+                // bytes only: a computed Bool/String result does not make the parent
+                // reference-bearing. Preserve the established non-generic projection policy;
+                // changing those existing public struct/class shapes is a separate migration.
+                if (propertyDecl.IsStatic || (structDecl.IsGeneric && !propertyDecl.HasStorage))
                     continue;
 
                 if (!TryGetTypeRecord(namedPropertyType, out var propertyRecord))

@@ -1019,6 +1019,23 @@ public class FrozenStructHandlerTests
         Assert.Null(TypeSkipConditions.FirstMatch(copyable, db, out _));
     }
 
+    [Fact]
+    public void Ingestion_ComputedBoolDoesNotBecomeAStoredLayoutField()
+    {
+        var value = CreateFrozenStructDecl("ComputedBoolCarrier");
+        value.GenericParameters.Add(new GenericArgumentDecl(
+            "T", "T", new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+        value.Properties.Add(CreatePropertyDecl("stored", "Swift.Int64", hasStorage: true));
+        value.Properties.Add(CreatePropertyDecl("valid", "Swift.Bool", hasStorage: false));
+
+        var record = DeriveThroughIngestion(value);
+
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.HasBoolFields));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
     /// <summary>
     /// The boundary, through the same path: the identical <c>~Copyable</c> declaration carrying a
     /// CLASS-typed stored field picks up <see cref="TypeRecordFlags.RequiresMemoryManagement"/> from
@@ -1316,12 +1333,21 @@ public class FrozenStructHandlerTests
 
         var typeDatabase = new TypeDatabase();
         var int64 = SwiftTypeName.FromModuleQualifiedName("Swift.Int64");
+        var swiftBool = SwiftTypeName.FromModuleQualifiedName("Swift.Bool");
         typeDatabase.AddOutOfModuleTypes(new[]
         {
             (int64, new TypeRecord
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "Int64"),
                 SwiftTypeName = int64,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            }),
+            (swiftBool, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = swiftBool,
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct,

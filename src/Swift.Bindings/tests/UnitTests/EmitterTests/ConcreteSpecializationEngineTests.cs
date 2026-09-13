@@ -1288,6 +1288,10 @@ public class ConcreteSpecializationEngineTests
         // Non-frozen struct record → ClassWithOpaquePayload → indirect-result ISwiftObject, so the
         // substituted TypedBag<ConcreteItem> return is admitted by CanEmitConcreteOverloadForPairing.
         db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.TypedBag"), "TestLib", "TypedBag");
+        // The parent itself is a frozen generic value struct. Property-only CSM recovery must pin
+        // this closed receiver rather than trying to use the throwing ISwiftObject.SwiftHandle.
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Bag"), "TestLib", "Bag",
+            flags: TypeRecordFlags.Frozen);
 
         var engine = new ConcreteSpecializationEngine(db);
         var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
@@ -1314,6 +1318,9 @@ public class ConcreteSpecializationEngineTests
         // The return is the SUBSTITUTED container — the parent param is closed, not leaked.
         Assert.Contains("TypedBag<", cs);
         Assert.DoesNotContain("Swift.AnyType", cs);
+        Assert.Contains("(IntPtr)(&self)", cs);
+        Assert.DoesNotContain("fixed (Bag<", cs);
+        Assert.DoesNotContain("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle", cs);
         // Swift wrapper READS the property (no call parens) — the AnyTypeFallback getter is a read.
         Assert.Contains("__self.items", swift);
         Assert.DoesNotContain("__self.items()", swift);

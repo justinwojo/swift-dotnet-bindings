@@ -283,15 +283,13 @@ internal class MethodMarshalPlanBuilder
         if (MethodLevelGenericOpening.AppliesTo(_env))
             return lines;
 
-        // GSF cdecl-constructor on a generic parent type also materializes PAT /
+        // Cdecl constructors and static-dispatch generic-struct properties also materialize PAT /
         // Self-requirement conformances with captured descriptor symbols via the
         // dynamic-PWT helper on the parent's PInvokeHelperContext. The match must stay
         // in sync with the PInvokeSignatureBuilder.HandleProtocolConformance gate so the
         // P/Invoke parameter list and the variable declarations agree on slot count.
         bool admitDynamicPwt =
-            _env.MethodDecl.UsesCdeclWrapper &&
-            _env.MethodDecl.IsConstructor &&
-            _env.ParentDecl is TypeDecl { IsGeneric: true } &&
+            GenericDispatchEmitter.ThreadsDescriptorBackedParentPwt(_env) &&
             _env.PInvokeHelperContext is not null;
 
         foreach (var genericParameter in _env.MethodDecl.GenericParameters)
@@ -1645,8 +1643,31 @@ internal class MethodMarshalPlanBuilder
     private string? BuildFixedBlockHeader()
     {
         if (!_requiresFixedBlock) return null;
-        var resolvedName = GetResolvedTypeName();
+        var resolvedName = GetResolvedConstructedParentTypeName();
         return $"fixed ({resolvedName}* __self = &this)";
+    }
+
+    /// <summary>
+    /// Gets the fully constructed managed name of the enclosing type for a pointer to the
+    /// caller's actual value storage. Generic property wrappers pass only that pointer as an
+    /// <c>IntPtr</c> to a non-generic helper P/Invoke, but the fixed statement itself lives in
+    /// the generic type and must name <c>Parent&lt;T...&gt;</c>, not the open definition.
+    /// </summary>
+    private string GetResolvedConstructedParentTypeName()
+    {
+        var resolvedName = GetResolvedTypeName();
+        if (_env.ParentDecl is not TypeDecl { IsGeneric: true } typeDecl)
+            return resolvedName;
+
+        var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(typeDecl);
+        if (ownParams.Count == 0)
+            return resolvedName;
+
+        var genericParams = ownParams.Select((parameter, index) =>
+            _env.GenericTypeMapping.TryGetValue(parameter.TypeName, out var mapped)
+                ? mapped.TypeParameter
+                : NameProvider.GetCSharpGenericParameterName(parameter, index));
+        return $"{resolvedName}<{string.Join(", ", genericParams)}>";
     }
 
     /// <summary>

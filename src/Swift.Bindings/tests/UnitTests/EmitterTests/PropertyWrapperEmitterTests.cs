@@ -291,12 +291,11 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_DictionaryOfStringT_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_DictionaryOfStringT_ReturnsTrue()
     {
         // `Dictionary<String, T>` getter on a generic struct. The static-dispatch gate is
-        // narrowed to shapes with end-to-end runtime evidence — Optional<T> and Array<T>.
-        // Dictionary renders identically through initializeMemory(as: Dictionary<String, Item>.self),
-        // but no BindingTest covers the round-trip yet, so it stays behind the gate.
+        // admits this exact dictionary composition after the generic value-property fixture
+        // proved its typed initialization and replacement ownership path.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -315,7 +314,7 @@ public class PropertyWrapperEmitterTests
             new TypeSpec[] { new NamedTypeSpec("Swift.String"), new NamedTypeSpec("τ_0_0") });
         var (propertyDecl, env) = CreatePropertyAndEnv("byId", dictStringT, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -343,6 +342,29 @@ public class PropertyWrapperEmitterTests
         var (propertyDecl, env) = CreatePropertyAndEnv("paired", pairOfT, parentDecl, moduleDecl, typeDb);
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_FrozenBinaryPairOfT_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.GvpPair", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var pairOfT = new NamedTypeSpec("TestModule.GvpPair", new TypeSpec[]
+        {
+            new NamedTypeSpec("τ_0_0"),
+            new NamedTypeSpec("τ_0_0")
+        });
+        var (propertyDecl, env) = CreatePropertyAndEnv("pair", pairOfT, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -453,6 +475,61 @@ public class PropertyWrapperEmitterTests
         // Property type is τ_0_0 → routes through static dispatch → uses helper.
         var (propertyDecl, env) = CreatePropertyAndEnv(
             "value", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.Equal("generic_parent_unresolved_pwt_constraint",
+            PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_DescriptorBackedPat_ConcreteProperty_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBag",
+            ("TestModule.BagItem", TypeRecordFlags.HasAssociatedTypes, TypeRecordKind.Protocol,
+                (string?)null, "$s10TestModule7BagItemMp"));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_PatWithoutDescriptor_ConcreteProperty_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBag",
+            ("TestModule.BagItem", TypeRecordFlags.HasAssociatedTypes, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
         Assert.Equal("generic_parent_unresolved_pwt_constraint",
@@ -1516,6 +1593,10 @@ public class PropertyWrapperEmitterTests
             SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
             HasStorage = true,
             IsStatic = false,
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "16.0", null, null, false, false, null, null)
+            },
             Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl
@@ -1538,6 +1619,7 @@ public class PropertyWrapperEmitterTests
         // Metatype dispatch uses helper result
         Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
         Assert.Contains("as! any _SBW_GSPG_", output);
+        Assert.Contains("@available(iOS 16.0, *)\nprivate protocol _SBW_GSPG_", output);
 
         // Parameter ordering: metadata BEFORE self in @_cdecl signature
         var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_get_value_"));
@@ -1822,6 +1904,10 @@ public class PropertyWrapperEmitterTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
             HasStorage = true,
             IsStatic = false,
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "16.0", null, null, false, false, null, null)
+            },
             Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl
@@ -1905,6 +1991,39 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftSetterWrapper_GenericStructScalarProperty_UsesDeclaredValueExpression()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var setterMethod = CreateAccessorMethod("setter:count", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var sw = new StringWriter();
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(
+            new SwiftWriter(sw), propertyDecl, "SBW_Set_TestModule_GenericBox_count",
+            new MethodEnvironment(setterMethod, typeDb), new ModuleEmissionContext());
+
+        var output = sw.ToString();
+        Assert.Contains("(newValue: newValue, selfPtr: self_)", output);
+        Assert.DoesNotContain("newValueVal", output);
+    }
+
+    [Fact]
     public void EmitSwiftSetterWrapper_GenericClassParent_TTypedProperty_UsesMetadataAccessorAndCorrectParamOrder()
     {
         // Property type references generic param T — triggers generic static dispatch path.
@@ -1924,6 +2043,10 @@ public class PropertyWrapperEmitterTests
             SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
             HasStorage = true,
             IsStatic = false,
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "16.0", null, null, false, false, null, null)
+            },
             Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl
@@ -1945,6 +2068,7 @@ public class PropertyWrapperEmitterTests
         // Metatype dispatch uses helper result
         Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
         Assert.Contains("as! any _SBW_GSPS_", output);
+        Assert.Contains("@available(iOS 16.0, *)\nprivate protocol _SBW_GSPS_", output);
 
         // Parameter ordering: metadata BEFORE self in @_cdecl signature
         var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_set_value_"));
@@ -2752,7 +2876,7 @@ public class PropertyWrapperEmitterTests
 
     private static (ModuleDecl moduleDecl, TypeDatabase typeDb) CreateTestEnvironmentWithExtraTypes(
         string typeName,
-        params (string qualifiedName, TypeRecordFlags flags, TypeRecordKind kind, string? rawValueTypeName)[] extraTypes)
+        params (string qualifiedName, TypeRecordFlags flags, TypeRecordKind kind, string? rawValueTypeName, string? descriptorSymbol)[] extraTypes)
     {
         var typeDb = new TypeDatabase();
 
@@ -2791,7 +2915,7 @@ public class PropertyWrapperEmitterTests
                 Kind = TypeRecordKind.Struct
             });
 
-        foreach (var (qualifiedName, flags, kind, rawValue) in extraTypes)
+        foreach (var (qualifiedName, flags, kind, rawValue, descriptorSymbol) in extraTypes)
         {
             var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(qualifiedName);
             testModule.RegisterType(
@@ -2803,7 +2927,8 @@ public class PropertyWrapperEmitterTests
                     MetadataAccessor = $"$s{swiftTypeName.Name}Ma",
                     Flags = flags,
                     Kind = kind,
-                    RawValueTypeName = rawValue
+                    RawValueTypeName = rawValue,
+                    ProtocolDescriptorSymbol = descriptorSymbol
                 });
         }
 
@@ -2825,6 +2950,18 @@ public class PropertyWrapperEmitterTests
     }
 
     /// <summary>
+    /// Overload without descriptorSymbol for convenience.
+    /// </summary>
+    private static (ModuleDecl moduleDecl, TypeDatabase typeDb) CreateTestEnvironmentWithExtraTypes(
+        string typeName,
+        params (string qualifiedName, TypeRecordFlags flags, TypeRecordKind kind, string? rawValueTypeName)[] extraTypes)
+    {
+        return CreateTestEnvironmentWithExtraTypes(
+            typeName,
+            extraTypes.Select(t => (t.qualifiedName, t.flags, t.kind, t.rawValueTypeName, (string?)null)).ToArray());
+    }
+
+    /// <summary>
     /// Overload without rawValueTypeName for convenience.
     /// </summary>
     private static (ModuleDecl moduleDecl, TypeDatabase typeDb) CreateTestEnvironmentWithExtraTypes(
@@ -2833,7 +2970,7 @@ public class PropertyWrapperEmitterTests
     {
         return CreateTestEnvironmentWithExtraTypes(
             typeName,
-            extraTypes.Select(t => (t.qualifiedName, t.flags, t.kind, (string?)null)).ToArray());
+            extraTypes.Select(t => (t.qualifiedName, t.flags, t.kind, (string?)null, (string?)null)).ToArray());
     }
 
     #endregion

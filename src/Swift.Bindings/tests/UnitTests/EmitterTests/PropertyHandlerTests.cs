@@ -2235,6 +2235,39 @@ public class PropertyHandlerTests
         Assert.DoesNotContain("AnyType", csOutput);
     }
 
+    [Fact]
+    public void Emit_OptionalGenericTypeParameterSetter_DestroysMarshaledTemporary()
+    {
+        // MarshalToSwift<T> may retain references inside the temporary value buffer. The
+        // decomposed Optional<T> setter only borrows that buffer, so its VWT destroy must run
+        // before the raw allocation is freed or every Some assignment leaks one retain.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("GenericBox", moduleDecl);
+        classDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: "τ_0_0",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var optionalT = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("τ_0_0"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(
+            classDecl, moduleDecl, "value", optionalT, hasGetter: true, hasSetter: true);
+        var setter = property.Accessors.OfType<SetAccessorDecl>().Single();
+        setter.Method.UsesCdeclPropertyWrapper = true;
+
+        var (csOutput, _) = EmitPropertyInGenericContext(property, typeDatabase);
+
+        Assert.Contains("bool __initialized = false;", csOutput);
+        Assert.Contains("__initialized = true;", csOutput);
+        Assert.Contains("__meta.ValueWitnessTable->Destroy(__heap, __meta);", csOutput);
+        Assert.Contains("NativeMemory.Free(__heap);", csOutput);
+    }
+
     #endregion
 
     #region Optional Tuple Property

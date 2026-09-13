@@ -1492,6 +1492,24 @@ public class MethodMarshalPlanBuilderTests
 
     }
 
+    [Fact]
+    public void FixedBlock_GenericFrozenStruct_UsesFullyConstructedParentType()
+    {
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "value_Get", parentKind: ParentKind.FrozenStruct);
+        var parent = Assert.IsType<StructDecl>(env.ParentDecl);
+        parent.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        env.MethodDecl.GenericParameters = parent.GenericParameters;
+        env = new MethodEnvironment(env.MethodDecl, env.TypeDatabase);
+
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresFixedBlock: true);
+
+        Assert.Equal("fixed (Point<T>* __self = &this)", plan.FixedBlockHeader);
+    }
+
     #endregion
 
     #region RequiresUnsafe Tests
@@ -1824,6 +1842,66 @@ public class MethodMarshalPlanBuilderTests
         // so the call site compiles when the type's where clause has no ISwiftObject seed.
         Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<T>", plan.PInvokeCallStatement);
         Assert.DoesNotContain("SwiftObjectHelper<T>", plan.PInvokeCallStatement);
+    }
+
+    [Fact]
+    public void WitnessTables_CdeclGenericStructProperty_UsesDescriptorBackedParentSlot()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Bag", moduleDecl);
+        var genericParam = new GenericArgumentDecl(
+            "τ_0_0", "Item",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>());
+        structDecl.GenericParameters = new List<GenericArgumentDecl> { genericParam };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule(structName: "Bag", frozen: true);
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IBagItem"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                MetadataAccessor = "$s10TestModule7BagItemMp",
+                ProtocolDescriptorSymbol = "$s10TestModule7BagItemMp",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            });
+
+        var getter = new MethodDecl
+        {
+            Name = "count_Get",
+            MangledName = "SBW_Get_TestModule_Bag_count",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = true,
+            UsesCdeclPropertyWrapper = true,
+            UsesWrapperLibrary = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = structDecl.GenericParameters,
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false
+        };
+        var helperContext = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb);
+        var env = new MethodEnvironment(getter, typeDb, pinvokeHelperContext: helperContext);
+
+        var plan = BuildPlan(
+            env,
+            new Signature("int", Array.Empty<Parameter>()),
+            new Signature("int", Array.Empty<Parameter>()));
+
+        Assert.Contains(plan.WitnessTableStatements,
+            line => line.Contains("Bag_PInvoke.GetBagItemPWT", StringComparison.Ordinal));
     }
 
     private static ModuleDecl CreateModuleDecl()

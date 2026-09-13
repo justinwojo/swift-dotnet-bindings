@@ -898,6 +898,17 @@ public class MemberValidationPipeline
             }
         }
 
+        // A concrete property on a generic Swift struct has no safe direct fallback when the
+        // static wrapper cannot reconstruct the parent metatype. Descriptor-backed PWTs are
+        // supported only when every descriptor exists, and the property helper remains a
+        // register-mode ABI with at most three metadata/PWT slots. Refuse this newly-opened
+        // concrete slice rather than emit a substituted direct CallConvSwift entry point.
+        if (GenericDispatchEmitter.HasUnsupportedConcreteStructPropertyHelper(
+                propertyDecl, _typeDatabase, out var genericStructHelperDetails))
+        {
+            return ValidationResult.Skip(SkipReason.GenericTypeCallback, genericStructHelperDetails);
+        }
+
         // Bare generic usage (generic declaration used without type arguments)
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         if (boundGenericsHandler.HasBareGenericUsage(propertyDecl.SwiftTypeSpec, propertyDecl.ModuleDecl))
@@ -965,7 +976,8 @@ public class MemberValidationPipeline
         // a member that a narrower gate above already refuses keeps that gate's more specific
         // reason, and only a member that would otherwise emit reaches this one.
         if (!propertyDecl.IsStatic &&
-            ParentHasNoInstanceReceiverCarrier(propertyDecl.ParentDecl))
+            ParentHasNoInstanceReceiverCarrier(propertyDecl.ParentDecl) &&
+            !PropertyWrapperEmitter.CanUsePinnedGenericValueReceiver(propertyDecl, _typeDatabase))
         {
             return NoInstanceReceiverCarrierSkip();
         }

@@ -1,8 +1,8 @@
 {
-  "git_sha": "16ce24c6c",
+  "git_sha": "9efdb2947",
   "platforms": {
     "simulator": {
-      "pass_count": 4022,
+      "pass_count": 4030,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -173,7 +173,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4026,
+      "pass_count": 4034,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -324,7 +324,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4022,
+      "pass_count": 4030,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -495,7 +495,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3155,
+      "pass_count": 3178,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -621,7 +621,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3157,
+      "pass_count": 3180,
       "skips": [
         {
           "class": "AsyncClosureTests",

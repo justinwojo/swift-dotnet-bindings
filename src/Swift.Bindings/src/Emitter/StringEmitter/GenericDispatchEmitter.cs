@@ -179,7 +179,10 @@ internal static class GenericDispatchEmitter
         if (HasGenericOuterAncestor(parentTypeDecl))
             return true;
 
-        if (kind == GenericDispatchKind.Constructor)
+        bool supportsDescriptorPwt = kind == GenericDispatchKind.Constructor ||
+            (parentTypeDecl is StructDecl &&
+             kind is GenericDispatchKind.PropertyGetter or GenericDispatchKind.PropertySetter);
+        if (supportsDescriptorPwt)
         {
             if (MetatypeHelperEmitter.HasUnresolvableTypeConformancesWithoutDescriptor(parentTypeDecl, typeDatabase))
                 return true;
@@ -192,6 +195,64 @@ internal static class GenericDispatchEmitter
             return true;
         if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(parentTypeDecl, typeDatabase))
             return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns whether this accessor uses the descriptor-capable parent-generic ABI seam.
+    /// Constructors and static-dispatch properties on Swift structs share the immutable
+    /// <see cref="PInvokeHelperContext.PwtEntries"/> ordering: parent parameter order first,
+    /// then ordinal module-qualified conformance order. Generic class properties with a
+    /// concrete type remain on instance dispatch and deliberately do not opt in.
+    /// </summary>
+    internal static bool ThreadsDescriptorBackedParentPwt(MethodEnvironment env) =>
+        env.MethodDecl.UsesCdeclWrapper &&
+        env.ParentDecl is TypeDecl { IsGeneric: true } &&
+        (env.MethodDecl.IsConstructor ||
+         (env.MethodDecl.IsAccessor &&
+          env.MethodDecl.UsesCdeclPropertyWrapper &&
+          env.ParentDecl is StructDecl));
+
+    /// <summary>
+    /// Detects the concrete-property slice whose only sound open-generic struct dispatch is the
+    /// static @_cdecl wrapper, but whose parent metadata accessor cannot use the supported
+    /// register-mode helper. Leaving this slice on its historical direct CallConvSwift fallback
+    /// silently substitutes an ABI that omits descriptor-backed PWTs or guesses the four-plus-slot
+    /// metadata accessor convention. T-bearing properties are deliberately excluded here: they
+    /// predate the concrete-property opening and retain their existing compatibility surface until
+    /// their direct lane is migrated as a separate batch.
+    /// </summary>
+    internal static bool HasUnsupportedConcreteStructPropertyHelper(
+        PropertyDecl propertyDecl,
+        ITypeDatabase typeDatabase,
+        out string details)
+    {
+        details = string.Empty;
+        if (propertyDecl.IsStatic ||
+            propertyDecl.ParentDecl is not StructDecl { IsGeneric: true } parentTypeDecl)
+        {
+            return false;
+        }
+
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .SelectMany(p => new[] { p.TypeName, p.SugaredTypeName })
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToHashSet();
+        if (WrapperValidation.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames))
+            return false;
+
+        if (MetatypeHelperEmitter.HasUnresolvableTypeConformancesWithoutDescriptor(parentTypeDecl, typeDatabase))
+        {
+            details = $"Concrete property '{propertyDecl.Name}' on generic struct '{parentTypeDecl.Name}' requires descriptor-backed parent witness-table dispatch, but at least one required protocol has no descriptor symbol.";
+            return true;
+        }
+
+        if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThresholdTotal(parentTypeDecl, typeDatabase))
+        {
+            details = $"Concrete property '{propertyDecl.Name}' on generic struct '{parentTypeDecl.Name}' requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.";
+            return true;
+        }
+
         return false;
     }
 

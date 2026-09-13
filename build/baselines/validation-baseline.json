@@ -10,7 +10,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 56548,
+        "lines": 56483,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -22,7 +22,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5258,
+        "lines": 5158,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -34,7 +34,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48277,
+        "lines": 48280,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -46,7 +46,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48277,
+        "lines": 48280,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -58,7 +58,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48277,
+        "lines": 48280,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -70,7 +70,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48119,
+        "lines": 48122,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -130,7 +130,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 88861,
+        "lines": 88363,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -142,7 +142,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 80244,
+        "lines": 79746,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -154,7 +154,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 80478,
+        "lines": 79980,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -166,7 +166,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 88022,
+        "lines": 87524,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -485,7 +485,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 236108,
+        "lines": 237746,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -618,7 +618,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12787,
+        "lines": 12799,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -691,7 +691,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 11331,
+        "lines": 11343,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -764,7 +764,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12787,
+        "lines": 12799,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -837,7 +837,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 10307,
+        "lines": 10319,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -872,7 +872,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 31494,
+        "lines": 30345,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -895,7 +895,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 31494,
+        "lines": 30345,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -918,7 +918,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 31494,
+        "lines": 30345,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -941,7 +941,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 31494,
+        "lines": 30345,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -989,7 +989,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 62816,
+        "lines": 62628,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -1049,7 +1049,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 127164,
+        "lines": 127162,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -1447,7 +1447,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 4671,
+        "lines": 4674,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -1579,7 +1579,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 6040,
+        "lines": 6048,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -1591,7 +1591,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 3116,
+        "lines": 3071,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -1805,7 +1805,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 75244,
+        "lines": 75252,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -1824,7 +1824,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1958,
+        "lines": 1885,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -1888,7 +1888,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1740,
+        "lines": 1743,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -2105,25 +2105,25 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 4022,
+      "pass": 4030,
       "fail": 0,
       "skip": 33,
       "crash": 0
     },
     "device": {
-      "pass": 4026,
+      "pass": 4034,
       "fail": 0,
       "skip": 29,
       "crash": 0
     },
     "device_monoaot": {
-      "pass": 4022,
+      "pass": 4030,
       "fail": 0,
       "skip": 33,
       "crash": 0
     },
     "macos": {
-      "pass": 3155,
+      "pass": 3178,
       "fail": 0,
       "skip": 24,
       "crash": 0
@@ -2135,7 +2135,7 @@
       "crash": 0
     },
     "maccatalyst": {
-      "pass": 3157,
+      "pass": 3180,
       "fail": 0,
       "skip": 29,
       "crash": 0
@@ -2154,6 +2154,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 18958
+    "swift_bindings_unit_pass_floor": 18970
   }
 }

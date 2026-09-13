@@ -88,12 +88,12 @@ namespace BindingsGeneration
                     {
                         // @_cdecl wrapper: buffer was allocated in BuildIndirectResultSetup,
                         // P/Invoke wrote the result to resultPtr. Just create the SafeHandle.
-                        var resolvedName = GetResolvedTypeName();
+                        var resolvedName = GetResolvedConstructedTypeName();
                         csWriter.WriteLine($"_payload = new SwiftSafeHandle<{resolvedName}>({BufferPtrName});");
                     }
                     else
                     {
-                        var resolvedName = GetResolvedTypeName();
+                        var resolvedName = GetResolvedConstructedTypeName();
                         csWriter.WriteLine($@"
                         unsafe {{
                             IntPtr {BufferPtrName} = (IntPtr)NativeMemory.Alloc((nuint)sizeof({resolvedName}.Buffer));

@@ -473,3 +473,33 @@ public class DepReverseValueHarness {
         return result
     }
 }
+
+// MARK: - Generic value-property descriptor-PWT dependency control
+
+public protocol GvpDependencyPat {
+    associatedtype Token
+    static var marker: Int32 { get }
+}
+
+public struct GvpDependencyConcrete: GvpDependencyPat {
+    public typealias Token = String
+    public static var marker: Int32 { 17 }
+    public init() {}
+}
+
+public struct GvpPat<T: GvpDependencyPat> {
+    private var storedCount: Int32
+
+    public init(count: Int32) { storedCount = count }
+
+    public var count: Int32 {
+        get { storedCount }
+        set { storedCount = newValue }
+    }
+
+    public var marker: Int32 { T.marker }
+}
+
+public func makeDependencyGvpPat(count: Int32) -> GvpPat<GvpDependencyConcrete> {
+    GvpPat<GvpDependencyConcrete>(count: count)
+}

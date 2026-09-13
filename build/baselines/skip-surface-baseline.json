@@ -922,6 +922,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "property \u0027AppleShapedForecast.endIndex\u0027 \u2014 closure or async in generic type member (Concrete property \u0027endIndex\u0027 on generic struct \u0027AppleShapedForecast\u0027 requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027AppleShapedForecast.startIndex\u0027 \u2014 closure or async in generic type member (Concrete property \u0027startIndex\u0027 on generic struct \u0027AppleShapedForecast\u0027 requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "property \u0027AsyncClosurePropertySetterHolder.confirmHandler\u0027 \u2014 closure signature not yet supported (Closure type is not supported.)",
       "count": 1
     },
@@ -965,6 +977,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027BoundGenericOfParentHost.box\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.BoxedGenericPayload\u003CSwift.AnyType\u003E).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027BufferModeQuad.count\u0027 \u2014 closure or async in generic type member (Concrete property \u0027count\u0027 on generic struct \u0027BufferModeQuad\u0027 requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.)",
       "count": 1
     },
     {
@@ -1036,6 +1054,48 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "property \u0027GvpOpaque.pair\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.GvpPair\u003CSwift.AnyType, Swift.AnyType\u003E).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027GvpRefFrozen.current\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027GvpRefFrozen.prefix\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027GvpRefFrozen.storedCount\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027GvpRefFrozen.storedItem\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027GvpScalar.current\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027GvpScalar.storedCount\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "property \u0027IAPTransactionLike.pendingTransaction\u0027 \u2014 framework type has no .NET binding available (Property type references framework type \u0027StoreKit.Transaction\u0027 which has no .NET binding.)",
       "count": 1
     },
@@ -1102,7 +1162,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027NestedReturnHost.values\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.NestedReturnHost\u003CSwift.AnyType\u003E.Values).)",
+      "reason": "property \u0027NestedReturnHost.values\u0027 \u2014 closure or async in generic type member (Instance member of a generic parent that projects as a C# value struct: the receiver has no carrier \u2014 there is no Payload SafeHandle, the ISwiftObject SwiftHandle throws, and the open-generic P/Invoke cannot name the parent\u0027s own generic parameter in its SwiftSelf\u003C\u003E argument.)",
       "count": 1
     },
     {
@@ -1139,12 +1199,6 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027RefWeighedBox.slot\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
-      "reason": "property \u0027ScalarWeighedBox.netUnitsValue\u0027 \u2014 closure or async in generic type member (Instance member of a generic parent that projects as a C# value struct: the receiver has no carrier \u2014 there is no Payload SafeHandle, the ISwiftObject SwiftHandle throws, and the open-generic P/Invoke cannot name the parent\u0027s own generic parameter in its SwiftSelf\u003C\u003E argument.)",
       "count": 1
     },
     {

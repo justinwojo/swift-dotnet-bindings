@@ -1521,6 +1521,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     set {
                         unsafe {
                             void* __heap = null;
+                            bool __initialized = false;
                             try {
                                 IntPtr __ptr = IntPtr.Zero;
                                 bool __hasVal = value is not null;
@@ -1529,11 +1530,18 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                                     __heap = NativeMemory.AllocZeroed((nuint)__meta.Size);
                                     var __span = new System.Span<byte>(__heap, (int)__meta.Size);
                                     SwiftMarshal.MarshalToSwift<{{innerCs}}>(value!, ref __span);
+                                    __initialized = true;
                                     __ptr = (IntPtr)__heap;
                                 }
                                 {{methodName}}(__ptr, __hasVal);
                             } finally {
-                                if (__heap != null) NativeMemory.Free(__heap);
+                                if (__heap != null) {
+                                    if (__initialized) {
+                                        var __meta = TypeMetadata.GetTypeMetadataOrThrow<{{innerCs}}>();
+                                        __meta.ValueWitnessTable->Destroy(__heap, __meta);
+                                    }
+                                    NativeMemory.Free(__heap);
+                                }
                             }
                         }
                     }

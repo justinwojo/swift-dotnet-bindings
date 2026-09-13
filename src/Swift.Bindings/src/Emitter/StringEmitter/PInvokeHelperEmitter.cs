@@ -3,6 +3,12 @@
 
 namespace BindingsGeneration;
 
+public enum HelperPwtResolutionMode
+{
+    StaticInterface,
+    Descriptor
+}
+
 /// <summary>
 /// One protocol-conformance entry on a generic type parameter, pre-flattened
 /// at <see cref="PInvokeHelperContext.CreateIfGeneric(TypeDecl, ITypeDatabase)"/>
@@ -24,7 +30,22 @@ public sealed record HelperPwtEntry(
     /// <summary>For unresolvable conformances: the protocol descriptor symbol (e.g. "$s{len}{Module}{len}{Protocol}Mp").</summary>
     string? DescriptorSymbol,
     /// <summary>For unresolvable conformances: the dylib path that exports the descriptor.</summary>
-    string? LibraryPath);
+    string? LibraryPath)
+{
+    /// <summary>The zero-based witness position after all parent metadata slots.</summary>
+    public int WitnessOrdinal { get; init; }
+
+    /// <summary>How the managed call site obtains this witness table.</summary>
+    public HelperPwtResolutionMode ResolutionMode => IsResolvable
+        ? HelperPwtResolutionMode.StaticInterface
+        : HelperPwtResolutionMode.Descriptor;
+
+    /// <summary>
+    /// Whether this witness belongs to the supported direct-register metadata-accessor shape.
+    /// Property wrappers deliberately stop when any parent metadata/PWT plan exceeds three slots.
+    /// </summary>
+    public bool IsRegisterEligible { get; init; }
+}
 
 /// <summary>
 /// A conformance constraint the ABI described on a generic parameter that could not
@@ -409,6 +430,15 @@ public class PInvokeHelperContext
         // the skip gate will refuse the type anyway, but the threshold must reflect
         // Swift's real argument count, not the emitter's reduced view.
         bool exceedsThreshold = (typeParams.Count + entries.Count + unresolved.Count) > 3;
+
+        // Freeze the ABI-facing witness ordinals and register eligibility once, at the same
+        // point that resolves parameter and conformance identity. Consumers must not reclassify
+        // descriptor versus interface slots independently.
+        entries = entries.Select((entry, ordinal) => entry with
+        {
+            WitnessOrdinal = ordinal,
+            IsRegisterEligible = !exceedsThreshold
+        }).ToList();
 
         return (entries, exceedsThreshold, unresolved);
     }

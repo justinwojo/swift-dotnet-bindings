@@ -2026,5 +2026,14 @@ namespace BindingsGeneration
         /// </summary>
         private string GetResolvedTypeName()
             => NameProvider.GetEmittedParentTypeName(_env.ParentDecl, _env.TypeDatabase);
+
+        /// <summary>Gets the resolved enclosing type with its own managed generic arguments.</summary>
+        private string GetResolvedConstructedTypeName()
+        {
+            var resolvedName = GetResolvedTypeName();
+            return _env.ParentDecl is TypeDecl { IsGeneric: true } typeDecl
+                ? resolvedName + GenericTypeEmitter.GetGenericParameterList(typeDecl)
+                : resolvedName;
+        }
     }
 }

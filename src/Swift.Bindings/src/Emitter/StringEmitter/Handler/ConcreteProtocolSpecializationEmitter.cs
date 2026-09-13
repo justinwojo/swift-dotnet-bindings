@@ -1486,7 +1486,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // same way whenever the parent projects to a Payload SafeHandle; ObjC-rooted and
             // native-remapped parents keep the raw IntPtr because their pointer lives behind
             // NSObject.Handle and there is no SafeHandle to lease.
-            bool leaseSelf = ParentExposesPayloadSafeHandle(parentTypeDecl, typeDatabase);
+            bool pinValueSelf = isExtension && method.IsExtensionPropertyGetter &&
+                ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase);
+            bool leaseSelf = !pinValueSelf && ParentExposesPayloadSafeHandle(parentTypeDecl, typeDatabase);
             pinvokeParams.Add(leaseSelf ? $"{LeasedSafeHandleType} self_" : "IntPtr self_");
             if (isExtension)
             {
@@ -1497,9 +1499,25 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // public member.
                 var concreteParentCs = BuildConcreteParentCsharpName(parentTypeDecl, pairing, typeDatabase);
                 publicParams.Insert(0, $"this {concreteParentCs} self");
-                callArgs.Add(leaseSelf
-                    ? "self.Payload"
-                    : "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+                if (pinValueSelf)
+                {
+                    // A recovered CSM property getter can now run on a fully constructed frozen
+                    // generic value receiver. Borrow the extension argument's actual inline bytes
+                    // for the duration of the call, matching PropertyWrapperEmitter's in-body
+                    // `fixed (&this)` carrier. Method CSM remains deliberately refused for this
+                    // receiver shape: only the property recovery path owns this contract.
+                    // A by-value method parameter is already a fixed expression; taking its
+                    // address directly is legal for this unmanaged inline projection and avoids
+                    // CS0213 (which a redundant `fixed (&self)` statement would produce).
+                    callArgs.Add("(IntPtr)(&self)");
+                    needsUnsafe = true;
+                }
+                else
+                {
+                    callArgs.Add(leaseSelf
+                        ? "self.Payload"
+                        : "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+                }
             }
             else
             {
@@ -2412,17 +2430,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
 
-        // Receiver-side projection gate. The conformer walk above rejects an argument whose C#
-        // binding is a plain value struct; this is the same rejection for the RECEIVER. A
-        // @frozen trivially-copyable parent has neither a `Payload` SafeHandle nor a usable
-        // ISwiftObject `SwiftHandle`, so both branches of the emitter's lease decision are
-        // wrong for it: one does not compile, the other throws. An instance member refused
-        // here does NOT fall back to the open-generic surface — that surface cannot name the
-        // parent's own generic parameter in its SwiftSelf<> argument either, so the member is
-        // refused a second time at validation and keeps a skip marker. Static members and
-        // constructors take no receiver and are unaffected.
+        // Receiver-side projection gate. Ordinary method CSM still requires a payload-backed
+        // receiver: a @frozen trivially-copyable parent has neither a `Payload` SafeHandle nor a
+        // usable ISwiftObject `SwiftHandle`. The property-recovery path is the deliberate narrow
+        // exception: its generated extension getter pins the closed receiver's inline bytes and
+        // passes that pointer for the duration of the call. This preserves nested-return CSM
+        // recovery while methods/subscripts remain refused under the generic-value carrier rule.
         if (!(method.MethodType == MethodType.Static || method.IsConstructor) &&
-            ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase))
+            ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase) &&
+            !method.IsExtensionPropertyGetter)
         {
             rejectReason =
                 $"parent '{parentTypeDecl.SwiftTypeName?.ModuleQualifiedName ?? parentTypeDecl.Name}' " +
@@ -3611,14 +3627,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// admitted by the same <see cref="ProjectsAsBlittableValueStruct"/> oracle the argument side
     /// uses.
     ///
-    /// <para>Neither receiver expression a specialized extension can emit exists on such a
-    /// projection. The frozen-struct handler writes the public <c>Payload</c> SafeHandle only for
-    /// the reference-bearing (class-projected) flavor, so <c>self.Payload</c> does not compile;
-    /// and the value flavor implements <c>ISwiftObject</c> explicitly with a <c>SwiftHandle</c>
-    /// that throws, so the <c>((ISwiftObject)self).SwiftHandle</c> fallback the handle-accessor
-    /// flavors take would compile and then throw at run time. Both lease states are therefore
-    /// wrong for this parent and the specialization is refused outright. The member does not
-    /// land on the open-generic surface as a result: that surface renders
+    /// <para>Neither handle-based receiver expression exists on such a projection. The
+    /// frozen-struct handler writes the public <c>Payload</c> SafeHandle only for the
+    /// reference-bearing flavor, while the value flavor's explicit
+    /// <c>ISwiftObject.SwiftHandle</c> throws. Ordinary CSM methods are therefore refused.
+    /// A synthesized property-recovery getter is the narrow exception: it takes the address of
+    /// its closed extension receiver and passes those inline bytes directly. A refused method
+    /// does not land on the open-generic surface either: that surface renders
     /// <c>SwiftSelf&lt;{Parent}&gt;</c> on a non-generic <c>{Parent}_PInvoke</c> class, which
     /// cannot name the parent's own generic parameter, so validation refuses it there too and
     /// it keeps a skip marker.</para>

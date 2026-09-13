@@ -1006,6 +1006,47 @@ public class PInvokeEmitterTests
     }
 
     [Fact]
+    public void CdeclGenericStructProperty_DescriptorBackedPat_HasWitnessParameter()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Bag", moduleDecl);
+        var genericParam = new GenericArgumentDecl(
+            "τ_0_0", "Item",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>());
+        structDecl.GenericParameters = new List<GenericArgumentDecl> { genericParam };
+
+        var getter = CreateMethod("count_Get", structDecl, moduleDecl, isAccessor: true);
+        getter.UsesCdeclPropertyWrapper = true;
+        getter.GenericParameters = structDecl.GenericParameters;
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.Bag", "TestModule", "Bag",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IBagItem"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                MetadataAccessor = "$s10TestModule7BagItemMp",
+                ProtocolDescriptorSymbol = "$s10TestModule7BagItemMp",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            });
+        var typeDb = CreateBasicTypeDatabase(testModule: testModule);
+
+        var sig = GetPInvokeSignature(getter, typeDb);
+
+        Assert.Contains(sig.Parameters, p => p.Name.Contains("BagItem", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ThrowingNonCdeclMethod_ErrorParamLast()
     {
         // Normal throwing methods (non-cdecl) should have error param AFTER args

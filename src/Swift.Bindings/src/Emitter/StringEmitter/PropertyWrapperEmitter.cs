@@ -66,14 +66,18 @@ public static class PropertyWrapperEmitter
             // Closed static factories also skip the metadata-helper path entirely (the wrapper
             // takes only resultPtr — no parent metadata or PWT threading), so the gates must
             // not reject them either.
-            // Dynamic PWT resolution and buffer-mode ABI are not yet implemented.
             if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl)
                 && !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl))
             {
-                if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))
-                    return WrapperEligibility.Reject("generic_parent_unresolved_pwt_constraint");
-                if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(td, accessorEnv.TypeDatabase))
+                var kind = accessor is SetAccessorDecl
+                    ? GenericDispatchKind.PropertySetter
+                    : GenericDispatchKind.PropertyGetter;
+                if (GenericDispatchEmitter.HasWrapperHelperGateBlocker(td, accessorEnv.TypeDatabase, kind))
+                {
+                    if (MetatypeHelperEmitter.HasUnresolvableTypeConformancesWithoutDescriptor(td, accessorEnv.TypeDatabase))
+                        return WrapperEligibility.Reject("generic_parent_unresolved_pwt_constraint");
                     return WrapperEligibility.Reject("generic_parent_metadata_buffer_mode");
+                }
             }
         }
 
@@ -936,6 +940,15 @@ public static class PropertyWrapperEmitter
                     || GenericDispatchEmitter.IsArrayOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames)))
                 return true;
 
+            // Register-mode-only expansion proved by the generic value-property matrix:
+            // Dictionary<String, T> and a frozen binary value container whose two arguments
+            // are direct parent-generic slots. This is intentionally structural and narrow;
+            // it does not turn arbitrary "contains T" compositions into wrapper candidates.
+            if (parentTypeDecl is StructDecl &&
+                (IsStringDictionaryOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames) ||
+                 IsFrozenBinaryContainerOfParentGenerics(propertyDecl.SwiftTypeSpec, genericParamNames, typeDatabase)))
+                return true;
+
             // KeyPath family rooted at a parent generic (PartialKeyPath<T>, KeyPath<T,V>,
             // WritableKeyPath<T,V>, ReferenceWritableKeyPath<T,V>). KeyPaths are Swift classes,
             // so the accessor returns the reference directly through CdeclReturnRenderer's
@@ -959,6 +972,56 @@ public static class PropertyWrapperEmitter
         // both gone.
         //
         // Generic class with a concrete property type keeps using instance dispatch.
+        return true;
+    }
+
+    private static bool IsStringDictionaryOfParentGeneric(TypeSpec typeSpec, HashSet<string> genericParamNames) =>
+        typeSpec is NamedTypeSpec { Name: "Swift.Dictionary", GenericParameters.Count: 2 } dictionary &&
+        dictionary.GenericParameters[0] is NamedTypeSpec { Name: "Swift.String" } &&
+        dictionary.GenericParameters[1] is NamedTypeSpec value && genericParamNames.Contains(value.Name);
+
+    private static bool IsFrozenBinaryContainerOfParentGenerics(
+        TypeSpec typeSpec, HashSet<string> genericParamNames, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 2 } container ||
+            container.GenericParameters[0] is not NamedTypeSpec first ||
+            container.GenericParameters[1] is not NamedTypeSpec second ||
+            !genericParamNames.Contains(first.Name) ||
+            !genericParamNames.Contains(second.Name) ||
+            !typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(container.Name), out var record))
+        {
+            return false;
+        }
+
+        return record.Kind == TypeRecordKind.Struct && record.Flags.HasFlag(TypeRecordFlags.Frozen);
+    }
+
+    /// <summary>
+    /// Returns whether a property on a generic frozen struct that projects as a C# value type
+    /// has a proved explicit-pointer receiver route. The route is deliberately property-only:
+    /// each accessor must qualify for the synchronous @_cdecl property wrapper, whose native
+    /// signature takes <c>self</c> as an ordinary <c>IntPtr</c>. The managed accessor can then pin
+    /// the fully constructed enclosing value (<c>Parent&lt;T...&gt;</c>) for the duration of the call.
+    /// Methods and subscripts do not inherit this capability.
+    /// </summary>
+    internal static bool CanUsePinnedGenericValueReceiver(
+        PropertyDecl propertyDecl, ITypeDatabase typeDatabase)
+    {
+        if (propertyDecl.IsStatic ||
+            propertyDecl.ParentDecl is not StructDecl { IsGeneric: true } parentTypeDecl ||
+            !ConcreteProtocolSpecializationEmitter.ParentProjectsAsValueStruct(parentTypeDecl, typeDatabase) ||
+            propertyDecl.Accessors.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var accessor in propertyDecl.Accessors)
+        {
+            var accessorEnv = new MethodEnvironment(accessor.Method, typeDatabase);
+            if (!EvaluateWrapperEligibility(propertyDecl, accessorEnv, accessor).IsWrappable)
+                return false;
+        }
+
         return true;
     }
 
@@ -1074,10 +1137,9 @@ public static class PropertyWrapperEmitter
             cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
         }
 
-        // PWT params: one per resolvable protocol conformance per generic parameter.
-        // Only include PWT for protocols that the C# side can resolve (no associated types
-        // or Self requirements). This matches PInvokeEmitter.HandleProtocolConformance.
-        int getterPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+        // PWT params follow the helper context's complete ordered slot description. Static
+        // interfaces and descriptor-resolved PAT/Self requirements occupy identical ABI slots.
+        int getterPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
         for (int i = 0; i < getterPwtCount; i++)
         {
             cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
@@ -1181,12 +1243,18 @@ public static class PropertyWrapperEmitter
         // either attributes to it rather than the coarse module scope, and the post-processor strips
         // the anchor with the block it names.
         var originAnchor = OriginAnchorEmitter.LineForWrapper(propertyDecl);
+        var getExtensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
+        var getExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            getExtensionAvailability, "");
 
-        // Emit protocol
+        // The protocol signature can name an availability-gated concrete result type, so the
+        // declaration needs the same floor as its conformance and @_cdecl entry point. Without
+        // it Swift rejects the otherwise valid wrapper before reaching the annotated extension.
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
-            private protocol {{protocolName}} {
+            {{getExtensionAvailPrefix}}private protocol {{protocolName}} {
                 static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}}
             }
             """);
@@ -1194,10 +1262,6 @@ public static class PropertyWrapperEmitter
         var extensionBody = string.Join("\n        ", bodyLines);
         // Conformance extensions need the same `@available` floor as the wrapped property:
         // Swift type-checks the extension against the deployment target, not the @_cdecl below.
-        var getExtensionAvailability = WrapperEmitterHelpers.MergeAvailability(
-            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
-        var getExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
-            getExtensionAvailability, "");
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
             {{getExtensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {
@@ -1349,16 +1413,19 @@ public static class PropertyWrapperEmitter
             var valExpr1 = callArgExpr1;
             var colonIdx1 = callArgExpr1.IndexOf(':');
             if (colonIdx1 >= 0) valExpr1 = callArgExpr1[(colonIdx1 + 2)..];
-            cdeclCallArgs.Add($"newValue: {(reconstruction1 != null ? valExpr1 : "newValueVal")}");
+            // CdeclParamMapper returns the actual Swift-side argument expression in both
+            // cases. Scalar/direct mappings have no reconstruction statement and the
+            // expression is the declared parameter itself (for example `newValue`).
+            cdeclCallArgs.Add($"newValue: {valExpr1}");
         }
 
         // Metadata params come BEFORE self to match C# PInvokeSignatureBuilder ordering for @_cdecl property accessors
         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
             cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
 
-        // PWT params: one per protocol conformance per generic parameter.
-        // PWT params: only include resolvable conformances (matching C# P/Invoke side).
-        int setterPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+        // PWT params follow the same complete ordered slot description as the getter,
+        // managed argument list, extern declaration, and metadata-accessor call.
+        int setterPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
         for (int i = 0; i < setterPwtCount; i++)
             cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
 
@@ -1422,21 +1489,21 @@ public static class PropertyWrapperEmitter
         // either attributes to it rather than the coarse module scope, and the post-processor strips
         // the anchor with the block it names.
         var originAnchor = OriginAnchorEmitter.LineForWrapper(propertyDecl);
+        var setExtensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
+        var setExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            setExtensionAvailability, "");
 
-        // Emit protocol
+        // Keep an availability-gated concrete setter type legal in the protocol signature.
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
-            private protocol {{protocolName}} {
+            {{setExtensionAvailPrefix}}private protocol {{protocolName}} {
                 static func {{setMethodName}}({{string.Join(", ", protocolParams)}})
             }
             """);
 
         var extensionBody = string.Join("\n        ", bodyLines);
-        var setExtensionAvailability = WrapperEmitterHelpers.MergeAvailability(
-            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
-        var setExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
-            setExtensionAvailability, "");
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
             {{setExtensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {

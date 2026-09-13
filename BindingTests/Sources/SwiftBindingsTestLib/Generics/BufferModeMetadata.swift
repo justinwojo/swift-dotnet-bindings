@@ -37,6 +37,10 @@ public struct BufferModeQuad<A, B, C, D> {
         self.third = third
         self.fourth = fourth
     }
+
+    /// Property wrappers deliberately retain the <=3 parent metadata/PWT register contract.
+    /// The type metadata helper itself supports buffer mode, but this accessor remains refused.
+    public var count: Int32 { 4 }
 }
 
 // MARK: - 2 Describable-constrained params → 2 metadata + 2 PWTs (buffer mode)

@@ -2625,7 +2625,28 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidatePropertyEmission_InstancePropertyOnGenericValueStructParent_ReturnsSkip()
+    public void ValidatePropertyEmission_InstancePropertyOnGenericValueStructParent_WithPinnedWrapper_ReturnsEmit()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
+        typeDatabase.AsyncLibraryName = "ValueParentModuleSwiftBindings";
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var parent = CreateFrozenGenericValueStructParent("ScalarWeighedBox");
+        var getter = CreateMethod("netUnitsValue_Get", new NamedTypeSpec("Swift.Int"));
+        getter.IsAccessor = true;
+        getter.ParentDecl = parent;
+        var property = CreateProperty(
+            "netUnitsValue",
+            new NamedTypeSpec("Swift.Int"),
+            new[] { new GetAccessorDecl { Method = getter } });
+        property.ParentDecl = parent;
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_InstancePropertyOnGenericValueStructParent_WithoutWrapper_ReturnsSkip()
     {
         var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct("ScalarWeighedBox");
         var pipeline = new MemberValidationPipeline(typeDatabase);
@@ -2637,6 +2658,36 @@ public class MemberValidationPipelineTests
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
         Assert.Contains("receiver has no carrier", result.Details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_ConcretePropertyOnFourMetadataStruct_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct(
+            "FourSlotBox", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var property = CreateProperty("count", new NamedTypeSpec("Swift.Int"));
+        property.ParentDecl = CreateFrozenGenericValueStructParent("FourSlotBox", genericParameterCount: 4);
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.Contains("more than three parent metadata/PWT slots", result.Details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_TPropertyOnFourMetadataStruct_PreservesExistingSurface()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct(
+            "FourSlotBox", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var property = CreateProperty("first", new NamedTypeSpec("T0"));
+        property.ParentDecl = CreateFrozenGenericValueStructParent("FourSlotBox", genericParameterCount: 4);
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.True(result.ShouldEmit);
     }
 
     [Fact]
@@ -2742,7 +2793,7 @@ public class MemberValidationPipelineTests
         return typeDatabase;
     }
 
-    private static StructDecl CreateFrozenGenericValueStructParent(string typeName)
+    private static StructDecl CreateFrozenGenericValueStructParent(string typeName, int genericParameterCount = 1)
     {
         var decl = new StructDecl
         {
@@ -2761,11 +2812,15 @@ public class MemberValidationPipelineTests
             IsFrozen = true,
             MetadataAccessor = string.Empty
         };
-        decl.GenericParameters.Add(new GenericArgumentDecl(
-            TypeName: "T",
-            SugaredTypeName: "T",
-            GenericConformances: new List<GenericParameterConformance>(),
-            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        for (var index = 0; index < genericParameterCount; index++)
+        {
+            var name = genericParameterCount == 1 ? "T" : $"T{index}";
+            decl.GenericParameters.Add(new GenericArgumentDecl(
+                TypeName: name,
+                SugaredTypeName: name,
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        }
         return decl;
     }
 
@@ -2921,7 +2976,8 @@ public class MemberValidationPipelineTests
         };
     }
 
-    private static PropertyDecl CreateProperty(string name, TypeSpec typeSpec)
+    private static PropertyDecl CreateProperty(
+        string name, TypeSpec typeSpec, IReadOnlyList<AccessorDecl> accessors = null)
     {
         return new PropertyDecl
         {
@@ -2929,7 +2985,7 @@ public class MemberValidationPipelineTests
             SwiftTypeSpec = typeSpec,
             IsStatic = false,
             HasStorage = true,
-            Accessors = new List<AccessorDecl>(),
+            Accessors = accessors ?? Array.Empty<AccessorDecl>(),
             ParentDecl = null,
             ModuleDecl = null
         };
