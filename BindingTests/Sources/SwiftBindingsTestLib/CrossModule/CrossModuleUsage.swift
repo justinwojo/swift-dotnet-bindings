@@ -322,6 +322,19 @@ extension DependencyService {
         completion(self.isActive ? value * 2 : -value)
     }
 
+    /// Cross-module class-extension plain-throws probe. The success arm proves the
+    /// TaskCompletionSource trampoline actually completes; the positive arm throws a
+    /// registered current-module class error carrying a tracked payload; the negative arm
+    /// throws Foundation.NSError, which is intentionally outside this module's registry.
+    public func reviewedThrow(mode: Int32) throws -> Int32 {
+        if mode == 0 { return 73 }
+        if mode > 0 { throw SyncCascadeTrackedClassError(code: mode) }
+        throw NSError(
+            domain: "SwiftBindingsTestLib.CrossModuleExtensionUnregistered",
+            code: 9901,
+            userInfo: [NSLocalizedDescriptionKey: "cross-module-extension-unregistered-9901"])
+    }
+
     /// Synthetic-name collision on the SYNC closure trampoline (`EmitSwiftClosureTrampoline`).
     /// The trampoline injects `self_` for the receiver pointer, so a user parameter of the same
     /// name must escape the injected binding or the wrapper declares `self_` twice and is

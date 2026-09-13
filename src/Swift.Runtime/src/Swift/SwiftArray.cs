@@ -336,15 +336,30 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     public unsafe void Remove(int index)
     {
         ThrowIfDisposed();
+        if ((uint)index >= (uint)Count)
+            throw new ArgumentOutOfRangeException(nameof(index));
         bool success = false;
         _payload.DangerousAddRef(ref success);
         try
         {
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
             byte* payload = stackalloc byte[(int)ElementSize];
-            // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
-            // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
-            SwiftCollectionCdeclWrappers.ArrayRemove((IntPtr)payload, index, metadata, _payload.DangerousGetHandle());
+            bool slotLive = false;
+            try
+            {
+                // Array.remove(at:) initializes `payload` with an owned result even though this
+                // void API discards it. Destroy that result after the call; otherwise every
+                // reference-bearing removed element leaves its +1 behind.
+                SwiftCollectionCdeclWrappers.ArrayRemove((IntPtr)payload, index, metadata, _payload.DangerousGetHandle());
+                slotLive = true;
+            }
+            finally
+            {
+                // The slot is uninitialized until the native call returns, so an invalid index
+                // (rejected above) or native failure can never destroy arbitrary stack bytes.
+                if (slotLive)
+                    ElementTypeMetadata.ValueWitnessTable->Destroy(payload, ElementTypeMetadata);
+            }
         }
         finally
         {

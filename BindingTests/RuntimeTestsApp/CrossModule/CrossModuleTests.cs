@@ -450,6 +450,61 @@ public class CrossModuleTests : TestBase
         }
     }
 
+    public void TestDependencyServiceThrowingExtensionPreservesTypedAndUntypedErrors()
+    {
+        using var service = new DependencyService("Worker", true);
+        AssertEqual(73, service.ReviewedThrow(0), "the successful sync-throws trampoline completes");
+
+        global::Swift.Runtime.SwiftException<SyncCascadeTrackedClassError>? typed = null;
+        try { _ = service.ReviewedThrow(42); }
+        catch (global::Swift.Runtime.SwiftException<SyncCascadeTrackedClassError> ex) { typed = ex; }
+        catch (global::Swift.Runtime.SwiftException ex)
+        {
+            throw new AssertionException($"expected typed current-module error, got {ex.GetType().Name}: {ex.Message}");
+        }
+        AssertNotNull(typed, "registered current-module error must use the typed cascade");
+        using (var payload = typed!.Error)
+        {
+            AssertNotNull(payload, "typed extension error carries its class payload");
+            AssertEqual(42, payload!.Code, "typed extension error preserves its payload");
+        }
+        AssertTrue(typed.ErrorHandle != IntPtr.Zero, "typed extension error preserves the live Swift box");
+
+        global::Swift.Runtime.SwiftException? fallback = null;
+        try { _ = service.ReviewedThrow(-1); }
+        catch (global::Swift.Runtime.SwiftException ex) { fallback = ex; }
+        AssertNotNull(fallback, "unregistered Foundation error must still fault the trampoline");
+        AssertEqual(typeof(global::Swift.Runtime.SwiftException), fallback!.GetType(),
+            "a foreign/unregistered error must remain intentionally untyped");
+        AssertTrue(fallback.ErrorHandle != IntPtr.Zero, "untyped fallback preserves the live Swift box");
+        AssertTrue(fallback.Message.Contains("9901", StringComparison.Ordinal),
+            "untyped fallback preserves the foreign error description");
+    }
+
+    public void TestDependencyServiceThrowingExtensionErrorOwnerReleasesExactlyOnce()
+    {
+        using var service = new DependencyService("Worker", true);
+        LifetimeTracker.RunWithLeakCheck(() =>
+        {
+            for (int i = 1; i <= 25; i++)
+                ThrowAndDropReviewedError(service, i);
+        }, "cross-module class-extension typed throw");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void ThrowAndDropReviewedError(DependencyService service, int code)
+    {
+        try { _ = service.ReviewedThrow(code); }
+        catch (global::Swift.Runtime.SwiftException<SyncCascadeTrackedClassError> ex)
+        {
+            using var payload = ex.Error;
+            AssertNotNull(payload, "typed extension error carries its tracked payload");
+            AssertEqual(code, payload!.Code, "typed extension error preserves each tracked code");
+            return;
+        }
+        throw new AssertionException("throwing extension did not surface the registered typed error");
+    }
+
     public void TestDependencyServiceComputeAfterDelayCompletes()
     {
         using var active = new DependencyService("Worker", true);

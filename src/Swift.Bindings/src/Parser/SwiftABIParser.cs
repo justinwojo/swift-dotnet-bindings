@@ -1534,6 +1534,8 @@ namespace BindingsGeneration
 
             if (decl is not null)
             {
+                decl.RawGenericSig = node.GenericSig;
+
                 if (quarantineMalformedType)
                 {
                     // Mark the built decl so ModuleProcessor withholds it from the type database, and

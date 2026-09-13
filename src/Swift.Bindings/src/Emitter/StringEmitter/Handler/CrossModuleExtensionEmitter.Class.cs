@@ -1118,6 +1118,17 @@ public static partial class CrossModuleExtensionEmitter
             ? "void"
             : ResolveCSharpTypeName(returnTypeSpec, typeDatabase);
         var publicReturnType = MapBoolType(csharpReturnType);
+        var emissionContext = context?.GetEmissionContext();
+        var errorRegistryRef = isThrowing
+            ? ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(method.ModuleDecl?.Name, emissionContext)
+            : null;
+
+        // The trampoline hands the callback a retained Swift error box, not an NSError
+        // ownership transfer. Emit the same description/release infrastructure used by the
+        // ordinary synchronous error-register path so the callback can preserve that box on
+        // SwiftException (and classify it through this module's registry when available).
+        if (isThrowing)
+            ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, currentModule, emissionContext);
 
         // Public-facing return: Task for async, Task<T> for async-with-value,
         // T for sync-throws, void for sync-throws-void.
@@ -1341,8 +1352,16 @@ public static partial class CrossModuleExtensionEmitter
         }
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("var __err = ObjCRuntime.Runtime.GetINativeObject<global::Foundation.NSError>(errorPtr, true);");
-        csWriter.WriteLine("__tcs.TrySetException(new global::Swift.Runtime.SwiftException(__err?.LocalizedDescription ?? \"Swift error\"));");
+        if (errorRegistryRef != null)
+        {
+            csWriter.WriteLine($"var __exception = {errorRegistryRef}.CreateSyncException(errorPtr, NativeMethods.SBW_GetErrorDescription(errorPtr), NativeMethods.SBW_ReleaseError);");
+        }
+        else
+        {
+            csWriter.WriteLine("var __message = global::Swift.Runtime.InteropServices.SwiftMarshal.ReadErrorDescription(NativeMethods.SBW_GetErrorDescription(errorPtr));");
+            csWriter.WriteLine("var __exception = global::Swift.Runtime.InteropServices.SwiftMarshal.CreateSwiftError(__message, errorPtr, NativeMethods.SBW_ReleaseError);");
+        }
+        csWriter.WriteLine("__tcs.TrySetException(__exception);");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine("else");
@@ -1414,6 +1433,23 @@ public static partial class CrossModuleExtensionEmitter
             MethodName: pinvokeName,
             ReturnType: "void",
             Parameters: pinvokeParams));
+
+        // The callback receives a +1 error box from Unmanaged.passRetained. These helpers read
+        // it without consuming and provide the release delegate stored on SwiftException, making
+        // the exception the sole owner on typed, untyped, and typed-conversion-fallback paths.
+        if (isThrowing && !pinvokeDecls.Any(d => d.MethodName == "SBW_GetErrorDescription"))
+        {
+            pinvokeDecls.Add(new ClassTrampolinePInvokeInfo(
+                EntryPoint: ErrorDescriptionEmitter.GetDescriptionSymbolName(currentModule),
+                MethodName: "SBW_GetErrorDescription",
+                ReturnType: "IntPtr",
+                Parameters: new List<string> { "IntPtr error" }));
+            pinvokeDecls.Add(new ClassTrampolinePInvokeInfo(
+                EntryPoint: ErrorDescriptionEmitter.GetReleaseSymbolName(currentModule),
+                MethodName: "SBW_ReleaseError",
+                ReturnType: "void",
+                Parameters: new List<string> { "IntPtr error" }));
+        }
 
         // Cancel-registry P/Invokes — one pair per extension class (the emitted list is
         // per-class, so a simple membership check dedups across its async members).

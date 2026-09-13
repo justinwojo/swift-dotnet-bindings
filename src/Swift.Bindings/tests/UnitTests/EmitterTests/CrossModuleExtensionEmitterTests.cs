@@ -433,6 +433,58 @@ public class CrossModuleExtensionEmitterTests
         Assert.DoesNotContain("_sbwRegisterTask", swiftOutput.ToString());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_ThrowingTrampoline_WithErrorRegistry_PreservesTypedErrorBoxOwnership(bool isAsync)
+    {
+        var (csWriter, swiftWriter, csOutput, swiftOutput, moduleDecl, classDecl, conductor, env) =
+            CreateSetupWithSwiftCapture();
+        var method = CreateMethodDecl("doWork", "TestModule", classDecl);
+        method.Throws = true;
+        method.IsAsync = isAsync;
+        classDecl.Methods.Add(method);
+
+        var emissionContext = new ModuleEmissionContext
+        {
+            ErrorRegistryModuleName = "TestModule",
+            ResolvedNamespace = "TestModule"
+        };
+        emissionContext.RegisterErrorTypeId("TestModule.ReviewError");
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+            ThreadContext(emissionContext));
+
+        var cs = csOutput.ToString();
+        Assert.Contains(
+            "global::TestModule._SbwModuleErrorRegistry_TestModule.CreateSyncException(errorPtr, NativeMethods.SBW_GetErrorDescription(errorPtr), NativeMethods.SBW_ReleaseError)",
+            cs);
+        Assert.Contains("EntryPoint = \"SBW_GetErrorDescription_TestModule\"", cs);
+        Assert.Contains("EntryPoint = \"SBW_ReleaseError_TestModule\"", cs);
+        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", swiftOutput.ToString());
+        Assert.DoesNotContain("GetINativeObject<global::Foundation.NSError>", cs);
+        Assert.DoesNotContain("SBW_ReleaseError(errorPtr)", cs);
+    }
+
+    [Fact]
+    public void Emit_ThrowingTrampoline_WithoutRegistry_KeepsLiveBoxOnUntypedException()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, classDecl, conductor, env) =
+            CreateSetupWithSwiftCapture();
+        var method = CreateMethodDecl("doWork", "TestModule", classDecl);
+        method.Throws = true;
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+            ThreadContext(new ModuleEmissionContext()));
+
+        var cs = csOutput.ToString();
+        Assert.Contains("SwiftMarshal.ReadErrorDescription(NativeMethods.SBW_GetErrorDescription(errorPtr))", cs);
+        Assert.Contains("SwiftMarshal.CreateSwiftError(__message, errorPtr, NativeMethods.SBW_ReleaseError)", cs);
+        Assert.DoesNotContain("CreateSyncException", cs);
+        Assert.DoesNotContain("GetINativeObject<global::Foundation.NSError>", cs);
+    }
+
     #endregion
 
     #region Struct receiver: @_cdecl trampoline path

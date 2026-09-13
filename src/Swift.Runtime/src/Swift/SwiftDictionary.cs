@@ -300,6 +300,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
         // Allocate space for the optional old-value return.
         void* resultPayload = NativeMemory.Alloc(optionalValueMetadata.Size);
+        bool slotLive = false;
         try
         {
             // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
@@ -310,9 +311,15 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                 keyPayload,
                 dictionaryMetadata,
                 handle);
+            // updateValue always initializes Optional<TValue>: .some owns the replaced value,
+            // while .none is still a valid initialized Optional. The public setter discards that
+            // result, so destroy the complete Optional before freeing its storage.
+            slotLive = true;
         }
         finally
         {
+            if (slotLive)
+                optionalValueMetadata.ValueWitnessTable->Destroy(resultPayload, optionalValueMetadata);
             NativeMemory.Free(resultPayload);
         }
     }

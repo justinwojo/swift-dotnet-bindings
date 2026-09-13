@@ -161,6 +161,89 @@ public class WitnessCollectionLifetimeTests : TestBase
         AssertEqual(73, result.Identifier, "generic closure releases its aligned source result buffer");
     }
 
+    public void TestArrayRemoveDestroysDiscardedClassResult()
+    {
+        Functions.ResetWitnessLifetimeCounts();
+        using var source = Functions.MakeWitnessClassWindow();
+        var element = source[0];
+        using var array = new SwiftArray<WitnessLifetimeReference>(new[] { element });
+        source.Dispose();
+        element.Dispose();
+
+        AssertEqual(0, Functions.GetWitnessLifetimeDeinits(), "array owns the remaining class reference");
+        array.Remove(0);
+        AssertOneNativeDeinit();
+        AssertEqual(0, array.Count, "remove still mutates the array");
+    }
+
+    public void TestArrayRemoveDestroysDiscardedReferenceBearingValue()
+    {
+        Functions.ResetWitnessLifetimeCounts();
+        using var source = Functions.MakeWitnessCopyWindow();
+        var element = source[0];
+        using var array = new SwiftArray<WitnessLifetimeCopy>(new[] { element });
+        source.Dispose();
+        element.Dispose();
+
+        AssertEqual(0, Functions.GetWitnessLifetimeDeinits(), "array owns the remaining value payload");
+        array.Remove(0);
+        AssertOneNativeDeinit();
+    }
+
+    public void TestArrayRemoveInvalidIndexDoesNotDestroyUninitializedStorage()
+    {
+        Functions.ResetWitnessLifetimeCounts();
+        using var source = Functions.MakeWitnessClassWindow();
+        var element = source[0];
+        using var array = new SwiftArray<WitnessLifetimeReference>(new[] { element });
+        source.Dispose();
+        element.Dispose();
+
+        AssertThrows<ArgumentOutOfRangeException>(() => array.Remove(1));
+        AssertEqual(0, Functions.GetWitnessLifetimeDeinits(), "invalid remove leaves the retained element alive");
+        array.Dispose();
+        AssertOneNativeDeinit();
+    }
+
+    public void TestDictionaryReplacementDestroysDiscardedOldValue()
+    {
+        Functions.ResetWitnessLifetimeCounts();
+        using var firstSource = Functions.MakeWitnessClassWindow();
+        var first = firstSource[0];
+        using var secondSource = Functions.MakeWitnessClassWindow();
+        var second = secondSource[0];
+        using var dictionary = new SwiftDictionary<int, WitnessLifetimeReference>();
+
+        dictionary[1] = first;
+        firstSource.Dispose();
+        first.Dispose();
+        dictionary[1] = second;
+        AssertEqual(1, Functions.GetWitnessLifetimeDeinits(),
+            "discarded Optional.some old value releases exactly one reference");
+
+        secondSource.Dispose();
+        second.Dispose();
+        dictionary.Dispose();
+        AssertEqual(2, Functions.GetWitnessLifetimeAllocations(), "two tracked values were created");
+        AssertEqual(2, Functions.GetWitnessLifetimeDeinits(), "replacement and dictionary disposal each release one owner");
+    }
+
+    public void TestDictionaryNewKeyDestroysNoneWithoutReleasingInsertedValue()
+    {
+        Functions.ResetWitnessLifetimeCounts();
+        using var source = Functions.MakeWitnessClassWindow();
+        var element = source[0];
+        using var dictionary = new SwiftDictionary<int, WitnessLifetimeReference>();
+
+        dictionary[1] = element;
+        source.Dispose();
+        element.Dispose();
+        AssertEqual(0, Functions.GetWitnessLifetimeDeinits(),
+            "discarding Optional.none must not release the newly inserted value");
+        dictionary.Dispose();
+        AssertOneNativeDeinit();
+    }
+
     private void AssertOneNativeDeinit()
     {
         AssertEqual(1, Functions.GetWitnessLifetimeAllocations(), "one native reference created");

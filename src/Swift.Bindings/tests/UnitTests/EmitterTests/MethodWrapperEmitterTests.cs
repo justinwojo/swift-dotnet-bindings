@@ -4191,6 +4191,71 @@ public class MethodWrapperEmitterTests
         Assert.Contains("Generic static dispatch wrapper skipped", output);
     }
 
+    [Theory]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.BitwiseCopyable>")]
+    [InlineData("<τ_0_0 where τ_0_0 == ()>")]
+    public void GenericClassConcreteMethod_LosslessExtensionConstraint_SkipsWrapper(string signature)
+    {
+        // These constraints are absent from the representable conformance list: BitwiseCopyable
+        // is an @_marker layout requirement and `== ()` is a concrete same-type pin. The older
+        // instance-class path consulted only that narrow list and emitted an unconditional
+        // `extension Box: _SBW_P_*`, which swiftc rejects because the method exists only under
+        // the dropped where-clause.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        parentDecl.GenericParameters = GenericSignatureParser.ParseGenericSignature("<τ_0_0>", "<τ_0_0>");
+
+        var method = CreateMethodWithReturn(
+            "reviewOnly", TypeSpecParser.Parse("Swift.Int32")!, parentDecl, moduleDecl);
+        method.IsExtensionMethod = true;
+        method.RawGenericSig = signature;
+        method.GenericParameters = GenericSignatureParser.ParseGenericSignature(signature, signature);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var sw = new StringWriter();
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
+
+        var output = sw.ToString();
+        Assert.Contains("Generic static dispatch wrapper skipped", output);
+        Assert.DoesNotContain("extension TestModule.Box: _SBW_P_", output);
+
+        var planning = new MemberValidationPipeline(typeDb).ValidateMethodEmission(method, null);
+        Assert.False(planning.ShouldEmit);
+        Assert.Equal(SkipReason.ConstrainedExtensionWrapper, planning.Reason);
+    }
+
+    [Fact]
+    public void GenericClassConcreteMethod_ParentDeclaredBitwiseConstraint_EmitsWrapper()
+    {
+        // A parent-declared marker is inherited by every member signature but does not narrow an
+        // instance receiver: Box<T> itself can only exist for a BitwiseCopyable T. Constructors
+        // remain fail-closed because C# cannot express that bound, while an instance method on an
+        // existing receiver may use the ordinary generic-class wrapper.
+        const string signature = "<τ_0_0 where τ_0_0 : Swift.BitwiseCopyable>";
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        parentDecl.RawGenericSig = signature;
+        parentDecl.GenericParameters = GenericSignatureParser.ParseGenericSignature(signature, signature);
+
+        var method = CreateMethodWithReturn(
+            "parentControl", TypeSpecParser.Parse("Swift.Int32")!, parentDecl, moduleDecl);
+        method.RawGenericSig = signature;
+        method.GenericParameters = GenericSignatureParser.ParseGenericSignature(signature, signature);
+
+        Assert.False(GenericDispatchEmitter.MemberNarrowsParentGenericSignature(method, parentDecl));
+
+        var sw = new StringWriter();
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(
+            new SwiftWriter(sw), new MethodEnvironment(method, typeDb), new ModuleEmissionContext());
+
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", sw.ToString());
+        Assert.Contains("extension TestModule.Box: _SBW_P_", sw.ToString());
+    }
+
     [Fact]
     public void GenericStaticDispatch_AssociatedTypeNarrowing_SkipsWrapper()
     {

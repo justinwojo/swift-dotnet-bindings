@@ -51,6 +51,18 @@ namespace BindingsGeneration
         public List<GenericArgumentDecl> GenericParameters { get; set; } = new();
 
         /// <summary>
+        /// Lossless ABI generic signature for this type. The representable
+        /// <see cref="GenericParameters"/> projection intentionally drops marker requirements,
+        /// so callers that must distinguish a parent-declared marker from an extension-added one
+        /// consult this source signature instead.
+        /// </summary>
+        public string? RawGenericSig { get; set; }
+
+        /// <summary>The structured lossless form of <see cref="RawGenericSig"/>.</summary>
+        public GenericSignatureModel ParsedTypeGenericSignature =>
+            GenericSignatureParser.ParseSignature(RawGenericSig);
+
+        /// <summary>
         /// Module-qualified targets of <c>typealias</c> declarations on this type
         /// (including those introduced by <c>extension</c>). Keyed by the alias's
         /// short name (e.g. <c>"LibrarySortProperties"</c>), valued by the resolved

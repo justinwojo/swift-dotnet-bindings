@@ -54,4 +54,23 @@ public class GenericConstrainedExtensionOverloadTests : TestBase
         var result = mapper.MapJSONObjectWithOptionalAny(JSONObject: null);
         AssertNull(result, "MapJSONObjectWithOptionalAny(nil) returns nil per source semantics");
     }
+
+    public void TestLosslessConstraintRefusalsKeepUnconstrainedControl()
+    {
+        using var box = Functions.MakeGenericClassConstraintReviewBox();
+        AssertEqual(73, box.GetControl(), "unconstrained generic-class method remains callable");
+
+        var publicNames = box.GetType().GetMethods().Select(static m => m.Name).ToHashSet();
+        AssertFalse(publicNames.Contains("GetBitwiseOnly"),
+            "BitwiseCopyable-confined member is honestly refused instead of losing a rejected wrapper");
+        AssertFalse(publicNames.Contains("GetUnitOnly"),
+            "unit-pinned member is honestly refused instead of losing a rejected wrapper");
+    }
+
+    public void TestParentDeclaredBitwiseConstraintKeepsInstanceMethod()
+    {
+        using var box = Functions.MakeGenericClassParentBitwiseReviewBox();
+        AssertEqual(91, box.GetParentDeclaredControl(),
+            "a parent-declared BitwiseCopyable bound does not look like extension narrowing");
+    }
 }

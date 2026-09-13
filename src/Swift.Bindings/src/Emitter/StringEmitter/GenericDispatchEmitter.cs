@@ -392,7 +392,7 @@ internal static class GenericDispatchEmitter
     /// route), where a refusal here merely leaves it on the direct route.</para>
     /// </summary>
     internal static bool MemberNarrowsParentGenericSignature(MethodDecl member, TypeDecl parentTypeDecl)
-        => ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(member, parentTypeDecl);
+        => ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraintForMember(member, parentTypeDecl);
 
     internal static bool CanEmitStaticDispatch(
         MethodEnvironment env, TypeDecl parentTypeDecl, GenericDispatchKind kind)

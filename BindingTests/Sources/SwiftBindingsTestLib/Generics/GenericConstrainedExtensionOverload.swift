@@ -90,3 +90,40 @@ public func makeGenericConstrainedExtensionMapper(
     }
     return GenericConstrainedExtensionMapper<GenericConstrainedTag>(stored: nil)
 }
+
+// MARK: - Lossless constrained-extension refusal probes
+
+@frozen public struct GenericClassConstraintReviewToken {
+    public let value: Int32
+    public init(value: Int32) { self.value = value }
+}
+
+public final class GenericClassConstraintReviewBox<Value> {
+    public init() {}
+    public func control() -> Int32 { 73 }
+}
+
+// Both members have concrete signatures, so they take the generic-class instance-dispatch
+// path. Their constraints do not survive in GenericConformances: BitwiseCopyable is a marker
+// and `== ()` is an unrepresentable concrete same-type pin. Emitting either unconditional
+// protocol-conformance wrapper is invalid Swift; each must be refused with its exact identity.
+extension GenericClassConstraintReviewBox where Value: BitwiseCopyable {
+    public func bitwiseOnly() -> Int32 { 81 }
+}
+
+extension GenericClassConstraintReviewBox where Value == () {
+    public func unitOnly() -> Int32 { 82 }
+}
+
+public func makeGenericClassConstraintReviewBox() -> GenericClassConstraintReviewBox<GenericClassConstraintReviewToken> {
+    GenericClassConstraintReviewBox<GenericClassConstraintReviewToken>()
+}
+
+public final class GenericClassParentBitwiseReviewBox<Value: BitwiseCopyable> {
+    public init(value: Value) {}
+    public func parentDeclaredControl() -> Int32 { 91 }
+}
+
+public func makeGenericClassParentBitwiseReviewBox() -> GenericClassParentBitwiseReviewBox<GenericClassConstraintReviewToken> {
+    GenericClassParentBitwiseReviewBox(value: GenericClassConstraintReviewToken(value: 1))
+}
