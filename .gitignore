@@ -249,7 +249,9 @@ tools/SwiftInterfaceParser/.build/
 # Claude Code local settings, worktrees, and runtime state
 .claude/settings.local.json
 .claude/worktrees/
+.claude/skills/
 .claude/scheduled_tasks.lock
+CLAUDE.local.md
 
 # Orchestrator worker liveness state (runtime only)
 .agent/

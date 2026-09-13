@@ -10,8 +10,8 @@ as the home for "Design B2" and design change 4, so it is kept (not archived), n
 session log. ⚠device: the runtime fixtures run on
 `--sim` (Mono JIT) **and** `--device` (NativeAOT). One residual unit stays deferred (latent, no
 reachable fixture today): the EC2+ composition collection-element carrier owned-mint — tracked in
-`src/docs/not-planned.md` → "Owned existential collection-element carrier fall-through" and under
-"Deferred / split-out units" below.
+the [protocol reference note](../Future/notes/protocols.md#owned-existential-collection-element-carrier-fall-through)
+and under "Deferred / split-out units" below.
 
 Scope (four items from the Session 1 gameplan):
 

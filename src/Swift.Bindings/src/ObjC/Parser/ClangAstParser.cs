@@ -1813,7 +1813,7 @@ public static class ClangAstParser
     /// <see cref="HasDefinitionBody"/> answers true and they are never reclassified. The load-bearing
     /// case is the protocol/attribute-only one above; the class arm only catches a genuine
     /// <c>super: {"id":"0x0"}</c> shell. A class forward-declared locally and never defined anywhere
-    /// in the TU is untouched by design — see not-planned.md, "Classes forward-declared but never
+    /// in the TU is untouched by design — see src/docs/Future/notes/objc.md, "Classes forward-declared but never
     /// defined in the TU still emit as empty shells".</para>
     /// </summary>
     /// <param name="namesWithRealDefinition">

@@ -19,8 +19,8 @@ namespace BindingsGeneration
     /// as a minimum-only float, which would happily resolve a future-
     /// incompatible 0.9.0 cached locally.
     /// <para>
-    /// This <c>&lt;remarks&gt;</c> is the contract of record for version coexistence (there is no
-    /// separate design doc). The three packages relate as follows: <c>SwiftBindings.Runtime</c>
+    /// These functions define the restore ranges; src/docs/Design/version-compatibility.md explains
+    /// them alongside the separate load-time and pack-time checks. <c>SwiftBindings.Runtime</c>
     /// <em>is</em> the runtime; <c>SwiftBindings.Sdk</c> and every generated binding carry a
     /// bounded <c>[X.Y.Z, X.(Y+1).0)</c> Runtime range (this method); the <c>SwiftBindings.Apple</c>
     /// supplement carries a floor-only <c>[A.B.C,)</c> range (<see cref="BuildMinimumOnly"/>),
@@ -37,11 +37,13 @@ namespace BindingsGeneration
     /// </para>
     /// <para>
     /// Enforcement seam: <c>EnablePackageValidation</c> on the Runtime/Apple csprojs runs NuGet's
-    /// offline compatible-framework / compatible-RID validators at pack time. The cross-version
-    /// ApiCompat check (<c>PackageValidationBaselineVersion</c>) and the minor-window end-state are
-    /// a single coupled, deferred owner decision (a baseline would force an offline-breaking
-    /// <c>PackageDownload</c>). This range is no
-    /// longer the only thing standing behind the rule.
+    /// compatible-framework / compatible-RID validators at pack time. In addition, <c>nuke pack</c>
+    /// supplies <c>PackageValidationBaselineVersion</c> for Runtime from the last qualifying stable
+    /// sdk-v* tag or an explicit baseline override. That managed public-API check is already active;
+    /// it is not deferred with the minor-window policy. Baseline acquisition can require a download;
+    /// <c>--skip-api-compat</c> is an explicit local-only opt-out, not release validation. Apple has
+    /// package self-consistency validation but no cross-version baseline supplied by the current pack.
+    /// ApiCompat does not prove native ABI safety. A wider coexistence window remains an owner decision.
     /// </para>
     /// </remarks>
     internal static class RuntimeVersionRange

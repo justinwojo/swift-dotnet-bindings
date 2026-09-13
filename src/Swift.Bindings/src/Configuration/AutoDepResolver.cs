@@ -176,7 +176,7 @@ namespace BindingsGeneration
                 // demanding more would reject the auto-discovery shape this probe exists to serve,
                 // and a wrong hit here fails visibly at build (the referenced project's types simply
                 // are not the ones the generated code names) rather than silently. Recorded as a
-                // dismissed-by-design residual in src/docs/not-planned.md.
+                // dismissed-by-design residual in src/docs/Design/decisions.md.
                 if (found is null && enumerateProjectFiles is not null && readFileText is not null)
                     found = ProbeSiblingBindingProject(
                         parent, enumerateProjectFiles, readFileText, consumerProjectPath, toAbsolutePath);

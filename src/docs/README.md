@@ -7,23 +7,19 @@ documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dot
 
 | Where | What |
 |---|---|
-| `roadmap.md` | Statement of intent (work we expect to do) + hard policy boundaries (confirmed-upstream blocks, out-of-scope/by-design). Not an exhaustive index of active work. |
-| `not-planned.md` | Acknowledged-but-not-planned register: trigger-gated latents, deferred designs, declined refactors, pending owner decisions. Nothing here is queued; an entry reopens only when its trigger fires. |
-| [`ai-development-velocity.md`](ai-development-velocity.md) | Living research on faster AI-driven development: evidence, candidate improvements, failure tests, and bounded experiments. Not an implementation plan or mandatory startup context. |
-| [`regression-harness-reliability.md`](regression-harness-reliability.md) | Mechanisms behind the recurring environmental reds in the downstream pre-release regression lanes (first-marker timeout, device launcher aborts) and the triage that separates them from real failures. The fixes land in `swift-dotnet-packages`. |
-| `Design/` | As-built architecture and design rationale. Docs live here only while they accurately describe the current implementation. |
-| `Future/` | Genuinely future work: deferred plans not yet scheduled, plus the queue of upstream dotnet/runtime issue filings (owner-driven). |
-| `sessions/` | Session-runner program docs for **active** programs only. Gitignored (local-only by convention). Empty unless a program is in flight. |
-| top-level `*.md` | Live working docs: standing contracts (e.g. `ingestion-hardening.md`, `version-coexistence.md`), signed decision records (`1.0-decision-record.md`). Dated diagnosis/audit memos do not live here — remove completed ones after extracting leftovers. |
+| [`roadmap.md`](roadmap.md) | Short statement of intended work and links to active plans. |
+| [`Future/notes/`](Future/notes/README.md) | Searchable deferred evidence by subsystem. Consult when relevant; not a backlog or mandatory reading. |
+| [`Future/development-workflow.md`](Future/development-workflow.md) | Deferred opportunities to shorten development feedback loops: current status, measurement rule and correctness checks. Not an implementation commitment. |
+| [`Design/`](Design/README.md) | Architecture, [engineering policies](Design/engineering-policies.md), [scope boundaries](Design/scope-boundaries.md), [decisions](Design/decisions.md), and useful troubleshooting rationale. Keep current contracts accurate; date historical evidence. |
+| `Future/` | Deferred proposals (including their unresolved choices), subsystem notes, and [confirmed upstream blockers](Future/upstream-blockers.md). Filing is owner-driven. |
+| [`sessions/0.20.0/README.md`](sessions/0.20.0/README.md) | Active 0.20.0 remaining-work gameplan, ordered batches and agent-ready plans. `sessions/` is gitignored/local-only; completed wave and review history is archived outside the repository. |
+| top-level `*.md` | Active working docs and signed decision records (e.g. `1.0-decision-record.md`); implemented contracts belong in `Design/`. Dated diagnosis/audit memos do not live here — remove completed ones after extracting leftovers. |
 
 ## Conventions
 
-- **Keep only future-facing docs.** For completed work, the code and tests are the documentation.
-  Historical program/audit docs are **removed from the repo** — tracked ones and gitignored
-  `sessions/` ones alike. Git history is a backstop for tracked files only; it holds nothing for
-  gitignored docs. Before removing a doc, extract anything still load-bearing into `not-planned.md`,
-  `roadmap.md`, or the wiki.
-- **When closing out work, route leftovers to `not-planned.md`** (with a reopen trigger), never
-  into `roadmap.md`.
-- **Durable design rationale goes to `Design/`** — but only if verified against the code it
-  describes; a design doc that has drifted is worse than no doc.
+- **Intended work goes in the roadmap.** Link the active plan when work is selected; a deferred possibility is not a commitment. Review the short roadmap during planning, not the entire note collection.
+- **Record selectively.** Retain a deferred finding only when it preserves costly-to-recover evidence, explains an intentional limitation, or identifies a concrete condition that would change the decision. Otherwise leave it in the task summary. Do not automatically extract every leftover.
+- **Give information one home.** Settled rationale belongs in Design; deferred evidence in the relevant subsystem note or proposal; consumer guidance in the wiki. Link across them instead of repeating the investigation. A pending choice stays with its proposal until it blocks intended work.
+- **Keep entries short.** Use impact, evidence, current decision and a specific revisit condition; see the [note conventions](Future/notes/README.md). Long investigations can have a separate document when their evidence warrants it.
+- **Remove completed records.** Code and tests preserve resolved behavior; extract any essential design rationale before deleting the old narrative. Prune cosmetic observations and superseded notes. Useful limitations can remain as reference indefinitely, with no promise to revisit them.
+- **Preserve evidence deliberately.** Tracked history can recover removed tracked docs; gitignored session documents have no such backstop. Before removing a local-only plan, retain its essential unresolved evidence or durable decisions in the appropriate tracked home, or preserve its agreed external archive. Never promote every session leftover into a permanent record.

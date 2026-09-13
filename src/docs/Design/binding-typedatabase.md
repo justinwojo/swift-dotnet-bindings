@@ -231,6 +231,6 @@ These are real gaps in the as-built system, not queued work:
 
 2. **Hard-coded alias tables** — `_moduleAliases` and `_typeAliases` are static dictionaries in `TypeDatabase`. New cross-module typealiases discovered in the wild require code changes, not data files.
 
-3. **Per-TFM XML supplements** — some Foundation overlay remaps (e.g. macOS-only process/host types) stay coarse in `FoundationDatabase.xml` because there is no per-platform stub overlay. Revisit only if a macOS consumer needs typed remaps that would break iOS (see `src/docs/not-planned.md` for the deferred trigger).
+3. **Per-TFM XML supplements** — some Foundation overlay remaps (e.g. macOS-only process/host types) stay coarse in `FoundationDatabase.xml` because there is no per-platform stub overlay. Revisit only if a macOS consumer needs typed remaps that would break iOS (see the [deferred trigger](../Future/notes/ingestion.md#macos-conditional-foundation-overlay-typed-remaps)).
 
 4. **Seed completeness vs Apple supplement** — built-in stubs and the apple-types manifest both participate in resolution. Ownership decides which wins; keeping them consistent when adding a new Apple identity is a process concern, not an automated invariant in the type-database layer.

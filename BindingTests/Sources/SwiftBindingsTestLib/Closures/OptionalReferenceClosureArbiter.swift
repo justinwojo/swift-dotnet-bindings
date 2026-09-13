@@ -32,7 +32,7 @@ import Foundation
 // `WrapperValidation.IsOptionalWithReferenceInner` (which classifies bridgeable value types as
 // nullable-pointer ABI because a witness-getter / `@_cdecl` return does materialise the pointer via
 // `as AnyObject`). Supporting value-type closure arguments needs a separate Swift bridging thunk and
-// is a pre-existing, never-worked capability tracked in roadmap.md — deliberately not fixtured here.
+// is a pre-existing, never-worked capability recorded in src/docs/Future/notes/closures-async.md — deliberately not fixtured here.
 //
 // Payloads feed the shared LifetimeTracker counters (`recordTrackedAllocation` /
 // `recordTrackedDeallocation`, defined in Lifetime/OwnershipTests.swift) so the C# side can assert ARC

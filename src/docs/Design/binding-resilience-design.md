@@ -361,7 +361,7 @@ recorded here — the session docs are not the record.
   accepted as out of scope: after wave 2 closes, a follow-up ingestion-hardening program is
   planned — a stranger's random framework hits ingestion first. Session 08 routes the soak's cause
   tally as that program's seed evidence rather than presenting a disposition fork; program shape
-  and roadmap placement remain owner calls at that point.
+  and funding remain owner calls at that point.
 
 ### Wave map
 
@@ -413,7 +413,7 @@ withdrawal-origin `EmitterFault` rows now classify at `SwiftCompile`.
   carriers only; violations throw `AbiContractViolationException`, SWIFTBIND095).
 - S05: the full recovery lattice (9 scopes), `RecoveryGraph`, and `RecoveryPolicy` were built, but
   the loop consumes only **LeafApi + AccessorGroup**; graph/policy have zero production callers —
-  their activation is trigger-gated in `not-planned.md`, not silently live.
+  their activation is governed by the [RecoveryGraph reference note](../Future/notes/recovery.md#populate-the-production-recoverygraph-to-authorize-coarse-leaf-accessor-withdrawal), not silently live.
 - S07: exception containment landed as a **snapshot/restore journal** (poison-and-regenerate,
   27 `EmissionSeam.Guard` sites, cap 3 → SWIFTBIND110), not the fragment-overlay design sketched
   in §5.
@@ -423,7 +423,7 @@ withdrawal-origin `EmitterFault` rows now classify at `SwiftCompile`.
 - S09: the wrapper verify-recover loop runs as an **in-emission driver** (pristine re-render per
   iteration, cross-slice union of failing units, monotonic denylist, cap 4) wired to the in-process
   simulator wrapper-arch path only; SDK two-pass and device paths keep the fast path — the parity
-  asymmetry is ratified in `not-planned.md`. Post-loop recompile of settled source stays the
+  asymmetry is recorded in the [loop-path reference note](../Future/notes/recovery.md#loop-path-parity-sdk-two-pass-compile-wrapper-only-device-all). Post-loop recompile of settled source stays the
   authoritative ship gate.
 - S8b: the two persistent sim crashes were **root-caused to the Mono unwinder** (confirmed upstream,
   Issue 5 in the authoritative memory list) → 2 runtime-detected `[SkipOnMonoJit]` skips, device
@@ -433,11 +433,12 @@ withdrawal-origin `EmitterFault` rows now classify at `SwiftCompile`.
   (`EmissionFactsJournalTests`, `InEmissionDriverRestorationTests`). The first natural firings came
   from this closeout's 120-lib re-sweep (the 6 libs above).
 
-**Leftover routing:** all wave-1 residuals live as trigger-gated rows in `not-planned.md`
-(§"Wrapper verify-recover loop — wave-2 & deferred": RecoveryGraph completeness + Gate-0 actuators,
-ABI-as-loop-input, strip-as-iteration-0, consume-converged-outcome + convergence-predicate
-precision, loop path parity, BindingTests resilience fixture); near-term intent lives in the wave-2
-session docs; roadmap carries policy only.
+**Residual records:** the named wave-1 residuals remain searchable, trigger-gated evidence in the
+[verification and recovery notes](../Future/notes/recovery.md): RecoveryGraph completeness + Gate-0
+actuators, ABI-as-loop-input, strip-as-iteration-0, consume-converged-outcome + convergence-predicate
+precision, loop path parity, and the BindingTests resilience fixture. They do not become work merely
+by being recorded. Near-term intent lives in the wave-2 session docs; standing policy lives in
+[Engineering policies](engineering-policies.md).
 
 ### Wave-2 outcome record (2026-07-20)
 
@@ -503,21 +504,21 @@ resolved to a leaf-api / accessor-group scope.
 - **Stage 7 (bounded bisection, SWIFTBIND117) fired on no soak library.** Every recovery came from
   direct attribution; no unattributable failure needed the dependency-aware bisection fallback.
   Verification caching stays opt-in (explicit root, package-mode only). Fragment-transaction migration
-  measured NOT WARRANTED (mandatory recompile dominates) → routed to `not-planned.md`.
+  measured NOT WARRANTED (mandatory recompile dominates) → recorded as a [settled decision](decisions.md#fragment-transaction-migration-of-the-whole-attempt-snapshot-restore-not-warranted-by-measurement).
 
 **Device leg — PENDING.** Wave 2's recovery machinery is generator-side emission that only engages on
 hostile shapes; the sim BindingTests are unchanged (3,242/0/0) because the main test lib contains no
 loop-triggering member (the ResilienceKitchen fixture exercises the loop in the compile gate). The
 NativeAOT device re-prove of the wave-2 emission path is **owner-attended before the 0.18.0 cut and
-recorded here** (not a separate not-planned tracker). The related not-planned row is
-**"Loop path parity (SDK two-pass / device / all)"** — that row is about deferred *loop wiring* on
+recorded here** (not a separate deferred tracker). The related [loop-path reference note](../Future/notes/recovery.md#loop-path-parity-sdk-two-pass-compile-wrapper-only-device-all)
+is about deferred *loop wiring* on
 device/all paths, not this BindingTests device re-run.
 
-**Leftover routing:** the soak cause tally above is packaged as the ingestion-hardening follow-up
-program's seed evidence (D-R7 / OD-W2-3) — recorded here and pointer-linked from `not-planned.md`;
+**Residual record:** the soak cause tally above is packaged as the ingestion-hardening follow-up
+program's seed evidence (D-R7 / OD-W2-3) — recorded here and linked from the [recovery note](../Future/notes/recovery.md#ingestion-honest-red-residual-families-soak-cause-tally-d-r7-od-w2-3);
 machine-readable per-library detail lives in the corpus-sweep harness
 (`logs/wave2-ratchet-s8.json`, local scaffolding). Remaining wave-2 residuals stay as trigger-gated
-rows in `not-planned.md`.
+records in the [subsystem reference notes](../Future/notes/README.md), and are not automatically work.
 
 ---
 

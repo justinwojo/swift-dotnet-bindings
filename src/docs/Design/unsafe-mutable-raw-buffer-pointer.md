@@ -307,7 +307,7 @@ Existing patterns we reuse rather than re-invent:
 ## v2 — deferred
 
 These are explicitly out of scope for v1. Deferred — recorded in this
-doc only, not scheduled (not listed in `roadmap.md` / `not-planned.md`):
+doc only, with no roadmap commitment or subsystem reference-note record:
 
 - **Escaping closure parameter**: requires `Span<byte>` lifetime to
   outlive the synchronous frame. Likely solution: native-allocated

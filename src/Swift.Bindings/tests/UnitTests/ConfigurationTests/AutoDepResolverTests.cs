@@ -549,7 +549,7 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Probe5_ADifferentBindingProjectBesideTheXcframework_IsStillAccepted()
         {
-            // Pins a DISMISSED-BY-DESIGN behavior (src/docs/not-planned.md): the probe proves the
+            // Pins a DISMISSED-BY-DESIGN behavior (src/docs/Design/decisions.md): the probe proves the
             // candidate is a binding project, not that it binds THIS xcframework. A lone unrelated
             // binding project beside a vendored dependency is therefore accepted. Requiring linking
             // evidence would reject the auto-discovery shape the probe exists to serve, and a wrong

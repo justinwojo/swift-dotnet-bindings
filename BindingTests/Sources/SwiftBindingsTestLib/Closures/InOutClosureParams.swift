@@ -41,7 +41,7 @@ public struct BuilderViewport {
 /// generator's source of truth — only for `@objc` enums. A plain `enum: Int32` has its
 /// `= 4100` stripped to a bare `case queued`, so the binding can only fall back to
 /// declaration-order ordinals for the C# member while the Swift side still marshals
-/// `.rawValue`; that pairing is the divergence recorded in `not-planned.md`, not a shape
+/// `.rawValue`; that pairing is the divergence recorded in `src/docs/Future/notes/closures-async.md`, not a shape
 /// this fixture can assert on.
 @objc public enum BuilderStage: Int {
     case queued = 4100

@@ -69,4 +69,4 @@ Five shape details the guard has to respect, all regression-tested in `SdkTarget
 ## Related
 
 - `binding-resilience-design.md` — the general "fail the producer, never the consumer" posture this guard implements for packaging.
-- `not-planned.md` § *SDK, packaging, tooling & test infrastructure* — residuals recorded against this model.
+- [SDK, packaging and test-infrastructure reference notes](../Future/notes/tooling.md) — residuals recorded against this model.

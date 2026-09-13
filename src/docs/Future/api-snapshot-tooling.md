@@ -17,7 +17,7 @@ No mechanism to detect when a generator change alters the public API surface of 
 
 ## Consideration
 
-Potentially noisy during active development. May be better gated on releases or opt-in. Tracked as deferred tooling in `src/docs/not-planned.md`; could feed into an optional CI comparison step when picked up.
+Potentially noisy during active development. May be better gated on releases or opt-in. Tracked in the [deferred tooling note](notes/tooling.md#api-snapshot-tooling); could feed into an optional CI comparison step when picked up.
 
 ## Key Files
 

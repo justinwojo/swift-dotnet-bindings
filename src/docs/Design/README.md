@@ -1,12 +1,22 @@
 # Design Documents
 
-Technical design documents covering Swift/C# interop internals. Docs live here only if they accurately describe the *current* implementation — each was verified against the shipped generator and runtime (most recently 2026-07). Stale fork-era design docs were deleted; recover them from git history or the upstream `dotnet/runtimelab` branch if ever needed.
+Technical design documents and durable engineering records for Swift/C# interop internals. Implementation docs describe the *current* system; this directory also holds standing policies, settled decisions, scope boundaries, and environmental troubleshooting. Stale fork-era design docs were deleted; recover them from git history or the upstream `dotnet/runtimelab` branch if ever needed.
 
 These docs are useful for contributors who need to understand the internals of the generator. For user-facing documentation, see the [project wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki).
 
 ## Contents
 
+### Policies, Decisions & Troubleshooting
+
+- [engineering-policies.md](engineering-policies.md) — Strategic posture, prediction-gate freeze, and surface-loss policy
+- [scope-boundaries.md](scope-boundaries.md) — By-design limits and explicitly out-of-scope surfaces
+- [decisions.md](decisions.md) — Settled engineering decisions and declined refactors
+- [version-compatibility.md](version-compatibility.md) — Runtime dependency ranges, load-time epoch and pack-time API compatibility
+- [environmental-troubleshooting.md](environmental-troubleshooting.md) — Known environmental failures and operational checks
+
 ### Binding Design
+
+- [ingestion-contract.md](ingestion-contract.md) — Input accounting, dependency closure, failure reports and known coverage limits
 - [binding-resilience-design.md](binding-resilience-design.md) — Resilience pipeline: regenerate-from-plan, recovery ladder, prediction/verification division of labor (as-built; §8 is the wave-1/2 outcome record)
 - [binding-structs.md](binding-structs.md) — Three-way struct model: frozen blittable C# struct, frozen+memory-managed class-with-buffer, non-frozen class-with-opaque-payload
 - [binding-closures.md](binding-closures.md) — Closure callback patterns, the `@_cdecl` wrapper architecture, and delegate projection (`Action`/`Func` with `SwiftResult`/`Task` wrappers)
@@ -28,7 +38,7 @@ These docs are useful for contributors who need to understand the internals of t
 - [retrieving-symbols-outside-abi-json.md](retrieving-symbols-outside-abi-json.md) — Symbols needed beyond ABI JSON (TBD parsing)
 
 ### Validation & Apple Frameworks
-- [abi-coverage-grid.md](abi-coverage-grid.md) — ABI coverage grid (living artifact, referenced from roadmap)
+- [abi-coverage-grid.md](abi-coverage-grid.md) — ABI coverage grid (living artifact, referenced from the strategic posture)
 - [apple-framework-portfolio.md](apple-framework-portfolio.md) — Apple framework binding portfolio
 - [apple-framework-binding-strategy.md](apple-framework-binding-strategy.md) — Apple framework binding strategy
 - [apple-swift-types-architecture.md](apple-swift-types-architecture.md) — Apple Swift types architecture

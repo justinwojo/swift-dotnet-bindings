@@ -1,8 +1,7 @@
 # Design: ABI Coverage Grid (thin-corner runtime coverage)
 
 Status: **implemented — closure/inout/tuple + generics corners graded clean on sim + device**
-(see §11 Phase 2). 2026-06-11. Strategic framing in `../roadmap.md` → "Strategic posture
-(post-0.14)".
+(see §11 Phase 2). 2026-06-11. Strategic framing in [Engineering policies](engineering-policies.md#strategic-posture).
 
 > **Revision note (v2).** Independent reviews by Codex (`019eb50f-2950-7001-96a4-57f7a4e5a81e`)
 > and Grok (`019eb513-1365-73b2-aa3d-56ee30750f9f`) converged on six changes, all folded in
@@ -30,11 +29,11 @@ under-exercised corners of the ABI surface, by:
 3. Emitting a **green / red / by-design-gray grid** as a first-class artifact, plus a **gate**
    that fails if an expected-green cell has no fixture or doesn't pass.
 
-The motivating evidence (measured 2026-06-10, see roadmap "Strategic posture (post-0.14)"): the existing
+The motivating evidence (measured 2026-06-10, see [Engineering policies — Strategic posture](engineering-policies.md#strategic-posture)): the existing
 end-to-end corpus (~44 apps across `swift-dotnet-packages` + `internal-binding-testing`,
 both runtimes, real value assertions) is **thick exactly where real libraries are thick**
 (enums, structs, optionals, simple async/protocols) and **thin exactly where they're thin**
-(closures, inout, tuples, constrained generics, actors). The parked-latent list (now `../not-planned.md`; formerly roadmap's Latent tier) —
+(closures, inout, tuples, constrained generics, actors). The parked-latent records (now split across the [subsystem reference notes](../Future/notes/README.md); formerly roadmap's Latent tier) —
 "present mechanism, zero emission site in current surface" — clusters in the *same* thin
 corners, causally: nothing reaches that code because no common library uses that shape, yet
 the generator still emits it. The 1.0 risk is a consumer calling an emitted binding for a
@@ -51,7 +50,7 @@ bridges) + 13 closure C# test files, dozens of reverse-dispatch `*Delegate` fixt
 and 2/3/7-element + named + mixed tuple coverage. So the premise is
 **not** "we don't test closures/tuples" — we do. The genuine local gap is narrower and more
 specific: (a) the *complex combinations* real libraries never forced (resilient × async ×
-optional-tuple-return), and (b) the named parked-**Latent** shapes (see `../not-planned.md`) with no current emission
+optional-tuple-return), and (b) the named parked-**Latent** shapes (see the [subsystem reference notes](../Future/notes/README.md)) with no current emission
 site — `inout` writeback observability, `inout` ObjC-bridgeable, generic-parent `inout`,
 mixed-indirect generic tuple returns, same-signature closure/async fan-out. The grid's job is
 to reach *those*, not to re-cover the basics. This is why Phase 0 (§11) audits existing
@@ -88,8 +87,8 @@ Four pieces, three of them tiny:
     Reds here stay **red** (not hidden) but are **non-release-blocking** — they inform, they
     don't gate. This is the bucket for "rare in consumer code too," distinct from by-design.
   - `by-design-gray` — intentionally unsupported by product/architecture (PATs, result
-    builders, autoclosure, …). Must cite a roadmap *Not Worth Addressing* / *Explicitly Out
-    of Scope* entry. "Uncommon" alone is **not** grounds for gray — that's `supported-low-priority`.
+    builders, autoclosure, …). Must cite a [Scope boundaries](scope-boundaries.md) entry.
+    "Uncommon" alone is **not** grounds for gray — that's `supported-low-priority`.
 - **Grid** — the report: manifest cells × merged sim+device JSONL → a table
   (cell, disposition, sim status, device status, fixture) + a JSON artifact
   (`output/abi-grid.json`) + a roll-up (e.g. "% of expect-green cells green on sim+device").
@@ -162,12 +161,12 @@ genuinely-unreached, Latent-tied shapes:
   mutation is *not* asserted to reach the caller — assert it does),
 - `inout` ObjC-bridgeable (URL/Decimal) and generic-parent `inout`,
 - mixed / generic tuple returns **under async / throws**,
-- same-signature closure/async fan-out (the parked-Latent repro, see `../not-planned.md`).
+- same-signature closure/async fan-out (the parked-Latent repro, see the [protocol reference note](../Future/notes/protocols.md#same-signature-closure-async-method-fan-out-gap)).
 
 **Disposition, not gray-mask.** Cells are dispositioned per §3 (`expect-green` /
 `supported-low-priority` / `by-design-gray`). Only genuinely product/architecture-unsupported
-shapes are `by-design-gray` and must cite a roadmap *Not Worth Addressing* / *Explicitly Out
-of Scope* entry; uncommon-but-supported shapes are `supported-low-priority` (reported red, not
+shapes are `by-design-gray` and must cite a [Scope boundaries](scope-boundaries.md) entry;
+uncommon-but-supported shapes are `supported-low-priority` (reported red, not
 gated), never grayed for rarity alone.
 
 ## 6. Cell↔test mapping — decided: name-join in v1, attribute deferred

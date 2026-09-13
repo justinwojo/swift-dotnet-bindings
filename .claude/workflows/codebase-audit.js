@@ -52,8 +52,8 @@ const TRACKS = {
   A6: {
     report: 'Track-A6_Concrete-Specialization-PAT.md',
     title: 'Concrete specialization (CSM) / generics / PAT',
-    targets: 'Marshaler/ConcreteSpecializationEngine.cs; Emitter/StringEmitter/Handler/ConcreteProtocolSpecializationEmitter.cs, GenericTypeEmitter.cs; Marshaler/BoundGenericsHandler.cs; TypeDatabase/ConformanceGraph.cs; Emitter/StringEmitter/PInvokeHelperEmitter.cs; src/docs/roadmap.md (CSM "trigger to revisit" items)',
-    hunt: 'wrong generic arity; Self not substituted (CS0246/CS0305); SameType sugar mismatch; protocol-composition constraints treated as opaque; associated-type constraints skipped; value conformer passed to ISwiftObject APIs; PWT metadata ordering; CSM result-pointer alloc/free antipatterns; multi-PAT boxing. Seed hypotheses from roadmap open items, then verify each against current code + tests.',
+    targets: 'Marshaler/ConcreteSpecializationEngine.cs; Emitter/StringEmitter/Handler/ConcreteProtocolSpecializationEmitter.cs, GenericTypeEmitter.cs; Marshaler/BoundGenericsHandler.cs; TypeDatabase/ConformanceGraph.cs; Emitter/StringEmitter/PInvokeHelperEmitter.cs; src/docs/Future/notes/generics.md (deferred CSM evidence)',
+    hunt: 'wrong generic arity; Self not substituted (CS0246/CS0305); SameType sugar mismatch; protocol-composition constraints treated as opaque; associated-type constraints skipped; value conformer passed to ISwiftObject APIs; PWT metadata ordering; CSM result-pointer alloc/free antipatterns; multi-PAT boxing. Consult relevant recorded evidence, then verify each authorized hypothesis against current code + tests.',
   },
   A7: {
     report: 'Track-A7_Async-Throws-Error-Carrier.md',

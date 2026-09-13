@@ -26,7 +26,8 @@
          api-compat-baseline parameter) and passes it as an MSBuild property for every Runtime
          pack. A baseline makes NuGet PackageDownload that nupkg, so an offline pack that ships
          nowhere opts out with the skip-api-compat switch; a released pack always runs the diff.
-         The written contract of record is RuntimeVersionRange's <remarks> in the generator. -->
+         src/docs/Design/version-compatibility.md explains this alongside the separate restore
+         ranges (RuntimeVersionRange) and load-time handshake (RuntimeContract). -->
     <EnablePackageValidation>true</EnablePackageValidation>
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Runtime</PackageId>

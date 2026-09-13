@@ -36,7 +36,7 @@ those registers are also candidates for the GC-safe-region transition cookie, an
 argument setup can destroy the cookie before the branch. The `@_cdecl` route removes the collision
 by removing the reserved register from the signature — `self` arrives as an ordinary pointer
 argument. The register-level mechanism, its evidence and its reopen trigger are recorded in
-`not-planned.md` under *Mono clobbers the GC-safe-region cookie in `x20`*; what belongs here is the
+[the runtime/ABI reference note](../Future/notes/runtime-abi.md#mono-clobbers-the-gc-safe-region-cookie-in-x20-so-any-swiftself-carrying-direct-callconvswift-p-invoke-can-abo); what belongs here is the
 consequence for route selection: a member that carries an untyped `SwiftSelf` on the direct route is
 exposed to a defect the wrapper route does not have, so the eligibility guards are the surface worth
 narrowing, and the untyped-`SwiftSelf` population is a meaningful thing to measure.
@@ -58,7 +58,7 @@ mode, internal or SPI parents, async, actor isolation, inherited generic context
 carries a stable reason string; those strings are what the generated skip markers and the
 `binding-report.json` rows are keyed on, and they are the ledger a reroute effort works from.
 
-Adding a guard here is subject to the prediction-gate freeze policy in `roadmap.md`: a new gate is
+Adding a guard here is subject to the [prediction-gate freeze policy](engineering-policies.md#prediction-gate-freeze-policy-hard-policy-boundary): a new gate is
 justified only when the failure it prevents would otherwise *compile*.
 
 ## Wrapper symbols

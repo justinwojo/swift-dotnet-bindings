@@ -24,11 +24,11 @@
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Pack-time package self-consistency validation (Finding 51, mirrors SwiftBindings.Runtime).
          Runs NuGet's offline compatible-framework / compatible-RID validators over the produced
-         supplement nupkg. PackageValidationBaselineVersion (the cross-version ABI-additivity check)
-         is deliberately omitted: a baseline forces an offline-breaking PackageDownload, and the
-         supplement's cross-major-additive contract + floor-only Runtime range is the version-window
-         end-state decision reserved for the project owner. The
-         coexistence contract of record is RuntimeVersionRange's <remarks> in the generator. -->
+         supplement nupkg. The current Nuke pack supplies a cross-version managed API baseline to
+         Runtime, not Apple; this project has no PackageValidationBaselineVersion configured.
+         Do not confuse that current coverage boundary with a proof of cross-version native ABI
+         compatibility. src/docs/Design/version-compatibility.md explains the separate pack,
+         restore-range and load-time checks; changing their policy remains an owner decision. -->
     <EnablePackageValidation>true</EnablePackageValidation>
     <AssemblyName>SwiftBindings.Apple</AssemblyName>
     <RootNamespace>Swift</RootNamespace>

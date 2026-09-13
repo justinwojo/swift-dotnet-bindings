@@ -21,7 +21,7 @@ Last verified: **2026-04-30** on .NET 10.0.103, Microsoft.iOS.Sdk 26.2.10197, Xc
 ## Not filed as standalone bug reports
 
 - **`SwiftSelf<SafeHandle>` lifetime across async P/Invoke (Mono-only)** is a supportability question rather than a confirmed runtime bug. Post as a comment on the Swift interop tracking issue (successor to [#108662](https://github.com/dotnet/runtime/issues/108662)), not a standalone filing. Full comment text below under [Tracking-issue comment: `SwiftSelf<T>` async lifetime](#tracking-issue-comment-swiftselft-async-lifetime).
-- **Issue 8 (NativeAOT 2-type-param `CallConvSwift` SIGSEGV)** — closed 2026-04-30. Wrong P/Invoke shape on our side, not a runtime bug. Multi-result tuple returns use `(x0=res1, x1=res2, x2=pay1, x3=pay2, x4=Tmeta, x5=Umeta)`, not `(x8=SwiftIndirectResult, x0=pay1, x1=Tmeta, x2=Umeta, …)`. Generator now emits the correct shape for fully bare-generic tuples (`pair<T, U> -> (T, U)`); mixed/bound-generic shapes are tracked in `not-planned.md` (Mixed-indirect generic tuple returns). Disassembly evidence is in commit 1d0c5569.
+- **Issue 8 (NativeAOT 2-type-param `CallConvSwift` SIGSEGV)** — closed 2026-04-30. Wrong P/Invoke shape on our side, not a runtime bug. Multi-result tuple returns use `(x0=res1, x1=res2, x2=pay1, x3=pay2, x4=Tmeta, x5=Umeta)`, not `(x8=SwiftIndirectResult, x0=pay1, x1=Tmeta, x2=Umeta, …)`. Generator now emits the correct shape for fully bare-generic tuples (`pair<T, U> -> (T, U)`); mixed/bound-generic shapes are tracked in the [runtime/ABI reference note](notes/runtime-abi.md#mixed-indirect-generic-tuple-returns). Disassembly evidence is in commit 1d0c5569.
 
 ## Pre-flight checks before filing
 
@@ -41,7 +41,7 @@ For each issue file:
 3. **Issue 3** as a Mono bug — Mono-only, with a register-level root cause and a concrete suggested fix (exclude `x20`/`x21` from the GC-safe-region cookie's candidate registers in the managed-to-native wrapper). Its scope was **widened on 2026-09-08** from "one `CallConvSwift` ABI shape" to *any* `CallConvSwift` P/Invoke passing an untyped `SwiftSelf`; the file's title and body carry the correction, including the two arms that remain unevidenced (a cookie parked in `x21`, and typed `SwiftSelf<T>`, which is not implicated). Cross-link to Issue 1 since both involve Mono's `CallConvSwift` trampoline.
 
 After filing, link the dotnet/runtime issue numbers back into:
-- `src/docs/roadmap.md` (Blocked — Confirmed Upstream Only section)
+- [`src/docs/Future/upstream-blockers.md`](upstream-blockers.md)
 - `feedback_mono_jit_blame.md` (the authoritative confirmed-issues list)
 - the `swift-interop-repro` sibling repo README (Reproduced Issues table)
 

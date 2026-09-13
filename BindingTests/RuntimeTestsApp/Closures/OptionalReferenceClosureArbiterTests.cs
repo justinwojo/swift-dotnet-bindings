@@ -34,7 +34,7 @@ namespace RuntimeTestsApp.Closures;
 /// predicate is therefore the narrow <c>IsOptionalReferenceArg</c>, distinct from the WIDER
 /// producer-position oracle <c>WrapperValidation.IsOptionalWithReferenceInner</c>; the unit-layer delta
 /// is pinned by <c>OptionalReferenceClassifierTests</c>. Value-type closure arguments need a separate
-/// Swift bridging thunk (pre-existing, never-worked; tracked in roadmap.md) and are deliberately not
+/// Swift bridging thunk (pre-existing, never-worked; recorded in src/docs/Future/notes/closures-async.md) and are deliberately not
 /// fixtured here.
 /// </para>
 ///

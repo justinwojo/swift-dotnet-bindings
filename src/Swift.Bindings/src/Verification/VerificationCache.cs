@@ -39,7 +39,7 @@ namespace BindingsGeneration;
 /// on the opt-in path — is an opted-in stale hit paired with an <em>Inconclusive</em> final verify (a
 /// transient infra fault the publication gate treats as non-blocking), so the cache could have removed
 /// the last conclusive compile opportunity; that edge is part of what gates default-on (see
-/// <c>not-planned.md</c>) and is why the cache is opt-in. Reads and writes are
+/// <c>src/docs/Future/notes/recovery.md</c>) and is why the cache is opt-in. Reads and writes are
 /// best-effort: a torn or corrupt file (e.g. from a concurrent corpus-matrix run) is treated as a
 /// miss, and a write failure just means a future miss. Writes are atomic (temp file then rename).
 /// </para>
@@ -76,7 +76,7 @@ public sealed partial class VerificationCache
     /// of them — never shipping a broken binding, since the authoritative post-loop publication gate
     /// always re-verifies uncached, but risking an unnecessary API withdrawal that diverges from an
     /// uncached run. Requiring an explicit root confines that to an operator who owns the environment and
-    /// the cache lifetime. Completing the key so this can default on is tracked in not-planned.md.
+    /// the cache lifetime. Completing the key so this can default on is tracked in src/docs/Future/notes/recovery.md.
     /// </para>
     /// </summary>
     public static VerificationCache? CreateIfEnabled(ILogger? logger = null)

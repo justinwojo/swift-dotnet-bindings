@@ -1216,7 +1216,7 @@ public static class BindingsGeneratorCommand
             // publication gate always re-verifies uncached, but risking an unnecessary API withdrawal that
             // diverges from an uncached run. Until the key provably covers those inputs, requiring an
             // explicit root confines the cache to an operator who owns the environment and its lifetime;
-            // completing the key so it can default on is tracked in not-planned.md.
+            // completing the key so it can default on is tracked in src/docs/Future/notes/recovery.md.
             // A run-scoped verification feed is NOT part of the fingerprint key (the key covers the emitted
             // .cs, the csproj, and the ABI/toolchain/generator/denylist inputs — not the feed's contents),
             // so a cached verdict could go stale the moment a sibling is (re)packed into the feed. Disable
