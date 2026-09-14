@@ -1075,9 +1075,9 @@ partial class Build
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen and --compile-only cannot be "
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer and --compile-only cannot be "
                     + "combined: --compile-only is the whole-test-lib compile-check gate, while each opt-in leg builds and "
                     + "asserts its own focused fixture and returns early. Pass exactly one.");
 
@@ -1086,9 +1086,9 @@ partial class Build
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, --appstore-hygiene, and --partial-success-kitchen cannot be combined: each "
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, and --apple-package-consumer cannot be combined: each "
                     + "is a focused, exclusive leg that builds its own fixture and returns. Pass exactly one.");
 
             // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
@@ -1100,6 +1100,17 @@ partial class Build
                 if (Sim || Device || Macos || Catalyst || Tvos)
                     Log.Warning("--partial-success-kitchen is a host-only gate; platform flags are ignored.");
                 RunPartialSuccessKitchenGate();
+                return;
+            }
+
+            // Packaged SwiftBindings.Apple NativeAOT consumer: one PackageReference,
+            // no app-authored TrimmerRootDescriptor/IlcArg, and a real SwiftArray<Language>
+            // element materialization on device. This is the D09 product regression gate.
+            if (ApplePackageConsumer)
+            {
+                if (Sim || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos || MonoAot)
+                    Log.Warning("--apple-package-consumer is a NativeAOT iOS-device-only leg; non-device platform/runtime flags are ignored.");
+                RunApplePackageConsumerLeg();
                 return;
             }
 

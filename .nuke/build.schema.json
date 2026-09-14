@@ -146,6 +146,10 @@
           "type": "string",
           "description": "ApiCompat baseline for the SwiftBindings.Runtime pack: the last shipped Runtime version this pack's public surface must be additive over (defaults to the highest stable sdk-v* tag below --version)"
         },
+        "ApplePackageConsumer": {
+          "type": "boolean",
+          "description": "Opt-in: pack SwiftBindings.Runtime + SwiftBindings.Apple, then NativeAOT-publish and run a no-extra-TrimmerRoots iOS device consumer that materializes SwiftArray<Locale.Language> elements"
+        },
         "AppleVersion": {
           "type": "string",
           "description": "Package version for SwiftBindings.Apple (defaults to --version when unset)"

@@ -22,6 +22,23 @@ public func sbt_appleSupplement_createLocaleLanguage(_ bufferPtr: UnsafeMutableR
     bufferPtr.initializeMemory(as: Foundation.Locale.Language.self, repeating: lang, count: 1)
 }
 
+/// Writes an initialized two-element `[Foundation.Locale.Language]` into
+/// `bufferPtr`. Reading either element in C# exercises the unconstrained
+/// SwiftArray element-materialization path that must resolve Language through
+/// the supplement's NativeAOT-safe typed dispatch registrations.
+@available(iOS 16, tvOS 16, macOS 13, *)
+@_cdecl("SBT_AppleSupplement_CreateLocaleLanguages")
+public func sbt_appleSupplement_createLocaleLanguages(_ bufferPtr: UnsafeMutableRawPointer) {
+    let languages = [
+        Foundation.Locale.Language(identifier: "en"),
+        Foundation.Locale.Language(identifier: "fr")
+    ]
+    bufferPtr.initializeMemory(
+        as: [Foundation.Locale.Language].self,
+        repeating: languages,
+        count: 1)
+}
+
 #if canImport(CryptoKit)
 import CryptoKit
 

@@ -73,4 +73,26 @@ public static class TypeProbe
             }
         }
     }
+
+    /// <summary>
+    /// Materializes every element through SwiftArray's unconstrained dispatch seam
+    /// and returns the count when all values retain the canonical supplement type.
+    /// </summary>
+    public static int MaterializeLanguages(
+        Swift.SwiftArray<Swift.Foundation.Locale.Language> languages)
+    {
+        var values = languages.ToArray();
+        try
+        {
+            return values.All(value =>
+                    ReferenceEquals(value.GetType(), typeof(Swift.Foundation.Locale.Language)))
+                ? values.Length
+                : -1;
+        }
+        finally
+        {
+            foreach (var value in values)
+                value.Dispose();
+        }
+    }
 }

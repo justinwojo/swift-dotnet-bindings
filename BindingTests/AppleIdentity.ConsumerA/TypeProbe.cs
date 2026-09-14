@@ -32,6 +32,9 @@ public static class TypeProbe
     [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_CreateLocaleLanguage")]
     private static extern void CreateLocaleLanguage(IntPtr bufferPtr);
 
+    [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_CreateLocaleLanguages")]
+    private static extern void CreateLocaleLanguages(IntPtr bufferPtr);
+
     /// <summary>
     /// Constructs a live <see cref="Swift.Foundation.Locale.Language"/> instance
     /// by having a Swift helper write an initialized value into a heap buffer,
@@ -60,6 +63,35 @@ public static class TypeProbe
             }
             finally
             {
+                NativeMemory.Free(buf);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Constructs a live Swift array containing two Locale.Language values. The
+    /// returned collection exercises Language metadata as a generic argument;
+    /// callers own and must dispose the array and each materialized element.
+    /// </summary>
+    public static Swift.SwiftArray<Swift.Foundation.Locale.Language> CreateDefaultLanguages()
+    {
+        var metadata = SwiftObjectHelper<Swift.SwiftArray<Swift.Foundation.Locale.Language>>.GetTypeMetadata();
+        unsafe
+        {
+            void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            var initialized = false;
+            try
+            {
+                CreateLocaleLanguages((IntPtr)buf);
+                initialized = true;
+                return (Swift.SwiftArray<Swift.Foundation.Locale.Language>)
+                    SwiftObjectHelper<Swift.SwiftArray<Swift.Foundation.Locale.Language>>
+                        .NewFromPayload((IntPtr)buf);
+            }
+            finally
+            {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(buf, metadata);
                 NativeMemory.Free(buf);
             }
         }
