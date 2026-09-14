@@ -371,6 +371,10 @@
           "type": "string",
           "description": "Path to a solution file that is automatically loaded"
         },
+        "StoreKitSandboxProductId": {
+          "type": "string",
+          "description": "Exact App Store Connect product id for StoreKit command-line Sandbox qualification (or STOREKIT_SANDBOX_PRODUCT_ID)"
+        },
         "Strict": {
           "type": "boolean",
           "description": "Fail on non-zero generator exit"

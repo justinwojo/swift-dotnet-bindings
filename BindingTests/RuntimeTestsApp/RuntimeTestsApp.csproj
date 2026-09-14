@@ -322,6 +322,7 @@
            Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-storekit-snapshot`." />
   </Target>
   <PropertyGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
+    <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
     <DefineConstants>$(DefineConstants);STOREKIT_SMOKE</DefineConstants>
   </PropertyGroup>
   <ItemGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">

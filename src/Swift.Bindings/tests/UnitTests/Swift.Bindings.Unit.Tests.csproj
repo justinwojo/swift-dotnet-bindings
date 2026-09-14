@@ -177,6 +177,11 @@
          harness and RuntimeTestsApp so the missing-aps PermissionsError signature
          and signed-app/profile agreement remain regression-tested on the host. -->
     <Compile Include="../../../../build/Models/ActivityKitEntitlementGate.cs" Link="Models/ActivityKitEntitlementGate.cs" />
+    <!-- A StoreKit command-line smoke must observe a fresh same-device pure-Swift Sandbox
+         receipt before the managed app launches. Link the pure parser/preflight policy so
+         missing configuration, stale tokens, wrong environments, and incomplete operations
+         are host-tested without requiring Sandbox credentials. -->
+    <Compile Include="../../../../build/Models/StoreKitSandboxReadiness.cs" Link="Models/StoreKitSandboxReadiness.cs" />
     <!-- Link-compile the runtime-test app's OWN results writer so the run-identity token is tested
          as a round trip — writer stamps it, harness-side JsonlTestResults reads it back — instead of
          two hand-copied string literals that could drift apart. That token is what proves a JSONL

@@ -136,6 +136,40 @@
     </NativeReference>
   </ItemGroup>
 
+  <!-- StoreKit is the one Apple-framework smoke with an explicit tvOS command-line
+       Sandbox lane. It uses a tvOS-generated snapshot and the same source assertions as iOS. -->
+  <PropertyGroup>
+    <StoreKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/StoreKit2Snapshot-tvOS/</StoreKitSnapshotDir>
+    <StoreKitSnapshotCsproj>$(StoreKitSnapshotDir)StoreKit.Swift.tvOS.csproj</StoreKitSnapshotCsproj>
+    <StoreKitSnapshotProjectRefTargets>$(StoreKitSnapshotDir)StoreKit.Swift.tvOS.ProjectReference.targets</StoreKitSnapshotProjectRefTargets>
+    <StoreKitSnapshotXcframework>$(StoreKitSnapshotDir)StoreKitSwiftBindings.xcframework</StoreKitSnapshotXcframework>
+    <StoreKitSmokeEnabled Condition="'$(EnableStoreKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'tvossimulator-arm64' AND Exists('$(StoreKitSnapshotCsproj)') AND Exists('$(StoreKitSnapshotXcframework)/tvos-arm64-simulator') AND Exists('$(StoreKitSnapshotProjectRefTargets)')">true</StoreKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_StoreKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableStoreKitSmoke)' == 'true' AND '$(StoreKitSmokeEnabled)' != 'true'">
+    <Error Condition="!Exists('$(StoreKitSnapshotCsproj)')"
+           Text="EnableStoreKitSmoke=true but the tvOS StoreKit snapshot project is missing. Run nuke binding-tests --tvos --enable-storekit-smoke." />
+    <Error Condition="!Exists('$(StoreKitSnapshotXcframework)/tvos-arm64-simulator')"
+           Text="EnableStoreKitSmoke=true but the StoreKit tvOS simulator wrapper slice is missing. Regenerate the tvOS StoreKit snapshot." />
+    <Error Condition="!Exists('$(StoreKitSnapshotProjectRefTargets)')"
+           Text="EnableStoreKitSmoke=true but the StoreKit tvOS ProjectReference targets file is missing." />
+  </Target>
+  <PropertyGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
+    <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
+    <DefineConstants>$(DefineConstants);STOREKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
+    <Compile Include="../RuntimeTestsApp/SmokeTests/StoreKitSmokeTests.cs" />
+    <ProjectReference Include="$(StoreKitSnapshotCsproj)">
+      <Aliases>StoreKitSwift</Aliases>
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(StoreKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableStoreKitSmoke)' == 'true' AND Exists('$(StoreKitSnapshotProjectRefTargets)')" />
+
   <!-- Extract test manifest from source generator output into a host-visible file. -->
   <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
           Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">

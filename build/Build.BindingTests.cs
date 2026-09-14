@@ -406,7 +406,7 @@ partial class Build
 
     Target RegenerateBindings => _ => _
         .DependsOn(BuildXcframework)
-        .Executes(() => RunRegenerateBindings(Strict));
+        .Executes(() => RunRegenerateBindings(Strict, ResolvedPlatform));
 
     /// <summary>
     /// Regenerates the iOS-family (simulator / device / tvOS) bindings into the shared output dir
@@ -1061,6 +1061,21 @@ partial class Build
         .Executes(() =>
         {
             RejectSkipBuildWithActiveSmokeFlags();
+
+            if (EnableStoreKitSmoke)
+            {
+                if (CompileOnly || Device || Macos || MacosX64 || Catalyst || CatalystX64)
+                    throw new Exception(
+                        "--enable-storekit-smoke is a command-line iOS/tvOS Simulator Sandbox qualification. " +
+                        "It cannot be combined with --compile-only, device, macOS, or Catalyst lanes.");
+
+                // Fail before regeneration, build, install, or launch. Supplying an id only declares
+                // intent; the native same-simulator control later establishes live backend readiness.
+                if (Sim || !Tvos)
+                    RequireStoreKitSandboxConfiguration("ios");
+                if (Tvos)
+                    RequireStoreKitSandboxConfiguration("tvos");
+            }
 
             // --mono-aot only re-flavors the physical-device app build; it has no meaning on any
             // other lane. Silently ignoring it would hand back a green NativeAOT (or simulator) run

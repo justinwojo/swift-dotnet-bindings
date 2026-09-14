@@ -357,6 +357,7 @@ partial class Build
     AbsolutePath StoreKitSnapshotCsproj => StoreKitSnapshotDir / "StoreKit.Swift.iOS.csproj";
     AbsolutePath StoreKitSnapshotProjectRefTargets =>
         StoreKitSnapshotDir / "StoreKit.Swift.iOS.ProjectReference.targets";
+    AbsolutePath StoreKitTvOSSnapshotDir => BindingTestsDir / "obj" / "StoreKit2Snapshot-tvOS";
 
     // CryptoKit snapshot — canonical <Framework>Snapshot layout produced by the
     // generalized RegenerateAppleFrameworkSnapshot helper. No legacy path quirks
@@ -490,8 +491,16 @@ partial class Build
     // both final sinks in the declared-target graph and Nuke --strict rejects the plan.
     Target RegenerateStoreKitSnapshot => _ => _
         .After(RegenerateAppleSnapshot, BindingTests, PackGate, Validate)
-        .Description("Regenerate the in-tree StoreKit 2 snapshot (BindingTests/obj/StoreKit2Snapshot/) from the active Xcode SDK.")
-        .Executes(() => RegenerateStoreKit2Snapshot(force: true));
+        .Description("Regenerate the in-tree StoreKit 2 snapshot from the active Xcode SDK (--platform ios|tvos; default ios).")
+        .Executes(() =>
+        {
+            var platform = string.IsNullOrWhiteSpace(Platform)
+                ? ApplePlatform.IOS
+                : ApplePlatform.FromName(Platform);
+            if (platform != ApplePlatform.IOS && platform != ApplePlatform.TvOS)
+                throw new Exception("StoreKit snapshot regeneration supports only --platform ios or --platform tvos.");
+            RegenerateStoreKit2Snapshot(force: true, platform);
+        });
 
     /// <summary>
     /// Thin wrapper around <see cref="RegenerateAppleFrameworkSnapshot"/> that
@@ -501,9 +510,13 @@ partial class Build
     /// should call <see cref="RegenerateAppleFrameworkSnapshot"/> directly or
     /// go through the <c>regen-apple-snapshot</c> nuke target.
     /// </summary>
-    void RegenerateStoreKit2Snapshot(bool force)
+    void RegenerateStoreKit2Snapshot(bool force, ApplePlatform? platform = null)
     {
-        RegenerateAppleFrameworkSnapshot("StoreKit", StoreKitSnapshotDir, force);
+        platform ??= ApplePlatform.IOS;
+        var snapshotDir = platform == ApplePlatform.TvOS
+            ? StoreKitTvOSSnapshotDir
+            : StoreKitSnapshotDir;
+        RegenerateAppleFrameworkSnapshot("StoreKit", snapshotDir, force, platform);
     }
 
     /// <summary>
@@ -1526,15 +1539,18 @@ partial class Build
             if (Lifetime)
                 Log.Information("Lifetime mode: enabled (extended Lifetime/ assertions)");
 
-            // tvOS has no smoke wiring today — any active smoke flag is a
-            // configuration error, not something to quietly ignore.
+            // StoreKit has an explicit tvOS Sandbox qualification. Other Apple-framework
+            // smokes remain iOS-only and must not disappear silently on this lane.
             var activeSmoke = GetActiveSmokeFlags();
-            if (activeSmoke.Count > 0)
+            var unsupportedSmoke = activeSmoke
+                .Where(flag => flag.Define != "STOREKIT_SMOKE")
+                .ToList();
+            if (unsupportedSmoke.Count > 0)
             {
-                var names = string.Join(", ", activeSmoke.Select(f => f.FlagName));
+                var names = string.Join(", ", unsupportedSmoke.Select(f => f.FlagName));
                 throw new Exception(
                     $"{names}: smoke flags are not supported by --tvos. " +
-                    "Per-framework smoke wiring lives on the iOS simulator runner only. " +
+                    "Only --enable-storekit-smoke has tvOS Sandbox wiring. " +
                     "Drop the flag and rerun, or use --sim instead.");
             }
 
@@ -1565,11 +1581,21 @@ partial class Build
             // Step 2: Build RuntimeTestsApp.tvOS (unless --skip-build)
             if (!SkipBuild)
             {
+                if (EnableStoreKitSmoke)
+                    RegenerateStoreKit2Snapshot(force: false, platform);
                 Log.Information("--- Building RuntimeTestsApp.tvOS ---");
-                DotNetBuild(s => s
+                DotNetBuild(s =>
+                {
+                    var built = s
                     .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.tvOS")
                     .SetConfiguration("Debug")
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                    .SetVerbosity(DotNetVerbosity.quiet);
+                    if (EnableStoreKitSmoke)
+                        built = built
+                            .SetProperty("EnableStoreKitSmoke", "true")
+                            .SetProperty("SwiftBindingsRepoRoot", RootDirectory);
+                    return built;
+                });
 
                 var appFrameworks = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
                     $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app" / "Frameworks";
@@ -1726,6 +1752,11 @@ partial class Build
             ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
             : SimCtl.EnsureBootedDevice();
         Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
+        var storeKitConfiguration = EnableStoreKitSmoke
+            ? RequireStoreKitSandboxConfiguration("ios")
+            : null;
+        if (storeKitConfiguration is not null)
+            RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
         var appPath = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
             $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
@@ -1778,6 +1809,11 @@ partial class Build
                 var runToken = NewRunToken();
 
                 var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
+                if (storeKitConfiguration is not null)
+                    args.AddRange([
+                        StoreKitSandboxReadiness.ProductIdArgument,
+                        storeKitConfiguration.ProductId,
+                    ]);
                 if (FlakeDetect) args.AddRange(["--flake-detect"]);
                 if (Lifetime) args.AddRange(["--lifetime"]);
                 if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
@@ -1895,6 +1931,11 @@ partial class Build
             device = SimCtl.EnsureBootedDevice(SimCtl.TvOSAppleTVFamily);
         }
         Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
+        var storeKitConfiguration = EnableStoreKitSmoke
+            ? RequireStoreKitSandboxConfiguration("tvos")
+            : null;
+        if (storeKitConfiguration is not null)
+            RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
         var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
             $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
@@ -1915,6 +1956,11 @@ partial class Build
             runToken = NewRunToken();
 
             var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
+            if (storeKitConfiguration is not null)
+                args.AddRange([
+                    StoreKitSandboxReadiness.ProductIdArgument,
+                    storeKitConfiguration.ProductId,
+                ]);
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
             if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
