@@ -14,9 +14,9 @@ namespace BindingsGeneration.Tests;
 /// resolves a platform label to a baseline key and, when it cannot, logs "No runtime test baseline
 /// for … — skipping comparison" and returns. That is a silent pass: a lane whose label never mapped
 /// runs green forever no matter how far its pass count falls. These tests assert the mapping covers
-/// every shipping lane, that both committed baseline files actually carry the Mono full-AOT device
-/// lane's floor, and — the part that cannot be read off the JSON — that the identity ratchet is live
-/// for that lane rather than taking its no-entry inert path.
+/// every shipping lane, that every lane has exactly one committed authority, and — the part that
+/// cannot be read off the JSON — that the identity ratchet is live for the Mono full-AOT lane
+/// rather than taking its no-entry inert path.
 /// </summary>
 public class RuntimeBaselinePlatformKeyTests
 {
@@ -65,29 +65,41 @@ public class RuntimeBaselinePlatformKeyTests
     public void Resolve_ReturnsNullForNull() => Assert.Null(RuntimeBaselinePlatformKey.Resolve(null));
 
     /// <summary>
-    /// Every label the pipeline reports a run under must have a scalar pass-count floor committed,
-    /// otherwise the lookup falls through to the same "skipping comparison" early return as an
-    /// unmapped label.
+    /// Every shipping key belongs to exactly one authority: shared arm64 lanes are present in the
+    /// identity baseline and absent from the legacy scalar block, while x64 lanes do the opposite.
+    /// This is the single-source invariant that prevents the D12 drift from recurring.
     /// </summary>
     [Fact]
-    public void EveryShippingLane_HasAScalarPassCountFloor()
+    public void EveryShippingLane_HasExactlyOneCommittedAuthority()
     {
         using var doc = JsonDocument.Parse(File.ReadAllText(
             Path.Combine(LocateRepoRoot(), "build", "baselines", "validation-baseline.json")));
         var runtimeTests = doc.RootElement.GetProperty("runtime_tests");
+        var identity = LoadIdentityBaseline(LocateRepoRoot());
 
-        var missing = new List<string>();
+        var invalid = new List<string>();
         foreach (var label in RuntimeBaselinePlatformKey.ShippingPlatformLabels)
         {
             var key = RuntimeBaselinePlatformKey.Resolve(label);
             Assert.NotNull(key);
-            if (!runtimeTests.TryGetProperty(key!, out var counts) || counts.GetProperty("pass").GetInt32() <= 0)
-                missing.Add($"{label} => runtime_tests.{key}");
+
+            var hasScalar = runtimeTests.TryGetProperty(key!, out var scalar) &&
+                scalar.ValueKind != JsonValueKind.Null;
+            var hasIdentity = identity.Platforms.ContainsKey(key!);
+            var classifiedIdentity = RuntimeBaselinePlatformKey.IsIdentityBacked(key!);
+            var classifiedScalar = RuntimeBaselinePlatformKey.ScalarOnlyPlatformKeys.Contains(key!);
+            if (hasScalar == hasIdentity || hasIdentity != classifiedIdentity ||
+                hasScalar != classifiedScalar || classifiedIdentity == classifiedScalar)
+            {
+                invalid.Add(
+                    $"{label} => {key} (scalar={hasScalar}/{classifiedScalar}, " +
+                    $"identity={hasIdentity}/{classifiedIdentity})");
+            }
         }
 
-        Assert.True(missing.Count == 0,
-            "Shipping runtime lane(s) with no committed pass-count floor — the comparison silently " +
-            "skips for these: " + string.Join(", ", missing));
+        Assert.True(invalid.Count == 0,
+            "Shipping runtime lane(s) must have exactly one baseline authority: " +
+            string.Join(", ", invalid));
     }
 
     /// <summary>
@@ -99,15 +111,14 @@ public class RuntimeBaselinePlatformKeyTests
     /// tests above, and it guards the exact way this gate fails open.
     /// </summary>
     [Fact]
-    public void EveryBaselineKey_HasBothSwitchArmsInTheComparison()
+    public void EveryScalarOnlyBaselineKey_HasBothSwitchArmsInTheComparison()
     {
         var source = File.ReadAllText(
             Path.Combine(LocateRepoRoot(), "build", "Build.RuntimeTests.cs"));
 
         var underWired = new List<string>();
-        foreach (var label in RuntimeBaselinePlatformKey.ShippingPlatformLabels)
+        foreach (var key in RuntimeBaselinePlatformKey.ScalarOnlyPlatformKeys)
         {
-            var key = RuntimeBaselinePlatformKey.Resolve(label);
             var arms = System.Text.RegularExpressions.Regex.Matches(source, $"\"{key}\" =>").Count;
             if (arms < 2)
                 underWired.Add($"{key} ({arms} arm(s))");
@@ -119,28 +130,56 @@ public class RuntimeBaselinePlatformKeyTests
     }
 
     /// <summary>
-    /// The Mono full-AOT device lane is graded by both stores, and their skip cardinality agrees.
-    /// The scalar floor and the identity floor are updated by separate code paths, so a drift
-    /// between them means one of the two is stale.
+    /// Seeding is the explicit way to bless a newly-added intentional skip. That transition lowers
+    /// the pass count, so shared lanes must replace their identity-owned floor before enforcing the
+    /// old pass floor. The early return also keeps the seed path distinct from ordinary comparison.
     /// </summary>
     [Fact]
-    public void DeviceMonoAotLane_ScalarAndIdentityFloorsAgreeOnSkipCount()
+    public void SharedLaneSeed_ReplacesIdentityAuthorityBeforePassFloorComparison()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(LocateRepoRoot(), "build", "Build.RuntimeTests.cs"));
+
+        const string seedGuard = "if (identityBacked && SeedRuntimeIdentityBaseline)";
+        const string passFloorGuard = "if (currentPass < baselinePass)";
+        var seedStart = source.IndexOf(seedGuard, System.StringComparison.Ordinal);
+        var passFloorStart = source.IndexOf(passFloorGuard, System.StringComparison.Ordinal);
+
+        Assert.True(seedStart >= 0, "Shared-lane identity seed guard is missing.");
+        Assert.True(passFloorStart > seedStart,
+            "Shared-lane identity seeding must precede the old pass-floor regression gate.");
+
+        var seedPath = source.Substring(seedStart, passFloorStart - seedStart);
+        Assert.Contains("seeded.Save(RuntimeIdentityBaselinePath);", seedPath);
+        Assert.Contains("return;", seedPath);
+    }
+
+    /// <summary>
+    /// Every shared lane derives pass/skip/fail counts mechanically from its identity entry. This
+    /// covers the full former drift surface rather than pinning one Mono-AOT field pair.
+    /// </summary>
+    [Fact]
+    public void EverySharedLane_DerivesPassSkipAndFailCountsFromIdentityAuthority()
     {
         var repoRoot = LocateRepoRoot();
         using var doc = JsonDocument.Parse(File.ReadAllText(
             Path.Combine(repoRoot, "build", "baselines", "validation-baseline.json")));
-        var scalar = doc.RootElement.GetProperty("runtime_tests").GetProperty(MonoAotKey);
+        var scalar = doc.RootElement.GetProperty("runtime_tests");
 
         var identity = LoadIdentityBaseline(repoRoot);
-        Assert.True(identity.Platforms.ContainsKey(MonoAotKey),
-            $"runtime-identity-baseline.json has no '{MonoAotKey}' entry — the identity ratchet is " +
-            "inert for the Mono full-AOT device lane.");
-        var lane = identity.Platforms[MonoAotKey];
+        foreach (var key in RuntimeBaselinePlatformKey.IdentityBackedPlatformKeys)
+        {
+            Assert.False(scalar.TryGetProperty(key, out _),
+                $"validation-baseline.json duplicates the identity-owned '{key}' count floor.");
 
-        Assert.Equal(scalar.GetProperty("pass").GetInt32(), lane.PassCount);
-        Assert.Equal(scalar.GetProperty("skip").GetInt32(), lane.Skips.Count);
-        Assert.Equal(0, scalar.GetProperty("fail").GetInt32());
-        Assert.Empty(lane.KnownFails);
+            var counts = identity.GetRequiredCounts(key);
+            var lane = identity.Platforms[key];
+            Assert.True(counts.Pass > 0, $"Identity-owned '{key}' has no pass floor.");
+            Assert.Equal(lane.PassCount, counts.Pass);
+            Assert.Equal(lane.Skips.Count, counts.Skip);
+            Assert.Equal(lane.KnownFails.Count, counts.Fail);
+            Assert.Equal(0, counts.Crash);
+        }
     }
 
     /// <summary>

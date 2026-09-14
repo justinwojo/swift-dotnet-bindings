@@ -244,7 +244,7 @@ internal static class MethodLevelGenericNativeProbeImports
 {
     internal const ulong Refused = 1UL << 0;
     internal const ulong ResultUntouched = 1UL << 1;
-    internal const ulong ErrorUntouched = 1UL << 2;
+    internal const ulong ErrorCleared = 1UL << 2;
     internal const ulong NoEntry = 1UL << 3;
     internal const ulong NoMutation = 1UL << 4;
     internal const ulong ProtectedStorage = 1UL << 5;
@@ -293,12 +293,12 @@ public sealed class MethodLevelGenericAssociatedProtocolNativeTests : TestBase
     {
         var report = MethodLevelGenericNativeProbeImports.AssociatedProtocolRefusal();
         var expected = MethodLevelGenericNativeProbeImports.Refused
-            | MethodLevelGenericNativeProbeImports.ErrorUntouched
+            | MethodLevelGenericNativeProbeImports.ErrorCleared
             | MethodLevelGenericNativeProbeImports.NoEntry
             | MethodLevelGenericNativeProbeImports.ProtectedStorage
             | MethodLevelGenericNativeProbeImports.DirectSentinel;
         AssertEqual(expected, report,
-            "Element: HashLike carrier refused before protected storage, error publication, or method entry");
+            "Element: HashLike carrier refused after clearing the error slot and before protected storage or method entry");
     }
 }
 

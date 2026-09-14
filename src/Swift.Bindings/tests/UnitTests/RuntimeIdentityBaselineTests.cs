@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -235,6 +236,71 @@ public class RuntimeIdentityBaselineTests
         Assert.Single(identities.KnownFails);
         Assert.Equal("Mid", identities.KnownFails[0].Class);
     }
+
+    [Fact]
+    public void GetRequiredCounts_DerivesEveryScalarFromOneIdentityEntry()
+    {
+        var baseline = Seeded(
+            Pass("A", "p1"), Pass("A", "p2"), Skip("A", "s"), Fail("A", "f"));
+
+        var counts = baseline.GetRequiredCounts(Plat);
+
+        Assert.Equal(2, counts.Pass);
+        Assert.Equal(1, counts.Skip);
+        Assert.Equal(1, counts.Fail);
+        Assert.Equal(0, counts.Crash);
+    }
+
+    [Fact]
+    public void GetRequiredCounts_MissingPlatform_FailsClosed()
+    {
+        var error = Assert.Throws<InvalidDataException>(
+            () => new RuntimeIdentityBaseline().GetRequiredCounts(Plat));
+
+        Assert.Contains(Plat, error.Message);
+        Assert.Contains("cannot be graded", error.Message);
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{}")]
+    [InlineData("{\"platforms\":{\"simulator\":{\"pass_count\":1,\"known_fails\":[]}}}")]
+    [InlineData("{\"platforms\":{\"simulator\":{\"pass_count\":1,\"skips\":[]}}}")]
+    public void Parse_MalformedOrIncompleteAuthority_FailsClosed(string json)
+        => Assert.Throws<JsonException>(() => RuntimeIdentityBaseline.Parse(json));
+
+    [Fact]
+    public void GetRequiredCounts_NegativePassFloor_FailsClosed()
+    {
+        var baseline = new RuntimeIdentityBaseline().WithPlatform(Plat, new()
+        {
+            PassCount = -1,
+            Skips = [],
+            KnownFails = [],
+        });
+
+        Assert.Throws<InvalidDataException>(() => baseline.GetRequiredCounts(Plat));
+    }
+
+    [Fact]
+    public void GetRequiredCounts_DuplicateOrOverlappingIdentity_FailsClosed()
+    {
+        var duplicate = new RuntimeIdentityBaseline.TestId { Class = "A", Method = "t" };
+        var baseline = new RuntimeIdentityBaseline().WithPlatform(Plat, new()
+        {
+            PassCount = 1,
+            Skips = [duplicate],
+            KnownFails = [duplicate],
+        });
+
+        Assert.Throws<InvalidDataException>(() => baseline.GetRequiredCounts(Plat));
+    }
+
+    [Fact]
+    public void FromResults_UnsupportedStatus_FailsClosed()
+        => Assert.Throws<InvalidDataException>(
+            () => RuntimeIdentityBaseline.FromResults(
+                [new RuntimeIdentityBaseline.TestRecord("A", "t", "unknown", "")]));
 
     // ===================================================================
     //  Load/Save round-trip (source-gen JSON)

@@ -13,7 +13,7 @@ nonisolated(unsafe) internal var _mlgSuperclassEntryCount: Int32 = 0
 
 private let mlgProbeRefused = UInt64(1) << 0
 private let mlgProbeResultUntouched = UInt64(1) << 1
-private let mlgProbeErrorUntouched = UInt64(1) << 2
+private let mlgProbeErrorCleared = UInt64(1) << 2
 private let mlgProbeNoEntry = UInt64(1) << 3
 private let mlgProbeNoMutation = UInt64(1) << 4
 private let mlgProbeProtectedStorage = UInt64(1) << 5
@@ -107,8 +107,8 @@ public func sbwTestMlgParameterizedRefusalProbe() -> UInt64 {
 
 /// Calls the throwing associated-protocol wrapper with Sequence metadata whose Element does not
 /// conform to HashLike. The root proof succeeds, the conditional carrier proof refuses, and the
-/// payload/receiver remain inaccessible. The error slot starts non-null to prove refusal does not
-/// retain or publish a Swift error.
+/// payload/receiver remain inaccessible. The error slot starts non-null to prove the shared
+/// throwing-wrapper entry contract clears it even when the conditional carrier then refuses.
 @_cdecl("SBW_Test_MlgAssociatedProtocolRefusalProbe")
 public func sbwTestMlgAssociatedProtocolRefusalProbe() -> UInt64 {
     _mlgHashEntryCount = 0
@@ -127,7 +127,7 @@ public func sbwTestMlgAssociatedProtocolRefusalProbe() -> UInt64 {
         )
         if refusal == 1 { report |= mlgProbeRefused }
         if result == 0 { report |= mlgProbeDirectSentinel }
-        if error == errorCanary { report |= mlgProbeErrorUntouched }
+        if error == nil { report |= mlgProbeErrorCleared }
         if _mlgHashEntryCount == 0 { report |= mlgProbeNoEntry }
         return report
     } ?? 0

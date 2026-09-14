@@ -9,12 +9,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 /// <summary>
-/// Typed model for <c>build/baselines/runtime-identity-baseline.json</c> — a
-/// <b>per-test-identity</b> ratchet layered over the scalar pass-count baseline in
-/// <see cref="ValidationBaseline"/>. Mirrors the <see cref="SkipSurfaceBaseline"/> ratchet
-/// shape (<c>Load</c>/<c>Save</c>/<c>Compare</c>, same-commit-update escape hatch).
+/// Typed model for <c>build/baselines/runtime-identity-baseline.json</c>. For every shared runtime
+/// lane this is the single source for both scalar counts and per-test non-pass identities. Mirrors
+/// the <see cref="SkipSurfaceBaseline"/> ratchet shape (<c>Load</c>/<c>Save</c>/<c>Compare</c>,
+/// same-commit-update escape hatch).
 ///
-/// <para><b>Why a second gate.</b> The scalar comparison (<c>currentPass &lt; baselinePass</c>)
+/// <para><b>Why retain both views.</b> The count comparison (<c>currentPass &lt; baselinePass</c>)
 /// nets out per-test churn: a test that flips <c>pass → skip</c> while a sibling flips
 /// <c>→ pass</c> leaves the pass count unchanged and stays green. This model gates on the
 /// identity of each non-pass test so that churn is caught.</para>
@@ -45,8 +45,9 @@ using System.Text.Json.Serialization;
 ///     scalar rule, kept here so the model is self-contained; this is also what catches a
 ///     <c>pass → absent</c> deletion, since passes are not stored by name).</description></item>
 ///   <item><description>A baseline skip that is now <c>pass</c> or gone ⇒ <b>improvement</b>.</description></item>
-///   <item><description>A platform with no baseline entry ⇒ no regressions (inert until seeded),
-///     mirroring the <c>platformKey == null</c> early return in <c>CompareRuntimeBaseline</c>.</description></item>
+///   <item><description>The pure <see cref="Compare"/> helper returns no regressions for an
+///     unseeded platform. The shipping pipeline calls <see cref="GetRequiredCounts"/> first and
+///     therefore fails closed when a required shared-lane entry is absent.</description></item>
 /// </list></para>
 /// </summary>
 public record RuntimeIdentityBaseline
@@ -59,6 +60,7 @@ public record RuntimeIdentityBaseline
     /// cleanly here because the keys are simple strings (unlike <see cref="SkipSurfaceBaseline"/>'s
     /// composite keys, which are stored as a flat array).
     /// </summary>
+    [JsonRequired]
     [JsonPropertyName("platforms")]
     public IReadOnlyDictionary<string, PlatformIdentities> Platforms { get; init; }
         = new Dictionary<string, PlatformIdentities>();
@@ -68,9 +70,11 @@ public record RuntimeIdentityBaseline
 
     public record PlatformIdentities
     {
+        [JsonRequired]
         [JsonPropertyName("pass_count")] public int PassCount { get; init; }
 
         /// <summary>Test identities recorded as <c>skip</c> — the expected skip set.</summary>
+        [JsonRequired]
         [JsonPropertyName("skips")]
         public IReadOnlyList<TestId> Skips { get; init; } = Array.Empty<TestId>();
 
@@ -79,9 +83,13 @@ public record RuntimeIdentityBaseline
         /// is already forced to a hard failure upstream by the <c>effectiveResult</c> switch. Kept
         /// so the model is symmetric and a deliberately-tracked known-fail can be baselined.
         /// </summary>
+        [JsonRequired]
         [JsonPropertyName("known_fails")]
         public IReadOnlyList<TestId> KnownFails { get; init; } = Array.Empty<TestId>();
     }
+
+    /// <summary>Scalar view mechanically derived from one identity record.</summary>
+    public readonly record struct BaselineCounts(int Pass, int Skip, int Fail, int Crash);
 
     public record TestId
     {
@@ -129,6 +137,26 @@ public record RuntimeIdentityBaseline
                 .Select(t => new TestId { Class = t.Class, Method = t.Method, Reason = t.Reason })
                 .ToList(),
         };
+    }
+
+    /// <summary>
+    /// Returns the scalar view of a required platform entry. Missing or structurally invalid
+    /// identity data fails closed so a shipping lane cannot silently become ungraded.
+    /// </summary>
+    public BaselineCounts GetRequiredCounts(string platform)
+    {
+        if (string.IsNullOrWhiteSpace(platform))
+            throw new InvalidDataException("Runtime identity baseline platform key is empty.");
+        if (Platforms == null || !Platforms.TryGetValue(platform, out var identities) || identities == null)
+            throw new InvalidDataException(
+                $"Runtime identity baseline has no '{platform}' entry; the lane cannot be graded.");
+
+        ValidateIdentities(platform, identities);
+        return new BaselineCounts(
+            identities.PassCount,
+            identities.Skips.Count,
+            identities.KnownFails.Count,
+            Crash: 0);
     }
 
     /// <summary>Returns a copy with one platform's identity set replaced/added.</summary>
@@ -204,10 +232,59 @@ public record RuntimeIdentityBaseline
     private static Dictionary<(string, string), TestRecord> DedupByIdentity(
         IReadOnlyList<TestRecord> tests)
     {
+        if (tests == null)
+            throw new ArgumentNullException(nameof(tests));
+
         var byKey = new Dictionary<(string, string), TestRecord>();
         foreach (var t in tests)
+        {
+            if (string.IsNullOrWhiteSpace(t.Class) || string.IsNullOrWhiteSpace(t.Method))
+                throw new InvalidDataException("Runtime result identity must contain non-empty class and method names.");
+            if (t.Status is not ("pass" or "skip" or "fail" or "crash"))
+                throw new InvalidDataException(
+                    $"Runtime result {t.Class}.{t.Method} has unsupported status '{t.Status}'.");
             byKey[(t.Class, t.Method)] = t; // last wins (crash-recovery merge already applied)
+        }
         return byKey;
+    }
+
+    private static void ValidateIdentities(string platform, PlatformIdentities identities)
+    {
+        if (identities.PassCount < 0)
+            throw new InvalidDataException(
+                $"Runtime identity baseline '{platform}' has negative pass_count {identities.PassCount}.");
+        if (identities.Skips == null)
+            throw new InvalidDataException($"Runtime identity baseline '{platform}' has null skips.");
+        if (identities.KnownFails == null)
+            throw new InvalidDataException($"Runtime identity baseline '{platform}' has null known_fails.");
+
+        var seen = new HashSet<(string Class, string Method)>();
+        ValidateList(identities.Skips, "skips", platform, seen);
+        ValidateList(identities.KnownFails, "known_fails", platform, seen);
+    }
+
+    private static void ValidateList(
+        IReadOnlyList<TestId> identities,
+        string listName,
+        string platform,
+        HashSet<(string Class, string Method)> seen)
+    {
+        foreach (var identity in identities)
+        {
+            if (identity == null || string.IsNullOrWhiteSpace(identity.Class) ||
+                string.IsNullOrWhiteSpace(identity.Method))
+            {
+                throw new InvalidDataException(
+                    $"Runtime identity baseline '{platform}' contains an incomplete {listName} identity.");
+            }
+
+            if (!seen.Add((identity.Class, identity.Method)))
+            {
+                throw new InvalidDataException(
+                    $"Runtime identity baseline '{platform}' repeats identity " +
+                    $"{identity.Class}.{identity.Method} across its non-pass lists.");
+            }
+        }
     }
 }
 
