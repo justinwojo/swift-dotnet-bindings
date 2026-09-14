@@ -623,7 +623,7 @@ public class MethodGenericBridgeEmitterTests
     [Fact]
     public void TryEmit_OptionalClassPointerReturn_NullChecksThenMarshalsFromSwiftObject()
     {
-        var (handled, csResult, _) = EmitBridgeWithClassReturn(optional: true);
+        var (handled, csResult, swiftResult) = EmitBridgeWithClassReturn(optional: true);
 
         Assert.True(handled);
         // Null pointer projects to a null reference; a live pointer routes through the factory.
@@ -636,6 +636,9 @@ public class MethodGenericBridgeEmitterTests
         // The marshal type must NOT carry the nullable `?` — MarshalFromSwiftObject<T> requires
         // T : ISwiftObject, and `Foo?` is not a legal type-argument spelling here.
         Assert.DoesNotContain("MarshalFromSwiftObject<global::RemoteModule.RemoteHandle?>", csResult);
+        Assert.Contains("let result =", swiftResult);
+        Assert.Contains("return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }", swiftResult);
+        Assert.DoesNotContain("return Unmanaged.passRetained(", swiftResult);
     }
 
     #endregion

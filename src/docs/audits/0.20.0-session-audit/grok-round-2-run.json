@@ -1,0 +1,12 @@
+{
+  "reviewer": "grok",
+  "repo": "/Users/wojo/Dev/swift-bindings",
+  "status": "captured",
+  "started_at": "2026-09-14T02:09:32.371300+00:00",
+  "resume_from": "01a09d89-173c-75d2-b31d-dd49e6a1b147",
+  "requested_model": null,
+  "requested_effort": null,
+  "exit_code": 0,
+  "session_id": "01a09d89-173c-75d2-b31d-dd49e6a1b147",
+  "finished_at": "2026-09-14T02:23:03.741923+00:00"
+}

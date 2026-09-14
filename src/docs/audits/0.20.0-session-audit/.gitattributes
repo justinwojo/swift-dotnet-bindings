@@ -1,0 +1,3 @@
+# Preserve Grok's exact output bytes, including Markdown hard-break whitespace.
+grok-round-1.md binary
+grok-round-2.md binary

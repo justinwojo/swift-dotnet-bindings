@@ -17,6 +17,8 @@ internal sealed class SurfaceAccountingTestFixture : IDisposable
     public string TipDirectory => Path.Combine(Root, "tip", "TestTarget");
     public string ManifestPath => Path.Combine(Root, "validation-libraries.json");
     public string InputLockPath => Path.Combine(Root, "input-lock.json");
+    public string OldEvidenceDirectory => Path.Combine(Root, "old-evidence");
+    public string TipEvidenceDirectory => Path.Combine(Root, "tip-evidence");
 
     public SurfaceAccountingTestFixture()
     {
@@ -49,7 +51,7 @@ internal sealed class SurfaceAccountingTestFixture : IDisposable
             Tier = 1,
         };
         var inputHash = SurfaceCanonicalJson.Sha256File(InputLockPath);
-        return new SurfaceAccountingRequest
+        return BindEvidence(new SurfaceAccountingRequest
         {
             CorpusId = "fixture-corpus",
             ManifestPath = ManifestPath,
@@ -57,10 +59,10 @@ internal sealed class SurfaceAccountingTestFixture : IDisposable
             InputLockPath = InputLockPath,
             InputLockSha256 = inputHash,
             ExpectedTargetCount = 1,
-            OldCapture = Capture("old-capture", "old", new string('a', 40), inputHash, new string('c', 64), oldComplete),
-            TipCapture = Capture("tip-capture", "tip", new string('b', 40), inputHash, tipToolchainHash ?? new string('c', 64), tipComplete),
+            OldCapture = Capture("old-capture", "old", new string('a', 40), inputHash, new string('c', 64), oldComplete, OldEvidenceDirectory),
+            TipCapture = Capture("tip-capture", "tip", new string('b', 40), inputHash, tipToolchainHash ?? new string('c', 64), tipComplete, TipEvidenceDirectory),
             Targets = [target],
-        };
+        });
     }
 
     public static SurfaceTargetKey TargetKey { get; } = new("TestLibrary", "TestModule", "ios", "TestTarget");
@@ -71,7 +73,8 @@ internal sealed class SurfaceAccountingTestFixture : IDisposable
         string sourceSha,
         string inputHash,
         string toolchainHash,
-        bool complete)
+        bool complete,
+        string evidenceDirectory)
     {
         var start = new DateTimeOffset(2026, 9, 12, 12, 0, 0, TimeSpan.Zero);
         return new SurfaceCaptureRequest
@@ -81,17 +84,52 @@ internal sealed class SurfaceAccountingTestFixture : IDisposable
             SourceSha = sourceSha,
             InputLockSha256 = inputHash,
             ToolchainSha256 = toolchainHash,
+            EvidenceDirectory = evidenceDirectory,
             StartedAt = start,
             FinishedAt = start.AddMinutes(1),
-            Commands = [new SurfaceCommandReceipt("nuke validate --serial --verbose", complete ? 0 : 1, start, start.AddMinutes(1), "validate.log")],
+            Commands = [new SurfaceCommandReceipt("nuke validate --serial --verbose", complete ? 0 : 1, start, start.AddMinutes(1), "validate.log", new string('0', 64))],
             TargetStages = [new SurfaceTargetStageReceipt(
                 "TestTarget",
                 complete ? "success" : "failed",
                 complete ? "success" : "not-run",
-                complete ? "success" : "not-run")],
+                complete ? "success" : "not-run",
+                null,
+                id,
+                sourceSha,
+                toolchainHash,
+                new string('0', 64))],
             Complete = complete,
             IncompletenessReasons = complete ? [] : ["fixture failure"],
         };
+    }
+
+    public SurfaceAccountingRequest BindEvidence(SurfaceAccountingRequest request)
+        => request with
+        {
+            OldCapture = BindCapture(request, request.OldCapture, oldSide: true),
+            TipCapture = BindCapture(request, request.TipCapture, oldSide: false),
+        };
+
+    private static SurfaceCaptureRequest BindCapture(
+        SurfaceAccountingRequest request,
+        SurfaceCaptureRequest capture,
+        bool oldSide)
+    {
+        Directory.CreateDirectory(capture.EvidenceDirectory);
+        var commands = capture.Commands.Select(command =>
+        {
+            var logPath = Path.Combine(capture.EvidenceDirectory, command.LogRelativePath);
+            if (!File.Exists(logPath))
+                File.WriteAllText(logPath, $"capture={capture.CaptureId}\nsource={capture.SourceSha}\ncommand={command.Command}\n");
+            return command with { LogSha256 = SurfaceCanonicalJson.Sha256File(logPath) };
+        }).ToList();
+        var stages = capture.TargetStages.Select(stage =>
+        {
+            var target = request.Targets.Single(t => t.Key.TargetName == stage.TargetName);
+            var directory = oldSide ? target.OldDirectory : target.TipDirectory;
+            return stage with { OutputTreeSha256 = SurfaceAccountingEngine.HashDirectoryTree(directory) };
+        }).ToList();
+        return capture with { Commands = commands, TargetStages = stages };
     }
 
     public static string WriteSource(string root, string fileName, string source)

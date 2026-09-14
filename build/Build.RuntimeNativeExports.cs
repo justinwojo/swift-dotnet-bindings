@@ -24,6 +24,17 @@ partial class Build
     const string RuntimeXcframeworkRoot = "native/SwiftBindingsRuntime.xcframework";
     const string RuntimeSwiftUiExportPrefix = "SBW_SwiftUI_";
     const string MacCatalystVariant = "maccatalyst";
+    const string RuntimeFrameworkBinaryPath = "SwiftBindingsRuntime.framework/SwiftBindingsRuntime";
+
+    static readonly IReadOnlyList<RuntimeNativeSlice> RequiredRuntimeNativeSlices =
+    [
+        new("ios-arm64", RuntimeFrameworkBinaryPath, "ios", null, ["arm64"]),
+        new("ios-arm64_x86_64-simulator", RuntimeFrameworkBinaryPath, "ios", "simulator", ["arm64", "x86_64"]),
+        new("ios-arm64_x86_64-maccatalyst", RuntimeFrameworkBinaryPath, "ios", MacCatalystVariant, ["arm64", "x86_64"]),
+        new("macos-arm64_x86_64", RuntimeFrameworkBinaryPath, "macos", null, ["arm64", "x86_64"]),
+        new("tvos-arm64", RuntimeFrameworkBinaryPath, "tvos", null, ["arm64"]),
+        new("tvos-arm64_x86_64-simulator", RuntimeFrameworkBinaryPath, "tvos", "simulator", ["arm64", "x86_64"]),
+    ];
 
     internal sealed record RuntimeNativeSlice(
         string Identifier,
@@ -35,12 +46,14 @@ partial class Build
     internal sealed record RuntimeNativeExportAnalysis(
         IReadOnlyList<string> MissingSlices,
         IReadOnlyList<string> UnexpectedSlices,
+        IReadOnlyList<string> SliceMetadataMismatches,
         IReadOnlyList<string> ArchitectureMismatches,
         IReadOnlyList<string> MissingExports)
     {
         internal bool IsSuccess =>
             MissingSlices.Count == 0 &&
             UnexpectedSlices.Count == 0 &&
+            SliceMetadataMismatches.Count == 0 &&
             ArchitectureMismatches.Count == 0 &&
             MissingExports.Count == 0;
     }
@@ -48,8 +61,9 @@ partial class Build
     /// <summary>
     /// Verifies the native runtime exactly as it ships. The expected symbol set comes from every
     /// <c>SBW_*</c> P/Invoke targeting SwiftBindingsRuntime in the packed Swift.Runtime
-    /// assemblies; the expected slice and architecture inventory comes from the packed XCFramework
-    /// plist. Every actual Mach-O architecture must export every entry point applicable to that
+    /// assemblies; the required slice and architecture inventory is an independent package contract.
+    /// The packed XCFramework plist is treated only as actual inventory. Every actual Mach-O architecture
+    /// must export every entry point applicable to that
     /// slice. The only platform exception mirrors the native source's explicit Mac Catalyst guard
     /// around the SwiftUI bridge.
     ///
@@ -76,8 +90,8 @@ partial class Build
                     $"{RuntimeNativeLibraryName}. A zero-sized expectation cannot certify exports.");
             }
 
-            var slices = ReadRuntimeNativeSlices(archive, scratch);
-            if (slices.Count == 0)
+            var actualSlices = ReadRuntimeNativeSlices(archive, scratch);
+            if (actualSlices.Count == 0)
             {
                 Assert.Fail(
                     $"Runtime native-export gate: {nupkgPath} declares no AvailableLibraries in " +
@@ -87,7 +101,7 @@ partial class Build
             var actualArchitectures = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
             var actualExports = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
 
-            foreach (var slice in slices)
+            foreach (var slice in actualSlices)
             {
                 var packagedBinaryPath =
                     $"{RuntimeXcframeworkRoot}/{slice.Identifier}/{slice.BinaryPath}";
@@ -109,25 +123,25 @@ partial class Build
             }
 
             var analysis = AnalyzeRuntimeNativeExports(
-                expectedSymbols, slices, actualArchitectures, actualExports);
+                expectedSymbols, RequiredRuntimeNativeSlices, actualSlices, actualArchitectures, actualExports);
             FailRuntimeNativeExportAnalysis(nupkgPath, analysis);
             AssertRuntimeNativeExportNegativeControls(
-                expectedSymbols, slices, actualArchitectures, actualExports);
+                expectedSymbols, RequiredRuntimeNativeSlices, actualSlices, actualArchitectures, actualExports);
 
             var packageSha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(nupkgPath)))
                 .ToLowerInvariant();
-            var pairCount = slices.Sum(s => s.Architectures.Count);
-            var requirementCount = slices.Sum(slice =>
+            var pairCount = RequiredRuntimeNativeSlices.Sum(s => s.Architectures.Count);
+            var requirementCount = RequiredRuntimeNativeSlices.Sum(slice =>
                 slice.Architectures.Count * expectedSymbols.Count(symbol =>
                     IsRuntimeNativeImportExpectedForSlice(symbol, slice)));
             Log.Information(
                 "Runtime native-export gate OK — {Symbols} packed managed SBW_* import(s) satisfied " +
                 "{Requirements} applicable export requirement(s) across {Pairs} packaged " +
                 "slice/architecture pair(s) and {Slices} XCFramework slice(s); package SHA256 {Sha}",
-                expectedSymbols.Count, requirementCount, pairCount, slices.Count, packageSha);
+                expectedSymbols.Count, requirementCount, pairCount, RequiredRuntimeNativeSlices.Count, packageSha);
             Log.Information(
-                "Runtime native-export negative controls OK — missing-symbol and wrong-slice mutations " +
-                "were both rejected");
+                "Runtime native-export negative controls OK — missing-symbol, wrong-slice, and " +
+                "missing-plist-slice mutations were rejected");
         }
         finally
         {
@@ -311,26 +325,45 @@ partial class Build
     internal static RuntimeNativeExportAnalysis AnalyzeRuntimeNativeExports(
         IReadOnlySet<string> expectedSymbols,
         IReadOnlyList<RuntimeNativeSlice> expectedSlices,
+        IReadOnlyList<RuntimeNativeSlice> actualSlices,
         IReadOnlyDictionary<string, IReadOnlyList<string>> actualArchitectures,
         IReadOnlyDictionary<string, IReadOnlySet<string>> actualExports)
     {
+        var actualSlicesById = actualSlices.ToDictionary(slice => slice.Identifier, StringComparer.Ordinal);
         var missingSlices = expectedSlices
-            .Where(slice => !actualArchitectures.ContainsKey(slice.Identifier))
+            .Where(slice => !actualSlicesById.ContainsKey(slice.Identifier))
             .Select(slice => slice.Identifier)
             .OrderBy(v => v, StringComparer.Ordinal)
             .ToList();
         var expectedSliceIds = expectedSlices.Select(s => s.Identifier).ToHashSet(StringComparer.Ordinal);
-        var unexpectedSlices = actualArchitectures.Keys
+        var unexpectedSlices = actualSlicesById.Keys
             .Where(id => !expectedSliceIds.Contains(id))
             .OrderBy(v => v, StringComparer.Ordinal)
             .ToList();
         var architectureMismatches = new List<string>();
+        var sliceMetadataMismatches = new List<string>();
         var missingExports = new List<string>();
 
         foreach (var slice in expectedSlices)
         {
-            if (!actualArchitectures.TryGetValue(slice.Identifier, out var actualArchs))
+            if (!actualSlicesById.TryGetValue(slice.Identifier, out var actualSlice))
                 continue;
+
+            if (!string.Equals(slice.BinaryPath, actualSlice.BinaryPath, StringComparison.Ordinal)
+                || !string.Equals(slice.Platform, actualSlice.Platform, StringComparison.Ordinal)
+                || !string.Equals(slice.PlatformVariant, actualSlice.PlatformVariant, StringComparison.Ordinal)
+                || !slice.Architectures.OrderBy(a => a, StringComparer.Ordinal).SequenceEqual(
+                    actualSlice.Architectures.OrderBy(a => a, StringComparer.Ordinal), StringComparer.Ordinal))
+            {
+                sliceMetadataMismatches.Add(
+                    $"{slice.Identifier}: expected {DescribeSlice(slice)}, actual {DescribeSlice(actualSlice)}");
+            }
+
+            if (!actualArchitectures.TryGetValue(slice.Identifier, out var actualArchs))
+            {
+                architectureMismatches.Add($"{slice.Identifier}: packaged binary architecture inventory is missing");
+                continue;
+            }
 
             var expectedArchs = slice.Architectures.OrderBy(a => a, StringComparer.Ordinal).ToArray();
             var normalizedActualArchs = actualArchs.OrderBy(a => a, StringComparer.Ordinal).ToArray();
@@ -359,11 +392,16 @@ partial class Build
 
         return new RuntimeNativeExportAnalysis(
             missingSlices, unexpectedSlices,
+            sliceMetadataMismatches.OrderBy(v => v, StringComparer.Ordinal).ToList(),
             architectureMismatches.OrderBy(v => v, StringComparer.Ordinal).ToList(),
             missingExports.OrderBy(v => v, StringComparer.Ordinal).ToList());
     }
 
     static string SliceArchitectureKey(string slice, string architecture) => $"{slice}/{architecture}";
+
+    static string DescribeSlice(RuntimeNativeSlice slice)
+        => $"platform={slice.Platform}, variant={slice.PlatformVariant ?? "none"}, " +
+           $"binary={slice.BinaryPath}, architectures=[{string.Join(',', slice.Architectures.OrderBy(a => a, StringComparer.Ordinal))}]";
 
     static void FailRuntimeNativeExportAnalysis(
         AbsolutePath nupkgPath, RuntimeNativeExportAnalysis analysis)
@@ -373,6 +411,7 @@ partial class Build
 
         var details = analysis.MissingSlices.Select(v => $"missing slice: {v}")
             .Concat(analysis.UnexpectedSlices.Select(v => $"unexpected slice: {v}"))
+            .Concat(analysis.SliceMetadataMismatches.Select(v => $"slice metadata mismatch: {v}"))
             .Concat(analysis.ArchitectureMismatches.Select(v => $"architecture mismatch: {v}"))
             .Concat(analysis.MissingExports.Select(v => $"missing export: {v}"))
             .ToList();
@@ -385,11 +424,12 @@ partial class Build
 
     static void AssertRuntimeNativeExportNegativeControls(
         IReadOnlySet<string> expectedSymbols,
-        IReadOnlyList<RuntimeNativeSlice> slices,
+        IReadOnlyList<RuntimeNativeSlice> expectedSlices,
+        IReadOnlyList<RuntimeNativeSlice> actualSlices,
         IReadOnlyDictionary<string, IReadOnlyList<string>> architectures,
         IReadOnlyDictionary<string, IReadOnlySet<string>> exports)
     {
-        var firstSlice = slices.First();
+        var firstSlice = expectedSlices.First();
         var firstArch = firstSlice.Architectures.First();
         var firstSymbol = expectedSymbols
             .Where(symbol => IsRuntimeNativeImportExpectedForSlice(symbol, firstSlice))
@@ -404,12 +444,13 @@ partial class Build
                 : pair.Value,
             StringComparer.Ordinal);
         var missingSymbol = AnalyzeRuntimeNativeExports(
-            expectedSymbols, slices, architectures, missingSymbolExports);
+            expectedSymbols, expectedSlices, actualSlices, architectures, missingSymbolExports);
         var expectedMissing = $"{firstKey}: {firstSymbol}";
         if (missingSymbol.MissingExports.Count != 1
             || missingSymbol.MissingExports[0] != expectedMissing
             || missingSymbol.MissingSlices.Count != 0
             || missingSymbol.UnexpectedSlices.Count != 0
+            || missingSymbol.SliceMetadataMismatches.Count != 0
             || missingSymbol.ArchitectureMismatches.Count != 0)
         {
             Assert.Fail(
@@ -422,14 +463,34 @@ partial class Build
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         var wrongSliceId = firstSlice.Identifier + "-wrong-slice";
         wrongSliceArchitectures[wrongSliceId] = architectures[firstSlice.Identifier];
+        var wrongSlices = actualSlices.Select(slice => slice.Identifier == firstSlice.Identifier
+            ? slice with { Identifier = wrongSliceId }
+            : slice).ToList();
         var wrongSlice = AnalyzeRuntimeNativeExports(
-            expectedSymbols, slices, wrongSliceArchitectures, exports);
+            expectedSymbols, expectedSlices, wrongSlices, wrongSliceArchitectures, exports);
         if (!wrongSlice.MissingSlices.SequenceEqual(new[] { firstSlice.Identifier }, StringComparer.Ordinal)
             || !wrongSlice.UnexpectedSlices.SequenceEqual(new[] { wrongSliceId }, StringComparer.Ordinal))
         {
             Assert.Fail(
                 "Runtime native-export gate wrong-slice negative control did not reject the moved " +
                 $"'{firstSlice.Identifier}' inventory as one missing and one unexpected slice.");
+        }
+        var missingSliceRows = actualSlices.Where(slice => slice.Identifier != firstSlice.Identifier).ToList();
+        var missingSliceArchitectures = architectures
+            .Where(pair => pair.Key != firstSlice.Identifier)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        var missingSliceExports = exports
+            .Where(pair => !pair.Key.StartsWith(firstSlice.Identifier + "/", StringComparison.Ordinal))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        var missingSlice = AnalyzeRuntimeNativeExports(
+            expectedSymbols, expectedSlices, missingSliceRows, missingSliceArchitectures, missingSliceExports);
+        if (!missingSlice.MissingSlices.SequenceEqual(new[] { firstSlice.Identifier }, StringComparer.Ordinal)
+            || missingSlice.UnexpectedSlices.Count != 0
+            || missingSlice.SliceMetadataMismatches.Count != 0)
+        {
+            Assert.Fail(
+                "Runtime native-export gate missing-plist-slice negative control did not reject exactly " +
+                $"the removed '{firstSlice.Identifier}' slice.");
         }
     }
 }

@@ -2248,6 +2248,44 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void ConformerReferencesInternalType_NestedGenericArgument_ReturnsTrue()
+    {
+        var module = BuildEmptyModule("XMLCoder");
+        module.InternalTypeNames = new HashSet<string>
+        {
+            "InternalElement",
+            "XMLCoder.InternalElement",
+        };
+        var method = CreateMethodWithSig("unbox", "<T>");
+        method.ModuleDecl = module;
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            "Swift.Array<XMLCoder.InternalElement>",
+            "Swift.SwiftArray<XMLCoder.InternalElement>");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .ConformerReferencesInternalType(method, conformer));
+    }
+
+    [Fact]
+    public void ConformerReferencesInternalType_CrossModuleNestedNearMiss_ReturnsFalse()
+    {
+        var module = BuildEmptyModule("XMLCoder");
+        module.InternalTypeNames = new HashSet<string>
+        {
+            "InternalElement",
+            "XMLCoder.InternalElement",
+        };
+        var method = CreateMethodWithSig("unbox", "<T>");
+        method.ModuleDecl = module;
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            "Swift.Array<OtherModule.InternalElement>",
+            "Swift.SwiftArray<OtherModule.InternalElement>");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .ConformerReferencesInternalType(method, conformer));
+    }
+
+    [Fact]
     public void ClassifyConformerStructurally_WithdrawnGenericConformerNullSwiftType_ReturnsWithdrawnType()
     {
         // A generic conformer (e.g. Array<UInt8>) has a null SwiftType and carries its identity

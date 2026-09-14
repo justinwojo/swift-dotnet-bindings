@@ -855,6 +855,61 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
+    public void ParseModule_PropertyAndSubscriptAccessors_PreserveRawGenericSignatures()
+    {
+        // Constrained-extension requirements can include lossless-only marker protocols such as
+        // BitwiseCopyable. Accessors must retain the raw ABI signature so emission gates can
+        // subtract the parent's requirements and reject an unsatisfiable unconditional wrapper.
+        const string accessorSignature = "<τ_0_0 where τ_0_0 : Swift.BitwiseCopyable>";
+
+        var intNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        intNode.PrintedName = "Swift.Int";
+        var voidNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        voidNode.PrintedName = "()";
+
+        var propertyGetter = CreateNode(kind: "Accessor", name: "value", mangledName: "$s10TestModule3BoxV5valueSivg", genericSig: accessorSignature);
+        propertyGetter.AccessorKind = "get";
+        propertyGetter.Children = new[] { intNode };
+        var propertySetter = CreateNode(kind: "Accessor", name: "value", mangledName: "$s10TestModule3BoxV5valueSivs", genericSig: accessorSignature);
+        propertySetter.AccessorKind = "set";
+        propertySetter.Children = new[] { voidNode, intNode };
+        var propertyNode = CreateNode(kind: "Var", name: "value", mangledName: "$s10TestModule3BoxV5valueSivp", children: new[] { intNode });
+        propertyNode.Accessors = new[] { propertyGetter, propertySetter };
+
+        var subscriptGetter = CreateNode(kind: "Accessor", name: "subscript", mangledName: "$s10TestModule3BoxVyS2icig", genericSig: accessorSignature);
+        subscriptGetter.AccessorKind = "get";
+        subscriptGetter.Children = new[] { intNode };
+        var subscriptSetter = CreateNode(kind: "Accessor", name: "subscript", mangledName: "$s10TestModule3BoxVyS2icis", genericSig: accessorSignature);
+        subscriptSetter.AccessorKind = "set";
+        subscriptSetter.Children = new[] { voidNode, intNode };
+        var subscriptNode = CreateNode(
+            kind: "Subscript",
+            declKind: "Subscript",
+            name: "subscript",
+            mangledName: "$s10TestModule3BoxVyS2icig",
+            children: new[] { intNode, intNode });
+        subscriptNode.PrintedName = "subscript(_:)";
+        subscriptNode.Accessors = new[] { subscriptGetter, subscriptSetter };
+
+        var structNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "Box",
+            mangledName: "$s10TestModule3BoxVN",
+            children: new[] { propertyNode, subscriptNode },
+            genericSig: "<τ_0_0>");
+
+        using var fixture = CreateParserWithNodes(structNode);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        var property = Assert.Single(type.Properties);
+        Assert.All(property.Accessors, accessor => Assert.Equal(accessorSignature, accessor.Method.RawGenericSig));
+        var subscript = Assert.Single(type.Subscripts);
+        Assert.All(subscript.Accessors, accessor => Assert.Equal(accessorSignature, accessor.Method.RawGenericSig));
+    }
+
+    [Fact]
     public void ParseModule_PropertyWithoutAvailability_LeavesAccessorsUnannotated()
     {
         // Unannotated properties must not leave stale annotations on their accessors —

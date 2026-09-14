@@ -561,7 +561,7 @@ public static class MethodGenericBridgeEmitter
             swiftWriter.WriteLine($"    let _result = {methodCall}");
             swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: ({renderedReturn}).self, repeating: _result, count: 1)");
         }
-        else if (returnKind == CdeclReturnKind.OptionalErrorPointer)
+        else if (returnKind is CdeclReturnKind.OptionalClassPointer or CdeclReturnKind.OptionalErrorPointer)
         {
             foreach (var line in CdeclReturnRenderer.LinesBindingResult(
                 methodCall, returnTypeSpec, env.TypeDatabase, returnMapping))

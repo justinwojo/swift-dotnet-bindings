@@ -569,7 +569,7 @@ partial class Build
             if (!baselineAtStart.SequenceEqual(File.ReadAllBytes(BaselinePath)))
                 throw new InvalidDataException("Baseline changed during Validate; candidate cannot be promoted");
             validationPromotion = new ValidationPromotion(BaselinePath, isFullRun && !Quick, currentResults,
-                "Validate", "PackGate", "BehaviorTier", "WithdrawalEvidence");
+                "Validate", "PackGate", "BehaviorTier", "WithdrawalEvidence", "SurfaceAccounting");
             var candidatePath = outputBase / ("validation-candidate-" + Guid.NewGuid().ToString("N") + ".json");
             validationPromotion.WriteInspection(candidatePath);
             Log.Information("Validation candidate (inspection only): {Path}", candidatePath);

@@ -3259,6 +3259,7 @@ namespace BindingsGeneration
                     }
                 },
                 GenericParameters = genericParameters,
+                RawGenericSig = accessor.GenericSig,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = accessor.throwing ?? false,
@@ -3330,6 +3331,7 @@ namespace BindingsGeneration
                     }
                 },
                 GenericParameters = genericParameters,
+                RawGenericSig = accessor.GenericSig,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = false,
@@ -3845,6 +3847,7 @@ namespace BindingsGeneration
                 IsConstructor = false,
                 CSSignature = signature,
                 GenericParameters = genericParameters,
+                RawGenericSig = accessor.GenericSig,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 // A subscript accessor can be effectful (`get async`, `get throws`) exactly like a
@@ -3921,6 +3924,7 @@ namespace BindingsGeneration
                 IsConstructor = false,
                 CSSignature = signature,
                 GenericParameters = genericParameters,
+                RawGenericSig = accessor.GenericSig,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 // Same sources as the getter: `throwing` from the ABI JSON, async-ness from the two

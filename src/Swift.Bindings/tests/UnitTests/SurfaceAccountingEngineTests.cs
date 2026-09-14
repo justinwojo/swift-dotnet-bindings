@@ -364,6 +364,7 @@ public class SurfaceAccountingEngineTests
         using var fixture = new SurfaceAccountingTestFixture();
         var request = fixture.Request("public class C { }", "public class C { }");
         File.Delete(Path.Combine(fixture.OldDirectory, "TestModule.api-manifest.json"));
+        request = fixture.BindEvidence(request);
 
         var result = SurfaceAccountingEngine.Analyze(request);
 
@@ -405,6 +406,7 @@ public class SurfaceAccountingEngineTests
                 </Project>
                 """);
         }
+        request = fixture.BindEvidence(request);
 
         var result = SurfaceAccountingEngine.Analyze(request);
 
@@ -426,6 +428,75 @@ public class SurfaceAccountingEngineTests
 
         var badHash = request with { ManifestSha256 = new string('0', 64) };
         Assert.Throws<InvalidDataException>(() => SurfaceAccountingEngine.ValidateRequest(badHash));
+    }
+
+    [Fact]
+    public void RequestValidationRejectsAliasedOldAndTipDirectories()
+    {
+        using var fixture = new SurfaceAccountingTestFixture();
+        var request = fixture.Request("public class Old { }", "public class Tip { }");
+        var target = request.Targets.Single() with { OldDirectory = fixture.TipDirectory };
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            SurfaceAccountingEngine.ValidateRequest(request with { Targets = [target] }));
+
+        Assert.Contains("must be distinct", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestValidationRejectsAncestorSymlinkAliases()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var fixture = new SurfaceAccountingTestFixture();
+        var request = fixture.Request("public class Old { }", "public class Tip { }");
+        var aliasRoot = Path.Combine(fixture.Root, "alias-root");
+        Directory.CreateSymbolicLink(aliasRoot, Path.GetDirectoryName(fixture.TipDirectory)!);
+        var target = request.Targets.Single() with
+        {
+            OldDirectory = Path.Combine(aliasRoot, Path.GetFileName(fixture.TipDirectory)),
+        };
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            SurfaceAccountingEngine.ValidateRequest(request with { Targets = [target] }));
+
+        Assert.Contains("must be distinct", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestValidationRejectsTamperedOutputTreeAndCommandLog()
+    {
+        using var fixture = new SurfaceAccountingTestFixture();
+        var request = fixture.Request("public class Old { }", "public class Tip { }");
+        File.AppendAllText(Path.Combine(fixture.OldDirectory, "TestModule.cs"), "\npublic class Injected { }");
+
+        var outputException = Assert.Throws<InvalidDataException>(() =>
+            SurfaceAccountingEngine.ValidateRequest(request));
+        Assert.Contains("output-tree SHA-256 differs", outputException.Message, StringComparison.Ordinal);
+
+        request = fixture.BindEvidence(request);
+        File.AppendAllText(Path.Combine(fixture.TipEvidenceDirectory, "validate.log"), "tampered");
+
+        var logException = Assert.Throws<InvalidDataException>(() =>
+            SurfaceAccountingEngine.ValidateRequest(request));
+        Assert.Contains("command log hash mismatch", logException.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestValidationRejectsOutputReceiptBoundToDifferentSource()
+    {
+        using var fixture = new SurfaceAccountingTestFixture();
+        var request = fixture.Request("public class Old { }", "public class Tip { }");
+        var stage = request.OldCapture.TargetStages.Single() with { SourceSha = request.TipCapture.SourceSha };
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            SurfaceAccountingEngine.ValidateRequest(request with
+            {
+                OldCapture = request.OldCapture with { TargetStages = [stage] },
+            }));
+
+        Assert.Contains("bound to different capture provenance", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]

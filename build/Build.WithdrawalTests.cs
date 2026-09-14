@@ -185,10 +185,12 @@ partial class Build
             const string original = "{\"git_sha\":\"old\",\"legacy\":{\"x\":1},\"compile_gate\":{\"libraries\":{\"Fixture\":{\"compile\":\"fail\",\"withdrawal_policy\":{\"sentinel\":1}}}}}";
             File.WriteAllText(baseline, original);
             var results = new Dictionary<string, ValidationBaseline.LibraryResult> { ["Fixture"] = new() { Compile = "ok" } };
-            var candidate = new ValidationPromotion(baseline, true, results, "Validate", "PackGate", "BehaviorTier");
+            var candidate = new ValidationPromotion(
+                baseline, true, results, "Validate", "PackGate", "BehaviorTier", "SurfaceAccounting");
             candidate.Record("Validate"); Check(!candidate.Promote()); Check(File.ReadAllText(baseline) == original);
             candidate.Record("PackGate"); Check(!candidate.Promote()); Check(File.ReadAllText(baseline) == original);
-            candidate.Record("BehaviorTier"); Check(candidate.Promote());
+            candidate.Record("BehaviorTier"); Check(!candidate.Promote()); Check(File.ReadAllText(baseline) == original);
+            candidate.Record("SurfaceAccounting"); Check(candidate.Promote());
             using (var result = JsonDocument.Parse(File.ReadAllText(baseline)))
             {
                 Check(result.RootElement.GetProperty("git_sha").GetString() == "old");

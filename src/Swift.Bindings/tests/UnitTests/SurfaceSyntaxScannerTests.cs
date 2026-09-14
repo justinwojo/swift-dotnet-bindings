@@ -327,6 +327,55 @@ public class SurfaceSyntaxScannerTests
         Assert.Equal("Outer.Shadow(T)`2", SurfaceSyntaxScanner.BuildManifestSignature(shadow.PublicKey));
     }
 
+    [Fact]
+    public void Scanner_ConstantAndEnumValuesParticipateInPublicShape()
+    {
+        using var fixture = new SurfaceAccountingTestFixture();
+        var source = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "constants.cs", """
+            public class Values
+            {
+                public const int SameValue = 0x2;
+                public const int ChangedValue = 3;
+                public static readonly int RuntimeValue = 4;
+            }
+            public enum Permission
+            {
+                Read = 1,
+                Write,
+                Execute = 4,
+            }
+            """);
+
+        var scan = Scan(fixture, source);
+
+        Assert.Equal("Int32:2", scan.Members.Single(m => m.PublicKey.Name == "SameValue").PublicShape.ConstantValue);
+        Assert.Equal("Int32:3", scan.Members.Single(m => m.PublicKey.Name == "ChangedValue").PublicShape.ConstantValue);
+        Assert.Null(scan.Members.Single(m => m.PublicKey.Name == "RuntimeValue").PublicShape.ConstantValue);
+        Assert.Equal("Int32:1", scan.Members.Single(m => m.PublicKey.Name == "Read").PublicShape.ConstantValue);
+        Assert.Equal("Int32:2", scan.Members.Single(m => m.PublicKey.Name == "Write").PublicShape.ConstantValue);
+        Assert.Equal("Int32:4", scan.Members.Single(m => m.PublicKey.Name == "Execute").PublicShape.ConstantValue);
+    }
+
+    [Theory]
+    [InlineData("public const int Value = 1;", "public const int Value = 2;")]
+    [InlineData("public enum Value { Item = 1 }", "public enum Value { Item = 2 }")]
+    public void Scanner_ConstantValueChangesProduceShapeChanges(string oldMember, string tipMember)
+    {
+        using var fixture = new SurfaceAccountingTestFixture();
+        var oldSource = oldMember.StartsWith("public enum", StringComparison.Ordinal)
+            ? oldMember
+            : $"public class Container {{ {oldMember} }}";
+        var tipSource = tipMember.StartsWith("public enum", StringComparison.Ordinal)
+            ? tipMember
+            : $"public class Container {{ {tipMember} }}";
+        var request = fixture.Request(oldSource, tipSource);
+
+        var result = SurfaceAccountingEngine.Analyze(request);
+
+        Assert.Equal(1, result.Comparison.Summary.ShapeChanges);
+        Assert.Contains(result.Comparison.Changes, change => change.Classification == "shape-change");
+    }
+
     private static SurfaceSyntaxScanResult Scan(SurfaceAccountingTestFixture fixture, string source)
         => SurfaceSyntaxScanner.Scan(
             "capture",

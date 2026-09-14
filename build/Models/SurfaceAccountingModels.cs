@@ -49,6 +49,7 @@ public sealed record SurfaceCaptureRequest
     public required string SourceSha { get; init; }
     public required string InputLockSha256 { get; init; }
     public required string ToolchainSha256 { get; init; }
+    public required string EvidenceDirectory { get; init; }
     public string? DirtyPatchSha256 { get; init; }
     public required DateTimeOffset StartedAt { get; init; }
     public required DateTimeOffset FinishedAt { get; init; }
@@ -65,14 +66,19 @@ public sealed record SurfaceCommandReceipt(
     int ExitCode,
     DateTimeOffset StartedAt,
     DateTimeOffset FinishedAt,
-    string LogRelativePath);
+    string LogRelativePath,
+    string LogSha256);
 
 public sealed record SurfaceTargetStageReceipt(
     string TargetName,
     string Generation,
     string CSharpCompile,
     string SwiftCompile,
-    string? Reason = null);
+    string? Reason,
+    string CaptureId,
+    string SourceSha,
+    string ToolchainSha256,
+    string OutputTreeSha256);
 
 public sealed record SurfaceAccountingRequest
 {
@@ -158,6 +164,7 @@ public sealed record SurfacePublicShape
 {
     public required string Accessibility { get; init; }
     public string? Type { get; init; }
+    public string? ConstantValue { get; init; }
     public required IReadOnlyList<SurfaceParameterDefaultShape> ParameterDefaults { get; init; }
     public required IReadOnlyList<SurfaceAccessorShape> Accessors { get; init; }
     public required IReadOnlyList<string> Constraints { get; init; }

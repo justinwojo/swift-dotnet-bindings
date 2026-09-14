@@ -59,7 +59,7 @@
     },
     "capture": {
       "type": "object",
-      "required": ["schema", "capture_id", "side", "source_sha", "input_lock_sha256", "toolchain_sha256", "started_at", "finished_at", "commands", "target_stages", "complete", "incompleteness_reasons"],
+      "required": ["schema", "capture_id", "side", "source_sha", "input_lock_sha256", "toolchain_sha256", "evidence_directory", "started_at", "finished_at", "commands", "target_stages", "complete", "incompleteness_reasons"],
       "properties": {
         "schema": { "$ref": "#/$defs/schema" },
         "capture_id": { "type": "string", "minLength": 1 },
@@ -67,13 +67,43 @@
         "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "input_lock_sha256": { "$ref": "#/$defs/sha256" },
         "toolchain_sha256": { "$ref": "#/$defs/sha256" },
+        "evidence_directory": { "type": "string", "minLength": 1 },
         "dirty_patch_sha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
         "started_at": { "type": "string", "format": "date-time" },
         "finished_at": { "type": "string", "format": "date-time" },
-        "commands": { "type": "array", "minItems": 1 },
-        "target_stages": { "type": "array", "minItems": 1 },
+        "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/commandReceipt" } },
+        "target_stages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/targetStageReceipt" } },
         "complete": { "type": "boolean" },
         "incompleteness_reasons": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "commandReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exit_code", "started_at", "finished_at", "log_relative_path", "log_sha256"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "exit_code": { "type": "integer" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "log_relative_path": { "type": "string", "minLength": 1 },
+        "log_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "targetStageReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_name", "generation", "c_sharp_compile", "swift_compile", "reason", "capture_id", "source_sha", "toolchain_sha256", "output_tree_sha256"],
+      "properties": {
+        "target_name": { "type": "string", "minLength": 1 },
+        "generation": { "type": "string", "minLength": 1 },
+        "c_sharp_compile": { "type": "string", "minLength": 1 },
+        "swift_compile": { "type": "string", "minLength": 1 },
+        "reason": { "type": ["string", "null"] },
+        "capture_id": { "type": "string", "minLength": 1 },
+        "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "toolchain_sha256": { "$ref": "#/$defs/sha256" },
+        "output_tree_sha256": { "$ref": "#/$defs/sha256" }
       }
     },
     "file": {
@@ -128,10 +158,11 @@
     "publicShape": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["accessibility", "type", "parameter_defaults", "accessors", "constraints", "base_types", "attributes", "tombstoned"],
+      "required": ["accessibility", "type", "constant_value", "parameter_defaults", "accessors", "constraints", "base_types", "attributes", "tombstoned"],
       "properties": {
         "accessibility": { "type": "string", "minLength": 1 },
         "type": { "type": ["string", "null"] },
+        "constant_value": { "type": ["string", "null"] },
         "parameter_defaults": { "type": "array", "items": { "$ref": "#/$defs/parameterDefault" } },
         "accessors": { "type": "array", "items": { "$ref": "#/$defs/accessor" } },
         "constraints": { "type": "array", "items": { "type": "string" } },

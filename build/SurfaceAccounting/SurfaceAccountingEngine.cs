@@ -115,6 +115,7 @@ public static class SurfaceAccountingEngine
 
         ValidateHashedFile(request.ManifestPath, request.ManifestSha256, "manifest");
         ValidateHashedFile(request.InputLockPath, request.InputLockSha256, "input lock");
+        ValidateDistinctCaptureDirectories(request);
         ValidateCapture(request, request.OldCapture, "old");
         ValidateCapture(request, request.TipCapture, "tip");
         if (request.OldCapture.CaptureId == request.TipCapture.CaptureId)
@@ -150,6 +151,18 @@ public static class SurfaceAccountingEngine
             || capture.DirtyPatchSha256 is not null && !IsLowerHex(capture.DirtyPatchSha256, 64))
             throw new InvalidDataException($"Capture '{capture.CaptureId}' contains a malformed source or evidence hash.");
 
+        if (!Directory.Exists(capture.EvidenceDirectory))
+            throw new DirectoryNotFoundException(
+                $"Capture '{capture.CaptureId}' evidence directory does not exist: {capture.EvidenceDirectory}.");
+        foreach (var command in capture.Commands)
+        {
+            var logPath = ResolveEvidencePath(capture, command.LogRelativePath, "command log");
+            if (!IsLowerHex(command.LogSha256, 64))
+                throw new InvalidDataException(
+                    $"Capture '{capture.CaptureId}' command log has a malformed SHA-256.");
+            ValidateHashedFile(logPath, command.LogSha256, "command log");
+        }
+
         var stageNames = capture.TargetStages.Select(s => s.TargetName).ToList();
         var duplicates = stageNames.GroupBy(n => n, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         if (duplicates.Count > 0)
@@ -166,6 +179,106 @@ public static class SurfaceAccountingEngine
                 || !string.Equals(s.CSharpCompile, "success", StringComparison.Ordinal)
                 || s.SwiftCompile is not ("success" or "not-applicable")))
             throw new InvalidDataException($"Complete capture '{capture.CaptureId}' contains an incomplete target stage.");
+
+        foreach (var stage in capture.TargetStages)
+        {
+            if (!string.Equals(stage.CaptureId, capture.CaptureId, StringComparison.Ordinal)
+                || !string.Equals(stage.SourceSha, capture.SourceSha, StringComparison.Ordinal)
+                || !string.Equals(stage.ToolchainSha256, capture.ToolchainSha256, StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    $"Capture '{capture.CaptureId}' target '{stage.TargetName}' output receipt is bound to different capture provenance.");
+            if (!IsLowerHex(stage.OutputTreeSha256, 64))
+                throw new InvalidDataException(
+                    $"Capture '{capture.CaptureId}' target '{stage.TargetName}' has a malformed output-tree SHA-256.");
+            var target = request.Targets.Single(t => t.Key.TargetName == stage.TargetName);
+            var directory = expectedSide == "old" ? target.OldDirectory : target.TipDirectory;
+            if (!Directory.Exists(directory))
+            {
+                if (capture.Complete)
+                    throw new DirectoryNotFoundException(
+                        $"Complete capture '{capture.CaptureId}' is missing target directory {directory}.");
+                continue;
+            }
+            var actualTreeHash = HashDirectoryTree(directory);
+            if (!string.Equals(actualTreeHash, stage.OutputTreeSha256, StringComparison.Ordinal))
+                throw new InvalidDataException(
+                    $"Capture '{capture.CaptureId}' target '{stage.TargetName}' output-tree SHA-256 differs from its receipt.");
+        }
+    }
+
+    private static void ValidateDistinctCaptureDirectories(SurfaceAccountingRequest request)
+    {
+        var pathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var paths = new Dictionary<string, string>(pathComparer);
+        foreach (var target in request.Targets)
+        {
+            Add("old", target.Key.TargetName, target.OldDirectory);
+            Add("tip", target.Key.TargetName, target.TipDirectory);
+        }
+
+        void Add(string side, string targetName, string path)
+        {
+            var canonical = CanonicalDirectoryPath(path);
+            if (paths.TryGetValue(canonical, out var prior))
+                throw new InvalidDataException(
+                    $"Surface capture directories must be distinct; {side}/{targetName} aliases {prior}: {canonical}.");
+            paths.Add(canonical, $"{side}/{targetName}");
+        }
+    }
+
+    private static string CanonicalDirectoryPath(string path)
+    {
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        if (!Directory.Exists(fullPath))
+            return fullPath;
+
+        var root = Path.GetPathRoot(fullPath)
+            ?? throw new InvalidDataException($"Directory path has no filesystem root: {path}.");
+        var resolved = root;
+        foreach (var segment in fullPath[root.Length..].Split(
+                     Path.DirectorySeparatorChar,
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            resolved = Path.Combine(resolved, segment);
+            var linkTarget = new DirectoryInfo(resolved).ResolveLinkTarget(returnFinalTarget: true);
+            if (linkTarget is not null)
+                resolved = CanonicalDirectoryPath(linkTarget.FullName);
+        }
+
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(resolved));
+    }
+
+    private static string ResolveEvidencePath(
+        SurfaceCaptureRequest capture,
+        string relativePath,
+        string label)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+            throw new InvalidDataException(
+                $"Capture '{capture.CaptureId}' {label} path must be relative to its evidence directory.");
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(capture.EvidenceDirectory));
+        var resolved = Path.GetFullPath(Path.Combine(root, relativePath));
+        if (!resolved.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"Capture '{capture.CaptureId}' {label} path escapes its evidence directory.");
+        return resolved;
+    }
+
+    internal static string HashDirectoryTree(string directory)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        var entries = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Select(path => new
+            {
+                path = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'),
+                sha256 = SurfaceCanonicalJson.Sha256File(path),
+                bytes = new FileInfo(path).Length,
+            })
+            .OrderBy(entry => entry.path, StringComparer.Ordinal)
+            .ToList();
+        return SurfaceCanonicalJson.Hash(entries);
     }
 
     private static SurfaceCaptureArtifacts AnalyzeCapture(

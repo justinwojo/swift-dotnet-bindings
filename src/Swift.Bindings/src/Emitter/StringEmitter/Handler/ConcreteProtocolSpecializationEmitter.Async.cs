@@ -485,8 +485,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
     /// <summary>
     /// Parses a module-qualified Swift type name — possibly with generic parameters in
-    /// angle brackets — into a <see cref="NamedTypeSpec"/>. Supports one level of nesting
-    /// and comma-separated generic arguments (e.g., "Swift.Dictionary&lt;A, B&gt;").
+    /// angle brackets — into a <see cref="NamedTypeSpec"/>. Supports recursively nested and
+    /// comma-separated generic arguments (e.g., "Swift.Dictionary&lt;A, Swift.Array&lt;B&gt;&gt;").
     /// </summary>
     private static bool TryBuildNamedTypeSpecFromQualifiedName(string qualifiedName, out NamedTypeSpec spec)
     {

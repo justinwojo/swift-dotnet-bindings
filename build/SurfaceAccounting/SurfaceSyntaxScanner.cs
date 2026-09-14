@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -35,17 +36,28 @@ public static class SurfaceSyntaxScanner
         var callables = new List<CallableDraft>();
         var diagnostics = new List<string>();
 
-        foreach (var path in sourceFiles.OrderBy(p => p, StringComparer.Ordinal))
+        var inputs = sourceFiles.OrderBy(p => p, StringComparer.Ordinal).Select(path =>
         {
             var text = File.ReadAllText(path);
             var tree = CSharpSyntaxTree.ParseText(text, parseOptions, path);
+            return (Path: path, Tree: tree, Root: tree.GetCompilationUnitRoot());
+        }).ToList();
+        var compilation = CSharpCompilation.Create(
+            "SurfaceSyntaxScan",
+            inputs.Select(input => input.Tree),
+            TrustedPlatformReferences());
+
+        foreach (var input in inputs)
+        {
+            var path = input.Path;
+            var tree = input.Tree;
             foreach (var diagnostic in tree.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error))
                 diagnostics.Add(diagnostic.ToString());
 
-            var root = tree.GetCompilationUnitRoot();
+            var root = input.Root;
             var context = new FileContext(path, evidenceRoot ?? Path.GetDirectoryName(path)!, root);
             CollectTypes(root, context, drafts);
-            CollectMembers(root, context, drafts, callables);
+            CollectMembers(root, context, drafts, callables, compilation.GetSemanticModel(tree));
         }
 
         var callableIndex = callables
@@ -191,7 +203,8 @@ public static class SurfaceSyntaxScanner
         CompilationUnitSyntax root,
         FileContext context,
         List<MemberDraft> drafts,
-        List<CallableDraft> callables)
+        List<CallableDraft> callables,
+        SemanticModel semanticModel)
     {
         foreach (var node in root.DescendantNodes().OfType<MemberDeclarationSyntax>())
         {
@@ -233,7 +246,7 @@ public static class SurfaceSyntaxScanner
                     AddIndexer(indexer, context, drafts, callables);
                     break;
                 case FieldDeclarationSyntax field:
-                    AddField(field, context, drafts);
+                    AddField(field, context, drafts, semanticModel);
                     break;
                 case EventFieldDeclarationSyntax eventField:
                     AddEventField(eventField, context, drafts);
@@ -242,7 +255,7 @@ public static class SurfaceSyntaxScanner
                     AddEvent(eventDeclaration, context, drafts, callables);
                     break;
                 case EnumMemberDeclarationSyntax enumMember:
-                    AddEnumMember(enumMember, context, drafts);
+                    AddEnumMember(enumMember, context, drafts, semanticModel);
                     break;
             }
         }
@@ -388,7 +401,11 @@ public static class SurfaceSyntaxScanner
             indexerCallables));
     }
 
-    private static void AddField(FieldDeclarationSyntax node, FileContext context, List<MemberDraft> drafts)
+    private static void AddField(
+        FieldDeclarationSyntax node,
+        FileContext context,
+        List<MemberDraft> drafts,
+        SemanticModel semanticModel)
     {
         var normalizer = context.Normalizer(node, null);
         foreach (var variable in node.Declaration.Variables)
@@ -398,9 +415,12 @@ public static class SurfaceSyntaxScanner
                 Static = HasModifier(node.Modifiers, SyntaxKind.StaticKeyword)
                     || HasModifier(node.Modifiers, SyntaxKind.ConstKeyword),
             };
+            var shape = Shape(node, normalizer.Type(node.Declaration.Type), [], normalizer);
+            if (HasModifier(node.Modifiers, SyntaxKind.ConstKeyword))
+                shape = shape with { ConstantValue = ConstantValue(semanticModel, variable.Initializer?.Value) };
             drafts.Add(new MemberDraft(
                 key,
-                Shape(node, normalizer.Type(node.Declaration.Type), [], normalizer),
+                shape,
                 [context.Reference(variable)],
                 []));
         }
@@ -443,7 +463,11 @@ public static class SurfaceSyntaxScanner
             eventCallables));
     }
 
-    private static void AddEnumMember(EnumMemberDeclarationSyntax node, FileContext context, List<MemberDraft> drafts)
+    private static void AddEnumMember(
+        EnumMemberDeclarationSyntax node,
+        FileContext context,
+        List<MemberDraft> drafts,
+        SemanticModel semanticModel)
     {
         var normalizer = context.Normalizer(node, null);
         var key = new SurfacePublicKey
@@ -461,6 +485,7 @@ public static class SurfaceSyntaxScanner
             {
                 Accessibility = "public",
                 Type = null,
+                ConstantValue = ConstantValue(semanticModel, node),
                 ParameterDefaults = [],
                 Accessors = [],
                 Constraints = [],
@@ -470,6 +495,49 @@ public static class SurfaceSyntaxScanner
             },
             [context.Reference(node)],
             []));
+    }
+
+    private static string ConstantValue(SemanticModel semanticModel, EnumMemberDeclarationSyntax member)
+    {
+        if (semanticModel.GetDeclaredSymbol(member) is IFieldSymbol { HasConstantValue: true } field)
+            return FormatConstant(field.ConstantValue);
+        return member.EqualsValue is null
+            ? $"implicit:{((EnumDeclarationSyntax)member.Parent!).Members.IndexOf(member)}"
+            : "expression:" + member.EqualsValue.Value.NormalizeWhitespace().ToFullString();
+    }
+
+    private static string ConstantValue(SemanticModel semanticModel, ExpressionSyntax? expression)
+    {
+        if (expression is null)
+            return "missing";
+        var constant = semanticModel.GetConstantValue(expression);
+        return constant.HasValue
+            ? FormatConstant(constant.Value)
+            : "expression:" + expression.NormalizeWhitespace().ToFullString();
+    }
+
+    private static string FormatConstant(object? value)
+        => value switch
+        {
+            null => "null",
+            bool boolean => boolean ? "bool:true" : "bool:false",
+            char character => $"char:{(int)character}",
+            string text => "string:" + text,
+            float number => "float:" + number.ToString("R", CultureInfo.InvariantCulture),
+            double number => "double:" + number.ToString("R", CultureInfo.InvariantCulture),
+            decimal number => "decimal:" + number.ToString(CultureInfo.InvariantCulture),
+            IFormattable formattable => value.GetType().Name + ":" + formattable.ToString(null, CultureInfo.InvariantCulture),
+            _ => value.GetType().Name + ":" + value,
+        };
+
+    private static IReadOnlyList<MetadataReference> TrustedPlatformReferences()
+    {
+        if (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") is not string paths)
+            return [];
+        var coreLibrary = paths.Split(Path.PathSeparator)
+            .FirstOrDefault(path => string.Equals(
+                Path.GetFileName(path), "System.Private.CoreLib.dll", StringComparison.OrdinalIgnoreCase));
+        return coreLibrary is null ? [] : [MetadataReference.CreateFromFile(coreLibrary)];
     }
 
     private static SurfacePublicKey MethodKey(

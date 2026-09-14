@@ -2721,6 +2721,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (module?.InternalTypeNames is not { Count: > 0 } internalNames)
             return false;
 
+        if (TryBuildConformerTypeSpec(conformer, out var spec)
+            && InternalTypeReferenceWalker.Reaches(spec, internalNames, module.Name))
+            return true;
+
+        // Preserve the direct-name defensive probe for spellings the conformer parser cannot
+        // structure. Generic conformers take the parsed path above so nested arguments are walked.
         return InternalTypeReferenceWalker.Reaches(
             new NamedTypeSpec(conformer.SwiftQualifiedName), internalNames, module.Name);
     }

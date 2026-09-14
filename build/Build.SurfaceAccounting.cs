@@ -22,7 +22,9 @@ partial class Build
 
     Target SurfaceAccounting => _ => _
         // Ordering only: keep standalone sinks totally ordered for Nuke --strict.
-        .After(ReleaseGatesAttest)
+        // When Validate and SurfaceAccounting share an invocation, Validate must create the
+        // process-local promotion candidate before this target records its completion receipt.
+        .After(Validate, ReleaseGatesAttest)
         .Executes(() =>
         {
             if (string.IsNullOrWhiteSpace(SurfaceRequest))
@@ -53,6 +55,7 @@ partial class Build
             if (!summary.Complete)
                 throw new Exception(
                     "Surface-accounting comparison is incomplete. Retained artifacts name the missing or unresolved evidence.");
+            validationPromotion?.Record("SurfaceAccounting");
         });
 
     private static SurfaceAccountingRequest ResolvePaths(SurfaceAccountingRequest request, string requestDirectory)
@@ -60,6 +63,14 @@ partial class Build
         {
             ManifestPath = ResolvePath(requestDirectory, request.ManifestPath),
             InputLockPath = ResolvePath(requestDirectory, request.InputLockPath),
+            OldCapture = request.OldCapture with
+            {
+                EvidenceDirectory = ResolvePath(requestDirectory, request.OldCapture.EvidenceDirectory),
+            },
+            TipCapture = request.TipCapture with
+            {
+                EvidenceDirectory = ResolvePath(requestDirectory, request.TipCapture.EvidenceDirectory),
+            },
             Targets = request.Targets.Select(target => target with
             {
                 OldDirectory = ResolvePath(requestDirectory, target.OldDirectory),
