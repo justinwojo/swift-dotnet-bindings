@@ -325,7 +325,7 @@ public class OptionalMarshallingTests : TestBase
     }
 
     // CallConvSwift entry point on this path: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa
-    [SkipOnMonoJit("Mono JIT crashes resolving Optional<LargeStruct> generic metadata in GetPeek readback (upstream Issue 1 — !ji->async at jit-info.c:918). The OptionalGenericHolder<T> type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator + Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa")]
+    [SkipOnMonoJit("Mono JIT crashes resolving Optional<LargeStruct> generic metadata in GetPeek readback (upstream Issue 1 — !ji->async at jit-info.c:918). The OptionalGenericHolder<T> type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. The known repro is Mono JIT (Simulator + Catalyst); this runtime-detected guard also conservatively skips device Mono full-AOT. Runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa")]
     public void TestOptionalGenericHolderLargeStructPeek()
     {
         // GetPeek hits the SwiftOptional<TValue> readback path for a 48-byte payload —

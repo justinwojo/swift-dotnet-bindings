@@ -1,5 +1,5 @@
 {
-  "git_sha": "1bd6dc49f",
+  "git_sha": "f2923b03a",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -346,6 +346,24 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027GenericClassConstraintReviewBox.bitwiseOnly\u0027 \u2014 ConstrainedExtensionWrapper (Method \u0027bitwiseOnly\u0027 on generic type \u0027GenericClassConstraintReviewBox\u0027 declares generic constraints narrower than its parent; the wrapper conformance extension is unconstrained, so the method is invisible at the call site (conditional-conformance wrapper not yet supported).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericClassConstraintReviewBox.unitOnly\u0027 \u2014 ConstrainedExtensionWrapper (Method \u0027unitOnly\u0027 on generic type \u0027GenericClassConstraintReviewBox\u0027 declares generic constraints narrower than its parent; the wrapper conformance extension is unconstrained, so the method is invisible at the call site (conditional-conformance wrapper not yet supported).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GenericClassParentBitwiseReviewBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027GenericExtensionOptionalReturnMapper.mapAsyncThrowing\u0027 \u2014 closure or async in generic type member (Async callback references parent generic type parameters in return type.)",
       "count": 1
     },
@@ -449,6 +467,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027MemberBitwiseCtorBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027NativeThunkReceiver.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
       "count": 1
     },
     {

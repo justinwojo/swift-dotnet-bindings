@@ -1,6 +1,6 @@
 # Version compatibility
 
-Current behavior checked 2026-09-12. Three independent checks protect consumers: NuGet dependency
+Current behavior checked 2026-09-13. Three independent checks protect consumers: NuGet dependency
 ranges at restore, the generated-binding handshake at load, and managed API compatibility at pack.
 This document explains those checks; it does not change the versioning policy.
 
@@ -37,6 +37,11 @@ break; additive work leaves it unchanged. The floor is a release decision, not a
 on every minor. The load check is narrower than the NuGet policy: manually bypassing a dependency
 range may allow a binding to load while retaining old generated calls. Passing this handshake does
 not prove every native ABI interaction is safe.
+
+The 0.20.0 release pack was checked with epoch **20**, floor **16**, generated/SDK Runtime range
+`[0.20.0,0.21.0)`, and Apple-supplement Runtime floor `[0.20.0,)`. A 0.19.x binding must be
+regenerated, rebuilt, and repacked for 0.20.0; manually bypassing its old range can leave pre-0.20
+generated routes in place even when the load-time floor accepts the assembly.
 
 ## Pack: public API compatibility
 

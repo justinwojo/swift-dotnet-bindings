@@ -147,6 +147,7 @@ partial class Build
             // pinning. Catches a packaging-contract regression at pack time, before
             // downstream consumers crash at runtime.
             AssertRuntimeBuildTransitiveLayout(nupkgDir, PackGateVersion);
+            AssertRuntimeNativeExports(nupkgDir / $"SwiftBindings.Runtime.{PackGateVersion}.nupkg");
 
             // 2d. Same NativeAOT descriptor-delivery contract for the Apple supplement (Defect J).
             // Before the fix the supplement embedded the descriptor but never rooted it on the

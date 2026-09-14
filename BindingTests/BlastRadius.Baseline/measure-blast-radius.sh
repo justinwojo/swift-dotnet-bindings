@@ -14,6 +14,11 @@
 
 set -euo pipefail
 
+# Keep every sorted measurement byte-stable across developer machines and CI.
+# Locale-aware collation can place `SwiftBindings.Apple` on either side of the
+# lowercase `swift_*` symbols, producing a false regression with identical input.
+export LC_ALL=C
+
 # We cross-build for osx-arm64 below. On an Intel host the Mach-O output encodes
 # a different cpusubtype + different Swift stdlib path, so the diff would diverge
 # for reasons unrelated to framework linkage. Fail loud instead of producing a

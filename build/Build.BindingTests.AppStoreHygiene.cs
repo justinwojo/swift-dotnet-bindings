@@ -209,6 +209,7 @@ partial class Build
             .FirstOrDefault()
             ?? throw new Exception($"--appstore-hygiene: no SwiftBindings.Runtime nupkg found under {nupkgDir}.");
         Log.Information("    nupkg: {Path}", nupkg);
+        AssertRuntimeNativeExports((AbsolutePath)nupkg);
 
         const string xcfRoot = "native/SwiftBindingsRuntime.xcframework";
         const string deviceBinary = xcfRoot + "/ios-arm64/SwiftBindingsRuntime.framework/SwiftBindingsRuntime";

@@ -233,7 +233,7 @@ Full documentation is available on the **[project wiki](https://github.com/justi
 
 ## Known Limitations
 
-Swift Bindings targets .NET 10 on Apple platforms — `net10.0-ios`, `net10.0-macos`, `net10.0-tvos`, and `net10.0-maccatalyst`. There is no .NET 9 lane: a binding project on an earlier TFM is rejected up front by the MSBuild SDK (`SWIFTBIND010`) rather than failing later in generation. The vast majority of generated P/Invokes (94-98% for representative libraries) use standard C calling conventions and work identically everywhere. A small number of methods use `CallConvSwift`, which may encounter Mono JIT limitations on iOS/tvOS Simulator. **Device builds (NativeAOT) and macOS are unaffected.**
+Swift Bindings targets .NET 10 on Apple platforms — `net10.0-ios`, `net10.0-macos`, `net10.0-tvos`, and `net10.0-maccatalyst`. There is no .NET 9 lane: a binding project on an earlier TFM is rejected up front by the MSBuild SDK (`SWIFTBIND010`) rather than failing later in generation. The vast majority of generated P/Invokes (94-98% for representative libraries) use standard C calling conventions and work identically everywhere. A small number of methods use `CallConvSwift`: Mono JIT can reject some of those calls on iOS/tvOS Simulator, and direct calls carrying untyped `SwiftSelf` have a separate Mono full-AOT risk on devices. **Ordinary .NET iOS/tvOS device apps use Mono full-AOT; NativeAOT is opt-in and separately qualified, while macOS uses CoreCLR.**
 
 For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 

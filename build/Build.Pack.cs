@@ -126,6 +126,7 @@ partial class Build
                 .SetVerbosity(DotNetVerbosity.quiet)
                 .When(_ => apiCompatBaseline is not null, x => x
                     .SetProperty("PackageValidationBaselineVersion", apiCompatBaseline))));
+            AssertRuntimeNativeExports(outputDir / $"SwiftBindings.Runtime.{Version}.nupkg");
 
             // 2. SDK (publish generator first, then pack)
             Log.Information("=== [2/4] Packing SwiftBindings.Sdk ===");
