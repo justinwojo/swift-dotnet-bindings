@@ -4298,6 +4298,73 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_SkippedMultiClosureMethod_EmitsSafeForwardDispatchWithoutSB0003()
+    {
+        var protocolDecl = CreateSimpleProtocol("VendedClosureLoader");
+        var method = CreateMethodDecl("load");
+        method.CSSignature.Add(CreateClosureParameter("onSuccess", new NamedTypeSpec("Swift.Int32")));
+        method.CSSignature.Add(CreateClosureParameter("onProgress", new NamedTypeSpec("Swift.Double")));
+        method.CSSignature.Add(CreateClosureParameter("onError", new NamedTypeSpec("Swift.Int32")));
+        protocolDecl.Methods.Add(method);
+
+        var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(
+            writer, protocolDecl,
+            skippedMethodKeys: new HashSet<string> { methodKey },
+            closureSkippedMethodKeys: new HashSet<string> { methodKey });
+        var output = stringWriter.ToString();
+
+        var methodIdx = output.IndexOf("public void Load(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "Expected the closure requirement implementation");
+        var preMethodText = output.Substring(Math.Max(0, methodIdx - 400), Math.Min(400, methodIdx));
+        Assert.DoesNotContain("DiagnosticId = \"SB0003\"", preMethodText);
+        Assert.Contains("IntPtr arg0FuncPtr, IntPtr arg0Context, IntPtr arg1FuncPtr, IntPtr arg1Context, IntPtr arg2FuncPtr, IntPtr arg2Context", output);
+        Assert.Contains("new global::Swift.Runtime.ClosureHandle(onSuccess, global::Swift.Runtime.ClosureHandlePolicy.Escaping)", output);
+        Assert.Contains("new global::Swift.Runtime.ClosureHandle(onProgress, global::Swift.Runtime.ClosureHandlePolicy.Escaping)", output);
+        Assert.Contains("new global::Swift.Runtime.ClosureHandle(onError, global::Swift.Runtime.ClosureHandlePolicy.Escaping)", output);
+        Assert.Equal(3, EmitterTestHelpers.CountOccurrences(output, ".MarkOwnershipTransferred();"));
+        Assert.Contains("NativeMethods.SBW_VendedClosureLoader_method_load_0(", output);
+        Assert.Contains("#region Witness Closure Callbacks", output);
+
+        var pInvokeIdx = output.IndexOf(
+            "EntryPoint = \"SBW_VendedClosureLoader_method_load_0\"",
+            StringComparison.Ordinal);
+        Assert.True(pInvokeIdx >= 0, "Expected the closure witness LibraryImport");
+        var pInvokePrefix = output.Substring(Math.Max(0, pInvokeIdx - 300), Math.Min(300, pInvokeIdx));
+        Assert.Contains("CallConvCdecl", pInvokePrefix);
+
+        var methodEnd = output.IndexOf("#endregion", methodIdx, StringComparison.Ordinal);
+        var methodBody = output.Substring(methodIdx, methodEnd - methodIdx);
+        Assert.Contains("finally", methodBody);
+        Assert.Contains("closureHandle0.Dispose();", methodBody);
+        Assert.Contains("closureHandle1.Dispose();", methodBody);
+        Assert.Contains("closureHandle2.Dispose();", methodBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SkippedSingleClosureMethod_RemainsSB0003()
+    {
+        var protocolDecl = CreateSimpleProtocol("SingleClosureLoader");
+        var method = CreateMethodDecl("load");
+        method.CSSignature.Add(CreateClosureParameter("completion", new NamedTypeSpec("Swift.Int32")));
+        protocolDecl.Methods.Add(method);
+
+        var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(
+            writer, protocolDecl,
+            skippedMethodKeys: new HashSet<string> { methodKey },
+            closureSkippedMethodKeys: new HashSet<string> { methodKey });
+        var output = stringWriter.ToString();
+
+        Assert.Contains("DiagnosticId = \"SB0003\"", output);
+        Assert.DoesNotContain("#region Witness Closure Callbacks", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_NonDispatchableProperty_EmitsSB0003()
     {
         // Without TypeDB, property is non-dispatchable → SB0003
@@ -7237,6 +7304,22 @@ public class ProtocolProxyEmitterTests
             Throws = false,
             IsAsync = false,
             IsSynthesizedAccessor = false
+        };
+    }
+
+    private static ArgumentDecl CreateClosureParameter(string name, params TypeSpec[] arguments)
+    {
+        var closure = new ClosureTypeSpec(new TupleTypeSpec(arguments.ToList()), TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return new ArgumentDecl
+        {
+            Name = name,
+            PrivateName = name,
+            SwiftTypeSpec = closure,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
         };
     }
 

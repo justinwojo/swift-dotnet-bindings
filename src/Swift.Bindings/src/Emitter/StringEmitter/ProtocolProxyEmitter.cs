@@ -335,6 +335,11 @@ public partial class ProtocolProxyEmitter
         // (fnPtr, ctx) IntPtr pair into a managed delegate (e.g. Action).
         EmitProtocolClosureInvokeThunkHelpers(writer, protocolDecl);
 
+        // Swift-vended existential forward dispatch uses the opposite callback direction:
+        // managed delegates become cdecl function/context pairs consumed by the SBW witness
+        // accessor. Emit those callbacks independently from the reverse-dispatch invoke thunks.
+        EmitWitnessClosureCallbackHelpers(writer, protocolDecl);
+
         // Emit receiver methods (UnmanagedCallersOnly callbacks)
         EmitReceiverMethods(writer, protocolDecl, interfaceNameWithGenerics);
 

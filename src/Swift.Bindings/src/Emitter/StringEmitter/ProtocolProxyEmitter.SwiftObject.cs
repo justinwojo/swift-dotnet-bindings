@@ -774,7 +774,32 @@ public partial class ProtocolProxyEmitter
             if (!emittedPInvokes.Add(accessorSymbol))
                 continue;
 
-            if (dispatchKind is MethodDispatchKind.ExistentialReturn or MethodDispatchKind.ThrowingBlittableOrString or MethodDispatchKind.ClassReturn or MethodDispatchKind.BoundGenericReturn)
+            if (dispatchKind == MethodDispatchKind.ClosureParameters)
+            {
+                var pInvokeParams = new List<string> { "IntPtr containerPtr" };
+                var effectiveParams = method.CSSignature.Skip(1)
+                    .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+                    .ToList();
+                for (int i = 0; i < effectiveParams.Count; i++)
+                {
+                    pInvokeParams.Add($"IntPtr arg{i}FuncPtr");
+                    pInvokeParams.Add($"IntPtr arg{i}Context");
+                }
+
+                writer.WriteLine();
+                EmitAccessorAvailability(writer, method, protocolDecl);
+                PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = accessorSymbol,
+                    MethodName = accessorSymbol,
+                    ReturnType = "void",
+                    ParametersString = string.Join(", ", pInvokeParams),
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Public
+                });
+            }
+            else if (dispatchKind is MethodDispatchKind.ExistentialReturn or MethodDispatchKind.ThrowingBlittableOrString or MethodDispatchKind.ClassReturn or MethodDispatchKind.BoundGenericReturn)
             {
                 // ExistentialReturn, ThrowingBlittableOrString, ClassReturn, and BoundGenericReturn share the same P/Invoke shape:
                 // params: containerPtr + per-param IntPtrs + errorOut (if throwing)

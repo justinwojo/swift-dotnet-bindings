@@ -6,6 +6,57 @@ namespace BindingsGeneration;
 public partial class ProtocolProxyEmitter
 {
     /// <summary>
+    /// Emits managed callbacks used when C# calls a closure-bearing requirement on a
+    /// Swift-vended existential. These are cdecl callbacks (rather than Swift-call-convention
+    /// receiver thunks) because the witness accessor reconstructs each native Swift closure
+    /// from a function/context pair.
+    /// </summary>
+    private void EmitWitnessClosureCallbackHelpers(CSharpWriter writer, ProtocolDecl protocolDecl)
+    {
+        var dispatchEmitter = new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName, _emissionContext);
+        var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
+        var emittedCallbacks = new HashSet<string>();
+        var emittedAny = false;
+
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (!WitnessDispatchEmitter.IsMethodWitnessDispatchEligible(method, protocolDecl)
+                || dispatchEmitter.ClassifyMethodDispatch(method) != MethodDispatchKind.ClosureParameters)
+            {
+                continue;
+            }
+
+            foreach (var parameter in method.CSSignature.Skip(1)
+                .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple))
+            {
+                var closure = (ClosureTypeSpec)parameter.SwiftTypeSpec;
+                var parameterName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(parameter));
+                var callbackName = ClosureHandler.GetCallbackFunctionName(method.Name, parameterName, method.MangledName);
+                if (!emittedCallbacks.Add(callbackName))
+                    continue;
+
+                if (!emittedAny)
+                {
+                    writer.WriteLine("#region Witness Closure Callbacks");
+                    writer.WriteLine();
+                    emittedAny = true;
+                }
+                ClosureEmitter.EmitClosureCallbackPointer(
+                    writer, method.Name, parameterName, closure, closureHandler, method.MangledName, useCdecl: true);
+                ClosureEmitter.EmitEscapingClosureCallback(
+                    writer, method.Name, parameterName, closure, closureHandler, method.MangledName, useCdecl: true);
+                writer.WriteLine();
+            }
+        }
+
+        if (emittedAny)
+        {
+            writer.WriteLine("#endregion");
+            writer.WriteLine();
+        }
+    }
+
+    /// <summary>
     /// Emits the C# side of per-closure-param invoke thunks for the protocol's
     /// dispatchable closure-receiving methods. For each (method, closure-param) pair this
     /// emits a <c>[DllImport]</c> P/Invoke into the Swift wrapper's @_cdecl thunk plus a

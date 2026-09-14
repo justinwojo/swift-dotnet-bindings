@@ -111,6 +111,11 @@ namespace BindingsGeneration
             var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
             var emittedSubscripts = new HashSet<string>();
             var closureHandler = new ClosureHandler(env.TypeDatabase);
+            var witnessDispatchClassifier = new WitnessDispatchEmitter(
+                env.TypeDatabase,
+                _logger,
+                protocolDecl.ModuleDecl?.Name ?? "",
+                emissionCtx);
 
             // Pre-compute extension default lookup values (loop-invariant)
             var extensionDefaultsIndex = emissionCtx?.ExtensionDefaultsIndex;
@@ -599,11 +604,19 @@ namespace BindingsGeneration
                     {
                         skippedMethodKeys.Add(methodKey);
                         closureSkippedMethodKeys.Add(methodKey);
-                        // The requirement still emits on the interface; only the proxy's
-                        // implementation degrades to a throwing SB0003 stub.
-                        ReportCollector.RecordMemberDegraded(
-                            methodDecl, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
-                            "closure parameters cannot be marshalled through a witness table");
+                        // Multi-closure requirements can be forward-dispatchable even though
+                        // reverse dispatch into a C# implementation still has no vtable slot.
+                        // Do not publish the old SB0003 degradation for that supported direction:
+                        // the proxy emitter deliberately consumes the same classification below.
+                        if (witnessDispatchClassifier.ClassifyMethodDispatch(methodDecl)
+                            != MethodDispatchKind.ClosureParameters)
+                        {
+                            // The requirement still emits on the interface; only the proxy's
+                            // implementation degrades to a throwing SB0003 stub.
+                            ReportCollector.RecordMemberDegraded(
+                                methodDecl, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+                                "closure parameters cannot be marshalled through a witness table");
+                        }
                     }
                 }
 

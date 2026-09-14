@@ -220,9 +220,12 @@ public partial class ProtocolProxyEmitter
             // reference a member that was never declared.
             if (!InterfaceDeclaresMethod(method, methodKey))
                 continue;
-            // Declared but not implementable through witness dispatch (closure parameters) —
-            // emit a NotSupported stub so the interface contract is still satisfied.
-            if (_skippedMethodKeys.Contains(methodKey))
+            // A closure method can remain in the reverse-dispatch skip set while being safe in
+            // the Swift-vended forward direction. The dedicated witness carrier therefore gets
+            // a real implementation; all other skipped requirements retain their SB0003 stub.
+            var skippedDispatchKind = dispatchEmitter.ClassifyMethodDispatch(method);
+            if (_skippedMethodKeys.Contains(methodKey)
+                && skippedDispatchKind != MethodDispatchKind.ClosureParameters)
             {
                 // Pass the proxy's own propertyNames so the dedup key reflects the
                 // collision-aware C# member name (Foo -> FooMethod when this protocol
@@ -1721,6 +1724,12 @@ public partial class ProtocolProxyEmitter
         {
             EmitExistentialReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType!, returnTypeName);
         }
+        else if (dispatchKind == MethodDispatchKind.ClosureParameters)
+        {
+            EmitClosureParameterWitnessMethodBody(
+                writer, method, protocolDecl, methodIndex, methodName, argsString, argNames,
+                bodyScope, containerPtrName);
+        }
         else if (dispatchKind == MethodDispatchKind.BlittableOrString)
         {
             var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(protocolDecl.Name, "method", method.Name, methodIndex);
@@ -1928,6 +1937,81 @@ public partial class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the managed half of Swift-vended existential multi-closure forwarding. Each
+    /// public delegate is rooted independently until the Swift adapter's ARC box releases it.
+    /// </summary>
+    private void EmitClosureParameterWitnessMethodBody(
+        CSharpWriter writer,
+        MethodDecl method,
+        ProtocolDecl protocolDecl,
+        int methodIndex,
+        string methodName,
+        string argsString,
+        IReadOnlyList<string> argNames,
+        SyntheticNameScope bodyScope,
+        string containerPtrName)
+    {
+        var parameters = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+        var handles = new List<string>();
+        var callbacks = new List<string>();
+
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var handleName = bodyScope.Mint($"closureHandle{i}");
+            handles.Add(handleName);
+            var parameterName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(parameters[i]));
+            callbacks.Add(ClosureHandler.GetCallbackFunctionName(method.Name, parameterName, method.MangledName));
+            writer.WriteLine($"global::Swift.Runtime.ClosureHandle {handleName} = default;");
+        }
+
+        writer.WriteLines($$"""
+            if (_csharpImpl != null)
+            {
+                _csharpImpl.{{methodName}}({{argsString}});
+                return;
+            }
+            try
+            {
+            """);
+        writer.Indent++;
+
+        for (int i = 0; i < handles.Count; i++)
+        {
+            writer.WriteLine($"{handles[i]} = new global::Swift.Runtime.ClosureHandle({argNames[i]}, global::Swift.Runtime.ClosureHandlePolicy.Escaping);");
+        }
+
+        writer.WriteLine($"fixed (ExistentialContainer1* {containerPtrName} = &_swiftContainer)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+        for (int i = 0; i < handles.Count; i++)
+        {
+            pInvokeArgs.Add($"(IntPtr)s_{callbacks[i]}");
+            pInvokeArgs.Add($"{handles[i]}.Context");
+        }
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(
+            protocolDecl.Name, "method", method.Name, methodIndex);
+        writer.WriteLine($"NativeMethods.{accessorSymbol}({string.Join(", ", pInvokeArgs)});");
+        writer.Indent--;
+        writer.WriteLine("}");
+
+        foreach (var handle in handles)
+            writer.WriteLine($"{handle}.MarkOwnershipTransferred();");
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("finally");
+        writer.WriteLine("{");
+        writer.Indent++;
+        foreach (var handle in handles)
+            writer.WriteLine($"{handle}.Dispose();");
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>

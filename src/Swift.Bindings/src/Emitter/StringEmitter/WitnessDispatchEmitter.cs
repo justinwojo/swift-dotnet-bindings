@@ -23,7 +23,12 @@ public enum MethodDispatchKind
     /// <summary>Method returns a non-frozen struct or frozen+RefFields struct (indirect result buffer). Handles throwing internally.</summary>
     StructReturn,
     /// <summary>Method returns a bound generic collection (Array, Dictionary, Set). Uses heap-allocated pointer pattern like ExistentialReturn.</summary>
-    BoundGenericReturn
+    BoundGenericReturn,
+    /// <summary>
+    /// Synchronous, nonthrowing void method whose parameters are two or more supported
+    /// escaping closures. Each closure crosses @_cdecl as an independent function/context pair.
+    /// </summary>
+    ClosureParameters
 }
 
 /// <summary>
@@ -42,6 +47,8 @@ public readonly record struct DispatchClassification(MethodDispatchKind Kind, st
 /// Phase B scope: String property getters/setters, String method params/returns,
 /// blittable property setters.
 /// Phase C scope: methods returning protocol existentials (throwing/non-throwing).
+/// Phase D scope: synchronous void requirements whose only parameters are two or more
+/// supported escaping closures, with one independent function/context pair per closure.
 /// </summary>
 public class WitnessDispatchEmitter
 {
@@ -349,6 +356,12 @@ public class WitnessDispatchEmitter
                     EmitErrorHelperIfNeeded();
                 EmitCollectionReturnMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
             }
+            else if (kind == MethodDispatchKind.ClosureParameters)
+            {
+                EnsureHeader();
+                ClosureContextHelperEmitter.EmitIfNeeded(writer, _emissionContext);
+                EmitClosureParameterMethodAccessor(writer, method, protocolDecl, moduleQualifiedName, idx);
+            }
         }
 
         if (anyEmitted)
@@ -450,6 +463,10 @@ public class WitnessDispatchEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 
+        var closureDispatch = ClassifyClosureParameterDispatch(method, hasReturn);
+        if (closureDispatch.Kind == MethodDispatchKind.ClosureParameters || closureDispatch.Reason != null)
+            return closureDispatch.Kind;
+
         // Check if return type is an existential that can be dispatched
         if (hasReturn && IsExistentialDispatchable(returnType!))
         {
@@ -543,6 +560,10 @@ public class WitnessDispatchEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 
+        var closureDispatch = ClassifyClosureParameterDispatch(method, hasReturn);
+        if (closureDispatch.Kind == MethodDispatchKind.ClosureParameters || closureDispatch.Reason != null)
+            return closureDispatch;
+
         // Check return type dispatchability first for non-blittable return reason
         if (hasReturn && IsExistentialDispatchable(returnType!))
         {
@@ -617,6 +638,65 @@ public class WitnessDispatchEmitter
         }
 
         return new DispatchClassification(MethodDispatchKind.BlittableOrString, null);
+    }
+
+    /// <summary>
+    /// Classifies the deliberately narrow first forward-dispatch closure surface. The runtime
+    /// fixture proves multiple independently typed, escaping callbacks retained by Swift after
+    /// the requirement returns. Optional, nonescaping, throwing, async, value-returning, mixed
+    /// value/closure, and single-closure requirements remain SB0003 until they have their own
+    /// first-party lifetime and ABI evidence.
+    /// </summary>
+    private DispatchClassification ClassifyClosureParameterDispatch(MethodDecl method, bool hasReturn)
+    {
+        var parameters = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+        var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
+        var closureCount = parameters.Count(closureHandler.IsClosure);
+        if (closureCount == 0)
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable, null);
+
+        // Protocol requirements carry the protocol's implicit Self generic signature in ABI
+        // metadata, so MethodDecl.IsGeneric is not a useful exclusion here. The per-closure
+        // compatibility checks below reject unresolved generic payloads directly.
+        if (method.Throws || hasReturn || method.IsMutating)
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                "closure-parameter forward dispatch currently requires a synchronous, nonthrowing, nonmutating Void requirement");
+        if (closureHandler.MethodHasConventionCClosure(method.MangledName))
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                "@convention(c) closure parameters do not use the managed closure carrier");
+        if (closureCount < 2)
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                "single-closure forward dispatch has not yet been proven by the vended-existential lifetime fixture");
+        if (closureCount != parameters.Count)
+            return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                "mixed value and closure parameters are not yet supported by closure witness forwarding");
+
+        foreach (var parameter in parameters)
+        {
+            // The first supported surface is a bare @escaping closure. Optional closures have a
+            // distinct nil carrier and therefore stay gated even though the shared adapter can
+            // represent them.
+            if (parameter.SwiftTypeSpec is not ClosureTypeSpec closure)
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"closure parameter '{parameter.Name}' is optional or otherwise wrapped");
+            if (!WrapperValidation.IsEffectivelyEscaping(closure, parameter.SwiftTypeSpec, closureHandler))
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"closure parameter '{parameter.Name}' is nonescaping");
+            if (closure.IsAsync || closure.Throws || !closure.ReturnType.IsEmptyTuple)
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"closure parameter '{parameter.Name}' must be synchronous, nonthrowing, and Void-returning");
+            if (!EveryProtocolEmitter.IsDispatchableClosureShape(closure, closureHandler)
+                || !ClosureEmitter.IsClosureCdeclCompatible(closure, closureHandler)
+                || !closureHandler.RequiresThunk(closure, method.MangledName, closureCount))
+            {
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"closure parameter '{parameter.Name}' is not compatible with the @_cdecl callback carrier");
+            }
+        }
+
+        return new DispatchClassification(MethodDispatchKind.ClosureParameters, null);
     }
 
     /// <summary>
@@ -1706,6 +1786,58 @@ public class WitnessDispatchEmitter
                     """);
             }
         }
+    }
+
+    /// <summary>
+    /// Emits a witness-table forwarder for a multi-closure requirement. Every closure is
+    /// represented by its own @_cdecl function/context pair, adapted to a native escaping
+    /// Swift closure, and handed to the existential requirement in declaration order.
+    /// </summary>
+    private void EmitClosureParameterMethodAccessor(
+        SwiftWriter writer,
+        MethodDecl method,
+        ProtocolDecl protocolDecl,
+        string moduleQualifiedName,
+        int index)
+    {
+        var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
+        var parameters = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+        var accessorSymbol = GetAccessorSymbol(protocolDecl.Name, "method", method.Name, index);
+        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        var callArgs = new List<string>();
+
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            swiftParams.Add($"_ arg{i}FuncPtr: UnsafeMutableRawPointer?");
+            swiftParams.Add($"_ arg{i}Context: UnsafeMutableRawPointer?");
+        }
+
+        EmitAvailabilityAttributes(writer, method, protocolDecl);
+        var mainActorAttr = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated ? "@MainActor " : "";
+        writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
+        writer.WriteLine($"public func {accessorSymbol}({string.Join(", ", swiftParams)}) {{");
+        writer.Indent++;
+        writer.WriteLine($"var existential = containerPtr.load(as: (any {moduleQualifiedName}).self)");
+
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var closure = (ClosureTypeSpec)parameters[i].SwiftTypeSpec;
+            foreach (var line in ClosureEmitter.GetSwiftClosureAdapterCode(
+                $"arg{i}", closure, closureHandler, isOptional: false, isEscaping: true,
+                writer, _emissionContext, method.ModuleDecl?.Name ?? _moduleName))
+            {
+                writer.WriteLine(line);
+            }
+            callArgs.Add($"_adapted_arg{i}");
+        }
+
+        var labeledArgs = BuildLabeledArgs(method, callArgs);
+        writer.WriteLine($"existential.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", labeledArgs)})");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
     }
 
     /// <summary>

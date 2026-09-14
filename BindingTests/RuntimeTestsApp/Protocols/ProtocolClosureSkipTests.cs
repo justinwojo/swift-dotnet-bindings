@@ -1455,5 +1455,48 @@ public class ProtocolClosureSkipTests : TestBase
         AssertEqual(1, driver.CompletionFireCount, "Completion fired exactly once back into Swift");
     }
 
+    public void TestSwiftVendedClosureLoader_MultiClosureForwardDispatchSurvivesGCAndDispose()
+    {
+        var loader = TestLibFunctions.MakeVendedClosureLoader();
+        var successCount = 0;
+        var progressCount = 0;
+        var errorCount = 0;
+        var successValue = 0;
+        var progressValue = 0.0;
+        var errorValue = 0;
+
+        loader.Load(
+            value =>
+            {
+                successCount++;
+                successValue = value;
+            },
+            value =>
+            {
+                progressCount++;
+                progressValue = value;
+            },
+            error =>
+            {
+                errorCount++;
+                errorValue = (int)error;
+            });
+
+        ForceGCThorough();
+        loader.FireStoredCallbacks();
+
+        AssertEqual(1, successCount, "Delayed success closure fired exactly once");
+        AssertEqual(42, successValue, "Delayed success payload round-tripped");
+        AssertEqual(1, progressCount, "Delayed progress closure fired exactly once");
+        AssertEqual(0.625, progressValue, "Delayed progress payload round-tripped");
+        AssertEqual(1, errorCount, "Delayed typed-error closure fired exactly once");
+        AssertEqual(23, errorValue, "Delayed typed-error payload round-tripped");
+
+        ((IDisposable)loader).Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => loader.FireStoredCallbacks(),
+            "Disposed existential rejects subsequent forward dispatch");
+    }
+
     #endregion
 }

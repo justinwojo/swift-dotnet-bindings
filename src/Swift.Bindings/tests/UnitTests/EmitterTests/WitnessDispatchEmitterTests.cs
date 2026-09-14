@@ -307,6 +307,146 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
+    public void EmitMultiClosureMethod_GeneratesIndependentCdeclPairsAndAdapters()
+    {
+        var success = EscapingVoidClosure(new NamedTypeSpec("Swift.Int32"));
+        var progress = EscapingVoidClosure(new NamedTypeSpec("Swift.Double"));
+        var failure = EscapingVoidClosure(new NamedTypeSpec("Swift.Int32"));
+        var protocolDecl = CreateProtocolWithMethodAndParams(
+            "VendedClosureLoader", "load", TupleTypeSpec.Empty,
+            new[]
+            {
+                ("onSuccess", (TypeSpec)success),
+                ("onProgress", (TypeSpec)progress),
+                ("onError", (TypeSpec)failure),
+            });
+
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Equal(MethodDispatchKind.ClosureParameters,
+            _emitter.ClassifyMethodDispatch(protocolDecl.Methods[0]));
+        Assert.Contains("@_cdecl(\"SBW_VendedClosureLoader_method_load_0\")", output);
+        Assert.Contains("_ arg0FuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg0Context: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg1FuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg1Context: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg2FuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg2Context: UnsafeMutableRawPointer?", output);
+        Assert.Contains("let _box_arg0: AnyObject = _sbWrapClosureContext(arg0Context!)", output);
+        Assert.Contains("let _box_arg1: AnyObject = _sbWrapClosureContext(arg1Context!)", output);
+        Assert.Contains("let _box_arg2: AnyObject = _sbWrapClosureContext(arg2Context!)", output);
+        Assert.Contains("existential.load(onSuccess: _adapted_arg0, onProgress: _adapted_arg1, onError: _adapted_arg2)", output);
+    }
+
+    [Fact]
+    public void ClassifySingleClosureMethod_RemainsNotDispatchable()
+    {
+        var protocolDecl = CreateProtocolWithMethodAndParams(
+            "SingleClosureLoader", "load", TupleTypeSpec.Empty,
+            new[] { ("completion", (TypeSpec)EscapingVoidClosure(new NamedTypeSpec("Swift.Int32"))) });
+
+        var classification = _emitter.ClassifyMethodDispatchWithReason(protocolDecl.Methods[0]);
+
+        Assert.Equal(MethodDispatchKind.NotDispatchable, classification.Kind);
+        Assert.Contains("single-closure", classification.Reason);
+    }
+
+    [Fact]
+    public void ClassifyMultiClosureMethod_UnsupportedShapesRemainNotDispatchableWithoutAccessor()
+    {
+        ProtocolDecl MultiClosureProtocol(string protocolName, TypeSpec returnType, params TypeSpec[] parameters)
+            => CreateProtocolWithMethodAndParams(
+                protocolName, "load", returnType,
+                parameters.Select((type, index) => ($"arg{index}", type)).ToArray());
+
+        void AssertRejected(ProtocolDecl protocol, string reasonFragment)
+        {
+            var method = protocol.Methods[0];
+            var classification = _emitter.ClassifyMethodDispatchWithReason(method);
+            Assert.Equal(MethodDispatchKind.NotDispatchable, classification.Kind);
+            Assert.Contains(reasonFragment, classification.Reason);
+            Assert.DoesNotContain(
+                $"SBW_{protocol.Name}_method_load_0",
+                EmitDispatch(protocol));
+        }
+
+        var throwingMethod = MultiClosureProtocol(
+            "ThrowingMultiClosure", TupleTypeSpec.Empty,
+            EscapingVoidClosure(), EscapingVoidClosure());
+        throwingMethod.Methods[0].Throws = true;
+        AssertRejected(throwingMethod, "synchronous, nonthrowing, nonmutating Void");
+
+        var asyncMethod = MultiClosureProtocol(
+            "AsyncMultiClosure", TupleTypeSpec.Empty,
+            EscapingVoidClosure(), EscapingVoidClosure());
+        asyncMethod.Methods[0].IsAsync = true;
+        AssertRejected(asyncMethod, "async methods require Swift concurrency runtime");
+
+        var mutatingMethod = MultiClosureProtocol(
+            "MutatingMultiClosure", TupleTypeSpec.Empty,
+            EscapingVoidClosure(), EscapingVoidClosure());
+        mutatingMethod.Methods[0].IsMutating = true;
+        AssertRejected(mutatingMethod, "synchronous, nonthrowing, nonmutating Void");
+
+        var valueReturningMethod = MultiClosureProtocol(
+            "ValueReturningMultiClosure", new NamedTypeSpec("Swift.Int32"),
+            EscapingVoidClosure(), EscapingVoidClosure());
+        AssertRejected(valueReturningMethod, "synchronous, nonthrowing, nonmutating Void");
+
+        var mixedParameters = MultiClosureProtocol(
+            "MixedParameterMultiClosure", TupleTypeSpec.Empty,
+            EscapingVoidClosure(), new NamedTypeSpec("Swift.Int32"), EscapingVoidClosure());
+        AssertRejected(mixedParameters, "mixed value and closure parameters");
+
+        var optionalParameters = MultiClosureProtocol(
+            "OptionalMultiClosure", TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Optional", EscapingVoidClosure()), EscapingVoidClosure());
+        AssertRejected(optionalParameters, "optional or otherwise wrapped");
+
+        var nonescaping = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var nonescapingParameters = MultiClosureProtocol(
+            "NonescapingMultiClosure", TupleTypeSpec.Empty,
+            nonescaping, EscapingVoidClosure());
+        AssertRejected(nonescapingParameters, "nonescaping");
+
+        var asyncClosure = EscapingVoidClosure();
+        asyncClosure.IsAsync = true;
+        var asyncClosureParameters = MultiClosureProtocol(
+            "AsyncClosureMultiClosure", TupleTypeSpec.Empty,
+            asyncClosure, EscapingVoidClosure());
+        AssertRejected(asyncClosureParameters, "synchronous, nonthrowing, and Void-returning");
+
+        var throwingClosure = EscapingVoidClosure();
+        throwingClosure.Throws = true;
+        var throwingClosureParameters = MultiClosureProtocol(
+            "ThrowingClosureMultiClosure", TupleTypeSpec.Empty,
+            throwingClosure, EscapingVoidClosure());
+        AssertRejected(throwingClosureParameters, "synchronous, nonthrowing, and Void-returning");
+
+        var valueReturningClosure = new ClosureTypeSpec(
+            TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32"));
+        valueReturningClosure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var valueReturningClosureParameters = MultiClosureProtocol(
+            "ValueClosureMultiClosure", TupleTypeSpec.Empty,
+            valueReturningClosure, EscapingVoidClosure());
+        AssertRejected(valueReturningClosureParameters, "synchronous, nonthrowing, and Void-returning");
+
+        var conventionCClosure = EscapingVoidClosure();
+        var conventionCAttribute = new TypeSpecAttribute("convention");
+        conventionCAttribute.Parameters.Add("c");
+        conventionCClosure.Attributes.Add(conventionCAttribute);
+        var conventionCParameters = MultiClosureProtocol(
+            "ConventionCMultiClosure", TupleTypeSpec.Empty,
+            conventionCClosure, EscapingVoidClosure());
+        AssertRejected(conventionCParameters, "not compatible with the @_cdecl callback carrier");
+
+        var incompatiblePayload = MultiClosureProtocol(
+            "IncompatiblePayloadMultiClosure", TupleTypeSpec.Empty,
+            EscapingVoidClosure(new NamedTypeSpec("Swift.String")), EscapingVoidClosure());
+        AssertRejected(incompatiblePayload, "not compatible with the @_cdecl callback carrier");
+    }
+
+    [Fact]
     public void EmitMethod_WithLabeledParams_UsesLabelsInCall()
     {
         var protocolDecl = CreateProtocolWithMethodAndParams("HasValue", "setValue",
@@ -2003,6 +2143,13 @@ public class WitnessDispatchEmitterTests
         var protocol = CreateSimpleProtocol(protocolName);
         protocol.Methods.Add(CreateMethod(methodName, returnType));
         return protocol;
+    }
+
+    private static ClosureTypeSpec EscapingVoidClosure(params TypeSpec[] arguments)
+    {
+        var closure = new ClosureTypeSpec(new TupleTypeSpec(arguments.ToList()), TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return closure;
     }
 
     private ProtocolDecl CreateProtocolWithVoidMethod(string protocolName, string methodName)

@@ -543,3 +543,49 @@ public class AmountProcessorDriver {
         })
     }
 }
+
+// MARK: - Swift-vended existential forward dispatch
+
+/// A typed error payload used to prove that forward witness dispatch preserves
+/// callback argument marshalling independently for each closure parameter.
+public enum VendedClosureFailure: Int32, Error {
+    case rejected = 23
+}
+
+/// The first-party forward-dispatch fixture for closure-bearing requirements.
+/// The implementation stores all three escaping closures and fires them only
+/// from a later call, after the original `load` invocation has returned.
+public protocol VendedClosureLoader {
+    func load(
+        onSuccess: @escaping (Int32) -> Void,
+        onProgress: @escaping (Double) -> Void,
+        onError: @escaping (VendedClosureFailure) -> Void)
+
+    func fireStoredCallbacks()
+}
+
+private final class VendedClosureLoaderImpl: VendedClosureLoader {
+    private var onSuccess: ((Int32) -> Void)?
+    private var onProgress: ((Double) -> Void)?
+    private var onError: ((VendedClosureFailure) -> Void)?
+
+    func load(
+        onSuccess: @escaping (Int32) -> Void,
+        onProgress: @escaping (Double) -> Void,
+        onError: @escaping (VendedClosureFailure) -> Void)
+    {
+        self.onSuccess = onSuccess
+        self.onProgress = onProgress
+        self.onError = onError
+    }
+
+    func fireStoredCallbacks() {
+        onProgress?(0.625)
+        onSuccess?(42)
+        onError?(.rejected)
+    }
+}
+
+public func makeVendedClosureLoader() -> any VendedClosureLoader {
+    VendedClosureLoaderImpl()
+}
