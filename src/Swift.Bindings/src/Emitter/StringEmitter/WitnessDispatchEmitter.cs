@@ -1759,6 +1759,7 @@ public class WitnessDispatchEmitter
         var callArgsString = string.Join(", ", labeledArgs);
 
         // do/catch with error out-parameter
+        ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
         writer.WriteLine("do {");
         writer.Indent++;
 
@@ -1952,6 +1953,7 @@ public class WitnessDispatchEmitter
         {
             // Throwing pattern: do/catch with error out-parameter
             // Note: throwing + optional is gated out in ClassifyMethodDispatch
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
             writer.WriteLine("do {");
             writer.Indent++;
             writer.WriteLine($"let result: {swiftTypeName} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
@@ -2102,6 +2104,7 @@ public class WitnessDispatchEmitter
 
         if (method.Throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
             writer.WriteLine("do {");
             writer.Indent++;
             writer.WriteLine($"let result = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
@@ -2189,6 +2192,7 @@ public class WitnessDispatchEmitter
 
         if (method.Throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
             writer.WriteLine("do {");
             writer.Indent++;
             writer.WriteLine($"let result = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");

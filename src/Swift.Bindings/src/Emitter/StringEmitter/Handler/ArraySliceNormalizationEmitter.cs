@@ -729,6 +729,7 @@ public static class ArraySliceNormalizationEmitter
 
             if (useCdecl && throws)
             {
+                ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
                 swiftWriter.WriteLine("do {");
                 swiftWriter.Indent++;
                 var callExpr = $"try {callExprBase}";

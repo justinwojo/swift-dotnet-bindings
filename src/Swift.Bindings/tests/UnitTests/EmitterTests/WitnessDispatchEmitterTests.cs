@@ -1132,6 +1132,9 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("do {", output);
         Assert.Contains("try existential.", output);
         Assert.Contains("} catch {", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The protocol witness thunk must clear errorOut before executing Swift code.\n{output}");
     }
 
     #endregion
@@ -1212,6 +1215,9 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("do {", output);
         Assert.Contains("try existential.", output);
         Assert.Contains("} catch {", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The blittable/string/void witness helper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]
@@ -1564,6 +1570,9 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
         Assert.Contains("return nil", output);
         Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The class-return witness helper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]
@@ -1586,6 +1595,9 @@ public class WitnessDispatchEmitterTests
         Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
         // Struct return is always void (result written to buffer)
         Assert.DoesNotContain("-> UnsafeMutableRawPointer", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The indirect-return witness helper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]

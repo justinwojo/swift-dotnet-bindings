@@ -901,6 +901,9 @@ public class ArraySliceNormalizationEmitterTests
         Assert.True(resultPtrIdx < dataIdx && dataIdx < selfIdx && selfIdx < errorOutIdx,
             $"@_cdecl parameter order must be [ResultPtr][Arguments][Self][ErrorOut]; " +
             $"positions were resultPtr={resultPtrIdx}, data={dataIdx}, self_={selfIdx}, errorOut={errorOutIdx}:\n{swiftOutput}");
+        var clearAt = swiftOutput.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < swiftOutput.IndexOf("do {", StringComparison.Ordinal),
+            $"The ArraySlice normalization wrapper must clear errorOut before executing Swift code.\n{swiftOutput}");
     }
 
     #endregion

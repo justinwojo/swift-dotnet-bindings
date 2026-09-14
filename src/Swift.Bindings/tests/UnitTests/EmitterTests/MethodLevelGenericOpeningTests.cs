@@ -774,10 +774,13 @@ public class MethodLevelGenericOpeningTests
         Assert.DoesNotContain("errorOut", refusedArm);
 
         var catchStart = swift.IndexOf("} catch {", StringComparison.Ordinal);
+        var clearStart = swift.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        var doStart = swift.IndexOf("do {", StringComparison.Ordinal);
         Assert.True(catchStart > successStart);
-        Assert.DoesNotContain("errorOut.pointee", swift[..catchStart]);
+        Assert.True(clearStart >= 0 && clearStart < doStart,
+            $"The throwing wrapper must clear errorOut before entering the Swift do block.\n{swift}");
         Assert.Contains("errorOut.pointee = Unmanaged.passRetained", swift[catchStart..]);
-        Assert.Equal(1, CountOccurrences(swift, "errorOut.pointee"));
+        Assert.Equal(2, CountOccurrences(swift, "errorOut.pointee"));
     }
 
     [Fact]

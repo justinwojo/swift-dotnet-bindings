@@ -462,6 +462,7 @@ public static class PropertyWrapperEmitter
         if (getterThrows)
         {
             propAccess = $"try {propAccess}";
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
             swiftWriter.WriteLine("do {");
             swiftWriter.Indent++;
         }

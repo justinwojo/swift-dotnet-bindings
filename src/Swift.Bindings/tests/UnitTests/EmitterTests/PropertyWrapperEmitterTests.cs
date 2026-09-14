@@ -1312,6 +1312,25 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftGetterWrapper_ThrowingGetter_ClearsErrorBeforeDo()
+    {
+        var (swiftWriter, sw, propertyDecl, env, ctx) = CreateGetterTestSetup(
+            "count", new NamedTypeSpec("Swift.Int"), isClass: true);
+        env.MethodDecl.Throws = true;
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+            swiftWriter, propertyDecl, "SBW_Get_TestModule_MyType_count", env, ctx);
+
+        var output = sw.ToString();
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        var doAt = output.IndexOf("do {", StringComparison.Ordinal);
+        var catchAt = output.IndexOf("} catch {", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < doAt && doAt < catchAt,
+            $"The property wrapper must clear errorOut before executing Swift code.\n{output}");
+        Assert.Equal(2, output.Split("errorOut.pointee", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void EmitSwiftGetterWrapper_Bool_ReturnsInt8()
     {
         var (swiftWriter, sw, propertyDecl, env, ctx) = CreateGetterTestSetup(

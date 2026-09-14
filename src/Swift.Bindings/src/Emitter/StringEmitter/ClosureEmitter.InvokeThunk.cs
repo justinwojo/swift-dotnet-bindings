@@ -185,6 +185,7 @@ public static partial class ClosureEmitter
                 : $"return {BuildSwiftInvokeThunkReturnExpr(closureHandler, closureTypeSpec.ReturnType, swiftReturnType, "_result")}";
 
             // do { try _closure(...) } catch { marshal error; return default }
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter, "_errorOut");
             if (returnsVoid)
             {
                 swiftWriter.WriteLines($$"""

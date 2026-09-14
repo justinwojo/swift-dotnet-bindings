@@ -873,6 +873,9 @@ public class ConcreteSpecializationEngineTests
         // throwing-ctor ABI without coupling to formatting.
         Assert.Contains("errorPtr", cs);
         Assert.Contains("errorOut", swift);
+        var clearAt = swift.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < swift.IndexOf("do {", StringComparison.Ordinal),
+            $"The concrete-specialization wrapper must clear errorOut before executing Swift code.\n{swift}");
     }
 
     [Fact]

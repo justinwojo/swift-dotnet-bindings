@@ -1802,6 +1802,9 @@ public class MethodWrapperEmitterTests
         Assert.Contains("do {", output);
         Assert.Contains("try obj.doWork()", output);
         Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The method wrapper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]

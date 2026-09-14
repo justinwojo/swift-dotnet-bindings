@@ -1862,6 +1862,9 @@ public class ClosureEmitterDirectTests
         Assert.Contains("try _closure(", result);
         Assert.Contains("} catch {", result);
         Assert.Contains("_errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", result);
+        var clearAt = result.IndexOf("_errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < result.IndexOf("do {", StringComparison.Ordinal),
+            $"The throwing closure invoke thunk must clear errorOut before executing Swift code.\n{result}");
     }
 
     [Fact]

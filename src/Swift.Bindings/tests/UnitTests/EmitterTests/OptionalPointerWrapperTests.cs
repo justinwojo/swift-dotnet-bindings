@@ -1493,6 +1493,40 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
+    public void EmitSwiftWrapper_Cdecl_Throwing_ClearsErrorBeforeDo()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("parse", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: true,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("value", optStringType, moduleDecl));
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        OptionalPointerWrapperEmitter.EmitSwiftWrapper(
+            swiftWriter, new MethodEnvironment(method, typeDatabase), parentDecl, useCdecl: true);
+
+        var swift = swiftOutput.ToString();
+        var clearAt = swift.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        var doAt = swift.IndexOf("do {", StringComparison.Ordinal);
+        var catchAt = swift.IndexOf("} catch {", StringComparison.Ordinal);
+        var retainedAt = swift.IndexOf(
+            "errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()",
+            StringComparison.Ordinal);
+
+        Assert.True(clearAt >= 0 && clearAt < doAt,
+            $"The optional-pointer throwing wrapper must clear errorOut before executing Swift code.\n{swift}");
+        Assert.True(doAt < catchAt && catchAt < retainedAt,
+            $"Only the catch path may retain and publish a Swift error.\n{swift}");
+    }
+
+    [Fact]
     public void EmitClosureCdeclSwiftWrapper_Cdecl_SmallBlittableOptional_IsDecodedNotRawPointer()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -1570,6 +1604,9 @@ public class OptionalPointerWrapperTests
             $"@_cdecl parameter order must be [ResultPtr][Arguments][Self][ErrorOut]; " +
             $"positions were resultPtr={resultPtrIdx}, funcPtr={funcPtrIdx}, context={contextIdx}, " +
             $"self={selfIdx}, errorOut={errorOutIdx}:\n{swift}");
+        var clearAt = swift.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < swift.IndexOf("do {", StringComparison.Ordinal),
+            $"The closure-bearing throwing wrapper must clear errorOut before executing Swift code.\n{swift}");
     }
 
     [Fact]

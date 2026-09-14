@@ -1419,6 +1419,7 @@ public static partial class ClosureEmitter
         // Emit the call — with error handling for @_cdecl throwing methods
         if (useCdecl && methodDecl.Throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter, indent: "    ");
             swiftWriter.WriteLine("    do {");
             var throwCallExpr = $"try {callPrefix}{callArgsStr}{callSuffix}";
             if (hasLargeOptionalReturn)

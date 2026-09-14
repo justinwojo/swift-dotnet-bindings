@@ -1367,6 +1367,7 @@ public static class MethodWrapperEmitter
 
         if (throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
             swiftWriter.WriteLine("do {");
             swiftWriter.Indent++;
             if (isVoidReturn || cdeclNeedsResultPtr)
@@ -1427,6 +1428,7 @@ public static class MethodWrapperEmitter
         bool isString,
         ITypeDatabase typeDatabase)
     {
+        ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
         swiftWriter.WriteLine("do {");
         swiftWriter.Indent++;
 

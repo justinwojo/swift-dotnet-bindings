@@ -1041,7 +1041,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string callExprWithTry = $"{tryPrefix}{callExpr}";
 
         if (throws)
+        {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter, indent: "    ");
             swiftWriter.WriteLine("    do {");
+        }
 
         if (isConstructor)
         {
