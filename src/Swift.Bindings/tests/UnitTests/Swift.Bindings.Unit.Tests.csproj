@@ -155,6 +155,10 @@
          decides which leg owns it is pinned here rather than re-derived at each. BCL-only string
          work, AOT-clean. -->
     <Compile Include="../../../../build/Models/SharedUdidRouting.cs" Link="Models/SharedUdidRouting.cs" />
+    <!-- Link-compile the downstream qualification JSONL contract. Internal consumer harnesses
+         emit this receipt after their sim/device grids; the checked parser ensures malformed,
+         incomplete, arithmetically inconsistent, or multiply-terminated evidence cannot pass. -->
+    <Compile Include="../../../../build/Models/DownstreamQualificationReceipt.cs" Link="Models/DownstreamQualificationReceipt.cs" />
     <!-- Link-compile the device runtime-flavor gate. The two physical-device lanes (NativeAOT and
          Mono full-AOT) share a bundle id, an install path and a test suite, and are separated only
          by an MSBuild property; if that property stops taking effect the run still goes green and
