@@ -142,6 +142,14 @@
           "type": "boolean",
           "description": "Emit the ABI coverage grid report + gate after the platform run(s), merging sim+device"
         },
+        "ActivityKitProvisioningProfile": {
+          "type": "string",
+          "description": "Provisioning profile name/UUID for --activitykit-push-token (or set ACTIVITYKIT_PROVISIONING_PROFILE)"
+        },
+        "ActivityKitPushToken": {
+          "type": "boolean",
+          "description": "Opt in to the entitlement-qualified ActivityKit usePushToken:true physical-device arm"
+        },
         "ApiCompatBaseline": {
           "type": "string",
           "description": "ApiCompat baseline for the SwiftBindings.Runtime pack: the last shipped Runtime version this pack's public surface must be additive over (defaults to the highest stable sdk-v* tag below --version)"

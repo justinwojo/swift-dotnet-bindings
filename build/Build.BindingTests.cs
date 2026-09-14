@@ -1070,6 +1070,23 @@ partial class Build
                     "--mono-aot selects the Mono full-AOT runtime for the PHYSICAL DEVICE app build, so it "
                     + "requires --device. Run `nuke binding-tests --device --mono-aot`.");
 
+            if (ActivityKitPushToken && !Device)
+                throw new Exception(
+                    "--activitykit-push-token is a capability-qualified PHYSICAL DEVICE arm and requires --device. " +
+                    "Simulator remains on the supported non-push lifecycle; run `nuke binding-tests --device " +
+                    "--activitykit-push-token --class-filter LiveActivityTests`." );
+
+            if (ActivityKitPushToken && CompileOnly)
+                throw new Exception(
+                    "--activitykit-push-token and --compile-only cannot be combined: the capability-qualified arm " +
+                    "must build, verify, install, and run a signed physical-device app.");
+
+            if (ActivityKitPushToken && string.IsNullOrWhiteSpace(EffectiveActivityKitProvisioningProfile))
+                throw new Exception(
+                    "--activitykit-push-token requires --activitykit-provisioning-profile (or " +
+                    "ACTIVITYKIT_PROVISIONING_PROFILE) naming an explicit App ID profile that grants the " +
+                    "'aps-environment' entitlement. Wildcard or implicit profiles are not accepted.");
+
             // The opt-in heavyweight legs (--mixed-pack, --mixed-direct, --appstore-hygiene) and
             // --compile-only are mutually exclusive: --compile-only is a no-app-build compile-check
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
@@ -1086,10 +1103,10 @@ partial class Build
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, and --apple-package-consumer cannot be combined: each "
-                    + "is a focused, exclusive leg that builds its own fixture and returns. Pass exactly one.");
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, and --activitykit-push-token "
+                    + "cannot be combined: each requires its own focused execution path. Pass exactly one.");
 
             // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
             // PartialSuccessKitchen fixture (deliberately-unsupported shapes + must-emit controls),

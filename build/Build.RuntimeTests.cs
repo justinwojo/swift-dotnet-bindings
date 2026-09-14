@@ -83,6 +83,10 @@ partial class Build
     readonly bool Sim;
     [Parameter("Run on physical iOS device (NativeAOT)")]
     readonly bool Device;
+    [Parameter("Opt in to the entitlement-qualified ActivityKit usePushToken:true physical-device arm")]
+    readonly bool ActivityKitPushToken;
+    [Parameter("Provisioning profile name/UUID for --activitykit-push-token (or set ACTIVITYKIT_PROVISIONING_PROFILE)")]
+    readonly string? ActivityKitProvisioningProfile;
     // The .NET-for-iOS DEFAULT device runtime is Mono full-AOT, not NativeAOT: a plain
     // `dotnet build -c Debug -r ios-arm64` (no PublishAot) is what a MAUI app ships unless the
     // author opts into PublishAot. That is the runtime most real consumers are on, and until this
@@ -1085,6 +1089,11 @@ partial class Build
                 Log.Information("Device: {Name} ({Udid})", device.Name, device.Udid);
             }
 
+            var activityKitProfile = ActivityKitPushToken
+                ? RequireActivityKitProvisioningProfile(
+                    ResolveActivityKitProvisioningDeviceUdid(device.Udid))
+                : null;
+
             if (!EffectiveSkipRegen)
             {
                 // Device path: build xcframework with device slice
@@ -1119,12 +1128,20 @@ partial class Build
                     // AppContext switch the SDK injects for real consumers.
                     Log.Information("--- Building RuntimeTestsApp (Mono full-AOT, ios-arm64) ---");
                     Log.Information("This may take several minutes (Mono AOT + code signing)...");
-                    DotNetBuild(s => s
-                        .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
-                        .SetConfiguration(configuration)
-                        .SetProperty("RuntimeIdentifier", "ios-arm64")
-                        .SetProperty(DeviceMonoAotProperty, "true")
-                        .SetVerbosity(DotNetVerbosity.quiet));
+                    DotNetBuild(s =>
+                    {
+                        var settings = s
+                            .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
+                            .SetConfiguration(configuration)
+                            .SetProperty("RuntimeIdentifier", "ios-arm64")
+                            .SetProperty(DeviceMonoAotProperty, "true")
+                            .SetVerbosity(DotNetVerbosity.quiet);
+                        if (ActivityKitPushToken)
+                            settings = settings.SetProperty("EnableActivityKitPushToken", "true");
+                        if (activityKitProfile is not null)
+                            settings = settings.SetProperty("CodesignProvision", activityKitProfile.Uuid);
+                        return settings;
+                    });
                 }
                 else
                 {
@@ -1132,11 +1149,19 @@ partial class Build
                     // Uses the unified RuntimeTestsApp project with -r ios-arm64 (activates device conditionals)
                     Log.Information("--- Publishing RuntimeTestsApp (NativeAOT, ios-arm64) ---");
                     Log.Information("This may take several minutes (ILCompiler + code signing)...");
-                    DotNetPublish(s => s
-                        .SetProject(BindingTestsDir / "RuntimeTestsApp")
-                        .SetConfiguration(configuration)
-                        .SetRuntime("ios-arm64")
-                        .SetVerbosity(DotNetVerbosity.quiet));
+                    DotNetPublish(s =>
+                    {
+                        var settings = s
+                            .SetProject(BindingTestsDir / "RuntimeTestsApp")
+                            .SetConfiguration(configuration)
+                            .SetRuntime("ios-arm64")
+                            .SetVerbosity(DotNetVerbosity.quiet);
+                        if (ActivityKitPushToken)
+                            settings = settings.SetProperty("EnableActivityKitPushToken", "true");
+                        if (activityKitProfile is not null)
+                            settings = settings.SetProperty("CodesignProvision", activityKitProfile.Uuid);
+                        return settings;
+                    });
                 }
             }
 
@@ -1154,6 +1179,7 @@ partial class Build
             Log.Information("App bundle: {Path}", appPath);
 
             AssertDeviceAppFlavor(appPath, monoAot);
+            VerifyActivityKitPushTokenCapability(appPath, device.Udid);
 
             // Install + run on device
             RunOnDevice(device, appPath, monoAot, laneLabel);
@@ -1946,6 +1972,10 @@ partial class Build
     {
         Log.Information("--- Running on physical device ({Lane}) ---", laneLabel);
 
+        var runtimeTestsBundleId = ActivityKitPushToken
+            ? ActivityKitPushTokenBundleId
+            : RuntimeTestsBundleId;
+
         // Load test inventory for crash recovery (unified project — same manifest for sim + device)
         var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
         var inventory = TestClassInventory.Load(inventoryPath);
@@ -2004,7 +2034,7 @@ partial class Build
 
                 Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
                 var result = DeviceCtl.Launch(
-                    device.Udid, RuntimeTestsBundleId,
+                    device.Udid, runtimeTestsBundleId,
                     args.ToArray(), TimeSpan.FromSeconds(Timeout));
                 lastResult = result;
                 var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
@@ -2031,7 +2061,7 @@ partial class Build
 
                 // Try to retrieve JSONL results from device sandbox
                 JsonlTestResults? runResults = null;
-                var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
+                var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken);
                 RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
                     jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
                 if (jsonlContent != null)
@@ -2526,6 +2556,17 @@ partial class Build
     /// </summary>
     void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
     {
+        // This opt-in arm compiles one additional device-only test into the otherwise
+        // canonical suite. Its result is authoritative for ActivityKit, but its count
+        // and identity set must never ratchet the default device baseline.
+        if (ActivityKitPushToken)
+        {
+            Log.Information(
+                "Skipping runtime baseline comparison for {Platform}: --activitykit-push-token adds an opt-in test identity.",
+                platform);
+            return;
+        }
+
         // The committed baseline reflects the DEFAULT no-smoke test set. A smoke run
         // (`--enable-*-smoke`) compiles in extra Apple-framework test classes under
         // `#if FOO_SMOKE`, so its pass count is not comparable to the baseline in either
