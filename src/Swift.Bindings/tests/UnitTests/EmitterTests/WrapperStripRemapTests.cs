@@ -61,15 +61,14 @@ public class WrapperStripRemapTests
     [Fact]
     public void Remap_AcrossAStrippedBlock_DropsItAndRebasesEverythingAfterIt()
     {
-        var internalTypes = new HashSet<string> { "InternalType" };
         const string source =
             "// keep-before\n" +
-            "extension EveryProtocol: SomeProtocol {\n" +
-            "    var prop: InternalType { fatalError() }\n" +
+            "extension Widget: SomeProtocol {\n" +
+            "    func broken() -> EveryProtocol { EveryProtocol() }\n" +
             "}\n" +
             "// keep-after\n";
 
-        var result = SwiftWrapperPostProcessor.Process(source, internalTypes);
+        var result = SwiftWrapperPostProcessor.Process(source);
         Assert.Equal(1, result.StrippedBlockCount);
 
         var strippedStart = source.IndexOf("extension", StringComparison.Ordinal);
@@ -101,19 +100,18 @@ public class WrapperStripRemapTests
     [Fact]
     public void Remap_OverAWholeStrippedWrapper_StillTilesTheCleanedBytesExactly()
     {
-        var internalTypes = new HashSet<string> { "InternalType" };
         const string source =
             "// header\n" +
-            "extension EveryProtocol: A {\n" +
-            "    var one: InternalType { fatalError() }\n" +
+            "extension Widget: A {\n" +
+            "    func one() -> EveryProtocol { EveryProtocol() }\n" +
             "}\n" +
             "// between\n" +
-            "extension EveryProtocol: B {\n" +
-            "    var two: InternalType { fatalError() }\n" +
+            "extension Widget: B {\n" +
+            "    func two() -> EveryProtocol { EveryProtocol() }\n" +
             "}\n" +
             "// trailer\n";
 
-        var result = SwiftWrapperPostProcessor.Process(source, internalTypes);
+        var result = SwiftWrapperPostProcessor.Process(source);
         Assert.Equal(2, result.StrippedBlockCount);
 
         // A per-line tiling is the harshest input: every stripped line is its own fragment, so any

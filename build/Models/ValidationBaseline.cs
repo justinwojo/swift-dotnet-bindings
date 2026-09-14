@@ -120,9 +120,8 @@ public record ValidationBaseline
 
         /// <summary>
         /// Aggregate per-sub-cause counts from <c>SwiftWrapperPostProcessor</c> across all
-        /// validated libraries. Lets us track whether the <c>Pattern2InternalTypeReach</c>
-        /// emission gate is taking the load expected of it: the <c>InternalType</c> bucket
-        /// should drop to a small, documented residue once the gate ships.
+        /// validated libraries. <c>InternalType</c> and <c>NSInvocation</c> are historical,
+        /// schema-compatible buckets that remain zero; compiler recovery owns those failures.
         /// </summary>
         [JsonPropertyName("post_processor_sub_causes")]
         public IDictionary<string, int> PostProcessorSubCauses { get; init; }

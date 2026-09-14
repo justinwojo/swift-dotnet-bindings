@@ -1,0 +1,21 @@
+InternalConformerRecovery.wrapper.swift:10:11: error: generic parameter 'T' could not be inferred
+ 8 |     _ value: UnsafeRawPointer
+ 9 | ) -> Int32 {
+10 |     value.load(as: InternalConformerRecoveryDependency.Hidden.self).value
+   |           `- error: generic parameter 'T' could not be inferred
+11 | }
+12 |
+
+Swift.UnsafeRawPointer.load:2:24: note: in call to function 'load(fromByteOffset:as:)'
+1 | struct UnsafeRawPointer {
+2 | @inlinable public func load<T>(fromByteOffset offset: Int = 0, as type: T.Type) -> T}
+  |                        `- note: in call to function 'load(fromByteOffset:as:)'
+3 |
+
+InternalConformerRecovery.wrapper.swift:10:20: error: module 'InternalConformerRecoveryDependency' has no member named 'Hidden'
+ 8 |     _ value: UnsafeRawPointer
+ 9 | ) -> Int32 {
+10 |     value.load(as: InternalConformerRecoveryDependency.Hidden.self).value
+   |                    `- error: module 'InternalConformerRecoveryDependency' has no member named 'Hidden'
+11 | }
+12 |

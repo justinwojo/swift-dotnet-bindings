@@ -10,7 +10,9 @@
 // intact. The gate (build/Build.BindingTests.ResilienceKitchen.cs) generates this fixture on every
 // `nuke binding-tests --compile-only` and asserts the loop did exactly that.
 //
-// The hostile shape is an implicitly-unwrapped-optional (IUO) stored property on a GENERIC class.
+// The hostile shapes are an implicitly-unwrapped-optional (IUO) stored property on a GENERIC class
+// and two constrained-extension methods whose constraints cannot be carried by the synthesized
+// unconditional witness conformance.
 // To reach a member of a generic type from a non-generic `@_cdecl` function, the emitter synthesizes
 // a private witness protocol carrying just that member plus an UNCONDITIONAL conformance
 // (`extension KitchenBox: _SBW_… {}`), then dispatches through `as! any _SBW_…`. That requirement is
@@ -103,6 +105,34 @@ public class KitchenPair<First, Second> {
     // HOSTILE (loop-contained): same IUO-on-generic-class shape.
     public var hostileSecond: KitchenWidget!
     #endif
+}
+
+/// Generic-class method controls for compiler-owned constrained-extension recovery. The hostile
+/// slice adds two concrete-signature members that reach generic instance dispatch, but whose
+/// BitwiseCopyable marker / concrete same-type constraint cannot survive on the unconditional
+/// synthesized conformance. They must render, fail swiftc, and be withdrawn independently.
+@frozen public struct KitchenConstraintToken {
+    public let value: Int32
+    public init(value: Int32) { self.value = value }
+}
+
+public final class KitchenConstraintBox<Value> {
+    public init() {}
+    public func control() -> Int32 { 73 }
+}
+
+#if RESILIENCE_HOSTILE
+extension KitchenConstraintBox where Value: BitwiseCopyable {
+    public func bitwiseOnly() -> Int32 { 81 }
+}
+
+extension KitchenConstraintBox where Value == () {
+    public func unitOnly() -> Int32 { 82 }
+}
+#endif
+
+public func makeKitchenConstraintBox() -> KitchenConstraintBox<KitchenConstraintToken> {
+    KitchenConstraintBox<KitchenConstraintToken>()
 }
 
 /// Positive control: a fully-bindable non-generic type with no hostile members. Its presence in the

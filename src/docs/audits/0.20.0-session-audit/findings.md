@@ -55,13 +55,14 @@
 - Defect: the repository's hard policy says an emission-time gate is justified only for a failure that would compile clean and fail at runtime; compile-detectable failures must be attributed and withdrawn by verify/recover. This wave instead pre-skips Foundation `NSInvocation` specifically because swiftc rejects it, pre-rejects internal CSM conformers specifically because wrapper compilation/post-processing rejects them, and broadens constrained-extension prediction for wrappers swiftc rejects. No escape predicate or explicit policy exception is recorded; P9's own plan says “do not introduce a new compile-error predictor.”
 - Failure scenario: each new special case creates a second, incomplete model of compiler legality. It can silently remove surface before the general verifier observes it, requires indefinite parity maintenance (A-05 is already a concrete nested-type miss in one of these predictors), and makes future compiler/toolchain improvements unable to recover the member without another hand-edited allow path.
 - Proving receipt: the policy predates the range (`git show d5a2956^:CLAUDE.md` contains the same criterion). The new comments themselves name compile-time outcomes: `NSInvocation` “cannot appear in a Swift wrapper”; the CSM gate says the post-processor strips the wrapper; the constrained-extension code and `09-review-followups.md:21-29` say swiftc rejects the shapes and then records a sound refusal. Session-wide instructions repeat the freeze at `src/docs/sessions/0.20.0/README.md:58`.
+- OWNER-02 resolution (2026-09-14): the owner selected verify/recover. The exact `Foundation.NSInvocation` member pre-skip and synchronous CSM internal-conformer pre-skip were deleted; the f292 lossless marker/concrete-pin expansion was reverted to the older representable-constraint fast path; and post-processing no longer removes internal-type or `NSInvocation` blocks before swiftc sees them. Authentic Xcode 26.3 diagnostic fixtures for all three families exercise the real parser, attributor, and recovery controller, proving that only the narrow owning leaf is denied, the healthy sibling remains, and the second render converges. The `InternalType` and `NSInvocation` strip buckets remain present at zero solely for artifact-schema compatibility. Grok final review session `01a09e63-dfde-7243-8c0b-e49458fb4e22` found no Critical, High, or Medium defect; its one Low documentation inconsistency was fixed in the final no-re-review pass.
 
 ## OWNER rows
 
 | ID | Related finding / evidence | Owner decision required |
 | --- | --- | --- |
 | OWNER-01 | A-01 | Decide whether the nine bodyless commits are accepted as immutable historical debt or whether an explicitly authorized history rewrite is warranted. Stage A makes no history mutation. |
-| OWNER-02 | A-07 | Choose between removing the new compile-error predictors in favor of verify/recover or recording an explicit, scoped exception to the prediction-gate freeze. The current state contradicts the standing policy, so an autonomous Stage B implementation must not choose the product direction. |
+| OWNER-02 | A-07 | **Resolved 2026-09-14:** removed the new compile-error predictors in favor of verify/recover; no scoped policy exception was recorded. |
 | OWNER-03 | `src/docs/sessions/0.20.0/execution/P8/final-q1/qualification-receipt.md` | The integrated Q1 receipt is explicitly **BLOCKED FOR PUBLICATION**: 24 nonzero available corpus candidates, 36 absent inputs, 14 red `swift-dotnet-packages` cells, four red internal-binding-testing cells, and nine unaccepted Mono full-AOT x20 clobbers. Repair the exact residuals or explicitly accept each limitation before publication; this audit does neither. |
 
 ## Coverage manifest
@@ -119,7 +120,7 @@ No consumer mismatch was found beyond A-02/A-05/A-06/A-07. In particular, the ca
 | Method-generic refusal | Marker, same-type, unknown, four-root, generic-return, dynamic-Self, inout, composite, async/ctor/accessor/variadic and protected-memory refusal-before-payload controls were inspected; no evasion found. |
 | Closure setter/adapter admission | Struct/generic-class stored-setter refusals, nil/replacement ownership, collection/Result address lifetime and direct/optional controls were inspected; no additional evasion found. |
 | CSM internal conformer | Executable nested-generic probe printed `direct=True`, `nested=False` — **failed open** (A-05). |
-| Constrained-extension/NSInvocation predictors | Narrow controls exist, but the gates violate the prediction-freeze contract — A-07. The unproven NSInvocation property/subscript parity concern was not filed because the later verify/recover path remains capable of withdrawal. |
+| Constrained-extension/NSInvocation predictors | **Resolved by removal (OWNER-02).** Authentic compiler captures now prove attribution, narrow withdrawal, and healthy-sibling preservation through verify/recover. |
 | Runtime native exports | Missing-symbol and renamed-slice controls fail; deletion from both plist and archive is self-rostered and passes — **failed open** (A-04). |
 | Wrapper failure evidence | Inspected as best-effort diagnostics, not a verdict gate; capture failures cannot change compiler success/failure. |
 
@@ -154,9 +155,9 @@ contains `src/docs/audits/0.20.0-session-audit.md`.
 | A-02 | Fixed. Public constants and enum members now carry canonical semantic constant values in the compared shape. |
 | A-03 | Fixed. Captures are bound to distinct canonical evidence roots, hashed logs, source/toolchain identity, stage receipts, and hashed output trees; alias and tamper controls fail closed. |
 | A-04 | Fixed. Runtime export qualification uses an independent six-slice roster and rejects missing symbols, wrong slices, and a slice removed from both the plist and archive. |
-| A-05 | Fixed. CSM internal-type admission parses the conformer spelling structurally and walks recursively nested generic arguments. |
+| A-05 | Fixed in Stage B, then superseded by OWNER-02 removal of the CSM internal-conformer predictor. |
 | A-06 | Fixed. Baseline promotion requires a complete SurfaceAccounting receipt, and combined Validate/SurfaceAccounting invocations order validation before receipt recording. |
-| A-07 | Deferred to OWNER-02. No policy direction was chosen autonomously. |
+| A-07 | Resolved by OWNER-02: the compiler-error predictors were removed in favor of verify/recover. |
 
 ### Grok-only final review disposition
 
@@ -183,7 +184,7 @@ user's High/Critical-only re-review instruction, no third external review was ru
 | ID | Status |
 | --- | --- |
 | OWNER-01 | Resolved by accepting A-01 as historical debt. |
-| OWNER-02 | Open: choose whether to remove the A-07 compile-error predictors or record a scoped exception to the prediction-gate freeze. |
+| OWNER-02 | Resolved: removed the A-07 compile-error predictors in favor of verify/recover; no exception recorded. |
 | OWNER-03 | Open and publication-blocking: the P8 Q1 residual corpus, downstream, internal-binding, and Mono full-AOT limitations remain unaccepted. |
 
 No package was published and no branch or commit was pushed. The unrelated P3

@@ -916,7 +916,8 @@ public static class MethodWrapperEmitter
         // narrowing gate is scoped to instance methods here. The shared predicate itself
         // is dispatch-neutral — the property path applies it to statics too.
         if (methodDecl.MethodType == MethodType.Static) return false;
-        return GenericDispatchEmitter.MemberNarrowsParentGenericSignature(methodDecl, parentTypeDecl);
+        return WrapperValidation.GenericParamsNarrowParentConstraints(
+            methodDecl.GenericParameters, parentTypeDecl);
     }
 
     /// <summary>

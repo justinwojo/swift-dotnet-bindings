@@ -80,28 +80,6 @@ internal static class ConstructorAdmissibility
     /// </summary>
     public static bool HasUnsatisfiableParentGenericExtensionConstraint(
         MethodDecl method, TypeDecl parentTypeDecl)
-        => HasUnsatisfiableParentGenericExtensionConstraintCore(
-            method,
-            parentTypeDecl,
-            subtractParentDeclaredMarkers: false);
-
-    /// <summary>
-    /// Method/property counterpart of <see cref="HasUnsatisfiableParentGenericExtensionConstraint"/>.
-    /// Unlike constructors, an instance member on a type whose declaration itself requires
-    /// <c>BitwiseCopyable</c> is safe: the receiver can only exist at a satisfying specialization.
-    /// Only a marker clause added by the member's constrained extension narrows the parent.
-    /// </summary>
-    internal static bool HasUnsatisfiableParentGenericExtensionConstraintForMember(
-        MethodDecl method, TypeDecl parentTypeDecl)
-        => HasUnsatisfiableParentGenericExtensionConstraintCore(
-            method,
-            parentTypeDecl,
-            subtractParentDeclaredMarkers: true);
-
-    private static bool HasUnsatisfiableParentGenericExtensionConstraintCore(
-        MethodDecl method,
-        TypeDecl parentTypeDecl,
-        bool subtractParentDeclaredMarkers)
     {
         if (!parentTypeDecl.IsGeneric)
             return false;
@@ -111,9 +89,7 @@ internal static class ConstructorAdmissibility
         // walks below never see it; it survives only in the lossless ParsedGenericSignature. Check
         // it up front, independently of method.GenericParameters — a parameter whose ONLY
         // constraint was the dropped marker need not carry an entry in that list.
-        if (subtractParentDeclaredMarkers
-                ? HasExtensionAddedUnerasableParentMarkerConstraint(method, parentTypeDecl)
-                : HasUnerasableParentMarkerConstraint(method, parentTypeDecl))
+        if (HasUnerasableParentMarkerConstraint(method, parentTypeDecl))
             return true;
 
         if (method.GenericParameters.Count == 0)
@@ -155,41 +131,6 @@ internal static class ConstructorAdmissibility
                     return true;
         }
         return false;
-    }
-
-    /// <summary>
-    /// True when a member adds a parent-rooted <c>BitwiseCopyable</c> clause that is absent from
-    /// the parent type's own lossless signature. Clause identity includes the associated-type path,
-    /// so a parent constraint on <c>Value</c> does not conceal a new constraint on
-    /// <c>Value.Item</c>.
-    /// </summary>
-    internal static bool HasExtensionAddedUnerasableParentMarkerConstraint(
-        MethodDecl method, TypeDecl parentTypeDecl)
-    {
-        if (!parentTypeDecl.IsGeneric)
-            return false;
-
-        var parentParamNames = parentTypeDecl.GenericParameters
-            .Select(p => p.TypeName)
-            .ToHashSet(System.StringComparer.Ordinal);
-        if (parentParamNames.Count == 0)
-            return false;
-
-        static string ClauseKey(GenericRequirement requirement) =>
-            string.Join(".", requirement.Subject);
-
-        var parentDeclared = parentTypeDecl.ParsedTypeGenericSignature.Requirements
-            .Where(r => r.Kind == GenericRequirementKind.Conformance
-                && parentParamNames.Contains(r.SubjectRoot)
-                && IsUnerasableOpenFormMarker(r.Target))
-            .Select(ClauseKey)
-            .ToHashSet(System.StringComparer.Ordinal);
-
-        return method.ParsedGenericSignature.Requirements.Any(r =>
-            r.Kind == GenericRequirementKind.Conformance
-            && parentParamNames.Contains(r.SubjectRoot)
-            && IsUnerasableOpenFormMarker(r.Target)
-            && !parentDeclared.Contains(ClauseKey(r)));
     }
 
     /// <summary>

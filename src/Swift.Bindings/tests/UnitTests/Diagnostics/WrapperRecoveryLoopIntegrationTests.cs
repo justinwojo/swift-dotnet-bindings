@@ -202,6 +202,32 @@ public class WrapperRecoveryLoopIntegrationTests
         Assert.Equal(2, result.Rounds);
     }
 
+    /// <summary>
+    /// Compiler-legality shapes removed from emission-time prediction must all take the same
+    /// semantic path: the real swiftc diagnostic resolves to the owning leaf (including the
+    /// symbol-less constrained-conformance block via its origin anchor), that leaf is withdrawn,
+    /// and the healthy sibling remains in the second render.
+    /// </summary>
+    [Theory]
+    [InlineData("NSInvocationRecovery", "SBW_NSInvocationRecovery_broken", "SBW_NSInvocationRecovery_healthy")]
+    [InlineData("InternalConformerRecovery", "SBW_InternalConformerRecovery_broken", "SBW_InternalConformerRecovery_healthy")]
+    [InlineData("ConstrainedExtensionRecovery", "SBW_ConstrainedExtensionRecovery_broken", "SBW_ConstrainedExtensionRecovery_healthy")]
+    public void CompilerLegalityCapture_AttributesOwningLeaf_WithdrawsAndKeepsHealthySibling(
+        string fixture, string brokenOwner, string healthySibling)
+    {
+        var driver = new CaptureReplayDriver(fixture);
+
+        var result = WrapperRecoveryController.Run(driver);
+
+        Assert.True(result.Converged);
+        Assert.Equal(WrapperRecoveryFailureCause.None, result.Cause);
+        Assert.Equal(AttributionFixtures.UnitForSymbol(brokenOwner), Assert.Single(result.Denylist));
+        Assert.DoesNotContain(AttributionFixtures.UnitForSymbol(healthySibling), result.Denylist);
+        Assert.Equal(2, result.Rounds);
+        Assert.Empty(driver.SeenDenylists[0]);
+        Assert.Equal(new[] { AttributionFixtures.UnitForSymbol(brokenOwner) }, driver.SeenDenylists[1]);
+    }
+
     // ── failing closed over real captures ───────────────────────────────────────────────────
 
     /// <summary>

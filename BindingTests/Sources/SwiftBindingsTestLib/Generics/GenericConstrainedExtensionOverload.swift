@@ -91,7 +91,7 @@ public func makeGenericConstrainedExtensionMapper(
     return GenericConstrainedExtensionMapper<GenericConstrainedTag>(stored: nil)
 }
 
-// MARK: - Lossless constrained-extension refusal probes
+// MARK: - Generic-class constrained-extension controls
 
 @frozen public struct GenericClassConstraintReviewToken {
     public let value: Int32
@@ -103,17 +103,10 @@ public final class GenericClassConstraintReviewBox<Value> {
     public func control() -> Int32 { 73 }
 }
 
-// Both members have concrete signatures, so they take the generic-class instance-dispatch
-// path. Their constraints do not survive in GenericConformances: BitwiseCopyable is a marker
-// and `== ()` is an unrepresentable concrete same-type pin. Emitting either unconditional
-// protocol-conformance wrapper is invalid Swift; each must be refused with its exact identity.
-extension GenericClassConstraintReviewBox where Value: BitwiseCopyable {
-    public func bitwiseOnly() -> Int32 { 81 }
-}
-
-extension GenericClassConstraintReviewBox where Value == () {
-    public func unitOnly() -> Int32 { 82 }
-}
+// Deliberately invalid wrapper probes for the BitwiseCopyable and concrete same-type
+// constrained extensions live in ResilienceKitchen. That compile-only hostile/control gate
+// requires compiler attribution and leaf withdrawal; the healthy test module remains a
+// zero-withdrawal consumer while retaining this unconstrained sibling as a runtime control.
 
 public func makeGenericClassConstraintReviewBox() -> GenericClassConstraintReviewBox<GenericClassConstraintReviewToken> {
     GenericClassConstraintReviewBox<GenericClassConstraintReviewToken>()

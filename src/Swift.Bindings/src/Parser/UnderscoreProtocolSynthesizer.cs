@@ -159,8 +159,8 @@ internal static class UnderscoreProtocolSynthesizer
 
     /// <summary>
     /// Folds the underscore-suppression set into the Pattern-2 internal-type-name set
-    /// (consumed by the wrapper post-processor and <c>MemberValidationPipeline</c>'s
-    /// member-reach gate), <b>excluding</b> the synthesized public-underscore protocols.
+    /// (consumed by <c>MemberValidationPipeline</c>'s member-reach gate and persisted in
+    /// wrapper context), <b>excluding</b> the synthesized public-underscore protocols.
     ///
     /// <para>
     /// Synthesized protocols (e.g. <c>AppIntents._IntentValue</c>) are <c>public</c> in

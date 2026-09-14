@@ -192,13 +192,12 @@ public static class WrapperValidation
         // module-qualified name (`Unmanaged<Module.Internal>.fromOpaque(...)` /
         // `assumingMemoryBound(to: Module.Internal.self)`). The separate
         // wrapper-compilation module cannot name that internal type, so swiftc
-        // rejects the wrapper and the post-processor strips it
-        // (StripSubCause.InternalType). Reject the wrapper here, at emission, so it
+        // rejects the wrapper. Reject the wrapper here, at emission, so it
         // is never produced: the non-wrapper path keeps the C# member as a direct
         // CallConvSwift P/Invoke to the dylib silgen symbol (precedent:
         // ClassHandler internal-class metadata accessor at ClassHandler.cs; the same
         // CS0535-avoidance policy that keeps non-blittable CallConvSwift members
-        // emitting). This drives the BindingTests internal-receiver strip to 0.
+        // emitting). This keeps the BindingTests internal-receiver strip at 0.
         //
         // SCOPE — sync members only (Method, Constructor, Property, Subscript). A
         // subscript is an accessor pair like a property, so it shares the property's
@@ -222,11 +221,9 @@ public static class WrapperValidation
         // operators by OperatorHandler.EmitOperator, both with
         // SkipReason.ParentModuleInternalNoFallback. The net public API is identical to
         // the previous emit-then-strip + C# reconcile, so the SwiftWrapperPostProcessor
-        // no longer strips any internal-receiver wrapper. (The post-processor remains in
-        // place for the other strip classes it owns — NSInvocation, EveryProtocol /
-        // safety-net placeholders, extension and private _SBW_ protocol blocks, and
-        // standalone public wrapper funcs — none of which this emission-time gating
-        // covers.)
+        // no longer strips any internal-receiver wrapper. (The post-processor remains
+        // only for deterministic EveryProtocol / closure-metatype placeholder cleanup;
+        // compiler visibility and availability failures belong to verify/recover.)
         if (kind is MemberKind.Method or MemberKind.Constructor or MemberKind.Property
             or MemberKind.Subscript)
         {

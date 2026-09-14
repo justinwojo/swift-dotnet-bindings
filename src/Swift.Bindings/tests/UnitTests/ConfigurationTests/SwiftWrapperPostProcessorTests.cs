@@ -90,9 +90,8 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_ExtensionEveryProtocol_StrippedWhenReferencesInternalType()
+        public void Process_ExtensionEveryProtocol_InternalTypePreservedForCompilerRecovery()
         {
-            // EveryProtocol extensions referencing internal types ARE stripped
             var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
                 // before
@@ -103,10 +102,11 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
             Assert.Contains("// before", result.CleanedContent);
             Assert.Contains("// after", result.CleanedContent);
-            Assert.DoesNotContain("EveryProtocol", result.CleanedContent);
+            Assert.Contains("InternalType", result.CleanedContent);
+            Assert.Contains("EveryProtocol", result.CleanedContent);
         }
 
         [Fact]
@@ -756,7 +756,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_CdeclWithInternalType_StripsEntireBlock()
+        public void Process_CdeclWithInternalType_PreservedForCompilerRecovery()
         {
             var input = """
                 @_cdecl("SBW_CreateInternal")
@@ -767,9 +767,9 @@ namespace BindingsGeneration.Tests
                 """;
             var internalTypes = new HashSet<string> { "InternalWidget" };
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("InternalWidget", result.CleanedContent);
-            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("InternalWidget", result.CleanedContent);
+            Assert.Contains("@_cdecl", result.CleanedContent);
         }
 
         [Fact]
@@ -850,12 +850,12 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region H. Internal Type Stripping (WU2)
+    #region H. Internal Type Compiler-Recovery Preservation
 
     public class PostProcessorInternalTypeTests
     {
         [Fact]
-        public void Process_FunctionReferencingInternalType_IsStripped()
+        public void Process_FunctionReferencingInternalType_IsPreserved()
         {
             var input = """
                 @_silgen_name("wrapper_create")
@@ -872,8 +872,8 @@ namespace BindingsGeneration.Tests
             var internalTypes = new HashSet<string> { "SkeletonLayer" };
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("SkeletonLayer", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SkeletonLayer", result.CleanedContent);
             Assert.Contains("SBW_update", result.CleanedContent);
         }
 
@@ -897,8 +897,8 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_SimilarNameNotFalseMatch_IsKept()
         {
-            // "SkeletonLayerView" should NOT be stripped when "SkeletonLayer" is internal
-            // — word boundary prevents substring match.
+            // Internal-type context is compatibility-only and cannot remove either an exact
+            // compiler-recoverable reference or a similar public name.
             var input = """
                 @_silgen_name("wrapper_render")
                 public func SBW_render(_self: UnsafeMutableRawPointer) -> SkeletonLayerView {
@@ -923,7 +923,7 @@ namespace BindingsGeneration.Tests
                 }
 
                 """;
-            // null set → no internal type stripping
+            // Null compatibility context has the same preservation behavior.
             var result = SwiftWrapperPostProcessor.Process(input, null);
 
             Assert.Equal(0, result.StrippedBlockCount);
@@ -931,7 +931,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_NestedInternalType_IsStripped()
+        public void Process_NestedInternalType_IsPreserved()
         {
             var input = """
                 @_silgen_name("wrapper_nested")
@@ -948,8 +948,8 @@ namespace BindingsGeneration.Tests
             var internalTypes = new HashSet<string> { "Outer.InnerInternal" };
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("InnerInternal", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("InnerInternal", result.CleanedContent);
             Assert.Contains("SBW_clean", result.CleanedContent);
         }
 
@@ -979,7 +979,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_BareInternalShortName_StillStripped()
+        public void Process_BareInternalShortName_PreservedForCompilerRecovery()
         {
             // Guard against over-correction: an UNQUALIFIED reference to the current-module internal
             // type (bare "Data", never preceded by ".") must still be stripped. The negative
@@ -994,12 +994,13 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Contains("SBW_useInternal", result.StrippedSymbols);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_useInternal", result.CleanedContent);
+            Assert.DoesNotContain("SBW_useInternal", result.StrippedSymbols);
         }
 
         [Fact]
-        public void Process_SelfModuleQualifiedInternalType_StillStripped()
+        public void Process_SelfModuleQualifiedInternalType_PreservedForCompilerRecovery()
         {
             // A reference to the current-module internal type via ITS OWN module-qualified name
             // ("SomeModule.Data") must still be stripped — caught by the qualified set entry, whose
@@ -1014,24 +1015,16 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Contains("SBW_useQualified", result.StrippedSymbols);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_useQualified", result.CleanedContent);
+            Assert.DoesNotContain("SBW_useQualified", result.StrippedSymbols);
         }
 
         [Fact]
-        public void Process_CurrentModuleQualifiedShortNameOnly_StrippedWhenModuleKnown()
+        public void Process_CurrentModuleQualifiedShortNameOnly_PreservedWhenModuleKnown()
         {
-            // This is the EXACT shape of the R6-1 regression observed in BindingTests: the
-            // internal-type set carries the type under its SHORT name only ("InternalHolder"),
-            // while the generated wrapper spells the current-module reference QUALIFIED
-            // ("SwiftBindingsTestLib.InternalHolder"). The old "\bInternalHolder\b" matched the
-            // ".InternalHolder" suffix and stripped the block (correct, but for the wrong reason —
-            // suffix collision). A blanket negative lookbehind then UNDER-stripped it (the suffix
-            // no longer matched and no qualified set entry existed to catch it), leaving an
-            // uncompilable wrapper ("no type named 'InternalHolder' in module 'SwiftBindingsTestLib'").
-            // The module-aware matcher restores the strip via the <currentModule>.X clause — but
-            // ONLY when the current module name is supplied; with it unknown (null), a current-module
-            // qualified reference cannot be told apart from a foreign one, so it is conservatively kept.
+            // Exact former R6-1 input shape. Neither the legacy internal-name context nor an
+            // explicit current module may short-circuit compiler attribution now.
             var internalTypes = new HashSet<string> { "InternalHolder" };
             var input = """
                 @_silgen_name("wrapper_holder")
@@ -1041,28 +1034,23 @@ namespace BindingsGeneration.Tests
 
                 """;
 
-            var stripped = SwiftWrapperPostProcessor.Process(
+            var withModuleName = SwiftWrapperPostProcessor.Process(
                 input, internalTypes, onSafetyNetWarning: null, currentModuleName: "SwiftBindingsTestLib");
-            Assert.Equal(1, stripped.StrippedBlockCount);
-            Assert.DoesNotContain("InternalHolder", stripped.CleanedContent);
-            Assert.Contains("wrapper_holder", stripped.StrippedSymbols);
+            Assert.Equal(0, withModuleName.StrippedBlockCount);
+            Assert.Contains("InternalHolder", withModuleName.CleanedContent);
+            Assert.DoesNotContain("wrapper_holder", withModuleName.StrippedSymbols);
 
-            // Without the module name the qualified current-module form can't be disambiguated from
-            // a foreign module's same-short-name type, so the block is conservatively preserved.
+            // Omitting the compatibility context has the same result.
             var kept = SwiftWrapperPostProcessor.Process(input, internalTypes);
             Assert.Equal(0, kept.StrippedBlockCount);
             Assert.Contains("SBW_holder", kept.CleanedContent);
         }
 
         [Fact]
-        public void Process_RealCdeclBlockReferencingQualifiedInternalType_IsStripped()
+        public void Process_RealCdeclBlockReferencingQualifiedInternalType_IsPreserved()
         {
-            // Exact real-world block shape from BindingTests output (InternalHolder.describe @_cdecl
-            // wrapper). The body references the QUALIFIED current-module internal type inside a
-            // generic (Unmanaged<SwiftBindingsTestLib.InternalHolder>). The manifest carries the type
-            // under BOTH its short ("InternalHolder") and qualified ("SwiftBindingsTestLib.InternalHolder")
-            // forms. This block MUST be stripped (the qualified entry plain-matches; the short entry's
-            // <currentModule>.X clause also matches).
+            // Exact real-world block shape from BindingTests output. It stays intact so swiftc can
+            // charge the visibility failure to this wrapper's owning recovery unit.
             var internalTypes = new HashSet<string>
             {
                 "Data", "InlinableInternalCascadeError", "InternalCarrier", "InternalHolder",
@@ -1082,8 +1070,8 @@ namespace BindingsGeneration.Tests
             var result = SwiftWrapperPostProcessor.Process(
                 input, internalTypes, onSafetyNetWarning: null, currentModuleName: "SwiftBindingsTestLib");
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("InternalHolder", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("InternalHolder", result.CleanedContent);
         }
 
         [Fact]
@@ -1525,7 +1513,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_ExtensionWithMultipleCdecls_ExtractsAllSymbols()
+        public void Process_ExtensionWithMultipleCdecls_InternalTypesPreserveSymbols()
         {
             var internalTypes = new HashSet<string> { "InternalWidget" };
             var input = "extension SomeType {\n" +
@@ -1538,13 +1526,14 @@ namespace BindingsGeneration.Tests
                         "    }\n" +
                         "}\n";
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Contains("SBW_getter", result.StrippedSymbols);
-            Assert.Contains("SBW_setter", result.StrippedSymbols);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_getter", result.CleanedContent);
+            Assert.Contains("SBW_setter", result.CleanedContent);
+            Assert.Empty(result.StrippedSymbols);
         }
 
         [Fact]
-        public void Process_EveryProtocolExtensionWithInternalType_ExtractsSymbols()
+        public void Process_EveryProtocolExtensionWithInternalType_PreservesSymbols()
         {
             var internalTypes = new HashSet<string> { "InternalType" };
             var input = "extension EveryProtocol: SomeProtocol {\n" +
@@ -1552,8 +1541,9 @@ namespace BindingsGeneration.Tests
                         "    func conform() -> InternalType { fatalError() }\n" +
                         "}\n";
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Contains("SBW_conform", result.StrippedSymbols);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_conform", result.CleanedContent);
+            Assert.Empty(result.StrippedSymbols);
         }
 
         [Fact]
@@ -1654,10 +1644,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_MultiLineSignatureWithInternalType_StripsBlock()
+        public void Process_MultiLineSignatureWithInternalType_PreservesBlock()
         {
-            // Full integration: @_silgen_name with multi-line signature referencing
-            // an internal type should be stripped by the post-processor.
+            // Internal visibility failures stay intact for compiler attribution even when
+            // the affected wrapper has a multi-line signature.
             var internalTypes = new HashSet<string> { "InternalDataSource" };
             var input = """
                 // before
@@ -1672,21 +1662,21 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
             Assert.Contains("// before", result.CleanedContent);
             Assert.Contains("// after", result.CleanedContent);
-            Assert.DoesNotContain("InternalDataSource", result.CleanedContent);
+            Assert.Contains("InternalDataSource", result.CleanedContent);
         }
     }
 
     #endregion
 
-    #region L. Swift-Unavailable Type Stripping Tests
+    #region L. Swift-Unavailable Type Compiler-Recovery Preservation Tests
 
     public class SwiftUnavailableTypeTests
     {
         [Fact]
-        public void Process_CdeclReferencingNSInvocation_IsStripped()
+        public void Process_CdeclReferencingNSInvocation_IsPreserved()
         {
             var input = """
                 @_cdecl("SBW_Quick_forwardInvocation")
@@ -1703,15 +1693,14 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("NSInvocation", result.CleanedContent);
-            Assert.DoesNotContain("forwardInvocation", result.CleanedContent);
-            // The clean function should be preserved
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("NSInvocation", result.CleanedContent);
+            Assert.Contains("forwardInvocation", result.CleanedContent);
             Assert.Contains("SBW_Quick_getName", result.CleanedContent);
         }
 
         [Fact]
-        public void Process_ExtensionReferencingNSInvocation_IsStripped()
+        public void Process_ExtensionReferencingNSInvocation_IsPreserved()
         {
             var input = """
                 extension QuickSpec {
@@ -1722,8 +1711,8 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("NSInvocation", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("NSInvocation", result.CleanedContent);
         }
 
         [Fact]
@@ -1759,7 +1748,6 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_StripsDanglingAvailableAnnotationsBeforeStrippedCdecl()
         {
-            var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
                 func unrelated() {}
 
@@ -1769,14 +1757,13 @@ namespace BindingsGeneration.Tests
                 @available(visionOS 1.0, *)
                 @_cdecl("SBW_Get_Foo_bar")
                 public func _sbw_get_bar(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
-                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
-                    let result = obj.bar
+                    let result = EveryProtocol()
                 }
 
                 func nextThing() {}
 
                 """;
-            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            var result = SwiftWrapperPostProcessor.Process(input);
             Assert.Equal(1, result.StrippedBlockCount);
             Assert.DoesNotContain("@available", result.CleanedContent);
             Assert.DoesNotContain("@_cdecl", result.CleanedContent);
@@ -1790,7 +1777,6 @@ namespace BindingsGeneration.Tests
         public void Process_StripsConsecutiveStrippedWrappersWithoutLeavingDanglingPreambles()
         {
             // Three stripped wrappers in a row — every preamble must come out.
-            var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
                 // before
 
@@ -1799,7 +1785,7 @@ namespace BindingsGeneration.Tests
                 @available(iOS 16.4, *)
                 @_cdecl("SBW_Get_Foo_first")
                 public func _sbw_get_first(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
-                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                    let result = EveryProtocol()
                 }
 
                 // Property getter @_cdecl wrapper for Foo.second.
@@ -1807,7 +1793,7 @@ namespace BindingsGeneration.Tests
                 @available(iOS 16.4, *)
                 @_cdecl("SBW_Get_Foo_second")
                 public func _sbw_get_second(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
-                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                    let result = EveryProtocol()
                 }
 
                 // Method @_cdecl wrapper for Foo.third.
@@ -1815,13 +1801,13 @@ namespace BindingsGeneration.Tests
                 @available(iOS 16.4, *)
                 @_cdecl("SBW_Foo_third")
                 public func _sbw_third(_ self_: UnsafeRawPointer) {
-                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                    let result = EveryProtocol()
                 }
 
                 // after
 
                 """;
-            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            var result = SwiftWrapperPostProcessor.Process(input);
             Assert.Equal(3, result.StrippedBlockCount);
             Assert.DoesNotContain("@available", result.CleanedContent);
             Assert.DoesNotContain("@_cdecl", result.CleanedContent);
@@ -1858,7 +1844,6 @@ namespace BindingsGeneration.Tests
             // The line above the stripped wrapper's preamble is a `}` (end of previous
             // declaration). The preamble cleanup must stop at the `}` and not eat code
             // from above.
-            var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
                 public func keepMe() {
                     let x = 1
@@ -1867,11 +1852,11 @@ namespace BindingsGeneration.Tests
                 @available(iOS 16.4, *)
                 @_cdecl("SBW_Foo_broken")
                 public func _sbw_broken(_ self_: UnsafeRawPointer) {
-                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                    let result = EveryProtocol()
                 }
 
                 """;
-            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            var result = SwiftWrapperPostProcessor.Process(input);
             Assert.Equal(1, result.StrippedBlockCount);
             Assert.Contains("public func keepMe()", result.CleanedContent);
             Assert.Contains("let x = 1", result.CleanedContent);
@@ -1887,7 +1872,7 @@ namespace BindingsGeneration.Tests
     public class PostProcessorSubCauseClassifierTests
     {
         [Fact]
-        public void Process_ClassifiesInternalTypeStrip()
+        public void Process_InternalTypeBucketRemainsZeroWhenBlockIsPreserved()
         {
             var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
@@ -1899,14 +1884,15 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("InternalType", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
             Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
             Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.Other]);
         }
 
         [Fact]
-        public void Process_ClassifiesNSInvocationStrip()
+        public void Process_NSInvocationBucketRemainsZeroWhenBlockIsPreserved()
         {
             var input = """
                 @_cdecl("SBW_broken")
@@ -1917,9 +1903,10 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
 
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("NSInvocation", result.CleanedContent);
             Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
-            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
             Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.Other]);
         }
 
@@ -1946,11 +1933,8 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_PrioritisesPatternBrokenOverInternalType()
         {
-            // A block that hits BOTH the Pattern 2 (a) placeholder trigger AND references
-            // an internal type must classify as Other (the broken-shape trigger is
-            // higher priority than the internal-type reach, matching the post-processor's
-            // short-circuit OR order). Otherwise the InternalType bucket would
-            // mis-attribute strips that the new emission gate cannot prevent.
+            // Internal-type reach is no longer a post-processor trigger. The deterministic
+            // EveryProtocol placeholder still owns the strip and its Other classification.
             var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
                 @_cdecl("SBW_broken_both")
@@ -1994,10 +1978,12 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(3, result.StrippedBlockCount);
-            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
-            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
             Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+            Assert.Contains("_sbw_a", result.CleanedContent);
+            Assert.Contains("_sbw_b", result.CleanedContent);
             Assert.Contains("_sbw_keep", result.CleanedContent);
         }
 
@@ -2025,28 +2011,25 @@ namespace BindingsGeneration.Tests
     #region G3. SBW-ORIGIN Anchor Stripping
 
     /// <summary>
-    /// Symbol-less strippable blocks (EveryProtocol conformance, plain extension, <c>_SBW_</c>
-    /// dispatch protocol) are emitted with a leading <c>// SBW-ORIGIN:</c> provenance anchor so a
-    /// wrapper-compile diagnostic landing in them attributes to the owning member. When the
-    /// post-processor strips such a block it must take the anchor with it — a dangling anchor would
-    /// make the block index span the following block and misattribute a later diagnostic.
+    /// Symbol-less blocks are emitted with a leading <c>// SBW-ORIGIN:</c> provenance anchor so a
+    /// wrapper-compile diagnostic landing in them attributes to the owning member. Deterministic
+    /// placeholder cleanup removes the anchor with its block; compiler-recoverable shapes preserve it.
     /// </summary>
     public class PostProcessorOriginAnchorTests
     {
         [Fact]
         public void Process_AnchoredExtension_StrippedWithItsAnchor()
         {
-            var internalTypes = new HashSet<string> { "InternalBox" };
             var input = """
                 // before
                 // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
                 extension Widget: _SBW_P_ABCD1234 {
-                    func broken() -> InternalBox { fatalError() }
+                    func broken() -> EveryProtocol { EveryProtocol() }
                 }
                 // after
 
                 """;
-            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            var result = SwiftWrapperPostProcessor.Process(input);
 
             Assert.Equal(1, result.StrippedBlockCount);
             Assert.Contains("// before", result.CleanedContent);
@@ -2057,7 +2040,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_AnchoredPrivateProtocol_StrippedWithItsAnchor()
+        public void Process_AnchoredPrivateProtocol_PreservedForCompilerRecovery()
         {
             var internalTypes = new HashSet<string> { "InternalBox" };
             var input = """
@@ -2069,13 +2052,13 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
-            Assert.DoesNotContain("_SBW_P_ABCD1234", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW-ORIGIN", result.CleanedContent);
+            Assert.Contains("_SBW_P_ABCD1234", result.CleanedContent);
         }
 
         [Fact]
-        public void Process_AnchoredEveryProtocolExtension_StrippedWithItsAnchor()
+        public void Process_AnchoredEveryProtocolExtension_PreservedForCompilerRecovery()
         {
             var internalTypes = new HashSet<string> { "InternalType" };
             var input = """
@@ -2087,25 +2070,24 @@ namespace BindingsGeneration.Tests
                 """;
             var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
 
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("SBW-ORIGIN", result.CleanedContent);
-            Assert.DoesNotContain("EveryProtocol", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW-ORIGIN", result.CleanedContent);
+            Assert.Contains("EveryProtocol", result.CleanedContent);
         }
 
         [Fact]
         public void Process_AnchorWithAvailabilityPreamble_WholePreambleStripped()
         {
-            var internalTypes = new HashSet<string> { "InternalBox" };
             var input = """
                 // keep me
                 // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
                 @available(iOS 15.0, *)
                 extension Widget: _SBW_P_ABCD1234 {
-                    func broken() -> InternalBox { fatalError() }
+                    func broken() -> EveryProtocol { EveryProtocol() }
                 }
 
                 """;
-            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            var result = SwiftWrapperPostProcessor.Process(input);
 
             Assert.Equal(1, result.StrippedBlockCount);
             Assert.Contains("// keep me", result.CleanedContent);
@@ -2140,17 +2122,16 @@ namespace BindingsGeneration.Tests
             // A symbol-bearing wrapper sits just above the anchored, stripped block. Its closing
             // brace is "real content" that must halt the anchor scan — only the anchor + broken
             // block go, the healthy wrapper above is untouched.
-            var internalTypes = new HashSet<string> { "InternalBox" };
             var input = """
                 @_cdecl("SBW_Widget_ok")
                 public func SBW_Widget_ok() -> Int { return 0 }
                 // SBW-ORIGIN: Fixture||Struct|Widget||None|||/swift-wrapper
                 extension Widget: _SBW_P_ABCD1234 {
-                    func broken() -> InternalBox { fatalError() }
+                    func broken() -> EveryProtocol { EveryProtocol() }
                 }
 
                 """;
-            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            var result = SwiftWrapperPostProcessor.Process(input);
 
             Assert.Equal(1, result.StrippedBlockCount);
             Assert.Contains("SBW_Widget_ok", result.CleanedContent);

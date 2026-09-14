@@ -4194,13 +4194,12 @@ public class MethodWrapperEmitterTests
     [Theory]
     [InlineData("<τ_0_0 where τ_0_0 : Swift.BitwiseCopyable>")]
     [InlineData("<τ_0_0 where τ_0_0 == ()>")]
-    public void GenericClassConcreteMethod_LosslessExtensionConstraint_SkipsWrapper(string signature)
+    public void GenericClassConcreteMethod_LosslessExtensionConstraint_DefersToCompilerRecovery(string signature)
     {
         // These constraints are absent from the representable conformance list: BitwiseCopyable
-        // is an @_marker layout requirement and `== ()` is a concrete same-type pin. The older
-        // instance-class path consulted only that narrow list and emitted an unconditional
-        // `extension Box: _SBW_P_*`, which swiftc rejects because the method exists only under
-        // the dropped where-clause.
+        // is an @_marker layout requirement and `== ()` is a concrete same-type pin. They must
+        // render so swiftc can attribute an invalid unconditional conformance to this member;
+        // verify/recover then withdraws the narrow leaf without maintaining a second legality model.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -4218,12 +4217,12 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
 
         var output = sw.ToString();
-        Assert.Contains("Generic static dispatch wrapper skipped", output);
-        Assert.DoesNotContain("extension TestModule.Box: _SBW_P_", output);
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", output);
+        Assert.Contains("extension TestModule.Box: _SBW_P_", output);
 
         var planning = new MemberValidationPipeline(typeDb).ValidateMethodEmission(method, null);
-        Assert.False(planning.ShouldEmit);
-        Assert.Equal(SkipReason.ConstrainedExtensionWrapper, planning.Reason);
+        Assert.True(planning.ShouldEmit);
+        Assert.Null(planning.Reason);
     }
 
     [Fact]

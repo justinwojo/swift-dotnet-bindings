@@ -8,30 +8,28 @@ using System.Text.RegularExpressions;
 namespace BindingsGeneration
 {
     /// <summary>
-    /// Sub-cause classification for stripped blocks. Used to distinguish "the new emission-time
-    /// gate caught the dominant case" from "the gate missed, and the post-processor swept up the
-    /// residue." Each stripped block is bucketed by the trigger that fired in the post-processor
-    /// (priority follows the post-processor's short-circuit OR order).
+    /// Sub-cause classification for stripped blocks. Internal-type and Swift-unavailable-type
+    /// values remain for artifact-schema compatibility, but the post-processor no longer predicts
+    /// those compiler errors: they stay in the source for verify/recover attribution.
     /// </summary>
     public enum StripSubCause
     {
         /// <summary>
-        /// Block body referenced an <c>@usableFromInline internal</c> type (or any name in
-        /// <c>InternalTypeNames</c>). Dominant Pattern 2 case — should drop near-zero once the
-        /// <c>Pattern2InternalTypeReach</c> emission gate is in place.
+        /// Historical value for blocks stripped because they referenced an internal type.
+        /// New results always report zero; swiftc and verify/recover own this failure family.
         /// </summary>
         InternalType,
 
         /// <summary>
-        /// Block body referenced an ObjC type that is explicitly unavailable in Swift
-        /// (e.g. <c>NSInvocation</c>). Not addressed by the emission-time gate.
+        /// Historical value for blocks stripped because they referenced a Swift-unavailable
+        /// Objective-C type. New results always report zero; swiftc and verify/recover own it.
         /// </summary>
         NSInvocation,
 
         /// <summary>
         /// Pattern-specific broken-shape trigger (<c>EveryProtocol()</c> placeholder,
         /// <c>.load(as: @escaping)</c>, etc.) — the catch-all bucket for safety-net strips
-        /// that aren't internal-type or NSInvocation reaches.
+        /// that remains eligible for deterministic pre-compile cleanup.
         /// </summary>
         Other,
     }
@@ -46,10 +44,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Per-sub-cause counts for the blocks counted in <see cref="StrippedBlockCount"/>.
-        /// Sums to <see cref="StrippedBlockCount"/>. Used by validation reporting to track
-        /// whether the <c>Pattern2InternalTypeReach</c> emission-time gate is taking the
-        /// load expected of it (the <see cref="StripSubCause.InternalType"/> bucket should
-        /// drop to a small documented residue).
+        /// Sums to <see cref="StrippedBlockCount"/>; historical buckets are retained at zero.
         /// </summary>
         public IReadOnlyDictionary<StripSubCause, int> StrippedBlocksBySubCause { get; init; }
             = new Dictionary<StripSubCause, int>();
@@ -73,15 +68,6 @@ namespace BindingsGeneration
     /// </summary>
     public static class SwiftWrapperPostProcessor
     {
-        /// <summary>
-        /// ObjC types that are explicitly unavailable in Swift. Wrapper functions that reference
-        /// these types must be stripped because they cannot compile in a Swift source file.
-        /// </summary>
-        private static readonly HashSet<string> SwiftUnavailableTypes = new(StringComparer.Ordinal)
-        {
-            "NSInvocation",
-        };
-
         // NOTE: Safety-net patterns (b)-(f) were removed during the architecture refactoring.
         // Pattern (b) self-without-_self: prevented by extension scoping in emitters.
         // Pattern (c) __self.init: prevented at emission time.
@@ -98,13 +84,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Post-processes Swift source content, stripping known-broken wrapper patterns
-        /// and functions that reference internal (non-public) types.
+        /// Post-processes Swift source content, stripping only deterministic placeholder patterns
+        /// that are not useful compiler inputs. Compiler-detectable visibility and availability
+        /// failures remain intact for the verify/recover loop.
         /// </summary>
         /// <param name="sourceContent">Swift source code to process.</param>
         /// <param name="internalTypeNames">
-        /// Set of internal type names to strip. Contains both short names ("InternalType")
-        /// and qualified names ("Module.InternalType"). Null to skip internal type stripping.
+        /// Retained for call-site/source compatibility. Internal type names are no longer used to
+        /// predict compiler failures; swiftc reports them against the owning emitted fragment.
         /// </param>
         /// <param name="onSafetyNetWarning">
         /// Optional callback invoked when a safety-net pattern fires. These patterns should no longer
@@ -112,10 +99,7 @@ namespace BindingsGeneration
         /// a regression in the emitter.
         /// </param>
         /// <param name="currentModuleName">
-        /// The Swift module currently being generated. Lets the internal-type matcher tell a
-        /// current-module-qualified reference (<c>&lt;currentModule&gt;.X</c>, strip) apart from a
-        /// foreign-module reference (<c>Foundation.Data</c>, keep) when only a short name is known.
-        /// Null falls back to bare-only short-name matching.
+        /// Retained for call-site/source compatibility with the former internal-type stripper.
         /// </param>
         public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null, string? currentModuleName = null)
         {
@@ -141,42 +125,6 @@ namespace BindingsGeneration
             {
                 var stripped = lines[i].TrimStart();
 
-                // Pattern 1: EveryProtocol blocks that reference internal types.
-                // Valid EveryProtocol conformances and the class definition are preserved.
-                // Codable/Error stub conformances are always preserved (they only use stdlib types).
-                if (stripped.StartsWith("extension EveryProtocol", StringComparison.Ordinal) ||
-                    stripped.StartsWith("class EveryProtocol", StringComparison.Ordinal) ||
-                    stripped.StartsWith("public final class EveryProtocol", StringComparison.Ordinal))
-                {
-                    int end = FindBlockEnd(lines, i);
-
-                    // Always preserve: class definition, Codable/Error stubs, composition protocols
-                    if (stripped.StartsWith("class EveryProtocol", StringComparison.Ordinal) ||
-                        stripped.StartsWith("public final class EveryProtocol", StringComparison.Ordinal) ||
-                        IsEveryProtocolCodableStub(stripped) ||
-                        IsEveryProtocolCompositionConformance(lines, i, end))
-                    {
-                        // Don't strip — these are valid EveryProtocol system blocks
-                    }
-                    else
-                    {
-                        // For protocol conformance extensions with method/property bodies,
-                        // strip if the body references an internal or Swift-unavailable type
-                        var body = ScanBlockBody(lines, i, end);
-                        bool refsInternal = ReferencesInternalType(body, internalTypeNames, currentModuleName);
-                        bool refsUnavail = !refsInternal && ReferencesSwiftUnavailableType(body);
-                        if (refsInternal || refsUnavail)
-                        {
-                            ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
-                            subCauseCounts[refsInternal ? StripSubCause.InternalType : StripSubCause.NSInvocation]++;
-                            RemoveTrailingOriginAnchor(outputLines, cleanedLineSources);
-                            removedCount++;
-                            i = end + 1;
-                            continue;
-                        }
-                    }
-                }
-
                 // Pattern 2: @_silgen_name / @_cdecl + function blocks with broken patterns
                 // Also match when prefixed with @MainActor (same line or preceding line)
                 if (stripped.StartsWith("@_silgen_name(", StringComparison.Ordinal) ||
@@ -188,12 +136,10 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     bool brokenPat = IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning);
-                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames, currentModuleName);
-                    bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
-                    if (brokenPat || refsInternal || refsUnavail)
+                    if (brokenPat)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
-                        subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
+                        subCauseCounts[StripSubCause.Other]++;
                         // The wrapper emitters write a "// Comment\n@available(...)\n" preamble
                         // BEFORE the @_cdecl line. Pop those preamble lines from outputLines so they
                         // don't end up dangling — `@available` annotations on a missing declaration
@@ -218,12 +164,10 @@ namespace BindingsGeneration
                         var body = ScanBlockBody(lines, i + 1, end);
 
                         bool brokenPat = IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning);
-                        bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames, currentModuleName);
-                        bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
-                        if (brokenPat || refsInternal || refsUnavail)
+                        if (brokenPat)
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
-                            subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
+                            subCauseCounts[StripSubCause.Other]++;
                             RemoveTrailingWrapperPreamble(outputLines, cleanedLineSources);
                             removedCount++;
                             i = end + 1;
@@ -239,41 +183,11 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    // Check both the extension header and body for internal type references.
-                    // The header (e.g., "extension Module.TypeName: _SBW_...") names the type
-                    // being extended, which may be internal even when the body uses Self.
                     bool brokenPat = IsExtensionBroken(lines, i, end, body, onSafetyNetWarning);
-                    bool refsInternal = !brokenPat && (
-                        ReferencesInternalType(body, internalTypeNames, currentModuleName) ||
-                        ReferencesInternalType(stripped, internalTypeNames, currentModuleName));
-                    bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
-                    if (brokenPat || refsInternal || refsUnavail)
+                    if (brokenPat)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
-                        subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
-                        RemoveTrailingOriginAnchor(outputLines, cleanedLineSources);
-                        removedCount++;
-                        i = end + 1;
-                        continue;
-                    }
-                }
-
-                // Pattern 3c: Private protocol _SBW_ declarations referencing internal types.
-                // These are dispatch protocols for the generic factory pattern. When the protocol
-                // signature references an internal type (e.g., SharedBox<T>), the wrapper can't compile.
-                if (stripped.StartsWith("private protocol _SBW_", StringComparison.Ordinal))
-                {
-                    int end = FindBlockEnd(lines, i);
-                    var body = ScanBlockBody(lines, i, end);
-
-                    bool refsInternal =
-                        ReferencesInternalType(body, internalTypeNames, currentModuleName) ||
-                        ReferencesInternalType(stripped, internalTypeNames, currentModuleName);
-                    bool refsUnavail = !refsInternal && ReferencesSwiftUnavailableType(body);
-                    if (refsInternal || refsUnavail)
-                    {
-                        ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
-                        subCauseCounts[refsInternal ? StripSubCause.InternalType : StripSubCause.NSInvocation]++;
+                        subCauseCounts[StripSubCause.Other]++;
                         RemoveTrailingOriginAnchor(outputLines, cleanedLineSources);
                         removedCount++;
                         i = end + 1;
@@ -289,12 +203,10 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     bool brokenPat = IsStandaloneFuncBroken(body, i, onSafetyNetWarning);
-                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames, currentModuleName);
-                    bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
-                    if (brokenPat || refsInternal || refsUnavail)
+                    if (brokenPat)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
-                        subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
+                        subCauseCounts[StripSubCause.Other]++;
                         RemoveTrailingWrapperPreamble(outputLines, cleanedLineSources);
                         removedCount++;
                         i = end + 1;
@@ -321,20 +233,6 @@ namespace BindingsGeneration
                 StrippedSymbols = strippedSymbols,
                 CleanedLineSources = lineSources,
             };
-        }
-
-        /// <summary>
-        /// Picks the highest-priority sub-cause for a stripped block. Priority follows the
-        /// post-processor's short-circuit OR order: pattern-specific broken &gt; internal-type
-        /// reference &gt; Swift-unavailable type reference.
-        /// </summary>
-        private static StripSubCause ClassifySubCause(bool brokenPat, bool refsInternal, bool refsUnavail)
-        {
-            if (brokenPat) return StripSubCause.Other;
-            if (refsInternal) return StripSubCause.InternalType;
-            if (refsUnavail) return StripSubCause.NSInvocation;
-            // Caller guarantees at least one trigger; defensive fallback only.
-            return StripSubCause.Other;
         }
 
         /// <summary>
@@ -586,114 +484,6 @@ namespace BindingsGeneration
                     symbols.Add(match.Groups[1].Value);
                 }
             }
-        }
-
-        /// <summary>
-        /// Checks if a block body references any internal (non-public) type names.
-        /// Uses word-boundary matching to avoid false positives (e.g., "Layer" won't match "Player").
-        ///
-        /// Module-aware matching: the internal-type set carries each current-module internal type
-        /// under BOTH its short name (<c>Data</c>) and its module-qualified name (<c>MyModule.Data</c>).
-        /// Generated wrappers, however, spell BOTH current-module internal types AND cross-module
-        /// public types module-qualified — e.g. <c>SwiftBindingsTestLib.InternalHolder</c> (current,
-        /// must strip) and <c>Foundation.Data</c> (foreign, must survive) are syntactically identical.
-        /// A naive <c>\b&lt;short&gt;\b</c> over-strips the foreign one (the <c>.Data</c> suffix matches
-        /// internal <c>Data</c> → silent public-API loss); a blanket negative lookbehind under-strips the
-        /// current one (it also suppresses the <c>.InternalHolder</c> match → uncompilable wrapper). The
-        /// only correct discriminator is the module prefix, so this mirrors the emission-time gate
-        /// <see cref="InternalTypeReferenceWalker"/>'s rule: a SHORT internal name matches a reference
-        /// only when that reference denotes the CURRENT module's type — written bare (not preceded by a
-        /// <c>.</c>) OR qualified with the current module (<c>&lt;currentModule&gt;.X</c>) — and never
-        /// when qualified with a different module. QUALIFIED set entries (<c>Module.Type[.Nested]</c>)
-        /// already carry their own module prefix and use a plain word-boundary match; they also cover
-        /// nested current-module types whose bare/short form the current-module-qualified pattern can't
-        /// reach. When <paramref name="currentModuleName"/> is unknown (null), only the bare form is
-        /// matched for short names (the legacy behavior for callers that don't supply a module).
-        /// </summary>
-        private static bool ReferencesInternalType(string body, HashSet<string>? internalTypeNames, string? currentModuleName)
-        {
-            if (internalTypeNames == null || internalTypeNames.Count == 0)
-                return false;
-
-            foreach (var typeName in internalTypeNames)
-            {
-                var escaped = Regex.Escape(typeName);
-
-                if (typeName.Contains('.'))
-                {
-                    // Qualified entry — the module prefix disambiguates it; plain match.
-                    if (Regex.IsMatch(body, @"\b" + escaped + @"\b"))
-                        return true;
-                    continue;
-                }
-
-                // Short (unqualified) entry. Match a bare occurrence (not preceded by '.') — this
-                // catches a genuine current-module reference and never the '.Data' tail of a
-                // qualified foreign type like Foundation.Data.
-                if (Regex.IsMatch(body, @"(?<!\.)\b" + escaped + @"\b"))
-                    return true;
-
-                // Also match the current-module-qualified spelling (<currentModule>.X) that wrappers
-                // emit for current-module types, while still rejecting <foreignModule>.X.
-                if (!string.IsNullOrEmpty(currentModuleName) &&
-                    Regex.IsMatch(body, @"\b" + Regex.Escape(currentModuleName) + @"\." + escaped + @"\b"))
-                    return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Returns true if the body references an ObjC type that is explicitly unavailable in Swift.
-        /// These types exist in ObjC headers but are annotated with NS_SWIFT_UNAVAILABLE.
-        /// </summary>
-        private static bool ReferencesSwiftUnavailableType(string body)
-        {
-            foreach (var typeName in SwiftUnavailableTypes)
-            {
-                if (body.Contains(typeName, StringComparison.Ordinal))
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Returns true if the extension line is a Codable/Error stub conformance for EveryProtocol.
-        /// These stubs use only Swift stdlib types and should never be stripped.
-        /// </summary>
-        private static bool IsEveryProtocolCodableStub(string strippedLine)
-        {
-            // Match: "extension EveryProtocol: Decodable {", "extension EveryProtocol: Encodable {",
-            //        "extension EveryProtocol: Swift.Error {}", "extension EveryProtocol: Error {}"
-            return strippedLine.StartsWith("extension EveryProtocol: Decodable", StringComparison.Ordinal) ||
-                   strippedLine.StartsWith("extension EveryProtocol: Encodable", StringComparison.Ordinal) ||
-                   strippedLine.StartsWith("extension EveryProtocol: Error", StringComparison.Ordinal) ||
-                   strippedLine.StartsWith("extension EveryProtocol: Swift.Error", StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// Returns true if the EveryProtocol extension is a composition conformance (empty body).
-        /// Composition protocols have no own members — the extension is just "{}" or has only comments.
-        /// </summary>
-        private static bool IsEveryProtocolCompositionConformance(IReadOnlyList<string> lines, int start, int end)
-        {
-            // A composition conformance is a single-line or two-line block like:
-            // "extension EveryProtocol: Module.Protocol {}"
-            // or "extension EveryProtocol: Module.Protocol {\n}"
-            for (int j = start; j <= end && j < lines.Count; j++)
-            {
-                var line = lines[j].Trim();
-                // Skip empty lines, comments, and braces
-                if (string.IsNullOrEmpty(line) || line.StartsWith("//") ||
-                    line == "{" || line == "}" || line == "{}")
-                    continue;
-                // Skip the extension declaration line itself
-                if (line.StartsWith("extension EveryProtocol"))
-                    continue;
-                // If any other content exists, it's not a composition conformance
-                return false;
-            }
-            return true;
         }
 
         /// <summary>

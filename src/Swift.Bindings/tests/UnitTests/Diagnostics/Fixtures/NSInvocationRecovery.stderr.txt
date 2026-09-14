@@ -1,0 +1,15 @@
+NSInvocationRecovery.wrapper.swift:6:59: error: 'NSInvocation' is unavailable in Swift: NSInvocation and related APIs not available
+ 4 |
+ 5 | @_cdecl("SBW_NSInvocationRecovery_broken")
+ 6 | public func SBW_NSInvocationRecovery_broken(_ invocation: NSInvocation) {
+   |                                                           `- error: 'NSInvocation' is unavailable in Swift: NSInvocation and related APIs not available
+ 7 |     invocation.invoke()
+ 8 | }
+
+/Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSInvocation.h:12:12: note: 'NSInvocation' has been explicitly marked unavailable here
+10 |
+11 | NS_SWIFT_UNAVAILABLE("NSInvocation and related APIs not available")
+12 | @interface NSInvocation : NSObject
+   |            `- note: 'NSInvocation' has been explicitly marked unavailable here
+13 |
+14 | + (NSInvocation *)invocationWithMethodSignature:(NSMethodSignature *)sig;

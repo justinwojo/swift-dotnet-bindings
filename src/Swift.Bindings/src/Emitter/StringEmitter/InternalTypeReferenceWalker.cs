@@ -8,8 +8,9 @@ namespace BindingsGeneration;
 /// reachable <see cref="TypeSpec"/> resolves to a name in the module's
 /// <c>InternalTypeNames</c> set. Used by <see cref="MemberValidationPipeline"/> to
 /// suppress emission for members whose Swift wrapper would have to mention an
-/// <c>@usableFromInline internal</c> (or otherwise-suppressed) type — Swift refuses to
-/// compile such wrappers, and the post-processor would strip them anyway.
+/// <c>@usableFromInline internal</c> (or otherwise-suppressed) type. These established
+/// emission gates are independent of post-processing; residual visibility failures stay
+/// in source for verify/recover attribution.
 ///
 /// Matching semantics:
 ///   • If a <see cref="NamedTypeSpec"/> is module-qualified (e.g. <c>Foo.Bar</c>),

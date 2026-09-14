@@ -373,26 +373,12 @@ internal static class GenericDispatchEmitter
     /// T-closure rejection (constructors), failable rejection (constructors).
     /// </summary>
     /// <summary>
-    /// True when <paramref name="member"/> constrains one of the PARENT type's generic
-    /// parameters more tightly than the parent declares it — the constrained-extension shape
-    /// (<c>extension Box where T: UIView { … }</c>). Every generic-parent wrapper route emits
-    /// its conformance extension UNCONDITIONALLY, so a member that only exists under a
-    /// where-clause is not visible from inside that extension and swiftc rejects the wrapper.
-    ///
-    /// <para>Delegates to <see cref="ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint"/>,
-    /// which is the lossless form of the question. The plain conformance-list subtraction in
-    /// <see cref="WrapperValidation.GenericParamsNarrowParentConstraints"/> is a strict subset:
-    /// the signature parser drops <c>@_marker</c> layout requirements (<c>BitwiseCopyable</c>)
-    /// and concrete same-type pins it cannot represent (<c>where T == ()</c>) from
-    /// <c>GenericConformances</c>, and those survive only on the parsed-signature and
-    /// side-channel fields the delegate additionally reads. Both dropped shapes still fail the
-    /// unconditional extension in swiftc, so a gate built on the subset alone admits a member
-    /// whose wrapper cannot compile — and a wrapper that fails to compile costs the member its
-    /// binding entirely (the recovery loop withdraws it; there is no fall back onto the direct
-    /// route), where a refusal here merely leaves it on the direct route.</para>
+    /// Fast-path check for representable parent-generic constraints. Lossless-only marker and
+    /// concrete-pin clauses deliberately remain outside this predictor: swiftc reports an invalid
+    /// unconditional wrapper against its owning fragment, and verify/recover withdraws that leaf.
     /// </summary>
     internal static bool MemberNarrowsParentGenericSignature(MethodDecl member, TypeDecl parentTypeDecl)
-        => ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraintForMember(member, parentTypeDecl);
+        => WrapperValidation.GenericParamsNarrowParentConstraints(member.GenericParameters, parentTypeDecl);
 
     internal static bool CanEmitStaticDispatch(
         MethodEnvironment env, TypeDecl parentTypeDecl, GenericDispatchKind kind)

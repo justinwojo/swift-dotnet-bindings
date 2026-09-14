@@ -766,16 +766,16 @@ namespace BindingsGeneration
                 // Synthesize underscored protocols that swift-api-digester drops from ABI JSON
                 // (e.g. AppIntents._IntentValue). Inject into moduleTypes so ModuleProcessor
                 // produces a TypeRecord with the correct ProtocolDescriptorSymbol, then fold
-                // the synthesized names into underscoreSuppressedNames so the wrapper
-                // post-processor and MemberValidationPipeline treat them as internal — the
-                // synthesized decl has no members and must not surface as a C# interface.
+                // the synthesized names into underscoreSuppressedNames so member validation
+                // treats them as internal — the synthesized decl has no members and must not
+                // surface as a C# interface.
                 var synthesizedUnderscoreNames = UnderscoreProtocolSynthesizer.Synthesize(
                     moduleName, swiftInterfacePath, decl, moduleTypes, typeDatabase, logger);
                 if (synthesizedUnderscoreNames.Count > 0)
                     underscoreSuppressedNames.UnionWith(synthesizedUnderscoreNames);
 
-                // Merge underscore-suppressed names into internalTypeNames for wrapper
-                // post-processing and the Pattern-2 member-reach gate, EXCLUDING synthesized
+                // Merge underscore-suppressed names into internalTypeNames for the Pattern-2
+                // member-reach gate and persisted wrapper context, EXCLUDING synthesized
                 // public-underscore protocols (e.g. AppIntents._IntentValue). See
                 // UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames for why
                 // the synthesized names must not enter the internal-reach set.
