@@ -535,12 +535,40 @@ public class MethodLevelGenericOpeningTests
         Assert.Equal(
             "func _mlgBody0<_MLG0: TestModule.Describable>(_: _MLG0.Type) {",
             swift.Split('\n').Single(line => line.Contains("func _mlgBody0<", StringComparison.Ordinal)).Trim());
-        Assert.Contains("let result = obj.describe(item: item)", swift);
+        Assert.Contains("let result: _MLG0 = obj.describe(item: item)", swift);
         Assert.Contains("resultPtr.initializeMemory(as: _MLG0.self, repeating: result, count: 1)", swift);
         Assert.Contains("CallConvCdecl", pinvoke);
         Assert.DoesNotContain("SwiftSelf", pinvoke);
         Assert.DoesNotContain("τ_0_0", swift.Split('\n').Single(
             line => line.Contains("public func ", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void OpeningWrapper_ReturnOnlyGenericInference_AnnotatesResultInsideOpenedBody()
+    {
+        // ObjectMapper.Map.value<T>(...) has no T-typed argument, so Swift can infer T only from
+        // the assignment context. Keeping the type solely on initializeMemory's `as:` argument is
+        // too late: the preceding generic invocation is independently type-checked and rejected.
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: new NamedTypeSpec("τ_0_0"),
+            paramType: new NamedTypeSpec("Swift.Int"),
+            configure: m =>
+            {
+                m.CSSignature[1].IsGeneric = false;
+                m.Throws = true;
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.UsesWrapperLibrary = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_RETURN_ONLY_GENERIC");
+
+        var swift = EmitOpeningSwift(env);
+
+        Assert.Contains("let result: _MLG0 = try obj.describe(item: item)", swift);
+        Assert.DoesNotContain("let result = try obj.describe(item: item)", swift);
+        Assert.Contains("resultPtr.initializeMemory(as: _MLG0.self, repeating: result, count: 1)", swift);
     }
 
     [Fact]

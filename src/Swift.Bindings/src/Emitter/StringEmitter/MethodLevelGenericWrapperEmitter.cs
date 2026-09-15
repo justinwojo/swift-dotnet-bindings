@@ -369,7 +369,10 @@ internal static partial class MethodLevelGenericWrapperEmitter
             if (openedReturn != null)
             {
                 var openedReturnType = LocalGenericName(openedReturn);
-                swiftWriter.WriteLine($"let result = {call}");
+                // A method such as Map.value<T>(...) can mention T only in its return type. The
+                // later initializeMemory(as:) does not provide inference context to this separate
+                // invocation, so bind the opened type at the declaration where Swift needs it.
+                swiftWriter.WriteLine($"let result: {openedReturnType} = {call}");
                 swiftWriter.WriteLine(
                     $"resultPtr.initializeMemory(as: {openedReturnType}.self, repeating: result, count: 1)");
             }
