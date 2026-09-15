@@ -1140,7 +1140,7 @@ public static class MethodClosureBridge
             else if (analysis.optionalExistentialArgs.Count == 1)
             {
                 // Pattern A: `(any Error)?` — nil passes IntPtr.Zero to cdecl, non-nil passes a
-                // pointer to a withUnsafePointer-borrowed ExistentialContainer. Two cdecl calls
+                // pointer to a withUnsafePointer-borrowed boxed-error word. Two cdecl calls
                 // (one per branch) are simpler than trying to lift the pointer out of the block.
                 //
                 // The `if-let / else` is a Swift statement (not expression), so each branch needs
@@ -1814,23 +1814,22 @@ public static class MethodClosureBridge
         }
         else if (IsAnyErrorExistential(argType))
         {
-            // any Swift.Error — IntPtr points to a 5-word ExistentialContainer1 on the Swift stack
-            // (borrowed via withUnsafePointer). Copy the container out and wrap as AnyError so the
-            // managed value outlives the callback frame. Payload references are retained via Swift's
-            // normal existential-copy semantics by the caller — we read bytes, we do not take ownership.
+            // any Swift.Error is a compact one-word boxed-error payload, borrowed via
+            // withUnsafePointer. Rebuild the managed container from only that word; a
+            // five-word opaque existential read would overrun the Swift value.
             // AnyError lives in the SwiftBindings.Apple supplement; this closure-bridge arm is
             // shape-gated, bypassing the resolver path that records the reference — record here
             // so the generated csproj carries the supplement PackageReference.
             AppleSupplementReferences.Record("Foundation.AnyError", "MethodClosureBridge.ArgMarshal:AnyError");
-            csWriter.WriteLine($"var __a{index} = new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
+            csWriter.WriteLine($"var __a{index} = new global::Swift.Foundation.AnyError(new global::Swift.Runtime.ExistentialContainer1 {{ Payload0 = *(IntPtr*)__p{index} }});");
         }
         else if (IsOptionalAnyErrorExistential(argType))
         {
             // Optional<any Error>: Swift adapter sends nil via IntPtr.Zero; otherwise pointer to
-            // a borrowed ExistentialContainer1. Copy out to produce a managed-lifetime AnyError?.
+            // the borrowed one-word boxed-error payload. Copy only that word into AnyError?.
             // Same supplement-reference bypass as the any-Swift.Error arm above.
             AppleSupplementReferences.Record("Foundation.AnyError", "MethodClosureBridge.ArgMarshal:OptionalAnyError");
-            csWriter.WriteLine($"global::Swift.Foundation.AnyError? __a{index} = __p{index} == IntPtr.Zero ? null : new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
+            csWriter.WriteLine($"global::Swift.Foundation.AnyError? __a{index} = __p{index} == IntPtr.Zero ? null : new global::Swift.Foundation.AnyError(new global::Swift.Runtime.ExistentialContainer1 {{ Payload0 = *(IntPtr*)__p{index} }});");
         }
         else if (IsSwiftResultWithAnyErrorFailure(argType))
         {
@@ -1930,7 +1929,7 @@ public static class MethodClosureBridge
     /// <summary>
     /// Checks whether a TypeSpec is the <c>any Swift.Error</c> existential — the only
     /// existential currently supported as an MCB closure argument. The C# runtime type
-    /// is <see cref="Swift.Foundation.AnyError"/>, and Swift passes its 5-word existential container
+    /// is <see cref="Swift.Foundation.AnyError"/>, and Swift passes its compact boxed-error word
     /// through <c>withUnsafePointer</c> → <c>UnsafeMutableRawPointer</c> (pointer ABI,
     /// same shape as bound generic args).
     /// <para>

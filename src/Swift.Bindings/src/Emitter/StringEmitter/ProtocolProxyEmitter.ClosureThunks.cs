@@ -27,7 +27,9 @@ public partial class ProtocolProxyEmitter
             }
 
             foreach (var parameter in method.CSSignature.Skip(1)
-                .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple))
+                .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) &&
+                            !p.SwiftTypeSpec.IsEmptyTuple &&
+                            closureHandler.IsClosure(p)))
             {
                 var closure = (ClosureTypeSpec)parameter.SwiftTypeSpec;
                 var parameterName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(parameter));

@@ -396,6 +396,16 @@ public class ProtocolClosureSkipTests : TestBase
 {
     public ProtocolClosureSkipTests(TestResults results) : base(results) { }
 
+    private sealed class MixedClosureObservation
+    {
+        public int DataCount;
+        public int CompletionCount;
+        public int ByteCount;
+        public string? ResponseUrl;
+        public int NilCompletionCount;
+        public string? ErrorDescription;
+    }
+
     #region EventRouter Construction (Tier 1)
 
     public void TestEventRouterConstruction()
@@ -1496,6 +1506,61 @@ public class ProtocolClosureSkipTests : TestBase
         AssertThrows<ObjectDisposedException>(
             () => loader.FireStoredCallbacks(),
             "Disposed existential rejects subsequent forward dispatch");
+    }
+
+    public void TestSwiftVendedMixedClosureLoader_NukeShapeRoundTripsAndOwnsReturn()
+    {
+        var (loader, cancellation, observed) = RunOnFinishedThread(() =>
+        {
+            var state = new MixedClosureObservation();
+            var vendedLoader = TestLibFunctions.MakeVendedMixedClosureLoader();
+            var request = TestLibFunctions.MakeVendedMixedURLRequest("https://example.test/nuke-shape");
+            var token = vendedLoader.LoadData(
+                request,
+                (data, response) =>
+                {
+                    state.DataCount++;
+                    state.ByteCount = data.Length;
+                    state.ResponseUrl = response.Url?.AbsoluteString;
+                },
+                error =>
+                {
+                    state.CompletionCount++;
+                    if (error is null)
+                        state.NilCompletionCount++;
+                    else
+                        state.ErrorDescription = error.LocalizedDescription;
+                });
+            return (vendedLoader, token, state);
+        });
+
+        // Callback delegates were allocated on a thread that has now exited. Only the
+        // transferred ClosureHandles can keep them alive across this compacting GC.
+        ForceGCThorough();
+        loader.FireStoredCallbacks();
+        loader.FireStoredFailure();
+
+        AssertEqual(1, observed.DataCount, "Delayed data closure fired exactly once");
+        AssertEqual(3, observed.ByteCount, "Data payload crossed the callback carrier");
+        AssertEqual("https://example.test/nuke-shape", observed.ResponseUrl, "URLRequest reached Swift and URLResponse returned through the callback");
+        AssertEqual(2, observed.CompletionCount, "Nil and non-nil completion closures each fired");
+        AssertEqual(1, observed.NilCompletionCount, "Optional Error completion preserved nil");
+        AssertEqual("rejected", observed.ErrorDescription, "Optional Error .some crossed the one-word borrowed payload ABI");
+
+        // Destroy the producer before touching the returned existential. The token's
+        // independent retained copy must remain dispatchable after the loader is gone.
+        ((IDisposable)loader).Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => loader.FireStoredCallbacks(),
+            "Disposed loader rejects subsequent forward dispatch");
+
+        cancellation.Cancel();
+        AssertEqual(1, cancellation.CancelCount, "Returned existential outlives its producer and remains dispatchable");
+
+        ((IDisposable)cancellation).Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => cancellation.Cancel(),
+            "Disposed returned existential rejects subsequent dispatch");
     }
 
     #endregion

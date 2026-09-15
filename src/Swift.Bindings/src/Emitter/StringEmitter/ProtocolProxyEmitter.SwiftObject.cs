@@ -780,10 +780,18 @@ public partial class ProtocolProxyEmitter
                 var effectiveParams = method.CSSignature.Skip(1)
                     .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
                     .ToList();
+                var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
                 for (int i = 0; i < effectiveParams.Count; i++)
                 {
-                    pInvokeParams.Add($"IntPtr arg{i}FuncPtr");
-                    pInvokeParams.Add($"IntPtr arg{i}Context");
+                    if (closureHandler.IsClosure(effectiveParams[i]))
+                    {
+                        pInvokeParams.Add($"IntPtr arg{i}FuncPtr");
+                        pInvokeParams.Add($"IntPtr arg{i}Context");
+                    }
+                    else
+                    {
+                        pInvokeParams.Add($"IntPtr arg{i}Ptr");
+                    }
                 }
 
                 writer.WriteLine();
@@ -793,11 +801,28 @@ public partial class ProtocolProxyEmitter
                     LibraryPath = wrapperLibPath,
                     EntryPoint = accessorSymbol,
                     MethodName = accessorSymbol,
-                    ReturnType = "void",
+                    ReturnType = hasReturn ? "IntPtr" : "void",
                     ParametersString = string.Join(", ", pInvokeParams),
                     CallingConvention = PInvokeCallingConvention.Cdecl,
                     Visibility = PInvokeVisibility.Public
                 });
+
+                if (hasReturn)
+                {
+                    var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(protocolName, "method", method.Name, idx);
+                    writer.WriteLine();
+                    EmitAccessorAvailability(writer, method, protocolDecl);
+                    PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = freeSymbol,
+                        MethodName = freeSymbol,
+                        ReturnType = "void",
+                        ParametersString = "IntPtr ptr",
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Public
+                    });
+                }
             }
             else if (dispatchKind is MethodDispatchKind.ExistentialReturn or MethodDispatchKind.ThrowingBlittableOrString or MethodDispatchKind.ClassReturn or MethodDispatchKind.BoundGenericReturn)
             {

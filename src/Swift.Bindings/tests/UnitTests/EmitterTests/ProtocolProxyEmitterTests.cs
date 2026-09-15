@@ -4344,6 +4344,74 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_MixedMultiClosureExistentialReturn_MarshalsInOrderAndOwnsResult()
+    {
+        RegisterProtocol("TargetProtocol");
+        RegisterObjCBridgeableType("Foundation.URLRequest", "Foundation.NSUrlRequest");
+        var protocolDecl = CreateSimpleProtocol("MixedLoader");
+        var method = CreateMethodDecl("load");
+        method.CSSignature[0].SwiftTypeSpec =
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "request", PrivateName = "request",
+            SwiftTypeSpec = new NamedTypeSpec("Foundation.URLRequest"),
+            IsInOut = false, IsGeneric = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        method.CSSignature.Add(CreateClosureParameter("onData", new NamedTypeSpec("Swift.Int32")));
+        method.CSSignature.Add(CreateClosureParameter("completion",
+            new NamedTypeSpec("Swift.Optional",
+                new NamedTypeSpec("Swift.Error") { IsAny = true })));
+        protocolDecl.Methods.Add(method);
+
+        var classification = new WitnessDispatchEmitter(_typeDatabase, NullLogger.Instance, "TestModule")
+            .ClassifyMethodDispatchWithReason(method);
+        Assert.True(classification.Kind == MethodDispatchKind.ClosureParameters, classification.Reason);
+
+        var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(
+            writer, protocolDecl,
+            skippedMethodKeys: new HashSet<string> { methodKey },
+            closureSkippedMethodKeys: new HashSet<string> { methodKey });
+        var output = stringWriter.ToString();
+
+        var methodIdx = output.IndexOf("public ITargetProtocol Load(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "Expected the mixed closure requirement implementation");
+        var preMethodText = output.Substring(Math.Max(0, methodIdx - 400), Math.Min(400, methodIdx));
+        Assert.True(!preMethodText.Contains("DiagnosticId = \"SB0003\"", StringComparison.Ordinal), preMethodText);
+        Assert.Contains("IntPtr arg0Ptr, IntPtr arg1FuncPtr, IntPtr arg1Context, IntPtr arg2FuncPtr, IntPtr arg2Context", output);
+        Assert.Contains("var arg0Slice = request.Handle;", output);
+        Assert.Contains("NativeMethods.SBW_MixedLoader_method_load_0((IntPtr)containerPtr, (IntPtr)(&arg0Slice), (IntPtr)s_", output);
+        Assert.Contains("closureHandle1.MarkOwnershipTransferred();", output);
+        Assert.Contains("closureHandle2.MarkOwnershipTransferred();", output);
+        Assert.Contains("new global::Swift.Foundation.AnyError(new global::Swift.Runtime.ExistentialContainer1 { Payload0 = *(IntPtr*)arg0 })", output);
+        Assert.Contains("public static partial IntPtr SBW_MixedLoader_method_load_0(", output);
+        Assert.Contains("EntryPoint = \"SBW_MixedLoader_method_load_0\"", output);
+        Assert.Contains("EntryPoint = \"SBW_MixedLoader_free_method_load_0\"", output);
+        var lines = output.Split('\n').Select(line => line.Trim()).ToArray();
+        var accessorImport = Array.FindIndex(lines,
+            line => line.Contains("LibraryImport", StringComparison.Ordinal) &&
+                    line.Contains("SBW_MixedLoader_method_load_0", StringComparison.Ordinal));
+        var freeImport = Array.FindIndex(lines,
+            line => line.Contains("LibraryImport", StringComparison.Ordinal) &&
+                    line.Contains("SBW_MixedLoader_free_method_load_0", StringComparison.Ordinal));
+        Assert.True(accessorImport > 0 && freeImport > 0, output);
+        Assert.Contains("CallConvCdecl", lines[accessorImport - 1]);
+        Assert.Contains("CallConvCdecl", lines[freeImport - 1]);
+        Assert.Contains("Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains", output);
+        Assert.Contains("new TargetProtocolProxy(container, ownsContainer: true)", output);
+        Assert.Contains("NativeMethods.SBW_MixedLoader_free_method_load_0(resultPtr)", output);
+        var methodEnd = output.IndexOf("#endregion", methodIdx, StringComparison.Ordinal);
+        var methodBody = output.Substring(methodIdx, methodEnd - methodIdx);
+        Assert.Contains("finally", methodBody);
+        Assert.Contains("closureHandle1.Dispose();", methodBody);
+        Assert.Contains("closureHandle2.Dispose();", methodBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_SkippedSingleClosureMethod_RemainsSB0003()
     {
         var protocolDecl = CreateSimpleProtocol("SingleClosureLoader");

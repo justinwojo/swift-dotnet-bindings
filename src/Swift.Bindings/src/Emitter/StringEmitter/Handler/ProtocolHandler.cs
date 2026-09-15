@@ -608,13 +608,15 @@ namespace BindingsGeneration
                         // reverse dispatch into a C# implementation still has no vtable slot.
                         // Do not publish the old SB0003 degradation for that supported direction:
                         // the proxy emitter deliberately consumes the same classification below.
-                        if (witnessDispatchClassifier.ClassifyMethodDispatch(methodDecl)
-                            != MethodDispatchKind.ClosureParameters)
+                        var forwardClassification = witnessDispatchClassifier
+                            .ClassifyMethodDispatchWithReason(methodDecl);
+                        if (forwardClassification.Kind != MethodDispatchKind.ClosureParameters)
                         {
                             // The requirement still emits on the interface; only the proxy's
                             // implementation degrades to a throwing SB0003 stub.
                             ReportCollector.RecordMemberDegraded(
                                 methodDecl, protocolDecl, SkipReason.ProtocolWitnessNotDispatchable,
+                                forwardClassification.Reason ??
                                 "closure parameters cannot be marshalled through a witness table");
                         }
                     }
