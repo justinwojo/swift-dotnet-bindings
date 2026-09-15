@@ -1787,6 +1787,16 @@ public class BoundGenericsHandler
         if (CdeclParamMapper.IsOptionalWithReferenceInner(typeSpec, _typeDatabase))
             return false;
 
+        // Optional containers whose leaves bridge to Objective-C cross every established
+        // @_cdecl wrapper as one nullable NSArray/NSDictionary/NSSet pointer. Treating that
+        // transport as a large Swift Optional makes the managed side add an out buffer while
+        // the Swift wrapper returns the nullable pointer directly. Besides disagreeing on
+        // arity, the accessor helper then promises IntPtr but returns a
+        // SwiftOptional<SwiftArray<...>> carrier (CS0029). This is a transport-size query, so
+        // answer from the selected bridged carrier rather than the native container spelling.
+        if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, _typeDatabase))
+            return false;
+
         // Protocol existentials → Optional uses nullable pointer ABI → NOT large.
         // ExistentialContainer is large but the P/Invoke marshals it as IntPtr.
         // Note: For PARAMETERS passed to @_cdecl wrappers, Optional<Protocol> still needs

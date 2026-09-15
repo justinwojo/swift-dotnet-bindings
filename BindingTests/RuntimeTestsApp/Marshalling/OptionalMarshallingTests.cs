@@ -750,34 +750,31 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("InternalOptionalAbiHost.SwapNames threw NotSupportedException");
     }
 
-    public void TestDirectPathBridgedElementContainerIsRefused()
+    public void TestWrapperPathBridgedElementContainerRoundTrips()
     {
-        // The refusal that is NOT about width. `[URL]?` is one refcounted storage pointer, so the
-        // direct slot is exactly the right size — and that is what makes it dangerous. The C# side
-        // renders a container whose elements bridge as an NSArray, because the conversion asks what
-        // the payload bridges TO without asking whether there is a boundary to bridge AT; on this
-        // path there is none, so Swift would read a Foundation object where its own array storage
-        // belongs. The getter is the worse half: it reads Swift's storage pointer back through
-        // ArrayFromHandleFunc as an NSArray and takes ownership of an object that never existed.
-        //
-        // Both accessors are asserted because they fail independently — a floor that reached only
-        // the setter would leave a property that reads garbage and releases it.
-        using var box = new GenericOptionalAbiBox<Animal>(1);
-        AssertThrows<NotSupportedException>(
-            () => { var _ = box.BridgedUrls; },
-            "Optional<Array<URL>> getter on the direct path throws instead of reading a Foundation object");
-        AssertThrows<NotSupportedException>(
-            () => box.BridgedUrls = null,
-            "Optional<Array<URL>> setter on the direct path throws instead of handing over an NSArray");
-        TestLogger.Info("GenericOptionalAbiBox<Animal>.BridgedUrls threw NotSupportedException on both accessors");
+        // `[URL]?` is native Swift array storage on the direct ABI, but the generated @_cdecl
+        // wrapper supplies the missing ObjC boundary: Swift retains an NSArray-compatible object
+        // for the getter, and reconstructs the native Array from the borrowed NSArray on set.
+        // Exercise Some and None on both accessors so a one-sided or stale-pointer repair fails.
+        using var none = new GenericOptionalAbiBox<Animal>(-1);
+        AssertNull(none.BridgedUrls, "Optional<Array<URL>> None reads as null through the wrapper");
+
+        using var some = new GenericOptionalAbiBox<Animal>(7);
+        var urls = some.BridgedUrls;
+        AssertNotNull(urls, "Optional<Array<URL>> Some is not null through the wrapper");
+        AssertEqual(1, urls!.Count, "Optional<Array<URL>> Some retains its element");
+        AssertEqual("https://example.invalid/7", urls[0].AbsoluteString,
+            "Optional<Array<URL>> element crosses as the bridged NSURL value");
+
+        some.BridgedUrls = urls;
+        some.BridgedUrls = null;
+        TestLogger.Info("GenericOptionalAbiBox<Animal>.BridgedUrls getter and setter accept Some and None through the wrapper");
     }
 
     public void TestInternalParentBridgedElementContainerIsRefused()
     {
-        // The same refusal on the internal-parent twin. The two parents reach a wrapper-ineligible
-        // direct path by different routes — the box because its shape declines the wrapper, the host
-        // because an internal parent cannot have one named — so a regression confined to either
-        // route would leave the other passing. Static because the host's members are static.
+        // The internal-parent twin remains the direct-path refusal control because a generated
+        // wrapper cannot name its parent. Static because the host's members are static.
         AssertThrows<NotSupportedException>(
             () => { var _ = InternalOptionalAbiHost.StoredBridgedUrls; },
             "Optional<Array<URL>> getter on an internal parent throws rather than reading a Foundation object");

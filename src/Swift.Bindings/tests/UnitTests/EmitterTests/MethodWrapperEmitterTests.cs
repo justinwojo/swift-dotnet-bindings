@@ -5402,12 +5402,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void EvaluateWrapperEligibility_OptionalObjCBridgeableContainerReturn_IsRejected()
+    public void EvaluateWrapperEligibility_OptionalObjCBridgeableContainerReturn_IsAccepted()
     {
-        // Swift `[URL]?` lowers to ONE nullable retained collection pointer in the wrapper, but
-        // the managed side classifies the same Optional as wide and reshapes the call into a void
-        // return plus a trailing out-buffer. Declining keeps the member on the direct route
-        // rather than emitting a pair that only lines up by accident.
+        // Swift `[URL]?` and the managed binding now agree on one nullable retained collection
+        // pointer, so this shape no longer needs a defensive wrapper rejection.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "MyType",
             ("Foundation.URL", TypeRecordFlags.ObjCBridgeable, TypeRecordKind.Struct, (string?)null));
@@ -5422,9 +5420,25 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithReturn("recentUrls", optionalUrlArray, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("optional_bridged_container_return",
-            MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.EvaluateWrapperEligibility(env).IsWrappable);
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+
+        var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalUrlArray, typeDb);
+        Assert.Equal(CdeclReturnKind.OptionalClassPointer, returnMapping.Kind);
+        Assert.False(needsResultPtr);
+        Assert.False(MarshallingHelpers.CdeclOptionalReturnNeedsIndirectResult(optionalUrlArray, typeDb));
+
+        method.UsesCdeclMethodWrapper = true;
+        env.PromoteSymbol("SBW_TestModule_MyType_recentUrls_abc12345");
+        var sw = new StringWriter();
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(
+            new SwiftWriter(sw), env, new ModuleEmissionContext());
+
+        var output = sw.ToString();
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("Unmanaged.passRetained", output);
+        Assert.DoesNotContain("resultPtr", output);
+        Assert.DoesNotContain("hasValuePtr", output);
     }
 
     [Fact]

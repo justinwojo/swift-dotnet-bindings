@@ -235,13 +235,11 @@ public struct GenericOptionalAbiBox<Tag> {
         self.seed = seed
     }
 
-    /// The public-parent controls for the two ObjC-representation members on
-    /// the internal host above. Visibility is not what decides whether the
-    /// direct path renders a payload in its ObjC form — the absence of an ObjC
-    /// boundary is — so a public parent that declines the wrapper for its own
-    /// reasons must reach the same verdict as the internal one. Kept
-    /// non-`static` so a passing member would also be callable from a runtime
-    /// test rather than merely present.
+    /// Public-parent counterparts for the two ObjC-representation members on
+    /// the internal host above. A supported public member can cross a generated
+    /// `@_cdecl` ObjC boundary; the internal parent cannot be named by such a
+    /// wrapper and remains the direct-path refusal control. Kept non-`static`
+    /// so the live wrapper routes are callable from runtime tests.
     public var bridgedObject: NSObject? {
         get { seed < 0 ? nil : NSObject() }
         set { _ = newValue }

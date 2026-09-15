@@ -309,10 +309,10 @@ namespace BindingsGeneration
         /// two drifted apart before: the general fallback omitted the bridgeable-container arm, so a
         /// <c>[URL]?</c> getter emitted a resultPtr P/Invoke against a pointer-returning wrapper.
         ///
-        /// Agreeing here is necessary but not sufficient for an Optional-of-bridgeable-container to
-        /// cross the @_cdecl arm: <c>BoundGenericsHandler.IsLargeOptionalParam</c> is a third copy of
-        /// the same question and still calls that shape large, which sends the P/Invoke down the
-        /// out-buffer path. Until those agree too, the wrapper routes decline the shape.
+        /// <c>BoundGenericsHandler.IsLargeOptionalParam</c> and
+        /// <c>OptionalMarshalClassifier.Classify</c> answer from the same bridge-aware transport
+        /// predicate. Keeping all three decisions aligned prevents the P/Invoke from taking an
+        /// out-buffer path against a pointer-returning wrapper.
         /// </summary>
         internal static bool CdeclOptionalReturnNeedsIndirectResult(TypeSpec returnSpec, ITypeDatabase typeDatabase)
             => MethodWrapperEmitter.IsOptionalType(returnSpec)

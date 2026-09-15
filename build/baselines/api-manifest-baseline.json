@@ -11590,7 +11590,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "GenericOptionalAbiBox.BridgedUrls",
-      "symbol": "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV11bridgedUrlsSay10Foundation3URLVGSgvg|$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV11bridgedUrlsSay10Foundation3URLVGSgvs"
+      "symbol": "SBW_Get_SwiftBindingsTestLib_GenericOptionalAbiBox_bridgedUrls|SBW_Set_SwiftBindingsTestLib_GenericOptionalAbiBox_bridgedUrls"
     },
     {
       "module": "SwiftBindingsTestLib",

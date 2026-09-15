@@ -263,13 +263,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_OptionalObjCBridgeableContainerProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_OptionalObjCBridgeableContainerProperty_ReturnsTrue()
     {
-        // The generic static-dispatch wrapper declines Optional-of-an-ObjC-bridgeable-container
-        // (e.g. Swift `[URL]?` = Optional<Array<Foundation.URL>>). The Swift side lowers this
-        // to a nullable retained NSArray pointer, but the managed side has a separate predicate
-        // that still calls the Optional "large" and emits an out-buffer P/Invoke, so the two
-        // sides disagree on the call shape; declining keeps the member on the direct path.
+        // The shared transport classifier recognizes the nullable NSArray pointer, so the
+        // generic static-dispatch wrapper and managed call now agree on one direct word.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "GenericBox",
             ("Foundation.URL", TypeRecordFlags.ObjCBridgeable, TypeRecordKind.Struct, null));
@@ -285,9 +282,45 @@ public class PropertyWrapperEmitterTests
         };
         var optionalUrlArray = new NamedTypeSpec("Swift.Optional",
             new[] { new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("Foundation.URL") }) });
-        var (propertyDecl, env) = CreatePropertyAndEnv("urls", optionalUrlArray, parentDecl, moduleDecl, typeDb);
+        var getter = CreateAccessorMethod("getter:urls", isGetter: true, parentDecl, moduleDecl);
+        var setter = CreateAccessorMethod("setter:urls", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "urls",
+            SwiftTypeSpec = optionalUrlArray,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getter },
+                new SetAccessorDecl { Method = setter }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var getterEnv = new MethodEnvironment(getter, typeDb);
+        var setterEnv = new MethodEnvironment(setter, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, getterEnv));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, setterEnv));
+
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+            swiftWriter, propertyDecl, "SBW_Get_TestModule_GenericBox_urls", getterEnv, ctx);
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(
+            swiftWriter, propertyDecl, "SBW_Set_TestModule_GenericBox_urls", setterEnv, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("Unmanaged.passRetained", output);
+        Assert.Contains("_ newValue: UnsafeMutableRawPointer?", output);
+        Assert.Contains(
+            "Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! Swift.Array<Foundation.URL>",
+            output);
+        Assert.DoesNotContain("resultPtr", output);
+        Assert.DoesNotContain("hasValuePtr", output);
     }
 
     [Fact]

@@ -358,6 +358,31 @@ public class ClosureParamTombstoneEmitterTests
     }
 
     [Fact]
+    public void Emit_Constructor_WithObjCRootedSuperclassWritesNativeHandleBaseChain()
+    {
+        // Segment.ObjCBlockPlugin is ObjC-rooted, derives from ObjCEventPlugin, and has an
+        // unsupported closure initializer. Its base exposes NativeHandle/SwiftHandle
+        // constructors, not the sentinel used by pure-Swift inheritance.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var baseClass = CreateClassDecl("ObjCEventPlugin", moduleDecl);
+        baseClass.IsObjCRooted = true;
+        var classDecl = CreateClassDecl("ObjCBlockPlugin", moduleDecl);
+        classDecl.IsObjCRooted = true;
+        classDecl.ResolvedSuperclass = baseClass;
+        var ctor = CreateConstructor(classDecl, moduleDecl);
+        ctor.CSSignature.Add(CreateArg("block", BuildUnsupportedClosure(), moduleDecl));
+        ctor.IsClosureParamTombstone = true;
+
+        var output = EmitTombstone(ctor, typeDatabase);
+
+        Assert.Contains(
+            "public ObjCBlockPlugin(object? block) : base(default(global::ObjCRuntime.NativeHandle))",
+            output);
+        Assert.DoesNotContain("base(default(SwiftInheritanceChain))", output);
+    }
+
+    [Fact]
     public void Emit_MixedParams_NonClosureProjectsToPublicType()
     {
         // A param mix: Swift.String + unsupported closure → string + object?.

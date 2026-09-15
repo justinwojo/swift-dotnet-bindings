@@ -788,6 +788,40 @@ public class PropertyHandlerTests
     }
 
     [Fact]
+    public void Emit_OptionalUrlArrayGetter_UsesNullableObjCCollectionPointerCarrier()
+    {
+        // Segment.Analytics.pendingUploads is `[URL]?`. The Swift property wrapper returns one
+        // nullable retained NSArray pointer; the managed helper and P/Invoke must use the same
+        // carrier rather than adding a SwiftOptional<SwiftArray<IntPtr>> out buffer.
+        var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Analytics", moduleDecl);
+        var optionalUrlArray = new NamedTypeSpec(
+            "Swift.Optional",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Foundation.URL")));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(
+            classDecl, moduleDecl, "pendingUploads", optionalUrlArray,
+            hasGetter: true, hasSetter: false);
+
+        var projection = Assert.IsType<OptionalProjection>(new TypeProjectionFactory().Project(
+            optionalUrlArray,
+            new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = false }));
+        Assert.True(Assert.IsType<ArrayProjection>(projection.InnerProjection).UsesObjCContainerBridge);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("IntPtr PendingUploads_Get()", csOutput);
+        Assert.Contains("private static partial IntPtr PInvoke_pendingUploads_Get", csOutput);
+        Assert.Contains("public virtual IReadOnlyList<Foundation.NSUrl>? PendingUploads", csOutput);
+        Assert.Contains("Foundation.NSArray.ArrayFromHandleFunc<Foundation.NSUrl>", csOutput);
+        Assert.DoesNotContain("_optRetPtr", csOutput);
+        Assert.DoesNotContain("SwiftOptional<SwiftArray<IntPtr>>", csOutput);
+        Assert.Contains("-> UnsafeMutableRawPointer?", swiftOutput);
+        Assert.Contains("Unmanaged.passRetained", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_DataProperty_EmitsByteArrayWithoutDisposal()
     {
         var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
