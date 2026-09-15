@@ -185,13 +185,10 @@ public class RemainingLaneTypedErrorTests : TestBase
         using var sink = TestLibFunctions.MakeDonationSink();
         using var donator = TestLibFunctions.MakeStringDonator(sink);
 
-        // Settle the preceding test's carrier BEFORE the window opens. The last exception this
-        // lane produced stays reachable until the next call through it — a drain alone does not
-        // release it — so its deallocation would otherwise land inside this probe with no matching
-        // allocation and read as a negative live count. The displacing throws carry an error that
-        // embeds nothing tracked, so this can only remove a stale release from the window; the 12
-        // allocations below still have to balance.
-        await DisplaceResidualAsyncCarrierReferences(donator);
+        // The preceding async surface test can keep its completed state machine (and therefore its
+        // tracked exception) conservatively rooted across this reset. Registry-aware lifetime
+        // accounting isolates reset windows by serial, so that prior-window deinit cannot turn the
+        // exact 12-allocation probe below into a phantom negative live count.
         LifetimeTracker.Reset();
         try
         {

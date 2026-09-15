@@ -106,13 +106,18 @@ func recordTrackedAllocation(category: String, tag: Int32) -> Int64 {
     return serial
 }
 
-/// Registry-aware deallocation record: bumps the same counters AND drops the live entry the
-/// matching `recordTrackedAllocation(category:tag:)` registered.
+/// Registry-aware deallocation record: drops the live entry the matching
+/// `recordTrackedAllocation(category:tag:)` registered and bumps the deallocation counter only
+/// when that serial belongs to the active reset window. A registered object can outlive
+/// `resetAllocationCounters()` (for example, a completed async test can keep its exception state
+/// machine alive until a later collection). Its serial was deliberately cleared by the reset, so
+/// counting that later deinit in the new window would create a phantom negative live count.
 func recordTrackedDeallocation(serial: Int64) {
     counterLock.lock()
     defer { counterLock.unlock() }
-    _deallocationCounter += 1
-    _liveTracked.removeValue(forKey: serial)
+    if _liveTracked.removeValue(forKey: serial) != nil {
+        _deallocationCounter += 1
+    }
 }
 
 /// Describes the tracked objects still live, for a leak probe that never balanced. Returns a

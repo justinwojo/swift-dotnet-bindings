@@ -214,7 +214,8 @@ classifier confirmed managed assemblies and the live app reported
   `RemainingLaneTypedErrorTests` assertion failure.
 
 Neither run is a qualifying green lane, and run 2 contains a product assertion failure
-that remains unresolved. Evidence roots are:
+that was unresolved by that receipt. Both historical full-run timeout receipts and their
+two focused-rerun evidence roots remain:
 
 - `/var/folders/nf/n1g09flj3156vdzd04sm0k6c0000gn/T/swift-bindings-runtime-attempts/02af4d462b7547c480b454a242dc055d`
 - `/var/folders/nf/n1g09flj3156vdzd04sm0k6c0000gn/T/swift-bindings-runtime-attempts/66705ed669b34fefad90520c832f6818`
@@ -226,6 +227,60 @@ from worktree `8ff0` and was not byte-compared with this frozen `9e95` candidate
 therefore retained only as non-authoritative context at
 `grok-followup/mono-clean-nonauthoritative-8ff0.log` (SHA-256
 `f2338b6ac3355aa8232c685e3a3db832fd483e6df37dcafaaad9901cf1c323ca`).
+
+### Mono full-AOT follow-up qualification
+
+The recorded `-1` assertion was a first-party lifetime-oracle defect, not a bridge leak.
+`resetAllocationCounters()` cleared the registry and reset both counters, but
+`recordTrackedDeallocation(serial:)` still incremented the new window's deallocation
+counter when a registry-aware object allocated before the reset was released afterward.
+A completed async test state machine can conservatively retain its exception until a
+later collection, so the stale serial's removal was a no-op while its deallocation was
+incorrectly charged to the next test. This explains the observed 12 allocations / 13
+deallocations / `-1` live count with no registry survivor. The first full-run receipt had
+already run the same test green, which is consistent with an inter-test reset-window race
+rather than an unbalanced error-box transfer.
+
+Generated ABI and ownership were checked before classification. The generated C# import
+and Swift `@_cdecl` use the identical symbol and seven parameters: UTF-8 pointer/length,
+parent pointer, Cdecl success callback, Cdecl error callback, context, and `Int64`
+cancel key. Swift transfers the caught error with `Unmanaged.passRetained(error as
+AnyObject)`; C# attaches `SBW_ReleaseError` to the created exception; and that release
+calls `Unmanaged<AnyObject>.fromOpaque(error).release()`. No signature, convention, or
+retain/release mismatch was found.
+
+The oracle now counts a registry-aware deallocation only when its monotonic serial is
+still present in the active window. A deterministic regression forces a live `TrackedRef`
+across the native reset boundary and then proves both that the stale deinit is excluded
+and that current-window accounting still balances. The ineffective pre-reset async
+carrier displacement was removed from the typed-error test; current-window cleanup is
+unchanged.
+
+Fresh physical-device Mono full-AOT evidence from this `9e95` worktree is qualifying:
+
+- `nuke binding-tests --device --mono-aot --class-filter LifetimeTrackingTests` regenerated
+  all bindings, rebuilt the app, and passed 18 / 18, including the forced cross-reset
+  regression. Log: `/private/tmp/owner03-mono-aot-CLCldp/focused-lifetime-mono-aot.log`
+  (SHA-256 `8f90b3f9b247ce0d4f8e6916057ebddc836e5af03d4043bcfa399628097407ba`);
+  attempt root `d7674f535fc846d5b18c39c56da13270`.
+- `nuke binding-tests --device --mono-aot --skip-regen --skip-build --class-filter
+  RemainingLaneTypedErrorTests` ran the unchanged built app and passed 9 / 9. The exact
+  formerly failing test reported 12 allocations / 12 deallocations. Log:
+  `/private/tmp/owner03-mono-aot-CLCldp/focused-remaining-lane-mono-aot.log` (SHA-256
+  `7926d529005d25c7da9174bef59b83477fd05e73ddba4fadd08ff4745bda26b1`); attempt root
+  `81c5925d839f4007a11d39a1429ce488`.
+- `nuke binding-tests --device --mono-aot --skip-regen` rebuilt the device app and passed
+  the unfiltered suite on its first run: 4,067 pass / 0 fail / 32 skip / 0 crash,
+  `done=True`, in 61.1 seconds, with no recovery. The exact typed-error test again reported
+  12 allocations / 12 deallocations. Log:
+  `/private/tmp/owner03-mono-aot-CLCldp/full-mono-aot.log` (SHA-256
+  `48fd0ba0c997208d9e82638582c1c541ccb9caae0d8dd842a5d790c3d8de0908`); attempt root
+  `e46a892befa84f8eb3c2e161cc81cefa`.
+
+All three runs reported `IsMonoRuntime=True`, `IsNativeAotRuntime=False`,
+`IsMonoAot=True`, and `Rid=ios-arm64`. The green unfiltered run refreshed the
+Device/MonoAOT identity baseline from 4,064 to 4,067. The historical timeout receipts
+above remain preserved; the Mono full-AOT lane is now qualified by the fresh clean run.
 
 The nine carried-forward x20 clobber identities remain unaccepted and unwaived:
 `BufferModeDescribablePair.first`, `BufferModeDescribablePair.second`,
@@ -276,7 +331,7 @@ Current first-party evidence, relative to
 | B13 original-red downstream cells | BLOCKED, 11 pass / 3 external-authority blockers |
 | B13 internal cells | PASS, 4/4 |
 | Corpus-r4 | BLOCKED by authority and capacity; prior 24 nonzero / 36 absent retained |
-| Mono full-AOT | BLOCKED; two sticky full-run timeouts despite green focused reruns |
+| Mono full-AOT | PASS, 4,067 / 0 / 32 / 0 on a clean first run; live Mono full-AOT identity confirmed |
 
 ## Final qualification decision
 
@@ -287,8 +342,7 @@ cannot be declared green while any of the following remain:
 2. StoreKit2 iOS/tvOS lack the B09 Sandbox product and signed-in tester authority.
 3. Corpus-r4 lacks current explicit authority receipts and sufficient disk capacity;
    its 24 nonzero candidates and 36 absent named inputs remain unresolved.
-4. Mono full-AOT did not complete a clean full run, and the nine x20 clobber identities
-   remain unaccepted.
+4. The nine x20 clobber identities remain unaccepted.
 
 No merge, push, publication, limitation acceptance, or waiver is authorized by this
 receipt.
