@@ -29,10 +29,15 @@ public class FrozenWithMemoryProjection : ITypeProjection
     public string? PInvokeAttribute => null;
 
     /// <summary>
-    /// The container generic type uses the .Buffer struct name, matching how MethodSignature
-    /// emits FrozenBuffer types in P/Invoke signatures.
+    /// Swift generic containers use the metadata-bearing wrapper type. The nested
+    /// <c>.Buffer</c> is only the lowered carrier for a bare P/Invoke value; using it as
+    /// <c>SwiftArray&lt;T&gt;</c>, <c>SwiftSet&lt;T&gt;</c>, or <c>SwiftDictionary&lt;K,V&gt;</c>'s
+    /// generic argument loses the Swift type metadata and disagrees with the public wrapper
+    /// values supplied to <c>FromEnumerable</c>/<c>FromDictionary</c>. The runtime collection
+    /// marshaler invokes <c>ISwiftObject.MarshalToSwift</c> on this wrapper and hands the
+    /// resulting owned value to Swift's consuming collection operation.
     /// </summary>
-    public string SwiftContainerGenericType => $"{_typeName}.Buffer";
+    public string SwiftContainerGenericType => _typeName;
 
     /// <summary>
     /// For MarshalFromSwift calls, use the type name (not .Buffer). MarshalFromSwift needs
@@ -98,11 +103,10 @@ public class FrozenWithMemoryProjection : ITypeProjection
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
     /// <summary>
-    /// No parameter element conversion. Frozen-with-memory types inside containers (Array, Dictionary)
-    /// would require lifecycle-managed PayloadBuffer extraction that can't be expressed in a LINQ Select
-    /// lambda without leaking SafeHandle refs. No validated library uses this composition.
-    /// Returning null causes a C# compile error (type mismatch) if this composition is ever attempted,
-    /// which is preferable to silently leaking handles.
+    /// No parameter element conversion. Swift generic containers carry the metadata-bearing
+    /// wrapper type and let the runtime collection marshal it through
+    /// <c>ISwiftObject.MarshalToSwift</c>; extracting <c>.Buffer</c> here would instead lose the
+    /// value's Swift metadata and require an unsafe per-element SafeHandle pin lifetime.
     /// </summary>
     public string? GetParameterElementConversion(string elementVar) => null;
 

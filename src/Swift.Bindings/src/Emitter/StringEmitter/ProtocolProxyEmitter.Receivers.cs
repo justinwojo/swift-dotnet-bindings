@@ -1977,11 +1977,9 @@ public partial class ProtocolProxyEmitter
         var inner = opt.InnerProjection;
         var optType = inner.SwiftContainerGenericType;
         // Arms that hand the wrapper VALUE straight to NewSome (NonFrozenStruct, blittable/enum,
-        // FrozenWithMemory) need the inner's metadata-bearing wrapper type as the generic. This equals
-        // SwiftContainerGenericType for all of them EXCEPT FrozenWithMemoryProjection, whose
-        // SwiftContainerGenericType is the by-value `.Buffer` struct (nonexistent for a handle-backed
-        // wrapper such as SwiftClosedRange<T>). The handle-passing arms (Class/KeyPath/ObjC) keep
-        // optType, which is the nil-pointer-optimized IntPtr.
+        // FrozenWithMemory) need the inner's metadata-bearing wrapper type as the generic. The
+        // handle-passing arms (Class/KeyPath/ObjC) keep optType, which is the
+        // nil-pointer-optimized IntPtr.
         var passthroughOptType = inner.MarshalFromSwiftType;
         return inner switch
         {

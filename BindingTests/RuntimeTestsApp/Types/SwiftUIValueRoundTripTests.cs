@@ -56,6 +56,71 @@ public class SwiftUIValueRoundTripTests : TestBase
             "a different red component must not compare equal");
     }
 
+    public void TestColorArrayConstructorSurvivesTheAbi()
+    {
+        // Exact swiftui-charts failure shape: a constructor whose second argument is
+        // IEnumerable<SwiftUI.Color>. Before the projection fix its body attempted
+        // SwiftArray<SwiftUI.Color.Buffer>.FromEnumerable(colors), which was CS1503.
+        using var first = global::SwiftUI.Color.Create(0.1, 0.2, 0.3, 0.4);
+        using var second = global::SwiftUI.Color.Create(0.6, 0.7, 0.8, 0.9);
+        using var probe = new SwiftUIColorCollectionProbe(
+            lineType: 7, colors: new[] { first, second });
+
+        AssertEqual(2, probe.GetColorCount(), "both Color values should reach Swift's array");
+        AssertTrue(probe.Color(0, first), "the first Color should retain its Swift value");
+        AssertTrue(probe.Color(1, second), "the second Color should retain its Swift value");
+        AssertFalse(probe.Color(0, second), "array ordering and element identity must not collapse");
+    }
+
+    public void TestReturnedColorArrayReadsOwnIndependentValues()
+    {
+        using var first = global::SwiftUI.Color.Create(0.1, 0.2, 0.3, 0.4);
+        using var second = global::SwiftUI.Color.Create(0.6, 0.7, 0.8, 0.9);
+        using var probe = new SwiftUIColorCollectionProbe(
+            lineType: 7, colors: new[] { first, second });
+
+        // The generated return is an owning projection backed by SwiftArray<Color>. Exercise its
+        // single-element and enumeration paths, plus SwiftArray<Color>.ToArray() directly for the
+        // bulk ExtractRange path. Every result must outlive its temporary slot and source owner.
+        var returned = probe.GetReturnedColors();
+        var returnedOwner = (IDisposable)returned;
+        using var rangeSource = global::Swift.SwiftArray<global::SwiftUI.Color>.FromEnumerable(
+            new[] { first, second });
+        global::SwiftUI.Color? indexed = null;
+        global::SwiftUI.Color[] enumerated = Array.Empty<global::SwiftUI.Color>();
+        global::SwiftUI.Color[] rangeExtracted = Array.Empty<global::SwiftUI.Color>();
+        try
+        {
+            AssertEqual(2, returned.Count, "Swift should return both Color values");
+            indexed = returned[0];
+            enumerated = returned.ToArray();
+            rangeExtracted = rangeSource.ToArray();
+            returnedOwner.Dispose();
+            rangeSource.Dispose();
+
+            AssertTrue(probe.Color(0, indexed),
+                "the indexer result should remain valid after its slot and array are released");
+            AssertEqual(2, enumerated.Length, "enumeration should preserve the array length");
+            AssertTrue(probe.Color(0, enumerated[0]), "enumeration should preserve the first Color");
+            AssertTrue(probe.Color(1, enumerated[1]), "enumeration should preserve the second Color");
+            AssertFalse(probe.Color(0, enumerated[1]), "enumeration should preserve array order");
+            AssertEqual(2, rangeExtracted.Length, "bulk extraction should preserve the array length");
+            AssertTrue(probe.Color(0, rangeExtracted[0]),
+                "bulk extraction should preserve the first Color after source disposal");
+            AssertTrue(probe.Color(1, rangeExtracted[1]),
+                "bulk extraction should preserve the second Color after source disposal");
+        }
+        finally
+        {
+            indexed?.Dispose();
+            foreach (var color in enumerated)
+                color.Dispose();
+            foreach (var color in rangeExtracted)
+                color.Dispose();
+            returnedOwner.Dispose();
+        }
+    }
+
     public void TestMultiWordValueSurvivesTheAbi()
     {
         // Color and Font are single words, so they cross correctly even if only the
