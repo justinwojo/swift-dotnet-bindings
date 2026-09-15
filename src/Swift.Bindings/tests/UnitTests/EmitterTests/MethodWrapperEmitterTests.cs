@@ -447,7 +447,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericMethodReturningItsOwnParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericMethodReturningItsOwnParameter_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -460,10 +460,9 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        // A return position that mentions an own generic parameter needs the indirect-result
-        // buffer sized from the opened layout, which the opening wrapper does not derive — the
-        // member stays on the direct route and emits no wrapper.
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        // The managed side sizes the indirect result from T metadata, while the Swift opening
+        // body writes it using the local opened type.
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -741,7 +740,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_FreeFunction_GenericMethodReturningItsOwnParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_FreeFunction_GenericMethodReturningItsOwnParameter_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -753,7 +752,7 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

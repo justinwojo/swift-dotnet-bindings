@@ -942,7 +942,7 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void GetRejectionReason_GenericMethodReturningItsOwnParameter_ReturnsReason()
+    public void GetRejectionReason_GenericMethodReturningItsOwnParameter_ReturnsNull()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -956,9 +956,7 @@ public class WrapperConsistencyTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        // A return position that mentions the method's own generic parameter is outside the
-        // opening route, so the member keeps the direct P/Invoke and reports the same reason.
-        Assert.Equal("method_level_generics", WrapperValidation.GetRejectionReason(env));
+        Assert.Null(WrapperValidation.GetRejectionReason(env));
     }
 
     [Fact]

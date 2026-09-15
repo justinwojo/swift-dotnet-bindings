@@ -370,6 +370,29 @@ public class GenericProtocolUnificationTests
         Assert.True(WrapperValidation.NeedsGenericDispatch(env, MemberKind.Constructor));
     }
 
+    [Fact]
+    public void CanEmitGenericConstructorWrapper_FourMetadataSlots_RemainsBounded()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var parent = CreateGenericStructDecl(
+            "Quad",
+            moduleDecl,
+            new[]
+            {
+                ("A", "τ_0_0"),
+                ("B", "τ_0_1"),
+                ("C", "τ_0_2"),
+                ("D", "τ_0_3"),
+            });
+        var ctor = CreateMethodDeclWithParams(
+            "init", isConstructor: true, moduleDecl: moduleDecl,
+            ("value", new NamedTypeSpec("τ_0_0")));
+        ctor.ParentDecl = parent;
+        var env = new MethodEnvironment(ctor, CreateTypeDatabase());
+
+        Assert.False(ConstructorWrapperEmitter.CanEmitGenericConstructorWrapper(env, parent));
+    }
+
     #endregion
 
     #region NeedsGenericDispatch — generic class parent

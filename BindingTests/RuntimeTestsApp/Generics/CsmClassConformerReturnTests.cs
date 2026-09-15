@@ -92,4 +92,12 @@ public class CsmClassConformerReturnTests : TestBase
         using var result = box.RelayThrough(resultPtr: 1234, item: item);
         AssertEqual(2718, result.CarrierTag, "RelayThrough round-trip with a resultPtr-named user param");
     }
+
+    public void TestRelayThrough_ExplicitGenericBase_RoutesThroughOpeningWrapper()
+    {
+        using var box = new CarrierBox();
+        using var item = new CarrierClass(carrierTag: 1618);
+        using var result = box.RelayThrough<CarrierClass>(resultPtr: 77, item: item);
+        AssertEqual(1618, result.CarrierTag, "generic RelayThrough cdecl opening round-trip");
+    }
 }

@@ -438,12 +438,9 @@ public class PropertyWrapperEmitterTests
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Wrapper-helper-path fail-closed gates: properties on generic types whose
-    // parent has unresolvable PWT conformances OR would force the dlsym'd Ma
-    // symbol into buffer mode. The wrapper helper passes only resolvable PWTs
-    // and emits only the thin (request, metadata..., pwt...) signature, so
-    // either mismatch shifts caller-saved registers and PAC-traps on arm64e.
-    // Mirrors the gates in CanEmitGenericDispatch for methods/constructors.
+    // Wrapper-helper-path fail-closed gates: unresolvable PWT conformances remain
+    // blocked. Buffer mode is qualified for generic struct properties; generic
+    // class property routing retains its independently bounded contract.
     // ─────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -628,9 +625,8 @@ public class PropertyWrapperEmitterTests
     public void ShouldEmitWrapper_GenericClassParent_TTypedProperty_ExceedsRegisterThreshold_ReturnsFalse()
     {
         // 1 metadata + 3 resolvable PWTs = 4 args → exceeds Swift's (metadata + pwt)
-        // > 3 register threshold. Swift's Ma symbol would use buffer-mode ABI but
-        // EmitMetadataAccessorHelperIfNeeded only emits the thin signature.
-        // Property type τ_0_0 routes through static dispatch → uses helper → gate fires.
+        // > 3 register threshold. Generic-class T-property routing retains its independently
+        // bounded contract even though generic-struct properties now qualify buffer mode.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "GenericBox",
             ("TestModule.Alpha", TypeRecordFlags.None, TypeRecordKind.Protocol),
@@ -662,6 +658,93 @@ public class PropertyWrapperEmitterTests
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
         Assert.Equal("generic_parent_metadata_buffer_mode",
             PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_TTypedProperty_BufferMode_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Quad");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("Quad", moduleDecl);
+        parentDecl.GenericParameters = Enumerable.Range(0, 4)
+            .Select(i => new GenericArgumentDecl(
+                $"τ_0_{i}", $"T{i}",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>()))
+            .ToList();
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "first", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void EmitSwiftGetterWrapper_GenericStructParent_BufferMode_UsesPackedMaAndCdeclAbi()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Quad");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("Quad", moduleDecl);
+        parentDecl.GenericParameters = Enumerable.Range(0, 4)
+            .Select(i => new GenericArgumentDecl(
+                $"τ_0_{i}", $"T{i}",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>()))
+            .ToList();
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "first", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+        var output = new StringWriter();
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+            new SwiftWriter(output), propertyDecl,
+            "SBW_Get_TestModule_Quad_first", env, new ModuleEmissionContext());
+
+        var swift = output.ToString();
+        Assert.Contains("let arguments: [UnsafeRawPointer] = [t0, t1, t2, t3]", swift);
+        Assert.Contains("@convention(thin) (Int, UnsafeRawPointer)", swift);
+        var signature = swift.Split('\n').First(line => line.Contains("public func _sbw_get_first_"));
+        Assert.True(signature.IndexOf("_metadata0", StringComparison.Ordinal) < signature.IndexOf("self_", StringComparison.Ordinal));
+        Assert.Contains("_metadata3: UnsafeRawPointer", signature);
+    }
+
+    [Fact]
+    public void EmitSwiftGetterWrapper_GenericStructParent_TwoMetadataTwoPwts_PacksExactVector()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Pair",
+            ("TestModule.Describable", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var describable = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable");
+        var parentDecl = CreateStructDecl("Pair", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "K",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, describable, ConformanceKind.Protocol),
+                },
+                new List<GenericParameterConformance>()),
+            new("τ_0_1", "V",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_1" }, describable, ConformanceKind.Protocol),
+                },
+                new List<GenericParameterConformance>()),
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "first", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+        var output = new StringWriter();
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+            new SwiftWriter(output), propertyDecl,
+            "SBW_Get_TestModule_Pair_first", env, new ModuleEmissionContext());
+
+        var swift = output.ToString();
+        Assert.Contains("let arguments: [UnsafeRawPointer] = [t0, t1, pwt0, pwt1]", swift);
+        Assert.Contains("typealias _Fn = @convention(thin) (Int, UnsafeRawPointer)", swift);
+        Assert.Contains(
+            "_ _metadata0: UnsafeRawPointer, _ _metadata1: UnsafeRawPointer, " +
+            "_ _pwt0: UnsafeRawPointer, _ _pwt1: UnsafeRawPointer, _ self_: UnsafeRawPointer",
+            swift.Split('\n').Single(line => line.Contains("public func _sbw_get_first_", StringComparison.Ordinal)));
     }
 
     [Fact]

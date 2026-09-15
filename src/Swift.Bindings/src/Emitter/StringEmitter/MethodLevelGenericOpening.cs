@@ -190,12 +190,18 @@ internal static class MethodLevelGenericOpening
         if (ownNames.Count == 0 || ownNames.Count > 3)
             return false;
 
-        // Return position: v1 keeps the return on shapes the managed side already proves. A return
-        // that MENTIONS an own generic parameter needs the indirect-result buffer sized from the
-        // opened layout, which is a separate managed change.
+        // Return position: a bare own generic is written into the managed indirect-result buffer
+        // from inside the local generic body, where its opened metatype is in scope. Composite
+        // generic returns still need a separate layout/rendering derivation.
         var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
-        if (TypeSpecMentionsAny(returnSpec, ownNames))
+        var ownGenericReturnName = returnSpec is NamedTypeSpec { GenericParameters.Count: 0 } returnNamed
+            && ownNames.Contains(returnNamed.Name)
+                ? returnNamed.Name
+                : null;
+        if (TypeSpecMentionsAny(returnSpec, ownNames) && ownGenericReturnName == null)
+        {
             return false;
+        }
 
         // A dynamic `Self` return has to be written as the parent type inside the opened bodies — a
         // local generic function has no enclosing type for `Self` to resolve against. The renderer
@@ -243,6 +249,22 @@ internal static class MethodLevelGenericOpening
 
         if (plan.Count == 0)
             return false;
+
+        // Only the existential strategies enter EmitOpenedBodies, where a bare T result can be
+        // initialized using the local generic type. Carrier-backed wrappers dispatch through
+        // module-scope scaffolding instead; admitting their bare T return would render τ_0_0 at
+        // module scope. Keep those strategies on their established direct route until the carrier
+        // protocol grows an independently proved result-storage contract.
+        if (ownGenericReturnName != null)
+        {
+            var returnOpening = plan.Single(o => string.Equals(
+                o.SwiftName, ownGenericReturnName, StringComparison.Ordinal));
+            if (returnOpening.Strategy is MlgOpeningStrategy.AssociatedTypeCarrier
+                or MlgOpeningStrategy.SuperclassCarrier)
+            {
+                return false;
+            }
+        }
 
         opened = plan;
         return true;
@@ -584,6 +606,12 @@ internal static class MethodLevelGenericOpening
 
         if (typeDatabase.TryGetTypeRecord(typeName, out var record))
             return record.Kind == TypeRecordKind.Protocol;
+
+        // Imported SDK protocols are not necessarily registered in the bound module's type
+        // database. The specialization registry's keys are explicitly protocol identities and
+        // therefore provide the missing proof without guessing from a module or spelling.
+        if (ConcreteSpecializationEngine.IsHintedProtocol(target))
+            return true;
 
         // Standard-library protocols (Swift.Sequence, Swift.Equatable, …) are not carried in the
         // module database but are always in scope for the wrapper.

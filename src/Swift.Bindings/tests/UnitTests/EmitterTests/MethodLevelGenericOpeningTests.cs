@@ -139,6 +139,19 @@ public class MethodLevelGenericOpeningTests
     }
 
     [Fact]
+    public void TryBuildPlan_ImportedHintedProtocol_UsesRegistryIdentityProof()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : Foundation.DataProtocol>",
+            genericParamNames: new[] { "τ_0_0" });
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var plan));
+        var only = Assert.Single(plan);
+        Assert.Equal(new[] { "Foundation.DataProtocol" }, only.ConstraintTargets);
+        Assert.Equal("any Foundation.DataProtocol.Type", only.ExistentialMetatype);
+    }
+
+    [Fact]
     public void TryBuildPlan_CollectionElementSameType_NormalizesToParameterizedExistential()
     {
         var env = CreateGenericMethodEnv(
@@ -256,13 +269,46 @@ public class MethodLevelGenericOpeningTests
     }
 
     [Fact]
-    public void TryBuildPlan_ReturnMentionsOwnGeneric_Declines()
+    public void TryBuildPlan_BareOwnGenericReturn_OpensForIndirectResult()
     {
-        // A generic return needs the indirect-result buffer sized from the opened layout.
         var env = CreateGenericMethodEnv(
             rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
             genericParamNames: new[] { "τ_0_0" },
             returnType: new NamedTypeSpec("τ_0_0"));
+
+        Assert.True(MethodLevelGenericOpening.TryBuildPlan(env, out var opened));
+        Assert.Equal(MlgOpeningStrategy.Existential, Assert.Single(opened).Strategy);
+    }
+
+    [Fact]
+    public void TryBuildPlan_BareOwnGenericReturn_SuperclassCarrierDeclines()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.BaseWidget>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: new NamedTypeSpec("τ_0_0"));
+
+        Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
+    }
+
+    [Fact]
+    public void TryBuildPlan_BareOwnGenericReturn_AssociatedTypeCarrierDeclines()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable, τ_0_0.Element : TestModule.Identifiable>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: new NamedTypeSpec("τ_0_0"));
+
+        Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
+    }
+
+    [Fact]
+    public void TryBuildPlan_CompositeOwnGenericReturn_Declines()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("τ_0_0")));
 
         Assert.False(MethodLevelGenericOpening.TryBuildPlan(env, out _));
     }
@@ -444,6 +490,57 @@ public class MethodLevelGenericOpeningTests
                 CdeclPhase.ErrorOut, CdeclPhase.OpenRefusal,
             },
             order.Phases);
+    }
+
+    [Fact]
+    public void OpeningWrapper_BareGenericReturn_WritesResultInsideOpenedBody()
+    {
+        var env = CreateGenericMethodEnv(
+            rawGenericSig: "<τ_0_0 where τ_0_0 : TestModule.Describable>",
+            genericParamNames: new[] { "τ_0_0" },
+            returnType: new NamedTypeSpec("τ_0_0"),
+            configure: m =>
+            {
+                m.UsesMethodLevelGenericOpening = true;
+                m.UsesCdeclMethodWrapper = true;
+                m.UsesWrapperLibrary = true;
+            });
+        env.PromoteSymbol("SBW_TestModule_MyType_describe_GENERIC_RETURN");
+
+        var swift = EmitOpeningSwift(env);
+        var pinvoke = EmitPInvokeText(env);
+        var swiftParameters = ParseCdeclParameterList(swift);
+        var pInvokeParameters = new SignatureHandler(env).GetPInvokeSignature().Parameters;
+
+        Assert.Equal(
+            new[]
+            {
+                "_ resultPtr: UnsafeMutableRawPointer",
+                "_ itemPayload: UnsafeRawPointer",
+                "_ _metadata0: UnsafeRawPointer",
+                "_ self_: UnsafeMutableRawPointer",
+                "_ _openRefused: UnsafeMutablePointer<UInt8>",
+            },
+            swiftParameters);
+        Assert.Equal(
+            new[]
+            {
+                ("IntPtr", "resultPtr", ""),
+                ("IntPtr", "itemPayload", ""),
+                ("IntPtr", "T0Metadata", ""),
+                ("IntPtr", "_selfClass", ""),
+                ("byte", "_openRefused", "out"),
+            },
+            pInvokeParameters.Select(p => (p.TypeString(), p.Name, p.modifier)));
+        Assert.Equal(
+            "func _mlgBody0<_MLG0: TestModule.Describable>(_: _MLG0.Type) {",
+            swift.Split('\n').Single(line => line.Contains("func _mlgBody0<", StringComparison.Ordinal)).Trim());
+        Assert.Contains("let result = obj.describe(item: item)", swift);
+        Assert.Contains("resultPtr.initializeMemory(as: _MLG0.self, repeating: result, count: 1)", swift);
+        Assert.Contains("CallConvCdecl", pinvoke);
+        Assert.DoesNotContain("SwiftSelf", pinvoke);
+        Assert.DoesNotContain("τ_0_0", swift.Split('\n').Single(
+            line => line.Contains("public func ", StringComparison.Ordinal)));
     }
 
     [Fact]

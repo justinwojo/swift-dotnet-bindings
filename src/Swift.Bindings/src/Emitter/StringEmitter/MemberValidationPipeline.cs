@@ -889,9 +889,8 @@ public class MemberValidationPipeline
 
         // A concrete property on a generic Swift struct has no safe direct fallback when the
         // static wrapper cannot reconstruct the parent metatype. Descriptor-backed PWTs are
-        // supported only when every descriptor exists, and the property helper remains a
-        // register-mode ABI with at most three metadata/PWT slots. Refuse this newly-opened
-        // concrete slice rather than emit a substituted direct CallConvSwift entry point.
+        // supported only when every descriptor exists; over-threshold metadata/PWT vectors are
+        // packed by the property helper. Refuse only a genuinely unconstructable metatype.
         if (GenericDispatchEmitter.HasUnsupportedConcreteStructPropertyHelper(
                 propertyDecl, _typeDatabase, out var genericStructHelperDetails))
         {

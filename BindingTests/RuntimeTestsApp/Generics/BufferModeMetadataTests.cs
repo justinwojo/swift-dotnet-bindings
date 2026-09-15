@@ -44,4 +44,30 @@ public class BufferModeMetadataTests : TestBase
         AssertTrue(metadata.Size > 0,
             "BufferModeDescribablePair<SimpleItem,SimpleItem> metadata size is non-zero");
     }
+
+    public void TestBufferModeQuad_GenericProperties_RouteThroughPackedMetadataWrapper()
+    {
+#pragma warning disable SB0001 // Constructor remains on its separately qualified generic-parent route.
+        using var quad = new BufferModeQuad<nint, int, uint, long>(11, 22, 33, 44);
+#pragma warning restore SB0001
+
+        AssertEqual((nint)11, quad.First, "BufferModeQuad.first through cdecl wrapper");
+        AssertEqual(22, quad.Second, "BufferModeQuad.second through cdecl wrapper");
+        AssertEqual((uint)33, quad.Third, "BufferModeQuad.third through cdecl wrapper");
+        AssertEqual(44L, quad.Fourth, "BufferModeQuad.fourth through cdecl wrapper");
+        AssertEqual(4, quad.Count, "BufferModeQuad.count through cdecl wrapper");
+    }
+
+    public void TestBufferModeDescribablePair_GenericProperties_RouteThroughPackedMetadataAndPwts()
+    {
+        using var first = new SimpleItem("first-id", "first-label");
+        using var second = new SimpleItem("second-id", "second-label");
+        using var pair = BufferModeDescribablePairSwiftBindingsTestLib_SimpleItemSwiftBindingsTestLib_SimpleItemCsmExtensions
+            .FromSwiftBindingsTestLibSimpleItemSwiftBindingsTestLibSimpleItem(first, second);
+        using var actualFirst = pair.First;
+        using var actualSecond = pair.Second;
+
+        AssertEqual("first-id", actualFirst.Id, "BufferModeDescribablePair.first through cdecl wrapper");
+        AssertEqual("second-id", actualSecond.Id, "BufferModeDescribablePair.second through cdecl wrapper");
+    }
 }

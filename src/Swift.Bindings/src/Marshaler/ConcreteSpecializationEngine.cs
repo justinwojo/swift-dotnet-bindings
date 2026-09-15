@@ -193,6 +193,15 @@ public class ConcreteSpecializationEngine
     private static readonly Lazy<Dictionary<string, List<ConcreteConformer>>> _sharedHints =
         new(LoadHints);
 
+    /// <summary>
+    /// True when the embedded specialization registry declares <paramref name="swiftTypeName"/>
+    /// as a protocol. The registry's top-level keys are protocol identities, not arbitrary type
+    /// names, so they provide an identity proof for imported SDK protocols that are present in a
+    /// member's generic signature but absent from the bound module's type database.
+    /// </summary>
+    internal static bool IsHintedProtocol(string swiftTypeName)
+        => _sharedHints.Value.ContainsKey(swiftTypeName);
+
     public ConcreteSpecializationEngine(ITypeDatabase typeDatabase, string? currentModuleName = null)
     {
         _typeDatabase = typeDatabase;

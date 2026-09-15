@@ -2665,7 +2665,7 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidatePropertyEmission_ConcretePropertyOnFourMetadataStruct_ReturnsSkip()
+    public void ValidatePropertyEmission_ConcretePropertyOnFourMetadataStruct_Emits()
     {
         var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct(
             "FourSlotBox", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
@@ -2675,9 +2675,7 @@ public class MemberValidationPipelineTests
 
         var result = pipeline.ValidatePropertyEmission(property, null);
 
-        Assert.False(result.ShouldEmit);
-        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
-        Assert.Contains("more than three parent metadata/PWT slots", result.Details!);
+        Assert.True(result.ShouldEmit);
     }
 
     [Fact]

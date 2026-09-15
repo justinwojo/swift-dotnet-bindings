@@ -52,7 +52,7 @@ internal static class GenericDispatchEmitter
         // generic classes — are NOT rejected just because the parent type has e.g.
         // an associated-type conformance or >3 register args. Those safe paths use
         // SelfReconstructionEmitter.EmitProtocolCast and never touch _sbw_meta_*.
-        // Dynamic PWT resolution and buffer-mode ABI are not yet implemented.
+        // Dynamic PWT resolution and buffer-mode qualification remain path-specific.
 
         switch (kind)
         {
@@ -140,13 +140,12 @@ internal static class GenericDispatchEmitter
     ///    Self-requirement / associated-type protocol that <c>GetResolvablePwtParameterCount</c>
     ///    silently undercounts. Calling the dlsym'd Ma symbol with too few PWT slots shifts
     ///    caller-saved registers and PAC-traps on arm64e.
-    ///  - <see cref="MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold"/>: total
-    ///    (num_metadata + num_pwts) > 3 forces Swift's metadata accessor into the indirect
-    ///    buffer ABI. Our wrapper helper always declares the symbol as a thin function with
-    ///    explicit register args, so the call would shift registers and PAC-trap.
+    ///  - <see cref="MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold"/>: routes that
+    ///    have not independently qualified metadata-buffer dispatch remain bounded to three
+    ///    metadata/PWT slots. Static generic-struct properties are the qualified exception.
     /// Both refuse to emit any wrapper that would route through
     /// <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>. Dynamic
-    /// PWT resolution and buffer-mode ABI are not yet implemented.
+    /// PWT resolution is not yet implemented on the remaining routes.
     /// </summary>
     internal static bool HasWrapperHelperGateBlocker(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase, GenericDispatchKind kind = GenericDispatchKind.Method)
     {
@@ -186,7 +185,11 @@ internal static class GenericDispatchEmitter
         {
             if (MetatypeHelperEmitter.HasUnresolvableTypeConformancesWithoutDescriptor(parentTypeDecl, typeDatabase))
                 return true;
-            if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThresholdTotal(parentTypeDecl, typeDatabase))
+            // Static properties on generic structs repack over-threshold metadata/PWT arguments
+            // in EmitMetadataAccessorHelperIfNeeded. Constructors retain their existing bounded
+            // route until their independently exposed surface is qualified.
+            if (kind == GenericDispatchKind.Constructor &&
+                MetatypeHelperEmitter.WouldExceedRegisterArgumentThresholdTotal(parentTypeDecl, typeDatabase))
                 return true;
             return false;
         }
@@ -215,12 +218,8 @@ internal static class GenericDispatchEmitter
 
     /// <summary>
     /// Detects the concrete-property slice whose only sound open-generic struct dispatch is the
-    /// static @_cdecl wrapper, but whose parent metadata accessor cannot use the supported
-    /// register-mode helper. Leaving this slice on its historical direct CallConvSwift fallback
-    /// silently substitutes an ABI that omits descriptor-backed PWTs or guesses the four-plus-slot
-    /// metadata accessor convention. T-bearing properties are deliberately excluded here: they
-    /// predate the concrete-property opening and retain their existing compatibility surface until
-    /// their direct lane is migrated as a separate batch.
+    /// static @_cdecl wrapper, but whose parent metadata accessor lacks a descriptor required to
+    /// reconstruct its witness-table vector. Metadata-buffer packing is supported on this route.
     /// </summary>
     internal static bool HasUnsupportedConcreteStructPropertyHelper(
         PropertyDecl propertyDecl,
@@ -244,12 +243,6 @@ internal static class GenericDispatchEmitter
         if (MetatypeHelperEmitter.HasUnresolvableTypeConformancesWithoutDescriptor(parentTypeDecl, typeDatabase))
         {
             details = $"Concrete property '{propertyDecl.Name}' on generic struct '{parentTypeDecl.Name}' requires descriptor-backed parent witness-table dispatch, but at least one required protocol has no descriptor symbol.";
-            return true;
-        }
-
-        if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThresholdTotal(parentTypeDecl, typeDatabase))
-        {
-            details = $"Concrete property '{propertyDecl.Name}' on generic struct '{parentTypeDecl.Name}' requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.";
             return true;
         }
 

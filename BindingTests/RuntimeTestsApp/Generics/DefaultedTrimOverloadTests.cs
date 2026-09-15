@@ -126,6 +126,20 @@ public class DefaultedTrimOverloadTests : TestBase
             "Append(byte[] Data, options) — trim variant should round-trip caller's options.count");
     }
 
+    public void TestDefaultedHasher_ExplicitGenericBase_RoutesThroughOpeningWrapper()
+    {
+        using var hasher = new DefaultedHasher();
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 1, 2, 3, 4, 5 });
+        var options = new HashSet<nint> { 3, 5 };
+
+        hasher.Append<global::Swift.Foundation.Data>(data, options, tag: 91);
+
+        AssertEqual(1, hasher.Calls, "generic Append should record one call");
+        AssertEqual(5, hasher.LastCount, "generic Append should receive Data payload");
+        AssertEqual(91, hasher.LastTag, "generic Append should receive explicit tag");
+        AssertEqual(2, hasher.LastOptionsCount, "generic Append should receive Set payload");
+    }
+
     public void TestDefaultedThrowingHasher_AutoTrimPrimary_ByteArray_HappyPath()
     {
         // Throwing fixture happy path on the auto-trim primary —

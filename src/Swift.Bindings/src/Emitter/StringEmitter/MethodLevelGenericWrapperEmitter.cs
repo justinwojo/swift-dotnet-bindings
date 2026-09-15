@@ -71,6 +71,10 @@ internal static partial class MethodLevelGenericWrapperEmitter
         // The opened parameters, indexed by the parser's generic-parameter name, so a payload
         // argument can find the local generic parameter it binds to.
         var openedByName = opened.ToDictionary(o => o.SwiftName, StringComparer.Ordinal);
+        var openedReturn = returnTypeSpec is NamedTypeSpec { GenericParameters.Count: 0 } returnNamed
+            && openedByName.TryGetValue(returnNamed.Name, out var returnGeneric)
+                ? returnGeneric
+                : null;
 
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
@@ -289,7 +293,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
         // Nested local generic functions, outermost first. Each one opens exactly one parameter;
         // the innermost holds the payload bindings and the real call.
         EmitOpenedBodies(swiftWriter, env, opened, localNames, 0, payloadBindings, innerCallExpr,
-            returnTypeSpec, returnMapping, needsResultPtr, isVoidReturn, isString, throws);
+            returnTypeSpec, returnMapping, needsResultPtr, isVoidReturn, isString, throws, openedReturn);
 
         if (parameterized != null)
         {
@@ -332,7 +336,8 @@ internal static partial class MethodLevelGenericWrapperEmitter
         bool needsResultPtr,
         bool isVoidReturn,
         bool isString,
-        bool throws)
+        bool throws,
+        MlgOpenedGeneric? openedReturn)
     {
         var og = opened[depth];
         var bodyName = localNames.Body[depth];
@@ -341,9 +346,11 @@ internal static partial class MethodLevelGenericWrapperEmitter
 
         // The innermost body returns the Swift value; the outer levels forward it. The result is
         // only handled once, at the @_cdecl level, by the shared body emitters.
-        var bodyReturn = !isVoidReturn && MarshallingHelpers.IsLocalizedStringResource(returnTypeSpec)
-            ? " -> Swift.String"
-            : ReturnClauseFor(env, returnTypeSpec, isVoidReturn);
+        var bodyReturn = openedReturn != null
+            ? ""
+            : !isVoidReturn && MarshallingHelpers.IsLocalizedStringResource(returnTypeSpec)
+                ? " -> Swift.String"
+                : ReturnClauseFor(env, returnTypeSpec, isVoidReturn);
 
         swiftWriter.WriteLine(
             $"func {bodyName}<{localName}{og.ConstraintClause}>(_: {localName}.Type){throwsClause}{bodyReturn} {{");
@@ -352,14 +359,24 @@ internal static partial class MethodLevelGenericWrapperEmitter
         if (depth + 1 < opened.Count)
         {
             EmitOpenedBodies(swiftWriter, env, opened, localNames, depth + 1, payloadBindings, innerCallExpr,
-                returnTypeSpec, returnMapping, needsResultPtr, isVoidReturn, isString, throws);
+                returnTypeSpec, returnMapping, needsResultPtr, isVoidReturn, isString, throws, openedReturn);
         }
         else
         {
             foreach (var binding in payloadBindings)
                 swiftWriter.WriteLine(binding.Render(LocalGenericName(binding.Generic)));
             var call = throws ? $"try {innerCallExpr}" : innerCallExpr;
-            swiftWriter.WriteLine(isVoidReturn ? call : $"return {call}");
+            if (openedReturn != null)
+            {
+                var openedReturnType = LocalGenericName(openedReturn);
+                swiftWriter.WriteLine($"let result = {call}");
+                swiftWriter.WriteLine(
+                    $"resultPtr.initializeMemory(as: {openedReturnType}.self, repeating: result, count: 1)");
+            }
+            else
+            {
+                swiftWriter.WriteLine(isVoidReturn ? call : $"return {call}");
+            }
         }
 
         swiftWriter.Indent--;
@@ -378,7 +395,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
             // only the outermost level hands the expression to the shared body emitters, which
             // add their own.
             var forwarded = throws ? $"try {opener}" : opener;
-            swiftWriter.WriteLine(isVoidReturn ? forwarded : $"return {forwarded}");
+            swiftWriter.WriteLine(isVoidReturn || openedReturn != null ? forwarded : $"return {forwarded}");
             return;
         }
 
@@ -387,9 +404,9 @@ internal static partial class MethodLevelGenericWrapperEmitter
         if (throws)
         {
             MethodWrapperEmitter.EmitThrowingMethodBody(swiftWriter, opener, returnTypeSpec, returnMapping,
-                needsResultPtr, isVoidReturn, isString, env.TypeDatabase);
+                needsResultPtr, isVoidReturn || openedReturn != null, isString, env.TypeDatabase);
         }
-        else if (isVoidReturn)
+        else if (isVoidReturn || openedReturn != null)
         {
             swiftWriter.WriteLine(opener);
         }

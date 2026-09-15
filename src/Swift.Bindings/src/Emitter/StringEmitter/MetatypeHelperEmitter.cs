@@ -23,6 +23,8 @@ namespace BindingsGeneration;
 /// so a mismatch corrupts caller-saved registers and PAC-traps on arm64e (NativeAOT).
 /// The central gate lives in <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
 /// Dynamic PWT resolution for the Swift wrapper path is not yet implemented.
+/// Metadata/PWT vectors wider than three slots are repacked into Swift's indirect-buffer
+/// accessor ABI; callers must still provide the exact slot count and ordering.
 /// </para>
 /// </summary>
 public static class MetatypeHelperEmitter
@@ -104,13 +106,34 @@ public static class MetatypeHelperEmitter
             new[] { "0" }.Concat(allCallArgs));
 
         swiftWriter.WriteLine();
-        swiftWriter.WriteLines($$"""
-            private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
-                typealias _Fn = @convention(thin) ({{fnParamTypes}}) -> (UnsafeRawPointer, Int)
-                let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
-                return fn({{callArgs}}).0
-            }
-            """);
+        if (genericCount + pwtCount > 3)
+        {
+            // Swift metadata accessors switch from individual generic arguments to one pointer
+            // to a contiguous argument vector above three metadata/PWT slots. Keep the public
+            // @_cdecl wrapper's ordinary pointer parameters unchanged and repack only at the
+            // internal Ma seam, which is the sole call whose ABI changes at this threshold.
+            var bufferValues = string.Join(", ", allCallArgs);
+            swiftWriter.WriteLines($$"""
+                private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
+                    let arguments: [UnsafeRawPointer] = [{{bufferValues}}]
+                    return arguments.withUnsafeBufferPointer { buffer in
+                        typealias _Fn = @convention(thin) (Int, UnsafeRawPointer) -> (UnsafeRawPointer, Int)
+                        let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
+                        return fn(0, UnsafeRawPointer(buffer.baseAddress!)).0
+                    }
+                }
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
+                    typealias _Fn = @convention(thin) ({{fnParamTypes}}) -> (UnsafeRawPointer, Int)
+                    let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
+                    return fn({{callArgs}}).0
+                }
+                """);
+        }
 
         return helperName;
     }
@@ -383,13 +406,10 @@ public static class MetatypeHelperEmitter
     }
 
     /// <summary>
-    /// Returns <c>true</c> when the wrapper-helper's dlsym'd <c>...Ma</c> call would cross the
-    /// (num_metadata + num_pwts) &gt; 3 register threshold and thus require Swift's indirect-buffer
-    /// metadata-accessor ABI. <see cref="EmitMetadataAccessorHelperIfNeeded"/> always declares the
-    /// accessor as a thin function with explicit <c>(request, metadata..., pwt...)</c> args; calling
-    /// the buffer-mode ABI through that signature shifts caller-saved registers and PAC-traps on
-    /// arm64e. Callers MUST gate on this predicate to refuse emission for over-threshold types.
-    /// Buffer-mode emission is not yet implemented.
+    /// Returns <c>true</c> when the wrapper-helper's dlsym'd <c>...Ma</c> call crosses the
+    /// (num_metadata + num_pwts) &gt; 3 register threshold and therefore uses Swift's
+    /// indirect-buffer metadata-accessor ABI. The helper supports that ABI; callers use this
+    /// predicate only where their wider route remains independently unqualified.
     /// </summary>
     /// <remarks>
     /// Counts the same conformances the wrapper helper itself passes — i.e.
