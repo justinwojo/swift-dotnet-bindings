@@ -119,7 +119,7 @@ public static class ProtocolExtensionEmitter
     private static Dictionary<string, List<TypeDecl>> BuildConformanceMap(ModuleDecl moduleDecl)
     {
         var map = new Dictionary<string, List<TypeDecl>>();
-        CollectConformances(moduleDecl.Types, map);
+        CollectConformances(moduleDecl.Types, moduleDecl.Name, map);
         return map;
     }
 
@@ -127,17 +127,27 @@ public static class ProtocolExtensionEmitter
     /// Recursively collects conformances from types and their nested types.
     /// Includes ClassDecl and non-frozen StructDecl types.
     /// </summary>
-    private static void CollectConformances(IEnumerable<TypeDecl> types, Dictionary<string, List<TypeDecl>> map)
+    private static void CollectConformances(
+        IEnumerable<TypeDecl> types,
+        string moduleName,
+        Dictionary<string, List<TypeDecl>> map)
     {
         foreach (var type in types)
         {
             List<TypeConformance>? conformances = null;
 
-            if (type is ClassDecl classDecl)
+            // Extension-default wrappers name the concrete conformer from a separately
+            // compiled client module. ABI-only and SPI types (including nested types under
+            // such a parent) therefore cannot participate, even though their conformances
+            // remain present in ABI JSON.
+            var wrapperInaccessible =
+                WrapperValidation.IsTypeOrEnclosingUnavailableToWrapper(type, moduleName);
+
+            if (!wrapperInaccessible && type is ClassDecl classDecl)
             {
                 conformances = classDecl.Conformances;
             }
-            else if (type is StructDecl structDecl && !structDecl.IsFrozen)
+            else if (!wrapperInaccessible && type is StructDecl structDecl && !structDecl.IsFrozen)
             {
                 conformances = structDecl.Conformances;
             }
@@ -157,7 +167,7 @@ public static class ProtocolExtensionEmitter
             // Recurse into nested types
             if (type.Types.Any())
             {
-                CollectConformances(type.Types, map);
+                CollectConformances(type.Types, moduleName, map);
             }
         }
     }

@@ -2298,6 +2298,8 @@ public class PropertyHandlerTests
 
         Assert.Contains("bool __initialized = false;", csOutput);
         Assert.Contains("__initialized = true;", csOutput);
+        Assert.Contains("new global::System.Span<byte>", csOutput);
+        Assert.DoesNotContain("new System.Span<byte>", csOutput);
         Assert.Contains("__meta.ValueWitnessTable->Destroy(__heap, __meta);", csOutput);
         Assert.Contains("NativeMemory.Free(__heap);", csOutput);
     }

@@ -668,6 +668,80 @@ public class ConcreteSpecializationEngineTests
         Assert.Empty(result);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void FindSpecializableMethods_NonPublicGenericMethod_IsNotResurrected(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        // Segment's ABI contains process(incomingEvent:) even though the public
+        // swiftinterface exposes only process(event:). The parser correctly classifies the
+        // ABI-only generic member as internal, but CSM discovery historically ignored that
+        // classification and emitted wrappers that could not compile in a client module.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var typeDecl = CreateClassWithSomeCollectionStringMethod("Analytics");
+        var method = Assert.Single(typeDecl.Methods);
+        method.IsModuleInternal = isModuleInternal;
+        method.IsSpiProtected = isSpiProtected;
+
+        Assert.Empty(engine.FindSpecializableMethods(typeDecl));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void IndexModuleConformances_NonPublicConformer_IsNotOfferedToWrappers(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        var db = new ResolvingTypeDatabase();
+        var conformerName = SwiftTypeName.FromModuleQualifiedName("TestLib.HiddenValue");
+        db.Register(conformerName, "TestLib", "HiddenValue");
+        var moduleDecl = CreateModuleWithConformer(
+            "TestLib", "TestLib.HiddenValue", "TestLib.Processable");
+        var conformer = Assert.IsType<StructDecl>(Assert.Single(moduleDecl.Types));
+        conformer.IsModuleInternal = isModuleInternal;
+        conformer.IsSpiProtected = isSpiProtected;
+
+        var engine = new ConcreteSpecializationEngine(db, "TestLib");
+        engine.IndexModuleConformances(moduleDecl);
+
+        Assert.Empty(engine.GetConformers(
+            SwiftTypeName.FromModuleQualifiedName("TestLib.Processable")));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void GetConformers_HintForNonPublicAbiConformer_IsNotResurrected(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        // ColorAttribute is a curated hint for AttributeKind. Indexing matching ABI evidence
+        // would ordinarily confirm that hint, so this reaches the independent hint-offer path
+        // rather than relying on omission from the ABI conformer list alone.
+        var db = new ResolvingTypeDatabase();
+        var conformerName =
+            SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(conformerName, "SwiftBindingsTestLib", "ColorAttribute");
+        var moduleDecl = CreateModuleWithConformer(
+            "SwiftBindingsTestLib",
+            "SwiftBindingsTestLib.ColorAttribute",
+            "SwiftBindingsTestLib.AttributeKind");
+        var conformer = Assert.IsType<StructDecl>(Assert.Single(moduleDecl.Types));
+        conformer.IsModuleInternal = isModuleInternal;
+        conformer.IsSpiProtected = isSpiProtected;
+
+        var engine = new ConcreteSpecializationEngine(db, "SwiftBindingsTestLib");
+        engine.IndexModuleConformances(moduleDecl);
+
+        Assert.DoesNotContain(
+            engine.GetConformers(
+                SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind")),
+            candidate => candidate.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+    }
+
     [Fact]
     public void FindSpecializableMethods_AssociatedTypeSugarVsCanonical_StillSpecializes()
     {

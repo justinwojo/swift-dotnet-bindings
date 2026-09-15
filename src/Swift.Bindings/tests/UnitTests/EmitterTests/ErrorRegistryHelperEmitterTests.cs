@@ -37,6 +37,26 @@ public class ErrorRegistryHelperEmitterTests
     }
 
     [Fact]
+    public void EmitCSharpRegistry_ModuleDeclaresSystemType_BclReferencesRemainGlobal()
+    {
+        // A binding can legitimately declare `namespace Segment { public class System ... }`.
+        // In that namespace, emitted `System.Exception` / `System.Action<T>` bind to the
+        // generated type instead of the BCL namespace and fail with CS0426. Support code must
+        // use root-qualified BCL names independently of the module's declared type names.
+        var ctx = new ModuleEmissionContext();
+        ctx.ResolvedNamespace = "Segment";
+        ctx.RegisterErrorTypeId("Segment.AnalyticsError");
+
+        var output = EmitCSharpRegistry(ctx, moduleName: "Segment", wrapperLib: "SegmentSwiftBindings");
+
+        Assert.Contains("global::System.Exception CreateException(", output);
+        Assert.Contains("global::System.Exception CreateSyncException(", output);
+        Assert.Contains("global::System.Action<IntPtr> releaseError", output);
+        Assert.DoesNotContain("internal static System.Exception", output);
+        Assert.DoesNotContain("catch (System.Exception", output);
+    }
+
+    [Fact]
     public void EmitCSharpRegistry_RemappedNamespace_HelperLivesInResolvedNamespaceAndTypesRebased()
     {
         // Swift module: StoreKit. Resolved C# namespace: StoreKit2.
@@ -269,7 +289,7 @@ public class ErrorRegistryHelperEmitterTests
     // text belonging to its sibling.
     private static string ExtractMember(string emitted, string memberName)
     {
-        const string declPrefix = "internal static System.Exception ";
+        const string declPrefix = "internal static global::System.Exception ";
         var start = emitted.IndexOf(declPrefix + memberName + "(", StringComparison.Ordinal);
         Assert.True(start >= 0, $"expected the emitted registry to declare {memberName}");
         var next = emitted.IndexOf(declPrefix, start + declPrefix.Length, StringComparison.Ordinal);

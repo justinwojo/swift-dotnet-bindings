@@ -26,6 +26,28 @@ public class ProtocolExtensionEmitterTests
 {
     private static readonly ILogger Logger = NullLogger.Instance;
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void NonPublicConformer_DoesNotReceiveExtensionDefaultWrapper(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        var (moduleDecl, conformingType, typeDatabase) =
+            CreateSetup("TestModule", "HiddenPlugin", "Plugin");
+        conformingType.IsModuleInternal = isModuleInternal;
+        conformingType.IsSpiProtected = isSpiProtected;
+        var extMethods = CreateExtensionMethodDict("TestModule.Plugin",
+            CreateExtMethod("shutdown", "public func shutdown()"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(
+            moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Empty(conformingType.Methods);
+        Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
+    }
+
     // ─── Optional<Class> param renders nullable pointer ─────────────────
 
     [Fact]

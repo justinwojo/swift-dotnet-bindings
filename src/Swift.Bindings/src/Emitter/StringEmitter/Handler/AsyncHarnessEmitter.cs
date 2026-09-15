@@ -605,8 +605,8 @@ namespace BindingsGeneration
                         private static unsafe void {{callbackMethodName}}(IntPtr bufferPtr, nint bufferLen, IntPtr task)
                         {
                             GCHandle handle = GCHandle.FromIntPtr(task);
-                            System.Exception? deserializationError = null;
-                            System.Collections.Generic.List<string>? result = null;
+                            global::System.Exception? deserializationError = null;
+                            global::System.Collections.Generic.List<string>? result = null;
 
                             try
                             {
@@ -615,7 +615,7 @@ namespace BindingsGeneration
                                 if (bufferLen <= sizeof(long))
                                 {
                                     // Empty array or just count field
-                                    result = new System.Collections.Generic.List<string>();
+                                    result = new global::System.Collections.Generic.List<string>();
                                 }
                                 else
                                 {
@@ -627,7 +627,7 @@ namespace BindingsGeneration
 
                                     if (count == 0)
                                     {
-                                        result = new System.Collections.Generic.List<string>();
+                                        result = new global::System.Collections.Generic.List<string>();
                                     }
                                     else
                                     {
@@ -652,7 +652,7 @@ namespace BindingsGeneration
                                             throw new InvalidOperationException($"Buffer too small for array data: need {headerSize + totalDataLen}, have {bufferLen}");
 
                                         // Read strings from buffer (casts are safe after validation)
-                                        result = new System.Collections.Generic.List<string>((int)count);
+                                        result = new global::System.Collections.Generic.List<string>((int)count);
                                         int dataOffset = headerSize;
                                         for (int i = 0; i < count; i++)
                                         {
@@ -666,7 +666,7 @@ namespace BindingsGeneration
                                     }
                                 }
                             }
-                            catch (System.Exception ex)
+                            catch (global::System.Exception ex)
                             {
                                 // Capture deserialization errors to report via TCS (can't throw from UnmanagedCallersOnly)
                                 deserializationError = ex;

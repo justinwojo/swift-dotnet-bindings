@@ -238,7 +238,7 @@ public static class ErrorRegistryHelperEmitter
                 [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbol}}")]
                 private static partial void SBW_Free(IntPtr ptr);
 
-                internal static System.Exception CreateException(
+                internal static global::System.Exception CreateException(
                     int errorTypeId,
                     IntPtr errorPtr,
                     nint errorSize,
@@ -248,7 +248,7 @@ public static class ErrorRegistryHelperEmitter
                     if (errorTypeId == 0)
                         return new global::Swift.Runtime.SwiftException(errorMessage);
 
-                    System.Exception result;
+                    global::System.Exception result;
                     try
                     {
                         switch (errorTypeId)
@@ -262,7 +262,7 @@ public static class ErrorRegistryHelperEmitter
                                 break;
                         }
                     }
-                    catch (System.Exception marshalEx)
+                    catch (global::System.Exception marshalEx)
                     {
                         // Per-case catch / finally already freed (or transferred) the buffer.
                         // Surface the marshal failure as bare SwiftException so the consumer
@@ -286,17 +286,17 @@ public static class ErrorRegistryHelperEmitter
                 /// runs strictly before the exception exists, so the caller's <c>throw</c> is still
                 /// P/Invoke-free.
                 /// </summary>
-                internal static System.Exception CreateSyncException(
+                internal static global::System.Exception CreateSyncException(
                     IntPtr errorBox,
                     IntPtr descPtr,
-                    System.Action<IntPtr> releaseError)
+                    global::System.Action<IntPtr> releaseError)
                 {
                     var errorMessage = global::Swift.Runtime.InteropServices.SwiftMarshal.ReadErrorDescription(descPtr);
                     var errorTypeId = SBW_ClassifySwiftError(errorBox, out var errorPtr);
                     if (errorTypeId == 0)
                         return global::Swift.Runtime.InteropServices.SwiftMarshal.CreateSwiftError(errorMessage, errorBox, releaseError);
 
-                    System.Exception result;
+                    global::System.Exception result;
                     try
                     {
                         switch (errorTypeId)
@@ -310,7 +310,7 @@ public static class ErrorRegistryHelperEmitter
                                 break;
                         }
                     }
-                    catch (System.Exception marshalEx)
+                    catch (global::System.Exception marshalEx)
                     {
                         // Per-case catch / finally already freed (or transferred) the payload buffer.
                         // Surface the marshal failure as an untyped exception that still carries the

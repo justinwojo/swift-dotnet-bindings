@@ -405,6 +405,25 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// True when <paramref name="decl"/> or a same-module enclosing type is unavailable to a
+    /// separately compiled wrapper module because it is module-internal or SPI-protected.
+    /// Foreign extension receivers are intentionally ignored: their visibility flags describe
+    /// absence from the module currently being parsed, not accessibility from their defining
+    /// module, and they remain spellable through an import.
+    /// </summary>
+    public static bool IsTypeOrEnclosingUnavailableToWrapper(TypeDecl? decl, string moduleName)
+    {
+        for (var current = decl; current is not null; current = current.ParentDecl as TypeDecl)
+        {
+            if (!string.Equals(current.SwiftTypeName?.Module, moduleName, StringComparison.Ordinal))
+                continue;
+            if (current.IsModuleInternal || current.IsSpiProtected)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Returns true when the generator is running in xcframework mode, where the wrapper
     /// library exists. This is a prerequisite for all @_cdecl wrapper emission. This is the
     /// single chokepoint for the mode decision — it consults the explicit
