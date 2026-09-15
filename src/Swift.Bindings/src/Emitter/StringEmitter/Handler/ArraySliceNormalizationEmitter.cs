@@ -277,7 +277,19 @@ public static class ArraySliceNormalizationEmitter
             env.TypeDatabase,
             env.SiblingPropertyNames,
             env.PInvokeHelperContext,
-            env.CompositionCollector);
+            env.CompositionCollector)
+        {
+            // The overload resolver runs on the parsed declaration before this bridge clones it.
+            // Carry every name-shaping input into the clone: CSharpMethodName is the public-name
+            // authority for the declaration WrapperEmitter writes, and recomputing it from the
+            // clone alone loses ArraySlice-vs-Array collision names such as
+            // ContainsWithArraySliceUInt8.
+            SourceDeclId = env.SourceDeclId,
+            DisambiguatedNameInput = env.DisambiguatedNameInput,
+            AdoptedOverrideCSharpName = env.AdoptedOverrideCSharpName,
+            EmittedProjectedSignatures = env.EmittedProjectedSignatures,
+            ReservedOverloadShapes = env.ReservedOverloadShapes,
+        };
         // Prefer the bridge's directly-supplied context over env.EmissionContext: this
         // bridge runs before MethodHandler assigns env.EmissionContext, so without this
         // the C# P/Invoke side bypasses the wrapper-symbol contract enforcement.
@@ -334,6 +346,19 @@ public static class ArraySliceNormalizationEmitter
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
         PInvokeEmitter.EmitPInvoke(csWriter, normalizedEnv, signatureHandler);
 
+        // The clone is an implementation detail. Publish its emitted shape on the authoritative
+        // parsed declaration consumed by HandleBaseDecl, otherwise the API manifest
+        // records the original ArraySlice declaration while the C# writer emitted the normalized
+        // clone. Keep env.EmissionSymbol unchanged: the manifest's native-symbol identity is the
+        // source ABI contract, while normalizedEnv owns the implementation wrapper used by P/Invoke.
+        if (normalizedEnv.EmissionContext is { } normalizedContext)
+        {
+            var emittedShape = normalizedContext.GetEmittedApiShape(normalizedMethodDecl);
+            normalizedContext.RecordEmittedApiShape(
+                methodDecl,
+                csharpName: emittedShape.CSharpName ?? normalizedEnv.CSharpMethodName,
+                parameterPortion: emittedShape.ParameterPortion);
+        }
         return true;
     }
 

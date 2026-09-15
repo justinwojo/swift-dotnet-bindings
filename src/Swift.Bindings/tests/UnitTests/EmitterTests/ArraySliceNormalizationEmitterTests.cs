@@ -699,6 +699,125 @@ public class ArraySliceNormalizationEmitterTests
         Assert.NotEmpty(swiftOutput);
     }
 
+    [Fact]
+    public void Handler_ArrayAndArraySliceOverloads_KeepResolvedNamesAndManifestParity()
+    {
+        // Swift.Array<T> and Swift.ArraySlice<T> both project to IEnumerable<T>. The overload
+        // resolver therefore gives each a Swift-type-derived public name. ArraySlice normalization
+        // lowers through a cloned declaration; this test pins that the clone preserves the resolved
+        // name and republishes its emitted shape on the original declaration used by the manifest
+        // chokepoint, without changing the manifest's source-ABI symbol identity.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "SwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Matcher", moduleDecl, typeDatabase);
+        parentDecl.IsFinal = true;
+
+        MethodDecl Overload(string mangledName, string collectionType)
+        {
+            var method = new MethodDecl
+            {
+                Name = "contains",
+                MangledName = mangledName,
+                MethodType = MethodType.Static,
+                IsConstructor = false,
+                Throws = false,
+                IsAsync = false,
+                IsFinal = true,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    CreateArgument(string.Empty, new NamedTypeSpec("Swift.Bool"), moduleDecl),
+                    CreateArgument("_", new NamedTypeSpec(collectionType, new NamedTypeSpec("Swift.UInt8")), moduleDecl)
+                },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl,
+            };
+            method.CSSignature[1].PrivateName = "scalar";
+            return method;
+        }
+
+        var arraySliceOverload = Overload(
+            "$s10TestModule7MatcherC8containsySbs10ArraySliceVys5UInt8VGFZ",
+            "Swift.ArraySlice");
+        var arrayOverload = Overload(
+            "$s10TestModule7MatcherC8containsySbSays5UInt8VGFZ",
+            "Swift.Array");
+        var arraySliceSourceId = DeclIdFactory.ForMethod(arraySliceOverload);
+        var normalizedArraySlice = ArraySliceNormalizationEmitter.NormalizeMethodDecl(arraySliceOverload);
+        var normalizedArraySliceId = DeclIdFactory.ForMethod(normalizedArraySlice);
+        Assert.NotEqual(arraySliceSourceId, normalizedArraySliceId);
+        parentDecl.Methods.Add(arraySliceOverload);
+        parentDecl.Methods.Add(arrayOverload);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var emissionContext = new ModuleEmissionContext();
+        var handlerContext = new TypeHandlerContext(
+            null, new List<PInvokeHelperContext>(), null, EmissionContext: emissionContext);
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            new ExposedBaseHandler().EmitMethods(
+                new CSharpWriter(csOutput), new SwiftWriter(swiftOutput),
+                parentDecl.Methods, new Conductor(new NullLoggerFactory()), typeDatabase,
+                handlerContext);
+        }
+        finally
+        {
+            ReportCollector.Complete();
+            ReportCollector.Reset();
+        }
+
+        const string sliceKey = "Matcher.ContainsWithArraySliceUInt8(IEnumerable<byte>)";
+        const string arrayKey = "Matcher.ContainsWithArrayUInt8(IEnumerable<byte>)";
+        var emitted = csOutput.ToString();
+
+        var publicContainsDeclarations = emitted.Split(Environment.NewLine)
+            .Where(line => line.StartsWith("public static bool Contains", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(new[]
+        {
+            "public static bool ContainsWithArraySliceUInt8( IEnumerable<byte> scalar)",
+            "public static bool ContainsWithArrayUInt8( IEnumerable<byte> scalar)",
+        }, publicContainsDeclarations);
+
+        var sliceShape = emissionContext.GetEmittedApiShape(arraySliceOverload);
+        Assert.Equal("ContainsWithArraySliceUInt8", sliceShape.CSharpName);
+        Assert.Equal("(IEnumerable<byte>)", sliceShape.ParameterPortion);
+        var arrayShape = emissionContext.GetEmittedApiShape(arrayOverload);
+        Assert.Equal("ContainsWithArrayUInt8", arrayShape.CSharpName);
+        Assert.Equal("(IEnumerable<byte>)", arrayShape.ParameterPortion);
+
+        Assert.Contains(sliceKey, emissionContext.ApiManifestEntries.Keys);
+        Assert.Contains(arrayKey, emissionContext.ApiManifestEntries.Keys);
+        Assert.Empty(ApiSurfaceReconciler.FindUnreconciledEntries(
+            emissionContext.ApiManifestEntries.Keys, emitted));
+
+        var sliceSymbol = emissionContext.ApiManifestEntries[sliceKey];
+        Assert.Equal(arraySliceOverload.MangledName, sliceSymbol);
+        Assert.Equal(arraySliceOverload.MangledName,
+            emissionContext.GetMethodEmissionSymbolOrMangled(arraySliceOverload));
+        var arraySymbol = emissionContext.ApiManifestEntries[arrayKey];
+        Assert.Equal(emissionContext.GetMethodEmissionSymbolOrMangled(arrayOverload), arraySymbol);
+        Assert.StartsWith("SBW_TestModule_Matcher_contains_", arraySymbol);
+        Assert.NotEqual(arrayOverload.MangledName, arraySymbol);
+
+        var wrapperSymbol = Assert.Single(emissionContext.RegisteredWrapperSymbols,
+            symbol => symbol != arraySymbol);
+        Assert.StartsWith("SBW_TestModule_Matcher_contains_", wrapperSymbol);
+        Assert.True(emissionContext.TryGetWrapperSymbolOwner(wrapperSymbol, out var wrapperOwner));
+        Assert.Equal(arraySliceSourceId, wrapperOwner.Decl);
+        Assert.NotEqual(normalizedArraySliceId, wrapperOwner.Decl);
+        Assert.Equal(ArtifactRole.SwiftWrapper, wrapperOwner.Role);
+        Assert.Contains("EntryPoint = \"SBW_", emitted);
+        Assert.DoesNotContain($"EntryPoint = \"{sliceSymbol}\"", emitted);
+        Assert.Equal("ContainsWithArraySliceUInt8", arraySliceOverload.EmittedCSharpName);
+        Assert.Equal("ContainsWithArrayUInt8", arrayOverload.EmittedCSharpName);
+    }
+
     #endregion
 
     #region Bug #15: Internal Parent Type Skip Tests
@@ -1158,6 +1277,22 @@ public class ArraySliceNormalizationEmitterTests
             idx += pattern.Length;
         }
         return count;
+    }
+
+    private sealed class ExposedBaseHandler : BaseHandler
+    {
+        public ExposedBaseHandler() : base(NullLogger.Instance)
+        {
+        }
+
+        public void EmitMethods(
+            CSharpWriter csWriter,
+            SwiftWriter swiftWriter,
+            IEnumerable<BaseDecl> methods,
+            Conductor conductor,
+            ITypeDatabase typeDatabase,
+            TypeHandlerContext context) =>
+            HandleBaseDecl(csWriter, swiftWriter, methods, conductor, typeDatabase, context);
     }
 
     #endregion
