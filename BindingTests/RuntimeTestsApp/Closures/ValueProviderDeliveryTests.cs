@@ -137,4 +137,47 @@ public class ValueProviderDeliveryTests : TestBase
         AssertApproxEqual(1111, target.RenderedChecksum(0), 0.0001,
             "Block still delivers after its construction scope is gone");
     }
+
+    /// <summary>
+    /// Unconditional render-effect analogue: the provider is installed after target
+    /// construction, its managed callback fires, and the returned palette must change
+    /// every pixel of the target's deterministic black-to-white render. This is stronger
+    /// than callback or collection-delivery coverage alone because a fired callback whose
+    /// return is discarded leaves the observable render identical to the baseline.
+    /// </summary>
+    public void TestInstalledProviderChangesDeterministicRenderedOutput()
+    {
+        const int width = 9;
+        const double frame = 30;
+        var fired = 0;
+        var observedFrames = new List<double>();
+        var target = new DeterministicGradientRenderTarget();
+        var baseline = target.RenderedPixelChecksum(width, frame);
+        target.SetProvider(new DynamicGradientProvider(observedFrame =>
+        {
+            fired++;
+            observedFrames.Add(observedFrame);
+            return new SwiftArray<ProviderColor>(new[]
+            {
+                new ProviderColor(1, 0, 0, 1),
+                new ProviderColor(0, 0, 1, 1),
+            });
+        }));
+
+        var deliveredColorCount = target.ProviderPaletteColorCount(frame);
+        var rendered = target.RenderedPixelChecksum(width, frame);
+        var changed = target.ChangedPixelCountFromDefault(width, frame);
+
+        AssertEqual(3, fired, "Each observable operation invokes the provider exactly once");
+        AssertEqual(2, deliveredColorCount,
+            "Installed-provider hop preserves the managed palette result and element count");
+        foreach (var observedFrame in observedFrames)
+            AssertApproxEqual(frame, observedFrame, 0.0001,
+                "Renderer passes the pinned frame to the managed provider");
+        AssertEqual(width, changed, "Installed provider changes every rendered pixel");
+        AssertTrue(rendered != baseline,
+            $"Observable render checksum changes from baseline ({baseline} -> {rendered})");
+        AssertEqual(87_228L, rendered,
+            "Pinned red-to-blue palette produces the deterministic 9-pixel RGBA checksum");
+    }
 }
