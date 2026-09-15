@@ -141,6 +141,49 @@ public sealed class RuntimeTestAttemptsTests : IDisposable
     }
 
     [Fact]
+    public void UIKitMacHelperSceneBootstrapCrash_BeforeManagedEntry_RemainsAStickyCrash()
+    {
+        const string output =
+            "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException', " +
+            "reason: '_mainSceneIdentifier should have been set by now!'\n" +
+            "3 UIKitMacHelper 0x000000019f93ae28 " +
+            "-[UINSApplicationDelegate _sendActionsForGroupToAppropriateScenes:]\n" +
+            "Got a SIGABRT while executing native code.\n" +
+            "App terminated due to signal 6.\n";
+
+        var crash = Launch(TestResult.LaunchFailure, output);
+        Assert.Equal(TestResult.Crash, crash.Result);
+        Assert.True(LaunchDiagnostics.IsUIKitMacHelperPreManagedEntryFailure(
+            crash.Result, crash.Output, managedEntryObserved: false));
+        Assert.False(LaunchDiagnostics.LauncherNeverStartedApp(crash));
+
+        var history = new RuntimeTestAttempts(Path.Combine(directory, "attempts"));
+        history.RecordLaunch(0, Token, crash);
+        var laterPass = Launch(TestResult.Success,
+            "[TIPKIT-CATALYST] MANAGED ENTRY run_token=8be5dc271a1d4fdd870db26fd8f0d41f\nTEST SUCCESS");
+        Assert.Same(crash, history.FinalResult(laterPass));
+        Assert.Equal(TestResult.Crash, history.FinalResult(laterPass).Result);
+    }
+
+    [Theory]
+    [InlineData("UIKitMacHelper\nGot a SIGABRT while executing native code.")]
+    [InlineData("_mainSceneIdentifier should have been set by now!\nGot a SIGABRT while executing native code.")]
+    [InlineData("_mainSceneIdentifier should have been set by now!\nUIKitMacHelper")]
+    public void UIKitMacHelperSceneBootstrapRetry_RequiresTheExactPreEntrySignature(string output)
+        => Assert.False(LaunchDiagnostics.IsUIKitMacHelperPreManagedEntryFailure(
+            TestResult.Crash, output, managedEntryObserved: false));
+
+    [Fact]
+    public void UIKitMacHelperSceneBootstrapSignature_AfterManagedEntry_IsNotRetryable()
+    {
+        const string output =
+            "[TIPKIT-CATALYST] MANAGED ENTRY run_token=e45ace89fa59472495f59c9eab2bf609\n" +
+            "_mainSceneIdentifier should have been set by now!\nUIKitMacHelper\nSIGABRT";
+        Assert.False(LaunchDiagnostics.IsUIKitMacHelperPreManagedEntryFailure(
+            TestResult.Crash, output, managedEntryObserved: true));
+    }
+
+    [Fact]
     public void StaleResultsAreNeverRetainedAsCurrentAttemptJsonl()
     {
         var history = new RuntimeTestAttempts(Path.Combine(directory, "attempts"));
