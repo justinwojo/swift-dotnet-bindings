@@ -307,6 +307,7 @@ namespace BindingsGeneration
                     MangledSymbol = null,
                     Ordinal = identities.Count,
                     Confidence = IdentityConfidence.Heuristic,
+                    SourceStartLine = target.DeclStart + 1,
                 });
             }
 
@@ -338,6 +339,13 @@ namespace BindingsGeneration
                 if (!result.ContentChanged)
                     continue;
 
+                // Read the original file before writing the reconciled content. The exposure reader
+                // owns the canonical overload-stable public key; declaration lines let us join the
+                // text reconciler's identities to that key without inventing another signature parser.
+                var originalExposure = result.StrippedMemberCount == 0
+                    ? Array.Empty<DirectSwiftSelfObservation>()
+                    : GeneratedSwiftCallReader.Scan([file], directory).Observations;
+
                 File.WriteAllText(file, result.Content);
 
                 if (result.StrippedMemberCount == 0)
@@ -352,6 +360,8 @@ namespace BindingsGeneration
                         ContainingType = member.ContainingType,
                         Kind = member.Kind,
                         MangledSymbol = member.MangledSymbol,
+                        PublicApiKey = member.PublicApiKey
+                            ?? ResolveExposurePublicApiKey(member, originalExposure),
                         Ordinal = member.Ordinal,
                         Confidence = member.Confidence,
                         SourceFile = fileName,
@@ -366,6 +376,51 @@ namespace BindingsGeneration
                     aggregate.Count);
 
             return aggregate;
+        }
+
+        private static string? ResolveExposurePublicApiKey(
+            CoGatedMember member,
+            IReadOnlyList<DirectSwiftSelfObservation> observations)
+        {
+            var candidates = observations
+                .Where(observation =>
+                    string.Equals(observation.PublicName, member.Name, StringComparison.Ordinal)
+                    && ExposureKind(observation.DeclarationKind) == member.Kind
+                    && ExposureContainingTypeMatches(observation.ContainingType, member.ContainingType))
+                .ToList();
+
+            if (member.SourceStartLine is { } line)
+            {
+                var lineKeys = candidates
+                    .Where(observation => observation.GeneratedSpan.StartLine <= line
+                        && line <= observation.GeneratedSpan.EndLine)
+                    .Select(observation => observation.PublicApiKey)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                if (lineKeys.Count == 1)
+                    return lineKeys[0];
+            }
+
+            var keys = candidates.Select(observation => observation.PublicApiKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            return keys.Count == 1 ? keys[0] : null;
+        }
+
+        private static BindingItemKind ExposureKind(string declarationKind) => declarationKind switch
+        {
+            "property" => BindingItemKind.Property,
+            "subscript" => BindingItemKind.Subscript,
+            "operator" or "conversion" => BindingItemKind.Operator,
+            _ => BindingItemKind.Method,
+        };
+
+        private static bool ExposureContainingTypeMatches(string observationType, string? coGatedType)
+        {
+            if (string.IsNullOrEmpty(coGatedType))
+                return false;
+            return string.Equals(observationType, coGatedType, StringComparison.Ordinal)
+                || observationType.EndsWith("." + coGatedType, StringComparison.Ordinal);
         }
 
         #region Step A: P/Invoke Detection
@@ -2718,6 +2773,7 @@ namespace BindingsGeneration
                     MangledSymbol = null,
                     Ordinal = ordinal++,
                     Confidence = IdentityConfidence.Heuristic,
+                    SourceStartLine = declLine + 1,
                 });
             }
 

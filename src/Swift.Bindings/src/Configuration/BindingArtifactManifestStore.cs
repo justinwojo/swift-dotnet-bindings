@@ -148,6 +148,8 @@ public static class BindingArtifactManifestStore
         else
             manifest.PartialReason ??= "Generation phase has not produced a section in this output directory.";
 
+        RefreshSettledExposure(manifest, outputDirectory);
+
         var manifestPath = Path.Combine(outputDirectory, ManifestFileName);
         var manifestJson = JsonConvert.SerializeObject(manifest, SerializerSettings);
         AtomicArtifactWriter.Write(manifestPath, manifestJson);
@@ -156,5 +158,36 @@ public static class BindingArtifactManifestStore
         var reportPath = Path.Combine(outputDirectory, ReportFileName);
         var reportJson = JsonConvert.SerializeObject(report, SerializerSettings);
         AtomicArtifactWriter.Write(reportPath, reportJson);
+    }
+
+    /// <summary>
+    /// Reconcile the report-only exposure lane with the files that exist at this write boundary.
+    /// Wrapper verification may strip C# after generation and then write the same manifest again;
+    /// carrying the generation-time receipt through that write would make it stale even though the
+    /// projection removed the corresponding public member. The manifest retains the pre-co-gating
+    /// safety-marker rows, while its exposure rows and receipt describe the current final files.
+    /// </summary>
+    private static void RefreshSettledExposure(BindingArtifactManifest manifest, string outputDirectory)
+    {
+        if (manifest.Generation is not { } generation
+            || manifest.Wrapper is null
+            || !Directory.EnumerateFiles(outputDirectory, "*.cs", SearchOption.TopDirectoryOnly).Any())
+            return;
+
+        var settled = BindingReportProjection.Project(manifest);
+        DirectSwiftSelfExposureCollector.Apply(settled, outputDirectory);
+
+        generation.DegradedMembers.RemoveAll(item =>
+            string.Equals(item.DiagnosticId, DirectSwiftSelfExposure.DiagnosticId, StringComparison.Ordinal));
+        generation.DegradedMembers.AddRange(settled.DegradedMembers.Where(item =>
+            string.Equals(item.DiagnosticId, DirectSwiftSelfExposure.DiagnosticId, StringComparison.Ordinal)));
+        generation.ExposureReportingVersion = settled.ExposureReportingVersion;
+        generation.ExposureCompleteness = settled.ExposureCompleteness;
+
+        var generationSummary = new BindingReport { ModuleName = manifest.Module };
+        generationSummary.DegradedMembers.AddRange(generation.DegradedMembers);
+        generationSummary.DegradedSurface = generation.DegradedSurface;
+        DirectSwiftSelfExposureCollector.RecomputeSummary(generationSummary);
+        generation.DegradedSurface = generationSummary.DegradedSurface;
     }
 }

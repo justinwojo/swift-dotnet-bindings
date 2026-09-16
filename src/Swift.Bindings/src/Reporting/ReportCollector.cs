@@ -671,6 +671,7 @@ public static class ReportCollector
                     Name = key.Item2,
                     ContainingType = GetContainingTypeName(containingDecl),
                     DiagnosticId = diagnosticId,
+                    DeclId = identity.ToDeclId().Canonical,
                     WrapperReason = string.IsNullOrWhiteSpace(wrapperReason) ? null : wrapperReason,
                     WrapperReasonDescription = string.IsNullOrWhiteSpace(wrapperReason)
                         ? null

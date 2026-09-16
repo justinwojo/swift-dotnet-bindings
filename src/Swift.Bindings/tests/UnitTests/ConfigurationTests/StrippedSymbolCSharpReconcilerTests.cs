@@ -2472,6 +2472,47 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SBW_orphan_trampoline", written);
         }
 
+        [Fact]
+        public void ProcessDirectory_AttachesExactExposureKeyForStrippedOverload()
+        {
+            using var temp = new TempReconcilerDir();
+            var filePath = Path.Combine(temp.Path, "Holder.cs");
+            File.WriteAllText(filePath, """
+                using System;
+                using System.Runtime.CompilerServices;
+                using System.Runtime.InteropServices;
+                namespace Demo;
+                public partial class Holder
+                {
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                    [LibraryImport("SwiftBindings", EntryPoint = "SBW_run_broken")]
+                    private static partial void PInvoke_wrapper();
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]
+                    [LibraryImport("Demo", EntryPoint = "$sRunInt")]
+                    private static partial void PInvoke_run_int(SwiftSelf self);
+                    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]
+                    [LibraryImport("Demo", EntryPoint = "$sRunString")]
+                    private static partial void PInvoke_run_string(SwiftSelf self);
+                    public void Run(int value)
+                    {
+                        PInvoke_wrapper();
+                        PInvoke_run_int(default);
+                    }
+                    public void Run(string value) { PInvoke_run_string(default); }
+                }
+                """);
+            var before = GeneratedSwiftCallReader.Scan([filePath], temp.Path).Observations;
+            var strippedKey = before.Single(item => item.NativeCall.EntryPoint == "$sRunInt").PublicApiKey;
+            var survivorKey = before.Single(item => item.NativeCall.EntryPoint == "$sRunString").PublicApiKey;
+
+            var aggregate = StrippedSymbolCSharpReconciler.ProcessDirectory(
+                temp.Path, new HashSet<string> { "SBW_run_broken" });
+
+            var stripped = Assert.Single(aggregate);
+            Assert.Equal(strippedKey, stripped.PublicApiKey);
+            Assert.NotEqual(survivorKey, stripped.PublicApiKey);
+        }
+
         private sealed class TempReconcilerDir : IDisposable
         {
             public string Path { get; }

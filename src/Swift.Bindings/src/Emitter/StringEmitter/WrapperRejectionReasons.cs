@@ -77,7 +77,7 @@ public static class WrapperRejectionReasons
         ["optional_self_non_class"] = "an optional Self return on a struct or enum, which has no stable pointer representation",
         ["parent_module_internal"] = "the declaring type is internal to its Swift module",
         ["raw_generic_type_params"] = "an unsubstituted generic parameter in the signature",
-        ["self_property"] = "a Self-typed property, which the wrapper cannot represent at the boundary",
+        ["self_property"] = "a property literally named self, whose accessor wrapper is deliberately withheld",
         ["spi_protected"] = "the member is marked @_spi and is not part of the library's public surface",
         ["static_subscript"] = "the subscript is static, and static subscripts have no wrapper shape",
         ["unsupported_buffer_pointer_parameter"] = "a buffer-pointer parameter shape the wrapper cannot bridge",

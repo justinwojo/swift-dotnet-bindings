@@ -1198,6 +1198,11 @@ partial class Build
                 // Fail-closed and unconditional: a soundness property, not a baseline.
                 RunClosureDelegateParityGate();
 
+                // Direct SwiftSelf exposure truth gate: independently re-read the settled C# and
+                // compare exact owner/accessor/native-call rows with the durable report receipt.
+                // This is a reporting invariant, so it remains fail-closed under --permissive.
+                RunExposureReportGate();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

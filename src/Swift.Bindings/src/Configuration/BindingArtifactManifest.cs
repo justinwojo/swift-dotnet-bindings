@@ -183,6 +183,12 @@ public sealed class GenerationSection
     /// </summary>
     public DegradedSurfaceSummary? DegradedSurface { get; set; }
 
+    /// <summary>Version of the final-call exposure reporting contract, null on legacy manifests.</summary>
+    public int? ExposureReportingVersion { get; set; }
+
+    /// <summary>Settled generated-file inventory/classification receipt.</summary>
+    public ExposureCompletenessReceipt? ExposureCompleteness { get; set; }
+
     /// <summary>Whether the module's surface depends on a generated Swift wrapper.</summary>
     public WrapperRequirementSummary? WrapperRequirement { get; set; }
 
@@ -201,6 +207,8 @@ public sealed class GenerationSection
             BridgeSummary = report.BridgeSummary,
             ParseReconciliation = parseReconciliation,
             DegradedSurface = report.DegradedSurface,
+            ExposureReportingVersion = report.ExposureReportingVersion,
+            ExposureCompleteness = report.ExposureCompleteness,
             WrapperRequirement = report.WrapperRequirement,
         };
         foreach (var kv in report.EmittedMembersByKind)
@@ -622,6 +630,14 @@ public sealed class CoGatedMember
     public string? ContainingType { get; init; }
     public required BindingItemKind Kind { get; init; }
     public string? MangledSymbol { get; init; }
+    public string? PublicApiKey { get; init; }
+
+    /// <summary>
+    /// Original one-based declaration line used only while reconciling a source file, before its
+    /// lines are removed. It lets the directory pass attach the exact final-file public API key;
+    /// it is an implementation detail and is intentionally absent from persisted manifests.
+    /// </summary>
+    internal int? SourceStartLine { get; init; }
 
     /// <summary>
     /// Per-file occurrence index. Disambiguates overloads when no mangled symbol is

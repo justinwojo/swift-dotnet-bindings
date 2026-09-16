@@ -21,7 +21,7 @@ partial class Build
 
     Target UnitTests => _ => _
         .DependsOn(Compile)
-        .After(ValidateAppleTypesManifest)
+        .After(WithdrawalGateTests)
         .Executes(() =>
         {
             var resultsDir = SourceDir / "Swift.Bindings" / "tests" / "UnitTests" / "TestResults";

@@ -1041,6 +1041,55 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void Store_WrapperRoundTrip_RebuildsTopDegradedMembersFromDeserializedRows()
+    {
+        using var temp = new TempDirectory();
+        File.WriteAllText(Path.Combine(temp.Path, "Demo.cs"), """
+            using System;
+            using System.Runtime.CompilerServices;
+            using System.Runtime.InteropServices;
+            namespace Demo;
+            public partial class Holder
+            {
+                [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]
+                [LibraryImport("Demo", EntryPoint = "$sRun")]
+                private static partial void PInvoke_run_12345678(SwiftSelf self);
+                public void Run() { PInvoke_run_12345678(default); }
+            }
+            """);
+        var report = NewReport();
+        report.DegradedMembers.Add(new DegradedMemberItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Run",
+            ContainingType = "Demo.Holder",
+            DiagnosticId = "SB0001",
+            ProminenceScore = 5,
+        });
+        DirectSwiftSelfExposureCollector.RecomputeSummary(report);
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(report),
+        };
+        BindingArtifactManifestStore.Write(manifest, temp.Path, NullLogger.Instance);
+
+        BindingArtifactManifestStore.ReadModifyWrite(
+            temp.Path,
+            "Demo",
+            value => value.Wrapper = new WrapperSection { Status = PhaseStatus.Success },
+            NullLogger.Instance);
+
+        var persisted = JsonConvert.DeserializeObject<BindingReport>(
+            File.ReadAllText(Path.Combine(temp.Path, BindingArtifactManifestStore.ReportFileName)),
+            new JsonSerializerSettings { Converters = new List<JsonConverter> { new StringEnumConverter() } })!;
+        Assert.Equal("Run", Assert.Single(persisted.DegradedSurface!.TopDegradedMembers).Name);
+        Assert.Contains(persisted.DegradedMembers, item => item.DiagnosticId == "SB0001");
+        Assert.Contains(persisted.DegradedMembers,
+            item => item.DiagnosticId == DirectSwiftSelfExposure.DiagnosticId);
+    }
+
+    [Fact]
     public void Store_StatusComplete_OnlyWhenGenerationPresent()
     {
         using var temp = new TempDirectory();

@@ -58,6 +58,7 @@ partial class Build
 
     Target WithdrawalGateTests => _ => _
         .DependsOn(Compile)
+        .After(ValidateAppleTypesManifest)
         .Executes(() =>
     {
         var scratch = Path.Combine(Path.GetTempPath(), "withdrawal-tests-" + Guid.NewGuid().ToString("N"));

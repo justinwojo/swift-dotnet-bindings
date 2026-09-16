@@ -154,6 +154,15 @@ public sealed class BindingReport
     public DegradedSurfaceSummary? DegradedSurface { get; set; }
 
     /// <summary>
+    /// Schema version for final managed-to-Swift exposure reporting. A missing value in a legacy
+    /// report means unknown coverage, never a valid zero.
+    /// </summary>
+    public int? ExposureReportingVersion { get; set; }
+
+    /// <summary>Proof that the settled generated C# inventory was scanned and fully classified.</summary>
+    public ExposureCompletenessReceipt? ExposureCompleteness { get; set; }
+
+    /// <summary>
     /// Whether this module needed a Swift wrapper at all, and how much of its surface depends on
     /// one. Ground truth for the SDK's <c>SwiftWrapperRequired</c> opt-out: a module whose wrapper
     /// artifacts export nothing loses nothing when a wrapper cannot be built, while one that exports
@@ -180,6 +189,51 @@ public sealed class DegradedMemberItem
 
     /// <summary>The marker actually written onto the member: <c>SB0001</c>, <c>SB0002</c> or <c>SB0009</c>.</summary>
     public required string DiagnosticId { get; init; }
+
+    /// <summary>
+    /// True only when this diagnostic is an attribute on the generated declaration. Report-only
+    /// diagnostics remain false even when another row for the same member describes an SB marker.
+    /// </summary>
+    public bool IsAttributeEmitted { get; init; } = true;
+
+    /// <summary>Canonical Swift declaration identity, when the emitter supplied one.</summary>
+    public string? DeclId { get; init; }
+
+    /// <summary>Canonical recovery/root identity, when applicable.</summary>
+    public string? RootCauseId { get; init; }
+
+    /// <summary>Exact getter/setter/init role for an accessor-backed row.</summary>
+    public string? Accessor { get; init; }
+
+    /// <summary>Full final managed declaration identity, after projection and renaming.</summary>
+    public string? PublicApiKey { get; init; }
+
+    /// <summary>Immutable original Swift symbol; null only for explicitly synthetic call forms.</summary>
+    public string? OriginalSwiftSymbol { get; init; }
+
+    /// <summary>The final native call reached by this public member/accessor.</summary>
+    public DirectSwiftSelfNativeCall? NativeCall { get; init; }
+
+    /// <summary>Final route: swift_native, swift_silgen_wrapper, or swift_function_pointer.</summary>
+    public string? Route { get; init; }
+
+    /// <summary>Role of the untyped SwiftSelf carrier.</summary>
+    public string? SelfRole { get; init; }
+
+    /// <summary>Whether a separate top-level SwiftError carrier is present.</summary>
+    public bool HasSwiftError { get; init; }
+
+    /// <summary>Where the reason came from: an emitter decision or deliberate route classification.</summary>
+    public string? ReasonProvenance { get; init; }
+
+    /// <summary>Reporting/classification site responsible for the row.</summary>
+    public string? EmitterSite { get; init; }
+
+    /// <summary>Final generated file containing the public declaration.</summary>
+    public string? GeneratedFile { get; init; }
+
+    /// <summary>Final generated declaration span.</summary>
+    public GeneratedSourceSpan? GeneratedSpan { get; init; }
 
     /// <summary>
     /// The raw wrapper-eligibility guard token (for example <c>closure_params</c>), or null when
@@ -217,6 +271,9 @@ public sealed class DegradedSurfaceSummary
 
     /// <summary>Marker counts keyed by wrapper-eligibility guard token.</summary>
     public Dictionary<string, int> ByWrapperReason { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Counts over report-only direct untyped-SwiftSelf rows.</summary>
+    public DirectSwiftSelfExposureSummary? Exposure { get; set; }
 
     /// <summary>
     /// The highest-prominence marked members, most prominent first. A subset of

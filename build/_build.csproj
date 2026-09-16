@@ -39,5 +39,11 @@
          build project stays generator-assembly-independent. -->
     <Compile Include="..\src\Swift.Bindings\src\Configuration\StructuralBraceScanner.cs"
              Link="Helpers\StructuralBraceScanner.cs" />
+    <!-- The exposure gate is intentionally independent of the collector's receipt. Both sides
+         share only the bounded syntax reader/DTO contract; the gate reparses settled files. -->
+    <Compile Include="..\src\Swift.Bindings\src\Reporting\DirectSwiftSelfExposure.cs"
+             Link="Helpers\DirectSwiftSelfExposure.cs" />
+    <Compile Include="..\src\Swift.Bindings\src\Reporting\GeneratedSwiftCallReader.cs"
+             Link="Helpers\GeneratedSwiftCallReader.cs" />
   </ItemGroup>
 </Project>

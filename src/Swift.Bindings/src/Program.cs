@@ -1125,6 +1125,17 @@ namespace BindingsGeneration
                 ForeignTypeExtensionEmitter.RepublishWithdrawals(decl, emissionContext);
 
                 var report = ReportCollector.Complete();
+                if (report != null)
+                {
+                    DirectSwiftSelfExposureCollector.Apply(report, outputDirectory);
+                    if (report.ExposureCompleteness?.Status != ExposureCompletenessStatus.Complete)
+                    {
+                        var unresolved = report.ExposureCompleteness?.UnresolvedSpecimens ?? [];
+                        throw new InvalidDataException(
+                            $"Direct SwiftSelf exposure reconciliation was incomplete for '{moduleName}': "
+                            + string.Join("; ", unresolved));
+                    }
+                }
                 ReportCollector.Reset();
 
                 // D-R6 usable-surface gate: a binding the loop settled with NO wrapper surface must still

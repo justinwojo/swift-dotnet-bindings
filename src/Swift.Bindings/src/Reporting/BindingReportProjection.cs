@@ -64,6 +64,8 @@ public static class BindingReportProjection
             // so they cross verbatim rather than being recomputed here.
             report.DegradedMembers.AddRange(g.DegradedMembers);
             report.DegradedSurface = g.DegradedSurface;
+            report.ExposureReportingVersion = g.ExposureReportingVersion;
+            report.ExposureCompleteness = g.ExposureCompleteness;
             report.WrapperRequirement = g.WrapperRequirement;
         }
 
@@ -156,6 +158,13 @@ public static class BindingReportProjection
         if (coGated.Count == 0)
             return;
 
+        // Exposure is a diagnostic-row relation, not an attribute count: one public member may carry
+        // both SB0001 and DirectSwiftSelfExposure. Remove exposure rows independently by native symbol
+        // (the exact axis) before spending the legacy one-row name budget on attribute rows.
+        report.DegradedMembers.RemoveAll(item =>
+            string.Equals(item.DiagnosticId, DirectSwiftSelfExposure.DiagnosticId, StringComparison.Ordinal)
+            && coGated.Any(member => ExposureMatchesCoGated(item, member)));
+
         var budget = new Dictionary<(BindingItemKind, string, string), int>();
         foreach (var member in coGated)
         {
@@ -166,28 +175,19 @@ public static class BindingReportProjection
         RemoveUpToBudget(
             report.DegradedMembers,
             // A degraded row already carries the emitted C# name; only its containing type needs
-            // translating.
-            m => CoGatedIdentityCandidates(m.Kind, m.Name, null, m.ContainingType, moduleName),
+            // translating. Report-only exposure rows were reconciled on exact identity above and
+            // must never consume the legacy attribute/name budget.
+            m => m.IsAttributeEmitted
+                ? CoGatedIdentityCandidates(m.Kind, m.Name, null, m.ContainingType, moduleName)
+                : [],
             budget);
         RemoveUpToBudget(
             report.WrappedItems,
             w => CoGatedIdentityCandidates(w.Kind, w.Name, w.EmittedName, w.ContainingType, moduleName),
             budget);
 
-        var rebuilt = new DegradedSurfaceSummary { Total = report.DegradedMembers.Count };
-        foreach (var item in report.DegradedMembers)
-        {
-            rebuilt.ByDiagnosticId[item.DiagnosticId] =
-                rebuilt.ByDiagnosticId.GetValueOrDefault(item.DiagnosticId) + 1;
-            if (item.WrapperReason is { } wrapperReason)
-                rebuilt.ByWrapperReason[wrapperReason] =
-                    rebuilt.ByWrapperReason.GetValueOrDefault(wrapperReason) + 1;
-        }
-
-        rebuilt.TopDegradedMembers.AddRange(report.DegradedMembers
-            .Where(m => !m.IsDeprecated && m.ProminenceScore > 0)
-            .Take(ReportCollector.TopDegradedMemberCount));
-        report.DegradedSurface = rebuilt;
+        DirectSwiftSelfExposureCollector.RecomputeSummary(report);
+        var rebuilt = report.DegradedSurface!;
 
         if (report.WrapperRequirement is not { } requirement)
             return;
@@ -201,6 +201,25 @@ public static class BindingReportProjection
                 .Count(item => item.WrapperKind != ReportCollector.ClosureParamTombstoneWrapperKind),
             unwrappedMarkedMemberCount: rebuilt.ByDiagnosticId.GetValueOrDefault("SB0001")
                 + rebuilt.ByDiagnosticId.GetValueOrDefault("SB0009"));
+    }
+
+    private static bool ExposureMatchesCoGated(
+        DegradedMemberItem item,
+        CoGatedMember member)
+    {
+        if (!string.IsNullOrEmpty(member.MangledSymbol)
+            && string.Equals(item.NativeCall?.EntryPoint, member.MangledSymbol, StringComparison.Ordinal))
+            return true;
+
+        if (item.PublicApiKey is { } publicApiKey
+            && member.PublicApiKey is { } coGatedPublicApiKey)
+            return string.Equals(publicApiKey, coGatedPublicApiKey, StringComparison.Ordinal);
+
+        // Report-only rows describe a concrete final-file call edge. A heuristic name/container
+        // match cannot distinguish overloads (or sibling accessors), so it must never delete that
+        // evidence. The settled-file refresh removes vanished edges directly; projection may only
+        // additionally remove one when the producer supplied an exact native or public-API key.
+        return false;
     }
 
     /// <summary>

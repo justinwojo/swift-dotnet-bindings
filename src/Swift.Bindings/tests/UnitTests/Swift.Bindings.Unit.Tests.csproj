@@ -142,6 +142,9 @@
          qualification/whitespace normalization are the parts that must not drift, and they are
          testable here against text literals. BCL-only, AOT-clean, carries its own `#nullable enable`. -->
     <Compile Include="../../../../build/Models/ClosureDelegateParityScanner.cs" Link="Models/ClosureDelegateParityScanner.cs" />
+    <!-- Pure comparison half of the DirectSwiftSelf compile-only truth gate. The reader/DTOs
+         arrive through the generator project reference; only the independent ledger is linked. -->
+    <Compile Include="../../../../build/Models/ExposureReportLedger.cs" Link="Models/ExposureReportLedger.cs" />
     <!-- Link-compile the sandbox results probe for the same reason: the harness cannot exercise it
          without a booted simulator, but the decision it makes — first candidate carrying THIS
          launch's run token wins, a mismatched candidate disqualifies only itself, and no match at all
