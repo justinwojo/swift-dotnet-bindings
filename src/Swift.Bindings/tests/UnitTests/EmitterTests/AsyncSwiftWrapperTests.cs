@@ -318,6 +318,23 @@ public class AsyncSwiftWrapperTests
     }
 
     [Fact]
+    public void AsyncWrapper_ArrayStringReturn_BclSupportTypesRemainGlobal()
+    {
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "Swift.Array",
+            returnKind: TypeRecordKind.Struct,
+            returnSpecOverride: new NamedTypeSpec(
+                "Swift.Array", new NamedTypeSpec("Swift.String")));
+
+        Assert.Contains("global::System.Exception? deserializationError", csOutput);
+        Assert.Contains("new global::System.Collections.Generic.List<string>", csOutput);
+        Assert.Contains("catch (global::System.Exception ex)", csOutput);
+        Assert.DoesNotMatch("(?<!global::)System\\.Exception\\? deserializationError", csOutput);
+        Assert.DoesNotContain("new System.Collections.Generic.List<string>", csOutput);
+        Assert.DoesNotContain("catch (System.Exception ex)", csOutput);
+    }
+
+    [Fact]
     public void AsyncWrapper_PrimitiveReturnType_DoesNotUsePointerMarshalling()
     {
         // Primitive types (Int, Double, Bool) are passed directly through @convention(c)
@@ -1537,7 +1554,8 @@ public class AsyncSwiftWrapperTests
         TypeRecordFlags? returnFlags = null,
         bool wrapInOptional = false,
         string nativeTypeName = null,
-        bool selfIsObjCRooted = false)
+        bool selfIsObjCRooted = false,
+        TypeSpec returnSpecOverride = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1585,9 +1603,9 @@ public class AsyncSwiftWrapperTests
         moduleDecl.Types.Add(parentDecl);
 
         // Build CSSignature with complex return type (optionally wrapped in Swift.Optional)
-        TypeSpec returnSpec = wrapInOptional
+        TypeSpec returnSpec = returnSpecOverride ?? (wrapInOptional
             ? new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(returnTypeName))
-            : new NamedTypeSpec(returnTypeName);
+            : new NamedTypeSpec(returnTypeName));
         var csSignature = new List<ArgumentDecl>
         {
             new ArgumentDecl

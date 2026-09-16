@@ -1,0 +1,20 @@
+ConstrainedExtensionRecovery.wrapper.swift:17:1: error: type 'ConstrainedExtensionRecoveryBox<Value>' does not conform to protocol 'ConstrainedExtensionRecoveryRequirement'
+ 3 | // symbol-less conformance block attributable to the member that caused it.
+ 4 | private protocol ConstrainedExtensionRecoveryRequirement {
+ 5 |     func inspect() -> Int32
+   |          `- note: protocol requires function 'inspect()' with type '() -> Int32'
+ 6 | }
+ 7 |
+   :
+11 |
+12 | extension ConstrainedExtensionRecoveryBox where Value: BitwiseCopyable {
+13 |     func inspect() -> Int32 { 42 }
+   |          `- note: candidate would match if 'Value' conformed to 'BitwiseCopyable'
+14 | }
+15 |
+16 | // SBW-ORIGIN: Fixture||Method|SBW_ConstrainedExtensionRecovery_broken||None|||/swift-wrapper
+17 | extension ConstrainedExtensionRecoveryBox: ConstrainedExtensionRecoveryRequirement {
+   | |- error: type 'ConstrainedExtensionRecoveryBox<Value>' does not conform to protocol 'ConstrainedExtensionRecoveryRequirement'
+   | `- note: add stubs for conformance
+18 | }
+19 |

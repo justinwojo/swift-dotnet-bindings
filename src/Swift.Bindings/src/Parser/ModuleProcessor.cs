@@ -159,7 +159,7 @@ namespace BindingsGeneration
                         break;
 
                     case ProtocolDecl protocolDecl:
-                        ProcessProtocol(namedTypeSpec, protocolDecl);
+                        ProcessProtocol(protocolDecl);
                         break;
 
                     default:
@@ -1790,32 +1790,35 @@ namespace BindingsGeneration
         /// <summary>
         /// Processes a protocol declaration and registers it in the type database.
         /// </summary>
-        /// <param name="namedTypeSpec">Spec for the protocol's name, module, etc.</param>
         /// <param name="protocolDecl">The protocol declaration node.</param>
         /// <returns><c>true</c> if the protocol was processed successfully; otherwise, <c>false</c>.</returns>
-        private bool ProcessProtocol(NamedTypeSpec namedTypeSpec, ProtocolDecl protocolDecl)
+        private bool ProcessProtocol(ProtocolDecl protocolDecl)
         {
             // Quarantined at ingestion (malformed ABI record) — withhold from the database. See
             // ProcessStruct for the rationale; emission tombstones it and its proven dependent closure.
             if (protocolDecl.IsIngestionQuarantined)
                 return false;
 
-            RegisterProtocolType(namedTypeSpec, protocolDecl);
+            RegisterProtocolType(protocolDecl);
             return true;
         }
 
         /// <summary>
         /// Inserts a protocol's details into the type database.
         /// </summary>
-        /// <param name="namedTypeSpec">The Swift type specification, including module name.</param>
         /// <param name="protocolDecl">The protocol declaration node.</param>
-        private void RegisterProtocolType(NamedTypeSpec namedTypeSpec, ProtocolDecl protocolDecl)
+        private void RegisterProtocolType(ProtocolDecl protocolDecl)
         {
-            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
+            // A retained foreign protocol is emitted as a C# interface in the module currently
+            // being generated. Keep its Swift identity (for example Swift.AdditiveArithmetic),
+            // but point the TypeRecord at the interface's physical C# owner. Recording the Swift
+            // namespace instead would make downstream modules emit a bare runtime-protocol
+            // name even though the generated interface lives in the overlay assembly.
+            var @namespace = _namespacePatternResolver.ResolveNamespace(_module);
 
             // Protocol types are projected as interfaces in C#
             // Use "I" prefix for interface naming convention
-            var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: namedTypeSpec.Module);
+            var csharpTypeIdentifier = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: _module);
 
             // Protocols with associated types or Self requirements generate generic C# interfaces
             // Mark them so we can skip them in generic constraints (can't use generic interfaces without type arguments)

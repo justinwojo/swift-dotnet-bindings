@@ -5,6 +5,7 @@
 extern alias StoreKitSwift;
 
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using RuntimeTestsApp.Infrastructure;
@@ -12,345 +13,267 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SmokeTests;
 
 /// <summary>
-/// End-to-end smoke test for the Apple-framework direct-mode pipeline:
-/// consumes the externally-built <c>StoreKit.Swift.iOS.dll</c> + <c>StoreKitSwiftBindings.xcframework</c>
-/// and calls one trivial, non-throwing, non-async StoreKit 2 accessor to prove the
-/// whole chain (<c>SwiftFrameworkResolver</c> → wrapper dylib → system framework via dyld) resolves.
-///
-/// Gated by the <c>STOREKIT_SMOKE</c> compile symbol, which the csproj sets only when the
-/// reproducer artifacts exist at <c>/tmp/storekit2-session4</c> on an iOS Simulator build.
-/// Regenerate them via the StoreKit 2 reproducer command
-/// when re-running this on a fresh machine.
+/// First-party command-line StoreKit Sandbox qualification. The build harness first installs a
+/// pure-Swift control under this app's bundle id on the same simulator and requires a fresh receipt
+/// for all four operations. These tests independently repeat the semantic checks through generated
+/// managed bindings. Xcode's .storekit backend is deliberately outside this simctl lane.
 /// </summary>
 public class StoreKitSmokeTests : TestBase
 {
+    private const string ProductIdArgument = "--storekit-sandbox-product-id";
+    private static readonly TimeSpan OperationBudget = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan UnwindBudget = TimeSpan.FromSeconds(10);
+
     public StoreKitSmokeTests(TestResults results) : base(results) { }
 
-    /// <summary>
-    /// The minimum viable success signal for the Apple-framework direct-mode pipeline:
-    /// a single <c>LibraryImport("StoreKitSwiftBindings")</c> call resolves, the wrapper
-    /// dylib pulls <c>/System/Library/Frameworks/StoreKit.framework/StoreKit</c> into
-    /// the process as a transitive dependency (dyld resolves it via the absolute path
-    /// baked into the wrapper's load commands at link time), the <c>@_cdecl</c> thunk
-    /// runs inside the wrapper, calls <c>StoreKit.AppStore.canMakePayments</c> on the
-    /// real StoreKit 2 API, and returns a plain <c>bool</c>.
-    ///
-    /// We picked a primitive-return accessor to isolate the resolver chain from
-    /// other concerns. <c>AppStore.deviceVerificationID</c> (which returns
-    /// <c>SwiftOptional&lt;System.Guid&gt;</c>) is now covered by
-    /// <see cref="TestAppStoreDeviceVerificationID"/> after the Foundation.UUID
-    /// metadata registration gap was fixed.
-    ///
-    /// The value itself is allowed to be either true or false — an iOS Simulator with
-    /// no StoreKit configuration legitimately reports <c>false</c>. The assertion is
-    /// solely "the call completed without DllNotFoundException /
-    /// EntryPointNotFoundException".
-    /// </summary>
     public void TestAppStoreCanMakePayments()
     {
-        // The Microsoft.iOS ObjC bindings also expose StoreKit.AppStore, so we route
-        // through the StoreKitSwift extern alias to pick the Swift-side type.
+        var canMakePayments = StoreKitSwift::StoreKit.AppStore.CanMakePayments;
+        TestLogger.Info($"StoreKit.AppStore.CanMakePayments = {canMakePayments}");
+        AssertTrue(true, "AppStore.CanMakePayments resolved through the StoreKit wrapper");
+    }
+
+    public async Task TestSandboxAppTransaction()
+    {
+        _ = RequireSandboxProductId();
+        using var shared = await RunBounded(
+            token => StoreKitSwift::StoreKit.AppTransaction.GetSharedAsync(token),
+            "AppTransaction.shared");
+
+        AssertTrue(shared.TryGetVerified(out var transaction) && transaction is not null,
+            "AppTransaction.shared must return a verified payload after native Sandbox readiness");
+        using var transactionLease = transaction;
+        var expectedBundle = Foundation.NSBundle.MainBundle.BundleIdentifier;
+        var environment = transaction!.Environment.RawValue;
+        TestLogger.Info(
+            $"AppTransaction.shared: bundle={transaction.BundleID}, expected={expectedBundle}, environment={environment}");
+        AssertTrue(string.Equals(transaction.BundleID, expectedBundle, StringComparison.Ordinal),
+            $"AppTransaction.bundleID '{transaction.BundleID}' must match '{expectedBundle}'");
+        AssertTrue(string.Equals(environment, "Sandbox", StringComparison.OrdinalIgnoreCase),
+            $"AppTransaction environment '{environment}' must be Sandbox");
+    }
+
+    public async Task TestSandboxCurrentEntitlements()
+    {
+        _ = RequireSandboxProductId();
+        var count = await EnumerateSnapshot(
+            StoreKitSwift::StoreKit.Transaction.CurrentEntitlements,
+            "Transaction.currentEntitlements");
+        TestLogger.Info($"Transaction.currentEntitlements completed with {count} verified Sandbox transaction(s)");
+    }
+
+    public async Task TestSandboxAllTransactions()
+    {
+        _ = RequireSandboxProductId();
+        var count = await EnumerateSnapshot(
+            StoreKitSwift::StoreKit.Transaction.All,
+            "Transaction.all");
+        TestLogger.Info($"Transaction.all completed with {count} verified Sandbox transaction(s)");
+    }
+
+    public async Task TestSandboxProductLookup()
+    {
+        var productId = RequireSandboxProductId();
+        var products = await RunBounded(
+            token => StoreKitSwift::StoreKit.Product.ProductsAsync([productId], token),
+            "Product.products(for:)");
+        AssertTrue(products is not null, "Product.products(for:) returned a non-null list");
         try
         {
-            bool canMakePayments = StoreKitSwift::StoreKit.AppStore.CanMakePayments;
-            TestLogger.Info($"StoreKit.AppStore.CanMakePayments = {canMakePayments}");
-            AssertTrue(true, "AppStore.CanMakePayments call completed without DllNotFound/EntryPointNotFound");
+            AssertTrue(products!.Count == 1,
+                $"exact Sandbox product '{productId}' must return exactly one product (got {products.Count})");
+            AssertTrue(string.Equals(products[0].Id, productId, StringComparison.Ordinal),
+                $"Product.products(for:) returned '{products[0].Id}', expected '{productId}'");
         }
-        catch (System.Exception ex)
+        finally
         {
-            // Log the full exception chain so we can see what's actually wrong beyond
-            // the wrapping TargetInvocationException the reflection invoker produces.
-            var inner = ex;
-            var depth = 0;
-            while (inner != null)
+            if (products is not null)
             {
-                TestLogger.Info($"  [ex{depth}] {inner.GetType().FullName}: {inner.Message}");
-                if (inner.StackTrace != null)
-                    TestLogger.Info($"  [ex{depth}] stack: {inner.StackTrace}");
-                inner = inner.InnerException;
-                depth++;
+                foreach (var product in products)
+                    product.Dispose();
             }
-            throw;
         }
     }
 
     /// <summary>
-    /// Validates that the Foundation.UUID metadata registration gap is fixed:
-    /// <c>AppStore.deviceVerificationID</c> returns <c>SwiftOptional&lt;System.Guid&gt;</c>,
-    /// which previously crashed in <c>TypeMetadata.GetTypeMetadataOrThrow&lt;Guid&gt;()</c>
-    /// because <c>System.Guid → Foundation.UUID</c> was only mapped at generator time
-    /// (<c>FoundationDatabase.xml</c>) with no corresponding runtime <c>RegisterMetadata</c>.
-    /// Now resolved via <c>SwiftBindingsRuntime.SBW_UUID_GetMetadata</c> called from
-    /// <c>TryGetFoundationMetadata</c> in <c>TypeMetadata.cs</c>.
-    ///
-    /// On a fresh simulator with no StoreKit configuration, <c>deviceVerificationID</c>
-    /// returns <c>nil</c> (SwiftOptional.None). That's a valid pass — the assertion is
-    /// "the call completed without SwiftRuntimeException / DllNotFoundException".
+    /// Uses already-canceled tokens so network timing cannot manufacture the cancellation event.
+    /// The real generated task and iterator must both terminate, and the iterator's synchronous
+    /// Dispose must complete. The downstream synthetic TimeoutTests fixture remains the deterministic
+    /// late-result ownership oracle; a managed terminal state alone does not claim native cleanup.
     /// </summary>
-    public void TestAppStoreDeviceVerificationID()
+    public async Task TestSandboxManagedCancellationUnwinds()
     {
-        // The property getter creates SwiftOptional<System.Guid> internally (triggering
-        // Foundation.UUID metadata resolution via SBW_UUID_GetMetadata) then converts
-        // to Guid? for the public API.
+        _ = RequireSandboxProductId();
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+
+        StoreKitSwift::StoreKit.VerificationResult<StoreKitSwift::StoreKit.AppTransaction>? raced = null;
         try
         {
-            Guid? deviceVerificationID = StoreKitSwift::StoreKit.AppStore.DeviceVerificationID;
-            if (deviceVerificationID.HasValue)
-                TestLogger.Info($"StoreKit.AppStore.DeviceVerificationID = {deviceVerificationID.Value}");
-            else
-                TestLogger.Info("StoreKit.AppStore.DeviceVerificationID = nil (expected on fresh simulator)");
-            AssertTrue(true, "AppStore.DeviceVerificationID resolved SwiftOptional<Guid> without SwiftRuntimeException");
+            raced = await AwaitWithin(
+                StoreKitSwift::StoreKit.AppTransaction.GetSharedAsync(canceled.Token),
+                TimeSpan.FromSeconds(5),
+                "pre-canceled AppTransaction.shared");
+            throw new InvalidOperationException(
+                "pre-canceled AppTransaction.shared completed successfully instead of observing cancellation");
         }
-        catch (System.Exception ex)
+        catch (OperationCanceledException)
         {
-            var inner = ex;
-            var depth = 0;
-            while (inner != null)
-            {
-                TestLogger.Info($"  [ex{depth}] {inner.GetType().FullName}: {inner.Message}");
-                if (inner.StackTrace != null)
-                    TestLogger.Info($"  [ex{depth}] stack: {inner.StackTrace}");
-                inner = inner.InnerException;
-                depth++;
-            }
-            throw;
+            TestLogger.Info("pre-canceled AppTransaction.shared reached a canceled terminal state");
         }
+        finally
+        {
+            raced?.Dispose();
+        }
+
+        using var sequence = StoreKitSwift::StoreKit.Transaction.All;
+        using var iterator = sequence.MakeAsyncIterator();
+        StoreKitSwift::StoreKit.VerificationResult<StoreKitSwift::StoreKit.Transaction>? current = null;
+        try
+        {
+            current = await AwaitWithin(
+                iterator.NextAsync(canceled.Token),
+                TimeSpan.FromSeconds(5),
+                "pre-canceled Transaction.all iterator");
+            throw new InvalidOperationException(
+                "pre-canceled Transaction.all iterator completed successfully instead of observing cancellation");
+        }
+        catch (OperationCanceledException)
+        {
+            TestLogger.Info("pre-canceled Transaction.all iterator reached a canceled terminal state");
+        }
+        finally
+        {
+            current?.Dispose();
+        }
+
+        AssertTrue(true, "generated StoreKit task and iterator cancellation unwound within bounds");
     }
 
-    /// <summary>
-    /// End-to-end smoke test for StoreKit 2's async-sequence path through
-    /// the Apple-framework direct-mode pipeline. Pivots to <c>Transaction.unfinished</c>
-    /// rather than the headline <c>Transaction.updates</c> for two independent reasons:
-    ///
-    ///   1. <b>Generator orphan-PInvoke bug:</b> the
-    ///      generator emits the <c>[LibraryImport]</c> declaration for
-    ///      <c>SBW_Get_StoreKit_Transaction_updates</c> but drops the private wrapper
-    ///      method AND the public <c>Updates</c> property — there is literally no
-    ///      <c>StoreKit.Transaction.Updates</c> symbol in the generated <c>StoreKit.cs</c>
-    ///      to call. The same orphan pattern hits <c>Storefront.updates</c> and
-    ///      <c>Product.SubscriptionInfo.Status.updates</c>. Until that bug is fixed,
-    ///      <c>Transaction.unfinished</c> is the closest drop-in proxy: same return
-    ///      type (<c>Transaction.Transactions</c>), same <c>MakeAsyncIterator</c>,
-    ///      same <c>NextAsync</c>, same <c>VerificationResult&lt;Transaction&gt;</c>
-    ///      element type, same <c>SBW_StoreKit_AsyncIterator_next_675F1A37_async</c>
-    ///      entry point — exercising it validates the entire async-iterator wrapper
-    ///      code path that <c>Transaction.updates</c> would also use.
-    ///
-    ///   2. <b>Foreign value-type metadata gap (now fixed):</b>
-    ///      <c>VerificationResult&lt;Transaction&gt;</c> exposes <c>UUID</c>/<c>Date</c>
-    ///      fields whose runtime <c>RegisterMetadata</c> calls were previously missing.
-    ///      The Foundation.UUID metadata registration gap is now resolved via
-    ///      <c>SwiftBindingsRuntime.SBW_UUID_GetMetadata</c>. We still avoid
-    ///      dereferencing instance properties on yielded results because this test
-    ///      focuses on the async-iterator lifecycle, not individual field access.
-    ///
-    /// On a fresh iOS Simulator with no purchases, <c>Transaction.unfinished</c>
-    /// empty-completes immediately (zero VerificationResults yielded, then nil).
-    /// That is a valid pass — the success criterion is "iteration completes cleanly,
-    /// no <c>EntryPointNotFoundException</c>, no <c>SwiftRuntimeException</c>, no
-    /// Mono abort, no double-free on early termination." Reading an actual
-    /// transaction is gravy.
-    ///
-    /// ARC verification: the test runs the iteration THREE times — once with early
-    /// termination (one MoveNext call, then dispose), once to full empty-complete,
-    /// and once more under managed-memory tracking. The early-termination pass
-    /// exercises the partial-iterator dispose path; the empty-complete pass
-    /// exercises the terminal-completion dispose path. Native ARC ref-count
-    /// inspection isn't surfaced through <c>SwiftSafeHandle</c> in this repo, so
-    /// the success bar is "no managed exception, no Mono abort, managed memory
-    /// delta on the third pass is bounded" — same bar the resolver smoke test uses.
-    /// </summary>
-    public async Task TestTransactionUnfinishedAsyncSequenceEnumerates()
+    private static string RequireSandboxProductId()
     {
-        // Hard ceiling for unexpected sandbox state — if the simulator somehow has
-        // 1000+ unfinished transactions (it shouldn't, but a developer might have
-        // a StoreKit configuration file with seeded data), we want to bound the
-        // loop rather than hang the test. Hitting the ceiling is treated as a
-        // FAILURE, not a soft warning, because it means the iterator never returned
-        // its terminal-nil signal — the very thing we're trying to validate.
-        const int IterationCeiling = 16;
-
-        // Per-pass timeout budget. One CancellationTokenSource is allocated per
-        // pass and its token is reused across every NextAsync call inside the
-        // loop, rather than constructing a fresh CTS per call. This (a) keeps
-        // pass 3's managed-memory measurement from being polluted by 16x CTS
-        // allocations and (b) gives a single coherent deadline for the entire
-        // pass instead of resetting the budget on each iteration.
-        var passTimeout = DefaultAsyncTimeout;
-
-        // === Pass 1: early-terminate after one NextAsync call ===
-        // Exercises the dispose path on a partially-iterated AsyncSequence.
-        // If the SafeHandle release / Swift ARC release double-frees on early
-        // termination, this pass crashes inside Dispose().
-        TestLogger.Info("  pass 1: early-terminate after first NextAsync");
+        var arguments = Foundation.NSProcessInfo.ProcessInfo.Arguments;
+        for (var index = 0; index < arguments.Length - 1; index++)
         {
-            using var seq = StoreKitSwift::StoreKit.Transaction.Unfinished;
-            using var iter = seq.MakeAsyncIterator();
-            using var cts = new CancellationTokenSource(passTimeout);
-            // VerificationResult<Transaction> is IDisposable (SwiftSafeHandle over a
-            // Swift ARC ref-counted payload) — not disposing it leaks a native
-            // ref-count until the managed finalizer runs, which also poisons
-            // pass 3's memory delta measurement. Always `using var` non-null
-            // iterator results, even when we only inspect for null.
-            using var first = await iter.NextAsync(cts.Token);
-            TestLogger.Info($"    first NextAsync returned: {(first is null ? "null (empty stream)" : "non-null VerificationResult")}");
-            // Dispose scopes fall out of the using blocks here — early termination.
+            if (!string.Equals(arguments[index], ProductIdArgument, StringComparison.Ordinal))
+                continue;
+            var value = arguments[index + 1]?.Trim();
+            if (!string.IsNullOrWhiteSpace(value)
+                && !value.Contains("placeholder", StringComparison.OrdinalIgnoreCase)
+                && !value.Contains("nonexistent", StringComparison.OrdinalIgnoreCase))
+                return value;
         }
 
-        // GC between passes to encourage Mono finalizers on any orphaned managed
-        // wrappers. If the previous pass leaked a SafeHandle that's still pinned
-        // by an in-flight async callback, this is where we'd surface the issue.
-        ForceGC();
+        throw new InvalidOperationException(
+            $"{ProductIdArgument} is missing or invalid. A first-party iOS/tvOS command-line smoke " +
+            "must receive the exact App Store Connect product only after the same-simulator pure-Swift " +
+            "control passes. A .storekit file cannot establish readiness through simctl.");
+    }
 
-        // === Pass 2: enumerate to terminal completion ===
-        // Exercises the dispose path on a fully-drained AsyncSequence and validates
-        // that the iterator's terminal-nil signal correctly propagates through the
-        // generated NextAsync's TaskCompletionSource → C# null check.
-        TestLogger.Info("  pass 2: enumerate to terminal completion");
-        int count = 0;
-        bool reachedTerminalNil = false;
+    private static async Task<T> RunBounded<T>(
+        Func<CancellationToken, Task<T>> start,
+        string operation)
+    {
+        using var cts = new CancellationTokenSource();
+        var task = start(cts.Token);
+        var winner = await Task.WhenAny(task, Task.Delay(OperationBudget));
+        if (ReferenceEquals(winner, task))
+            return await task;
+
+        cts.Cancel();
+        var unwound = await Task.WhenAny(task, Task.Delay(UnwindBudget));
+        if (!ReferenceEquals(unwound, task))
+            throw new TimeoutException(
+                $"{operation} exceeded {OperationBudget.TotalSeconds:0}s and its managed task did not " +
+                $"unwind within {UnwindBudget.TotalSeconds:0}s after cancellation");
+
+        try
         {
-            using var seq = StoreKitSwift::StoreKit.Transaction.Unfinished;
-            using var iter = seq.MakeAsyncIterator();
-            using var cts = new CancellationTokenSource(passTimeout);
-            while (count < IterationCeiling)
+            var late = await task;
+            if (late is IDisposable disposable)
+                disposable.Dispose();
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected timeout-unwind outcome.
+        }
+        catch
+        {
+            // The timeout remains the qualification verdict; the task is observed here.
+        }
+
+        throw new TimeoutException(
+            $"{operation} exceeded {OperationBudget.TotalSeconds:0}s; managed unwind completed, " +
+            "but native completion/cleanup is not inferred from that managed terminal state");
+    }
+
+    private static async Task<T> AwaitWithin<T>(Task<T> task, TimeSpan budget, string operation)
+    {
+        var winner = await Task.WhenAny(task, Task.Delay(budget));
+        if (!ReferenceEquals(winner, task))
+            throw new TimeoutException($"{operation} did not reach a terminal state within {budget.TotalSeconds:0}s");
+        return await task;
+    }
+
+    private static async Task<int> EnumerateSnapshot(
+        StoreKitSwift::StoreKit.Transaction.Transactions sequence,
+        string operation)
+    {
+        using (sequence)
+        using (var iterator = sequence.MakeAsyncIterator())
+        using (var cts = new CancellationTokenSource())
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var count = 0;
+            while (count <= 64)
             {
-                // `using var` so the yielded VerificationResult's SwiftSafeHandle
-                // is disposed as soon as we're done counting it (we never inspect
-                // properties — see foreign value-type metadata gap note above).
-                // Without this, a seeded simulator with N transactions would leak
-                // N native ref-counts across pass 2 alone.
-                using var result = await iter.NextAsync(cts.Token);
-                if (result is null)
+                var remaining = OperationBudget - stopwatch.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                    remaining = TimeSpan.FromMilliseconds(1);
+                var nextTask = iterator.NextAsync(cts.Token);
+                var winner = await Task.WhenAny(nextTask, Task.Delay(remaining));
+                if (!ReferenceEquals(winner, nextTask))
                 {
-                    reachedTerminalNil = true;
-                    break;
+                    cts.Cancel();
+                    var unwound = await Task.WhenAny(nextTask, Task.Delay(UnwindBudget));
+                    if (!ReferenceEquals(unwound, nextTask))
+                        throw new TimeoutException(
+                            $"{operation} did not complete in {OperationBudget.TotalSeconds:0}s and " +
+                            $"NextAsync did not unwind within {UnwindBudget.TotalSeconds:0}s");
+                    try
+                    {
+                        using var late = await nextTask;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    throw new TimeoutException(
+                        $"{operation} exceeded {OperationBudget.TotalSeconds:0}s; managed iterator unwound, " +
+                        "native cleanup remains unproven");
                 }
+
+                using var result = await nextTask;
+                if (result is null)
+                    return count;
+                AssertVerifiedSandboxTransaction(result, operation);
                 count++;
             }
+
+            throw new InvalidOperationException($"{operation} exceeded the 64-element safety bound");
         }
-        TestLogger.Info($"    enumerated {count} VerificationResult entries before terminal completion");
-        // Hitting the ceiling without seeing the terminal nil means we never
-        // proved the iterator's empty-completion signal works. That's a failure,
-        // not a noisy log line, because validating the terminal-nil path is
-        // half the point of the test.
-        AssertTrue(reachedTerminalNil,
-            $"Transaction.Unfinished iterator did not return terminal nil within {IterationCeiling} iterations — terminal-completion path is unverified");
-
-        ForceGC();
-
-        // === Pass 3: amplified managed-memory delta check ===
-        //
-        // Previously this pass ran a single empty-complete loop and asserted that
-        // the managed-memory delta stayed below a 256 KB ceiling. That was far too
-        // loose: a measured baseline of ~264 bytes per loop means a single-loop
-        // per-iteration GCHandle or SafeHandle leak could grow by ~24-200 bytes
-        // per NextAsync call and stay comfortably below the 256 KB cap. A review
-        // pass flagged it: "the comment's claim that even a small per-iteration
-        // handle leak would dwarf the ceiling is not defensible."
-        //
-        // New design — amplify the signal and assert on *per-loop growth*:
-        //   1. Warm up the JIT / AOT caches with a couple of loops that are NOT
-        //      measured. Without this, the first measured loop carries JIT/AOT
-        //      compile cost on Mono and skews the baseline high.
-        //   2. Run MeasuredLoops of the full empty-complete iteration inside one
-        //      ForceGC'd memory window.
-        //   3. Compute per-loop growth = (memoryAfter - memoryBefore) / MeasuredLoops.
-        //   4. Assert per-loop growth < PerLoopGrowthCeilingBytes, a tight bound
-        //      anchored on baseline. With N=32 loops and a 1 KB per-loop budget,
-        //      the total ceiling is 32 KB — an order of magnitude tighter than
-        //      256 KB, and a single-handle-per-iteration leak would now register
-        //      as ~6-8 KB total (well above baseline noise) instead of being
-        //      lost under a generous flat cap.
-        //
-        // The per-loop framing also survives a future change that raises the
-        // per-iteration Swift ARC cost (e.g. adding a new SafeHandle to the
-        // iterator wrapper) as long as the cost stays bounded and drops back
-        // after the loop exits; only a *monotonically growing* leak trips it.
-        TestLogger.Info("  pass 3: amplified managed-memory delta check on an empty-complete loop");
-
-        // JIT/AOT warmup — two full empty-complete runs that we deliberately do
-        // NOT measure. Leaves Mono's method-table, delegate thunk, and Task state
-        // machine caches fully populated so the measured loops reflect steady
-        // state rather than first-touch cost.
-        const int WarmupLoops = 2;
-        for (int w = 0; w < WarmupLoops; w++)
-        {
-            await EnumerateUnfinishedToCompletionAsync(IterationCeiling, passTimeout);
-        }
-        ForceGC();
-
-        // Measured window — N loops inside one memory window, then divide by N
-        // to get per-loop growth. 32 loops with a 1 KB per-loop cap gives a 32 KB
-        // total ceiling, which is ~8x the empirical noise floor across a handful
-        // of simulator runs but comfortably catches a 200-byte-per-iteration
-        // SafeHandle leak (amplified across 32 loops × 16 iterations = ~100 KB)
-        // or a 24-byte-per-iteration GCHandle pinning a small Task state machine
-        // (amplified across 32 × 16 = ~12 KB).
-        const int MeasuredLoops = 32;
-        long memoryBefore = GC.GetTotalMemory(forceFullCollection: true);
-        int pass3Count = 0;
-        for (int m = 0; m < MeasuredLoops; m++)
-        {
-            pass3Count += await EnumerateUnfinishedToCompletionAsync(IterationCeiling, passTimeout);
-        }
-        ForceGC();
-        long memoryAfter = GC.GetTotalMemory(forceFullCollection: true);
-        long memoryDelta = memoryAfter - memoryBefore;
-        long perLoopGrowth = memoryDelta / MeasuredLoops;
-
-        TestLogger.Info($"    pass 3: warmup={WarmupLoops} measured={MeasuredLoops} loops, totalResults={pass3Count}");
-        TestLogger.Info($"    managed memory: before={memoryBefore} after={memoryAfter} delta={memoryDelta} bytes");
-        TestLogger.Info($"    per-loop growth: {perLoopGrowth} bytes (ceiling: {PerLoopGrowthCeilingBytes})");
-
-        AssertTrue(perLoopGrowth < PerLoopGrowthCeilingBytes,
-            $"managed memory grew by {perLoopGrowth} bytes/loop across {MeasuredLoops} empty-complete async-iterator passes " +
-            $"(ceiling: {PerLoopGrowthCeilingBytes} bytes/loop, total delta: {memoryDelta} bytes) — possible SafeHandle/GCHandle leak");
-
-        // The remainder of the success bar: the calls completed without throwing.
-        // We don't assert on `count` / `pass3Count` because empty-complete is a
-        // valid result on a fresh simulator with no sandbox account configured.
-        AssertTrue(true, "Transaction.Unfinished AsyncSequence enumerated cleanly across early-termination, full empty-complete, and amplified memory-tracked passes");
     }
 
-    /// <summary>
-    /// Per-loop managed-memory growth ceiling for pass 3 of
-    /// <see cref="TestTransactionUnfinishedAsyncSequenceEnumerates"/>. Tightened
-    /// from a single-pass 256 KB flat ceiling to a per-loop 1 KB ceiling after
-    /// a review pass flagged that the original bound was ~1000x looser than the
-    /// empirical baseline and would have missed a small GCHandle or SafeHandle
-    /// leak in the iterator wrapper. Baseline on a fresh iOS Simulator with no
-    /// seeded transactions is 0-200 bytes per loop; 1 KB is ~5x that budget,
-    /// enough to absorb Mono GC heuristic drift without masking a real leak.
-    /// </summary>
-    private const long PerLoopGrowthCeilingBytes = 1024;
-
-    /// <summary>
-    /// Helper for pass 3 of <see cref="TestTransactionUnfinishedAsyncSequenceEnumerates"/>.
-    /// Runs a full empty-complete iteration of <c>Transaction.Unfinished</c> and
-    /// returns the count of yielded results. Does not touch result properties.
-    /// Uses a single <see cref="CancellationTokenSource"/> for the whole pass so
-    /// the managed-memory measurement isn't polluted by per-iteration CTS allocs.
-    /// </summary>
-    private static async Task<int> EnumerateUnfinishedToCompletionAsync(int ceiling, TimeSpan passTimeout)
+    private static void AssertVerifiedSandboxTransaction(
+        StoreKitSwift::StoreKit.VerificationResult<StoreKitSwift::StoreKit.Transaction> result,
+        string operation)
     {
-        using var seq = StoreKitSwift::StoreKit.Transaction.Unfinished;
-        using var iter = seq.MakeAsyncIterator();
-        using var cts = new CancellationTokenSource(passTimeout);
-        int count = 0;
-        while (count < ceiling)
-        {
-            // Dispose each yielded VerificationResult as soon as we're done with
-            // it so pass 3's managed-memory delta reflects steady-state behavior,
-            // not transient ref-counted handles waiting on the finalizer queue.
-            using var result = await iter.NextAsync(cts.Token);
-            if (result is null)
-            {
-                break;
-            }
-            count++;
-        }
-        return count;
+        if (!result.TryGetVerified(out var transaction) || transaction is null)
+            throw new InvalidOperationException($"{operation} yielded an unverified or null transaction");
+        using var transactionLease = transaction;
+        var environment = transaction.Environment.RawValue;
+        if (!string.Equals(environment, "Sandbox", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"{operation} yielded environment '{environment}', expected Sandbox");
     }
 }
 

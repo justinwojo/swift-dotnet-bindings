@@ -220,9 +220,12 @@ public partial class ProtocolProxyEmitter
             // reference a member that was never declared.
             if (!InterfaceDeclaresMethod(method, methodKey))
                 continue;
-            // Declared but not implementable through witness dispatch (closure parameters) —
-            // emit a NotSupported stub so the interface contract is still satisfied.
-            if (_skippedMethodKeys.Contains(methodKey))
+            // A closure method can remain in the reverse-dispatch skip set while being safe in
+            // the Swift-vended forward direction. The dedicated witness carrier therefore gets
+            // a real implementation; all other skipped requirements retain their SB0003 stub.
+            var skippedDispatchKind = dispatchEmitter.ClassifyMethodDispatch(method);
+            if (_skippedMethodKeys.Contains(methodKey)
+                && skippedDispatchKind != MethodDispatchKind.ClosureParameters)
             {
                 // Pass the proxy's own propertyNames so the dedup key reflects the
                 // collision-aware C# member name (Foo -> FooMethod when this protocol
@@ -1661,6 +1664,23 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        // ClosureParameters may also return a non-optional existential. Validate the proxy
+        // independently of the closure projections, which deliberately are not ordinary
+        // witness-dispatch value parameters.
+        if (dispatchKind == MethodDispatchKind.ClosureParameters && hasReturn)
+        {
+            var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType!);
+            if (protocolList == null ||
+                !existentialHandler.TryGetFilteredProxyClassName(protocolList, out _) ||
+                returnTypeName == "object" ||
+                returnTypeName == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+            {
+                dispatchKind = MethodDispatchKind.NotDispatchable;
+                dispatchReason ??= $"projected return type '{returnTypeName}' has no proxy class";
+            }
+        }
+
         // Secondary C#-side validation for ClassReturn, StructReturn, and BoundGenericReturn:
         // Reject if projected return type is "object" or "AnyType" (TypeDatabase degradation)
         if (dispatchKind is MethodDispatchKind.ClassReturn or MethodDispatchKind.StructReturn or MethodDispatchKind.BoundGenericReturn)
@@ -1720,6 +1740,12 @@ public partial class ProtocolProxyEmitter
         if (dispatchKind == MethodDispatchKind.ExistentialReturn)
         {
             EmitExistentialReturnMethodBody(writer, method, protocolDecl, dispatchEmitter, methodIndex, methodName, argsString, argNames, paramSwiftTypeSpecs, bodyScope, returnType!, returnTypeName);
+        }
+        else if (dispatchKind == MethodDispatchKind.ClosureParameters)
+        {
+            EmitClosureParameterWitnessMethodBody(
+                writer, method, protocolDecl, methodIndex, methodName, argsString, argNames,
+                bodyScope, containerPtrName);
         }
         else if (dispatchKind == MethodDispatchKind.BlittableOrString)
         {
@@ -1928,6 +1954,141 @@ public partial class ProtocolProxyEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the managed half of Swift-vended existential multi-closure forwarding. Each
+    /// public delegate is rooted independently until the Swift adapter's ARC box releases it.
+    /// </summary>
+    private void EmitClosureParameterWitnessMethodBody(
+        CSharpWriter writer,
+        MethodDecl method,
+        ProtocolDecl protocolDecl,
+        int methodIndex,
+        string methodName,
+        string argsString,
+        IReadOnlyList<string> argNames,
+        SyntheticNameScope bodyScope,
+        string containerPtrName)
+    {
+        var parameters = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+        var closureHandler = new ClosureHandler(_typeDatabase, _moduleName);
+        var closureIndexes = Enumerable.Range(0, parameters.Count)
+            .Where(i => closureHandler.IsClosure(parameters[i]))
+            .ToList();
+        var nonClosureIndexes = Enumerable.Range(0, parameters.Count)
+            .Where(i => !closureHandler.IsClosure(parameters[i]))
+            .ToHashSet();
+        var handles = new Dictionary<int, string>();
+        var callbacks = new Dictionary<int, string>();
+
+        foreach (var i in closureIndexes)
+        {
+            var handleName = bodyScope.Mint($"closureHandle{i}");
+            handles.Add(i, handleName);
+            var parameterName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(parameters[i]));
+            callbacks.Add(i, ClosureHandler.GetCallbackFunctionName(method.Name, parameterName, method.MangledName));
+            writer.WriteLine($"global::Swift.Runtime.ClosureHandle {handleName} = default;");
+        }
+
+        var pinHandles = EmitPinHandleDeclarations(
+            writer, argNames.ToList(), parameters.Select(p => (TypeSpec?)p.SwiftTypeSpec).ToList(),
+            bodyScope, nonClosureIndexes);
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+
+        if (hasReturn)
+            writer.WriteLine($"if (_csharpImpl != null) return _csharpImpl.{methodName}({argsString});");
+        else
+            writer.WriteLines($$"""
+                if (_csharpImpl != null)
+                {
+                    _csharpImpl.{{methodName}}({{argsString}});
+                    return;
+                }
+                """);
+        writer.WriteLine("try");
+        writer.WriteLine("{");
+        writer.Indent++;
+
+        foreach (var i in closureIndexes)
+        {
+            writer.WriteLine($"{handles[i]} = new global::Swift.Runtime.ClosureHandle({argNames[i]}, global::Swift.Runtime.ClosureHandlePolicy.Escaping);");
+        }
+
+        EmitMethodParameterMarshalling(
+            writer, argNames.ToList(), parameters.Select(p => (TypeSpec?)p.SwiftTypeSpec).ToList(),
+            bodyScope, new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName, _emissionContext),
+            nonClosureIndexes);
+
+        var resultPtrName = bodyScope.Mint("resultPtr");
+        if (hasReturn)
+            writer.WriteLine($"IntPtr {resultPtrName} = IntPtr.Zero;");
+
+        writer.WriteLine($"fixed (ExistentialContainer1* {containerPtrName} = &_swiftContainer)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            if (handles.TryGetValue(i, out var handle))
+            {
+                pInvokeArgs.Add($"(IntPtr)s_{callbacks[i]}");
+                pInvokeArgs.Add($"{handle}.Context");
+            }
+            else
+            {
+                pInvokeArgs.Add($"(IntPtr)(&{SliceLocal(bodyScope, i)})");
+            }
+        }
+        var accessorSymbol = WitnessDispatchEmitter.GetAccessorSymbol(
+            protocolDecl.Name, "method", method.Name, methodIndex);
+        var invocation = $"NativeMethods.{accessorSymbol}({string.Join(", ", pInvokeArgs)})";
+        if (hasReturn)
+            writer.WriteLine($"{resultPtrName} = {invocation};");
+        else
+            writer.WriteLine($"{invocation};");
+        writer.Indent--;
+        writer.WriteLine("}");
+
+        foreach (var handle in handles.Values)
+            writer.WriteLine($"{handle}.MarkOwnershipTransferred();");
+
+        if (hasReturn)
+        {
+            var existentialHandler = new ExistentialHandler(_typeDatabase) { CurrentModuleName = _moduleName };
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(returnType!);
+            var containerType = existentialHandler.GetCSharpExistentialType(protocolList!);
+            var isClassBound = existentialHandler.IsClassBoundArity1Existential(protocolList!);
+            existentialHandler.TryGetFilteredProxyClassName(protocolList!, out var proxyClassName);
+            proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
+            var (preamble, expression) = BuildExistentialHeapCellReadAndConstruct(
+                isClassBound, containerType, proxyClassName, bodyScope);
+            var freeSymbol = WitnessDispatchEmitter.GetFreeSymbol(
+                protocolDecl.Name, "method", method.Name, methodIndex);
+            writer.WriteLine("try");
+            writer.WriteLine("{");
+            writer.Indent++;
+            writer.WriteLines(preamble);
+            writer.WriteLine($"return ({GetCSharpTypeName(returnType!, isParameter: false)}){expression};");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine($"finally {{ NativeMethods.{freeSymbol}({resultPtrName}); }}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("finally");
+        writer.WriteLine("{");
+        writer.Indent++;
+        EmitPinHandleCleanup(writer, pinHandles);
+        foreach (var handle in handles.Values)
+            writer.WriteLine($"{handle}.Dispose();");
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     /// <summary>
@@ -2695,10 +2856,12 @@ public partial class ProtocolProxyEmitter
     /// All params end up as arg{i}Slice for uniform pointer passing.
     /// Handle variables must be pre-declared by EmitPinHandleDeclarations before the enclosing try block.
     /// </summary>
-    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, WitnessDispatchEmitter? dispatchEmitter = null)
+    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, WitnessDispatchEmitter? dispatchEmitter = null, IReadOnlySet<int>? includedIndexes = null)
     {
         for (int i = 0; i < argNames.Count; i++)
         {
+            if (includedIndexes != null && !includedIndexes.Contains(i))
+                continue;
             var sliceName = SliceLocal(bodyScope, i);
             if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
             {
@@ -2710,7 +2873,8 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var {sliceName} = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint){bytesName}.Length }};");
             }
             else if (dispatchEmitter != null &&
-                     (dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
+                     (dispatchEmitter.UsesHandleAccessor(paramSwiftTypeSpecs[i]) ||
+                      dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
                       dispatchEmitter.IsIndirectStructType(paramSwiftTypeSpecs[i])))
             {
                 // ObjC-backed classes use .Handle (ObjC/CF pointer), pure Swift classes use .Payload.
@@ -2764,11 +2928,13 @@ public partial class ProtocolProxyEmitter
     /// This ensures handles can be safely checked with IsAllocated in finally blocks
     /// even if an exception occurs during allocation of subsequent handles.
     /// </summary>
-    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope)
+    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, IReadOnlySet<int>? includedIndexes = null)
     {
         var pinHandles = new List<string>();
         for (int i = 0; i < argNames.Count; i++)
         {
+            if (includedIndexes != null && !includedIndexes.Contains(i))
+                continue;
             if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
             {
                 var handleName = bodyScope.Mint($"arg{i}Handle");

@@ -740,6 +740,9 @@ public static class ConstructorWrapperEmitter
     /// </summary>
     private static void EmitGenericClassBody(SwiftWriter sw, string callExpr, bool isFailable, bool throws)
     {
+        if (throws)
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(sw);
+
         if (throws && isFailable)
         {
             sw.WriteLines($$"""
@@ -785,6 +788,7 @@ public static class ConstructorWrapperEmitter
     /// </summary>
     private static void EmitThrowingClassBody(SwiftWriter sw, string callExpr)
     {
+        ThrowingWrapperErrorContractEmitter.EmitInitialization(sw);
         sw.WriteLines($$"""
             do {
                 let result = try {{callExpr}}
@@ -801,6 +805,7 @@ public static class ConstructorWrapperEmitter
     /// </summary>
     private static void EmitFailableThrowingClassBody(SwiftWriter sw, string callExpr)
     {
+        ThrowingWrapperErrorContractEmitter.EmitInitialization(sw);
         sw.WriteLines($$"""
             do {
                 guard let result = try {{callExpr}} else { return nil }
@@ -817,6 +822,7 @@ public static class ConstructorWrapperEmitter
     /// </summary>
     private static void EmitThrowingStructBody(SwiftWriter sw, string callExpr, string swiftTypeName, bool isFailable, TypeDecl? parentTypeDecl = null)
     {
+        ThrowingWrapperErrorContractEmitter.EmitInitialization(sw);
         if (isFailable)
         {
             sw.WriteLines($$"""
@@ -1235,6 +1241,7 @@ public static class ConstructorWrapperEmitter
 
         if (throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
             swiftWriter.WriteLine("do {");
             swiftWriter.Indent++;
 

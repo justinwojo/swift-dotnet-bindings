@@ -1074,6 +1074,17 @@ public static partial class ClosureEmitter
             var isExploded = !useCdecl &&
                 closureHandler.ClassifyDirectClosureArg(typeSpec).Abi == DirectClosureArgAbi.ExplodedWords;
 
+            // Optional<any Error> on the cdecl adapter is nil-or-pointer to Swift's
+            // compact one-word boxed-error payload. Rebuild the managed container from
+            // that single word while Swift's temporary remains alive. Reading a full
+            // five-word opaque existential here would overrun the Swift allocation.
+            if (useCdecl && MethodClosureBridge.IsOptionalAnyErrorExistential(namedType))
+            {
+                AppleSupplementReferences.Record(
+                    "Foundation.AnyError", "ClosureEmitter.InvokeArg:OptionalAnyError");
+                return $"arg{argIndex} == null ? null : new global::Swift.Foundation.AnyError(new global::Swift.Runtime.ExistentialContainer1 {{ Payload0 = *(IntPtr*)arg{argIndex} }})";
+            }
+
             if (TypeDatabaseExtensions.IsPointerType(namedType))
             {
                 // Pointer types (OpaquePointer, UnsafeRawPointer, etc.) are void* in the callback

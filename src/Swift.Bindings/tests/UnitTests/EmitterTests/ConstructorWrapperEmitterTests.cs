@@ -269,6 +269,40 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftWrapper_ThrowingGenericStaticFactory_ClearsErrorBeforeDo()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericWrapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("GenericWrapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        method.Throws = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.NeedsGenericStaticFactory(env, parentDecl));
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericWrapper", method.MangledName);
+        method.UsesCdeclConstructorWrapper = true;
+        env.PromoteSymbol(cdeclSymbol);
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, new ModuleEmissionContext());
+
+        var output = sw.ToString();
+        Assert.Contains("_SBW_GSF_", output);
+        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The generic static-factory constructor must clear errorOut before executing Swift code.\n{output}");
+    }
+
+    [Fact]
     public void NeedsGenericStaticFactory_GenericClassConcreteParams_ReturnsTrue()
     {
         // Non-final generic class → needs static factory (can't use _SBW_CI_)
@@ -1302,6 +1336,9 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("try", output);
         Assert.Contains("} catch {", output);
         Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The initializer wrapper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]
@@ -1374,6 +1411,9 @@ public class ConstructorWrapperEmitterTests
         // Must use bitPattern: 1 (non-nil sentinel), NOT bitPattern: 0 which traps on force-unwrap
         Assert.Contains("UnsafeMutableRawPointer(bitPattern: 1)!", output);
         Assert.DoesNotContain("bitPattern: 0", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The class initializer wrapper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]
@@ -1390,6 +1430,9 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("guard let result = try", output);
         Assert.Contains("return nil", output);
         Assert.Contains("errorOut.pointee", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The failable class initializer wrapper must clear errorOut before executing Swift code.\n{output}");
     }
 
     #endregion
@@ -2924,6 +2967,9 @@ public class ConstructorWrapperEmitterTests
 
         // Throwing non-failable returns sentinel pointer on error
         Assert.Contains("UnsafeMutableRawPointer(bitPattern: 1)!", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The generic class initializer wrapper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]

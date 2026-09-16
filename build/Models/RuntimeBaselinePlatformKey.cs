@@ -5,14 +5,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Maps a runtime-test <b>platform label</b> (the human-readable string the pipeline reports a run
 /// under — <c>"Simulator"</c>, <c>"Device/NativeAOT"</c>, <c>"Device/MonoAOT"</c>, …) to the
-/// <b>baseline key</b> under which that lane's floor is stored in both
-/// <c>build/baselines/validation-baseline.json</c> (<c>runtime_tests.&lt;key&gt;</c>, the scalar
-/// pass-count floor) and <c>build/baselines/runtime-identity-baseline.json</c>
-/// (<c>platforms.&lt;key&gt;</c>, the per-test-identity ratchet).
+/// <b>baseline key</b> under which that lane's floor is stored. Shared arm64 runtime lanes use
+/// <c>build/baselines/runtime-identity-baseline.json</c> as their single source for both counts and
+/// non-pass identities. The two x64 lanes retain scalar-only floors in
+/// <c>build/baselines/validation-baseline.json</c> because they have no identity counterpart.
 ///
 /// <para><b>Why this is its own model.</b> The mapping is the single point where a lane becomes
 /// <i>gated</i> or stays <i>ungraded</i>: an unmapped label makes <c>CompareRuntimeBaseline</c>
@@ -24,17 +25,16 @@ using System.Collections.Generic;
 /// rather than the absence of a floor being invisible until a regression slips through.</para>
 ///
 /// <para><b>Adding a lane.</b> Add its label to <see cref="ShippingPlatformLabels"/>, add the
-/// <c>label ⇒ key</c> arm to <see cref="Resolve"/>, add the matching typed property to
-/// <c>ValidationBaseline.RuntimeTestsBaseline</c> plus its two switch arms in
-/// <c>CompareRuntimeBaseline</c> (lookup and green-improvement auto-update), and seed both
-/// baseline files. The unit tests over this model fail until every one of those is done.</para>
+/// <c>label ⇒ key</c> arm to <see cref="Resolve"/>, classify its key under exactly one authority
+/// list below, then seed that authority. The unit tests over this model fail until every one of
+/// those is done.</para>
 /// </summary>
 public static class RuntimeBaselinePlatformKey
 {
     /// <summary>
     /// Every platform label the runtime-test pipeline reports a completed run under. Each of these
-    /// must <see cref="Resolve"/> to a key and must have a seeded entry in both baseline files —
-    /// a lane that ships without a floor can regress silently.
+    /// must <see cref="Resolve"/> to a key and must have a seeded entry under exactly one baseline
+    /// authority — a lane that ships without a floor can regress silently.
     /// </summary>
     public static IReadOnlyList<string> ShippingPlatformLabels { get; } = new[]
     {
@@ -47,6 +47,30 @@ public static class RuntimeBaselinePlatformKey
         "Mac Catalyst x64",
         "tvOS Simulator",
     };
+
+    /// <summary>
+    /// Lanes whose count floors and non-pass identities come from one authoritative identity
+    /// record. These are the lanes shared by the former scalar and identity stores.
+    /// </summary>
+    public static IReadOnlyList<string> IdentityBackedPlatformKeys { get; } = new[]
+    {
+        "simulator",
+        "device",
+        "device_monoaot",
+        "macos",
+        "maccatalyst",
+        "tvos_simulator",
+    };
+
+    /// <summary>Lanes that have scalar floors only and are outside identity reconciliation.</summary>
+    public static IReadOnlyList<string> ScalarOnlyPlatformKeys { get; } = new[]
+    {
+        "macos_x64",
+        "maccatalyst_x64",
+    };
+
+    public static bool IsIdentityBacked(string platformKey)
+        => IdentityBackedPlatformKeys.Contains(platformKey, StringComparer.Ordinal);
 
     /// <summary>
     /// Returns the baseline key for a platform label, or <c>null</c> when the label is not one this

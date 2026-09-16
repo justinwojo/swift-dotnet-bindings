@@ -2369,7 +2369,7 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidateMethodEmission_FoundationNSInvocation_ReturnsSkip()
+    public void ValidateMethodEmission_FoundationNSInvocation_DefersToCompilerRecovery()
     {
         var pipeline = new MemberValidationPipeline(CreateTypeDatabase());
         var method = CreateMethodWithArgs("init", TupleTypeSpec.Empty,
@@ -2377,17 +2377,21 @@ public class MemberValidationPipelineTests
 
         var result = pipeline.ValidateMethodEmission(method, null);
 
-        Assert.False(result.ShouldEmit);
-        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.True(result.ShouldEmit);
+        Assert.Null(result.Reason);
     }
 
     [Fact]
-    public void SwiftUnavailableTypeCheck_SameSpelledOtherModule_IsNearMiss()
+    public void ValidateMethodEmission_SameSpelledOtherModule_AlsoEmits()
     {
+        var pipeline = new MemberValidationPipeline(CreateTypeDatabase());
         var method = CreateMethodWithArgs("consume", TupleTypeSpec.Empty,
             new NamedTypeSpec("FixtureKit.NSInvocation"));
 
-        Assert.False(MemberValidationPipeline.SignatureReachesSwiftUnavailableType(method));
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+        Assert.Null(result.Reason);
     }
 
     [Fact]
@@ -2661,7 +2665,7 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidatePropertyEmission_ConcretePropertyOnFourMetadataStruct_ReturnsSkip()
+    public void ValidatePropertyEmission_ConcretePropertyOnFourMetadataStruct_Emits()
     {
         var typeDatabase = CreateTypeDatabaseWithFrozenValueStruct(
             "FourSlotBox", TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
@@ -2671,9 +2675,7 @@ public class MemberValidationPipelineTests
 
         var result = pipeline.ValidatePropertyEmission(property, null);
 
-        Assert.False(result.ShouldEmit);
-        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
-        Assert.Contains("more than three parent metadata/PWT slots", result.Details!);
+        Assert.True(result.ShouldEmit);
     }
 
     [Fact]

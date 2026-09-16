@@ -1,0 +1,12 @@
+{
+  "reviewer": "grok",
+  "repo": "/Users/wojo/.codex/worktrees/3721/swift-bindings",
+  "status": "captured",
+  "started_at": "2026-09-14T06:33:57.457759+00:00",
+  "resume_from": null,
+  "requested_model": null,
+  "requested_effort": null,
+  "exit_code": 0,
+  "session_id": "01a09e9f-5763-7370-9cf3-6c23312fc638",
+  "finished_at": "2026-09-14T06:43:28.459659+00:00"
+}

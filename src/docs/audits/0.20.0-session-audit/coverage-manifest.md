@@ -40,6 +40,30 @@ Unrelated P3 exposure-reporting files and the non-Stage-B hunks in the two mixed
 files (`Build.WithdrawalTests.cs` and `validation-baseline.json`) were excluded by
 staging only the audit-owned patches.
 
+## OWNER-02 resolution surface
+
+The 2026-09-14 owner follow-up removed the A-07 prediction paths from
+`MemberValidationPipeline`, synchronous concrete specialization admission, and the
+f292 lossless constrained-extension member check. It also narrowed
+`SwiftWrapperPostProcessor` back to deterministic placeholder cleanup, retaining
+the old internal/unavailable sub-cause names only as zero-valued schema fields.
+
+Coverage crosses the consumer boundary rather than stopping at predicate-unit
+tests: Xcode 26.3 captures for `Foundation.NSInvocation`, an internal CSM conformer,
+and a marker-constrained extension feed the real diagnostic parser, attributor, and
+recovery controller. Each capture names one owning leaf, converges after that leaf
+is denied, and leaves a healthy sibling untouched. Emitter tests separately prove
+the three candidate families are admitted into that path. The compile-only
+ResilienceKitchen hostile/control gate additionally exercises the two constrained-
+extension spellings against swiftc: both are attributed to `!leaf-api`, the two
+existing IUO properties remain `!accessor-group`, all four withdrawals have null
+cascade, generated C# compiles, and 110 public declarations plus nine named healthy
+siblings are identical to the control. This owner follow-up was not sent through
+Claude review. Grok final review session `01a09e63-dfde-7243-8c0b-e49458fb4e22`
+covered the complete frozen candidate and found no Critical, High, or Medium defect.
+Its one Low documentation inconsistency was accepted and repaired without re-review,
+as required by the Low-only stopping rule.
+
 ## Review coverage
 
 - Round 1 reviewed the historical range and initial Stage B candidate.
@@ -51,6 +75,11 @@ staging only the audit-owned patches.
 - The only post-round-2 code delta is the adjudicated Low repair that copies
   `accessor.GenericSig` into the four synthesized accessor `MethodDecl` objects,
   plus its regression test and test-floor increment.
+- The later OWNER-02 candidate was reviewed independently by Grok session
+  `01a09e63-dfde-7243-8c0b-e49458fb4e22` against staged fingerprint
+  `0bf96a12d96e2bdf7b9b7c32d429736de205397f813b9c4f3211a5378f25ab5d`.
+  Its sole Low finding produced the final recovery-note trigger edit; no code or
+  baseline changed after that frozen review.
 
 ## Deliberate limits
 

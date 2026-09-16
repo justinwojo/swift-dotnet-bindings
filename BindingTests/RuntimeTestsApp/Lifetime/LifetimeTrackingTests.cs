@@ -30,6 +30,36 @@ public class LifetimeTrackingTests : TestBase
 
     #region TrackedObject Construction
 
+    /// <summary>
+    /// A registry-tracked object from a completed test may remain conservatively rooted across the
+    /// next counter reset. Its eventual deinit belongs to the old window and must not increment the
+    /// new window's deallocation count. This deliberately resets while the old object is live, then
+    /// releases it after the boundary; pre-fix the snapshot was 0 allocations / 1 deallocation /
+    /// -1 live, the same false failure observed in the Mono full-AOT async typed-error probe.
+    /// </summary>
+    public void TestRegistryTrackedDeallocationAfterResetIsExcludedFromNewWindow()
+    {
+        LifetimeTracker.Reset();
+        var priorWindow = new TrackedRef(901, "counter-window-prior");
+        AssertEqual((1, 0, 1), LifetimeTracker.GetStats(),
+            "the prior-window object must be registered before the forced reset");
+
+        // Bypass LifetimeTracker.Reset's best-effort drain: the regression requires a live,
+        // registry-aware object to cross the exact native reset boundary.
+        TestLibFunctions.ResetAllocationCounters();
+        priorWindow.Dispose();
+
+        AssertEqual((0, 0, 0), LifetimeTracker.GetStats(),
+            "a deinit for a serial cleared by reset must not contaminate the new window");
+
+        using (var currentWindow = new TrackedRef(902, "counter-window-current"))
+        {
+            AssertEqual((1, 0, 1), LifetimeTracker.GetStats(),
+                "current-window registry accounting must remain active after ignoring the stale serial");
+        }
+        LifetimeTracker.AssertNoLeaks("current-window registry allocation must still balance exactly");
+    }
+
     public void TestTrackedObjectCreation()
     {
         using var obj = TestLibFunctions.CreateTrackedObject(1);

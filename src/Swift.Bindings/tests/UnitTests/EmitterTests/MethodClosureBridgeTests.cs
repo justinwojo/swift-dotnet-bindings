@@ -307,9 +307,9 @@ public class MethodClosureBridgeTests
     [Fact]
     public void TryEmit_AnyErrorClosureArg_EmitsExistentialContainerMarshal()
     {
-        // `(any Error) -> Void` — MCB bridges the 5-word existential container:
+        // `(any Error) -> Void` — MCB bridges Swift's one-word boxed-error payload:
         //   Swift: withUnsafePointer(to: err) { UnsafeMutableRawPointer(mutating: $0) }
-        //   C#:    new Swift.Foundation.AnyError(*(ExistentialContainer1*)ptr)
+        //   C#:    new Swift.Foundation.AnyError(new ExistentialContainer1 { Payload0 = *(IntPtr*)ptr })
         // Public delegate must expose Swift.Foundation.AnyError to consumers so they can call
         // .LocalizedDescription without touching raw containers.
         var typeDatabase = CreateTypeDatabase();
@@ -346,8 +346,37 @@ public class MethodClosureBridgeTests
 
         // Public API delegate must expose Swift.Foundation.AnyError to the consumer.
         Assert.Contains("Action<Swift.Foundation.AnyError>", cs);
-        // C# callback marshal must dereference the ExistentialContainer1* into a new AnyError.
-        Assert.Contains("new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)", cs);
+        // C# callback marshal must read only the one-word error box into a new AnyError.
+        Assert.Contains("new global::Swift.Foundation.AnyError(new global::Swift.Runtime.ExistentialContainer1 { Payload0 = *(IntPtr*)", cs);
+        Assert.DoesNotContain("*(global::Swift.Runtime.ExistentialContainer1*)", cs);
+    }
+
+    [Fact]
+    public void TryEmit_OptionalAnyErrorClosureArg_UsesSwift6AnyAndOneWordPayload()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        var optionalAnyError = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Error") { IsAny = true });
+        var closureType = new ClosureTypeSpec(optionalAnyError, TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+
+        var result = MethodClosureBridge.TryEmit(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), env, parentDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        var cs = csOutput.ToString();
+        Assert.Contains("(any Swift.Error)?", swift);
+        Assert.Contains("withUnsafePointer(to:", swift);
+        Assert.Contains("Payload0 = *(IntPtr*)", cs);
+        Assert.DoesNotContain("*(global::Swift.Runtime.ExistentialContainer1*)", cs);
     }
 
     // ─── Optional closure support ─────────────────────────────────────

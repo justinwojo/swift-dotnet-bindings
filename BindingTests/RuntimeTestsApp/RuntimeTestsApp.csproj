@@ -37,6 +37,13 @@
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
+  <!-- Shared BCL-only capability policy. The Nuke harness compiles this file too;
+       RuntimeTestsApp supplies the live SecTask probe while both consume the same
+       missing-entitlement contract. -->
+  <ItemGroup>
+    <Compile Include="../../build/Models/ActivityKitEntitlementGate.cs" Link="AppleSupplement/ActivityKitEntitlementGate.cs" />
+  </ItemGroup>
+
   <!-- Simulator (default): Mono JIT, no trimming -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64'">
     <MtouchLink>None</MtouchLink>
@@ -60,6 +67,12 @@
     <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
     <CodesignProvision>Wildcard Dev</CodesignProvision>
     <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64' AND '$(EnableActivityKitPushToken)' == 'true'">
+    <ApplicationId>com.swiftbindings.activitykit.push.tests</ApplicationId>
+    <CodesignEntitlements>ActivityKitPushToken.entitlements</CodesignEntitlements>
+    <DefineConstants>$(DefineConstants);ACTIVITYKIT_PUSH_TOKEN</DefineConstants>
   </PropertyGroup>
 
   <!-- Runtime-flavor AppContext switch — the SAME build-time truth the Runtime package injects for
@@ -309,6 +322,7 @@
            Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-storekit-snapshot`." />
   </Target>
   <PropertyGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
+    <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
     <DefineConstants>$(DefineConstants);STOREKIT_SMOKE</DefineConstants>
   </PropertyGroup>
   <ItemGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">

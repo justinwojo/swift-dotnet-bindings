@@ -54,9 +54,11 @@ public record ValidationBaseline
     {
         [JsonExtensionData] public Dictionary<string, JsonElement>? AdditionalFields { get; init; }
         [JsonPropertyName("simulator")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? Simulator { get; init; }
 
         [JsonPropertyName("device")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? Device { get; init; }
 
         // Physical-device Mono full-AOT cell (the .NET-for-iOS default runtime, built by
@@ -65,24 +67,30 @@ public record ValidationBaseline
         // Mono skips apply here and the NativeAOT-Release-shaped ones do not — so a shared
         // floor would either under-gate one lane or false-regress the other.
         [JsonPropertyName("device_monoaot")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? DeviceMonoAot { get; init; }
 
         [JsonPropertyName("macos")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? MacOS { get; init; }
 
         // Intel/x86_64 macOS-workload cell (run under Rosetta). Tracked separately
         // from the arm64 "macos" key so the auto-update on a green run never
         // overwrites the arm64 floor with the x64 count (or vice versa).
         [JsonPropertyName("macos_x64")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? MacOSX64 { get; init; }
 
         [JsonPropertyName("maccatalyst")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? MacCatalyst { get; init; }
 
         [JsonPropertyName("maccatalyst_x64")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? MacCatalystX64 { get; init; }
 
         [JsonPropertyName("tvos_simulator")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public RuntimeTestsPlatformCounts? TvOSSimulator { get; init; }
     }
 
@@ -120,9 +128,8 @@ public record ValidationBaseline
 
         /// <summary>
         /// Aggregate per-sub-cause counts from <c>SwiftWrapperPostProcessor</c> across all
-        /// validated libraries. Lets us track whether the <c>Pattern2InternalTypeReach</c>
-        /// emission gate is taking the load expected of it: the <c>InternalType</c> bucket
-        /// should drop to a small, documented residue once the gate ships.
+        /// validated libraries. <c>InternalType</c> and <c>NSInvocation</c> are historical,
+        /// schema-compatible buckets that remain zero; compiler recovery owns those failures.
         /// </summary>
         [JsonPropertyName("post_processor_sub_causes")]
         public IDictionary<string, int> PostProcessorSubCauses { get; init; }
@@ -142,7 +149,7 @@ public record ValidationBaseline
 
     public void Save(AbsolutePath path)
         => File.WriteAllText(path, JsonSerializer.Serialize(this,
-            new JsonSerializerOptions { WriteIndented = true }));
+            new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
 
     /// <summary>
     /// Compares current results against baseline, returns regressions and improvements.

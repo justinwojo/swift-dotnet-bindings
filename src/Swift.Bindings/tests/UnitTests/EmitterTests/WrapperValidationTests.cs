@@ -30,6 +30,36 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class WrapperValidationTests
 {
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void IsTypeOrEnclosingUnavailableToWrapper_PublicNestedInNonPublicSameModuleParent_ReturnsTrue(
+        bool parentIsModuleInternal,
+        bool parentIsSpiProtected)
+    {
+        var parent = CreateClassDecl("TestModule.HiddenParent");
+        parent.IsModuleInternal = parentIsModuleInternal;
+        parent.IsSpiProtected = parentIsSpiProtected;
+        var nested = CreateClassDecl("TestModule.HiddenParent.PublicNested", parent);
+
+        Assert.True(WrapperValidation.IsTypeOrEnclosingUnavailableToWrapper(
+            nested, "TestModule"));
+    }
+
+    [Fact]
+    public void IsTypeOrEnclosingUnavailableToWrapper_ForeignInternalReceiver_ReturnsFalse()
+    {
+        // A foreign receiver can be absent from this module's public-type facts and therefore
+        // carry IsModuleInternal locally while remaining public and spellable through an import.
+        // Only visibility facts owned by the module currently being wrapped are authoritative.
+        var foreignReceiver = CreateClassDecl("OtherModule.ForeignHost");
+        foreignReceiver.IsModuleInternal = true;
+        var nested = CreateClassDecl("TestModule.HostedPayload", foreignReceiver);
+
+        Assert.False(WrapperValidation.IsTypeOrEnclosingUnavailableToWrapper(
+            nested, "TestModule"));
+    }
+
     [Fact]
     public void IsOptionalWithReferenceInner_ConcreteClassFallback_NoTypeRecord_NoObjCPrefix_ReturnsTrue()
     {
@@ -137,6 +167,24 @@ public class WrapperValidationTests
         Assert.False(
             CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb),
             "Path 3 must not fire for arbitrary unrecognized modules");
+    }
+
+    private static ClassDecl CreateClassDecl(string qualifiedName, BaseDecl? parent = null)
+    {
+        var swiftName = SwiftTypeName.FromModuleQualifiedName(qualifiedName);
+        return new ClassDecl
+        {
+            Name = swiftName.Name,
+            SwiftTypeName = swiftName,
+            MangledName = "",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = parent,
+            ModuleDecl = null
+        };
     }
 }
 

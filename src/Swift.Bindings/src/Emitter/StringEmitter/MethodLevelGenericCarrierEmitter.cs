@@ -159,6 +159,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
 
         if (throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
             swiftWriter.WriteLine("do {");
             swiftWriter.Indent++;
             if (opened.Strategy == MlgOpeningStrategy.SuperclassCarrier && isVoidReturn)

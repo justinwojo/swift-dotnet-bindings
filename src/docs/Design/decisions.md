@@ -35,9 +35,9 @@ Raised 2026-09-08 with the register-level attribution (see [Mono GC-safe-region 
 
 <a id="swiftwrapperpostprocessor-retirement-do-not-re-file"></a>
 
-## `SwiftWrapperPostProcessor` retirement (do not re-file)
+## `SwiftWrapperPostProcessor` scope (do not re-file)
 
-Internal-receiver rejection moved fully to emission-time gates (WrapperValidation arm 2b sync fallback; `MemberValidationPipeline` gate 3c for the async/closure legs; `OperatorHandler` parent-internal guard), proven red→green with fixtures in `Internal/InternalTypeReach.swift` + `MemberValidationPipelineTests`. The old "this retires the post-processor" premise was WRONG: it remains the general wrapper-compile safety net (strips `EveryProtocol()` placeholder blocks and Swift-unavailable ObjC type refs, neither of which has an emission-time gate), the shared oracle the BindingTests harness links (`build/Build.WrapperStrip.cs`), and the source of the `StrippedSymbols` set `StrippedSymbolCSharpReconciler` consumes; its `ReferencesInternalType` path is defense-in-depth behind the strip tripwire. **Trigger:** none for retirement — revisit only if every stripped shape first gains an emission-time gate.
+Internal-receiver rejection moved to the established emission-time gates where those routes have a sound fallback (WrapperValidation arm 2b sync fallback; `MemberValidationPipeline` gate 3c for the async/closure legs; `OperatorHandler` parent-internal guard). The post-processor remains the shared generator/BindingTests oracle for deterministic placeholder cleanup (`EveryProtocol()` and invalid closure metatype loads) and still supplies `StrippedSymbols` to `StrippedSymbolCSharpReconciler`. It does **not** predict compiler visibility or availability failures: internal-type references and Swift-unavailable Objective-C types remain in source for compiler attribution and verify/recover withdrawal, with their manifest buckets retained at zero only for schema compatibility. **Trigger:** retire the post-processor only after the remaining deterministic placeholders become impossible to emit; do not add new compiler-error predictors to it.
 
 <a id="async-csm-leases-the-synchronous-entry"></a>
 

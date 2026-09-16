@@ -2098,46 +2098,16 @@
       "NonCopyableThroughCopyingLane": 2
     },
     "post_processor_sub_causes": {
-      "InternalType": 14,
-      "NSInvocation": 1,
+      "InternalType": 0,
+      "NSInvocation": 0,
       "Other": 0
     }
   },
   "runtime_tests": {
-    "simulator": {
-      "pass": 4030,
-      "fail": 0,
-      "skip": 33,
-      "crash": 0
-    },
-    "device": {
-      "pass": 4034,
-      "fail": 0,
-      "skip": 29,
-      "crash": 0
-    },
-    "device_monoaot": {
-      "pass": 4030,
-      "fail": 0,
-      "skip": 33,
-      "crash": 0
-    },
-    "macos": {
-      "pass": 3178,
-      "fail": 0,
-      "skip": 24,
-      "crash": 0
-    },
     "macos_x64": {
       "pass": 1913,
       "fail": 0,
       "skip": 47,
-      "crash": 0
-    },
-    "maccatalyst": {
-      "pass": 3180,
-      "fail": 0,
-      "skip": 29,
       "crash": 0
     },
     "maccatalyst_x64": {
@@ -2145,15 +2115,9 @@
       "fail": 0,
       "skip": 47,
       "crash": 0
-    },
-    "tvos_simulator": {
-      "pass": 3264,
-      "fail": 0,
-      "skip": 29,
-      "crash": 0
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 19026
+    "swift_bindings_unit_pass_floor": 19123
   }
 }

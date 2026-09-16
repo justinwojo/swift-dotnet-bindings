@@ -117,6 +117,40 @@ public class MetatypeHelperEmitterTests
     }
 
     [Fact]
+    public void EmitMetadataAccessorHelper_FourMetadataParams_PacksBufferAbi()
+    {
+        var ctx = new ModuleEmissionContext();
+        var output = new StringWriter();
+        var typeDecl = CreateGenericTypeDecl("Quad", "TestModule", "$s10TestModule4QuadVN", 4);
+
+        MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(
+            new SwiftWriter(output), typeDecl, ctx, pwtCount: 0);
+
+        var result = output.ToString();
+        Assert.Contains("let arguments: [UnsafeRawPointer] = [t0, t1, t2, t3]", result);
+        Assert.Contains("arguments.withUnsafeBufferPointer", result);
+        Assert.Contains("@convention(thin) (Int, UnsafeRawPointer)", result);
+        Assert.Contains("fn(0, UnsafeRawPointer(buffer.baseAddress!)).0", result);
+        Assert.DoesNotContain("fn(0, t0, t1, t2, t3)", result);
+    }
+
+    [Fact]
+    public void EmitMetadataAccessorHelper_TwoMetadataTwoPwts_PacksAllSlotsInAbiOrder()
+    {
+        var ctx = new ModuleEmissionContext();
+        var output = new StringWriter();
+        var typeDecl = CreateGenericTypeDecl("Pair", "TestModule", "$s10TestModule4PairVN", 2);
+
+        MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(
+            new SwiftWriter(output), typeDecl, ctx, pwtCount: 2);
+
+        var result = output.ToString();
+        Assert.Contains("_ t0: UnsafeRawPointer, _ t1: UnsafeRawPointer, _ pwt0: UnsafeRawPointer, _ pwt1: UnsafeRawPointer", result);
+        Assert.Contains("let arguments: [UnsafeRawPointer] = [t0, t1, pwt0, pwt1]", result);
+        Assert.Contains("@convention(thin) (Int, UnsafeRawPointer)", result);
+    }
+
+    [Fact]
     public void EmitMetadataAccessorHelper_DifferentTypes_DifferentHelperNames()
     {
         var ctx = new ModuleEmissionContext();
@@ -277,11 +311,9 @@ public class MetatypeHelperEmitterTests
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // WouldExceedRegisterArgumentThreshold — fail-closed gate for the wrapper
-    // metadata-accessor helper when (num_metadata + num_pwts) > 3 forces
-    // Swift's Ma symbol into the indirect-buffer ABI. The wrapper helper only
-    // emits the thin (request, metadata..., pwt...) signature, so we refuse
-    // to emit any member that would route through buffer mode.
+    // WouldExceedRegisterArgumentThreshold — shape predicate for routes that
+    // still bound their own qualification to the thin metadata-accessor ABI.
+    // EmitMetadataAccessorHelperIfNeeded itself supports indirect buffer mode.
     // ─────────────────────────────────────────────────────────────────────
 
     [Fact]

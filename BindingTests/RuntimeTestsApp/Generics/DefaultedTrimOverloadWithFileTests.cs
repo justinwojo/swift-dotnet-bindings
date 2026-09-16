@@ -42,6 +42,20 @@ public class DefaultedTrimOverloadWithFileTests : TestBase
 {
     public DefaultedTrimOverloadWithFileTests(TestResults results) : base(results) { }
 
+    public void TestDefaultedHasherWithFile_ExplicitGenericBase_RoutesThroughOpeningWrapper()
+    {
+        using var hasher = new DefaultedHasherWithFile();
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 8, 9, 10 });
+        var options = new HashSet<nint> { 13 };
+
+        hasher.Append<global::Swift.Foundation.Data>(data, options, tag: 123);
+
+        AssertEqual(1, hasher.Calls, "generic debug-default Append should record one call");
+        AssertEqual(3, hasher.LastCount, "generic debug-default Append should receive Data payload");
+        AssertEqual(123, hasher.LastTag, "generic debug-default Append should receive explicit tag");
+        AssertEqual(1, hasher.LastOptionsCount, "generic debug-default Append should receive Set payload");
+    }
+
     public void TestDefaultedHasherWithFile_AutoTrimPrimary_ByteArray_FillsAllDefaults()
     {
         // CSM-sync auto-trim primary: `Append(byte[] data)`. Three Swift defaults

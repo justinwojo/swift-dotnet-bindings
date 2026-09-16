@@ -401,80 +401,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             if ((uint)index >= (uint)Count)
                 throw new ArgumentOutOfRangeException(nameof(index));
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-            void* payload = NativeMemory.Alloc(ElementSize);
-            bool slotLive = false; // payload holds the subscript's owned +1 element, slot unconsumed
-            try
-            {
-                SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
-
-                // For true Swift class types, the element IS a class pointer stored in
-                // the buffer. Read the pointer and pass it directly —
-                // MarshalFromSwift/NewFromPayload for classes expects the pointer value,
-                // not a buffer containing it. Always free the temp buffer afterward.
-                // Use Swift metadata Kind to distinguish classes from complex enums,
-                // since both implement ISwiftObject without ISwiftStruct in generated C#.
-                if (typeof(ISwiftObject).IsAssignableFrom(typeof(Element))
-                    && !typeof(Element).IsValueType
-                    && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element))
-                    && ElementTypeMetadata.Kind == TypeMetadataKind.Class)
-                {
-                    IntPtr classPointer = *(IntPtr*)payload;
-                    NativeMemory.Free(payload);
-                    payload = null;
-                    return SwiftMarshal.MarshalFromSwift<Element>(classPointer);
-                }
-
-                // Non-POD reference-backed ISwiftStruct element — a nested
-                // SwiftArray/SwiftDictionary/SwiftSet, a frozen-with-ref struct, or a complex enum. The
-                // subscript getter ($sSayxSicig) InitializeWithCopy'd an OWNED +1 into `payload`, and
-                // NewFromPayload then makes its OWN copy (the SwiftArray/Dictionary/Set ctors allocate a
-                // fresh buffer — COPY convention) or adopts a private buffer (ADOPT non-POD). A bare
-                // MarshalFromSwift<Element>(payload) leaves the getter's slot +1 unowned, and the old
-                // ISwiftStruct skip-free below then orphaned it — leaking the element, and for a nested
-                // container every element it transitively held. Consume the owned slot the
-                // same way SwiftDictionary/SwiftSet do: MarshalMovedValueFromSlot copies out an
-                // INDEPENDENT wrapper and value-witness-Destroys the slot, never aliasing `payload`, so
-                // the temp is freed raw here (not kept). POD ISwiftStruct structs are handled below.
-                if (typeof(ISwiftStruct).IsAssignableFrom(typeof(Element))
-                    && ElementTypeMetadata.IsValid
-                    && ElementTypeMetadata.ValueWitnessTable->IsNonPOD)
-                {
-                    // MarshalMovedValueFromSlot consumes the slot atomically (copy-out + Destroy);
-                    // `slotLive` guards the exception path so a throw before consumption releases the
-                    // intact slot's +1 (and frees the buffer), mirroring SwiftDictionary.TryGetValue.
-                    slotLive = true;
-                    Element moved = SwiftMarshal.MarshalMovedValueFromSlot<Element>(payload, ElementTypeMetadata);
-                    slotLive = false;
-                    NativeMemory.Free(payload);
-                    payload = null;
-                    return moved;
-                }
-
-                return SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
-            }
-            finally
-            {
-                // If MarshalMovedValueFromSlot threw before consuming the slot, the subscript's owned
-                // +1 is still in `payload` and unowned by any wrapper — Destroy it and free the buffer
-                // (the success path already freed+nulled `payload`).
-                if (slotLive)
-                {
-                    ElementTypeMetadata.ValueWitnessTable->Destroy(payload, ElementTypeMetadata);
-                    NativeMemory.Free(payload);
-                    payload = null;
-                }
-
-                // POD ISwiftStruct elements (frozen/non-frozen blittable structs, e.g. Point) ADOPT the
-                // buffer in NewFromPayload (stored in their SwiftSafeHandle, freed on the wrapper's
-                // Dispose) — freeing it here would use-after-free the live wrapper. The class and
-                // non-POD-struct paths above already consumed and nulled `payload`. So free only a
-                // still-owned, non-adopting buffer: non-ISwiftStruct elements (primitives, classes,
-                // tuples, existential containers).
-                if (payload != null && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element)))
-                {
-                    NativeMemory.Free(payload);
-                }
-            }
+            return ReadOwnedElement(index, disposable.Buffer);
         }
         set
         {
@@ -489,6 +416,39 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             // Cdecl-wrapped: an untyped SwiftSelf collides with Mono's
             // GC-safe-region cookie register; see SwiftCollectionCdeclWrappers.
             SwiftCollectionCdeclWrappers.ArraySet(payload, index, metadata, _payload.DangerousGetHandle());
+        }
+    }
+
+    /// <summary>
+    /// Reads one element from Swift's non-mutating Array subscript. The getter initializes an
+    /// <b>owned</b> value in the temporary, so every carrier shape must pass through the same
+    /// moved-slot ownership seam used by Dictionary and Set before the storage is freed raw.
+    /// </summary>
+    private static unsafe Element ReadOwnedElement(int index, IntPtr storage)
+    {
+        var metadata = ElementTypeMetadata;
+        void* payload = NativeMemory.Alloc(ElementSize);
+        bool slotLive = false;
+        try
+        {
+            SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, storage, metadata);
+            slotLive = true;
+
+            // MarshalMovedValueFromSlot is the complete carrier table:
+            // - true class: dereference the slot and transfer its +1;
+            // - Adopt/Copy reference-backed wrapper: copy independently, then VWT-Destroy the slot;
+            // - Adopt POD: copy into independent storage;
+            // - Move/Inline/POD/direct value: transfer/read the value without a Destroy.
+            // It consumes atomically; on a throw the intact slot remains ours to destroy below.
+            Element result = SwiftMarshal.MarshalMovedValueFromSlot<Element>(payload, metadata);
+            slotLive = false;
+            return result;
+        }
+        finally
+        {
+            if (slotLive)
+                metadata.ValueWitnessTable->Destroy(payload, metadata);
+            NativeMemory.Free(payload);
         }
     }
 
@@ -643,77 +603,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             // dereferences via `PayloadBuffer<IntPtr>.Buffer` (= *(IntPtr*)handle); we do
             // the same here, once, hoisted outside the loop.
             IntPtr storage = *(IntPtr*)_payload.DangerousGetHandle();
-            var elementMetadata = ElementTypeMetadata;
-            nuint elementSize = ElementSize;
-
-            // Classify the element once (hoisted) so the per-element loop mirrors the single-element
-            // indexer getter exactly. See that getter for the full ownership rationale.
-            bool elementIsStruct = typeof(ISwiftStruct).IsAssignableFrom(typeof(Element));
-            bool elementIsClass = typeof(ISwiftObject).IsAssignableFrom(typeof(Element))
-                && !typeof(Element).IsValueType
-                && !elementIsStruct
-                && elementMetadata.Kind == TypeMetadataKind.Class;
-            // Non-POD reference-backed ISwiftStruct element (nested SwiftArray/SwiftDictionary/SwiftSet,
-            // frozen-with-ref struct, complex enum): the subscript getter's owned +1 must be consumed via
-            // MarshalMovedValueFromSlot (copy-out + Destroy), else the slot's retain — and, for a nested
-            // container, every element it transitively holds — leaks. POD ISwiftStruct
-            // structs (e.g. Point) ADOPT the buffer and are read by value with no free.
-            bool elementIsNonPodStruct = elementIsStruct
-                && elementMetadata.IsValid
-                && elementMetadata.ValueWitnessTable->IsNonPOD;
 
             for (int i = 0; i < count; i++)
-            {
-                void* payload = NativeMemory.Alloc(elementSize);
-                bool slotLive = false; // payload holds the subscript's owned +1 element, slot unconsumed
-                try
-                {
-                    SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), i, storage, elementMetadata);
-
-                    if (elementIsClass)
-                    {
-                        IntPtr classPointer = *(IntPtr*)payload;
-                        NativeMemory.Free(payload);
-                        payload = null;
-                        destination[destinationIndex + i] = SwiftMarshal.MarshalFromSwift<Element>(classPointer);
-                    }
-                    else if (elementIsNonPodStruct)
-                    {
-                        // `slotLive` guards the exception path so a throw before MarshalMovedValueFromSlot
-                        // consumes the slot releases the intact +1 (and frees the buffer); mirrors the
-                        // single-element indexer getter and SwiftDictionary.TryGetValue.
-                        slotLive = true;
-                        destination[destinationIndex + i] =
-                            SwiftMarshal.MarshalMovedValueFromSlot<Element>(payload, elementMetadata);
-                        slotLive = false;
-                        NativeMemory.Free(payload);
-                        payload = null;
-                    }
-                    else
-                    {
-                        destination[destinationIndex + i] = SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
-                    }
-                }
-                finally
-                {
-                    // If MarshalMovedValueFromSlot threw before consuming the slot, release the subscript's
-                    // owned +1 and free the buffer (the success path already nulled `payload`).
-                    if (slotLive)
-                    {
-                        elementMetadata.ValueWitnessTable->Destroy(payload, elementMetadata);
-                        NativeMemory.Free(payload);
-                        payload = null;
-                    }
-
-                    // POD ISwiftStruct elements ADOPT the buffer (freed by their SafeHandle) — keep it.
-                    // The class and non-POD-struct paths already nulled `payload`. Free only a still-owned,
-                    // non-adopting buffer (non-ISwiftStruct: primitives, classes, existential containers).
-                    if (payload != null && !elementIsStruct)
-                    {
-                        NativeMemory.Free(payload);
-                    }
-                }
-            }
+                destination[destinationIndex + i] = ReadOwnedElement(i, storage);
         }
         finally
         {

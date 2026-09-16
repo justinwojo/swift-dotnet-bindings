@@ -527,6 +527,45 @@ public class ComplexProjectionTests
     }
 
     [Fact]
+    public void Array_ParamPlan_FrozenWithMemoryElement_UsesMetadataBearingWrapper()
+    {
+        // swiftui-charts 1.1.0: StackedAreaChartStyle.init(_:colors:) accepts
+        // [SwiftUI.Color]. Color is frozen but reference-bearing, so a bare Color
+        // parameter lowers as Color.Buffer. The Array generic must still be Color:
+        // SwiftArray<Color.Buffer>.FromEnumerable(IEnumerable<Color>) is CS1503 and
+        // Buffer itself cannot resolve the Swift Color metadata.
+        var elem = new FrozenWithMemoryProjection("SwiftUI.Color");
+        var proj = new ArrayProjection(elem, isParameter: true);
+        var plan = proj.GetParameterPlan("colors");
+
+        Assert.Equal("SwiftArray<SwiftUI.Color>", proj.SwiftContainerGenericType);
+        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Equal(
+            "var colorsSwiftDirect = SwiftArray<SwiftUI.Color>.FromEnumerable(colors);",
+            firstLine.Code);
+        Assert.DoesNotContain("Color.Buffer", firstLine.Code);
+    }
+
+    [Fact]
+    public void GenericContainers_FrozenWithMemorySlots_UseMetadataBearingWrapper()
+    {
+        // The carrier rule is a Swift-generic contract, not an Array/Charts special case.
+        var elem = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
+
+        Assert.Equal(
+            "SwiftSet<TestModule.ManagedFrozen>",
+            new SetProjection(elem, isParameter: true).SwiftContainerGenericType);
+        Assert.Equal(
+            "SwiftDictionary<int, TestModule.ManagedFrozen>",
+            new DictionaryProjection(
+                new BlittableProjection("int"), elem, isParameter: true).SwiftContainerGenericType);
+        Assert.Equal(
+            "SwiftResult<TestModule.ManagedFrozen, int>",
+            new ResultProjection(
+                elem, new BlittableProjection("int")).SwiftContainerGenericType);
+    }
+
+    [Fact]
     public void Array_ReturnPlan_Direct_RequiresUnsafe()
     {
         var elem = new BlittableProjection("Int64");

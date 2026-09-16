@@ -380,7 +380,12 @@ internal static class ClosureParamTombstoneEmitter
 
             var baseChain =
                 (classParent.HasResolvedSuperclass || classParent.HasCrossModuleSwiftSuperclass)
-                    ? " : base(default(SwiftInheritanceChain))"
+                    ? classParent.IsObjCRooted
+                        // Every emitted ObjC-rooted class exposes a protected NativeHandle
+                        // constructor, including a base supplied by another binding assembly.
+                        // The pure-Swift sentinel is not convertible to that chain (CS1503).
+                        ? " : base(default(global::ObjCRuntime.NativeHandle))"
+                        : " : base(default(SwiftInheritanceChain))"
                     : "";
 
             env.EmissionContext?.RecordEmittedApiShape(method, ctorName, emittedParameterPortion);

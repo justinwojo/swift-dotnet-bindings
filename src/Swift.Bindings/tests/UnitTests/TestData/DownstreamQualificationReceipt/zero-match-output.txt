@@ -1,0 +1,2 @@
+Application launched successfully.
+No per-test result markers were emitted.

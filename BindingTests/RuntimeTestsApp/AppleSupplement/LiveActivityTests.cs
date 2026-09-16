@@ -105,7 +105,7 @@ public class LiveActivityTests : TestBase
     public async Task TestEnd_IsIdempotent()
     {
         if (!await EnsureReadyToRequestAsync()) return;
-        LiveActivity activity = LiveActivity.Request("delivery");
+        LiveActivity activity = LiveActivity.Request("delivery", usePushToken: false);
         AssertTrue(activity.End(immediate: true), "first end returns true");
         AssertFalse(activity.End(immediate: true), "second end is a safe no-op");
     }
@@ -131,7 +131,7 @@ public class LiveActivityTests : TestBase
     public async Task TestObservePushToken_ValidatesHandle()
     {
         if (!await EnsureReadyToRequestAsync()) return;
-        LiveActivity activity = LiveActivity.Request("delivery");
+        LiveActivity activity = LiveActivity.Request("delivery", usePushToken: false);
         AssertTrue(activity.ObservePushToken(_ => { }),
             "observe registers on a live handle");
         activity.End(immediate: true);
@@ -171,7 +171,7 @@ public class LiveActivityTests : TestBase
     public async Task TestObservePushToken_SecondCallReplaces_DoesNotCrash()
     {
         if (!await EnsureReadyToRequestAsync()) return;
-        LiveActivity activity = LiveActivity.Request("delivery");
+        LiveActivity activity = LiveActivity.Request("delivery", usePushToken: false);
         try
         {
             AssertTrue(activity.ObservePushToken(_ => { }), "first observe registers");
@@ -183,6 +183,55 @@ public class LiveActivityTests : TestBase
         }
         AssertFalse(activity.ObservePushToken(_ => { }), "observe after end is a no-op");
     }
+
+#if ACTIVITYKIT_PUSH_TOKEN
+    /// <summary>
+    /// Opt-in physical-device arm for the capability-sensitive request. The
+    /// request preflight is asserted before observer registration so a missing
+    /// APNs capability cannot masquerade as a register/replace/release defect.
+    /// </summary>
+    public async Task TestPushTokenRequestAndObserver_DeviceCapabilityQualified()
+    {
+        AssertTrue(IsSupportedOS, "ActivityKit push-token arm requires iOS 16.2+");
+        AssertTrue(ObjCRuntime.Runtime.Arch != ObjCRuntime.Arch.SIMULATOR,
+            "ActivityKit push-token arm is physical-device only");
+
+        var environment = ActivityKitReadiness.RequirePushTokenCapability();
+        AssertTrue(environment is "development" or "production",
+            $"signed '{ActivityKitEntitlementGate.RequiredEntitlement}' has an accepted value");
+        AssertTrue(
+            await ActivityKitReadiness.WaitForForegroundActiveAsync(TimeSpan.FromSeconds(10)),
+            "app reached foreground-active within 10s (push-token request precondition)");
+        AssertTrue(LiveActivity.AreActivitiesEnabled,
+            "Live Activities must be enabled in device Settings for the opt-in push-token arm");
+
+        LiveActivity? activity = null;
+        try
+        {
+            activity = LiveActivity.Request(
+                name: "delivery",
+                attributesJson: "{\"title\":\"Capability-qualified request\"}",
+                contentStateJson: "{\"status\":\"ready\"}",
+                usePushToken: true);
+            AssertTrue(activity.IsActive,
+                "push-token request preflight returned a live handle");
+
+            AssertTrue(activity.ObservePushToken(_ => { }),
+                "first push-token observer registers on the preflighted handle");
+            AssertTrue(activity.ObservePushToken(_ => { }),
+                "second push-token observer replaces the first");
+            AssertTrue(activity.End(immediate: true),
+                "release after push-token observer replacement succeeds");
+            AssertFalse(activity.ObservePushToken(_ => { }),
+                "push-token observer registration after release is a no-op");
+            activity = null;
+        }
+        finally
+        {
+            activity?.End(immediate: true);
+        }
+    }
+#endif
 
     /// <summary>
     /// A raw embedded NUL is invalid JSON, so the facade's JSON validation rejects

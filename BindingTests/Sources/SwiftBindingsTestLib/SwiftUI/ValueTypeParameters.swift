@@ -118,4 +118,29 @@ public struct SwiftUIValueProbe {
         }
     }
 }
+
+/// Exact shape from swiftui-charts 1.1.0's
+/// `StackedAreaChartStyle.init(_:colors:)`: a defaulted leading value followed by a
+/// defaulted array of frozen, reference-bearing SwiftUI values.
+public struct SwiftUIColorCollectionProbe {
+    private let colors: [SwiftUI.Color]
+
+    public init(_ lineType: Int32 = 0, colors: [SwiftUI.Color] = [.red, .blue]) {
+        _ = lineType
+        self.colors = colors
+    }
+
+    public func colorCount() -> Int32 {
+        Int32(colors.count)
+    }
+
+    public func color(at index: Int32, equals expected: SwiftUI.Color) -> Bool {
+        guard index >= 0 && Int(index) < colors.count else { return false }
+        return colors[Int(index)] == expected
+    }
+
+    public func returnedColors() -> [SwiftUI.Color] {
+        colors
+    }
+}
 #endif

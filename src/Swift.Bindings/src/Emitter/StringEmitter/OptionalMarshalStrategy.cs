@@ -18,8 +18,9 @@ public enum OptionalMarshalStrategy
     NotOptional,
 
     /// <summary>
-    /// Optional&lt;Class&gt;, Optional&lt;ObjC-bridged&gt;, Optional&lt;ObjC-rooted&gt;.
-    /// The inner type is a reference (pointer-sized).  nil encodes as IntPtr.Zero.
+    /// Optional&lt;Class&gt;, Optional&lt;ObjC-bridged&gt;, Optional&lt;ObjC-rooted&gt;, or an
+    /// Optional container bridged wholesale to NSArray/NSDictionary/NSSet.
+    /// The selected transport is a reference (pointer-sized). nil encodes as IntPtr.Zero.
     /// Swift side: UnsafeMutableRawPointer? / nullable pointer ABI.
     /// C# side: IntPtr (zero = None, non-zero = Some).
     /// </summary>
@@ -75,7 +76,7 @@ public static class OptionalMarshalClassifier
     /// Returns <see cref="OptionalMarshalStrategy.NotOptional"/> if the type is not Optional.
     ///
     /// Priority order (first match wins):
-    /// 1. NullablePointer — reference inner (class, ObjC-bridged, ObjC-rooted)
+    /// 1. NullablePointer — reference inner, or whole-container ObjC bridge
     /// 2. DecomposedBuffers — complex enum or non-frozen struct inner (opaque SafeHandle payload)
     /// 3. BlittableFastPath — blittable primitive inner with known compile-time size
     /// 4. LargeOptionalPointer — inner type &gt;= 8 bytes (not reference, not decomposed, not blittable fast path)
@@ -90,7 +91,16 @@ public static class OptionalMarshalClassifier
         if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
             return OptionalMarshalStrategy.NullablePointer;
 
-        // 1a. Optional<@objc protocol existential>: single 8-byte ObjC object pointer.
+        // 1a. Optional<container-with-ObjC-bridgeable-leaf> is transported by every
+        // established @_cdecl wrapper as one nullable retained collection pointer. Although
+        // Swift.Array/Dictionary/Set are frozen, their Optional transport is otherwise selected
+        // as LargeOptionalPointer. This bridge-aware check must precede the value-container
+        // strategies or the managed side invents an out buffer while the Swift side returns
+        // UnsafeMutableRawPointer? directly.
+        if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase))
+            return OptionalMarshalStrategy.NullablePointer;
+
+        // 1b. Optional<@objc protocol existential>: single 8-byte ObjC object pointer.
         //     An @objc protocol's existential has the same ABI as AnyObject — no witness table,
         //     no descriptor — so it travels as a nullable pointer (nil = IntPtr.Zero), NOT the
         //     decomposed container path below (whose ExistentialContainer1 descriptor doesn't
@@ -98,7 +108,7 @@ public static class OptionalMarshalClassifier
         if (ExistentialHandler.IsObjCProtocolExistentialSpec(typeSpec, typeDatabase))
             return OptionalMarshalStrategy.NullablePointer;
 
-        // 1b. Optional<protocol existential>: decomposed (resultPtr + hasValuePtr).
+        // 1c. Optional<protocol existential>: decomposed (resultPtr + hasValuePtr).
         //     ExistentialContainer is too large for register return and doesn't have a TypeRecord,
         //     so VWT-based GetEnumTag/DestructiveInjectEnumTag won't work. Decompose instead.
         if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, typeDatabase))

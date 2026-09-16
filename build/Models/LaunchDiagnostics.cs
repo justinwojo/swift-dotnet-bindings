@@ -19,6 +19,14 @@ using System;
 /// </summary>
 public static class LaunchDiagnostics
 {
+    /// <summary>
+    /// The exact UIKitMacHelper assertion raised when a Mac Catalyst app is executed directly
+    /// instead of being opened through LaunchServices. This is a launch-transport signature,
+    /// but only while it occurs before the managed lifecycle entry marker.
+    /// </summary>
+    public const string UIKitMacHelperSceneBootstrapAssertion =
+        "_mainSceneIdentifier should have been set by now!";
+
     // The launcher's own confirmation that it handed the process off to the OS. Past this point
     // any failure is the app's (and therefore ours): a dyld error, a crash, a wrong greeting.
     static readonly string[] LauncherStartedApp =
@@ -72,6 +80,23 @@ public static class LaunchDiagnostics
         if (HasProductEvidence(output)) return false;
         if (ContainsAny(output, LauncherStartedApp)) return false;
         return ContainsAny(output, LauncherAborted);
+    }
+
+    /// <summary>
+    /// True only for the retained Mac Catalyst direct-launch failure that predates managed
+    /// lifecycle entry. Callers that own a LaunchServices fallback may retry that transport;
+    /// the failed attempt itself remains a crash and must stay in the attempt history.
+    /// </summary>
+    public static bool IsUIKitMacHelperPreManagedEntryFailure(
+        TestResult result, string output, bool managedEntryObserved)
+    {
+        if (result != TestResult.Crash || managedEntryObserved || string.IsNullOrEmpty(output))
+            return false;
+
+        return output.Contains(UIKitMacHelperSceneBootstrapAssertion, StringComparison.Ordinal) &&
+            output.Contains("UIKitMacHelper", StringComparison.Ordinal) &&
+            (output.Contains("SIGABRT", StringComparison.Ordinal) ||
+             output.Contains("Abort trap: 6", StringComparison.Ordinal));
     }
 
     /// <summary>

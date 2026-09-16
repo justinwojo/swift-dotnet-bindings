@@ -24,6 +24,7 @@ public class ConcreteSpecializationEngine
     private readonly Dictionary<string, List<ConcreteConformer>> _hintConformers;
     private readonly Dictionary<string, List<ConcreteConformer>> _abiConformers;
     private readonly HashSet<string> _abiIndexedTypes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _wrapperInaccessibleAbiTypes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _abiDeclaredProtocolsByType =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, ProtocolDecl> _abiProtocols = new(StringComparer.Ordinal);
@@ -193,6 +194,15 @@ public class ConcreteSpecializationEngine
     private static readonly Lazy<Dictionary<string, List<ConcreteConformer>>> _sharedHints =
         new(LoadHints);
 
+    /// <summary>
+    /// True when the embedded specialization registry declares <paramref name="swiftTypeName"/>
+    /// as a protocol. The registry's top-level keys are protocol identities, not arbitrary type
+    /// names, so they provide an identity proof for imported SDK protocols that are present in a
+    /// member's generic signature but absent from the bound module's type database.
+    /// </summary>
+    internal static bool IsHintedProtocol(string swiftTypeName)
+        => _sharedHints.Value.ContainsKey(swiftTypeName);
+
     public ConcreteSpecializationEngine(ITypeDatabase typeDatabase, string? currentModuleName = null)
     {
         _typeDatabase = typeDatabase;
@@ -276,10 +286,15 @@ public class ConcreteSpecializationEngine
             _ => Enumerable.Empty<TypeConformance>()
         };
 
+        var wrapperInaccessible = _indexedModuleName is { } indexedModuleName &&
+            WrapperValidation.IsTypeOrEnclosingUnavailableToWrapper(typeDecl, indexedModuleName);
+
         if (typeDecl.SwiftTypeName is { } indexedTypeName)
         {
             var indexedKey = indexedTypeName.ToString();
             _abiIndexedTypes.Add(indexedKey);
+            if (wrapperInaccessible)
+                _wrapperInaccessibleAbiTypes.Add(indexedKey);
             if (!_abiDeclaredProtocolsByType.TryGetValue(indexedKey, out var declaredSet))
             {
                 declaredSet = new HashSet<string>(StringComparer.Ordinal);
@@ -307,7 +322,10 @@ public class ConcreteSpecializationEngine
 
             // Resolve C# type name
             var csName = ResolveCSharpName(conformance.ConformingType);
-            if (csName != null)
+            // A concrete specialization wrapper names its conformer from a separate client
+            // module. Keep inaccessible declarations in the ABI verification index above so
+            // stale hints are still disproved, but never offer them as wrapper conformers.
+            if (csName != null && !wrapperInaccessible)
             {
                 // Surface this conformer's associated-type resolution map. Route C's bag
                 // walker uses it to find the per-conformer protocol/struct that satisfies a
@@ -440,6 +458,9 @@ public class ConcreteSpecializationEngine
             foreach (var c in hintList)
             {
                 if (!IsConformerAllowedForModule(c, _currentModuleName))
+                    continue;
+
+                if (_wrapperInaccessibleAbiTypes.Contains(c.SwiftQualifiedName))
                     continue;
 
                 // Cross-check hint-declared conformers against the current module's ABI.
@@ -677,6 +698,15 @@ public class ConcreteSpecializationEngine
 
         foreach (var method in typeDecl.Methods)
         {
+            // CSM wrappers call the Swift declaration by source name from a separate
+            // wrapper module. An ABI-visible member that the public swiftinterface marks
+            // module-internal is therefore not callable, even when its generic signature
+            // otherwise has concrete conformers. The ordinary member pipeline already
+            // suppresses this visibility class; discovery must not resurrect it on the
+            // independent specialization plane.
+            if (method.IsModuleInternal || method.IsSpiProtected)
+                continue;
+
             // Find method-own generic params (not inherited from parent type). Methods
             // on a generic parent may carry parent-inherited entries in their
             // GenericParameters list (see cross-level coupling at the bottom of the

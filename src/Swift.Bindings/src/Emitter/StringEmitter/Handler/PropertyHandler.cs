@@ -1530,7 +1530,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                                 if (__hasVal) {
                                     var __meta = TypeMetadata.GetTypeMetadataOrThrow<{{innerCs}}>();
                                     __heap = NativeMemory.AllocZeroed((nuint)__meta.Size);
-                                    var __span = new System.Span<byte>(__heap, (int)__meta.Size);
+                                    var __span = new global::System.Span<byte>(__heap, (int)__meta.Size);
                                     SwiftMarshal.MarshalToSwift<{{innerCs}}>(value!, ref __span);
                                     __initialized = true;
                                     __ptr = (IntPtr)__heap;

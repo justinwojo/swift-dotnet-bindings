@@ -268,6 +268,10 @@ public static partial class ClosureEmitter
         // address of the unwrapped collection for .some (including an empty collection).
         var typedAddressArgs = new List<(int index, string swiftType)>();
         var optionalCollectionArgs = new List<(int index, string innerSwiftType)>();
+        // Optional<any Error> uses a nullable borrowed-pointer ABI: nil is a null
+        // pointer; .some points to Swift's compact one-word boxed-error payload and
+        // remains initialized for the duration of the managed callback.
+        var optionalAnyErrorArgs = new List<int>();
         // `inout` args: the adapter takes the parameter by reference, hands the cdecl callback a
         // second, uninitialized cell for whatever the managed block leaves behind, and assigns that
         // cell back into the caller's storage once the call returns. The input side is unchanged —
@@ -280,12 +284,7 @@ public static partial class ClosureEmitter
         {
             // Use module-qualified names to avoid ambiguity when the wrapper imports multiple modules
             // (e.g., SwiftUI.Color vs SwiftBindingsTestLib.Color)
-            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
-            // Single-protocol existentials arrive as NamedTypeSpec { IsAny = true } from the parser;
-            // RenderModuleQualifiedSwiftTypeSpec drops the `any` keyword, which Swift 6 requires.
-            // ProtocolListTypeSpec already renders with the `any` prefix.
-            if (arg is NamedTypeSpec { IsAny: true })
-                swiftType = $"any {swiftType}";
+            var swiftType = RenderModuleQualifiedSwiftClosureArgType(arg, closureHandler!);
             closureParams.Add($"p{argIndex}: {(arg.IsInOut ? "inout " : "")}{swiftType}");
 
             // Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
@@ -335,6 +334,10 @@ public static partial class ClosureEmitter
                     // callback an initialized value address and let MarshalFromSwift copy through
                     // the Result metadata instead of reconstructing either from registers.
                     typedAddressArgs.Add((argIndex, swiftType));
+                }
+                else if (MethodClosureBridge.IsOptionalAnyErrorExistential(arg))
+                {
+                    optionalAnyErrorArgs.Add(argIndex);
                 }
                 else if (arg is NamedTypeSpec
                          {
@@ -438,6 +441,7 @@ public static partial class ClosureEmitter
             var existentialArg = existentialArgs.FirstOrDefault(h => h.index == argIndex);
             var typedAddressArg = typedAddressArgs.FirstOrDefault(h => h.index == argIndex);
             var optionalCollectionArg = optionalCollectionArgs.FirstOrDefault(h => h.index == argIndex);
+            var optionalAnyErrorArg = optionalAnyErrorArgs.Contains(argIndex);
             if (heapArg != default)
             {
                 // Complex enum: owning-transfer heap pointer.
@@ -480,6 +484,10 @@ public static partial class ClosureEmitter
             else if (optionalCollectionArg != default)
             {
                 cdeclArgs.Add($"__collection_{argIndex}.map {{ UnsafeMutableRawPointer($0) }}");
+            }
+            else if (optionalAnyErrorArg)
+            {
+                cdeclArgs.Add($"__optionalError_{argIndex}.map {{ UnsafeMutableRawPointer($0) }}");
             }
             else if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
             {
@@ -590,6 +598,19 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}        __collection_{idx} = __typed_{idx}");
             heapAllocLines.Add($"{indent}    }}");
             heapAllocLines.Add($"{indent}    defer {{ if let __typed_{idx} = __collection_{idx} {{ __typed_{idx}.deinitialize(count: 1); __typed_{idx}.deallocate() }} }}");
+        }
+        // Optional<any Error>: materialize only the non-nil one-word boxed-error cell.
+        // The cdecl callback copies that payload word into AnyError? before this
+        // temporary is destroyed.
+        foreach (var idx in optionalAnyErrorArgs)
+        {
+            heapAllocLines.Add($"{indent}    var __optionalError_{idx}: UnsafeMutablePointer<any Swift.Error>? = nil");
+            heapAllocLines.Add($"{indent}    if let __value_{idx} = p{idx} {{");
+            heapAllocLines.Add($"{indent}        let __typed_{idx} = UnsafeMutablePointer<any Swift.Error>.allocate(capacity: 1)");
+            heapAllocLines.Add($"{indent}        __typed_{idx}.initialize(to: __value_{idx})");
+            heapAllocLines.Add($"{indent}        __optionalError_{idx} = __typed_{idx}");
+            heapAllocLines.Add($"{indent}    }}");
+            heapAllocLines.Add($"{indent}    defer {{ if let __typed_{idx} = __optionalError_{idx} {{ __typed_{idx}.deinitialize(count: 1); __typed_{idx}.deallocate() }} }}");
         }
         // Non-frozen struct allocation: VWT-managed copy of the struct value transferred to C#.
         // `initializeMemory(as:repeating:count:)` invokes VWT.initializeWithCopy which retains
@@ -712,6 +733,29 @@ public static partial class ClosureEmitter
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Renders a closure argument for generated Swift source while preserving the Swift 6
+    /// existential <c>any</c> keyword. The ABI parser represents <c>(any Error)?</c> as
+    /// Optional wrapping a NamedTypeSpec with <c>IsAny</c>; the general renderer deliberately
+    /// omits that marker, so closure signatures must restore it here.
+    /// </summary>
+    private static string RenderModuleQualifiedSwiftClosureArgType(
+        TypeSpec typeSpec,
+        ClosureHandler closureHandler)
+    {
+        if (MethodClosureBridge.IsOptionalAnyErrorExistential(typeSpec))
+            return "Swift.Optional<(any Swift.Error)>";
+
+        var rendered = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
+            typeSpec, closureHandler.TypeDatabase);
+        if (typeSpec is NamedTypeSpec { IsAny: true } &&
+            !rendered.StartsWith("any ", StringComparison.Ordinal))
+        {
+            rendered = $"any {rendered}";
+        }
+        return rendered;
     }
 
     /// <summary>
@@ -998,6 +1042,10 @@ public static partial class ClosureEmitter
                 named.GenericParameters.Count == 1)
             {
                 var inner = named.GenericParameters[0];
+                // Optional<any Error> uses a nullable pointer to Swift's borrowed
+                // one-word boxed-error payload, shared with MethodClosureBridge.
+                if (MethodClosureBridge.IsAnyErrorExistential(inner))
+                    return true;
                 if (inner is NamedTypeSpec { ContainsGenericParameters: true } innerCollection &&
                     innerCollection.Name is "Swift.Array" or "Swift.Dictionary")
                     return true;
@@ -1419,6 +1467,7 @@ public static partial class ClosureEmitter
         // Emit the call — with error handling for @_cdecl throwing methods
         if (useCdecl && methodDecl.Throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter, indent: "    ");
             swiftWriter.WriteLine("    do {");
             var throwCallExpr = $"try {callPrefix}{callArgsStr}{callSuffix}";
             if (hasLargeOptionalReturn)

@@ -6,13 +6,12 @@
 // inside `nuke binding-tests --compile-only`, so CI's fail-closed compile gate exercises the loop
 // on every invocation.
 //
-// The fixture (BindingTests/Sources/ResilienceKitchen/) interleaves a STRUCTURALLY HOSTILE member —
-// an implicitly-unwrapped-optional stored property on a GENERIC class, which the emitter binds wrong
-// (the synthesized witness-protocol conformance does not compile) — with HEALTHY siblings inside the
-// same type. The verify-recover loop must withdraw ONLY the broken accessor group and keep every
-// healthy sibling intact. This is a LOOP-CONTAINED family: its root cause is deliberately NOT fixed,
-// so a natural compile → attribute → withdraw shape stays exercised here (a predictively-skipped
-// shape would fire before emission and the loop would never see it).
+// The fixture (BindingTests/Sources/ResilienceKitchen/) interleaves STRUCTURALLY HOSTILE members —
+// implicitly-unwrapped-optional properties and constrained-extension methods whose synthesized
+// witness conformances do not compile — with HEALTHY siblings inside the same types. The
+// verify-recover loop must withdraw ONLY the broken accessor/leaf units and keep every healthy sibling
+// intact. These are LOOP-CONTAINED families: their roots deliberately stay compiler-owned, so natural
+// compile → attribute → withdraw shapes remain exercised (a predictive skip would bypass the loop).
 //
 // The gate builds the fixture TWICE from one source tree: a HOSTILE slice (with the RESILIENCE_HOSTILE
 // Swift define) and a hostile-free CONTROL slice. It then asserts:
@@ -57,11 +56,13 @@ partial class Build
     const string ResilienceWrapperModule = "ResilienceKitchenSwiftBindings";
     const string ResilienceHostileDefine = "RESILIENCE_HOSTILE";
 
-    // The members the emitter binds wrong (IUO-on-generic-class); the loop must withdraw exactly
+    // The members the emitter binds wrong (IUO-on-generic-class plus constrained-extension
+    // generic-instance dispatch); the loop must withdraw exactly
     // these and nothing else. Swift member names — the withdrawal rows and `// Unsupported:` comments
     // key off them, and their C# projection (HostileWidget/HostileSecond) is caught by the same
     // case-insensitive dangling scan.
-    static readonly string[] ResilienceHostileMembers = { "hostileWidget", "hostileSecond" };
+    static readonly string[] ResilienceHostileMembers =
+        { "hostileWidget", "hostileSecond", "bitwiseOnly", "unitOnly" };
 
     // Fully-bindable type with no hostile members: its presence proves a genuine PARTIAL binding.
     static readonly string[] ResiliencePositiveControls = { "KitchenPlain" };
@@ -79,6 +80,7 @@ partial class Build
         ("KitchenBox", "Tag"), ("KitchenBox", "HealthyWidget"), ("KitchenBox", "GetDescribeTag"),
         ("KitchenBox", "Transform"), ("KitchenBox", "Adjust"),
         ("KitchenPair", "First"), ("KitchenPair", "Count"), ("KitchenPair", "GetPeekCount"),
+        ("KitchenConstraintBox", "GetControl"),
     };
 
     const string ResilienceBoxFile = ResilienceModule + ".Types.KitchenBox.cs";
@@ -285,7 +287,12 @@ partial class Build
 
         foreach (var member in ResilienceHostileMembers)
         {
-            var declaringType = member == "hostileWidget" ? "KitchenBox" : "KitchenPair";
+            var declaringType = member switch
+            {
+                "hostileWidget" => "KitchenBox",
+                "hostileSecond" => "KitchenPair",
+                _ => "KitchenConstraintBox",
+            };
             var row = items.EnumerateArray().FirstOrDefault(it =>
                 it.TryGetProperty("Name", out var n) && n.GetString() == member &&
                 it.TryGetProperty("ContainingType", out var t) && t.GetString() == $"{ResilienceModule}.{declaringType}");
@@ -311,8 +318,10 @@ partial class Build
                 throw new Exception($"resilience-kitchen: hostile member '{member}' CauseOwner='{owner}' (expected Generator).");
 
             var rootCauseId = Str("RootCauseId");
-            if (!rootCauseId.EndsWith("!accessor-group", StringComparison.Ordinal))
-                throw new Exception($"resilience-kitchen: hostile member '{member}' RootCauseId='{rootCauseId}' (expected an '!accessor-group' root — the withdrawn unit is a property accessor group).");
+            var expectedScope = member is "hostileWidget" or "hostileSecond" ? "!accessor-group" : "!leaf-api";
+            if (!rootCauseId.EndsWith(expectedScope, StringComparison.Ordinal))
+                throw new Exception($"resilience-kitchen: hostile member '{member}' RootCauseId='{rootCauseId}' "
+                    + $"(expected an '{expectedScope}' root — the compiler diagnostic must be attributed to the narrow owning unit).");
 
             // These withdrawals are their OWN root cause, not cascade victims of another unit.
             if (row.TryGetProperty("CascadeFrom", out var cascade) && cascade.ValueKind != JsonValueKind.Null)

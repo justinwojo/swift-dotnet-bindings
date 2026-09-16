@@ -668,6 +668,80 @@ public class ConcreteSpecializationEngineTests
         Assert.Empty(result);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void FindSpecializableMethods_NonPublicGenericMethod_IsNotResurrected(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        // Segment's ABI contains process(incomingEvent:) even though the public
+        // swiftinterface exposes only process(event:). The parser correctly classifies the
+        // ABI-only generic member as internal, but CSM discovery historically ignored that
+        // classification and emitted wrappers that could not compile in a client module.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var typeDecl = CreateClassWithSomeCollectionStringMethod("Analytics");
+        var method = Assert.Single(typeDecl.Methods);
+        method.IsModuleInternal = isModuleInternal;
+        method.IsSpiProtected = isSpiProtected;
+
+        Assert.Empty(engine.FindSpecializableMethods(typeDecl));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void IndexModuleConformances_NonPublicConformer_IsNotOfferedToWrappers(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        var db = new ResolvingTypeDatabase();
+        var conformerName = SwiftTypeName.FromModuleQualifiedName("TestLib.HiddenValue");
+        db.Register(conformerName, "TestLib", "HiddenValue");
+        var moduleDecl = CreateModuleWithConformer(
+            "TestLib", "TestLib.HiddenValue", "TestLib.Processable");
+        var conformer = Assert.IsType<StructDecl>(Assert.Single(moduleDecl.Types));
+        conformer.IsModuleInternal = isModuleInternal;
+        conformer.IsSpiProtected = isSpiProtected;
+
+        var engine = new ConcreteSpecializationEngine(db, "TestLib");
+        engine.IndexModuleConformances(moduleDecl);
+
+        Assert.Empty(engine.GetConformers(
+            SwiftTypeName.FromModuleQualifiedName("TestLib.Processable")));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void GetConformers_HintForNonPublicAbiConformer_IsNotResurrected(
+        bool isModuleInternal,
+        bool isSpiProtected)
+    {
+        // ColorAttribute is a curated hint for AttributeKind. Indexing matching ABI evidence
+        // would ordinarily confirm that hint, so this reaches the independent hint-offer path
+        // rather than relying on omission from the ABI conformer list alone.
+        var db = new ResolvingTypeDatabase();
+        var conformerName =
+            SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(conformerName, "SwiftBindingsTestLib", "ColorAttribute");
+        var moduleDecl = CreateModuleWithConformer(
+            "SwiftBindingsTestLib",
+            "SwiftBindingsTestLib.ColorAttribute",
+            "SwiftBindingsTestLib.AttributeKind");
+        var conformer = Assert.IsType<StructDecl>(Assert.Single(moduleDecl.Types));
+        conformer.IsModuleInternal = isModuleInternal;
+        conformer.IsSpiProtected = isSpiProtected;
+
+        var engine = new ConcreteSpecializationEngine(db, "SwiftBindingsTestLib");
+        engine.IndexModuleConformances(moduleDecl);
+
+        Assert.DoesNotContain(
+            engine.GetConformers(
+                SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind")),
+            candidate => candidate.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+    }
+
     [Fact]
     public void FindSpecializableMethods_AssociatedTypeSugarVsCanonical_StillSpecializes()
     {
@@ -873,6 +947,9 @@ public class ConcreteSpecializationEngineTests
         // throwing-ctor ABI without coupling to formatting.
         Assert.Contains("errorPtr", cs);
         Assert.Contains("errorOut", swift);
+        var clearAt = swift.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < swift.IndexOf("do {", StringComparison.Ordinal),
+            $"The concrete-specialization wrapper must clear errorOut before executing Swift code.\n{swift}");
     }
 
     [Fact]
@@ -2212,77 +2289,56 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
-    public void ConformerReferencesInternalType_CurrentModuleExactIdentity_ReturnsTrue()
+    public void CanEmitConcreteOverload_InternalConformer_DefersToCompilerRecovery()
     {
         var module = BuildEmptyModule("XMLCoder");
-        module.InternalTypeNames = new HashSet<string>
-        {
-            "BoolBox",
-            "XMLCoder.BoolBox",
-        };
+        module.InternalTypeNames = new HashSet<string> { "BoolBox", "XMLCoder.BoolBox" };
+        var parent = CreateGenericStructDecl("Container", "T");
+        parent.ModuleDecl = module;
+
         var method = CreateMethodWithSig("unbox", "<T>");
         method.ModuleDecl = module;
+        method.ParentDecl = parent;
+        method.MethodType = MethodType.Static;
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = string.Empty,
+            PrivateName = string.Empty,
+            SwiftTypeSpec = TupleTypeSpec.Empty,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = method,
+            ModuleDecl = module,
+        });
+
         var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
             "XMLCoder.BoolBox", "BoolBox");
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            parent.GenericParameters[0],
+            SwiftTypeName.FromModuleQualifiedName("XMLCoder.BoxProtocol"),
+            new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            IsParentGeneric: true);
 
-        Assert.True(ConcreteProtocolSpecializationEmitter
-            .ConformerReferencesInternalType(method, conformer));
+        Assert.True(ConcreteProtocolSpecializationEmitter.CanEmitConcreteOverloadForPairing(
+            method, parent, new[] { (param, conformer) }, CreateEmptyTypeDatabase(), out var reason),
+            reason);
     }
 
-    [Fact]
-    public void ConformerReferencesInternalType_CrossModuleShortNameNearMiss_ReturnsFalse()
+    [Theory]
+    [InlineData("XMLCoder.BoolBox")]
+    [InlineData("Swift.Array<XMLCoder.InternalElement>")]
+    [InlineData("Swift.Array<OtherModule.InternalElement>")]
+    public void PostProcessor_InternalConformerSpellings_ArePreservedForCompilerAttribution(string spelling)
     {
-        var module = BuildEmptyModule("XMLCoder");
-        module.InternalTypeNames = new HashSet<string>
-        {
-            "BoolBox",
-            "XMLCoder.BoolBox",
-        };
-        var method = CreateMethodWithSig("unbox", "<T>");
-        method.ModuleDecl = module;
-        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
-            "OtherModule.BoolBox", "OtherModule.BoolBox");
+        var source = $"@_cdecl(\"SBW_CSM_probe\")\npublic func probe(_ p: UnsafeRawPointer) {{ _ = {spelling}.self }}\n";
+        var result = SwiftWrapperPostProcessor.Process(
+            source,
+            new HashSet<string> { "BoolBox", "InternalElement", "XMLCoder.BoolBox", "XMLCoder.InternalElement" },
+            currentModuleName: "XMLCoder");
 
-        Assert.False(ConcreteProtocolSpecializationEmitter
-            .ConformerReferencesInternalType(method, conformer));
-    }
-
-    [Fact]
-    public void ConformerReferencesInternalType_NestedGenericArgument_ReturnsTrue()
-    {
-        var module = BuildEmptyModule("XMLCoder");
-        module.InternalTypeNames = new HashSet<string>
-        {
-            "InternalElement",
-            "XMLCoder.InternalElement",
-        };
-        var method = CreateMethodWithSig("unbox", "<T>");
-        method.ModuleDecl = module;
-        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
-            "Swift.Array<XMLCoder.InternalElement>",
-            "Swift.SwiftArray<XMLCoder.InternalElement>");
-
-        Assert.True(ConcreteProtocolSpecializationEmitter
-            .ConformerReferencesInternalType(method, conformer));
-    }
-
-    [Fact]
-    public void ConformerReferencesInternalType_CrossModuleNestedNearMiss_ReturnsFalse()
-    {
-        var module = BuildEmptyModule("XMLCoder");
-        module.InternalTypeNames = new HashSet<string>
-        {
-            "InternalElement",
-            "XMLCoder.InternalElement",
-        };
-        var method = CreateMethodWithSig("unbox", "<T>");
-        method.ModuleDecl = module;
-        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
-            "Swift.Array<OtherModule.InternalElement>",
-            "Swift.SwiftArray<OtherModule.InternalElement>");
-
-        Assert.False(ConcreteProtocolSpecializationEmitter
-            .ConformerReferencesInternalType(method, conformer));
+        Assert.Equal(0, result.StrippedBlockCount);
+        Assert.Contains(spelling, result.CleanedContent);
+        Assert.Empty(result.StrippedSymbols);
     }
 
     [Fact]

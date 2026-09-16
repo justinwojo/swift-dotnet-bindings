@@ -429,6 +429,7 @@ public static class OptionalPointerWrapperEmitter
         // Emit the call — with error handling for @_cdecl throwing methods
         if (useCdecl && methodDecl.Throws)
         {
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter, indent: "    ");
             swiftWriter.WriteLine("    do {");
             if (hasLargeOptionalReturn)
             {

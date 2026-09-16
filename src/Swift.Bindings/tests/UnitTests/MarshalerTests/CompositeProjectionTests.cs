@@ -563,11 +563,10 @@ public class CompositeProjectionTests
     public void OptionalFrozenWithMemory_Param_UsesWrapperType_NotBufferStruct()
     {
         // A handle-backed FrozenWithMemoryProjection inner (e.g. SwiftClosedRange<T>) has no
-        // nested .Buffer struct: its SwiftContainerGenericType is `{Type}.Buffer`, correct for a
-        // genuine by-value ClassWithBufferStruct but nonexistent on the wrapper class. The
-        // Optional<T> parameter must therefore pack as SwiftOptional<{Type}> (metadata-driven,
-        // matching the return direction) and hand the public-typed wrapper value straight to
-        // NewSome — never SwiftOptional<{Type}.Buffer>, which is CS0426 (no `.Buffer` member).
+        // nested .Buffer struct. Its metadata-bearing SwiftContainerGenericType is `{Type}`;
+        // the bare-value P/Invoke carrier is a separate concern. The Optional<T> parameter must
+        // therefore pack as SwiftOptional<{Type}> and hand the public-typed wrapper value straight
+        // to NewSome — never SwiftOptional<{Type}.Buffer>, which is CS0426 (no `.Buffer` member).
         var inner = new FrozenWithMemoryProjection("Swift.SwiftClosedRange<float>");
         var optProj = new OptionalProjection(inner, useDangerousGetHandle: true);
 

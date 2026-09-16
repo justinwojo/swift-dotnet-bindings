@@ -142,9 +142,21 @@
           "type": "boolean",
           "description": "Emit the ABI coverage grid report + gate after the platform run(s), merging sim+device"
         },
+        "ActivityKitProvisioningProfile": {
+          "type": "string",
+          "description": "Provisioning profile name/UUID for --activitykit-push-token (or set ACTIVITYKIT_PROVISIONING_PROFILE)"
+        },
+        "ActivityKitPushToken": {
+          "type": "boolean",
+          "description": "Opt in to the entitlement-qualified ActivityKit usePushToken:true physical-device arm"
+        },
         "ApiCompatBaseline": {
           "type": "string",
           "description": "ApiCompat baseline for the SwiftBindings.Runtime pack: the last shipped Runtime version this pack's public surface must be additive over (defaults to the highest stable sdk-v* tag below --version)"
+        },
+        "ApplePackageConsumer": {
+          "type": "boolean",
+          "description": "Opt-in: pack SwiftBindings.Runtime + SwiftBindings.Apple, then NativeAOT-publish and run a no-extra-TrimmerRoots iOS device consumer that materializes SwiftArray<Locale.Language> elements"
         },
         "AppleVersion": {
           "type": "string",
@@ -358,6 +370,10 @@
         "Solution": {
           "type": "string",
           "description": "Path to a solution file that is automatically loaded"
+        },
+        "StoreKitSandboxProductId": {
+          "type": "string",
+          "description": "Exact App Store Connect product id for StoreKit command-line Sandbox qualification (or STOREKIT_SANDBOX_PRODUCT_ID)"
         },
         "Strict": {
           "type": "boolean",

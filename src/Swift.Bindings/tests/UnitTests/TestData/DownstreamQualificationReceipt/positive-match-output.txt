@@ -1,0 +1,3 @@
+[PASS] first test
+diagnostic line
+[PASS] second test

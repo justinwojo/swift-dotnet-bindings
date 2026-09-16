@@ -447,7 +447,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericMethodReturningItsOwnParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericMethodReturningItsOwnParameter_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -460,10 +460,9 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        // A return position that mentions an own generic parameter needs the indirect-result
-        // buffer sized from the opened layout, which the opening wrapper does not derive — the
-        // member stays on the direct route and emits no wrapper.
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        // The managed side sizes the indirect result from T metadata, while the Swift opening
+        // body writes it using the local opened type.
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -741,7 +740,7 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_FreeFunction_GenericMethodReturningItsOwnParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_FreeFunction_GenericMethodReturningItsOwnParameter_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("Dummy");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -753,7 +752,7 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -1802,6 +1801,9 @@ public class MethodWrapperEmitterTests
         Assert.Contains("do {", output);
         Assert.Contains("try obj.doWork()", output);
         Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
+        Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
+            $"The method wrapper must clear errorOut before executing Swift code.\n{output}");
     }
 
     [Fact]
@@ -4194,13 +4196,12 @@ public class MethodWrapperEmitterTests
     [Theory]
     [InlineData("<τ_0_0 where τ_0_0 : Swift.BitwiseCopyable>")]
     [InlineData("<τ_0_0 where τ_0_0 == ()>")]
-    public void GenericClassConcreteMethod_LosslessExtensionConstraint_SkipsWrapper(string signature)
+    public void GenericClassConcreteMethod_LosslessExtensionConstraint_DefersToCompilerRecovery(string signature)
     {
         // These constraints are absent from the representable conformance list: BitwiseCopyable
-        // is an @_marker layout requirement and `== ()` is a concrete same-type pin. The older
-        // instance-class path consulted only that narrow list and emitted an unconditional
-        // `extension Box: _SBW_P_*`, which swiftc rejects because the method exists only under
-        // the dropped where-clause.
+        // is an @_marker layout requirement and `== ()` is a concrete same-type pin. They must
+        // render so swiftc can attribute an invalid unconditional conformance to this member;
+        // verify/recover then withdraws the narrow leaf without maintaining a second legality model.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -4218,12 +4219,12 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
 
         var output = sw.ToString();
-        Assert.Contains("Generic static dispatch wrapper skipped", output);
-        Assert.DoesNotContain("extension TestModule.Box: _SBW_P_", output);
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", output);
+        Assert.Contains("extension TestModule.Box: _SBW_P_", output);
 
         var planning = new MemberValidationPipeline(typeDb).ValidateMethodEmission(method, null);
-        Assert.False(planning.ShouldEmit);
-        Assert.Equal(SkipReason.ConstrainedExtensionWrapper, planning.Reason);
+        Assert.True(planning.ShouldEmit);
+        Assert.Null(planning.Reason);
     }
 
     [Fact]
@@ -5401,12 +5402,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void EvaluateWrapperEligibility_OptionalObjCBridgeableContainerReturn_IsRejected()
+    public void EvaluateWrapperEligibility_OptionalObjCBridgeableContainerReturn_IsAccepted()
     {
-        // Swift `[URL]?` lowers to ONE nullable retained collection pointer in the wrapper, but
-        // the managed side classifies the same Optional as wide and reshapes the call into a void
-        // return plus a trailing out-buffer. Declining keeps the member on the direct route
-        // rather than emitting a pair that only lines up by accident.
+        // Swift `[URL]?` and the managed binding now agree on one nullable retained collection
+        // pointer, so this shape no longer needs a defensive wrapper rejection.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "MyType",
             ("Foundation.URL", TypeRecordFlags.ObjCBridgeable, TypeRecordKind.Struct, (string?)null));
@@ -5421,9 +5420,25 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithReturn("recentUrls", optionalUrlArray, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("optional_bridged_container_return",
-            MethodWrapperEmitter.EvaluateWrapperEligibility(env).Reason);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.EvaluateWrapperEligibility(env).IsWrappable);
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+
+        var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalUrlArray, typeDb);
+        Assert.Equal(CdeclReturnKind.OptionalClassPointer, returnMapping.Kind);
+        Assert.False(needsResultPtr);
+        Assert.False(MarshallingHelpers.CdeclOptionalReturnNeedsIndirectResult(optionalUrlArray, typeDb));
+
+        method.UsesCdeclMethodWrapper = true;
+        env.PromoteSymbol("SBW_TestModule_MyType_recentUrls_abc12345");
+        var sw = new StringWriter();
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(
+            new SwiftWriter(sw), env, new ModuleEmissionContext());
+
+        var output = sw.ToString();
+        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("Unmanaged.passRetained", output);
+        Assert.DoesNotContain("resultPtr", output);
+        Assert.DoesNotContain("hasValuePtr", output);
     }
 
     [Fact]

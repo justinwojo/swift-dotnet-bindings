@@ -93,10 +93,8 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     /// bare IntPtr because Swift's Optional&lt;ClassRef&gt; is nil-pointer-optimized:
     /// the container element is an 8-byte pointer (0 = nil), not a SwiftOptional wrapper.
     /// The inner generic is MarshalFromSwiftType (the wrapper type), matching ContainerTypeName:
-    /// the SwiftOptional element carries the inner value by metadata. MarshalFromSwiftType and
-    /// SwiftContainerGenericType coincide for every inner that reaches this branch EXCEPT
-    /// FrozenWithMemoryProjection, whose SwiftContainerGenericType is the by-value `.Buffer` struct —
-    /// nonexistent for a handle-backed wrapper such as SwiftClosedRange&lt;T&gt;.
+    /// the SwiftOptional element carries the inner value by metadata. This remains distinct from
+    /// the bare value's PInvokeType, which may be a lowered <c>.Buffer</c> carrier.
     /// </summary>
     public string SwiftContainerGenericType =>
         _innerProjection is ClassProjection or KeyPathProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection
@@ -136,9 +134,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
         //
         // The generic is the inner's MarshalFromSwiftType (the metadata-bearing wrapper type), which
         // matches the SwiftArray<SwiftOptional<...>> element generic emitted by SwiftContainerGenericType
-        // above. The two coincide for every inner reaching here EXCEPT FrozenWithMemoryProjection, whose
-        // SwiftContainerGenericType is the by-value `.Buffer` struct — nonexistent for a handle-backed
-        // wrapper such as SwiftClosedRange<T>.
+        // above. It deliberately does not use a bare value's lowered PInvokeType.
         // SwiftOptional has owned element semantics — its value-witness destroy runs on the .Some
         // payload at teardown. An existential inner must therefore ride the owned (+1) carrier
         // (matching carrier type so the slot stride agrees), not the bare borrowed leaf which would
@@ -170,7 +166,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     /// SwiftArray&lt;T&gt; for arrays, etc.)
     /// </summary>
     // Existential inner rides the owned carrier element type (stride-correct); every other inner
-    // keeps its SwiftContainerGenericType (preserves FrozenWithMemory's by-value `.Buffer` generic).
+    // keeps its metadata-bearing SwiftContainerGenericType.
     private string OptionalTypeParam => ExistentialElementCarrier.CarrierType(_innerProjection, _innerProjection.SwiftContainerGenericType);
 
     public MarshalPlan GetParameterPlan(string paramName)
@@ -330,11 +326,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
         // (and the simple-inner inline path) hand NewSome the wrapper value {paramName}Value
         // directly, which is typed as the inner's public type — so the generic must be the inner's
         // MarshalFromSwiftType (the metadata-bearing wrapper type), matching the return direction's
-        // returnTypeParam below. These coincide for every projection EXCEPT
-        // FrozenWithMemoryProjection, whose SwiftContainerGenericType is the by-value `.Buffer`
-        // struct: correct for a genuine ClassWithBufferStruct, but nonexistent for a handle-backed
-        // wrapper such as SwiftClosedRange<T>, where SwiftOptional<SwiftClosedRange<T>> round-trips
-        // the value through Swift metadata instead.
+        // returnTypeParam below. A bare value's lowered PInvokeType is not a valid substitute here.
         var optTypeParam = (containerPlan == null && innerParamConv == null)
             ? _innerProjection.MarshalFromSwiftType
             : OptionalTypeParam;

@@ -406,7 +406,7 @@ partial class Build
 
     Target RegenerateBindings => _ => _
         .DependsOn(BuildXcframework)
-        .Executes(() => RunRegenerateBindings(Strict));
+        .Executes(() => RunRegenerateBindings(Strict, ResolvedPlatform));
 
     /// <summary>
     /// Regenerates the iOS-family (simulator / device / tvOS) bindings into the shared output dir
@@ -1062,6 +1062,21 @@ partial class Build
         {
             RejectSkipBuildWithActiveSmokeFlags();
 
+            if (EnableStoreKitSmoke)
+            {
+                if (CompileOnly || Device || Macos || MacosX64 || Catalyst || CatalystX64)
+                    throw new Exception(
+                        "--enable-storekit-smoke is a command-line iOS/tvOS Simulator Sandbox qualification. " +
+                        "It cannot be combined with --compile-only, device, macOS, or Catalyst lanes.");
+
+                // Fail before regeneration, build, install, or launch. Supplying an id only declares
+                // intent; the native same-simulator control later establishes live backend readiness.
+                if (Sim || !Tvos)
+                    RequireStoreKitSandboxConfiguration("ios");
+                if (Tvos)
+                    RequireStoreKitSandboxConfiguration("tvos");
+            }
+
             // --mono-aot only re-flavors the physical-device app build; it has no meaning on any
             // other lane. Silently ignoring it would hand back a green NativeAOT (or simulator) run
             // under the name of a runtime that never ran.
@@ -1070,14 +1085,31 @@ partial class Build
                     "--mono-aot selects the Mono full-AOT runtime for the PHYSICAL DEVICE app build, so it "
                     + "requires --device. Run `nuke binding-tests --device --mono-aot`.");
 
+            if (ActivityKitPushToken && !Device)
+                throw new Exception(
+                    "--activitykit-push-token is a capability-qualified PHYSICAL DEVICE arm and requires --device. " +
+                    "Simulator remains on the supported non-push lifecycle; run `nuke binding-tests --device " +
+                    "--activitykit-push-token --class-filter LiveActivityTests`." );
+
+            if (ActivityKitPushToken && CompileOnly)
+                throw new Exception(
+                    "--activitykit-push-token and --compile-only cannot be combined: the capability-qualified arm " +
+                    "must build, verify, install, and run a signed physical-device app.");
+
+            if (ActivityKitPushToken && string.IsNullOrWhiteSpace(EffectiveActivityKitProvisioningProfile))
+                throw new Exception(
+                    "--activitykit-push-token requires --activitykit-provisioning-profile (or " +
+                    "ACTIVITYKIT_PROVISIONING_PROFILE) naming an explicit App ID profile that grants the " +
+                    "'aps-environment' entitlement. Wildcard or implicit profiles are not accepted.");
+
             // The opt-in heavyweight legs (--mixed-pack, --mixed-direct, --appstore-hygiene) and
             // --compile-only are mutually exclusive: --compile-only is a no-app-build compile-check
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen and --compile-only cannot be "
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer and --compile-only cannot be "
                     + "combined: --compile-only is the whole-test-lib compile-check gate, while each opt-in leg builds and "
                     + "asserts its own focused fixture and returns early. Pass exactly one.");
 
@@ -1086,10 +1118,10 @@ partial class Build
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, --appstore-hygiene, and --partial-success-kitchen cannot be combined: each "
-                    + "is a focused, exclusive leg that builds its own fixture and returns. Pass exactly one.");
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, and --activitykit-push-token "
+                    + "cannot be combined: each requires its own focused execution path. Pass exactly one.");
 
             // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
             // PartialSuccessKitchen fixture (deliberately-unsupported shapes + must-emit controls),
@@ -1100,6 +1132,17 @@ partial class Build
                 if (Sim || Device || Macos || Catalyst || Tvos)
                     Log.Warning("--partial-success-kitchen is a host-only gate; platform flags are ignored.");
                 RunPartialSuccessKitchenGate();
+                return;
+            }
+
+            // Packaged SwiftBindings.Apple NativeAOT consumer: one PackageReference,
+            // no app-authored TrimmerRootDescriptor/IlcArg, and a real SwiftArray<Language>
+            // element materialization on device. This is the D09 product regression gate.
+            if (ApplePackageConsumer)
+            {
+                if (Sim || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos || MonoAot)
+                    Log.Warning("--apple-package-consumer is a NativeAOT iOS-device-only leg; non-device platform/runtime flags are ignored.");
+                RunApplePackageConsumerLeg();
                 return;
             }
 

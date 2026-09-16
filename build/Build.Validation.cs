@@ -656,15 +656,11 @@ partial class Build
 
                     if (prevBaseline.SkipMetrics.PostProcessorSubCauses.Count > 0)
                     {
-                        // Per-bucket thresholds: "Other" is the safety-net bucket
-                        // (EveryProtocol() placeholders, .load(as: @escaping)) that
-                        // should never fire in normal operation, so any non-zero
-                        // increase is a real regression. "NSInvocation" is also
-                        // tightly bounded — a +1 there is a new ObjC-unavailable
-                        // type leaking through. "InternalType" is the noisy
-                        // post-processor residue that absorbs body-reference
-                        // strips, so a small absolute tolerance keeps the warning
-                        // useful as the residue inventory drifts.
+                        // "Other" is the live deterministic safety-net bucket
+                        // (EveryProtocol() placeholders, .load(as: @escaping)).
+                        // InternalType and NSInvocation remain schema-compatible
+                        // historical buckets and must stay zero: visibility and
+                        // availability failures now belong to verify/recover.
                         foreach (var (cause, curr) in skipMetrics.PostProcessorSubCauses)
                         {
                             prevBaseline.SkipMetrics.PostProcessorSubCauses.TryGetValue(cause, out var prev);
@@ -672,7 +668,7 @@ partial class Build
                             {
                                 "Other" => 0,
                                 "NSInvocation" => 0,
-                                "InternalType" => 5,
+                                "InternalType" => 0,
                                 _ => 5,
                             };
                             if (curr > prev + allowedDelta)

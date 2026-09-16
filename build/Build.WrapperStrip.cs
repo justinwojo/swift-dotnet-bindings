@@ -6,16 +6,13 @@
 // Session 7b retired the bespoke harness stripper (the old `SwiftSourceStripper`: a hand-
 // maintained 107-entry `PreservedProtocols` allowlist plus a swiftc-error retry oracle). It was
 // a SECOND, divergent post-processor that over-stripped valid EveryProtocol conformances (their
-// witness getters then surfaced as runtime `EntryPointNotFoundException`) and under-detected the
-// internal-receiver case the generator's own scrub removes.
+// witness getters then surfaced as runtime `EntryPointNotFoundException`).
 //
 // The harness now scrubs the generated wrapper with the generator's OWN
 // `SwiftWrapperPostProcessor.Process` — the exact oracle the generator-own wrapper compile uses
-// (SwiftWrapperCompiler.cs) — reading the persisted `internalTypeNames` from `wrapper-context.json`.
-// Same source + same scrub + same internal-type set ⇒ the harness wrapper is identical to the
-// generator-own wrapper by construction. `Process` keeps every valid conformance (Pattern 1 only
-// strips a conformance whose body references an internal/Swift-unavailable type) and removes
-// exactly the blocks that cannot compile in a separate wrapper module.
+// (SwiftWrapperCompiler.cs). `Process` removes deterministic placeholder shapes only. Visibility,
+// availability, and lossless constrained-extension failures stay in source so swiftc can attribute
+// them to a fragment and the verify/recover loop can withdraw only that owning leaf.
 //
 // What it strips is gated, not silent: the committed baseline
 // (`BindingTests/baselines.json` → `wrapper_stripped_count`) records the allowed
@@ -25,9 +22,8 @@
 // via `WrapperValidation.GetMemberRejectionReason` arm 2b (`parent_module_internal`) — the
 // rejected `@_cdecl` wrapper falls back to a direct CallConvSwift P/Invoke instead of being
 // emitted-then-scrubbed, so `Process` has nothing left to strip. The async / closure / operator
-// internal-receiver shapes have no clean fallback and remain post-processor-scoped, so any of
-// those re-appearing trips the fail-on-increase. Fail-closed mirrors the artifact-parity gate:
-// `Strict || !Permissive`.
+// internal-receiver shapes with no clean fallback now flow through compiler recovery instead of
+// this scrub. Fail-closed mirrors the artifact-parity gate: `Strict || !Permissive`.
 
 using System;
 using System.Collections.Generic;
@@ -59,13 +55,13 @@ partial class Build
     /// Runs the generator's canonical wrapper post-processor over each generated wrapper file,
     /// writes the cleaned source into <paramref name="cleanedDir"/> for compilation, and returns a
     /// manifest of what was stripped. This REPLACES the bespoke harness stripper — same oracle,
-    /// same <paramref name="internalTypeNames"/>, same <paramref name="currentModuleName"/> the
-    /// generator-own wrapper compile uses, so the two wrappers match by construction.
+    /// same source and same deterministic placeholder rules as the generator-own wrapper compile,
+    /// so the two wrappers match by construction.
     /// </summary>
     /// <param name="swiftFiles">Generated wrapper <c>.swift</c> files (SwiftUI bridge already excluded).</param>
     /// <param name="cleanedDir">Destination for post-processed source (the <c>.wrapper-build</c> dir).</param>
-    /// <param name="internalTypeNames">Internal type names from <c>wrapper-context.json</c>; null skips internal stripping.</param>
-    /// <param name="currentModuleName">The UNDERLYING Swift module (e.g. <c>SwiftBindingsTestLib</c>) — NOT the wrapper module name — so a <c>&lt;module&gt;.X</c> internal reference is matched.</param>
+    /// <param name="internalTypeNames">Retained for generator API compatibility; visibility is compiler-recovered.</param>
+    /// <param name="currentModuleName">Retained for generator API compatibility.</param>
     /// <param name="site">Which leg this is, for the manifest + diagnostics.</param>
     WrapperStripManifest RunWrapperPostProcess(
         IReadOnlyList<string> swiftFiles,
@@ -105,11 +101,10 @@ partial class Build
 
     /// <summary>
     /// Reads <c>internalTypeNames</c> from the generator-persisted <c>wrapper-context.json</c> next
-    /// to the wrapper source. Returns null if the file is absent (the generator wrote nothing to
-    /// strip — <c>Process</c> then runs without internal-type stripping, matching old verbatim). A
-    /// corrupt/unparseable file THROWS (fail-loud) rather than returning null: a null would silently
-    /// skip internal-type stripping and emit an uncompilable wrapper. AOT-safe (<see cref="JsonDocument"/>,
-    /// no reflection).
+    /// to the wrapper source. The post-processor API still accepts this context for compatibility,
+    /// although visibility failures are now left for compiler attribution. A corrupt/unparseable
+    /// file still throws so the persisted wrapper context remains fail-loud. AOT-safe
+    /// (<see cref="JsonDocument"/>, no reflection).
     /// </summary>
     static HashSet<string>? LoadInternalTypeNames(AbsolutePath contextPath)
     {

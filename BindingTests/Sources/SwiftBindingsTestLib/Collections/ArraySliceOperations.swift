@@ -47,6 +47,18 @@ public class SliceProcessor {
     public static func totalSlice(_ data: ArraySlice<Int32>) -> Int32 {
         return data.reduce(0, +)
     }
+
+    /// Array overload paired with the ArraySlice overload below. Both project to
+    /// IEnumerable<UInt8>, so the generated names must retain their Swift collection kind.
+    public static func overloadDispatch(_ data: Array<UInt8>) -> Int32 {
+        return 1_000 + Int32(data.reduce(0) { $0 + Int($1) })
+    }
+
+    /// ArraySlice half of the projection-collision pair. The normalization bridge accepts
+    /// Array<UInt8> at its wrapper boundary but must still dispatch to this overload.
+    public static func overloadDispatch(_ data: ArraySlice<UInt8>) -> Int32 {
+        return 2_000 + Int32(data.reduce(0) { $0 + Int($1) })
+    }
 }
 
 // MARK: - Throwing with ArraySlice

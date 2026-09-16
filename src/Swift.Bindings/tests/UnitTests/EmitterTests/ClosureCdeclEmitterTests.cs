@@ -1344,6 +1344,27 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void SwiftClosureAdapter_OptionalAnyErrorNamedExistential_UsesOneWordBorrowedPayloadAndSwift6Any()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var optionalAnyError = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Error") { IsAny = true });
+        var closureType = new ClosureTypeSpec(optionalAnyError, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "completion", closureType, closureHandler, isOptional: false));
+
+        Assert.Contains("p0: Swift.Optional<(any Swift.Error)>", swift);
+        Assert.Contains("UnsafeMutablePointer<any Swift.Error>.allocate(capacity: 1)", swift);
+        Assert.Contains("__typed_0.initialize(to: __value_0)", swift);
+        Assert.DoesNotContain("as Swift.Error", swift);
+        Assert.Contains("__optionalError_0.map { UnsafeMutableRawPointer($0) }", swift);
+        Assert.Contains("deinitialize(count: 1); __typed_0.deallocate()", swift);
+    }
+
+    [Fact]
     public void SwiftClosureAdapter_ResultOptionalClass_UsesTypedInitializedTemporary()
     {
         var closureHandler = new ClosureHandler(CreateTypeDatabase());

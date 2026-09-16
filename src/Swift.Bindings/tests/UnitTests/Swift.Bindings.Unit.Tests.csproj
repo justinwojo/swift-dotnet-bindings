@@ -158,6 +158,10 @@
          decides which leg owns it is pinned here rather than re-derived at each. BCL-only string
          work, AOT-clean. -->
     <Compile Include="../../../../build/Models/SharedUdidRouting.cs" Link="Models/SharedUdidRouting.cs" />
+    <!-- Link-compile the downstream qualification JSONL contract. Internal consumer harnesses
+         emit this receipt after their sim/device grids; the checked parser ensures malformed,
+         incomplete, arithmetically inconsistent, or multiply-terminated evidence cannot pass. -->
+    <Compile Include="../../../../build/Models/DownstreamQualificationReceipt.cs" Link="Models/DownstreamQualificationReceipt.cs" />
     <!-- Link-compile the device runtime-flavor gate. The two physical-device lanes (NativeAOT and
          Mono full-AOT) share a bundle id, an install path and a test suite, and are separated only
          by an MSBuild property; if that property stops taking effect the run still goes green and
@@ -171,6 +175,16 @@
          shape means a lane shipped without a floor is invisible, so the tests here assert every
          shipping label resolves AND that both committed baseline files carry its entry. BCL-only. -->
     <Compile Include="../../../../build/Models/RuntimeBaselinePlatformKey.cs" Link="Models/RuntimeBaselinePlatformKey.cs" />
+    <!-- ActivityKit push requests must never run on the strength of a source
+         entitlements file alone. Link the same pure policy used by the device
+         harness and RuntimeTestsApp so the missing-aps PermissionsError signature
+         and signed-app/profile agreement remain regression-tested on the host. -->
+    <Compile Include="../../../../build/Models/ActivityKitEntitlementGate.cs" Link="Models/ActivityKitEntitlementGate.cs" />
+    <!-- A StoreKit command-line smoke must observe a fresh same-device pure-Swift Sandbox
+         receipt before the managed app launches. Link the pure parser/preflight policy so
+         missing configuration, stale tokens, wrong environments, and incomplete operations
+         are host-tested without requiring Sandbox credentials. -->
+    <Compile Include="../../../../build/Models/StoreKitSandboxReadiness.cs" Link="Models/StoreKitSandboxReadiness.cs" />
     <!-- Link-compile the runtime-test app's OWN results writer so the run-identity token is tested
          as a round trip — writer stamps it, harness-side JsonlTestResults reads it back — instead of
          two hand-copied string literals that could drift apart. That token is what proves a JSONL

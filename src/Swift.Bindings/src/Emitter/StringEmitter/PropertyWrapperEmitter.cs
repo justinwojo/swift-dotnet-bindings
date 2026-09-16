@@ -462,6 +462,7 @@ public static class PropertyWrapperEmitter
         if (getterThrows)
         {
             propAccess = $"try {propAccess}";
+            ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter);
             swiftWriter.WriteLine("do {");
             swiftWriter.Indent++;
         }
@@ -899,18 +900,6 @@ public static class PropertyWrapperEmitter
         // declines with it: nothing on this route has ever carried a closure, and admitting one
         // untested is the same bet in the other direction.
         if (WrapperValidation.PropertyTypeIsClosureOrOptionalClosure(propertyDecl.SwiftTypeSpec))
-            return false;
-
-        // An Optional of an ObjC-bridgeable container ([URL]?, [String: URL]?, Set<URL>?) lowers
-        // on this route to a nullable retained NSArray/NSDictionary/NSSet pointer, which the Swift
-        // side gets right. The managed side does not: three separate predicates decide "is this
-        // Optional pointer-sized?" and only the @_cdecl-specific one knows about bridgeable
-        // containers, so the P/Invoke comes out with a result buffer the wrapper never writes.
-        // No member anywhere in the corpus has previously reached the @_cdecl arm with this shape,
-        // so there is no working precedent to copy — reconciling those predicates is a change to
-        // the shared Optional-ABI stack, not to this route. Until that happens, declining keeps
-        // the member on the direct path it took before generic parents became wrapper-eligible.
-        if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(propertyDecl.SwiftTypeSpec, typeDatabase))
             return false;
 
         // Path 2: Generic struct/class with T-typed property — static protocol dispatch.

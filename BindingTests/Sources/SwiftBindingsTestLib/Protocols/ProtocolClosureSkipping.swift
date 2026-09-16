@@ -543,3 +543,128 @@ public class AmountProcessorDriver {
         })
     }
 }
+
+// MARK: - Swift-vended existential forward dispatch
+
+/// A typed error payload used to prove that forward witness dispatch preserves
+/// callback argument marshalling independently for each closure parameter.
+public enum VendedClosureFailure: Int32, Error {
+    case rejected = 23
+}
+
+/// The first-party forward-dispatch fixture for closure-bearing requirements.
+/// The implementation stores all three escaping closures and fires them only
+/// from a later call, after the original `load` invocation has returned.
+public protocol VendedClosureLoader {
+    func load(
+        onSuccess: @escaping (Int32) -> Void,
+        onProgress: @escaping (Double) -> Void,
+        onError: @escaping (VendedClosureFailure) -> Void)
+
+    func fireStoredCallbacks()
+}
+
+private final class VendedClosureLoaderImpl: VendedClosureLoader {
+    private var onSuccess: ((Int32) -> Void)?
+    private var onProgress: ((Double) -> Void)?
+    private var onError: ((VendedClosureFailure) -> Void)?
+
+    func load(
+        onSuccess: @escaping (Int32) -> Void,
+        onProgress: @escaping (Double) -> Void,
+        onError: @escaping (VendedClosureFailure) -> Void)
+    {
+        self.onSuccess = onSuccess
+        self.onProgress = onProgress
+        self.onError = onError
+    }
+
+    func fireStoredCallbacks() {
+        onProgress?(0.625)
+        onSuccess?(42)
+        onError?(.rejected)
+    }
+}
+
+public func makeVendedClosureLoader() -> any VendedClosureLoader {
+    VendedClosureLoaderImpl()
+}
+
+/// Exact mixed witness-forwarding shape used by Nuke.DataLoading: one
+/// ObjC-bridgeable value parameter, two retained @Sendable callbacks, and an
+/// existential cancellation token result.
+public protocol VendedMixedCancellation {
+    var cancelCount: Int32 { get }
+    func cancel()
+}
+
+private final class VendedMixedCancellationImpl: VendedMixedCancellation {
+    private(set) var cancelCount: Int32 = 0
+
+    func cancel() {
+        cancelCount += 1
+    }
+}
+
+public protocol VendedMixedClosureLoader {
+    func loadData(
+        with request: URLRequest,
+        didReceiveData: @escaping @Sendable (Data, URLResponse) -> Void,
+        completion: @escaping @Sendable (Error?) -> Void) -> any VendedMixedCancellation
+
+    func fireStoredCallbacks()
+    func fireStoredFailure()
+}
+
+private final class VendedMixedClosureLoaderImpl: VendedMixedClosureLoader, @unchecked Sendable {
+    private var request: URLRequest?
+    private var didReceiveData: (@Sendable (Data, URLResponse) -> Void)?
+    private var completion: (@Sendable (Error?) -> Void)?
+
+    func loadData(
+        with request: URLRequest,
+        didReceiveData: @escaping @Sendable (Data, URLResponse) -> Void,
+        completion: @escaping @Sendable (Error?) -> Void) -> any VendedMixedCancellation
+    {
+        self.request = request
+        self.didReceiveData = didReceiveData
+        self.completion = completion
+        return VendedMixedCancellationImpl()
+    }
+
+    func fireStoredCallbacks() {
+        guard let url = request?.url else {
+            completion?(VendedClosureFailure.rejected)
+            return
+        }
+        let response = URLResponse(
+            url: url,
+            mimeType: "application/octet-stream",
+            expectedContentLength: 3,
+            textEncodingName: nil)
+        didReceiveData?(Data([7, 8, 9]), response)
+        completion?(nil)
+    }
+
+    func fireStoredFailure() {
+        completion?(VendedClosureFailure.rejected)
+    }
+}
+
+public func makeVendedMixedClosureLoader() -> any VendedMixedClosureLoader {
+    VendedMixedClosureLoaderImpl()
+}
+
+public func makeVendedMixedURLRequest(url: String) -> URLRequest {
+    URLRequest(url: URL(string: url)!)
+}
+
+/// Compile-only pin for the mixed String producer path. This requirement makes
+/// the wrapper need SBW_Utf8Slice solely through ClosureParameters while also
+/// compiling the NamedTypeSpec Optional<any Error> adapter under Swift 6.
+public protocol VendedMixedStringClosureCompilePin {
+    func loadLabel(
+        _ label: String,
+        didReceiveValue: @escaping @Sendable (Int32) -> Void,
+        completion: @escaping @Sendable (Error?) -> Void) -> any VendedMixedCancellation
+}

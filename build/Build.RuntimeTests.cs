@@ -60,16 +60,17 @@ partial class Build
 
     // Establishes (or re-establishes) the per-test-identity floor for the platform(s) run this
     // invocation, instead of comparing against it. Used for the initial seed and to bless a
-    // newly-added intentional `[Skip]` (the runtime analog of hand-editing the pass count in
-    // validation-baseline.json downward). Only ever writes on a full, freshly-built, otherwise-green
-    // run — the same predicate the comparison and the count auto-update require.
+    // newly-added intentional `[Skip]`. For shared lanes this one write replaces both the count and
+    // identity views. Only ever writes on a full, freshly-built, otherwise-green run — the same
+    // predicate the comparison and count auto-update require.
     [Parameter("Seed/refresh runtime-identity-baseline.json from this run instead of comparing")]
     readonly bool SeedRuntimeIdentityBaseline;
 
-    // The per-test-identity ratchet layered over the scalar pass-count floor in
-    // validation-baseline.json. A separate file (a plain dictionary keyed by platform) so the
-    // unit-test project can link-compile RuntimeIdentityBaseline and test its Compare logic without
-    // dragging in the whole ValidationBaseline shape.
+    // The single count + per-test-identity authority for shared arm64 runtime lanes. The two x64
+    // lanes have no identity counterpart and retain their scalar floors in validation-baseline.json.
+    // A separate file (a plain dictionary keyed by platform) lets the unit-test project
+    // link-compile RuntimeIdentityBaseline and test its validation/Compare logic without dragging
+    // in the whole ValidationBaseline shape.
     AbsolutePath RuntimeIdentityBaselinePath => BaselinesDir / "runtime-identity-baseline.json";
 
     // Platform selection for the consolidated `binding-tests` target. When none of these
@@ -82,6 +83,10 @@ partial class Build
     readonly bool Sim;
     [Parameter("Run on physical iOS device (NativeAOT)")]
     readonly bool Device;
+    [Parameter("Opt in to the entitlement-qualified ActivityKit usePushToken:true physical-device arm")]
+    readonly bool ActivityKitPushToken;
+    [Parameter("Provisioning profile name/UUID for --activitykit-push-token (or set ACTIVITYKIT_PROVISIONING_PROFILE)")]
+    readonly string? ActivityKitProvisioningProfile;
     // The .NET-for-iOS DEFAULT device runtime is Mono full-AOT, not NativeAOT: a plain
     // `dotnet build -c Debug -r ios-arm64` (no PublishAot) is what a MAUI app ships unless the
     // author opts into PublishAot. That is the runtime most real consumers are on, and until this
@@ -352,6 +357,7 @@ partial class Build
     AbsolutePath StoreKitSnapshotCsproj => StoreKitSnapshotDir / "StoreKit.Swift.iOS.csproj";
     AbsolutePath StoreKitSnapshotProjectRefTargets =>
         StoreKitSnapshotDir / "StoreKit.Swift.iOS.ProjectReference.targets";
+    AbsolutePath StoreKitTvOSSnapshotDir => BindingTestsDir / "obj" / "StoreKit2Snapshot-tvOS";
 
     // CryptoKit snapshot — canonical <Framework>Snapshot layout produced by the
     // generalized RegenerateAppleFrameworkSnapshot helper. No legacy path quirks
@@ -485,8 +491,16 @@ partial class Build
     // both final sinks in the declared-target graph and Nuke --strict rejects the plan.
     Target RegenerateStoreKitSnapshot => _ => _
         .After(RegenerateAppleSnapshot, BindingTests, PackGate, Validate)
-        .Description("Regenerate the in-tree StoreKit 2 snapshot (BindingTests/obj/StoreKit2Snapshot/) from the active Xcode SDK.")
-        .Executes(() => RegenerateStoreKit2Snapshot(force: true));
+        .Description("Regenerate the in-tree StoreKit 2 snapshot from the active Xcode SDK (--platform ios|tvos; default ios).")
+        .Executes(() =>
+        {
+            var platform = string.IsNullOrWhiteSpace(Platform)
+                ? ApplePlatform.IOS
+                : ApplePlatform.FromName(Platform);
+            if (platform != ApplePlatform.IOS && platform != ApplePlatform.TvOS)
+                throw new Exception("StoreKit snapshot regeneration supports only --platform ios or --platform tvos.");
+            RegenerateStoreKit2Snapshot(force: true, platform);
+        });
 
     /// <summary>
     /// Thin wrapper around <see cref="RegenerateAppleFrameworkSnapshot"/> that
@@ -496,9 +510,13 @@ partial class Build
     /// should call <see cref="RegenerateAppleFrameworkSnapshot"/> directly or
     /// go through the <c>regen-apple-snapshot</c> nuke target.
     /// </summary>
-    void RegenerateStoreKit2Snapshot(bool force)
+    void RegenerateStoreKit2Snapshot(bool force, ApplePlatform? platform = null)
     {
-        RegenerateAppleFrameworkSnapshot("StoreKit", StoreKitSnapshotDir, force);
+        platform ??= ApplePlatform.IOS;
+        var snapshotDir = platform == ApplePlatform.TvOS
+            ? StoreKitTvOSSnapshotDir
+            : StoreKitSnapshotDir;
+        RegenerateAppleFrameworkSnapshot("StoreKit", snapshotDir, force, platform);
     }
 
     /// <summary>
@@ -1084,6 +1102,11 @@ partial class Build
                 Log.Information("Device: {Name} ({Udid})", device.Name, device.Udid);
             }
 
+            var activityKitProfile = ActivityKitPushToken
+                ? RequireActivityKitProvisioningProfile(
+                    ResolveActivityKitProvisioningDeviceUdid(device.Udid))
+                : null;
+
             if (!EffectiveSkipRegen)
             {
                 // Device path: build xcframework with device slice
@@ -1118,12 +1141,20 @@ partial class Build
                     // AppContext switch the SDK injects for real consumers.
                     Log.Information("--- Building RuntimeTestsApp (Mono full-AOT, ios-arm64) ---");
                     Log.Information("This may take several minutes (Mono AOT + code signing)...");
-                    DotNetBuild(s => s
-                        .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
-                        .SetConfiguration(configuration)
-                        .SetProperty("RuntimeIdentifier", "ios-arm64")
-                        .SetProperty(DeviceMonoAotProperty, "true")
-                        .SetVerbosity(DotNetVerbosity.quiet));
+                    DotNetBuild(s =>
+                    {
+                        var settings = s
+                            .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
+                            .SetConfiguration(configuration)
+                            .SetProperty("RuntimeIdentifier", "ios-arm64")
+                            .SetProperty(DeviceMonoAotProperty, "true")
+                            .SetVerbosity(DotNetVerbosity.quiet);
+                        if (ActivityKitPushToken)
+                            settings = settings.SetProperty("EnableActivityKitPushToken", "true");
+                        if (activityKitProfile is not null)
+                            settings = settings.SetProperty("CodesignProvision", activityKitProfile.Uuid);
+                        return settings;
+                    });
                 }
                 else
                 {
@@ -1131,11 +1162,19 @@ partial class Build
                     // Uses the unified RuntimeTestsApp project with -r ios-arm64 (activates device conditionals)
                     Log.Information("--- Publishing RuntimeTestsApp (NativeAOT, ios-arm64) ---");
                     Log.Information("This may take several minutes (ILCompiler + code signing)...");
-                    DotNetPublish(s => s
-                        .SetProject(BindingTestsDir / "RuntimeTestsApp")
-                        .SetConfiguration(configuration)
-                        .SetRuntime("ios-arm64")
-                        .SetVerbosity(DotNetVerbosity.quiet));
+                    DotNetPublish(s =>
+                    {
+                        var settings = s
+                            .SetProject(BindingTestsDir / "RuntimeTestsApp")
+                            .SetConfiguration(configuration)
+                            .SetRuntime("ios-arm64")
+                            .SetVerbosity(DotNetVerbosity.quiet);
+                        if (ActivityKitPushToken)
+                            settings = settings.SetProperty("EnableActivityKitPushToken", "true");
+                        if (activityKitProfile is not null)
+                            settings = settings.SetProperty("CodesignProvision", activityKitProfile.Uuid);
+                        return settings;
+                    });
                 }
             }
 
@@ -1153,6 +1192,7 @@ partial class Build
             Log.Information("App bundle: {Path}", appPath);
 
             AssertDeviceAppFlavor(appPath, monoAot);
+            VerifyActivityKitPushTokenCapability(appPath, device.Udid);
 
             // Install + run on device
             RunOnDevice(device, appPath, monoAot, laneLabel);
@@ -1499,15 +1539,18 @@ partial class Build
             if (Lifetime)
                 Log.Information("Lifetime mode: enabled (extended Lifetime/ assertions)");
 
-            // tvOS has no smoke wiring today — any active smoke flag is a
-            // configuration error, not something to quietly ignore.
+            // StoreKit has an explicit tvOS Sandbox qualification. Other Apple-framework
+            // smokes remain iOS-only and must not disappear silently on this lane.
             var activeSmoke = GetActiveSmokeFlags();
-            if (activeSmoke.Count > 0)
+            var unsupportedSmoke = activeSmoke
+                .Where(flag => flag.Define != "STOREKIT_SMOKE")
+                .ToList();
+            if (unsupportedSmoke.Count > 0)
             {
-                var names = string.Join(", ", activeSmoke.Select(f => f.FlagName));
+                var names = string.Join(", ", unsupportedSmoke.Select(f => f.FlagName));
                 throw new Exception(
                     $"{names}: smoke flags are not supported by --tvos. " +
-                    "Per-framework smoke wiring lives on the iOS simulator runner only. " +
+                    "Only --enable-storekit-smoke has tvOS Sandbox wiring. " +
                     "Drop the flag and rerun, or use --sim instead.");
             }
 
@@ -1538,11 +1581,21 @@ partial class Build
             // Step 2: Build RuntimeTestsApp.tvOS (unless --skip-build)
             if (!SkipBuild)
             {
+                if (EnableStoreKitSmoke)
+                    RegenerateStoreKit2Snapshot(force: false, platform);
                 Log.Information("--- Building RuntimeTestsApp.tvOS ---");
-                DotNetBuild(s => s
+                DotNetBuild(s =>
+                {
+                    var built = s
                     .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.tvOS")
                     .SetConfiguration("Debug")
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                    .SetVerbosity(DotNetVerbosity.quiet);
+                    if (EnableStoreKitSmoke)
+                        built = built
+                            .SetProperty("EnableStoreKitSmoke", "true")
+                            .SetProperty("SwiftBindingsRepoRoot", RootDirectory);
+                    return built;
+                });
 
                 var appFrameworks = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
                     $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app" / "Frameworks";
@@ -1699,6 +1752,11 @@ partial class Build
             ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
             : SimCtl.EnsureBootedDevice();
         Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
+        var storeKitConfiguration = EnableStoreKitSmoke
+            ? RequireStoreKitSandboxConfiguration("ios")
+            : null;
+        if (storeKitConfiguration is not null)
+            RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
         var appPath = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
             $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
@@ -1751,6 +1809,11 @@ partial class Build
                 var runToken = NewRunToken();
 
                 var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
+                if (storeKitConfiguration is not null)
+                    args.AddRange([
+                        StoreKitSandboxReadiness.ProductIdArgument,
+                        storeKitConfiguration.ProductId,
+                    ]);
                 if (FlakeDetect) args.AddRange(["--flake-detect"]);
                 if (Lifetime) args.AddRange(["--lifetime"]);
                 if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
@@ -1868,6 +1931,11 @@ partial class Build
             device = SimCtl.EnsureBootedDevice(SimCtl.TvOSAppleTVFamily);
         }
         Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
+        var storeKitConfiguration = EnableStoreKitSmoke
+            ? RequireStoreKitSandboxConfiguration("tvos")
+            : null;
+        if (storeKitConfiguration is not null)
+            RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
         var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
             $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
@@ -1888,6 +1956,11 @@ partial class Build
             runToken = NewRunToken();
 
             var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
+            if (storeKitConfiguration is not null)
+                args.AddRange([
+                    StoreKitSandboxReadiness.ProductIdArgument,
+                    storeKitConfiguration.ProductId,
+                ]);
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
             if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
@@ -1934,15 +2007,20 @@ partial class Build
     /// <param name="laneLabel">
     /// Result/report label ("Device/NativeAOT" or "Device/MonoAOT"). The label is what
     /// <c>RuntimeBaselinePlatformKey.Resolve</c> maps to a baseline key, and the two lanes map to
-    /// SEPARATE keys — <c>device</c> and <c>device_monoaot</c> — in both baseline stores, so each is
-    /// graded and auto-ratcheted against its own floors and neither can move the other's. Their skip
-    /// sets differ (the CLI-flag-keyed NativeAOT skips do not apply to the Mono lane), which is why
-    /// they cannot share one. The ABI grid still declares the NativeAOT lane only.
+    /// SEPARATE keys — <c>device</c> and <c>device_monoaot</c> — in the identity baseline, so each
+    /// is graded and auto-ratcheted against its own count-and-identity floor and neither can move
+    /// the other's. Their skip sets differ (the CLI-flag-keyed NativeAOT skips do not apply to the
+    /// Mono lane), which is why they cannot share one. The ABI grid still declares the NativeAOT
+    /// lane only.
     /// </param>
     void RunOnDevice(PhysicalDeviceInfo device, string appPath, bool monoAot = false,
         string laneLabel = "Device/NativeAOT")
     {
         Log.Information("--- Running on physical device ({Lane}) ---", laneLabel);
+
+        var runtimeTestsBundleId = ActivityKitPushToken
+            ? ActivityKitPushTokenBundleId
+            : RuntimeTestsBundleId;
 
         // Load test inventory for crash recovery (unified project — same manifest for sim + device)
         var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
@@ -2002,7 +2080,7 @@ partial class Build
 
                 Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
                 var result = DeviceCtl.Launch(
-                    device.Udid, RuntimeTestsBundleId,
+                    device.Udid, runtimeTestsBundleId,
                     args.ToArray(), TimeSpan.FromSeconds(Timeout));
                 lastResult = result;
                 var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
@@ -2029,7 +2107,7 @@ partial class Build
 
                 // Try to retrieve JSONL results from device sandbox
                 JsonlTestResults? runResults = null;
-                var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
+                var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken);
                 RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
                     jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
                 if (jsonlContent != null)
@@ -2524,6 +2602,17 @@ partial class Build
     /// </summary>
     void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
     {
+        // This opt-in arm compiles one additional device-only test into the otherwise
+        // canonical suite. Its result is authoritative for ActivityKit, but its count
+        // and identity set must never ratchet the default device baseline.
+        if (ActivityKitPushToken)
+        {
+            Log.Information(
+                "Skipping runtime baseline comparison for {Platform}: --activitykit-push-token adds an opt-in test identity.",
+                platform);
+            return;
+        }
+
         // The committed baseline reflects the DEFAULT no-smoke test set. A smoke run
         // (`--enable-*-smoke`) compiles in extra Apple-framework test classes under
         // `#if FOO_SMOKE`, so its pass count is not comparable to the baseline in either
@@ -2562,32 +2651,44 @@ partial class Build
             return;
         }
 
-        var baseline = ValidationBaseline.Load(BaselinePath);
-        var runtimeBaseline = baseline.RuntimeTests;
-
         // Determine which platform baseline to compare. The label⇒key mapping lives in a BCL-only
         // model so the unit tests can prove every shipping lane resolves to a seeded baseline entry
         // — an unmapped label falls through to the early return below, which is a silent pass.
         var platformKey = RuntimeBaselinePlatformKey.Resolve(platform);
 
-        if (platformKey == null || runtimeBaseline == null)
+        if (platformKey == null)
         {
             Log.Information("No runtime test baseline for {Platform} — skipping comparison", platform);
             return;
         }
 
-        var baselineCounts = platformKey switch
+        var identityBacked = RuntimeBaselinePlatformKey.IsIdentityBacked(platformKey);
+        var identityBaseline = RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath);
+        var baseline = ValidationBaseline.Load(BaselinePath);
+        var runtimeBaseline = baseline.RuntimeTests;
+
+        ValidationBaseline.RuntimeTestsPlatformCounts? baselineCounts;
+        if (identityBacked)
         {
-            "simulator" => runtimeBaseline.Simulator,
-            "device" => runtimeBaseline.Device,
-            "device_monoaot" => runtimeBaseline.DeviceMonoAot,
-            "macos" => runtimeBaseline.MacOS,
-            "macos_x64" => runtimeBaseline.MacOSX64,
-            "maccatalyst" => runtimeBaseline.MacCatalyst,
-            "maccatalyst_x64" => runtimeBaseline.MacCatalystX64,
-            "tvos_simulator" => runtimeBaseline.TvOSSimulator,
-            _ => null,
-        };
+            var derived = identityBaseline.GetRequiredCounts(platformKey);
+            baselineCounts = new ValidationBaseline.RuntimeTestsPlatformCounts
+            {
+                Pass = derived.Pass,
+                Skip = derived.Skip,
+                Fail = derived.Fail,
+                Crash = derived.Crash,
+            };
+        }
+        else
+        {
+            baselineCounts = platformKey switch
+            {
+                "macos_x64" => runtimeBaseline?.MacOSX64,
+                "maccatalyst_x64" => runtimeBaseline?.MacCatalystX64,
+                _ => null,
+            };
+        }
+
         if (baselineCounts == null)
         {
             Log.Information("No runtime test baseline for {Platform} — skipping comparison", platform);
@@ -2599,8 +2700,36 @@ partial class Build
 
         Log.Information("");
         Log.Information("=== RUNTIME BASELINE COMPARISON ({Platform}) ===", platform);
+        Log.Information("  Authority:     {Authority}",
+            identityBacked ? RuntimeIdentityBaselinePath.Name : BaselinePath.Name);
         Log.Information("  Baseline pass: {Baseline}", baselinePass);
         Log.Information("  Current pass:  {Current}", currentPass);
+
+        // Explicit identity seeding is a deliberate replacement operation, not a comparison.
+        // It must run before the pass-count floor: adding an intentional [Skip] lowers the pass
+        // count by one, and requiring the old floor first would make the documented one-write
+        // reseed workflow impossible. Shared lanes alone take this path; x64 scalar floors retain
+        // the normal regression gate even when the command-line seed flag is present.
+        if (identityBacked && SeedRuntimeIdentityBaseline)
+        {
+            if (jsonlResults.CrashCount != 0 || jsonlResults.FailCount != 0)
+                throw new InvalidOperationException(
+                    $"Cannot seed runtime identity baseline for {platform} from a failing run.");
+
+            var identityRecords = jsonlResults.Tests
+                .Select(t => new RuntimeIdentityBaseline.TestRecord(
+                    t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+                .ToList();
+            var seeded = (identityBaseline
+                .WithPlatform(platformKey, RuntimeIdentityBaseline.FromResults(identityRecords)))
+                with { GitSha = ReadHeadShaShort() };
+            seeded.Save(RuntimeIdentityBaselinePath);
+            Log.Information(
+                "Seeded runtime identity baseline for {Platform}: {Skips} skip(s), pass={Pass} " +
+                "(replaced prior pass floor {PriorPass}).",
+                platform, seeded.Platforms[platformKey].Skips.Count, currentPass, baselinePass);
+            return;
+        }
 
         if (currentPass < baselinePass)
         {
@@ -2612,9 +2741,9 @@ partial class Build
         }
 
         // ---------------------------------------------------------------------------------------
-        // Per-test-identity ratchet (Finding 28). The scalar floor above nets out per-test churn:
+        // Per-test-identity ratchet (Finding 28). The pass-count view above nets out per-test churn:
         // a test that flips pass→skip while a sibling flips →pass leaves the pass count unchanged
-        // and stays green. The identity gate (runtime-identity-baseline.json — a separate file)
+        // and stays green. The identity view from the same runtime-identity-baseline.json entry
         // closes that hole by gating on the identity of each non-pass test. It runs for both the
         // unchanged-count and increased-count cases (a net-zero swap reaches here and is caught).
         //
@@ -2624,53 +2753,30 @@ partial class Build
         // via that upstream throw — it is simply not also diagnosed here. (Passes are stored by
         // count only, not by name, so a 1:1 rename-with-replacement that holds the pass count
         // constant is the accepted residual blind spot — see RuntimeIdentityBaseline's remarks.)
-        if (jsonlResults.CrashCount == 0 && jsonlResults.FailCount == 0)
+        if (identityBacked && jsonlResults.CrashCount == 0 && jsonlResults.FailCount == 0)
         {
             var identityRecords = jsonlResults.Tests
                 .Select(t => new RuntimeIdentityBaseline.TestRecord(
                     t.ClassName, t.TestName, t.Status, t.Error ?? ""))
                 .ToList();
 
-            if (SeedRuntimeIdentityBaseline)
+            var (idRegressions, idImprovements) =
+                identityBaseline.Compare(platformKey, identityRecords);
+
+            foreach (var improvement in idImprovements)
+                Log.Warning("IDENTITY IMPROVEMENT ({Platform}): {Detail}", platform, improvement);
+
+            if (idRegressions.Count > 0)
             {
-                // Explicit (re-)seed: bless the current identities as the floor for this platform.
-                // Used for the initial seed and to record a newly-added intentional skip. Does NOT
-                // touch validation-baseline.json — if you added a skip, also lower that platform's
-                // pass count there (count auto-update only ever raises, so lowering is a manual edit).
-                var seeded = (RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath)
-                    .WithPlatform(platformKey, RuntimeIdentityBaseline.FromResults(identityRecords)))
-                    with { GitSha = ReadHeadShaShort() };
-                seeded.Save(RuntimeIdentityBaselinePath);
-                Log.Information(
-                    "Seeded runtime identity baseline for {Platform}: {Skips} skip(s), pass={Pass}.",
-                    platform, seeded.Platforms[platformKey].Skips.Count, currentPass);
+                foreach (var regression in idRegressions)
+                    Log.Error("IDENTITY REGRESSION ({Platform}): {Detail}", platform, regression);
+                throw new Exception(
+                    $"Runtime test identity regression on {platform}: {idRegressions.Count} test(s) " +
+                    "changed status with no matching baseline entry. If intentional, re-seed with " +
+                    "`nuke binding-tests --skip-regen --seed-runtime-identity-baseline`.");
             }
-            else
-            {
-                var identityBaseline = RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath);
-                var (idRegressions, idImprovements) =
-                    identityBaseline.Compare(platformKey, identityRecords);
 
-                foreach (var improvement in idImprovements)
-                    Log.Warning("IDENTITY IMPROVEMENT ({Platform}): {Detail}", platform, improvement);
-
-                if (idRegressions.Count > 0)
-                {
-                    foreach (var regression in idRegressions)
-                        Log.Error("IDENTITY REGRESSION ({Platform}): {Detail}", platform, regression);
-                    throw new Exception(
-                        $"Runtime test identity regression on {platform}: {idRegressions.Count} test(s) " +
-                        "changed status with no matching baseline entry. If intentional, re-seed with " +
-                        "`nuke binding-tests --skip-regen --seed-runtime-identity-baseline`.");
-                }
-
-                if (identityBaseline.Platforms.ContainsKey(platformKey))
-                    Log.Information("Identity baseline OK ({Platform}): no per-test status regressions.", platform);
-                else
-                    Log.Information(
-                        "No runtime identity baseline for {Platform} yet — identity gate inert until seeded " +
-                        "(run with --seed-runtime-identity-baseline).", platform);
-            }
+            Log.Information("Identity baseline OK ({Platform}): no per-test status regressions.", platform);
         }
 
         if (currentPass > baselinePass)
@@ -2679,58 +2785,49 @@ partial class Build
             Log.Warning("IMPROVEMENT: {Platform} pass count increased by {Delta} (baseline={Baseline}, current={Current})",
                 platform, delta, baselinePass, currentPass);
 
-            // Auto-update baseline only on unfiltered, fully-green runs. Otherwise a
+            // Auto-update the owning baseline only on unfiltered, fully-green runs. Otherwise a
             // partially-failing run with a net pass-count increase would persist
             // `fail > 0` into the committed baseline, silently masking a regression.
             // (Smoke-enabled runs are excluded earlier — see the early return at the top
             // of this method.)
             if (string.IsNullOrEmpty(ClassFilter) && jsonlResults.CrashCount == 0 && jsonlResults.FailCount == 0)
             {
-                var newCounts = new ValidationBaseline.RuntimeTestsPlatformCounts
+                if (identityBacked)
                 {
-                    Pass = currentPass,
-                    Fail = 0,
-                    Skip = jsonlResults.SkipCount,
-                    Crash = 0
-                };
-
-                var newRuntimeBaseline = platformKey switch
+                    // The identity entry owns both count and identity views, so one replacement
+                    // ratchets them together. Explicit seed runs returned before comparison.
+                    var refreshed = identityBaseline.WithPlatform(
+                        platformKey,
+                        RuntimeIdentityBaseline.FromResults(jsonlResults.Tests
+                            .Select(t => new RuntimeIdentityBaseline.TestRecord(
+                                t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+                            .ToList()))
+                        with { GitSha = ReadHeadShaShort() };
+                    refreshed.Save(RuntimeIdentityBaselinePath);
+                    Log.Information(
+                        "Identity baseline refreshed for {Platform} (green improvement).", platform);
+                }
+                else
                 {
-                    "simulator" => runtimeBaseline with { Simulator = newCounts },
-                    "device" => runtimeBaseline with { Device = newCounts },
-                    "device_monoaot" => runtimeBaseline with { DeviceMonoAot = newCounts },
-                    "macos" => runtimeBaseline with { MacOS = newCounts },
-                    "macos_x64" => runtimeBaseline with { MacOSX64 = newCounts },
-                    "maccatalyst" => runtimeBaseline with { MacCatalyst = newCounts },
-                    "maccatalyst_x64" => runtimeBaseline with { MacCatalystX64 = newCounts },
-                    "tvos_simulator" => runtimeBaseline with { TvOSSimulator = newCounts },
-                    _ => runtimeBaseline,
-                };
-
-                var newBaseline = baseline with { RuntimeTests = newRuntimeBaseline };
-                newBaseline.Save(BaselinePath);
-                Log.Information("Baseline auto-updated for {Platform}: pass={Pass}", platform, currentPass);
-
-                // Keep the identity floor in lockstep with the count floor (Finding 28 — the two
-                // stores must move together, else `pass` and skip-list cardinality drift). Refresh
-                // only an EXISTING platform entry: a green pass-count bump should prune resolved
-                // skips, but it must not silently establish a brand-new platform's skip set — initial
-                // seeding stays explicit via --seed-runtime-identity-baseline (which ran above if set).
-                if (!SeedRuntimeIdentityBaseline)
-                {
-                    var idBaseline = RuntimeIdentityBaseline.Load(RuntimeIdentityBaselinePath);
-                    if (idBaseline.Platforms.ContainsKey(platformKey))
+                    var newCounts = new ValidationBaseline.RuntimeTestsPlatformCounts
                     {
-                        var refreshed = idBaseline.WithPlatform(
-                            platformKey,
-                            RuntimeIdentityBaseline.FromResults(jsonlResults.Tests
-                                .Select(t => new RuntimeIdentityBaseline.TestRecord(
-                                    t.ClassName, t.TestName, t.Status, t.Error ?? ""))
-                                .ToList()))
-                            with { GitSha = ReadHeadShaShort() };
-                        refreshed.Save(RuntimeIdentityBaselinePath);
-                        Log.Information("Identity baseline refreshed for {Platform} (green improvement).", platform);
-                    }
+                        Pass = currentPass,
+                        Fail = 0,
+                        Skip = jsonlResults.SkipCount,
+                        Crash = 0
+                    };
+
+                    var newRuntimeBaseline = platformKey switch
+                    {
+                        "macos_x64" => runtimeBaseline! with { MacOSX64 = newCounts },
+                        "maccatalyst_x64" => runtimeBaseline! with { MacCatalystX64 = newCounts },
+                        _ => runtimeBaseline,
+                    };
+
+                    var newBaseline = baseline with { RuntimeTests = newRuntimeBaseline };
+                    newBaseline.Save(BaselinePath);
+                    Log.Information("Scalar baseline auto-updated for {Platform}: pass={Pass}",
+                        platform, currentPass);
                 }
             }
         }

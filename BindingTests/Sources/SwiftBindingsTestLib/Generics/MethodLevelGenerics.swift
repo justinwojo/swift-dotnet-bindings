@@ -382,6 +382,15 @@ extension BytesNamespace {
 /// SongItem/AlbumItem/ArtistItem are empty marker
 /// structs so the assertion is "round-trip survives" rather than payload equality.
 public enum ThrowingItemNamespace {
+    /// Regression fixture for the C-callable throwing-wrapper error contract. The same
+    /// concrete specialization is invoked first with `shouldFail == true` and then with
+    /// `false`, so a wrapper that only writes errorOut in catch leaks the first call's
+    /// retained error into the immediately following successful call.
+    public static func staleErrorProbe<T: SearchableItem>(_ item: T, shouldFail: Bool) throws -> T {
+        if shouldFail { throw BytesValidationError.empty }
+        return item
+    }
+
     /// Generic return shape: returns the input directly so the conformer type T appears
     /// as both the parameter and the declared return type — exactly the @_cdecl path
     /// that throws methods returning a generic parameter (e.g. CryptoKit's

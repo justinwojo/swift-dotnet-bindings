@@ -1,8 +1,8 @@
 {
-  "git_sha": "c9373e6d9",
+  "git_sha": "eb8d315fc",
   "platforms": {
     "simulator": {
-      "pass_count": 4061,
+      "pass_count": 4076,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -112,7 +112,7 @@
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. The known repro is Mono JIT (Simulator \u002B Catalyst); this runtime-detected guard also conservatively skips device Mono full-AOT. Runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OwnershipGCStressTests",
@@ -168,7 +168,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4064,
+      "pass_count": 4067,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -319,7 +319,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4061,
+      "pass_count": 4072,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -429,7 +429,7 @@
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. The known repro is Mono JIT (Simulator \u002B Catalyst); this runtime-detected guard also conservatively skips device Mono full-AOT. Runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OwnershipGCStressTests",
@@ -485,7 +485,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3199,
+      "pass_count": 3204,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -611,7 +611,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3202,
+      "pass_count": 3207,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -701,7 +701,7 @@
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. The known repro is Mono JIT (Simulator \u002B Catalyst); this runtime-detected guard also conservatively skips device Mono full-AOT. Runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OwnershipGCStressTests",
@@ -757,7 +757,7 @@
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3264,
+      "pass_count": 3314,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -847,12 +847,7 @@
         {
           "class": "OptionalMarshallingTests",
           "method": "TestOptionalGenericHolderLargeStructPeek",
-          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
-        },
-        {
-          "class": "OptionalThrowingVoidClosureTests",
-          "method": "TestHolder_SetValidator_DelegateThrows_GracefulFault",
-          "reason": "MonoJit: upstream Issue 1 (!ji-\u003Easync, jit-info.c:918) \u2014 the non-optional Validator setter is the CallConvSwift closure-property bypass (PInvoke_validator_Set_*: SwiftSelf self, delegate* unmanaged[Swift] callback), so a managed throw inside the [UnmanagedCallersOnly(CallConvSwift)] callback can unwind through a CallConvSwift frame. Mono-only (Simulator \u002B Catalyst); runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib30OptionalThrowingModifierHolderC9validatoryyKcvs"
+          "reason": "MonoJit: Mono JIT crashes resolving Optional\u003CLargeStruct\u003E generic metadata in GetPeek readback (upstream Issue 1 \u2014 !ji-\u003Easync at jit-info.c:918). The OptionalGenericHolder\u003CT\u003E type-metadata accessor is CallConvSwift (PInvoke_getMetadata: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa), resolved during generic construction. The known repro is Mono JIT (Simulator \u002B Catalyst); this runtime-detected guard also conservatively skips device Mono full-AOT. Runs on macOS (CoreCLR) and under NativeAOT on device. CallConvSwift entry: $s20SwiftBindingsTestLib21OptionalGenericHolderVMa"
         },
         {
           "class": "OwnershipGCStressTests",

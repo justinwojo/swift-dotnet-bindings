@@ -138,6 +138,22 @@ public class AppleSupplementRoundTripTests : TestBase
         }
     }
 
+    public void TestFoundationLocaleLanguageArrayElementsMaterializeAcrossAssemblies()
+    {
+        if (!OperatingSystem.IsIOSVersionAtLeast(16))
+        {
+            TestLogger.Info("Foundation.Locale.Language requires iOS 16+; skipping.");
+            return;
+        }
+
+        using var languages = AppleIdentity.ConsumerA.TypeProbe.CreateDefaultLanguages();
+        AssertEqual(2, languages.Count, "Swift-vended Language array count");
+        AssertEqual(
+            2,
+            AppleIdentity.ConsumerB.TypeProbe.MaterializeLanguages(languages),
+            "ConsumerB materializes every Language element with canonical type identity");
+    }
+
     public void TestCryptoKitP256SignatureValueRoundTrip()
     {
         if (!OperatingSystem.IsIOSVersionAtLeast(13))

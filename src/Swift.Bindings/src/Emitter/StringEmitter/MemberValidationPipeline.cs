@@ -105,17 +105,6 @@ public class MemberValidationPipeline
         if (TryCheckInternalTypeReach(methodDecl, out var methodSkip))
             return methodSkip!;
 
-        // 3b.1. Foundation.NSInvocation is present in Objective-C metadata but is
-        // explicitly unavailable to Swift. Any @_cdecl wrapper whose signature or
-        // body names it is therefore removed by SwiftWrapperPostProcessor. Decide the
-        // same outcome before the member and its P/Invoke are emitted so the
-        // verify-recover path never settles with a dangling wrapper symbol.
-        // Match the qualified Foundation identity exactly: a same-spelled type owned
-        // by another module is not evidence that Swift makes that type unavailable.
-        if (SignatureReachesSwiftUnavailableType(methodDecl))
-            return ValidationResult.Skip(SkipReason.UnsupportedSignature,
-                "Signature reaches Foundation.NSInvocation, which is unavailable in Swift and cannot appear in a Swift wrapper.");
-
         // 3c. Parent type is @usableFromInline internal AND the member shape has no
         // clean direct-CallConvSwift fallback (async / closure-bearing). A public
         // member on an internal parent compiles in Swift, but the only way to call
@@ -900,9 +889,8 @@ public class MemberValidationPipeline
 
         // A concrete property on a generic Swift struct has no safe direct fallback when the
         // static wrapper cannot reconstruct the parent metatype. Descriptor-backed PWTs are
-        // supported only when every descriptor exists, and the property helper remains a
-        // register-mode ABI with at most three metadata/PWT slots. Refuse this newly-opened
-        // concrete slice rather than emit a substituted direct CallConvSwift entry point.
+        // supported only when every descriptor exists; over-threshold metadata/PWT vectors are
+        // packed by the property helper. Refuse only a genuinely unconstructable metatype.
         if (GenericDispatchEmitter.HasUnsupportedConcreteStructPropertyHelper(
                 propertyDecl, _typeDatabase, out var genericStructHelperDetails))
         {
@@ -1206,19 +1194,6 @@ public class MemberValidationPipeline
         skip = ValidationResult.Skip(SkipReason.Pattern2InternalTypeReach,
             "Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.");
         return true;
-    }
-
-    private static readonly IReadOnlySet<string> SwiftUnavailableWrapperTypes =
-        new HashSet<string>(StringComparer.Ordinal) { "Foundation.NSInvocation" };
-
-    internal static bool SignatureReachesSwiftUnavailableType(MethodDecl methodDecl)
-    {
-        ArgumentNullException.ThrowIfNull(methodDecl);
-        return methodDecl.CSSignature.Any(argument =>
-            InternalTypeReferenceWalker.Reaches(
-                argument.SwiftTypeSpec,
-                SwiftUnavailableWrapperTypes,
-                methodDecl.ModuleDecl?.Name ?? string.Empty));
     }
 
     private static bool TryCheckInternalTypeReach(PropertyDecl propertyDecl, out ValidationResult? skip)

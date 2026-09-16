@@ -230,7 +230,9 @@ public class SwiftClosedRange<Bound> : ISwiftObject, ISwiftStruct, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                return SwiftMarshal.MarshalFromSwift<Bound>(_payload.DangerousGetHandle());
+                // The range still owns this interior slot. Copy out an independent value so an
+                // adopting wrapper cannot take over storage that belongs to the range.
+                return SwiftMarshal.MarshalCopiedValueFromSlot<Bound>(_payload.DangerousGetHandle());
             }
             finally
             {
@@ -254,7 +256,7 @@ public class SwiftClosedRange<Bound> : ISwiftObject, ISwiftStruct, IDisposable
             {
                 // upperBound sits at +stride of Bound (alignment-rounded inter-field gap).
                 IntPtr upperPtr = _payload.DangerousGetHandle() + (int)BoundStride;
-                return SwiftMarshal.MarshalFromSwift<Bound>(upperPtr);
+                return SwiftMarshal.MarshalCopiedValueFromSlot<Bound>(upperPtr);
             }
             finally
             {

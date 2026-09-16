@@ -396,6 +396,16 @@ public class ProtocolClosureSkipTests : TestBase
 {
     public ProtocolClosureSkipTests(TestResults results) : base(results) { }
 
+    private sealed class MixedClosureObservation
+    {
+        public int DataCount;
+        public int CompletionCount;
+        public int ByteCount;
+        public string? ResponseUrl;
+        public int NilCompletionCount;
+        public string? ErrorDescription;
+    }
+
     #region EventRouter Construction (Tier 1)
 
     public void TestEventRouterConstruction()
@@ -1453,6 +1463,104 @@ public class ProtocolClosureSkipTests : TestBase
         AssertEqual(1, impl.ProcessCallCount, "Swift drove the C# impl's Process once");
         AssertEqual(12345, (int)impl.LastAmountTimesHundred, "Decimal value param round-tripped (not Swift mantissa bytes misread as an ObjC pointer)");
         AssertEqual(1, driver.CompletionFireCount, "Completion fired exactly once back into Swift");
+    }
+
+    public void TestSwiftVendedClosureLoader_MultiClosureForwardDispatchSurvivesGCAndDispose()
+    {
+        var loader = TestLibFunctions.MakeVendedClosureLoader();
+        var successCount = 0;
+        var progressCount = 0;
+        var errorCount = 0;
+        var successValue = 0;
+        var progressValue = 0.0;
+        var errorValue = 0;
+
+        loader.Load(
+            value =>
+            {
+                successCount++;
+                successValue = value;
+            },
+            value =>
+            {
+                progressCount++;
+                progressValue = value;
+            },
+            error =>
+            {
+                errorCount++;
+                errorValue = (int)error;
+            });
+
+        ForceGCThorough();
+        loader.FireStoredCallbacks();
+
+        AssertEqual(1, successCount, "Delayed success closure fired exactly once");
+        AssertEqual(42, successValue, "Delayed success payload round-tripped");
+        AssertEqual(1, progressCount, "Delayed progress closure fired exactly once");
+        AssertEqual(0.625, progressValue, "Delayed progress payload round-tripped");
+        AssertEqual(1, errorCount, "Delayed typed-error closure fired exactly once");
+        AssertEqual(23, errorValue, "Delayed typed-error payload round-tripped");
+
+        ((IDisposable)loader).Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => loader.FireStoredCallbacks(),
+            "Disposed existential rejects subsequent forward dispatch");
+    }
+
+    public void TestSwiftVendedMixedClosureLoader_NukeShapeRoundTripsAndOwnsReturn()
+    {
+        var (loader, cancellation, observed) = RunOnFinishedThread(() =>
+        {
+            var state = new MixedClosureObservation();
+            var vendedLoader = TestLibFunctions.MakeVendedMixedClosureLoader();
+            var request = TestLibFunctions.MakeVendedMixedURLRequest("https://example.test/nuke-shape");
+            var token = vendedLoader.LoadData(
+                request,
+                (data, response) =>
+                {
+                    state.DataCount++;
+                    state.ByteCount = data.Length;
+                    state.ResponseUrl = response.Url?.AbsoluteString;
+                },
+                error =>
+                {
+                    state.CompletionCount++;
+                    if (error is null)
+                        state.NilCompletionCount++;
+                    else
+                        state.ErrorDescription = error.LocalizedDescription;
+                });
+            return (vendedLoader, token, state);
+        });
+
+        // Callback delegates were allocated on a thread that has now exited. Only the
+        // transferred ClosureHandles can keep them alive across this compacting GC.
+        ForceGCThorough();
+        loader.FireStoredCallbacks();
+        loader.FireStoredFailure();
+
+        AssertEqual(1, observed.DataCount, "Delayed data closure fired exactly once");
+        AssertEqual(3, observed.ByteCount, "Data payload crossed the callback carrier");
+        AssertEqual("https://example.test/nuke-shape", observed.ResponseUrl, "URLRequest reached Swift and URLResponse returned through the callback");
+        AssertEqual(2, observed.CompletionCount, "Nil and non-nil completion closures each fired");
+        AssertEqual(1, observed.NilCompletionCount, "Optional Error completion preserved nil");
+        AssertEqual("rejected", observed.ErrorDescription, "Optional Error .some crossed the one-word borrowed payload ABI");
+
+        // Destroy the producer before touching the returned existential. The token's
+        // independent retained copy must remain dispatchable after the loader is gone.
+        ((IDisposable)loader).Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => loader.FireStoredCallbacks(),
+            "Disposed loader rejects subsequent forward dispatch");
+
+        cancellation.Cancel();
+        AssertEqual(1, cancellation.CancelCount, "Returned existential outlives its producer and remains dispatchable");
+
+        ((IDisposable)cancellation).Dispose();
+        AssertThrows<ObjectDisposedException>(
+            () => cancellation.Cancel(),
+            "Disposed returned existential rejects subsequent dispatch");
     }
 
     #endregion

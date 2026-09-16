@@ -11,11 +11,11 @@ namespace RuntimeTestsApp.Generics;
 /// the orthogonal Optional&lt;Any&gt; @_cdecl ABI fix:
 ///
 /// (1) Constrained-extension overload: the GSM wrapper for a method declared
-///     in `extension Mapper where N: Narrower` was being emitted without the
-///     where-clause, so swiftc rejected the inferred result type. The fix
-///     skips wrapper emission for methods whose conformances narrow the
-///     parent's. The constrained sibling is correctly absent here; the
-///     unconstrained body sibling on the class survives and round-trips.
+///     in `extension Mapper where N: Narrower` is refused by the existing
+///     representable-constraint gate. Compiler-only marker and concrete-pin
+///     failures instead live in ResilienceKitchen, where swiftc attribution,
+///     narrow withdrawal, and sibling survival are verified end to end. The
+///     unconstrained body sibling on this class survives and round-trips.
 ///     Both siblings label their parameter <c>JSONObject</c> and erase to one
 ///     projected key, so the overload group is named from each member's own
 ///     labels + types — the survivor emits as
@@ -55,16 +55,10 @@ public class GenericConstrainedExtensionOverloadTests : TestBase
         AssertNull(result, "MapJSONObjectWithOptionalAny(nil) returns nil per source semantics");
     }
 
-    public void TestLosslessConstraintRefusalsKeepUnconstrainedControl()
+    public void TestGenericClassUnconstrainedControl()
     {
         using var box = Functions.MakeGenericClassConstraintReviewBox();
         AssertEqual(73, box.GetControl(), "unconstrained generic-class method remains callable");
-
-        var publicNames = box.GetType().GetMethods().Select(static m => m.Name).ToHashSet();
-        AssertFalse(publicNames.Contains("GetBitwiseOnly"),
-            "BitwiseCopyable-confined member is honestly refused instead of losing a rejected wrapper");
-        AssertFalse(publicNames.Contains("GetUnitOnly"),
-            "unit-pinned member is honestly refused instead of losing a rejected wrapper");
     }
 
     public void TestParentDeclaredBitwiseConstraintKeepsInstanceMethod()

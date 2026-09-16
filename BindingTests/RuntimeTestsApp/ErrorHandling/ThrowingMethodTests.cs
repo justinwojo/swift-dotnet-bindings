@@ -33,6 +33,17 @@ public class BasicThrowingTests : TestBase
 
     #region Free Throwing Functions — Blittable
 
+    public void TestGenericThrowingWrapper_FailureThenSuccessClearsError()
+    {
+        AssertThrows<SwiftException>(
+            () => ThrowingItemNamespace.StaleErrorProbe(new SongItem(), true),
+            "The first call through the generic specialization must throw");
+
+        var result = ThrowingItemNamespace.StaleErrorProbe(new SongItem(), false);
+        AssertTrue(result is SongItem,
+            "The immediately following successful call through the same wrapper must not observe the prior error");
+    }
+
     public void TestDivideSuccess()
     {
         var result = TestLibFunctions.Divide(10, 2);

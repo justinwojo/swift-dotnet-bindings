@@ -647,11 +647,11 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void FrozenWithMemoryProjection_ContainerTypeName_UsesBuffer()
+    public void FrozenWithMemoryProjection_ContainerCarrier_UsesMetadataBearingWrapper()
     {
         var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         Assert.Equal("TestModule.ManagedFrozen.Buffer", projection.ContainerTypeName);
-        Assert.Equal("TestModule.ManagedFrozen.Buffer", projection.SwiftContainerGenericType);
+        Assert.Equal("TestModule.ManagedFrozen", projection.SwiftContainerGenericType);
     }
 
     [Fact]
@@ -666,9 +666,8 @@ public class TypeProjectionFactoryTests
     {
         var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
 
-        // Parameter element conversion returns null — frozen-with-memory types can't be safely
-        // composed inside containers (PayloadBuffer lifecycle can't be managed in a LINQ Select).
-        // Returning null causes a C# compile error if this composition is ever attempted.
+        // Generic containers take the metadata-bearing wrapper directly. Extracting a nested
+        // .Buffer would both lose the Swift metadata and require a pin lifetime inside the Select.
         Assert.Null(projection.GetParameterElementConversion("e"));
         Assert.Null(projection.GetReturnElementConversion("e"));
     }
