@@ -1575,7 +1575,18 @@
         "withdrawal_policy": {
           "schemaVersion": 1,
           "profile": "Quick/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
-          "exceptions": []
+          "exceptions": [
+            {
+              "unitId": "Quick|AsyncSpec|Method|init|:Quick.AsyncSpec,invocation:Swift.Optional<Foundation.NSInvocation>|None||$s5Quick9AsyncSpecC10invocationACSo12NSInvocationCSg_tcfC|!leaf-api",
+              "reason": "The initializer's only parameter is Foundation.NSInvocation, which Apple marks unavailable in Swift. A @_cdecl wrapper has to name the parameter type in Swift source to forward the call, so no wrapper for this initializer can compile and the member is unbindable through the Swift wrapper plane by construction.",
+              "reproducer": "nuke validate --filter Quick",
+              "diagnostic": "swiftc: error: 'NSInvocation' is unavailable in Swift: NSInvocation and related APIs not available. Reproduce the compiler fact directly with `public func probe(_ x: NSInvocation?) {}` compiled for arm64-apple-ios15.0-simulator. SWIFTBIND112 withdrew the unit over 2 rounds to reach a clean wrapper compile.",
+              "disposition": "terminal:unavailable-in-swift",
+              "acceptance": "0.20.0 final qualification: accepted as terminal, not deferred. Before the verify-recover loop covered this shape the generator declared the member against a wrapper symbol that never compiled and failed the whole Quick module closed (SWIFTBIND115, 1 stripped symbol); withdrawing the one unbindable initializer and emitting the remaining surface is strictly better for a consumer than losing the module.",
+              "reopenTrigger": "Apple makes NSInvocation available to Swift, or the generator grows an ObjC companion plane that can forward initializers whose parameter types exist only in ObjC.",
+              "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
+            }
+          ]
         },
         "compile": "ok",
         "errors": 0,
