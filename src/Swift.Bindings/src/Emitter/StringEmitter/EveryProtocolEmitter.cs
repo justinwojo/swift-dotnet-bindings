@@ -1664,6 +1664,15 @@ public class EveryProtocolEmitter
             }
             if (emittedMembers.Add($"property:{property.Name}"))
             {
+                // A requirement can be introduced later than the protocol it belongs to, and it
+                // then routinely names types introduced alongside it — which this extension,
+                // gated at the protocol's floor, cannot name. Every arm below declares a witness
+                // in that context, stubs included, so the delta is emitted ahead of all of them.
+                // The arms then take the member's own floor as their branch-guard baseline; given
+                // the extension's they would emit an always-true #available and dead-code its else.
+                var memberAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                    property.AvailabilityAnnotations, protocolDecl);
+                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(writer, memberAvail, availAnnotations);
                 // @objc protocol existential in an unsupported nested position (container/tuple/closure):
                 // dropped fail-closed from the C# interface AND the reverse-dispatch vtable slot (see
                 // VtableLayoutBuilder.ClassifyProperty, which makes it skip-but-consume). The Swift
@@ -1677,7 +1686,7 @@ public class EveryProtocolEmitter
                 else if (HasClosureInPropertyType(property))
                 {
                     if (!isMixedGenericProtocol && IsDispatchableClosureProperty(property, closureHandler))
-                        EmitDispatchableClosurePropertyImplementation(writer, property, protocolDecl, vtableInstanceName, closureHandler, plan, availAnnotations);
+                        EmitDispatchableClosurePropertyImplementation(writer, property, protocolDecl, vtableInstanceName, closureHandler, plan, memberAvail);
                     else
                         EmitClosurePropertyStub(writer, property);
                 }
@@ -1689,7 +1698,7 @@ public class EveryProtocolEmitter
                 else if (isMixedGenericProtocol)
                     EmitClosurePropertyStub(writer, property);
                 else
-                    EmitPropertyImplementation(writer, property, protocolDecl, vtableInstanceName, plan, availAnnotations);
+                    EmitPropertyImplementation(writer, property, protocolDecl, vtableInstanceName, plan, memberAvail);
             }
         }
 
@@ -1728,6 +1737,9 @@ public class EveryProtocolEmitter
             }
             if (emittedMembers.Add(subscriptKey))
             {
+                var subscriptAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                    subscript.AvailabilityAnnotations, protocolDecl);
+                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(writer, subscriptAvail, availAnnotations);
                 // @objc existential in an unsupported nested position → dropped fail-closed from the
                 // interface + vtable slot (skip-but-consume); witness the Swift requirement with a stub.
                 if (HasUnsupportedObjCExistentialSubscript(subscript))
@@ -1740,7 +1752,7 @@ public class EveryProtocolEmitter
                 else if (isMixedGenericProtocol)
                     EmitSelfTypedSubscriptStub(writer, subscript, subscriptIndex);
                 else
-                    EmitSubscriptImplementation(writer, subscript, protocolDecl, vtableInstanceName, subscriptIndex, subscriptPlan, availAnnotations);
+                    EmitSubscriptImplementation(writer, subscript, protocolDecl, vtableInstanceName, subscriptIndex, subscriptPlan, subscriptAvail);
             }
             subscriptIndex++;
         }
@@ -1854,6 +1866,9 @@ public class EveryProtocolEmitter
             // lets both Add, whereas the async-omitted key would suppress the second as a redeclaration.
             if (isNewMethod && emittedBodySignatures.Add(witnessGroupKey))
             {
+                var methodAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                    method.AvailabilityAnnotations, protocolDecl);
+                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(writer, methodAvail, availAnnotations);
                 // @objc protocol existential in an unsupported nested position (container/tuple/closure)
                 // on any parameter or the return: dropped fail-closed from the C# interface AND the
                 // reverse-dispatch vtable slot (see VtableLayoutBuilder.ClassifyMethod, skip-but-consume).
@@ -1876,11 +1891,11 @@ public class EveryProtocolEmitter
                 else if (HasClosureInMethodSignature(method))
                 {
                     if (IsDispatchableClosureMethod(method, closureHandler))
-                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
+                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, methodAvail);
                     else if (IsDispatchableAsyncClosureMethod(method, closureHandler))
-                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
+                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, methodAvail);
                     else if (IsDispatchableClosureReturningMethod(method, closureHandler))
-                        EmitDispatchableClosureReturningMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, availAnnotations);
+                        EmitDispatchableClosureReturningMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler, methodPlan, methodAvail);
                     else
                         EmitClosureMethodStub(writer, method);
                 }
@@ -1942,7 +1957,7 @@ public class EveryProtocolEmitter
                 // rejects, so a method only reaches here once it is the plain value-marshalled shape.
                 else if (EmitsRealAsyncWitness(method))
                 {
-                    EmitRealAsyncWitnessImplementation(writer, method, protocolDecl, vtableInstanceName, idx, methodPlan, availAnnotations);
+                    EmitRealAsyncWitnessImplementation(writer, method, protocolDecl, vtableInstanceName, idx, methodPlan, methodAvail);
                 }
                 else
                 {
@@ -1952,7 +1967,7 @@ public class EveryProtocolEmitter
                     // Uses full signature so overloads with different types are tracked independently.
                     var effectiveThrows = method.Throws &&
                         !(nonThrowingOverrides?.Contains(fullSignature) == true);
-                    EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, effectiveThrows, methodPlan, availAnnotations);
+                    EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, effectiveThrows, methodPlan, methodAvail);
                 }
             }
         }

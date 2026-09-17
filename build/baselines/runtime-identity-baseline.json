@@ -1,8 +1,8 @@
 {
-  "git_sha": "5d51b997a",
+  "git_sha": "32696eda9",
   "platforms": {
     "simulator": {
-      "pass_count": 4076,
+      "pass_count": 4081,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -168,7 +168,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4079,
+      "pass_count": 4084,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -319,7 +319,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4076,
+      "pass_count": 4081,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -485,7 +485,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3212,
+      "pass_count": 3217,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -611,7 +611,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3215,
+      "pass_count": 3220,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -757,7 +757,7 @@
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3322,
+      "pass_count": 3327,
       "skips": [
         {
           "class": "AsyncClosureTests",

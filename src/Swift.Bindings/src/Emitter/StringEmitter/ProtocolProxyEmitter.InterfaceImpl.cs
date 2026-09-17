@@ -1457,6 +1457,23 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
         writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
 
+        // Same floor the property and method paths carry: a subscript introduced after the
+        // protocol that declares it is reachable only above its own floor, and the indexer below
+        // forwards to the interface's, which carries that floor. Without this the proxy's indexer
+        // is declared at the class's floor and its own forwarding call is CA1416 against the
+        // interface member it implements. emitObsolete: false — the SB0003 [Obsolete] above is
+        // unconditional, and a second one is CS0579 rather than a warning. A subscript setter
+        // cannot carry availability separately from the subscript through the parse path, so both
+        // accessors take the subscript's own floor.
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(writer, subscript, protocolDecl, emitObsolete: false);
+
+        // [SupportedOSPlatform] is compile-time only, so mirror the property path's runtime guard
+        // for a consumer who suppresses CA1416 and calls below the floor.
+        const string accessorBodyIndent = "    ";
+        var subscriptGuardPrefix = AvailabilityAttributeEmitter.BuildStricterFloorGuardPrefix(
+            subscript.AvailabilityAnnotations, protocolDecl,
+            $"{protocolDecl.Name} subscript", accessorBodyIndent);
+
         writer.WriteLine($"public {returnTypeName} this[{parametersString}]");
         writer.WriteLine("{");
         writer.Indent++;
@@ -1466,7 +1483,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 get
                 {
-                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                    {{subscriptGuardPrefix}}if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     if (_csharpImpl != null)
                         return _csharpImpl[{{argsString}}];
                     throw new NotSupportedException(
@@ -1481,7 +1498,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLines($$"""
                 set
                 {
-                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
+                    {{subscriptGuardPrefix}}if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     if (_csharpImpl != null)
                     {
                         _csharpImpl[{{argsString}}] = value;

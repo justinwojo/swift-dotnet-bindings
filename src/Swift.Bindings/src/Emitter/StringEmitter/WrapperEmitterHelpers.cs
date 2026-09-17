@@ -106,35 +106,83 @@ public static class WrapperEmitterHelpers
         IReadOnlyList<AvailabilityAnnotation>? branchAnnotations,
         IReadOnlyList<AvailabilityAnnotation>? extensionAnnotations)
     {
-        var branchKeys = CollectStrictestAvailabilityKeys(branchAnnotations);
-        if (branchKeys.Count == 0)
-            return string.Empty;
-
-        var extensionByPlatform = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var key in CollectStrictestAvailabilityKeys(extensionAnnotations))
-        {
-            var parts = key.Split(' ', 2);
-            if (parts.Length == 2)
-                extensionByPlatform[parts[0]] = parts[1];
-        }
-
-        var guardEntries = new List<string>();
-        foreach (var branchKey in branchKeys)
-        {
-            var parts = branchKey.Split(' ', 2);
-            if (parts.Length != 2) continue;
-            var platform = parts[0];
-            var branchVersion = parts[1];
-            if (!extensionByPlatform.TryGetValue(platform, out var extVersion)
-                || CompareOsVersions(branchVersion, extVersion) > 0)
-            {
-                guardEntries.Add(branchKey);
-            }
-        }
-
+        var guardEntries = CollectAvailabilityDeltaKeys(branchAnnotations, extensionAnnotations);
         if (guardEntries.Count == 0)
             return string.Empty;
         return "#available(" + string.Join(", ", guardEntries) + ", *)";
+    }
+
+    /// <summary>
+    /// The strictest-per-platform floors in <paramref name="innerAnnotations"/> that
+    /// <paramref name="enclosingAnnotations"/> does not already guarantee — one
+    /// <c>"Platform Version"</c> entry per platform where the inner floor is strictly newer,
+    /// or the enclosing scope names that platform not at all. Empty when the enclosing scope
+    /// already covers every inner floor.
+    ///
+    /// <para>Shared by the two ways a stricter floor gets expressed inside an already-gated
+    /// scope: a runtime <c>#available</c> guard around a fan-out branch, and a declaration-level
+    /// <c>@available</c> on a member. Both are relative to the same enclosing context, and both
+    /// must go quiet in the same cases — a redundant guard makes Swift warn that the check is
+    /// always true and dead-codes its else branch, and a redundant annotation restates a floor
+    /// the scope already has.</para>
+    /// </summary>
+    internal static IReadOnlyList<string> CollectAvailabilityDeltaKeys(
+        IReadOnlyList<AvailabilityAnnotation>? innerAnnotations,
+        IReadOnlyList<AvailabilityAnnotation>? enclosingAnnotations)
+    {
+        var innerKeys = CollectStrictestAvailabilityKeys(innerAnnotations);
+        if (innerKeys.Count == 0)
+            return Array.Empty<string>();
+
+        var enclosingByPlatform = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var key in CollectStrictestAvailabilityKeys(enclosingAnnotations))
+        {
+            var parts = key.Split(' ', 2);
+            if (parts.Length == 2)
+                enclosingByPlatform[parts[0]] = parts[1];
+        }
+
+        var delta = new List<string>();
+        foreach (var innerKey in innerKeys)
+        {
+            var parts = innerKey.Split(' ', 2);
+            if (parts.Length != 2) continue;
+            var platform = parts[0];
+            var innerVersion = parts[1];
+            if (!enclosingByPlatform.TryGetValue(platform, out var enclosingVersion)
+                || CompareOsVersions(innerVersion, enclosingVersion) > 0)
+            {
+                delta.Add(innerKey);
+            }
+        }
+
+        return delta;
+    }
+
+    /// <summary>
+    /// Emits the declaration-level <c>@available</c> lines a member needs ON TOP OF the
+    /// availability its enclosing extension already carries, and nothing when the extension
+    /// already covers every floor the member declares.
+    ///
+    /// <para>The reverse-dispatch conformance is the case this exists for. Every witness in
+    /// <c>extension EveryProtocol: SomeProtocol</c> is declared in a context gated at the
+    /// PROTOCOL's floor, merged from the protocol and its ancestors. A requirement introduced
+    /// later than its protocol — the ordinary way an already-shipped protocol grows — routinely
+    /// traffics in types introduced alongside it, and naming one of those types at the
+    /// protocol's older floor is a hard compile error, not a warning. Because the conformance
+    /// extension carries no <c>@_cdecl</c> symbol of its own, that error tiles to module scope
+    /// and costs the entire binding rather than the offending member.</para>
+    ///
+    /// <para>Deliberately a delta rather than the full merged set: a witness that needs nothing
+    /// extra emits nothing, so the overwhelming majority of members are untouched.</para>
+    /// </summary>
+    internal static void EmitSwiftAvailabilityDelta(
+        SwiftWriter swiftWriter,
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        IReadOnlyList<AvailabilityAnnotation>? enclosingAnnotations)
+    {
+        foreach (var key in CollectAvailabilityDeltaKeys(memberAnnotations, enclosingAnnotations))
+            swiftWriter.WriteLine($"@available({key}, *)");
     }
 
     /// <summary>
