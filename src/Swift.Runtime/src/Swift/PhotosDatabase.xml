@@ -14,7 +14,7 @@
             <typedeclaration kind="enum" name="PHAssetMediaType" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="Photos" managedTypeName="PHAssetMediaSubtype">
-            <typedeclaration kind="enum" name="PHAssetMediaSubtype" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="PHAssetMediaSubtype" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
         </entity>
         <entity managedNameSpace="Photos" managedTypeName="PHAssetCollectionType">
             <typedeclaration kind="enum" name="PHAssetCollectionType" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />

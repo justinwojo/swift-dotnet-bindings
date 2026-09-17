@@ -40,6 +40,34 @@ public enum StringMarshalling {
     case utf16
 }
 
+/// A module error type named like the BCL base exception. Emitted guards catch the BCL type,
+/// so an unqualified `catch (Exception)` would bind to this enum and stop the module compiling.
+public enum Exception: Error {
+    case rejected(reason: String)
+}
+
+/// A generic enum and a generic class: their emitted eager-initialization helpers are guards that
+/// catch the BCL exception type.
+public enum ShadowChoice<Value> {
+    case nothing
+    case something(Value)
+
+    public var isSomething: Bool {
+        if case .something = self { return true }
+        return false
+    }
+}
+
+public class ShadowStack<Element> {
+    private var items: [Element] = []
+
+    public init() {}
+
+    public func push(_ item: Element) { items.append(item) }
+
+    public var count: Int { items.count }
+}
+
 public struct CallConvCdecl {
     public var arity: Int32
     public init(arity: Int32) { self.arity = arity }
@@ -53,13 +81,9 @@ public class BclShadowProbe {
     public init() { self.kind = .scalar }
 
     /// A member REFERENCING the shadowing type, as opposed to the members below which only
-    /// reference the module's other types. This one does not currently project: Swift prints
-    /// a contextually-reserved name back-quoted in the ABI description, and type resolution
-    /// matches that printed spelling literally against the unquoted registered name, so the
-    /// reference misses and the member is dropped without a recorded skip. That is a distinct
-    /// defect from the reference-capture this file gates, and it lives on the resolution side
-    /// rather than the emission side; the member stays here so the shape is covered the moment
-    /// resolution stops taking the quoting literally.
+    /// reference the module's other types. It does not project: the type reference names a
+    /// type called `Type`, which reads the same as a metatype, so the member is recorded as an
+    /// unsupported signature. It stays here so the shape is covered once the two are told apart.
     public func roundTripType(_ value: Type) -> Type {
         return value == .scalar ? .composite : .scalar
     }
@@ -70,6 +94,17 @@ public class BclShadowProbe {
 
     public func describe(_ text: String) -> String {
         return "shadowed:\(text)"
+    }
+
+    /// Throws the module's own `Exception` error for a negative slot.
+    public func checkedSlot(_ slot: Int32) throws -> Int32 {
+        guard slot >= 0 else { throw Exception.rejected(reason: "negative slot \(slot)") }
+        return slot &* 2
+    }
+
+    /// The payload case for a non-negative slot, the empty case otherwise.
+    public func choose(_ slot: Int32) -> ShadowChoice<Int32> {
+        return slot < 0 ? .nothing : .something(slot)
     }
 
     public func slotOf(_ value: LibraryImport) -> Int32 {

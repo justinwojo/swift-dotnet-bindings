@@ -972,6 +972,17 @@ public static class MethodWrapperEmitter
             .ToHashSet();
         var abiToSugaredName = WrapperValidation.GetAbiToSugaredNameMap(parentTypeDecl);
 
+        // A ~Copyable receiver cannot be bound to a local (that copies it): the call goes through
+        // the pointer, a `consuming` member moves the value out of the buffer, and a mutation lands
+        // in place so there is nothing to write back.
+        bool nonCopyableSelf = !isClass && WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
+        bool consumesSelf = nonCopyableSelf && methodDecl.IsConsuming;
+        bool mutableSelfPtr = isMutating || consumesSelf;
+        bool writesSelfBack = isMutating && !isClass && !nonCopyableSelf;
+        string selfRef = isClass || !nonCopyableSelf ? "obj"
+            : consumesSelf ? "selfPtr.assumingMemoryBound(to: Self.self).move()"
+            : "selfPtr.assumingMemoryBound(to: Self.self).pointee";
+
         var methodHash = EmitterUtility.DeterministicHash8(symbolName);
         var protocolName = $"_SBW_GSM_{methodHash}";
         var dispatchMethodName = $"_sbw_dispatch_{methodHash}";
@@ -1136,11 +1147,11 @@ public static class MethodWrapperEmitter
                 case CdeclPhase.Self:
                     if (isClass)
                         cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-                    else if (isMutating)
+                    else if (mutableSelfPtr)
                         cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
                     else
                         cdeclParams.Add("_ self_: UnsafeRawPointer");
-                    protocolParams.Add(isMutating ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
+                    protocolParams.Add(mutableSelfPtr ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
                     cdeclCallArgs.Add("selfPtr: self_");
                     break;
 
@@ -1179,6 +1190,10 @@ public static class MethodWrapperEmitter
         {
             extensionBodyLines.Insert(0, "let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         }
+        else if (nonCopyableSelf)
+        {
+            // No binding: selfRef names the value in the buffer itself.
+        }
         else if (isMutating)
         {
             extensionBodyLines.Insert(0, $"var obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
@@ -1192,14 +1207,14 @@ public static class MethodWrapperEmitter
         string tryPrefix = throws ? "try " : "";
         if (isVoidReturn)
         {
-            extensionBodyLines.Add($"{tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"{tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
         }
         else if (isString)
         {
             // String returns: write SBW_Utf8Slice to resultPtr
-            extensionBodyLines.Add($"let result: String = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"let result: String = {tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
             // For mutating methods, write back BEFORE any early return (empty string branch)
-            if (isMutating && !isClass)
+            if (writesSelfBack)
             {
                 extensionBodyLines.Add("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
             }
@@ -1220,7 +1235,7 @@ public static class MethodWrapperEmitter
             // Explicit type annotation forces Swift to resolve the correct overload
             // when multiple methods share the same base name but differ in return type
             // (e.g., map(JSONObject:) -> N throws vs map(JSONObject:) -> N?)
-            extensionBodyLines.Add($"let result: {returnSwiftType} = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"let result: {returnSwiftType} = {tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
             extensionBodyLines.Add($"resultPtr.initializeMemory(as: {returnSwiftType}.self, repeating: result, count: 1)");
         }
         else if (cdeclNeedsResultPtr)
@@ -1230,7 +1245,7 @@ public static class MethodWrapperEmitter
             // closure return reached initializeMemory still wearing the `@escaping` its parameter-
             // position rendering adds — an attribute that is not legal in metatype position, which
             // fails the wrapper's Swift compile and withdraws the member.
-            extensionBodyLines.Add($"let result = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"let result = {tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
             extensionBodyLines.Add(
                 $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
         }
@@ -1238,7 +1253,7 @@ public static class MethodWrapperEmitter
         {
             // Direct return — must apply the same conversions as EmitDirectGetterReturn:
             // Bool → Int8 (ternary), SimpleEnum → rawValue/tag, ClassPointer → Unmanaged
-            var callExpr = $"{tryPrefix}obj.{swiftMethodName}({methodCallArgString})";
+            var callExpr = $"{tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})";
             extensionBodyLines.AddRange(CdeclReturnRenderer.LinesBindingResult(
                 callExpr, returnTypeSpec, env.TypeDatabase, returnMapping));
         }
@@ -1249,7 +1264,7 @@ public static class MethodWrapperEmitter
 
         // For mutating struct methods, write back BEFORE any return statement.
         // Skip if already handled in the string branch (which inserts write-back before early return).
-        if (isMutating && !isClass && !isString)
+        if (writesSelfBack && !isString)
         {
             // Insert the write-back before the last line (which contains `return`)
             // to ensure mutating state changes are persisted
@@ -1274,7 +1289,7 @@ public static class MethodWrapperEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
-            private protocol {{protocolName}} {
+            private protocol {{protocolName}}{{WrapperEmitterHelpers.DispatchProtocolCopyability(parentTypeDecl)}} {
                 {{protocolMethodSig}}
             }
             """);

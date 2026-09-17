@@ -158,4 +158,54 @@ public class ModuleEmissionContextCollisionTests
         Assert.Contains("func f() -> Baz { Baz() }", output);
         Assert.DoesNotContain("Foo.Baz", output);
     }
+    // `Type` and `Protocol` are postfix metatype operators after a dot, so a declared type with
+    // either name is only reachable backtick-escaped. Metatype suffixes on other names stay bare.
+    private static readonly HashSet<string> DeclaredReservedTypes =
+        new(StringComparer.Ordinal) { "Soup.Protocol", "Soup.Holder.Type", "Soup.Holder" };
+
+    [Fact]
+    public void ReservedMemberTypeNames_AreEscapedOnlyWhenDeclared()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.SetDeclaredTypePredicate(DeclaredReservedTypes.Contains);
+
+        var input =
+            "let s = Soup.OrderedSet<Soup.Protocol>()\n" +
+            "let m = unsafeBitCast(Soup.Protocol.self as Any.Type, to: UnsafeMutableRawPointer.self)\n" +
+            "let k: Soup.Holder.Type = x\n" +
+            "let p = T.self as? any Soup.Delegate.Type\n" +
+            "let q: Soup.Protocol.Type = Soup.Protocol.self\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Contains("Soup.OrderedSet<Soup.`Protocol`>()", output);
+        Assert.Contains("unsafeBitCast(Soup.`Protocol`.self as Any.Type,", output);
+        Assert.Contains("let k: Soup.Holder.`Type` = x", output);
+        Assert.Contains("any Soup.Delegate.Type", output);
+        Assert.Contains("let q: Soup.`Protocol`.Type = Soup.`Protocol`.self", output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+    }
+
+    [Fact]
+    public void ReservedMemberTypeNames_WithoutPredicate_AreUnchanged()
+    {
+        var ctx = new ModuleEmissionContext();
+        Assert.Equal("Soup.Protocol.self", ctx.QualifyForWrapperSource("Soup.Protocol.self"));
+    }
+
+    [Fact]
+    public void ReservedMemberTypeNames_ComposeWithCollisionStripping()
+    {
+        // The collision rewrite removes the module prefix; the declared-type lookup still sees it.
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("Soup", nestedTypesInCollidingClass: null);
+        ctx.SetDeclaredTypePredicate(DeclaredReservedTypes.Contains);
+
+        var input = "let k: Soup.Holder.Type = Soup.Holder.Type(); let b = Other.Protocol.self\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Equal("let k: Holder.`Type` = Holder.`Type`(); let b = Other.Protocol.self\n", output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+    }
 }

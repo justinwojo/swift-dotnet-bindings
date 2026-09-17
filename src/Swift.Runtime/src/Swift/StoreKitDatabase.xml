@@ -8,10 +8,10 @@
             <typedeclaration kind="enum" name="SKError.Code" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="StoreKit" managedTypeName="SKProductPeriodUnit">
-            <typedeclaration kind="enum" name="SKProduct.PeriodUnit" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="SKProduct.PeriodUnit" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
         </entity>
         <entity managedNameSpace="StoreKit" managedTypeName="SKProductDiscountPaymentMode">
-            <typedeclaration kind="enum" name="SKProductDiscount.PaymentMode" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="SKProductDiscount.PaymentMode" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
         </entity>
     </entities>
 </swifttypedatabase>

@@ -547,16 +547,21 @@ public static class ArraySliceNormalizationEmitter
             else if (useCdecl)
             {
                 // @_cdecl mode: convert to C-compatible type. label is already sibling-escaped;
-                // passing siblings keeps Map's internal re-escape sibling-aware (idempotent here).
-                var (cdeclParam, reconstruction, _) =
-                    CdeclParamMapper.Map(arg, label, normalizedEnv, omitLabels: true, reservedSiblings: sliceSiblings);
-                argParams.Add(cdeclParam);
-                if (reconstruction != null) derefLines.Add(reconstruction);
+                // passing siblings keeps the internal re-escape sibling-aware (idempotent here).
+                // An inout crosses as an address: the body binds a mutable copy, the call passes it
+                // `&`, and the deferred write-back stores the mutation through the caller's pointer.
+                var lowering = CdeclParamMapper.Describe(arg, label, normalizedEnv, omitLabels: true,
+                    reservedSiblings: sliceSiblings, isInout: arg.IsInOut);
+                argParams.Add(lowering.CdeclParam);
+                if (lowering.Reconstruction != null) derefLines.Add(lowering.Reconstruction);
+                if (lowering.WriteBack != null) derefLines.Add($"defer {{ {lowering.WriteBack} }}");
             }
             else
             {
                 // Render param as native Swift type — @_silgen_name forces original function type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                if (arg.IsInOut && !swiftType.StartsWith("inout ", StringComparison.Ordinal))
+                    swiftType = "inout " + swiftType;
                 argParams.Add($"_ {label}: {swiftType}");
             }
         }
@@ -590,6 +595,11 @@ public static class ArraySliceNormalizationEmitter
             // For @_cdecl converted params, use the reconstructed value
             if (useCdecl && derefLines.Any(l => l.Contains($"let {privateName}Val ")))
                 valueRef = $"{privateName}Val";
+
+            // An inout forwards by reference: the @_cdecl body's mutable copy, or the @_silgen_name
+            // wrapper's own inout parameter.
+            if (normArg.IsInOut)
+                valueRef = useCdecl ? $"&{privateName}Val" : $"&{privateName}";
 
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords.

@@ -1155,13 +1155,15 @@ public static class PropertyWrapperEmitter
         string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
         // Build extension body lines
+        // A ~Copyable receiver cannot be bound to a local (that copies it); it is read in place.
+        bool readsInPlace = isMutatingGetter || WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
         var bodyLines = new List<string>();
         if (isClass)
             bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
-        else if (!isMutatingGetter)
+        else if (!readsInPlace)
             bodyLines.Add("let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
 
-        var propAccess = isMutatingGetter
+        var propAccess = !isClass && readsInPlace
             ? $"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name}"
             : $"obj.{propertyDecl.Name}";
 
@@ -1239,7 +1241,7 @@ public static class PropertyWrapperEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
-            {{getExtensionAvailPrefix}}private protocol {{protocolName}} {
+            {{getExtensionAvailPrefix}}private protocol {{protocolName}}{{WrapperEmitterHelpers.DispatchProtocolCopyability(parentTypeDecl)}} {
                 static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}}
             }
             """);
@@ -1483,7 +1485,7 @@ public static class PropertyWrapperEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
-            {{setExtensionAvailPrefix}}private protocol {{protocolName}} {
+            {{setExtensionAvailPrefix}}private protocol {{protocolName}}{{WrapperEmitterHelpers.DispatchProtocolCopyability(parentTypeDecl)}} {
                 static func {{setMethodName}}({{string.Join(", ", protocolParams)}})
             }
             """);

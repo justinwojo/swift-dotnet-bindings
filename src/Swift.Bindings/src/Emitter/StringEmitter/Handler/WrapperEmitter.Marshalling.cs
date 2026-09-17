@@ -462,6 +462,19 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Typed buffer pointer: the runtime struct has the Swift value's layout, so the
+                // wrapper reads a copy of it through the address passed in its pointer slot.
+                if (_env.MethodDecl.UsesCdeclWrapper
+                    && _env.BoundGenericsHandler.IsBoundGeneric(argumentDecl)
+                    && MarshallingHelpers.IsTypedBufferPointer(argumentDecl.SwiftTypeSpec))
+                {
+                    var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
+                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                    csWriter.WriteLine($"var {csName}Copy = {csName};");
+                    csWriter.WriteLine($"IntPtr {bufferName} = (IntPtr)(&{csName}Copy);");
+                    continue;
+                }
+
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var csName = NameProvider.GetMarshallingBaseName(argumentDecl);

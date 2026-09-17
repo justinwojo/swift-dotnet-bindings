@@ -491,6 +491,15 @@ namespace BindingsGeneration
                         continue;
                     }
 
+                    // Typed buffer pointer through a @_cdecl wrapper: the wrapper takes the address
+                    // of the two-word value and reads it back through that pointer, so the slot is a
+                    // pointer rather than the value itself.
+                    if (_env.MethodDecl.UsesCdeclWrapper && MarshallingHelpers.IsTypedBufferPointer(argument.SwiftTypeSpec))
+                    {
+                        AddParameter("IntPtr", NameProvider.GetBoundGenericBufferName(csName));
+                        continue;
+                    }
+
                     // Direct path, no Swift-side carrier: same widening as the return slot, in the
                     // other direction. Swift reads a wider-than-a-word Optional argument out of
                     // more than one register, so supplying a single slot leaves the callee's own
@@ -828,8 +837,12 @@ namespace BindingsGeneration
 
                 if (argument.IsGeneric)
                 {
+                    // The payload is already the address of the marshalled value, which is exactly
+                    // what an inout generic argument lowers to; a `ref` would pass the address of the
+                    // local holding that address. The mutation is read back from the payload after
+                    // the call.
                     var payloadName = NameProvider.GetPayloadName(csName);
-                    AddParameter("IntPtr", payloadName, inoutModifier);
+                    AddParameter("IntPtr", payloadName);
                     continue;
                 }
 

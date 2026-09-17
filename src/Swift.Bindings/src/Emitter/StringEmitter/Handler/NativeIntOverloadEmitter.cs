@@ -300,6 +300,16 @@ internal static class NativeIntOverloadEmitter
         {
             csWriter.WriteLine($"public {constructorName}({paramStr}) : this({argsStr}) {{ }}");
         }
+        else if (methodEnv.EmissionContext?.WasMethodProduceThrow(methodDecl) == true)
+        {
+            // The primary's suppressed-proxy return can only throw and is [Obsolete(error: true)], so a
+            // forward into it would not compile. Mirror the poison and the throw instead.
+            WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+            var poisonedReturn = hasReturn ? returnType : "void";
+            csWriter.WriteLine(
+                $"public {staticModifier}{poisonedReturn} {methodName}({paramStr}) => " +
+                $"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+        }
         else if (hasReturn)
         {
             csWriter.WriteLine($"public {staticModifier}{returnType} {methodName}({paramStr}) => {methodName}({argsStr});");

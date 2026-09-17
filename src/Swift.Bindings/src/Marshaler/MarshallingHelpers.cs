@@ -200,6 +200,17 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Determines whether the specified type spec is a typed buffer pointer,
+        /// Swift.UnsafeBufferPointer&lt;T&gt; or Swift.UnsafeMutableBufferPointer&lt;T&gt;. Both are a
+        /// two-word value (optional base address, count) that the runtime mirrors field for field,
+        /// so a @_cdecl wrapper receives the address of a copy and reads the value through it.
+        /// </summary>
+        public static bool IsTypedBufferPointer(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec { Name: "Swift.UnsafeBufferPointer" or "Swift.UnsafeMutableBufferPointer" };
+        }
+
+        /// <summary>
         /// Determines whether the specified type spec represents Swift.Optional wrapping
         /// an ObjC bridged type (e.g., Optional&lt;UIImage&gt;, Optional&lt;NSUrlResponse&gt;).
         /// ObjC optionals use nullable pointer ABI (nil = IntPtr.Zero), not SwiftOptional layout.

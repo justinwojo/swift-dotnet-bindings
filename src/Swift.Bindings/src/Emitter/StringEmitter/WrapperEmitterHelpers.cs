@@ -10,6 +10,14 @@ namespace BindingsGeneration;
 public static class WrapperEmitterHelpers
 {
     /// <summary>
+    /// The inheritance clause of a private dispatch protocol the wrapped type conforms to in an
+    /// extension. Every protocol implicitly requires <c>Copyable</c>, so a <c>~Copyable</c> type can
+    /// only conform to one that suppresses it; the clause is empty for every other type.
+    /// </summary>
+    public static string DispatchProtocolCopyability(BaseDecl? conformingTypeDecl)
+        => WrapperValidation.IsNonCopyableStructParent(conformingTypeDecl) ? ": ~Copyable" : "";
+
+    /// <summary>
     /// Emits the @MainActor (if needed) and @_cdecl annotations for a Swift wrapper function.
     /// Consolidates the identical annotation pattern used by MethodWrapperEmitter,
     /// PropertyWrapperEmitter, and ConstructorWrapperEmitter.
@@ -183,6 +191,45 @@ public static class WrapperEmitterHelpers
     {
         foreach (var key in CollectAvailabilityDeltaKeys(memberAnnotations, enclosingAnnotations))
             swiftWriter.WriteLine($"@available({key}, *)");
+    }
+
+    /// <summary>
+    /// <paramref name="annotations"/> without the floors the binding derived for its own runtime
+    /// needs (<see cref="AvailabilityAnnotation.IsRuntimeSupportFloor"/>) — the floors the library
+    /// itself declared. Returns the input reference when it carries none.
+    /// </summary>
+    internal static IReadOnlyList<AvailabilityAnnotation>? DeclaredAvailability(
+        IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations is null || !annotations.Any(a => a.IsRuntimeSupportFloor))
+            return annotations;
+        return annotations.Where(a => !a.IsRuntimeSupportFloor).ToList();
+    }
+
+    /// <summary>
+    /// Emits the leading statement of a protocol witness body whose member needs a runtime-support
+    /// floor its requirement does not declare: a <c>guard #available</c> that refines the rest of
+    /// the body to that floor and traps below it.
+    ///
+    /// <para>The witness itself cannot carry the floor. Swift requires a witness to be as available
+    /// as its requirement, and the requirement is available at the library's own deployment target
+    /// because the library only uses the member's types statically. The body is where the binding
+    /// needs the floor — it moves the value through raw memory — and a guard there compiles at any
+    /// deployment target. Below the floor the C# member the witness dispatches to is itself marked
+    /// unsupported, so reaching the trap means Swift invoked the requirement on an OS the binding
+    /// cannot serve it on.</para>
+    /// </summary>
+    internal static void EmitRuntimeSupportFloorGuard(
+        SwiftWriter swiftWriter,
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        string memberDescription)
+    {
+        var keys = CollectAvailabilityDeltaKeys(memberAnnotations, DeclaredAvailability(memberAnnotations));
+        if (keys.Count == 0)
+            return;
+        swiftWriter.WriteLine(
+            $"guard #available({string.Join(", ", keys)}, *) else {{ fatalError(\"[SwiftBindings] {memberDescription} " +
+            $"marshals a parameterized protocol type, which needs runtime support from {string.Join(", ", keys)} or newer\") }}");
     }
 
     /// <summary>

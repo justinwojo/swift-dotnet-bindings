@@ -302,6 +302,55 @@ public class ConstructorWrapperEmitterTests
             $"The generic static-factory constructor must clear errorOut before executing Swift code.\n{output}");
     }
 
+    /// <summary>
+    /// A generic <c>~Copyable</c> struct's initializer is dispatched through a private protocol the
+    /// struct conforms to. Swift only lets a <c>~Copyable</c> type conform to a protocol that
+    /// suppresses <c>Copyable</c>, and the constructed value has to be moved into the result buffer —
+    /// a copy of it does not compile, and the wrapper would be withdrawn. The copyable twin keeps
+    /// the plain protocol.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitSwiftWrapper_GenericStaticFactory_NonCopyableParentMovesTheValueIn(bool nonCopyable)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Handle");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Handle", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.Handle"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"), "$s10TestModule6HandleVs9EscapableAAMc")
+        };
+        if (!nonCopyable)
+            conformances.Add(new(SwiftTypeName.FromModuleQualifiedName("TestModule.Handle"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Copyable"), "$s10TestModule6HandleVs8CopyableAAMc"));
+        parentDecl.Conformances = conformances;
+        Assert.Equal(nonCopyable, WrapperValidation.IsNonCopyableStructParent(parentDecl));
+
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.NeedsGenericStaticFactory(env, parentDecl));
+        method.UsesCdeclConstructorWrapper = true;
+        env.PromoteSymbol(ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Handle", method.MangledName));
+
+        var sw = new StringWriter();
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
+        var output = sw.ToString();
+
+        var protocolLine = output.Split('\n').Single(l => l.Contains("private protocol _SBW_GSF_", StringComparison.Ordinal));
+        Assert.Equal(nonCopyable, protocolLine.Contains("~Copyable", StringComparison.Ordinal));
+        Assert.Equal(!nonCopyable, output.Contains("initializeMemory(", StringComparison.Ordinal));
+        if (nonCopyable)
+            Assert.Contains(".initialize(to: result)", output);
+    }
+
     [Fact]
     public void NeedsGenericStaticFactory_GenericClassConcreteParams_ReturnsTrue()
     {

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Collisions;
@@ -59,5 +60,39 @@ public class BclNameShadowingTests : TestBase
 
         var slot = probe.SlotOf(value);
         AssertEqual(42, slot, $"Expected slotOf(LibraryImport(41)) == 42, got {slot}");
+    }
+
+    /// <summary>
+    /// The module declares an error type named <c>Exception</c>. A throwing member still surfaces
+    /// its error as a Swift exception, and its success path returns the value.
+    /// </summary>
+    public void TestModuleExceptionTypeThrowingMember()
+    {
+        using var probe = new BclShadowProbe();
+
+        AssertEqual(14, probe.CheckedSlot(7), "a non-negative slot returns its double");
+        AssertThrows<SwiftException>(() => probe.CheckedSlot(-1),
+            "a negative slot throws the module's Exception error");
+    }
+
+    /// <summary>
+    /// Generic types in the same module, whose emitted guards catch the BCL exception type,
+    /// still construct and round-trip values.
+    /// </summary>
+    public void TestGenericTypesBesideModuleExceptionType()
+    {
+        using var stack = new ShadowStack<int>();
+        stack.Push(1);
+        stack.Push(2);
+        AssertEqual(2, stack.Count, "both pushes reached Swift");
+
+        using var probe = new BclShadowProbe();
+        using var something = probe.Choose(5);
+        AssertTrue(something.IsSomething, "the payload case reports itself");
+        AssertTrue(something.TryGetSomething(out var payload) && payload == 5, "the payload survives the round trip");
+        var nothing = ShadowChoice<int>.Nothing;
+        AssertFalse(nothing.IsSomething, "the empty case reports itself");
+        using var rejected = probe.Choose(-1);
+        AssertFalse(rejected.IsSomething, "a returned empty case reports itself");
     }
 }

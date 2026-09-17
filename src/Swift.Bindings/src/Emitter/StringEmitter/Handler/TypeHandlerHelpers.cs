@@ -605,7 +605,7 @@ namespace BindingsGeneration
                         NativeAotInitialize();
                         return true;
                     }
-                    catch (Exception)
+                    catch (global::System.Exception)
                     {
                         return false;
                     }

@@ -42,7 +42,9 @@ public class AsyncStreamHandler
     /// <returns><c>true</c> if the type is a supported AsyncStream/AsyncThrowingStream; otherwise, <c>false</c>.</returns>
     public bool IsAsyncStream(TypeSpec typeSpec)
     {
-        if (typeSpec is not NamedTypeSpec namedType)
+        // A member type of a stream (`AsyncStream<T>.Continuation`, `.Iterator`) carries the
+        // stream's name on its outer segment; only the stream itself has no inner segment.
+        if (typeSpec is not NamedTypeSpec { InnerType: null } namedType)
             return false;
 
         return namedType.Name == AsyncStreamTypeName

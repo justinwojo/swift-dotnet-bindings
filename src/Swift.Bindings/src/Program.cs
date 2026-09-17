@@ -863,6 +863,8 @@ namespace BindingsGeneration
                     RuntimeVersionRange.Epoch(swiftRuntimeVersion ?? BindingProjectEmitter.DefaultSwiftRuntimeVersion);
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
                 emissionContext.SetCollisionContext(moduleNameForCollision, nestedTypesInCollidingClass);
+                emissionContext.SetDeclaredTypePredicate(name =>
+                    SwiftTypeName.TryFromModuleQualifiedName(name, out var declared) && typeDatabase.IsTypeRegistered(declared));
 
                 // Create concrete specialization engine and index module-local conformances
                 var specializationEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
@@ -931,6 +933,16 @@ namespace BindingsGeneration
                             decl, foreignExtensions, typeDatabase, logger, emissionContext,
                             facts.AvailabilityAnnotations);
                     }
+                }
+
+                // Every member, including the extension members injected above, is in place: record
+                // the runtime-support floor its signature needs before any emitter reads availability.
+                var parameterizedExistentialMembers = ParameterizedExistentialFloor.Apply(decl, typeDatabase);
+                if (parameterizedExistentialMembers > 0)
+                {
+                    logger.LogInformation(
+                        "Raised {Count} member(s) naming a parameterized protocol existential to its runtime-support floor",
+                        parameterizedExistentialMembers);
                 }
 
                 // Compute the ingestion-quarantine withdrawal closure before emission. The parser marks a

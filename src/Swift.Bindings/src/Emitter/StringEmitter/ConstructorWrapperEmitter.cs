@@ -431,11 +431,16 @@ public static class ConstructorWrapperEmitter
                         var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                         if (label == "_")
                             label = $"arg{i}";
-                        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels, reservedSiblings: siblings);
-                        swiftParams.Add(cdeclParam);
-                        if (reconstruction != null)
-                            reconstructionLines.Add(reconstruction);
-                        callArgs.Add(callArg);
+                        var lowering = CdeclParamMapper.Describe(arg, label, env, omitLabels,
+                            reservedSiblings: siblings, isInout: arg.IsInOut);
+                        swiftParams.Add(lowering.CdeclParam);
+                        if (lowering.Reconstruction != null)
+                            reconstructionLines.Add(lowering.Reconstruction);
+                        // An inout argument is passed as `&{label}Val`; the deferred write-back runs
+                        // after the initializer returns, carrying the mutation to the caller's slot.
+                        if (lowering.WriteBack != null)
+                            reconstructionLines.Add($"defer {{ {lowering.WriteBack} }}");
+                        callArgs.Add(lowering.CallArg);
                     }
                     break;
 
@@ -957,17 +962,27 @@ public static class ConstructorWrapperEmitter
                     // Unmanaged.fromOpaque interprets the value as the class reference directly.
                     extensionBodyLines.Add($"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()");
                 }
+                else if (arg.IsInOut)
+                {
+                    // The C# side passes the caller's slot by reference: bind it mutably and write
+                    // the initializer's mutation back through the same address.
+                    extensionBodyLines.Add($"var {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                    extensionBodyLines.Add($"defer {{ UnsafeMutableRawPointer(mutating: {label}).assumingMemoryBound(to: {swiftType}.self).pointee = {label}Val }}");
+                }
                 else
                 {
                     extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
                 }
-                initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}Val");
+                initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{(arg.IsInOut ? "&" : "")}{label}Val");
             }
             else
             {
                 // Concrete param → pass through directly. label is already sibling-escaped above;
                 // passing siblings keeps Map's internal re-escape sibling-aware (idempotent here).
-                var (cdeclParam, reconstruction, callExpr) = CdeclParamMapper.Map(arg, label, env, false, reservedSiblings: siblings);
+                var concreteLowering = CdeclParamMapper.Describe(arg, label, env, omitLabels: false,
+                    reservedSiblings: siblings, isInout: arg.IsInOut);
+                var (cdeclParam, reconstruction, callExpr) =
+                    (concreteLowering.CdeclParam, concreteLowering.Reconstruction, concreteLowering.CallArg);
                 // For the protocol/extension, render the Swift type module-qualified and
                 // existential-aware. This protocol+extension is emitted at file scope where
                 // the wrapper imports several modules, so an unqualified nested generic
@@ -978,7 +993,7 @@ public static class ConstructorWrapperEmitter
                 // (a bare protocol-with-primary-associated-types name is a Swift 6 error).
                 var swiftType = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
                     arg.SwiftTypeSpec, env.TypeDatabase);
-                protocolParams.Add($"{paramPrefix}: {swiftType}");
+                protocolParams.Add($"{paramPrefix}: {(arg.IsInOut ? "inout " : "")}{swiftType}");
                 cdeclParams.Add(cdeclParam);
 
                 if (reconstruction != null)
@@ -993,7 +1008,7 @@ public static class ConstructorWrapperEmitter
                     cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
                 }
 
-                initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
+                initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{(arg.IsInOut ? "&" : "")}{label}");
             }
             argIndex++;
         }
@@ -1064,9 +1079,14 @@ public static class ConstructorWrapperEmitter
             protocolMethodDecl = $"static func {factoryMethodName}({protocolParamString}){throwsClause}";
         }
 
+        // A ~Copyable parent can only conform to a protocol that suppresses Copyable, and its value
+        // cannot go through `initializeMemory(as:repeating:count:)`, which copies — it is moved in.
+        bool isNonCopyable = !isClass && WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
+        var protocolInheritance = WrapperEmitterHelpers.DispatchProtocolCopyability(parentTypeDecl);
+
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
-            {{extensionAvailPrefix}}private protocol {{protocolName}} {
+            {{extensionAvailPrefix}}private protocol {{protocolName}}{{protocolInheritance}} {
                 {{protocolMethodDecl}}
             }
             """);
@@ -1124,26 +1144,14 @@ public static class ConstructorWrapperEmitter
             // retain/release on unbound NativeMemory.Alloc'd buffers. The cross-host fault
             // (doc 14 hypothesis 3) is in metadata-resolution, not reconstruction shape, so
             // we keep this ARC-safe form here.
-            if (throws && isFailable)
-            {
-                extensionLines.Add($"let result: Self? = try Self({initCallArgString})");
-                extensionLines.Add("resultPtr.initializeMemory(as: Optional<Self>.self, repeating: result, count: 1)");
-            }
-            else if (throws)
-            {
-                extensionLines.Add($"let result = try Self({initCallArgString})");
-                extensionLines.Add("resultPtr.initializeMemory(as: Self.self, repeating: result, count: 1)");
-            }
-            else if (isFailable)
-            {
-                extensionLines.Add($"let result: Self? = Self({initCallArgString})");
-                extensionLines.Add("resultPtr.initializeMemory(as: Optional<Self>.self, repeating: result, count: 1)");
-            }
-            else
-            {
-                extensionLines.Add($"let result = Self({initCallArgString})");
-                extensionLines.Add("resultPtr.initializeMemory(as: Self.self, repeating: result, count: 1)");
-            }
+            var resultType = isFailable ? "Optional<Self>" : "Self";
+            var tryPrefix = throws ? "try " : "";
+            extensionLines.Add(isFailable
+                ? $"let result: Self? = {tryPrefix}Self({initCallArgString})"
+                : $"let result = {tryPrefix}Self({initCallArgString})");
+            extensionLines.Add(isNonCopyable
+                ? $"resultPtr.assumingMemoryBound(to: {resultType}.self).initialize(to: result)"
+                : $"resultPtr.initializeMemory(as: {resultType}.self, repeating: result, count: 1)");
         }
 
         // Build extension implementation
@@ -1221,9 +1229,12 @@ public static class ConstructorWrapperEmitter
             if (NameProvider.IsSwiftKeyword(label)) label = $"{label}Param";
             label = SwiftBuilder.SanitizeIdentifier(label);
 
-            var (_, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false, reservedSiblings: reconSiblings);
-            if (reconstruction != null)
-                swiftWriter.WriteLine(reconstruction);
+            var lowering = CdeclParamMapper.Describe(arg, label, env, omitLabels: false,
+                reservedSiblings: reconSiblings, isInout: arg.IsInOut);
+            if (lowering.Reconstruction != null)
+                swiftWriter.WriteLine(lowering.Reconstruction);
+            if (lowering.WriteBack != null)
+                swiftWriter.WriteLine($"defer {{ {lowering.WriteBack} }}");
         }
 
         // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor.

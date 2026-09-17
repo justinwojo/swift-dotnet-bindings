@@ -1799,8 +1799,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // the channel and the consumer's await foreach rethrows. AsyncStream (non-throwing) does not.
         bool isThrowing = asyncStreamHandler.IsThrowingStream(propertyDecl.SwiftTypeSpec);
 
-        // Get parent type name for Swift wrapper
-        var parentTypeName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.Name : "Unknown";
+        // Parent type as the wrapper spells it: module-qualified, so a nested parent
+        // (`Outer.Inner`) resolves at top level like every other member wrapper's self type.
+        var parentTypeName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.SwiftTypeName.ModuleQualifiedName : "Unknown";
 
         // Get library path — AsyncStream wrappers are @_cdecl in the wrapper library
         var moduleName = propertyDecl.ParentDecl is TypeDecl td ? td.SwiftTypeName.Module : "Unknown";

@@ -1685,8 +1685,8 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UITableView.RowAnimation", "UIKit.UITableViewRowAnimation", TypeRecordKind.Enum, "Int")]
     [InlineData("UIKit.UITableViewCell.CellStyle", "UIKit.UITableViewCellStyle", TypeRecordKind.Enum, "Int")]
     [InlineData("UIKit.UIAlertAction.Style", "UIKit.UIAlertActionStyle", TypeRecordKind.Enum, "Int")]
-    [InlineData("UIKit.UIBarButtonItem.SystemItem", "UIKit.UIBarButtonSystemItem", TypeRecordKind.Enum, "UInt")]
-    [InlineData("UIKit.UITabBarItem.SystemItem", "UIKit.UITabBarSystemItem", TypeRecordKind.Enum, "UInt")]
+    [InlineData("UIKit.UIBarButtonItem.SystemItem", "UIKit.UIBarButtonSystemItem", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UITabBarItem.SystemItem", "UIKit.UITabBarSystemItem", TypeRecordKind.Enum, "Int")]
     [InlineData("UIKit.UIImage.ResizingMode", "UIKit.UIImageResizingMode", TypeRecordKind.Enum, "Int")]
     [InlineData("UIKit.UIView.AnimationCurve", "UIKit.UIViewAnimationCurve", TypeRecordKind.Enum, "Int")]
     public async Task TryGetTypeRecord_NewUIKitEnum_ResolvesCorrectly(

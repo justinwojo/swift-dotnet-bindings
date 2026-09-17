@@ -1670,9 +1670,13 @@ public class EveryProtocolEmitter
                 // in that context, stubs included, so the delta is emitted ahead of all of them.
                 // The arms then take the member's own floor as their branch-guard baseline; given
                 // the extension's they would emit an always-true #available and dead-code its else.
+                // Only declared floors go on the witness; a runtime-support floor the binding derived
+                // for the member's signature is enforced by a guard at the top of each body instead
+                // (see EmitRuntimeSupportFloorGuard), since the requirement does not declare it.
                 var memberAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                     property.AvailabilityAnnotations, protocolDecl);
-                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(writer, memberAvail, availAnnotations);
+                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(
+                    writer, WrapperEmitterHelpers.DeclaredAvailability(memberAvail), availAnnotations);
                 // @objc protocol existential in an unsupported nested position (container/tuple/closure):
                 // dropped fail-closed from the C# interface AND the reverse-dispatch vtable slot (see
                 // VtableLayoutBuilder.ClassifyProperty, which makes it skip-but-consume). The Swift
@@ -1739,7 +1743,8 @@ public class EveryProtocolEmitter
             {
                 var subscriptAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                     subscript.AvailabilityAnnotations, protocolDecl);
-                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(writer, subscriptAvail, availAnnotations);
+                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(
+                    writer, WrapperEmitterHelpers.DeclaredAvailability(subscriptAvail), availAnnotations);
                 // @objc existential in an unsupported nested position → dropped fail-closed from the
                 // interface + vtable slot (skip-but-consume); witness the Swift requirement with a stub.
                 if (HasUnsupportedObjCExistentialSubscript(subscript))
@@ -1868,7 +1873,8 @@ public class EveryProtocolEmitter
             {
                 var methodAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                     method.AvailabilityAnnotations, protocolDecl);
-                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(writer, methodAvail, availAnnotations);
+                WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(
+                    writer, WrapperEmitterHelpers.DeclaredAvailability(methodAvail), availAnnotations);
                 // @objc protocol existential in an unsupported nested position (container/tuple/closure)
                 // on any parameter or the return: dropped fail-closed from the C# interface AND the
                 // reverse-dispatch vtable slot (see VtableLayoutBuilder.ClassifyMethod, skip-but-consume).
@@ -3116,6 +3122,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine("get {");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{property.ParentDecl?.Name}.{property.Name}");
 
         // Single-branch fast path — keep the original shape so generated output stays
         // byte-identical for the (overwhelming) non-sibling case. forceSafeFanOut overrides
@@ -3224,6 +3231,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine("set {");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{property.ParentDecl?.Name}.{property.Name}");
 
         if (branches.Count == 1 && !forceSafeFanOut)
         {
@@ -3408,6 +3416,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine("get {");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{subscript.ParentDecl?.Name} subscript");
 
         if (branches.Count == 1 && !forceSafeFanOut)
         {
@@ -3504,6 +3513,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine("set {");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{subscript.ParentDecl?.Name} subscript");
 
         if (branches.Count == 1 && !forceSafeFanOut)
         {
@@ -4477,6 +4487,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({parametersString}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{method.ParentDecl?.Name}.{method.Name}");
 
         // Build argument copies for passing to vtable function
         // ObjC-bridgeable types (e.g., URL, URLRequest) need special handling:
@@ -4855,6 +4866,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({parametersString}) {effectClause} -> {returnTypeName} {{");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{method.ParentDecl?.Name}.{method.Name}");
 
         // Suspend and hand the continuation to C#. The continuation closure is non-escaping and
         // non-@Sendable, so capturing `self` (the EveryProtocol instance) and the primitive args is
@@ -4969,6 +4981,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({parametersString}) {{");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{method.ParentDecl?.Name}.{method.Name}");
 
         // Build the per-parameter passing code. For each closure param, emit the
         // (fnPtr, ctx) extraction; `Optional<Closure>` adds a nil branch that passes
@@ -5275,6 +5288,7 @@ public class EveryProtocolEmitter
 
             writer.WriteLine("get {");
             writer.Indent++;
+            WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{property.ParentDecl?.Name}.{property.Name}");
             if (getterBranches.Count == 1 && !forceSafeFanOut)
             {
                 var soloProto = getterBranches[0].SwiftTypeName.ModuleQualifiedName;
@@ -5328,6 +5342,7 @@ public class EveryProtocolEmitter
         {
             writer.WriteLine("set {");
             writer.Indent++;
+            WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{property.ParentDecl?.Name}.{property.Name}");
             writer.WriteLines("""
                 var newValueLocal = newValue
                 let (_fnPtr, _ctxPtr): (UnsafeRawPointer?, UnsafeRawPointer?) = withUnsafeBytes(of: &newValueLocal) { _bytes in
@@ -5403,6 +5418,7 @@ public class EveryProtocolEmitter
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}() -> {swiftReturnTypeName} {{");
         writer.Indent++;
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{method.ParentDecl?.Name}.{method.Name}");
         if (branches.Count == 1 && !forceSafeFanOut)
         {
             writer.WriteLines($$"""

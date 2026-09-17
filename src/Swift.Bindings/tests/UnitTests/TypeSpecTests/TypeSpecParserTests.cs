@@ -183,6 +183,79 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
         Assert.Equal("Swift.Dictionary<Swift.String, T>.Index", ns.ToString());
     }
 
+    // A postfix `?` / `!` after a member-type chain binds to the whole chain, not to its last
+    // segment: `AsyncStream<T>.Continuation?` is Optional<AsyncStream<T>.Continuation>. Binding it
+    // to the segment leaves an outer AsyncStream<T> that name-based classifiers read as the stream.
+    [Theory]
+    [InlineData("_Concurrency.AsyncStream<M.Event>.Continuation?", "Swift.Optional")]
+    [InlineData("_Concurrency.AsyncStream<M.Event>.Continuation!", "Swift.ImplicitlyUnwrappedOptional")]
+    public static void TestEmbeddedClassOptionalWrapsWholeChain(string text, string wrapper)
+    {
+        var ns = TypeSpecParser.Parse(text) as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal(wrapper, ns.Name);
+        var inner = Assert.IsType<NamedTypeSpec>(Assert.Single(ns.GenericParameters));
+        Assert.Equal("_Concurrency.AsyncStream", inner.Name);
+        Assert.NotNull(inner.InnerType);
+        Assert.Equal("Continuation", inner.InnerType.Name);
+        Assert.Null(inner.InnerType.InnerType);
+        Assert.Empty(inner.InnerType.GenericParameters);
+    }
+
+    // A type named after a reserved word is spelled back-ticked in a module interface and ABI dump.
+    // It names the same declaration as the bare spelling, in every position a name can appear.
+    [Theory]
+    [InlineData("M.`Protocol`", "M.Protocol")]
+    [InlineData("M.`Protocol`?", "Swift.Optional<M.Protocol>")]
+    [InlineData("M.Registry<M.`Protocol`>", "M.Registry<M.Protocol>")]
+    [InlineData("[M.`Type` : M.`Protocol`]", "Swift.Dictionary<M.Type, M.Protocol>")]
+    [InlineData("(M.`Protocol`) -> M.`Self`.Inner", "(M.Protocol) -> M.Self.Inner")]
+    public static void TestBacktickedIdentifiersNameTheBareDeclaration(string text, string expected)
+    {
+        var spec = TypeSpecParser.Parse(text);
+        Assert.NotNull(spec);
+        Assert.Equal(expected, spec.ToString());
+    }
+
+    [Fact]
+    public static void TestBacktickedLabelIsALabel()
+    {
+        var tuple = Assert.IsType<TupleTypeSpec>(TypeSpecParser.Parse("(`default`: Swift.Int, other: M.`Protocol`)"));
+        Assert.Equal("default", tuple.Elements[0].TypeLabel);
+        Assert.Equal("Swift.Int", Assert.IsType<NamedTypeSpec>(tuple.Elements[0]).Name);
+        Assert.Equal("other", tuple.Elements[1].TypeLabel);
+        Assert.Equal("M.Protocol", Assert.IsType<NamedTypeSpec>(tuple.Elements[1]).Name);
+    }
+
+    [Theory]
+    [InlineData("M.`Protocol")]
+    [InlineData("M.``")]
+    public static void TestMalformedBacktickedIdentifierIsAParseError(string text)
+    {
+        Assert.ThrowsAny<Exception>(() => TypeSpecParser.Parse(text));
+    }
+
+    [Fact]
+    public static void TestEmbeddedClassChainWithGenericSegments()
+    {
+        var ns = TypeSpecParser.Parse("A<B>.C<D>.E") as NamedTypeSpec;
+        Assert.NotNull(ns);
+        Assert.Equal("A", ns.Name);
+        Assert.Equal("C", ns.InnerType!.Name);
+        Assert.Single(ns.InnerType.GenericParameters);
+        Assert.Equal("E", ns.InnerType.InnerType!.Name);
+        Assert.Equal("A<B>.C<D>.E", ns.ToString());
+    }
+
+    [Fact]
+    public static void TestEmbeddedClassAsClosureArgument()
+    {
+        var closure = TypeSpecParser.Parse("(A<B>.C) -> A<B>.C?") as ClosureTypeSpec;
+        Assert.NotNull(closure);
+        var ret = Assert.IsType<NamedTypeSpec>(closure.ReturnType);
+        Assert.Equal("Swift.Optional", ret.Name);
+    }
+
     [Fact]
     public static void TestProtocolListAlphabetical()
     {

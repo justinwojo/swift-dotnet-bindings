@@ -1953,6 +1953,10 @@ namespace BindingsGeneration
                 ? GetCSharpTypeName(returnTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false)
                 : "void";
 
+            // The DIM forwards to the requirement, so it carries the requirement's platform floor; without
+            // it the forward is a CA1416 call site reachable below the member it delegates to.
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, methodDecl, protocolContext, emitObsolete: false);
+
             // Emit DIM — no access modifier (interface members are implicitly public)
             if (hasReturn)
             {

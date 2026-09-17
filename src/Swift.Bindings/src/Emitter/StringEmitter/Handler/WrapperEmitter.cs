@@ -852,6 +852,7 @@ namespace BindingsGeneration
                         _env.MethodDecl, _env.MethodDecl.ParentDecl, _env.CSharpMethodName);
                     EmitSuppressedProxyReadPoison(csWriter);
                     csWriter.AppendCaptured(capturedMember);
+                    _emissionContext?.RecordMethodProduceThrow(_env.MethodDecl);
                 }
             }
             else

@@ -187,10 +187,10 @@
         </entity>
         <!-- NS_ENUM types (UInt raw value) -->
         <entity managedNameSpace="UIKit" managedTypeName="UIBarButtonSystemItem">
-            <typedeclaration kind="enum" name="UIBarButtonItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="enum" name="UIBarButtonItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITabBarSystemItem">
-            <typedeclaration kind="enum" name="UITabBarItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="enum" name="UITabBarItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <!-- NS_OPTIONS / bitmask types (struct) -->
         <entity managedNameSpace="UIKit" managedTypeName="UIAccessibilityTraits">

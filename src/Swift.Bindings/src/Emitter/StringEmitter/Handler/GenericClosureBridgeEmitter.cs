@@ -570,7 +570,7 @@ public static class GenericClosureBridgeEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine("catch (Exception ex)");
+        csWriter.WriteLine("catch (global::System.Exception ex)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine($"*errorOut = (void*)SBW_CreateError_{moduleName}(ex.Message, ex.GetType().FullName);");
@@ -623,7 +623,7 @@ public static class GenericClosureBridgeEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine("catch (Exception ex)");
+        csWriter.WriteLine("catch (global::System.Exception ex)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine($"*errorOut = (void*)SBW_CreateError_{moduleName}(ex.Message, ex.GetType().FullName);");

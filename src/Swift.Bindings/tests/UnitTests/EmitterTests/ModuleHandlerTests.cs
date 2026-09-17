@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -2725,6 +2727,45 @@ public class ModuleHandlerTests
 
         Assert.DoesNotContain("global::global::", result);
         Assert.Contains("global::SwiftyRSA.PublicKey", result);
+    }
+
+    #endregion
+
+    #region Binding-internal references to consumer markers
+
+    [Theory]
+    [InlineData("SB0004")]
+    [InlineData("SB0010")]
+    public void EmittedFilePreamble_LetsTheBindingReferenceItsOwnMarkedInterfaces(string diagnosticId)
+    {
+        // A requirement of one protocol can name another protocol whose interface carries a
+        // consumer-facing [Obsolete] marker (every member skipped, or never called back). The binding's
+        // own signature has to compile under warnings-as-errors; the marker still reaches consumers
+        // from metadata.
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+        var preamble = string.Join("\n", csOutput.Split('\n').TakeWhile(line => !line.StartsWith("using ")));
+        var source = preamble + $$"""
+
+            [System.Obsolete("marked", DiagnosticId = "{{diagnosticId}}")]
+            public interface IMarked { }
+
+            public interface IClient
+            {
+                IMarked Fetch();
+                void Submit(IMarked request);
+            }
+            """;
+        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator).Select(p => MetadataReference.CreateFromFile(p));
+        var compilation = CSharpCompilation.Create("MarkerReferences" + Guid.NewGuid().ToString("N"),
+            [CSharpSyntaxTree.ParseText(source)], references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Enable,
+                generalDiagnosticOption: ReportDiagnostic.Error));
+
+        var errors = compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+
+        Assert.True(errors.Count == 0, string.Join("\n", errors));
     }
 
     #endregion

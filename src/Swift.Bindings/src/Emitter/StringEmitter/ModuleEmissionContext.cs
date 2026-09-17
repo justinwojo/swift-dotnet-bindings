@@ -211,6 +211,7 @@ public sealed class ModuleEmissionContext
                     + Regex.Escape(moduleNameForCollision) + @"\.(\w+(?:\.\w+)*)",
                 RegexOptions.Compiled)
             : null;
+        RebuildCombinedPattern();
     }
 
     /// <summary>
@@ -237,22 +238,98 @@ public sealed class ModuleEmissionContext
     /// </remarks>
     public string QualifyForWrapperSource(string moduleQualifiedName, TextEditJournal? journal)
     {
-        if (string.IsNullOrEmpty(moduleQualifiedName) || _collisionPattern == null)
+        if (string.IsNullOrEmpty(moduleQualifiedName))
             return moduleQualifiedName;
 
-        return _collisionPattern.Replace(moduleQualifiedName, match =>
+        var pattern = _collisionPattern;
+        if (_isDeclaredType != null)
+            pattern = _collisionPattern != null ? _collisionAndReservedPattern : ReservedMemberChainPattern;
+        if (pattern == null)
+            return moduleQualifiedName;
+
+        return pattern.Replace(moduleQualifiedName, match =>
         {
-            // First captured group is the type path after the module prefix.
-            // Preserve qualification when the head segment names a type nested
-            // inside the colliding class (e.g. LoggingLib.Level).
-            var firstComponent = match.Groups[1].Value;
-            var dotIdx = firstComponent.IndexOf('.');
-            var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
-            if (_nestedTypesInCollidingClass?.Contains(topLevelName) == true)
-                return match.Value;
-            journal?.Record(match.Index, match.Length, firstComponent.Length);
-            return match.Groups[1].Value;
+            string replacement;
+            if (match.Groups["reserved"].Success)
+            {
+                replacement = EscapeReservedMemberSegments(match.Value, rootQualifier: null);
+            }
+            else
+            {
+                // First captured group is the type path after the module prefix.
+                // Preserve qualification when the head segment names a type nested
+                // inside the colliding class (e.g. LoggingLib.Level).
+                var firstComponent = match.Groups[1].Value;
+                var dotIdx = firstComponent.IndexOf('.');
+                var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
+                replacement = _nestedTypesInCollidingClass?.Contains(topLevelName) == true
+                    ? EscapeReservedMemberSegments(match.Value, rootQualifier: null)
+                    : EscapeReservedMemberSegments(firstComponent, rootQualifier: ModuleNameForCollision);
+            }
+
+            if (replacement.Length != match.Length || !string.Equals(replacement, match.Value, StringComparison.Ordinal))
+                journal?.Record(match.Index, match.Length, replacement.Length);
+            return replacement;
         });
+    }
+
+    // A dotted chain containing a `.Type` or `.Protocol` segment. After a dot those two words are
+    // postfix operators in Swift's type grammar — `Mod.Protocol` is the protocol metatype of a
+    // type `Mod`, not the member `Protocol` of module `Mod` — so a declared type with either name
+    // is reachable only as ``Mod.`Protocol` ``. The lookbehind anchors the match at the root of the
+    // chain; whether a segment really names a type (rather than being a metatype suffix) is decided
+    // against the type database, not by the regex.
+    private const string ReservedMemberChain =
+        @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*(?:\.\w+)*\.(?:Type|Protocol)\b(?:\.\w+)*)(?!`)";
+
+    private static readonly Regex ReservedMemberChainPattern = new(ReservedMemberChain, RegexOptions.Compiled);
+
+    private Func<string, bool>? _isDeclaredType;
+    private Regex? _collisionAndReservedPattern;
+
+    /// <summary>
+    /// Supplies the predicate that answers whether a module-qualified name is a declared type.
+    /// Enables backtick-escaping of member-type segments spelled <c>Type</c> or <c>Protocol</c> in
+    /// wrapper source (see <see cref="QualifyForWrapperSource(string, TextEditJournal?)"/>).
+    /// </summary>
+    public void SetDeclaredTypePredicate(Func<string, bool>? isDeclaredType)
+    {
+        _isDeclaredType = isDeclaredType;
+        RebuildCombinedPattern();
+    }
+
+    private void RebuildCombinedPattern()
+    {
+        _collisionAndReservedPattern = _collisionPattern != null
+            ? new Regex("(?:" + _collisionPattern + ")|" + ReservedMemberChain, RegexOptions.Compiled)
+            : null;
+    }
+
+    /// <summary>
+    /// Escapes each <c>Type</c>/<c>Protocol</c> segment of <paramref name="chain"/> whose qualified
+    /// prefix (ending at that segment) is a declared type. <paramref name="rootQualifier"/> is the
+    /// module prefix a collision rewrite removed from the chain; it takes part in the lookup but is
+    /// not written back. The leading segment is never escaped: in root position neither word is a
+    /// postfix operator.
+    /// </summary>
+    private string EscapeReservedMemberSegments(string chain, string? rootQualifier)
+    {
+        if (_isDeclaredType == null || (!chain.Contains(".Type", StringComparison.Ordinal) && !chain.Contains(".Protocol", StringComparison.Ordinal)))
+            return chain;
+
+        var segments = chain.Split('.');
+        var qualified = rootQualifier != null ? rootQualifier + "." + segments[0] : segments[0];
+        var changed = false;
+        for (var i = 1; i < segments.Length; i++)
+        {
+            qualified += "." + segments[i];
+            if (segments[i] is "Type" or "Protocol" && _isDeclaredType(qualified))
+            {
+                segments[i] = "`" + segments[i] + "`";
+                changed = true;
+            }
+        }
+        return changed ? string.Join('.', segments) : chain;
     }
 
     /// <summary>
@@ -1695,6 +1772,25 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public bool WasGetterProduceThrow(PropertyDecl propertyDecl) =>
         _produceThrowGetters.Contains(propertyDecl);
+
+    // A public method compile-poisoned (SB0006) because its suppressed-proxy return can only throw. Read
+    // by the int/uint convenience-overload post-processor, which runs after the primary is emitted: a
+    // `Name(int)` forwarder calling the poisoned `Name(nint)` would itself be an SB0006 build error, so
+    // it mirrors the poison instead. Keyed by reference identity, off the same MethodDecl instance.
+    private readonly HashSet<MethodDecl> _produceThrowMethods = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Records that <paramref name="methodDecl"/>'s public method was compile-poisoned (SB0006), so its
+    /// convenience overloads mirror the poison instead of forwarding into it.
+    /// </summary>
+    public void RecordMethodProduceThrow(MethodDecl methodDecl) =>
+        _produceThrowMethods.Add(methodDecl);
+
+    /// <summary>
+    /// Returns true if <paramref name="methodDecl"/>'s public method carries the SB0006 poison.
+    /// </summary>
+    public bool WasMethodProduceThrow(MethodDecl methodDecl) =>
+        _produceThrowMethods.Contains(methodDecl);
 
     // A subscript whose PUBLIC indexer getter was compile-poisoned (SB0006) because its suppressed-proxy
     // read can only throw. Set at BOTH poison sites in SubscriptHandler.EmitIndexerGetter — the scalar

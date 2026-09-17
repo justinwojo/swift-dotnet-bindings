@@ -552,6 +552,7 @@ public static class ConstrainedExtensionEmitter
         csWriter.WriteLine($"public static {csharpReturnType} Get{propertyName}(this {closedGenericCsType} self)");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        EmitConsumedSelfGuard(csWriter, parentTypeDecl);
 
         switch (shape)
         {
@@ -783,13 +784,11 @@ public static class ConstrainedExtensionEmitter
         swiftWriter.Indent++;
 
         // Reconstruct self from pointer — structs / enums use memory binding, classes use Unmanaged
-        if (parentTypeDecl is ClassDecl)
-            swiftWriter.WriteLine($"let obj = Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
-        else
-            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).pointee");
+        var selfRef = EmitSwiftSelfAccess(swiftWriter, parentTypeDecl, closedGenericSwiftType,
+            ClassifySelfAccess(parentTypeDecl, isMutating: false, isConsuming: false));
 
         // Emit getter body
-        var propAccess = $"obj.{property.Name}";
+        var propAccess = $"{selfRef}.{property.Name}";
         switch (shape)
         {
             case CEReturnShape.String:
@@ -1074,6 +1073,68 @@ public static class ConstrainedExtensionEmitter
         }
 
         return result;
+    }
+
+    private enum CESelfAccess
+    {
+        /// <summary>Class receiver: an unretained reference.</summary>
+        ClassReference,
+        /// <summary>Copyable struct/enum receiver read through a local copy.</summary>
+        StructCopy,
+        /// <summary>Receiver used in place through the pointer, without a copy (~Copyable borrow).</summary>
+        StructInPlace,
+        /// <summary>`mutating` member: used in place so the mutation reaches the caller's buffer.</summary>
+        StructInPlaceMutating,
+        /// <summary>`consuming` member of a ~Copyable receiver: the value is moved out of the buffer.</summary>
+        StructMove,
+    }
+
+    private static CESelfAccess ClassifySelfAccess(TypeDecl parentTypeDecl, bool isMutating, bool isConsuming)
+    {
+        if (parentTypeDecl is ClassDecl)
+            return CESelfAccess.ClassReference;
+        bool isNonCopyable = WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
+        if (isNonCopyable && isConsuming)
+            return CESelfAccess.StructMove;
+        if (isMutating)
+            return CESelfAccess.StructInPlaceMutating;
+        return isNonCopyable ? CESelfAccess.StructInPlace : CESelfAccess.StructCopy;
+    }
+
+    /// <summary>
+    /// Emits whatever binding the receiver needs and returns the expression that names it. A
+    /// ~Copyable receiver cannot be bound to a local (that would copy it), so it is used through
+    /// the pointer, and a `consuming` member takes it with <c>move()</c>; a `mutating` member is
+    /// also used through the pointer so the mutation writes back.
+    /// </summary>
+    private static string EmitSwiftSelfAccess(
+        SwiftWriter swiftWriter, TypeDecl parentTypeDecl, string closedGenericSwiftType, CESelfAccess access)
+    {
+        switch (access)
+        {
+            case CESelfAccess.ClassReference:
+                swiftWriter.WriteLine($"let obj = Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
+                return "obj";
+            case CESelfAccess.StructCopy:
+                swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).pointee");
+                return "obj";
+            case CESelfAccess.StructMove:
+                return $"self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).move()";
+            default:
+                return $"self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).pointee";
+        }
+    }
+
+    /// <summary>
+    /// On a ~Copyable receiver, refuses to pass a buffer whose value an earlier `consuming` call
+    /// already moved out — the runtime counterpart of Swift's use-after-consume check.
+    /// </summary>
+    private static void EmitConsumedSelfGuard(CSharpWriter csWriter, TypeDecl parentTypeDecl)
+    {
+        if (!WrapperValidation.IsNonCopyableStructParent(parentTypeDecl))
+            return;
+        csWriter.WriteLine("if (self.Payload.IsConsumed)");
+        csWriter.WriteLine("    throw new global::System.ObjectDisposedException(self.GetType().Name, \"This ~Copyable value was already consumed by a `consuming` method; further use is invalid.\");");
     }
 
     /// <summary>
@@ -1363,6 +1424,20 @@ public static class ConstrainedExtensionEmitter
         // handle as the trailing arg; static methods pass nothing.
         var pinvokeSelfArg = isStatic ? "" : "self.Payload.DangerousGetHandle()";
 
+        // A `consuming` method on a ~Copyable parent moves the value out of the receiver's buffer
+        // before the Swift method runs, so the handle is marked consumed however the call exits —
+        // the SafeHandle then frees the empty buffer without destroying the value a second time.
+        bool consumesSelf = !isStatic
+            && ClassifySelfAccess(parentTypeDecl, method.IsMutating, method.IsConsuming) == CESelfAccess.StructMove;
+        if (!isStatic)
+            EmitConsumedSelfGuard(csWriter, parentTypeDecl);
+        if (consumesSelf)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
         switch (shape)
         {
             case CEReturnShape.Primitive when isVoidReturn:
@@ -1472,6 +1547,16 @@ public static class ConstrainedExtensionEmitter
                 break;
         }
 
+        if (consumesSelf)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.WriteLine("    self.Payload.MarkConsumed();");
+            csWriter.WriteLine("}");
+        }
+
         csWriter.Indent--;
         csWriter.WriteLine("}");
 
@@ -1573,10 +1658,13 @@ public static class ConstrainedExtensionEmitter
             || shape == CEReturnShape.NonFrozenStruct
             || shape == CEReturnShape.FoundationUUID
             || shape == CEReturnShape.FoundationData;
+        var selfAccess = ClassifySelfAccess(parentTypeDecl, method.IsMutating, method.IsConsuming);
         if (usesIndirectResult)
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
         if (!isStatic)
-            swiftParams.Add("_ self_: UnsafeRawPointer");
+            swiftParams.Add(selfAccess is CESelfAccess.StructInPlaceMutating or CESelfAccess.StructMove
+                ? "_ self_: UnsafeMutableRawPointer"
+                : "_ self_: UnsafeRawPointer");
 
         var returnClause = (shape, isVoidReturn) switch
         {
@@ -1601,17 +1689,11 @@ public static class ConstrainedExtensionEmitter
 
         // For instance methods, materialize self from the inbound pointer the same
         // way the property emitter does. Static methods skip this step.
-        if (!isStatic)
-        {
-            if (parentTypeDecl is ClassDecl)
-                swiftWriter.WriteLine($"let obj = Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
-            else
-                swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).pointee");
-        }
+        var selfRef = isStatic ? "" : EmitSwiftSelfAccess(swiftWriter, parentTypeDecl, closedGenericSwiftType, selfAccess);
 
         var callExpression = isStatic
             ? $"{closedGenericSwiftType}.{method.Name}()"
-            : $"obj.{method.Name}()";
+            : $"{selfRef}.{method.Name}()";
 
         if (isVoidReturn)
         {

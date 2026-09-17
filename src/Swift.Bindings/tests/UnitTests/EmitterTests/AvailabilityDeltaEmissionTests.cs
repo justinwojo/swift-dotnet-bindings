@@ -144,4 +144,55 @@ public class AvailabilityDeltaEmissionTests
 
         Assert.Equal("@available(iOS 17.0, *)" + Environment.NewLine, Emit(member, null));
     }
+
+    // --- Runtime-support floors: the binding's need, not the library's declaration ---
+
+    private static AvailabilityAnnotation RuntimeFloor(string platform, string introduced) =>
+        Ann(platform, introduced) with { IsRuntimeSupportFloor = true };
+
+    private static string EmitGuard(IReadOnlyList<AvailabilityAnnotation>? member)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, member, "Client.fetch");
+        writer.Flush();
+        return stringWriter.ToString();
+    }
+
+    [Fact]
+    public void WitnessDeclaration_OmitsRuntimeSupportFloor_ButKeepsDeclaredFloor()
+    {
+        var member = new List<AvailabilityAnnotation> { Ann("iOS", "15.4"), RuntimeFloor("iOS", "16.0") };
+
+        Assert.Equal("@available(iOS 15.4, *)" + Environment.NewLine,
+            Emit(WrapperEmitterHelpers.DeclaredAvailability(member), null));
+    }
+
+    [Fact]
+    public void WitnessBody_GuardsAndTraps_BelowRuntimeSupportFloor()
+    {
+        var member = new List<AvailabilityAnnotation> { RuntimeFloor("iOS", "16.0"), RuntimeFloor("macOS", "13.0") };
+
+        var guard = EmitGuard(member);
+
+        Assert.StartsWith("guard #available(", guard);
+        Assert.Contains("iOS 16.0", guard);
+        Assert.Contains("macOS 13.0", guard);
+        Assert.Contains("fatalError(", guard);
+    }
+
+    [Fact]
+    public void WitnessBody_HasNoGuard_WhenEveryFloorIsDeclared()
+    {
+        Assert.Equal(string.Empty, EmitGuard(new List<AvailabilityAnnotation> { Ann("iOS", "17.0") }));
+        Assert.Equal(string.Empty, EmitGuard(null));
+    }
+
+    [Fact]
+    public void WitnessBody_HasNoGuard_WhenDeclaredFloorAlreadyExceedsRuntimeSupport()
+    {
+        var member = new List<AvailabilityAnnotation> { Ann("iOS", "17.0"), RuntimeFloor("iOS", "16.0") };
+
+        Assert.Equal(string.Empty, EmitGuard(member));
+    }
 }

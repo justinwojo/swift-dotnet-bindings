@@ -125,6 +125,11 @@ public class TypeSpecTokenizer
     {
         // parses a name until we hit an invalid character for a name
         int curr = reader.Peek();
+        if (curr == '`')
+        {
+            AppendEscapedIdentifier();
+            return null;
+        }
         if (curr < 0 || IsInvalidNameCharacter((char)curr))
         {
             // if the invalid character is a ':', this is a label, otherwise it's a name
@@ -149,6 +154,28 @@ public class TypeSpecTokenizer
             buffer.Append((char)reader.Read());
             return null;
         }
+    }
+
+    /// <summary>
+    /// Appends a back-ticked identifier (`Protocol`, `default`) to the name being scanned, without
+    /// its back ticks. Swift escapes a reserved word this way wherever it appears in a qualified name,
+    /// and the declaration it names is registered under the bare spelling.
+    /// </summary>
+    void AppendEscapedIdentifier()
+    {
+        reader.Read(); // opening back tick
+        int start = buffer.Length;
+        while (true)
+        {
+            int c = reader.Read();
+            if (c < 0)
+                throw new TypeSpecParseException("Unterminated back-ticked identifier");
+            if (c == '`')
+                break;
+            buffer.Append((char)c);
+        }
+        if (buffer.Length == start)
+            throw new TypeSpecParseException("Empty back-ticked identifier");
     }
 
     /// <summary>
@@ -236,6 +263,9 @@ public class TypeSpecTokenizer
             case '&':
                 reader.Read();
                 return TypeSpecToken.Ampersand;
+            case '`':
+                state = State.InName;
+                return null;
             default:
                 if (Char.IsWhiteSpace(c))
                 {

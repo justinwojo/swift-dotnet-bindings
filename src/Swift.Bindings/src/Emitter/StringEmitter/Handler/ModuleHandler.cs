@@ -128,14 +128,16 @@ namespace BindingsGeneration
             context.GetEmissionContext().NamespaceResolver = _namespacePatternResolver;
 
             csWriter.WriteLine("#nullable enable");
-            // The reverse-dispatch marker exists for CONSUMERS of this binding — a hand-written C# type
-            // that declares `: I{Protocol}` and would never be called back. Every reference the binding
-            // makes to such an interface is one the marker itself calls unaffected: the proxy that
-            // implements it, the projected Swift-vended conformers (called through their own witness
-            // tables, not our vtable), and forward-use signatures that merely carry the value. Left
-            // unsuppressed, the binding cannot compile itself. Consumers compile against the produced
-            // assembly, where the attribute still fires from metadata, so this cannot under-warn them.
-            csWriter.WriteLine("#pragma warning disable SB0010 // internal references; the marker is for consumers implementing the interface");
+            // The reverse-dispatch (SB0010) and empty-interface (SB0004) markers exist for CONSUMERS of
+            // this binding — a hand-written C# type that declares `: I{Protocol}` and would never be
+            // called back, or code reaching for members the interface does not have. Every reference the
+            // binding makes to such an interface is one the marker itself calls unaffected: the proxy
+            // that implements it, the projected Swift-vended conformers (called through their own witness
+            // tables, not our vtable), and forward-use signatures — including another protocol's
+            // requirements — that merely carry the value. Left unsuppressed, the binding cannot compile
+            // itself. Consumers compile against the produced assembly, where the attribute still fires
+            // from metadata, so this cannot under-warn them.
+            csWriter.WriteLine("#pragma warning disable SB0004, SB0010 // internal references; the markers are for consumers of the interface");
             csWriter.WriteLine();
             csWriter.WriteLine($"using System;");
             csWriter.WriteLine($"using System.Collections.Generic;");
@@ -1019,6 +1021,20 @@ namespace BindingsGeneration
                     foreach (var param in subscript.IndexParameters)
                     {
                         ScanTypeSpecForImports(param.SwiftTypeSpec, neededImports);
+                    }
+                }
+
+                // Check enum case payloads — the case-factory @_cdecl wrappers reconstruct each
+                // associated value by its qualified type (`CoreLocation.CLAuthorizationStatus(rawValue:)`),
+                // so a framework type that appears only in a payload still needs its import.
+                if (type is EnumDecl enumDecl)
+                {
+                    foreach (var enumCase in enumDecl.PayloadCases)
+                    {
+                        foreach (var payload in enumCase.AssociatedValues)
+                        {
+                            ScanTypeSpecForImports(payload, neededImports);
+                        }
                     }
                 }
 

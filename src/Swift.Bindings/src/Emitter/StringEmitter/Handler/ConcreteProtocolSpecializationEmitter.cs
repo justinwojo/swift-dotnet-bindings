@@ -931,9 +931,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Self parameter for instance methods. Mutating struct methods need a mutable
         // self pointer so we can write the modified value back via pointee assignment.
         bool needsMutatingSelf = isInstance && !isClass && method.IsMutating;
+        // A ~Copyable receiver cannot be bound to a local (that copies it): it is used in place
+        // through the pointer, and a `consuming` member moves it out of the buffer.
+        bool nonCopyableSelf = isInstance && !isClass && WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
+        bool consumesSelf = nonCopyableSelf && method.IsConsuming;
         if (isInstance)
         {
-            if (isClass || needsMutatingSelf)
+            if (isClass || needsMutatingSelf || consumesSelf)
                 swiftParams.Add("_ self_: UnsafeMutableRawPointer");
             else
                 swiftParams.Add("_ self_: UnsafeRawPointer");
@@ -959,6 +963,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 selfConversion = $"let __self = unsafeBitCast(OpaquePointer(self_), to: {parentSwiftName}.self)";
             }
+            else if (nonCopyableSelf)
+            {
+                // No binding: the call target below names the value in the buffer itself.
+            }
             else if (needsMutatingSelf)
             {
                 selfConversion = $"var __self = self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee";
@@ -973,7 +981,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // Build method call
-        string callTarget = isInstance ? "__self" : parentSwiftName;
+        string callTarget = !isInstance ? parentSwiftName
+            : consumesSelf ? $"self_.assumingMemoryBound(to: {parentSwiftName}.self).move()"
+            : nonCopyableSelf ? $"self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee"
+            : "__self";
         string callExpr;
         if (isConstructor)
         {
@@ -1055,9 +1066,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else
             {
-                // Struct constructor: return via initializeMemory through result pointer
+                // Struct constructor: return via result pointer. `initializeMemory(as:repeating:count:)`
+                // requires Copyable, so a ~Copyable parent moves its value in with `initialize(to:)`.
                 swiftWriter.WriteLine($"{bodyIndent}let _result = {callExprWithTry}");
-                swiftWriter.WriteLine($"{bodyIndent}resultPtr.initializeMemory(as: ({parentSwiftName}).self, repeating: _result, count: 1)");
+                swiftWriter.WriteLine(WrapperValidation.IsNonCopyableStructParent(parentTypeDecl)
+                    ? $"{bodyIndent}resultPtr.assumingMemoryBound(to: ({parentSwiftName}).self).initialize(to: _result)"
+                    : $"{bodyIndent}resultPtr.initializeMemory(as: ({parentSwiftName}).self, repeating: _result, count: 1)");
             }
         }
         else if (isVoidReturn)
@@ -1100,7 +1114,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
             swiftWriter.WriteLine($"{bodyIndent}let _result: ({returnTypeStr}) = {callExprWithTry}");
             if (!string.IsNullOrEmpty(selfWriteBack))
                 swiftWriter.WriteLine($"{bodyIndent}{selfWriteBack}");
-            swiftWriter.WriteLine($"{bodyIndent}resultPtr.initializeMemory(as: ({returnTypeStr}).self, repeating: _result, count: 1)");
+            bool isNonCopyableReturn = !returnsGenericParam &&
+                WrapperValidation.IsNonCopyableType(returnTypeSpec, typeDatabase, method.ModuleDecl);
+            swiftWriter.WriteLine(isNonCopyableReturn
+                ? $"{bodyIndent}resultPtr.assumingMemoryBound(to: ({returnTypeStr}).self).initialize(to: _result)"
+                : $"{bodyIndent}resultPtr.initializeMemory(as: ({returnTypeStr}).self, repeating: _result, count: 1)");
         }
         else
         {
@@ -1722,6 +1740,26 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter, mergedAvailability,
             $"{parentTypeDecl.Name}.{methodName}");
 
+        // A ~Copyable receiver whose value an earlier `consuming` member moved out must not reach
+        // Swift again. A `consuming` member moves the value out before the Swift body runs, so the
+        // handle is marked consumed however the call exits; the SafeHandle then frees the empty
+        // buffer without destroying the value a second time.
+        bool nonCopyableSelf = !isStatic && !isConstructor && !isClass
+            && WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
+        bool consumesSelf = nonCopyableSelf && method.IsConsuming;
+        var selfPayload = isExtension ? "self.Payload" : "_payload";
+        if (nonCopyableSelf)
+        {
+            csWriter.WriteLine($"if ({selfPayload}.IsConsumed)");
+            csWriter.WriteLine($"    throw new global::System.ObjectDisposedException({(isExtension ? "self.GetType().Name" : "GetType().Name")}, \"This ~Copyable value was already consumed by a `consuming` method; further use is invalid.\");");
+        }
+        if (consumesSelf)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
         // Build P/Invoke call
         var pinvokeCallArgs = new List<string>();
         if (needsResultPtr || isStringReturn)
@@ -2057,6 +2095,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine(needsResultPtrOwnershipTransfer
                 ? $"finally {{ if (!{resultPtrOwnedName}) {{ unsafe {{ global::System.Runtime.InteropServices.NativeMemory.Free((void*){resultPtrName}); }} }} }}"
                 : $"finally {{ global::System.Runtime.InteropServices.Marshal.FreeHGlobal({resultPtrName}); }}");
+        }
+
+        if (consumesSelf)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine($"finally {{ {selfPayload}.MarkConsumed(); }}");
         }
 
         csWriter.Indent--;

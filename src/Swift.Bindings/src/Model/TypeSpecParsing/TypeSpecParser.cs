@@ -166,16 +166,31 @@ public class TypeSpecParser
             type = Genericize(type);
         }
 
+        // Member-type chain (type.type[.type…]). Each segment is only a name with optional generic
+        // arguments; postfix operators (`?`, `!`, `&`, `->`) are parsed once, below, so they apply
+        // to the whole chain — `AsyncStream<T>.Continuation?` is an Optional of the member type,
+        // not an AsyncStream whose inner segment is optional.
         if (tokenizer.Peek().Kind == TypeTokenKind.Period)
         {
-            tokenizer.Next();
             var currType = type as NamedTypeSpec;
             if (currType is null)
                 throw new TypeSpecParseException($"In parsing an inner type (type.type), first element is a {type.Kind} instead of a NamedTypeSpec.");
-            var nextType = Parse() as NamedTypeSpec;
-            if (nextType is null)
-                throw new TypeSpecParseException($"In parsing an inner type (type.type), the second element is a {type.Kind} instead of a NamedTypeSpec");
-            currType.InnerType = nextType;
+            while (tokenizer.Peek().Kind == TypeTokenKind.Period)
+            {
+                tokenizer.Next();
+                var segmentToken = tokenizer.Peek();
+                if (segmentToken.Kind != TypeTokenKind.TypeName)
+                    throw new TypeSpecParseException($"In parsing an inner type (type.type), expected a name but got {segmentToken.Value}.");
+                tokenizer.Next();
+                var segment = new NamedTypeSpec(SwiftModuleAliases.NormalizeTypeName(segmentToken.Value));
+                if (tokenizer.Peek().Kind == TypeTokenKind.LeftAngle)
+                {
+                    tokenizer.Next();
+                    Genericize(segment);
+                }
+                currType.InnerType = segment;
+                currType = segment;
+            }
         }
 
         // Postfix
