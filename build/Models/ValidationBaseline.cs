@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Nuke.Common.IO;
@@ -147,9 +148,21 @@ public record ValidationBaseline
             ?? throw new InvalidDataException($"Null validation baseline: {path}");
     }
 
+    /// <summary>
+    /// The one write format for this file, shared by every writer. The baseline carries
+    /// hand-authored withdrawal records whose identities and diagnostics are full of Swift
+    /// generic brackets, quotes and non-ASCII opaque-type names; the default encoder's HTML-safe
+    /// escaping turned those into <c><</c> runs, so a hand edit and the next automated
+    /// write disagreed on every such character. The file is never embedded in HTML.
+    /// </summary>
+    public static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     public void Save(AbsolutePath path)
-        => File.WriteAllText(path, JsonSerializer.Serialize(this,
-            new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+        => File.WriteAllText(path, JsonSerializer.Serialize(this, WriteOptions) + Environment.NewLine);
 
     /// <summary>
     /// Compares current results against baseline, returns regressions and improvements.

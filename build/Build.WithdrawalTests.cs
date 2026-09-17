@@ -199,6 +199,18 @@ partial class Build
                 Check(result.RootElement.GetProperty("compile_gate").GetProperty("libraries").GetProperty("Fixture")
                     .GetProperty("withdrawal_policy").GetProperty("sentinel").GetInt32() == 1);
             }
+            // Both baseline writers share one readable format: a hand-authored identity keeps its
+            // generic brackets, quotes and opaque-type names literal through a promotion and a Save.
+            const string readable = "Fixture|Method|f|:Swift.Array<any P>,x:τ_opaque_0|None|<τ_opaque_0>|'`";
+            File.WriteAllText(baseline, "{\"compile_gate\":{\"libraries\":{\"Fixture\":{\"note\":\"" + readable + "\"}}}}");
+            candidate = new ValidationPromotion(baseline, true, results, "Validate");
+            candidate.Record("Validate"); Check(candidate.Promote());
+            var promoted = File.ReadAllText(baseline);
+            Check(promoted.Contains(readable, StringComparison.Ordinal) && !promoted.Contains("\\u", StringComparison.Ordinal));
+            Check(promoted.EndsWith("}" + Environment.NewLine, StringComparison.Ordinal));
+            var saved = Path.Combine(scratch, "saved.json");
+            new ValidationBaseline { GitSha = readable }.Save((Nuke.Common.IO.AbsolutePath)saved);
+            Check(File.ReadAllText(saved).Contains(readable, StringComparison.Ordinal));
             candidate = new ValidationPromotion(baseline, false, results); Check(!candidate.Promote());
             var inspection = Path.Combine(scratch, "inspection.json");
             results["Fixture"] = results["Fixture"] with { WithdrawalPolicy = new WithdrawalPolicy(1, "Fixture/ios", []) };

@@ -77,7 +77,7 @@ public sealed class ValidationPromotion
         var temporary = path + ".candidate-" + Guid.NewGuid().ToString("N");
         try
         {
-            File.WriteAllText(temporary, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(temporary, root.ToJsonString(ValidationBaseline.WriteOptions) + Environment.NewLine);
             if (!SHA256.HashData(File.ReadAllBytes(path)).SequenceEqual(startingHash))
                 throw new InvalidDataException("Concurrent baseline modification before promotion");
             File.Move(temporary, path, overwrite: true);

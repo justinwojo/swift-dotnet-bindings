@@ -555,7 +555,7 @@
           "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
           "exceptions": [
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
@@ -565,7 +565,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
@@ -575,7 +575,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
@@ -585,7 +585,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
@@ -595,7 +595,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
@@ -605,7 +605,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; iPhoneSimulator SDK 26.2; arm64-apple-ios15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=71b180159249de4461b0f64226cbdcbf51e73a745e87d36602b04c47d22e2dc1; buildExpression requires _MLG0: TipOption",
@@ -628,7 +628,7 @@
           "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
           "exceptions": [
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
@@ -638,7 +638,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
@@ -648,7 +648,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
@@ -658,7 +658,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
@@ -668,7 +668,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
@@ -678,7 +678,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; macOS SDK 26.2; arm64-apple-macos12.0"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=01e1beb7c2ec25dd7f085af2e2cfd139456e6db4c3a30ee922b6b769d945bc90; buildExpression requires _MLG0: TipOption",
@@ -701,7 +701,7 @@
           "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
           "exceptions": [
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
@@ -711,7 +711,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
@@ -721,7 +721,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
@@ -731,7 +731,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
@@ -741,7 +741,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
@@ -751,7 +751,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; MacCatalyst SDK 26.2; arm64-apple-ios15.0-macabi"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=a3a178b1082c3808278bd12c7681be33aade864df1684c589a7eea4bf6249c5d; buildExpression requires _MLG0: TipOption",
@@ -774,7 +774,7 @@
           "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
           "exceptions": [
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
@@ -784,7 +784,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
@@ -794,7 +794,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
@@ -804,7 +804,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array\u003Cany TipKit.TipOption\u003E,arg0:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
@@ -814,7 +814,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:\u03C4_opaque_0,next:\u03C4_opaque_1|None|\u003C\u03C4_opaque_0\\,\u03C4_opaque_1\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
@@ -824,7 +824,7 @@
               "toolchainScope": "Xcode 26.3; Swift 6.2.4; AppleTVSimulator SDK 26.2; arm64-apple-tvos15.0-simulator"
             },
             {
-              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:\u03C4_opaque_0|None|\u003C\u03C4_opaque_0\u003E|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+              "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
               "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
               "reproducer": "nuke validate --filter TipKit",
               "diagnostic": "swiftc stderr sha256=fb0c9fe24e121d04936ece7c8aa0b79ddbbde905394d6d63ad0b09473082c594; buildExpression requires _MLG0: TipOption",
