@@ -415,7 +415,7 @@ public class CdeclLoweringDescriptorTests
     public void SimpleEnum_ReconstructsViaRawValue()
         => AssertDescriptor(Describe(Named("TestModule.MyEnum")), CdeclParamCategory.SimpleEnum,
             "_ value: Int",
-            "guard let valueVal = TestModule.MyEnum(rawValue: value) else { preconditionFailure(\"[SwiftBindings] Invalid raw value \\(value) for TestModule.MyEnum\") }",
+            "guard let valueVal = TestModule.MyEnum(rawValue: value) else { Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\(value) for TestModule.MyEnum\") }",
             "valueVal");
 
     [Fact]

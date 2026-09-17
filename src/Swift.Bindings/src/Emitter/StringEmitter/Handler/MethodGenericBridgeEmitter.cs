@@ -504,24 +504,14 @@ public static class MethodGenericBridgeEmitter
         // Note: throwing methods are excluded at TryEmit entry (v1 limitation)
 
         // Determine return type for @_cdecl function
+        // A value that crosses by value declares the type its mapping chose and converts to it
+        // through the shared renderer, so Bool (Int8) and simple enums (raw value) get the same
+        // return statement every other cdecl wrapper emits for them.
         var returnMapping = new CdeclReturnMapping(string.Empty, CdeclReturnKind.Direct);
-        var returnKind = CdeclReturnKind.Direct;
-        if (!isVoidReturn && !isStringReturn)
-        {
+        bool returnsByValue = !isVoidReturn && !isStringReturn && !needsResultPtr;
+        if (returnsByValue)
             (returnMapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
-            returnKind = returnMapping.Kind;
-        }
-        bool isClassPointerReturn = returnKind is CdeclReturnKind.ClassPointer
-            or CdeclReturnKind.OptionalClassPointer
-            or CdeclReturnKind.OptionalErrorPointer;
-        string cdeclReturnType;
-        if (isVoidReturn || isStringReturn || needsResultPtr) cdeclReturnType = "";
-        else if (isClassPointerReturn)
-            cdeclReturnType = returnKind is CdeclReturnKind.OptionalClassPointer or CdeclReturnKind.OptionalErrorPointer
-                ? " -> UnsafeMutableRawPointer?" : " -> UnsafeMutableRawPointer";
-        else if (returnKind == CdeclReturnKind.Direct)
-            cdeclReturnType = $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}";
-        else cdeclReturnType = "";
+        string cdeclReturnType = returnsByValue ? $" -> {returnMapping.CdeclReturnType}" : "";
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
@@ -561,21 +551,13 @@ public static class MethodGenericBridgeEmitter
             swiftWriter.WriteLine($"    let _result = {methodCall}");
             swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: ({renderedReturn}).self, repeating: _result, count: 1)");
         }
-        else if (returnKind is CdeclReturnKind.OptionalClassPointer or CdeclReturnKind.OptionalErrorPointer)
+        else
         {
             foreach (var line in CdeclReturnRenderer.LinesBindingResult(
                 methodCall, returnTypeSpec, env.TypeDatabase, returnMapping))
             {
                 swiftWriter.WriteLine($"    {line}");
             }
-        }
-        else if (isClassPointerReturn)
-        {
-            swiftWriter.WriteLine($"    return Unmanaged.passRetained({methodCall} as AnyObject).toOpaque()");
-        }
-        else
-        {
-            swiftWriter.WriteLine($"    return {methodCall}");
         }
 
         swiftWriter.WriteLine("}");
@@ -699,9 +681,7 @@ public static class MethodGenericBridgeEmitter
         // P/Invoke return type — string returns use indirect via resultPtr (void)
         string pinvokeReturn = "void";
         if (!isVoidReturn && !isStringReturn && !needsResultPtr)
-        {
-            pinvokeReturn = "IntPtr"; // Direct return
-        }
+            pinvokeReturn = DirectPInvokeReturnType(methodDecl.CSSignature[0].SwiftTypeSpec, env.TypeDatabase);
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
@@ -1018,6 +998,11 @@ public static class MethodGenericBridgeEmitter
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({callExpr});");
             }
         }
+        else if (returnMapping.mapping.Kind == CdeclReturnKind.SimpleEnum)
+        {
+            // The wrapper returns the enum's raw scalar; the public method returns the enum.
+            csWriter.WriteLine($"return ({csReturnType}){callExpr};");
+        }
         else
         {
             csWriter.WriteLine($"return {callExpr};");
@@ -1046,6 +1031,31 @@ public static class MethodGenericBridgeEmitter
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The P/Invoke return type for a value the wrapper returns by value. It must name the width
+    /// the wrapper's cdecl return declares: a Bool crosses as Int8 (read back as a U1-marshalled
+    /// <c>bool</c>), a primitive as itself, a simple enum as its raw-value scalar, and a class or
+    /// error pointer as a pointer.
+    /// </summary>
+    private static string DirectPInvokeReturnType(TypeSpec returnTypeSpec, ITypeDatabase typeDatabase)
+    {
+        var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
+        switch (mapping.Kind)
+        {
+            case CdeclReturnKind.Bool:
+                return "bool";
+            case CdeclReturnKind.SimpleEnum:
+                return typeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord)
+                    ? EnumHandler.GetCSharpEnumUnderlyingType(enumRecord.RawValueTypeName)
+                    : "int";
+            case CdeclReturnKind.Direct when returnTypeSpec is NamedTypeSpec named
+                                             && MarshallingHelpers.IsSwiftPrimitive(named.Name):
+                return MarshallingHelpers.MapSwiftPrimitiveToCSharpType(named.Name);
+            default:
+                return "IntPtr";
+        }
+    }
 
     private static string GetSwiftArgLabel(ArgumentDecl arg)
         => ClosureEmitter.GetSwiftArgLabelForCdecl(arg);

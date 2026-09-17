@@ -28,7 +28,10 @@ public class ConcreteSpecializationEngine
     private readonly Dictionary<string, HashSet<string>> _abiDeclaredProtocolsByType =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, ProtocolDecl> _abiProtocols = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TypeDecl> _abiTypeDecls = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _surfacedInterfacesByType = new(StringComparer.Ordinal);
     private readonly string? _currentModuleName;
+    private ModuleDecl? _indexedModule;
     private string? _indexedModuleName;
     private HashSet<string>? _indexedModuleDependencies;
     // The conformance graph of the module currently being indexed — supplies associated-type
@@ -47,6 +50,14 @@ public class ConcreteSpecializationEngine
     /// so audits and consumers can see which conformers were excluded and why.
     /// </summary>
     public IReadOnlyCollection<CsmRejectedPairing> RejectedPairings => _rejectedPairings;
+
+    /// <summary>
+    /// The emission state the type handlers validate protocol conformances against. A parent
+    /// generic is only paired with conformers whose C# projection implements the interfaces the
+    /// parent's <c>where</c> clause demands, and that projection is decided by the same
+    /// conformance validator the type handlers build from this context.
+    /// </summary>
+    public ModuleEmissionContext? EmissionContext { get; set; }
 
     /// <summary>
     /// A concrete type that conforms to a protocol, usable for specialization.
@@ -230,6 +241,7 @@ public class ConcreteSpecializationEngine
         // yields false negatives: Dependencies is empty in real runs, and
         // DependencyModuleNames is empty in ABI-parser unit tests. Merging is the
         // single source of truth for "modules this module imports".
+        _indexedModule = moduleDecl;
         _indexedModuleName = moduleDecl.Name;
         _indexedModuleDependencies = new HashSet<string>(
             moduleDecl.Dependencies, StringComparer.Ordinal);
@@ -293,6 +305,7 @@ public class ConcreteSpecializationEngine
         {
             var indexedKey = indexedTypeName.ToString();
             _abiIndexedTypes.Add(indexedKey);
+            _abiTypeDecls.TryAdd(indexedKey, typeDecl);
             if (wrapperInaccessible)
                 _wrapperInaccessibleAbiTypes.Add(indexedKey);
             if (!_abiDeclaredProtocolsByType.TryGetValue(indexedKey, out var declaredSet))
@@ -1098,6 +1111,12 @@ public class ConcreteSpecializationEngine
             }
         }
 
+        // A closed `Parent<Conformer>` only compiles when the conformer's C# projection implements
+        // every interface the parent's where clause places on that parameter. A Swift conformance
+        // whose interface the conformer could not implement in C# is dropped from its base list,
+        // so it must not be offered here either.
+        var whereClauseInterfaces = GenericTypeEmitter.GetWhereClauseInterfaceConstraints(typeDecl, _typeDatabase);
+
         var resolved = new List<SpecializableParam>();
         foreach (var parentParam in typeDecl.GenericParameters)
         {
@@ -1142,6 +1161,18 @@ public class ConcreteSpecializationEngine
                 }
                 if (ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(c, _typeDatabase)
                     != ConcreteProtocolSpecializationEmitter.StructuralEmitReject.None) continue;
+                if (whereClauseInterfaces.TryGetValue(parentParam.TypeName, out var requiredInterfaces)
+                    && FindUnimplementedInterface(c, requiredInterfaces) is { } unimplemented)
+                {
+                    _rejectedPairings.Add(new CsmRejectedPairing(
+                        ParentType: typeDecl.SwiftTypeName?.ToString() ?? typeDecl.Name,
+                        GenericParamName: parentParam.TypeName,
+                        SelectedProtocol: protocol.ToString(),
+                        ConformerSwiftType: c.SwiftQualifiedName,
+                        MissingConstraint: unimplemented,
+                        Reason: "conformer's C# projection does not implement an interface the parent's where clause requires"));
+                    continue;
+                }
                 usable.Add(c);
             }
             if (usable.Count == 0) return null;
@@ -1156,6 +1187,39 @@ public class ConcreteSpecializationEngine
                 IsParentGeneric: true));
         }
         return resolved;
+    }
+
+    /// <summary>
+    /// Returns the first of <paramref name="requiredInterfaces"/> the conformer's C# projection
+    /// does not implement, or null when it implements them all. Only a conformer declared in the
+    /// indexed module can be checked; one from another module keeps the conformances its own
+    /// binding declared.
+    /// </summary>
+    private string? FindUnimplementedInterface(ConcreteConformer conformer, IReadOnlyList<string> requiredInterfaces)
+    {
+        if (_indexedModule is null || !_abiTypeDecls.TryGetValue(conformer.SwiftQualifiedName, out var conformerDecl))
+            return null;
+
+        if (!_surfacedInterfacesByType.TryGetValue(conformer.SwiftQualifiedName, out var surfaced))
+        {
+            var validator = new ProtocolConformanceValidator(
+                _indexedModule, _typeDatabase, EmissionContext?.ExtensionDefaultsIndex, EmissionContext);
+            var implemented = ProtocolConformanceHelper.GetImplementedInterfaces(
+                conformerDecl, conformerDecl.Name, _indexedModule.Name, _typeDatabase, validator);
+            surfaced = new HashSet<string>(implemented.Select(InterfaceSimpleName), StringComparer.Ordinal);
+            _surfacedInterfacesByType[conformer.SwiftQualifiedName] = surfaced;
+        }
+
+        return requiredInterfaces.FirstOrDefault(i => !surfaced.Contains(InterfaceSimpleName(i)));
+    }
+
+    // The where clause and the base list qualify an interface differently (a nested protocol's
+    // interface is qualified by its parent only in the base list), so compare unqualified names.
+    private static string InterfaceSimpleName(string interfaceName)
+    {
+        var genericStart = interfaceName.IndexOf('<');
+        var name = genericStart >= 0 ? interfaceName.Substring(0, genericStart) : interfaceName;
+        return name.Substring(name.LastIndexOf('.') + 1);
     }
 
     /// <summary>

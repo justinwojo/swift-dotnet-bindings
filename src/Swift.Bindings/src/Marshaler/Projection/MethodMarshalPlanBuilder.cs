@@ -1768,10 +1768,14 @@ internal class MethodMarshalPlanBuilder
     /// non-constructor method on a generic struct expects the parent metadata pointer
     /// (not individual generic-param metadata). Methods routed through @_cdecl /
     /// native-thunk wrappers handle this internally and don't need injection.
+    /// A static method on a generic struct or enum is the exception: its metatype self is thin,
+    /// so nothing fulfills the generic parameters from Self and Swift takes each parameter's own
+    /// metadata, which is what the call site already passes.
     /// </summary>
     private bool RequiresParentMetadataInjection()
     {
         if (_env.MethodDecl.IsConstructor) return false;
+        if (_env.MethodDecl.MethodType == MethodType.Static && _env.ParentDecl is StructDecl or EnumDecl) return false;
         if (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) return false;
         if (_env.MethodDecl.UsesNativeThunk) return false;
         if (_env.MethodDecl.UsesFreeFunctionWrapper) return false;

@@ -672,6 +672,46 @@ public class ProtocolSignatureHelperTests
         Assert.Equal("object", result);
     }
 
+    [Theory]
+    [InlineData("Foundation.Data", "byte[]?", "byte[]")]
+    [InlineData("Collections.Deque", "IReadOnlyList<int>?", "IReadOnlyList<int>")]
+    [InlineData("Collections.OrderedDictionary", "global::System.Collections.Generic.IReadOnlyDictionary<string, int>?", "global::System.Collections.Generic.IReadOnlyDictionary<string, int>")]
+    public void NormalizeParamType_OptionalValueTypeProjectedAsClrReference_StripsNullable(string swiftName, string projected, string expected)
+    {
+        // Data → byte[] and collections → read-only interfaces are CLR reference types, so
+        // `inout Data` and `inout Data?` both project to `ref byte[]` for overload resolution.
+        var typeDatabase = CreateTypeDatabase();
+        var module = new ModuleTypeDatabase(swiftName.Split('.')[0], "/tmp/Frozen.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(swiftName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", swiftName.Split('.')[1]),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            });
+        typeDatabase.AddModuleDatabase(module);
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec(swiftName));
+
+        Assert.Equal(expected, ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(projected, optionalType, typeDatabase));
+    }
+
+    [Theory]
+    [InlineData("nint?")]
+    [InlineData("(int, int)?")]
+    [InlineData("SwiftOptional<int>?")]
+    public void NormalizeParamType_OptionalClrValueTypeProjection_PreservesNullable(string projected)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        Assert.Equal(projected, ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(projected, optionalType, typeDatabase));
+    }
+
     [Fact]
     public void NormalizeParamType_OptionalNonFrozenStruct_StripsNullable()
     {
@@ -1378,6 +1418,37 @@ public class ProtocolSignatureHelperTests
         var stripped2 = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfOptionalClass, typeDatabase);
 
         Assert.Equal(stripped1.ToString(), stripped2.ToString());
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_ArrayOfOptionalData_MatchesArrayOfData()
+    {
+        // Data is a frozen struct whose projection is byte[], a CLR reference type:
+        // `[Data]` and `[Data?]` both project to IEnumerable<byte[]> for overload resolution.
+        var typeDatabase = CreateTypeDatabase();
+        var foundation = new ModuleTypeDatabase("Foundation", "/tmp/Foundation.dylib");
+        foundation.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            });
+        typeDatabase.AddModuleDatabase(foundation);
+        var arrayOfData = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Foundation.Data"));
+        var arrayOfOptionalData = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.Data")));
+        var arrayOfOptionalInt = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
+
+        Assert.Equal(
+            ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfData, typeDatabase).ToString(),
+            ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfOptionalData, typeDatabase).ToString());
+        Assert.Equal(arrayOfOptionalInt.ToString(),
+            ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfOptionalInt, typeDatabase).ToString());
     }
 
     [Fact]

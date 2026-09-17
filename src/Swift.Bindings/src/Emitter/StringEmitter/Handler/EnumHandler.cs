@@ -123,7 +123,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                EmitNamespaceEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context);
+                EmitNamespaceEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context, ownPInvokeContext);
                 return;
             }
 
@@ -702,10 +702,18 @@ namespace BindingsGeneration
         }
 
         private void EmitNamespaceEnum(CSharpWriter csWriter, SwiftWriter swiftWriter, EnumDecl enumDecl,
-            ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context)
+            ModuleDecl moduleDecl, ITypeDatabase typeDatabase, Conductor conductor, TypeHandlerContext context,
+            PInvokeHelperContext? ownPInvokeContext)
         {
             var propertyRenames = NameProvider.ComputePropertyRenames(enumDecl, typeDatabase);
-            var childContext = context with { PropertyRenames = propertyRenames };
+            // A generic caseless enum projects as a generic static class, which cannot host a
+            // P/Invoke declaration (CS7042). Its members route their entry points through the
+            // non-generic helper holder exactly as a generic struct's or class's do.
+            var childContext = context with
+            {
+                PInvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext,
+                PropertyRenames = propertyRenames,
+            };
 
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, typeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, typeDatabase);
@@ -803,6 +811,21 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+
+            // Same placement rule as the other generic type projections: a holder nested inside
+            // an outer generic type is deferred to the outermost non-generic scope.
+            if (ownPInvokeContext != null)
+            {
+                if (context.PInvokeHelperContext != null)
+                    context.DeferredPInvokeHelperContexts.Add(ownPInvokeContext);
+                else
+                {
+                    ownPInvokeContext.EmitHelperClass(csWriter);
+                    foreach (var deferred in context.DeferredPInvokeHelperContexts)
+                        deferred.EmitHelperClass(csWriter);
+                    context.DeferredPInvokeHelperContexts.Clear();
+                }
+            }
         }
 
         /// <summary>

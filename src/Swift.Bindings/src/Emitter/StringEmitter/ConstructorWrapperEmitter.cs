@@ -517,11 +517,12 @@ public static class ConstructorWrapperEmitter
         // Extra _metadata1..N params are accepted to match PInvokeSignatureBuilder ordering
         // but are unused — the isa pointer on the class provides the actual metadata.
         string? protocolName = null;
+        string? forwardingFactoryName = null;
         if (isGenericClassParent)
         {
             protocolName = EmitConstructorProtocolAndConformance(
                 swiftWriter, methodDecl, symbolName, moduleQualifiedSwiftName, isFailable, throws,
-                parentTypeDecl!);
+                parentTypeDecl!, out forwardingFactoryName);
         }
 
         // Build the call expression.
@@ -533,8 +534,11 @@ public static class ConstructorWrapperEmitter
         if (isGenericClassParent && protocolName != null)
         {
             // Protocol metatype dispatch: use metadata → Any.Type → protocol.Type → init
-            // The init call goes through the protocol existential metatype
-            callExpr = $"initType.init({callArgString})";
+            // The init call goes through the protocol existential metatype, or through the
+            // forwarding factory when the requirement cannot be the init itself.
+            callExpr = forwardingFactoryName != null
+                ? $"initType.{forwardingFactoryName}({callArgString})"
+                : $"initType.init({callArgString})";
         }
         else if (silgenTarget != null)
         {
@@ -720,21 +724,55 @@ public static class ConstructorWrapperEmitter
     /// Emits protocol declaration and conformance for a constructor on a generic class type.
     /// Uses AnyObject constraint so protocol existential metatype dispatch works for class inits.
     /// Delegates to <see cref="GenericProtocolEmitter"/> for the shared protocol+conformance pattern.
+    ///
+    /// A gate-reduced overload omits trailing defaulted parameters, and Swift never fills a default
+    /// when matching a protocol requirement, so the declared init cannot witness a reduced
+    /// <c>init(...)</c> requirement. That case declares a static factory requirement instead,
+    /// implemented in the conformance by calling the declared init with the kept arguments;
+    /// <paramref name="forwardingFactoryName"/> names it for the call site (null otherwise).
     /// </summary>
     private static string EmitConstructorProtocolAndConformance(
         SwiftWriter swiftWriter, MethodDecl methodDecl, string symbolName,
         string moduleQualifiedName, bool isFailable, bool throws,
-        TypeDecl parentTypeDecl)
+        TypeDecl parentTypeDecl, out string? forwardingFactoryName)
     {
-        var memberDecl = GenericProtocolEmitter.BuildConstructorMemberDeclaration(
-            methodDecl, methodDecl.ModuleDecl!, isFailable, throws);
         var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
             methodDecl.AvailabilityAnnotations, parentTypeDecl);
+        var originAnchor = FragmentOwners.ForDeclWrapper(methodDecl).Artifact;
+
+        if (!methodDecl.IsGateReducedOverload)
+        {
+            forwardingFactoryName = null;
+            var memberDecl = GenericProtocolEmitter.BuildConstructorMemberDeclaration(
+                methodDecl, methodDecl.ModuleDecl!, isFailable, throws);
+            return GenericProtocolEmitter.EmitProtocolAndConformance(
+                swiftWriter, "CI", symbolName, memberDecl, moduleQualifiedName,
+                originAnchor: originAnchor,
+                protocolConstraint: "AnyObject",
+                extensionAvailability: extensionAvailability);
+        }
+
+        forwardingFactoryName = $"_sbw_forward_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var parameters = GenericProtocolEmitter.GetConstructorRequirementParameters(methodDecl);
+        var signature = string.Join(", ", parameters.Select(p => $"{p.Label} {p.Binding}: {p.SwiftType}"));
+        var arguments = string.Join(", ", parameters.Select(p => p.Label == "_" ? p.Binding : $"{p.Label}: {p.Binding}"));
+        var factorySignature =
+            $"static func {forwardingFactoryName}({signature}){(throws ? " throws" : "")} -> AnyObject{(isFailable ? "?" : "")}";
+        // `Self.init` rather than the module-qualified type name: inside the extension the
+        // qualified generic name does not pick up the extended type's generic arguments. Only
+        // final classes reach this path, so `Self` needs no `required` init.
+        var conformanceBody = new List<string>
+        {
+            $"{factorySignature} {{",
+            $"    return {(throws ? "try " : "")}Self.init({arguments})",
+            "}",
+        };
         return GenericProtocolEmitter.EmitProtocolAndConformance(
-            swiftWriter, "CI", symbolName, memberDecl, moduleQualifiedName,
-            originAnchor: FragmentOwners.ForDeclWrapper(methodDecl).Artifact,
+            swiftWriter, "CI", symbolName, factorySignature, moduleQualifiedName,
+            originAnchor: originAnchor,
             protocolConstraint: "AnyObject",
-            extensionAvailability: extensionAvailability);
+            extensionAvailability: extensionAvailability,
+            conformanceBody: conformanceBody);
     }
 
     /// <summary>

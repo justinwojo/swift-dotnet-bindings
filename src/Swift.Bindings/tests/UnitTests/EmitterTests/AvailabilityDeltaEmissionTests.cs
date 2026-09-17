@@ -178,7 +178,9 @@ public class AvailabilityDeltaEmissionTests
         Assert.StartsWith("guard #available(", guard);
         Assert.Contains("iOS 16.0", guard);
         Assert.Contains("macOS 13.0", guard);
-        Assert.Contains("fatalError(", guard);
+        // Module-qualified: the guard sits in an EveryProtocol witness body, where a conformed
+        // protocol's extension can declare a static `fatalError` that shadows the free function.
+        Assert.Contains("Swift.fatalError(", guard);
     }
 
     [Fact]

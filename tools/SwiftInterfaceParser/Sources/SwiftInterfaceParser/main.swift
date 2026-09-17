@@ -112,7 +112,16 @@ if !protocolNameSet.isEmpty {
         } else {
             typePath = qualified
         }
-        guard protocolNameSet.contains(typePath) else { continue }
+        // A constrained extension of a protocol declared ELSEWHERE can still carry the default
+        // that witnesses a requirement of one of THIS module's protocols:
+        //   extension OtherModule.Modeled where Self : LocalProtocol { public var thing: ... }
+        // Keyed only by the extended type, such an extension is classified as a foreign-type
+        // extension and never reaches the protocol-extension defaults index, so LocalProtocol's
+        // requirement is emitted as an abstract member that conformers relying on the default
+        // cannot implement. Admit it when a `Self : Q` constraint names a protocol declared here.
+        guard protocolNameSet.contains(typePath)
+            || selfConstraintProtocolNames(candidate.whereConstraints).contains(where: protocolNameSet.contains)
+        else { continue }
         let info = ProtocolExtensionMethodInfo(
             methodName: candidate.methodName,
             rawSignature: candidate.rawSignature,

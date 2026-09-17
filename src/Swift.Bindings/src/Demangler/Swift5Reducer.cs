@@ -98,7 +98,11 @@ internal class Swift5Reducer
             // tags the resulting closure with IsConventionC. Finding 17: before this it had no rule,
             // so a convention-c closure left the reducer as a "No rule for node CFunctionPointer" miss
             // and convention detection fell back to the mangled-name "XC" substring probe.
-            Name = "FunctionType", NodeKindList = new List<NodeKind> () { NodeKind.FunctionType, NodeKind.NoEscapeFunctionType, NodeKind.CFunctionPointer },
+            // AutoClosureType / EscapingAutoClosureType (@autoclosure) share the shape too;
+            // ConvertFunctionType tags the closure with the autoclosure attribute.
+            Name = "FunctionType", NodeKindList = new List<NodeKind> () {
+                NodeKind.FunctionType, NodeKind.NoEscapeFunctionType, NodeKind.CFunctionPointer,
+                NodeKind.AutoClosureType, NodeKind.EscapingAutoClosureType },
             Reducer = ConvertFunctionType,
         },
         new MatchRule() {
@@ -509,7 +513,9 @@ internal class Swift5Reducer
         // are derived from the PRESENCE of the corresponding annotation child rather than a fixed
         // index, which keeps this correct for every annotation combination Swift can mangle
         // (e.g. @Sendable closures and typed throws, neither of which the old fixed rules matched).
-        var noEscaping = node.Kind == NodeKind.NoEscapeFunctionType;
+        // A plain @autoclosure is non-escaping; only the XA mangling carries @escaping.
+        var isAutoClosure = node.Kind is NodeKind.AutoClosureType or NodeKind.EscapingAutoClosureType;
+        var noEscaping = node.Kind is NodeKind.NoEscapeFunctionType or NodeKind.AutoClosureType;
         // Finding 17: a CFunctionPointer node is the demangled form of a @convention(c) closure;
         // tag the resulting ClosureTypeSpec so the marshaler reads convention off the reduced tree
         // instead of probing the mangled name for the "XC" substring.
@@ -535,7 +541,10 @@ internal class Swift5Reducer
                 throws = true;
         }
 
-        return ConvertFunctionAsyncThrows(argTuple, @return, async, throws, noEscaping, isConventionC, mangledName);
+        var reduction = ConvertFunctionAsyncThrows(argTuple, @return, async, throws, noEscaping, isConventionC, mangledName);
+        if (isAutoClosure && reduction is TypeSpecReduction { TypeSpec: ClosureTypeSpec closure })
+            closure.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+        return reduction;
     }
 
     /// <summary>

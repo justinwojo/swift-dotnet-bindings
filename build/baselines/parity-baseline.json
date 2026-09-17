@@ -22,6 +22,7 @@
     "GenericConstrainedImmutableLabel",
     "InheritedChildDelegate",
     "InheritedGrandchildDelegate",
+    "LoaderClause",
     "MapperSeed",
     "MarkerBooksEnum",
     "MarkerCameraEnum",

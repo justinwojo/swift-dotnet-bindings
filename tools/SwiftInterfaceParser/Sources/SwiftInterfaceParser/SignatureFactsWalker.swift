@@ -12,6 +12,8 @@ import SwiftParser
 ///   * `variadicMembers`           — Set<"Key">              (public/open only)
 ///   * `constLiteralParameters`    — "Key -> [bool]"         (public/open only)
 ///   * `closureParameterAttributes`— "Key -> [[String]]"     (public/open OR protocol req)
+///     Attributes are read from the parameter's own type text, or — when it spells none — from
+///     the typealias the type names (see `ClosureTypeAliasIndex`).
 ///
 /// EXTRACTION CONTRACT:
 /// Extracts parameter names, default values, autoclosure flags, variadic members,
@@ -144,9 +146,11 @@ final class SignatureFactsWalker: SyntaxVisitor {
     private var scopePushed: [Bool] = []
 
     private let converter: SourceLocationConverter
+    private let closureTypeAliases: ClosureTypeAliasIndex
 
-    init(converter: SourceLocationConverter) {
+    init(converter: SourceLocationConverter, closureTypeAliases: ClosureTypeAliasIndex) {
         self.converter = converter
+        self.closureTypeAliases = closureTypeAliases
         super.init(viewMode: .sourceAccurate)
     }
 
@@ -160,7 +164,8 @@ final class SignatureFactsWalker: SyntaxVisitor {
     ) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: filePath, tree: tree)
-        let walker = SignatureFactsWalker(converter: converter)
+        let walker = SignatureFactsWalker(converter: converter,
+                                          closureTypeAliases: ClosureTypeAliasIndex.build(tree))
         walker.walk(tree)
         return (walker.parameterNames, walker.defaultParameterValues,
                 walker.autoclosureParameters, walker.variadicMembers,
@@ -496,7 +501,12 @@ final class SignatureFactsWalker: SyntaxVisitor {
             // how SwiftSyntax categorizes the specifier.
             let afterColon = parameterTypeText(param)
             constFlags.append(afterColon?.hasPrefix("_const ") ?? false)
-            closureAttrs.append(afterColon.map(extractClosureAttributes) ?? [])
+            // A parameter typed by an alias (`@escaping Module.Block`) spells no attribute of
+            // its own; the attributes live on the alias's function type.
+            let spelledAttrs = afterColon.map(extractClosureAttributes) ?? []
+            closureAttrs.append(spelledAttrs.isEmpty
+                ? closureTypeAliases.attributes(of: param.type)
+                : spelledAttrs)
         }
 
         let printed = collapsePrintedNameToZeroArg

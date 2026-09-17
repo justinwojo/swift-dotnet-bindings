@@ -23,6 +23,11 @@
 // for any return whose Swift stride exceeds 256 bytes. The fix sizes via `GetSwiftTypeSize<T>()`,
 // so the emitted size is correct regardless of stride (the overflow was a runtime fault; a small
 // struct exercises the same emission shape the large one would).
+//
+// Scalar direct returns: the wrapper used to declare no Swift return type for a by-value scalar
+// and still `return` the call ("unexpected non-void return value in void function"), and the C#
+// side declared every such P/Invoke as IntPtr. Bool must cross as Int8, a raw-value enum as its
+// raw scalar, and a fixed-width integer in its own width.
 
 /// Plain class-bound protocol. `: AnyObject` makes the MGB existential-opening bridge sound
 /// (it uses `Unmanaged<AnyObject>.fromOpaque`). No associated types, no Self requirement.
@@ -57,6 +62,11 @@ public enum BridgeLookupError: Error {
     case rejected
 }
 
+public enum BridgeLevel: Int32 {
+    case low = 1
+    case high = 2
+}
+
 /// Non-generic host so the MGB "skip generic parent" gate passes. Each method has exactly one
 /// method-own generic param constrained to the plain class-bound `BridgeProvider`.
 public final class BridgeHost {
@@ -76,6 +86,26 @@ public final class BridgeHost {
     /// dedicated owned error-box renderer rather than the class `as AnyObject` retain path.
     public func lookupError<T: BridgeProvider>(_ provider: T) -> (any Error)? {
         provider.bridgeTag < 0 ? BridgeLookupError.rejected : nil
+    }
+
+    /// Scalar direct return: Bool crosses the cdecl boundary as Int8.
+    public func isTagged<T: BridgeProvider>(_ provider: T) -> Bool {
+        provider.bridgeTag != 0
+    }
+
+    /// Scalar direct return: a 64-bit integer crosses in its own width, not as a pointer.
+    public func tagValue<T: BridgeProvider>(_ provider: T) -> Int64 {
+        Int64(provider.bridgeTag)
+    }
+
+    /// Scalar direct return: a raw-value enum crosses as its raw scalar and is cast back in C#.
+    public func level<T: BridgeProvider>(_ provider: T) -> BridgeLevel {
+        provider.bridgeTag > 1 ? .high : .low
+    }
+
+    /// Scalar direct return: Double crosses as a floating-point register value.
+    public func ratio<T: BridgeProvider>(_ provider: T) -> Double {
+        Double(provider.bridgeTag) / 2
     }
 
     // ── Synthetic-name collisions on the MGB path ──────────────────────

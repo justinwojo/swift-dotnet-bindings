@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -2061,7 +2062,7 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("_ priority: Int32", output);
         // Use init(rawValue:) for safe conversion — unsafeBitCast crashes when
         // enum storage size differs from parameter type. Guard against invalid raw values.
-        Assert.Contains("guard let priorityVal = TestModule.Priority(rawValue: priority) else { preconditionFailure(", output);
+        Assert.Contains("guard let priorityVal = TestModule.Priority(rawValue: priority) else { Swift.preconditionFailure(", output);
         Assert.DoesNotContain("unsafeBitCast", output);
     }
 
@@ -2120,7 +2121,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Must use init(rawValue:) for safe conversion, NOT unsafeBitCast.
         // Guard against invalid raw values from C#.
-        Assert.Contains("guard let unitVal = TestModule.Unit(rawValue: unit) else { preconditionFailure(", output);
+        Assert.Contains("guard let unitVal = TestModule.Unit(rawValue: unit) else { Swift.preconditionFailure(", output);
         Assert.DoesNotContain("unsafeBitCast", output);
         Assert.Contains("_ unit: Int", output);
     }
@@ -2899,6 +2900,104 @@ public class ConstructorWrapperEmitterTests
 
         // Return via Unmanaged with as AnyObject cast
         Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+    }
+
+    // A gate-reduced overload drops trailing defaulted parameters from the signature. Swift never
+    // fills a default when matching a protocol requirement, so an `init(capacity:)` requirement is
+    // unsatisfiable by `init(capacity:edges:)`. The requirement must instead be a factory the
+    // conformance implements by calling the declared init with the kept arguments.
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassGateReducedConstructor_ForwardsThroughAFactoryWitness()
+    {
+        var output = EmitGenericCacheConstructor(gateReduced: true, throws: false);
+
+        var requirement = Regex.Match(output,
+            @"private protocol _SBW_CI_\w+: AnyObject\s*\{\s*static func (\w+)\(capacity (\w+): Int\) -> AnyObject");
+        Assert.True(requirement.Success, output);
+        var factory = requirement.Groups[1].Value;
+        var binding = requirement.Groups[2].Value;
+        Assert.DoesNotMatch(@"private protocol _SBW_CI_\w+: AnyObject\s*\{\s*init\(", output);
+
+        Assert.Matches(
+            $@"extension TestModule\.GenericCache: _SBW_CI_\w+ \{{\s*static func {factory}\(capacity {binding}: Int\) -> AnyObject \{{\s*return Self\.init\(capacity: {binding}\)",
+            output);
+        Assert.Contains($"initType.{factory}(capacity: capacity)", output);
+        Assert.DoesNotContain("initType.init(", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassGateReducedThrowingConstructor_FactoryRethrows()
+    {
+        var output = EmitGenericCacheConstructor(gateReduced: true, throws: true);
+
+        var requirement = Regex.Match(output,
+            @"static func (\w+)\(capacity (\w+): Int\) throws -> AnyObject");
+        Assert.True(requirement.Success, output);
+        Assert.Contains($"return try Self.init(capacity: {requirement.Groups[2].Value})", output);
+        Assert.Contains($"try initType.{requirement.Groups[1].Value}(capacity: capacity)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_GenericClassFullConstructor_KeepsTheInitRequirement()
+    {
+        var output = EmitGenericCacheConstructor(gateReduced: false, throws: false);
+
+        Assert.Contains("init(capacity: Int)", output);
+        Assert.Matches(@"extension TestModule\.GenericCache: _SBW_CI_\w+ \{\}", output);
+        Assert.Contains("initType.init(capacity: capacity)", output);
+    }
+
+    private string EmitGenericCacheConstructor(bool gateReduced, bool throws)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.IsFinal = true;
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericCacheC8capacity5edgesACyxGSi_SaySiGtcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "capacity",
+                    PrivateName = "capacity",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = throws,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            IsGateReducedOverload = gateReduced
+        };
+        parentDecl.Methods.Add(method);
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "GenericCache", method.MangledName);
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
+        var sw = new StringWriter();
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
+        return sw.ToString();
     }
 
     [Fact]

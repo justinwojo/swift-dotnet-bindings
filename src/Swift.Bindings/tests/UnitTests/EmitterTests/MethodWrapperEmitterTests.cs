@@ -2060,6 +2060,74 @@ public class MethodWrapperEmitterTests
         Assert.Contains("computeValue()", output);
     }
 
+    // A gate-reduced overload drops trailing defaulted parameters and lets Swift supply them at the
+    // call. On a generic class the dispatch protocol used to declare the REDUCED signature as its
+    // requirement, which the class's full declaration cannot witness (Swift never uses default
+    // arguments to satisfy a requirement), so the conformance failed and withdrew the wrapper. The
+    // requirement must be one the conformance itself implements, calling the declaration with the
+    // kept arguments.
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericClassGateReducedOverload_ForwardsThroughItsOwnWitness()
+    {
+        var (output, _) = EmitGenericBoxPurge(gateReduced: true);
+
+        var requirement = System.Text.RegularExpressions.Regex.Match(
+            output, @"private protocol _SBW_P_\w+ \{\s*func (\w+)\(animatingDifferences: Bool\)");
+        Assert.True(requirement.Success, output);
+        var requirementName = requirement.Groups[1].Value;
+        Assert.NotEqual("purge", requirementName);
+        // The conformance implements the requirement by calling the declaration with the kept
+        // arguments, so the dropped defaults are filled in by Swift.
+        Assert.Matches(@"extension TestModule\.GenericBox: _SBW_P_\w+ \{\s*func " + requirementName
+            + @"\(animatingDifferences: Bool\) \{\s*return self\.purge\(animatingDifferences: animatingDifferences\)", output);
+        Assert.Contains($"obj.{requirementName}(animatingDifferences: ", output);
+        Assert.DoesNotContain("obj.purge(", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericClassFullOverload_RequirementIsTheDeclarationItself()
+    {
+        var (output, _) = EmitGenericBoxPurge(gateReduced: false);
+
+        Assert.Contains("func purge(animatingDifferences: Bool)", output);
+        Assert.Matches(@"extension TestModule\.GenericBox: _SBW_P_\w+ \{\}", output);
+        Assert.Contains("obj.purge(animatingDifferences: ", output);
+    }
+
+    private (string output, MethodDecl method) EmitGenericBoxPurge(bool gateReduced)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("purge", parentDecl, moduleDecl);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+            Name = "animatingDifferences",
+            PrivateName = "animatingDifferences",
+            IsInOut = false,
+            IsGeneric = false,
+            HasDefaultArg = true,
+            ParentDecl = method,
+            ModuleDecl = moduleDecl
+        });
+        method.IsGateReducedOverload = gateReduced;
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol("SBW_TestModule_GenericBox_purge");
+        var sw = new StringWriter();
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
+        return (sw.ToString(), method);
+    }
+
     [Fact]
     public void EmitSwiftMethodWrapper_GenericClassParent_EmitsProtocolErasure()
     {
@@ -2358,6 +2426,68 @@ public class MethodWrapperEmitterTests
         // Must produce valid Swift: `func append(_ element: Int)`, NOT `func append( element: Int)`
         Assert.Contains("_ element: Int", result);
         Assert.DoesNotContain("( ", result); // no empty external label
+    }
+
+    [Fact]
+    public void BuildProtocolMethodDeclaration_RepeatedArgumentLabel_IntroducesEachParameterUnderItsOwnName()
+    {
+        // Swift allows one declaration to repeat an external label as long as the internal names
+        // differ — `moveItem(inSection source:, toItem:, inSection destination:)`. The ABI JSON
+        // carries only the label, so both parameters arrive under one name; declaring the
+        // requirement that way is an invalid redeclaration and the whole wrapper fails to compile.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var signature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = TupleTypeSpec.Empty,
+                Name = "",
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            }
+        };
+        foreach (var label in new[] { "inSection", "toItem", "inSection" })
+        {
+            signature.Add(new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                Name = label,
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            });
+        }
+
+        var method = new MethodDecl
+        {
+            Name = "moveItem",
+            MangledName = "$s10TestModule_moveItem",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        var result = MethodWrapperEmitter.BuildProtocolMethodDeclaration(method, env);
+
+        // Both labels stay — they are what the declaration is matched on. Only the repeat's
+        // internal name moves aside, in the short `label:` / explicit `label name:` pair.
+        Assert.Contains("inSection: Int", result);
+        Assert.Contains("inSection inSection2: Int", result);
     }
 
     #endregion

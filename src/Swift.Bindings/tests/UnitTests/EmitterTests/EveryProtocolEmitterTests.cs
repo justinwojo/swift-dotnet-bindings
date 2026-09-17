@@ -4220,7 +4220,7 @@ public class EveryProtocolEmitterTests
 
         // Routed to the trap stub: inout signature rendered + fatalError, NOT the broken dispatch
         // (no dangling amountCopy/amountRef writeback).
-        Assert.Contains("inout ObjC-bridgeable parameter cannot be dispatched", output);
+        Assert.Contains("inout parameter that cannot be written back cannot be dispatched", output);
         Assert.Contains("amount: inout", output);
         Assert.DoesNotContain("amountCopy", output);
         Assert.DoesNotContain("amountRef", output);
@@ -4255,7 +4255,7 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocol);
 
         // Routed to the trap stub, NOT the optional-value dispatch arm (no dangling amountRef writeback).
-        Assert.Contains("inout ObjC-bridgeable parameter cannot be dispatched", output);
+        Assert.Contains("inout parameter that cannot be written back cannot be dispatched", output);
         Assert.Contains("amount: inout", output);
         Assert.DoesNotContain("amountRef", output);
         Assert.DoesNotContain("amountNS", output);
@@ -4289,6 +4289,44 @@ public class EveryProtocolEmitterTests
         var output = EmitVtableStruct(protocol);
 
         Assert.Contains("func_update_0", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_InOutIntParam_DispatchesWithoutTrapStub()
+    {
+        // The C# receiver writes an inout scalar back into the witness's copy, so the witness dispatches.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+        var protocol = CreateSimpleProtocol("Counter");
+        protocol.Methods.Add(CreateMethodWithInOutParam("bump", "value", new NamedTypeSpec("Swift.Int")));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.DoesNotContain("cannot be written back", output);
+        Assert.Contains("value: inout", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_InOutTupleParam_EmitsTrapStubNotDispatch()
+    {
+        // No receiver write-back exists for a tuple lowering; dispatching would silently drop the
+        // implementation's mutation, so the witness must trap instead.
+        var protocol = CreateSimpleProtocol("PairMutator");
+        protocol.Methods.Add(CreateMethodWithInOutParam("update", "pair",
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int") })));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("inout parameter that cannot be written back cannot be dispatched", output);
     }
 
     private static MethodDecl CreateMethodWithInOutParam(string name, string paramLabel, TypeSpec paramType)
@@ -5563,6 +5601,80 @@ public class EveryProtocolEmitterTests
         protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("transform"));
         Assert.False(EveryProtocolEmitter.HasForwardSafeReverseImpossibleReason(protocol, _typeDatabase));
     }
+
+    #endregion
+
+    #region Repeated Argument Label Tests
+
+    // Swift lets one declaration use the same external argument label twice as long as the
+    // internal names differ — `collectionView(_:moveItem:inSection:toDestinationItem:inSection:)`
+    // writes `inSection source:` and `inSection destination:`. The ABI JSON records only the
+    // label, so the carrier saw both parameters under one name and emitted a witness that
+    // redeclared it (and redeclared its `…Copy` body local), which fails the whole wrapper module.
+
+    [Fact]
+    public void EmitProtocolExtension_RepeatedArgumentLabel_IntroducesEachParameterUnderItsOwnName()
+    {
+        var output = EmitProtocolExtension(CreateProtocolWithRepeatedLabel());
+
+        var signature = SingleLineContaining(output, "func moveItem(");
+        // Both labels survive — witness matching is on the labels, so they must not be renamed.
+        // The first keeps the short `label:` form (label and internal name still agree); only the
+        // repeat needs the explicit two-word form to introduce it under a name of its own.
+        Assert.Contains("inSection: Swift.Int", signature);
+        Assert.Contains("inSection inSection2: Swift.Int", signature);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_RepeatedArgumentLabel_DerivesDistinctBodyLocals()
+    {
+        var output = EmitProtocolExtension(CreateProtocolWithRepeatedLabel());
+
+        // The body copies each parameter into `{name}Copy` before passing it to the vtable. Two
+        // parameters sharing a name would redeclare that local as well as the parameter itself.
+        Assert.Contains("var inSectionCopy =", output);
+        Assert.Contains("var inSection2Copy =", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_RepeatedArgumentLabel_PassesBothParametersToTheVtable()
+    {
+        var output = EmitProtocolExtension(CreateProtocolWithRepeatedLabel());
+
+        // Distinct names are only worth having if both reach the call: a witness that merged them
+        // would compile once renamed but hand the callee one section twice.
+        var call = SingleLineContaining(output, "&inSectionCopy");
+        Assert.Contains("&inSection2Copy", call);
+    }
+
+    /// <summary>
+    /// A protocol whose method repeats the external label `inSection`, with no private names —
+    /// the shape the ABI JSON hands us for a declaration written `inSection source:` /
+    /// `inSection destination:`.
+    /// </summary>
+    private ProtocolDecl CreateProtocolWithRepeatedLabel()
+    {
+        var protocol = CreateSimpleProtocol("SectionMoving");
+        var method = CreateMethodDecl("moveItem");
+        foreach (var label in new[] { "item", "inSection", "toItem", "inSection" })
+        {
+            method.CSSignature.Add(new ArgumentDecl
+            {
+                Name = label,
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            });
+        }
+        protocol.Methods.Add(method);
+        return protocol;
+    }
+
+    private static string SingleLineContaining(string output, string needle)
+        => output.Split('\n').Single(l => l.Contains(needle, StringComparison.Ordinal));
 
     #endregion
 

@@ -320,6 +320,22 @@ public class OverloadNameDisambiguatorTests
         Assert.Equal("mergeWithIntAndString", OverloadNameDisambiguator.BuildTypeDerivedNameInput(m, "merge"));
     }
 
+    [Fact]
+    public void BuildTypeDerivedNameInput_GenericParameter_SpellsItsSourceName()
+    {
+        // ABI dumps print generic parameters as depth/index names; a C# identifier built from one
+        // would carry `τ_0_0` into the public surface instead of the author's `Model`.
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var m = TestDecls.Method("buildExpression", parameters: new[]
+        {
+            TestDecls.Param("_", optional),
+        });
+        m.GenericParameters = new List<GenericArgumentDecl> { new("τ_0_0", "Model", new(), new()) };
+
+        Assert.Equal("buildExpressionWithOptionalModel", OverloadNameDisambiguator.BuildTypeDerivedNameInput(m, "buildExpression"));
+    }
+
     [Theory]
     [InlineData("Swift.Int", "Int")]
     [InlineData("TestModule.RefBox", "RefBox")]

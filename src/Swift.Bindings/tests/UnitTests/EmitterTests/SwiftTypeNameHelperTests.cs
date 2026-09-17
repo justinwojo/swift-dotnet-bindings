@@ -447,4 +447,44 @@ public class SwiftTypeNameHelperTests
     }
 
     #endregion
+
+    #region Declaration spellings a witness must repeat
+
+    [Fact]
+    public void GetSwiftTypeName_MetatypeOfGenericBase_KeepsMemberPath()
+    {
+        // `.Type` under a generic base is stored as an inner type; dropping it renders an instance
+        // type where the requirement declared a metatype.
+        var dictionary = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int"))
+        {
+            InnerType = new NamedTypeSpec("Type"),
+        };
+
+        Assert.Equal("Swift.Dictionary<Swift.String, Swift.Int>.Type", SwiftTypeNameHelper.GetSwiftTypeName(dictionary));
+    }
+
+    [Theory]
+    [InlineData(false, "Swift.Array<Swift.Int32>")]
+    [InlineData(true, "Swift.Int32...")]
+    public void RenderParameterTypeForDeclaration_SpellsVariadicOnlyWhenMarked(bool variadic, string expected)
+    {
+        var element = new NamedTypeSpec("Swift.Int32") { IsVariadic = variadic };
+        var array = new NamedTypeSpec("Swift.Array", element);
+
+        Assert.Equal(expected,
+            SwiftTypeNameHelper.RenderParameterTypeForDeclaration(array, SwiftTypeNameHelper.GetSwiftTypeNameForDeclaration));
+    }
+
+    [Fact]
+    public void RenderParameterTypeForDeclaration_ExistentialElement_IsParenthesized()
+    {
+        var element = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.CustomStringConvertible") }) { IsVariadic = true };
+        var array = new NamedTypeSpec("Swift.Array", element);
+
+        Assert.Equal("(any Swift.CustomStringConvertible)...",
+            SwiftTypeNameHelper.RenderParameterTypeForDeclaration(array, SwiftTypeNameHelper.GetSwiftTypeNameForDeclaration));
+    }
+
+    #endregion
 }

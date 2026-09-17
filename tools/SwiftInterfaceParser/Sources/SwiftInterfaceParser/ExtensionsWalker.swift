@@ -512,3 +512,31 @@ final class ExtensionsWalker: SyntaxVisitor {
         return result
     }
 }
+
+/// Names of the protocols a `Self : Q` where-clause constrains `Self` to, with any leading module
+/// component stripped so they compare against the module's own protocol-name set.
+///
+/// Only a constraint on `Self` itself qualifies: `Self.RawValue : Q` constrains an associated type
+/// and `Self == C` is a same-type constraint, and neither makes the extension's members witnesses
+/// for a requirement of anything. Mirrors the attribution the .NET-side defaults index performs on
+/// the same constraint text.
+func selfConstraintProtocolNames(_ whereConstraints: [String]) -> [String] {
+    var names: [String] = []
+    for constraint in whereConstraints {
+        guard let colon = constraint.firstIndex(of: ":") else { continue }
+        guard constraint[constraint.startIndex..<colon].trimmingCharacters(in: .whitespaces) == "Self" else { continue }
+
+        // A composition (`Self : First & Second`) constrains Self to every member.
+        let rhs = constraint[constraint.index(after: colon)...]
+        for part in rhs.split(separator: "&") {
+            let name = part.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { continue }
+            if let firstDot = name.firstIndex(of: ".") {
+                names.append(String(name[name.index(after: firstDot)...]))
+            } else {
+                names.append(name)
+            }
+        }
+    }
+    return names
+}

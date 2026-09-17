@@ -569,6 +569,15 @@ internal static class ProtocolSignatureHelper
             var name = record.CSharpTypeName.FullyQualifiedName;
             if (name == "string" || name == "object")
                 return true;
+            // ...and those whose projection, not their record, names the reference type
+            // (Foundation.Data → byte[], Swift.Array → a read-only collection interface).
+            var projection = new TypeProjectionFactory().Project(spec, new ProjectionContext
+            {
+                TypeDatabase = typeDatabase,
+                IsParameter = true
+            });
+            if (projection != null && IsCSharpReferenceTypeProjection(projection.PublicType))
+                return true;
         }
         catch
         {
@@ -614,9 +623,21 @@ internal static class ProtocolSignatureHelper
     /// <summary>
     /// Checks if a projected C# type name is a reference type in the CLR,
     /// where nullability is annotation-only and doesn't affect overload resolution.
+    /// Covers the Swift value types that project to CLR reference types: String → string,
+    /// Data → byte[], collections → their read-only interfaces, closures → delegates.
     /// </summary>
-    private static bool IsCSharpReferenceTypeProjection(string projectedType) =>
-        projectedType is "string" or "object";
+    private static bool IsCSharpReferenceTypeProjection(string projectedType)
+    {
+        if (projectedType is "string" or "object" || projectedType.EndsWith("[]", StringComparison.Ordinal))
+            return true;
+        var genericStart = projectedType.IndexOf('<');
+        if (genericStart <= 0 || !projectedType.EndsWith(">", StringComparison.Ordinal))
+            return false;
+        var name = projectedType.Substring(0, genericStart);
+        var simpleName = name.Substring(name.LastIndexOf('.') + 1);
+        return simpleName is "IEnumerable" or "IReadOnlyList" or "IReadOnlyCollection" or "IReadOnlyDictionary"
+            or "IReadOnlySet" or "IList" or "ICollection" or "IDictionary" or "ISet" or "Func" or "Action";
+    }
 
     /// <summary>
     /// Maps an associated type reference to a C# generic parameter name.

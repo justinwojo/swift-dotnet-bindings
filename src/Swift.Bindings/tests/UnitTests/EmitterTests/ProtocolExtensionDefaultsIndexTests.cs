@@ -898,4 +898,264 @@ public class ProtocolExtensionDefaultsIndexTests
 
     #endregion
 
+    #region Self-Constraint Attribution Tests
+
+    [Fact]
+    public void SelfConstraint_PropertyDefault_AttributedToConstrainedProtocol()
+    {
+        // `extension TaggedModel where Self : SectionTagging { var sectionTag }` is how Swift
+        // supplies SectionTagging's witness to every type conforming to both. The member is
+        // spelled on TaggedModel, and TaggedModel does not inherit SectionTagging, so the
+        // inheritance walk cannot reach it — the default has to be attributed to the protocol
+        // the where-clause names, or SectionTagging's requirement looks unsatisfiable.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("SectionTagging", "TestModule"),
+            CreateProtocolDecl("TaggedModel", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.TaggedModel"] = new()
+            {
+                CreateExtensionProperty("sectionTag",
+                    whereConstraints: new() { "Self : TestModule.SectionTagging" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.True(index.HasPropertyDefault("TestModule.SectionTagging", "sectionTag"));
+        // Still indexed under the extended protocol as well — attribution adds, never moves.
+        Assert.True(index.HasPropertyDefault("TestModule.TaggedModel", "sectionTag"));
+    }
+
+    [Fact]
+    public void SelfConstraint_MethodDefault_AttributedToConstrainedProtocol()
+    {
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("Describing", "TestModule"),
+            CreateProtocolDecl("Modeled", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Modeled"] = new()
+            {
+                CreateExtensionMethod("describe", "describe()",
+                    whereConstraints: new() { "Self : TestModule.Describing" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.True(index.HasMethodDefault("TestModule.Describing", "describe()"));
+    }
+
+    [Fact]
+    public void SelfConstraint_UnqualifiedName_ResolvesThroughDeclaredProtocols()
+    {
+        // A swiftinterface may print the constraint unqualified. Resolving it against the
+        // module's own protocol declarations is what turns it into the qualified key the
+        // requirement is later looked up by.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("SectionTagging", "TestModule"),
+            CreateProtocolDecl("TaggedModel", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.TaggedModel"] = new()
+            {
+                CreateExtensionProperty("sectionTag", whereConstraints: new() { "Self : SectionTagging" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.True(index.HasPropertyDefault("TestModule.SectionTagging", "sectionTag"));
+    }
+
+    [Fact]
+    public void SelfConstraint_ProtocolComposition_AttributesToEveryNamedProtocol()
+    {
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("First", "TestModule"),
+            CreateProtocolDecl("Second", "TestModule"),
+            CreateProtocolDecl("Modeled", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Modeled"] = new()
+            {
+                CreateExtensionProperty("tag",
+                    whereConstraints: new() { "Self : TestModule.First & TestModule.Second" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.True(index.HasPropertyDefault("TestModule.First", "tag"));
+        Assert.True(index.HasPropertyDefault("TestModule.Second", "tag"));
+    }
+
+    [Fact]
+    public void SelfConstraint_SetterDefault_CarriesThroughToConstrainedProtocol()
+    {
+        // A getter-only default must not relax a `{ get set }` requirement on the constrained
+        // protocol either — the setter fact travels with the attribution.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("Tagging", "TestModule"),
+            CreateProtocolDecl("Modeled", "TestModule")
+        };
+
+        var getterOnly = new ProtocolExtensionDefaultsIndex(
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+            {
+                ["TestModule.Modeled"] = new()
+                {
+                    CreateExtensionProperty("tag", hasSetter: false,
+                        whereConstraints: new() { "Self : TestModule.Tagging" })
+                }
+            }, protocols);
+
+        Assert.True(getterOnly.HasPropertyDefault("TestModule.Tagging", "tag"));
+        Assert.False(getterOnly.HasPropertyDefault("TestModule.Tagging", "tag", requiresSetter: true));
+
+        var withSetter = new ProtocolExtensionDefaultsIndex(
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+            {
+                ["TestModule.Modeled"] = new()
+                {
+                    CreateExtensionProperty("tag", hasSetter: true,
+                        whereConstraints: new() { "Self : TestModule.Tagging" })
+                }
+            }, protocols);
+
+        Assert.True(withSetter.HasPropertyDefault("TestModule.Tagging", "tag", requiresSetter: true));
+    }
+
+    [Fact]
+    public void SelfConstraint_AssociatedTypeConstraint_DoesNotAttribute()
+    {
+        // `Self.RawValue : Convertible` constrains an associated type. It says nothing about the
+        // member witnessing a requirement of Convertible, so attributing there would claim a
+        // default for a protocol that never gets one.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("Convertible", "TestModule"),
+            CreateProtocolDecl("Modeled", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Modeled"] = new()
+            {
+                CreateExtensionProperty("value",
+                    whereConstraints: new() { "Self.RawValue : TestModule.Convertible" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.False(index.HasPropertyDefault("TestModule.Convertible", "value"));
+        Assert.True(index.HasPropertyDefault("TestModule.Modeled", "value"));
+    }
+
+    [Fact]
+    public void SelfConstraint_SameTypeConstraint_DoesNotAttribute()
+    {
+        // `Self == Concrete` is a same-type constraint, not a conformance; there is no protocol
+        // whose requirement the member could be witnessing.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("Modeled", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Modeled"] = new()
+            {
+                CreateExtensionProperty("value", whereConstraints: new() { "Self == TestModule.Concrete" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.False(index.HasPropertyDefault("TestModule.Concrete", "value"));
+    }
+
+    [Fact]
+    public void SelfConstraint_UnresolvableUnqualifiedName_IsNotAttributed()
+    {
+        // `Self : AnyObject` (and any other unqualified name that is not a declared protocol)
+        // resolves to nothing, so no key is invented for it.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("Modeled", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Modeled"] = new()
+            {
+                CreateExtensionProperty("value", whereConstraints: new() { "Self : AnyObject" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.False(index.HasPropertyDefault("AnyObject", "value"));
+        Assert.False(index.HasPropertyDefault("TestModule.AnyObject", "value"));
+    }
+
+    [Fact]
+    public void SelfConstraint_ForeignExtendedProtocol_StillAttributesToLocalProtocol()
+    {
+        // The mirror case: the extension extends a protocol from a dependency module, so the
+        // extended-protocol key is foreign, but the where-clause names a protocol of the module
+        // being generated. That local requirement is the one that needs the default.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("RowHeighting", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["DependencyModule.TaggedModel"] = new()
+            {
+                CreateExtensionProperty("rowHeight",
+                    whereConstraints: new() { "Self : TestModule.RowHeighting" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.True(index.HasPropertyDefault("TestModule.RowHeighting", "rowHeight"));
+    }
+
+    [Fact]
+    public void SelfConstraint_NarrowOverload_AcceptsAttributedDefault()
+    {
+        // The conformance-set-aware overload consults the same attributed entry, so a conformer
+        // that only declares the constrained protocol still clears the validator.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("SectionTagging", "TestModule"),
+            CreateProtocolDecl("TaggedModel", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.TaggedModel"] = new()
+            {
+                CreateExtensionProperty("sectionTag",
+                    whereConstraints: new() { "Self : TestModule.SectionTagging" })
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.True(index.HasPropertyDefault("TestModule.SectionTagging", "sectionTag",
+            new HashSet<string> { "TestModule.SectionTagging" }));
+    }
+
+    #endregion
+
 }

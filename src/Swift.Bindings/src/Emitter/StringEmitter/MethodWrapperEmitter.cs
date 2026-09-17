@@ -630,6 +630,11 @@ public static class MethodWrapperEmitter
             }
             else
             {
+                // A generic-class instance method whose requirement forwards to the declaration is
+                // called through that requirement; the erased receiver exposes nothing else.
+                if (isGenericClassParent && !isStatic
+                    && GetForwardingRequirementName(methodDecl, symbolName) is { } requirementName)
+                    swiftMethodName = requirementName;
                 callExpr = string.IsNullOrEmpty(selfRef)
                     ? $"{swiftMethodName}({callArgString})"
                     : $"{selfRef}.{swiftMethodName}({callArgString})";
@@ -1689,12 +1694,40 @@ public static class MethodWrapperEmitter
     /// The protocol declaration must exactly match the original method's signature
     /// (labels, types, throws) for the conformance to be valid.
     /// </summary>
-    internal static string BuildProtocolMethodDeclaration(MethodDecl methodDecl, MethodEnvironment env)
+    internal static string BuildProtocolMethodDeclaration(MethodDecl methodDecl, MethodEnvironment env,
+        string? requirementName = null)
     {
-        var baseName = NameProvider.ParserNameToSwift(methodDecl);
-        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var baseName = requirementName ?? NameProvider.ParserNameToSwift(methodDecl);
+        var protocolParams = GetProtocolMethodParameters(methodDecl)
+            .Select(p => p.ExternalLabel == p.InternalName
+                ? $"{p.ExternalLabel}: {p.SwiftType}"
+                : $"{p.ExternalLabel} {p.InternalName}: {p.SwiftType}");
 
-        var protocolParams = new List<string>();
+        var paramString = string.Join(", ", protocolParams);
+        var throwsClause = methodDecl.Throws ? " throws" : "";
+
+        // Return type
+        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+        string returnClause = returnSpec.IsEmptyTuple
+            ? ""
+            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}";
+
+        return $"func {baseName}({paramString}){throwsClause}{returnClause}";
+    }
+
+    private readonly record struct ProtocolMethodParameter(
+        string ExternalLabel, string InternalName, string SwiftType, bool IsInOut);
+
+    private static List<ProtocolMethodParameter> GetProtocolMethodParameters(MethodDecl methodDecl)
+    {
+        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var parameters = new List<ProtocolMethodParameter>();
+        // Swift lets one declaration repeat an external label when the internal names differ
+        // (`inSection source:` alongside `inSection destination:`), but the ABI JSON carries only
+        // the label, so both parameters would be introduced under one name — an invalid
+        // redeclaration that fails the whole wrapper. Repeats move aside to `name2`, `name3`, …
+        // Internal names are not part of witness matching, so the requirement still means the same.
+        var takenInternalNames = new HashSet<string>(StringComparer.Ordinal);
         for (int i = 0; i < keptArgs.Count; i++)
         {
             var arg = keptArgs[i];
@@ -1714,25 +1747,38 @@ public static class MethodWrapperEmitter
             // Determine internal name
             string internalName = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : externalLabel;
             if (internalName == "_") internalName = $"p{i}";
+            if (!takenInternalNames.Add(internalName))
+            {
+                var suffix = 2;
+                string candidate;
+                do
+                {
+                    candidate = $"{internalName}{suffix++}";
+                }
+                while (!takenInternalNames.Add(candidate));
+                internalName = candidate;
+            }
 
-            // Format parameter declaration
-            if (externalLabel == internalName)
-                protocolParams.Add($"{externalLabel}: {swiftType}");
-            else
-                protocolParams.Add($"{externalLabel} {internalName}: {swiftType}");
+            parameters.Add(new ProtocolMethodParameter(externalLabel, internalName, swiftType, arg.IsInOut));
         }
-
-        var paramString = string.Join(", ", protocolParams);
-        var throwsClause = methodDecl.Throws ? " throws" : "";
-
-        // Return type
-        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
-        string returnClause = returnSpec.IsEmptyTuple
-            ? ""
-            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}";
-
-        return $"func {baseName}({paramString}){throwsClause}{returnClause}";
+        return parameters;
     }
+
+    /// <summary>
+    /// The dispatch-protocol requirement name for a method whose Swift declaration cannot itself
+    /// witness a requirement spelled with the method's own signature, or null when it can.
+    /// <para>
+    /// A gate-reduced overload omits trailing defaulted parameters and relies on Swift filling
+    /// them in at the call. Swift never applies default arguments when matching a witness, so a
+    /// requirement with the reduced signature is unsatisfiable by the full declaration and the
+    /// unconditional conformance fails to compile. Such a method gets a requirement of its own,
+    /// implemented inside the conformance extension by an ordinary call to the declaration.
+    /// </para>
+    /// </summary>
+    internal static string? GetForwardingRequirementName(MethodDecl methodDecl, string symbolName)
+        => methodDecl.IsGateReducedOverload
+            ? $"_sbw_forward_{EmitterUtility.DeterministicHash8(symbolName)}"
+            : null;
 
     /// <summary>
     /// Emits the protocol declaration, conformance extension, and modified self reconstruction
@@ -1743,13 +1789,33 @@ public static class MethodWrapperEmitter
         SwiftWriter swiftWriter, MethodDecl methodDecl, MethodEnvironment env,
         string symbolName, string moduleQualifiedSwiftName)
     {
-        var methodSig = BuildProtocolMethodDeclaration(methodDecl, env);
+        var requirementName = GetForwardingRequirementName(methodDecl, symbolName);
+        var methodSig = BuildProtocolMethodDeclaration(methodDecl, env, requirementName);
         var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
             methodDecl.AvailabilityAnnotations, env.ParentDecl);
+
+        List<string>? conformanceBody = null;
+        if (requirementName != null)
+        {
+            var forwardedArgs = GetProtocolMethodParameters(methodDecl).Select(p =>
+            {
+                var value = p.IsInOut ? $"&{p.InternalName}" : p.InternalName;
+                return p.ExternalLabel == "_" ? value : $"{p.ExternalLabel}: {value}";
+            });
+            var tryPrefix = methodDecl.Throws ? "try " : "";
+            conformanceBody = new List<string>
+            {
+                $"{methodSig} {{",
+                $"    return {tryPrefix}self.{NameProvider.ParserNameToSwift(methodDecl)}({string.Join(", ", forwardedArgs)})",
+                "}",
+            };
+        }
+
         GenericProtocolEmitter.EmitProtocolAndConformance(
             swiftWriter, "P", symbolName, methodSig, moduleQualifiedSwiftName,
             originAnchor: FragmentOwners.ForDeclWrapper(methodDecl).Artifact,
-            extensionAvailability: extensionAvailability);
+            extensionAvailability: extensionAvailability,
+            conformanceBody: conformanceBody);
     }
 
     /// <summary>
@@ -1900,53 +1966,58 @@ public static class MethodWrapperEmitter
         // the call in `try`, which would then operate on a non-throwing cast result.
         // Drop into ambiguity-tolerant emission for effectful methods.
         if (methodDecl.Throws || methodDecl.IsAsync) return false;
+        return parentTypeDecl.Methods.Any(other => IsReturnTypeOnlyOverloadPair(methodDecl, other));
+    }
+
+    /// <summary>
+    /// True when <paramref name="methodDecl"/> and <paramref name="other"/> are distinct
+    /// overloads that share base name, kind, parameter types, and argument labels and differ
+    /// only by return type — the pair a call site cannot tell apart without type context.
+    /// </summary>
+    internal static bool IsReturnTypeOnlyOverloadPair(MethodDecl methodDecl, MethodDecl other)
+    {
+        if (ReferenceEquals(other, methodDecl)) return false;
         var myParams = methodDecl.CSSignature.Skip(1).ToList();
-        var myReturn = methodDecl.CSSignature.First().SwiftTypeSpec;
-        foreach (var other in parentTypeDecl.Methods)
+        if (other.Name != methodDecl.Name) return false;
+        if (other.IsConstructor != methodDecl.IsConstructor) return false;
+        if (other.IsAccessor != methodDecl.IsAccessor) return false;
+        if (other.MethodType != methodDecl.MethodType) return false;
+        var otherParams = other.CSSignature.Skip(1).ToList();
+        if (otherParams.Count != myParams.Count) return false;
+        bool paramsMatch = true;
+        for (int i = 0; i < myParams.Count; i++)
         {
-            if (ReferenceEquals(other, methodDecl)) continue;
-            if (other.Name != methodDecl.Name) continue;
-            if (other.IsConstructor != methodDecl.IsConstructor) continue;
-            if (other.IsAccessor != methodDecl.IsAccessor) continue;
-            if (other.MethodType != methodDecl.MethodType) continue;
-            var otherParams = other.CSSignature.Skip(1).ToList();
-            if (otherParams.Count != myParams.Count) continue;
-            bool paramsMatch = true;
-            for (int i = 0; i < myParams.Count; i++)
+            if (!Equals(myParams[i].SwiftTypeSpec, otherParams[i].SwiftTypeSpec))
             {
-                if (!Equals(myParams[i].SwiftTypeSpec, otherParams[i].SwiftTypeSpec))
-                {
-                    paramsMatch = false;
-                    break;
-                }
+                paramsMatch = false;
+                break;
             }
-            if (!paramsMatch) continue;
-            // Argument labels must also match. The disambiguation `as` cast pins by TYPE
-            // only and is called positionally (labels stripped), so it can only ever select
-            // a genuine return-type overload — siblings that share base name, parameter
-            // types, AND argument labels, differing solely by return type (e.g. a result
-            // builder's buildExpression(_:) -> X vs -> [X]). When labels differ, the two
-            // overloads are distinguishable by an ordinary labeled call
-            // (obj.tableView(_:viewForHeaderInSection:) vs (_:numberOfRowsInSection:)), and
-            // the label-erasing cast is both unnecessary and unsafe: pinning by type can
-            // match an inherited sibling of the same type but a different label
-            // (UITableViewDelegate's viewForHeaderInSection vs viewForFooterInSection),
-            // producing "ambiguous use of 'tableView'". Only treat this as a return-type
-            // overload — and emit the cast — when the labels are identical.
-            bool labelsMatch = true;
-            for (int i = 0; i < myParams.Count; i++)
-            {
-                if (EffectiveArgLabel(myParams[i]) != EffectiveArgLabel(otherParams[i]))
-                {
-                    labelsMatch = false;
-                    break;
-                }
-            }
-            if (!labelsMatch) continue;
-            var otherReturn = other.CSSignature.First().SwiftTypeSpec;
-            if (!Equals(myReturn, otherReturn)) return true;
         }
-        return false;
+        if (!paramsMatch) return false;
+        // Argument labels must also match. The disambiguation `as` cast pins by TYPE
+        // only and is called positionally (labels stripped), so it can only ever select
+        // a genuine return-type overload — siblings that share base name, parameter
+        // types, AND argument labels, differing solely by return type (e.g. a result
+        // builder's buildExpression(_:) -> X vs -> [X]). When labels differ, the two
+        // overloads are distinguishable by an ordinary labeled call
+        // (obj.tableView(_:viewForHeaderInSection:) vs (_:numberOfRowsInSection:)), and
+        // the label-erasing cast is both unnecessary and unsafe: pinning by type can
+        // match an inherited sibling of the same type but a different label
+        // (UITableViewDelegate's viewForHeaderInSection vs viewForFooterInSection),
+        // producing "ambiguous use of 'tableView'". Only treat this as a return-type
+        // overload — and emit the cast — when the labels are identical.
+        bool labelsMatch = true;
+        for (int i = 0; i < myParams.Count; i++)
+        {
+            if (EffectiveArgLabel(myParams[i]) != EffectiveArgLabel(otherParams[i]))
+            {
+                labelsMatch = false;
+                break;
+            }
+        }
+        if (!labelsMatch) return false;
+        var otherReturn = other.CSSignature.First().SwiftTypeSpec;
+        return !Equals(methodDecl.CSSignature.First().SwiftTypeSpec, otherReturn);
     }
 
     /// <summary>

@@ -47,21 +47,10 @@ public class InoutStructDispatchTests : TestBase
 
     /// <summary>
     /// Reverse dispatch (Swift → C#): a C# conformer is wrapped in the generated proxy and
-    /// passed back into Swift, which calls <c>mutate(_:)</c> with an `inout NonFrozenPoint`.
+    /// passed back into Swift, which calls <c>mutate(_:)</c> with an `inout NonFrozenPoint`. The
+    /// receiver hands the conformer a copy of Swift's value and must write the mutated copy back
+    /// into the slot Swift assigns from once the call returns.
     /// </summary>
-    /// <remarks>
-    /// Skipped: this exercises a PRE-EXISTING reverse-dispatch marshalling gap that is separate
-    /// from the inout-`ref` interface fix. The generated proxy receiver materializes the param
-    /// with <c>Unsafe.Read&lt;NonFrozenPoint&gt;(rawArg0)</c> (see the proxy-local
-    /// <c>MarshalFromSwift&lt;T&gt;</c> in the generated bindings). NonFrozenPoint is an
-    /// opaque-payload C# *class*, so reading it from Swift's raw value bytes reinterprets the
-    /// first 8 bytes (the x double) as a managed object reference → corrupt wrapper / crash.
-    /// Correctly materializing an opaque-payload param needs the NewFromPayload path, not
-    /// Unsafe.Read; this affects every non-frozen-struct value param in reverse dispatch, not
-    /// just inout. The interface/proxy/receiver `ref` consistency is still compile-tested by the
-    /// generator's emission and by <see cref="CSharpPointMutator"/> below.
-    /// </remarks>
-    [Skip("Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read<T>, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix.")]
     public void TestReverseInoutNonFrozenStructDispatch()
     {
         var impl = new CSharpPointMutator(dx: 100.0, dy: 200.0);
@@ -72,6 +61,132 @@ public class InoutStructDispatchTests : TestBase
         AssertTrue(impl.WasCalled, "reverse callback fired into the C# conformer");
         AssertApproxEqual(101.0, result.X, 0.0001, "C# conformer mutation written back through inout");
         AssertApproxEqual(202.0, result.Y, 0.0001, "C# conformer mutation written back through inout");
+    }
+
+    /// <summary>
+    /// Reverse dispatch of an <c>inout Int</c> requirement: the C# conformer's increment must be
+    /// visible to the Swift caller.
+    /// </summary>
+    public void TestReverseInoutNativeIntRequirement_WritesBack()
+    {
+        AssertEqual((nint)19, TestLibFunctions.DriveCursorAdvancer(new CSharpCursorAdvancer(), 12, 7),
+            "C# conformer's inout Int mutation reached the Swift caller");
+    }
+
+    /// <summary>
+    /// One reverse-dispatched <c>inout</c> requirement per lowering — scalar, narrow enum, string,
+    /// optional string, array, dictionary, class reference and optional class reference. Every
+    /// mutation the C# conformer stores into its <c>ref</c> parameter must be what the Swift caller
+    /// observes afterwards.
+    /// </summary>
+    public void TestReverseInoutWriteBackMatrix()
+    {
+        var observed = TestLibFunctions.DriveInOutWriteBackMatrix(new CSharpInOutWriteBackMatrix());
+
+        AssertEqual("42|swift!|named|1,2,3|armed|7|nil|a=1,b=2", observed,
+            "every inout lowering wrote the C# conformer's value back to Swift");
+    }
+
+    /// <summary>
+    /// The class instance a C# conformer stores into an <c>inout</c> reference is retained by the
+    /// Swift slot, so it stays valid after the managed wrapper is collected.
+    /// </summary>
+    public void TestReverseInoutClassReference_SurvivesManagedCollection()
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            var observed = TestLibFunctions.DriveInOutWriteBackMatrix(new CSharpInOutWriteBackMatrix());
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            AssertEqual("42|swift!|named|1,2,3|armed|7|nil|a=1,b=2", observed,
+                $"write-back stable across collections (iteration {i})");
+        }
+    }
+
+    /// <summary>
+    /// Forward dispatch through the proxy (C# holds the existential over a Swift conformer): Swift
+    /// mutates the storage C# lends it, and each <c>ref</c> argument must hold Swift's value after
+    /// the call — a scalar, a string, a class reference and a non-frozen struct.
+    /// </summary>
+    public void TestForwardInoutThroughProxy_ReadsSwiftMutationBack()
+    {
+        var matrix = TestLibFunctions.MakeSwiftInOutWriteBackMatrix();
+
+        nint count = 41;
+        matrix.BumpCount(ref count);
+        AssertEqual((nint)42, count, "inout Int mutated by the Swift conformer");
+
+        var text = "csharp";
+        matrix.AppendSuffix(ref text);
+        AssertEqual("csharp?", text, "inout String mutated by the Swift conformer");
+
+        var original = new InOutToken(1);
+        var token = original;
+        matrix.SwapToken(ref token);
+        AssertEqual((nint)101, (nint)token.Id, "inout class reference replaced by the Swift conformer");
+        AssertEqual((nint)1, (nint)original.Id, "the replaced instance stays valid for its other owner");
+        GC.KeepAlive(original);
+
+        var advancer = TestLibFunctions.MakeSwiftCursorAdvancer();
+        nint cursor = 12;
+        advancer.Advance(ref cursor, (nint)7);
+        AssertEqual((nint)19, cursor, "inout Int beside a by-value sibling");
+
+        var mutator = TestLibFunctions.MakeSwiftPointMutator(dx: 10.0, dy: 20.0);
+        var point = new NonFrozenPoint(x: 1.0, y: 2.0);
+        try
+        {
+            mutator.Mutate(ref point);
+            AssertApproxEqual(11.0, point.X, 0.0001, "inout non-frozen struct mutated in place");
+            AssertApproxEqual(22.0, point.Y, 0.0001, "inout non-frozen struct mutated in place");
+        }
+        finally
+        {
+            point.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The class reference Swift stores into an <c>inout</c> slot is owned by the C# wrapper it
+    /// comes back as, so it stays valid across collections of every other wrapper involved.
+    /// </summary>
+    public void TestForwardInoutClassReference_SurvivesManagedCollection()
+    {
+        var matrix = TestLibFunctions.MakeSwiftInOutWriteBackMatrix();
+        var token = new InOutToken(5);
+        for (var i = 0; i < 3; i++)
+        {
+            matrix.SwapToken(ref token);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        AssertEqual((nint)305, (nint)token.Id, "swapped reference valid after three collections");
+    }
+
+    /// <summary>
+    /// An <c>inout</c> requirement that also returns a value or throws: Swift mutates before either
+    /// exit, so the <c>ref</c> argument carries the mutation on the return path and on the throw path.
+    /// </summary>
+    public void TestForwardInoutThroughProxy_MutationSurvivesReturnAndThrow()
+    {
+        var counter = TestLibFunctions.MakeSwiftInOutFallibleCounter();
+
+        nint value = 10;
+        var doubled = counter.Bump(ref value, (nint)5, false);
+        AssertEqual((nint)15, value, "inout mutated on the returning path");
+        AssertEqual((nint)30, doubled, "return value alongside the inout mutation");
+
+        nint failing = 10;
+        AssertThrows<Exception>(() => counter.Bump(ref failing, (nint)5, true), "Swift error surfaced");
+        AssertEqual((nint)15, failing, "inout mutated before the throw");
+
+        var name = "swift";
+        AssertTrue(counter.Rename(ref name, false), "string requirement returned");
+        AssertEqual("SWIFT", name, "inout String mutated on the returning path");
+
+        var failingName = "dotnet";
+        AssertThrows<Exception>(() => counter.Rename(ref failingName, true), "Swift error surfaced");
+        AssertEqual("DOTNET", failingName, "inout String mutated before the throw");
     }
 
     /// <summary>
@@ -124,6 +239,31 @@ internal sealed class CSharpCursorAdvancer : ICursorAdvancer
     public void Advance(ref nint cursor, nint step)
     {
         cursor += step;
+    }
+}
+
+/// <summary>
+/// C# conformer that replaces or mutates every <c>inout</c> value it is handed.
+/// </summary>
+internal sealed class CSharpInOutWriteBackMatrix : IInOutWriteBackMatrix
+{
+    public void BumpCount(ref nint value) => value += 1;
+
+    public void AppendSuffix(ref string value) => value += "!";
+
+    public void FillOptionalName(ref string? value) => value ??= "named";
+
+    public void ExtendList(ref IEnumerable<nint> values) => values = values.Append(3).ToArray();
+
+    public void AdvanceSignal(ref InOutSignal signal) => signal = InOutSignal.Armed;
+
+    public void SwapToken(ref InOutToken token) => token = new InOutToken(7);
+
+    public void ClearToken(ref InOutToken? token) => token = null;
+
+    public void TagScores(ref IDictionary<string, nint> scores)
+    {
+        scores = new Dictionary<string, nint>(scores) { ["b"] = 2 };
     }
 }
 

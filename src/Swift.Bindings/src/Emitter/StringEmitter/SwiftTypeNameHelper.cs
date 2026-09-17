@@ -61,12 +61,12 @@ public static class SwiftTypeNameHelper
                     // CheckedContinuation<T, _>), `.self` metatypes and dedup keys, where `!` is
                     // either rejected outright ("using '!' is not allowed here") or would split one
                     // Swift type across two keys.
-                    return $"({innerType})?";
+                    return AppendInnerTypes($"({innerType})?", namedType, GetSwiftTypeName);
                 }
 
-                return $"{anyPrefix}{namedType.Name}<{typeArgs}>";
+                return AppendInnerTypes($"{anyPrefix}{namedType.Name}<{typeArgs}>", namedType, GetSwiftTypeName);
             }
-            return $"{anyPrefix}{namedType.Name}";
+            return AppendInnerTypes($"{anyPrefix}{namedType.Name}", namedType, GetSwiftTypeName);
         }
 
         if (typeSpec is TupleTypeSpec tupleType)
@@ -130,6 +130,24 @@ public static class SwiftTypeNameHelper
     }
 
     /// <summary>
+    /// Appends the member path of a type nested under a generic base — `Box&lt;K, V&gt;.Type` or
+    /// `Outer&lt;T&gt;.Inner` — which the parser stores as a <see cref="NamedTypeSpec.InnerType"/> chain
+    /// rather than in the name, so a renderer that stops at the base silently turns a metatype into
+    /// an instance type. <paramref name="render"/> renders each segment's generic arguments, letting
+    /// a substituting renderer keep its substitution.
+    /// </summary>
+    public static string AppendInnerTypes(string rendered, NamedTypeSpec namedType, Func<TypeSpec?, string> render)
+    {
+        for (var inner = namedType.InnerType; inner is not null; inner = inner.InnerType)
+        {
+            rendered = inner.GenericParameters.Count > 0
+                ? $"{rendered}.{inner.Name}<{string.Join(", ", inner.GenericParameters.Select(render))}>"
+                : $"{rendered}.{inner.Name}";
+        }
+        return rendered;
+    }
+
+    /// <summary>
     /// Renders a TypeSpec for a Swift *declaration* position — a var/let type annotation, a function
     /// parameter, or a function result. Identical to <see cref="GetSwiftTypeName"/> except that a
     /// type the source spelled `T!` renders back as `T!` rather than `T?`.
@@ -145,6 +163,43 @@ public static class SwiftTypeNameHelper
     /// </summary>
     public static string GetSwiftTypeNameForDeclaration(TypeSpec? typeSpec)
         => ApplyImplicitlyUnwrappedOptionalSigil(GetSwiftTypeName(typeSpec), typeSpec);
+
+    /// <summary>
+    /// Returns the element type of a variadic parameter (`E...`), which the parser lowers to
+    /// `Swift.Array&lt;E&gt;` with <see cref="TypeSpec.IsVariadic"/> set on the element.
+    /// </summary>
+    public static bool TryGetVariadicElement(TypeSpec? typeSpec, out TypeSpec element)
+    {
+        if (typeSpec is NamedTypeSpec { GenericParameters.Count: 1 } named
+            && named.Name is "Swift.Array" or "Array"
+            && named.GenericParameters[0].IsVariadic)
+        {
+            element = named.GenericParameters[0];
+            return true;
+        }
+        element = null!;
+        return false;
+    }
+
+    /// <summary>
+    /// Renders a function parameter's declared type, spelling a variadic parameter as `E...`.
+    /// A witness must repeat the requirement's variadic spelling: `[E]` and `E...` share an ABI
+    /// but are different function types to the conformance checker, and a protocol may declare
+    /// both as separate requirements. Inside the body the parameter is an array either way.
+    /// Only valid in a parameter list — `...` is a syntax error anywhere else.
+    /// </summary>
+    public static string RenderParameterTypeForDeclaration(TypeSpec? typeSpec, Func<TypeSpec?, string> renderDeclaration)
+    {
+        if (TryGetVariadicElement(typeSpec, out var element))
+        {
+            var rendered = renderDeclaration(element);
+            // A function-typed or composed element needs parentheses to take the `...` suffix.
+            return (element is ClosureTypeSpec || rendered.StartsWith("any ", StringComparison.Ordinal) || rendered.Contains(" & "))
+                ? $"({rendered})..."
+                : $"{rendered}...";
+        }
+        return renderDeclaration(typeSpec);
+    }
 
     /// <summary>
     /// Re-spells an already-rendered Swift type as `T!` when <paramref name="typeSpec"/> is a

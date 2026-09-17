@@ -480,7 +480,7 @@ public class WitnessDispatchEmitter
             // All params must still be blittable/String
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.ExistentialReturn;
@@ -492,7 +492,7 @@ public class WitnessDispatchEmitter
         {
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.BoundGenericReturn;
@@ -504,7 +504,7 @@ public class WitnessDispatchEmitter
         {
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.ClassReturn;
@@ -516,7 +516,7 @@ public class WitnessDispatchEmitter
         {
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.StructReturn;
@@ -529,7 +529,7 @@ public class WitnessDispatchEmitter
                 return MethodDispatchKind.NotDispatchable;
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return MethodDispatchKind.NotDispatchable;
             }
             return MethodDispatchKind.ThrowingBlittableOrString;
@@ -542,7 +542,7 @@ public class WitnessDispatchEmitter
         // Check all parameters
         foreach (var param in method.CSSignature.Skip(1))
         {
-            if (!IsTypeDispatchable(param.SwiftTypeSpec))
+            if (!IsParameterDispatchable(param))
                 return MethodDispatchKind.NotDispatchable;
         }
 
@@ -557,6 +557,13 @@ public class WitnessDispatchEmitter
     {
         if (method.IsAsync)
             return new DispatchClassification(MethodDispatchKind.NotDispatchable, "async methods require Swift concurrency runtime");
+
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            if (param.IsInOut && UsesHandleAccessor(param.SwiftTypeSpec))
+                return new DispatchClassification(MethodDispatchKind.NotDispatchable,
+                    $"inout parameter '{param.Name}' crosses as an Objective-C object pointer, not as Swift storage");
+        }
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -573,7 +580,7 @@ public class WitnessDispatchEmitter
 
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
                         $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
@@ -584,7 +591,7 @@ public class WitnessDispatchEmitter
         {
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
                         $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
@@ -595,7 +602,7 @@ public class WitnessDispatchEmitter
         {
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
                         $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
@@ -606,7 +613,7 @@ public class WitnessDispatchEmitter
         {
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
                         $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
@@ -620,7 +627,7 @@ public class WitnessDispatchEmitter
                     $"return type '{MapForDiagnostic(returnType!)}' is not dispatchable");
             foreach (var param in method.CSSignature.Skip(1))
             {
-                if (!IsTypeDispatchable(param.SwiftTypeSpec))
+                if (!IsParameterDispatchable(param))
                     return new DispatchClassification(MethodDispatchKind.NotDispatchable,
                         $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
             }
@@ -633,7 +640,7 @@ public class WitnessDispatchEmitter
 
         foreach (var param in method.CSSignature.Skip(1))
         {
-            if (!IsTypeDispatchable(param.SwiftTypeSpec))
+            if (!IsParameterDispatchable(param))
                 return new DispatchClassification(MethodDispatchKind.NotDispatchable,
                     $"parameter '{param.Name}' has non-dispatchable type '{MapForDiagnostic(param.SwiftTypeSpec)}'");
         }
@@ -1209,6 +1216,14 @@ public class WitnessDispatchEmitter
     /// Swift classes (via Unmanaged pointer), ObjC-backed projections (via their Handle), and
     /// indirect structs (non-frozen or frozen+RefFields).
     /// </summary>
+    /// <summary>
+    /// Whether a requirement parameter can cross a forward witness dispatch. An <c>inout</c> parameter
+    /// is lent to Swift as addressable storage of the Swift type itself, which a value crossing as an
+    /// Objective-C object pointer (<see cref="UsesHandleAccessor"/>) does not have.
+    /// </summary>
+    public bool IsParameterDispatchable(ArgumentDecl param)
+        => IsTypeDispatchable(param.SwiftTypeSpec) && !(param.IsInOut && UsesHandleAccessor(param.SwiftTypeSpec));
+
     public bool IsTypeDispatchable(TypeSpec? typeSpec)
     {
         return IsTypeBlittable(typeSpec) || IsStringType(typeSpec)
@@ -1734,8 +1749,7 @@ public class WitnessDispatchEmitter
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            EmitParameterUnmarshal(writer, param, argIdx);
-            callArgs.Add($"arg{argIdx}");
+            callArgs.Add(EmitParameterUnmarshal(writer, param, argIdx));
             argIdx++;
         }
 
@@ -1748,7 +1762,7 @@ public class WitnessDispatchEmitter
             if (isStringReturn)
             {
                 // String return: convert to UTF-8 bytes via SBW_Utf8Slice
-                writer.WriteLine($"let result: String = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+                writer.WriteLine($"let result: String = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
                 writer.WriteLine("let utf8 = Array(result.utf8)");
                 writer.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
                 writer.WriteLine("if !utf8.isEmpty {");
@@ -1768,7 +1782,7 @@ public class WitnessDispatchEmitter
             {
                 // Blittable return: direct pointer allocation
                 var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
-                writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+                writer.WriteLine($"let result = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
                 writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
                 writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
@@ -1776,11 +1790,8 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            writer.WriteLine($"existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"{ExistentialMethodCall(method, protocolDecl, callArgsString)}");
         }
-
-        // Write back inout parameters to caller's buffers
-        EmitInoutWriteback(writer, method);
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -1882,13 +1893,12 @@ public class WitnessDispatchEmitter
             }
             else
             {
-                EmitParameterUnmarshal(writer, parameters[i], i);
-                callArgs.Add($"arg{i}");
+                callArgs.Add(EmitParameterUnmarshal(writer, parameters[i], i));
             }
         }
 
         var labeledArgs = BuildLabeledArgs(method, callArgs);
-        var call = $"existential.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", labeledArgs)})";
+        var call = ExistentialMethodCall(method, protocolDecl, string.Join(", ", labeledArgs));
         if (hasReturn)
         {
             writer.WriteLine($"let result: any {swiftExistentialType} = {call}");
@@ -1960,8 +1970,7 @@ public class WitnessDispatchEmitter
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            EmitParameterUnmarshal(writer, param, argIdx);
-            callArgs.Add($"arg{argIdx}");
+            callArgs.Add(EmitParameterUnmarshal(writer, param, argIdx));
             argIdx++;
         }
 
@@ -1979,7 +1988,7 @@ public class WitnessDispatchEmitter
             if (isStringReturn)
             {
                 // String return: convert to UTF-8 bytes via SBW_Utf8Slice inside do block
-                writer.WriteLine($"let result: String = try existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+                writer.WriteLine($"let result: String = try {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
                 writer.WriteLine("let utf8 = Array(result.utf8)");
                 writer.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
                 writer.WriteLine("if !utf8.isEmpty {");
@@ -1999,7 +2008,7 @@ public class WitnessDispatchEmitter
             {
                 // Blittable return: direct pointer allocation
                 var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
-                writer.WriteLine($"let result = try existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+                writer.WriteLine($"let result = try {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
                 writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
                 writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
@@ -2008,11 +2017,8 @@ public class WitnessDispatchEmitter
         else
         {
             // Void return
-            writer.WriteLine($"try existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"try {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
         }
-
-        // Write back inout parameters to caller's buffers (only on success path)
-        EmitInoutWriteback(writer, method);
 
         writer.Indent--;
         writer.WriteLine("} catch {");
@@ -2149,8 +2155,7 @@ public class WitnessDispatchEmitter
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            EmitParameterUnmarshal(writer, param, argIdx);
-            callArgs.Add($"arg{argIdx}");
+            callArgs.Add(EmitParameterUnmarshal(writer, param, argIdx));
             argIdx++;
         }
 
@@ -2167,12 +2172,9 @@ public class WitnessDispatchEmitter
             ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
             writer.WriteLine("do {");
             writer.Indent++;
-            writer.WriteLine($"let result: {swiftTypeName} = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result: {swiftTypeName} = {tryPrefix}{ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
-
-            // Write back inout parameters to caller's buffers (only on success path)
-            EmitInoutWriteback(writer, method);
 
             writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
             writer.Indent--;
@@ -2186,7 +2188,7 @@ public class WitnessDispatchEmitter
         else if (isOptionalReturn)
         {
             // Optional existential pattern: if let unwrap, nil = .none
-            writer.WriteLine($"let result: ({swiftTypeName})? = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result: ({swiftTypeName})? = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine("if let unwrapped = result {");
             writer.Indent++;
             writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
@@ -2199,14 +2201,11 @@ public class WitnessDispatchEmitter
         else
         {
             // Non-throwing, non-optional pattern: direct allocation
-            writer.WriteLine($"let result: {swiftTypeName} = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result: {swiftTypeName} = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
             writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
         }
-
-        // Write back inout parameters to caller's buffers
-        EmitInoutWriteback(writer, method);
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -2302,8 +2301,7 @@ public class WitnessDispatchEmitter
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            EmitParameterUnmarshal(writer, param, argIdx);
-            callArgs.Add($"arg{argIdx}");
+            callArgs.Add(EmitParameterUnmarshal(writer, param, argIdx));
             argIdx++;
         }
 
@@ -2318,10 +2316,7 @@ public class WitnessDispatchEmitter
             ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
             writer.WriteLine("do {");
             writer.Indent++;
-            writer.WriteLine($"let result = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
-
-            // Write back inout parameters to caller's buffers (only on success path)
-            EmitInoutWriteback(writer, method);
+            writer.WriteLine($"let result = {tryPrefix}{ExistentialMethodCall(method, protocolDecl, callArgsString)}");
 
             writer.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
             writer.Indent--;
@@ -2334,12 +2329,9 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
         }
-
-        // Write back inout parameters to caller's buffers
-        EmitInoutWriteback(writer, method);
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -2390,8 +2382,7 @@ public class WitnessDispatchEmitter
         int argIdx = 0;
         foreach (var param in method.CSSignature.Skip(1))
         {
-            EmitParameterUnmarshal(writer, param, argIdx);
-            callArgs.Add($"arg{argIdx}");
+            callArgs.Add(EmitParameterUnmarshal(writer, param, argIdx));
             argIdx++;
         }
 
@@ -2406,11 +2397,8 @@ public class WitnessDispatchEmitter
             ThrowingWrapperErrorContractEmitter.EmitInitialization(writer);
             writer.WriteLine("do {");
             writer.Indent++;
-            writer.WriteLine($"let result = {tryPrefix}existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result = {tryPrefix}{ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine($"resultBuf.assumingMemoryBound(to: {swiftConcreteType}.self).initialize(to: result)");
-
-            // Write back inout parameters to caller's buffers (only on success path)
-            EmitInoutWriteback(writer, method);
 
             writer.Indent--;
             writer.WriteLine("} catch {");
@@ -2421,12 +2409,9 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
+            writer.WriteLine($"let result = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine($"resultBuf.assumingMemoryBound(to: {swiftConcreteType}.self).initialize(to: result)");
         }
-
-        // Write back inout parameters to caller's buffers
-        EmitInoutWriteback(writer, method);
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -2665,8 +2650,27 @@ public class WitnessDispatchEmitter
     /// Supports String (UTF-8 decode), class (Unmanaged.fromOpaque), struct (assumingMemoryBound),
     /// and blittable (direct load).
     /// </summary>
-    private void EmitParameterUnmarshal(SwiftWriter writer, ArgumentDecl param, int argIdx)
+    private string EmitParameterUnmarshal(SwiftWriter writer, ArgumentDecl param, int argIdx)
     {
+        if (param.IsInOut)
+        {
+            // The requirement mutates the caller's storage in place, so a throw, an early return
+            // and a normal return all leave the caller holding the value Swift last assigned.
+            // Blittable values and class references sit directly in the pointed-to slot; a String
+            // or an indirect struct is reached through the storage pointer the slot holds.
+            string slot;
+            if (IsStringType(param.SwiftTypeSpec))
+                slot = $"arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self).assumingMemoryBound(to: Swift.String.self)";
+            else if (IsIndirectStructType(param.SwiftTypeSpec))
+                slot = $"arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self).assumingMemoryBound(to: {GetSwiftConcreteTypeName(param.SwiftTypeSpec)}.self)";
+            else if (IsSwiftClassType(param.SwiftTypeSpec))
+                slot = $"UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {GetSwiftConcreteTypeName(param.SwiftTypeSpec)}.self)";
+            else
+                slot = $"UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {GetSwiftBlittableTypeName(param.SwiftTypeSpec)}.self)";
+            writer.WriteLine($"let arg{argIdx}Slot = {slot}");
+            return $"arg{argIdx}Slot.pointee";
+        }
+
         if (IsStringType(param.SwiftTypeSpec))
         {
             // String parameter: decode SBW_Utf8Slice → Swift String
@@ -2706,49 +2710,39 @@ public class WitnessDispatchEmitter
         else if (IsIndirectStructType(param.SwiftTypeSpec))
         {
             // Struct parameter: load raw pointer, then assumingMemoryBound(to:).pointee
-            // Use var for inout params so the value can be passed by reference
-            var binding = param.IsInOut ? "var" : "let";
             var swiftTypeName = GetSwiftConcreteTypeName(param.SwiftTypeSpec);
             writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self)");
-            writer.WriteLine($"{binding} arg{argIdx} = rawPtr{argIdx}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
+            writer.WriteLine($"let arg{argIdx} = rawPtr{argIdx}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
         }
         else
         {
-            // Blittable parameter: direct load
-            // Use var for inout params so the value can be passed by reference.
+            // Blittable parameter: direct load.
             // GetSwiftBlittableTypeName handles Swift pointer types (OpaquePointer, … — which map
             // to nint/IntPtr but must keep their bare Swift name), genuine primitives, and value
             // types that project to a primitive (e.g. Foundation.Date → double) but must load as
             // their real type. ABI JSON resolves typealiases (e.g., SQLiteStatement →
             // Swift.OpaquePointer), so checking the TypeSpec name covers alias-backed pointers too.
-            var binding = param.IsInOut ? "var" : "let";
             var swiftType = GetSwiftBlittableTypeName(param.SwiftTypeSpec);
-            writer.WriteLine($"{binding} arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
+            writer.WriteLine($"let arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
         }
+        return $"arg{argIdx}";
     }
 
     /// <summary>
-    /// Emits writeback code for inout parameters after a method call completes.
-    /// Stores the (potentially mutated) local value back through the caller's pointer.
-    /// Uses UnsafeMutableRawPointer(mutating:) because the param type is UnsafeRawPointer
-    /// but the C# caller provides a mutable buffer.
+    /// The call of <paramref name="method"/> on the loaded existential. When the protocol also
+    /// declares a requirement differing from this one only by return type, a bare call is ambiguous
+    /// ("ambiguous use of 'm'") wherever the result is not already type-annotated, so the call is
+    /// coerced to this requirement's result type. A coercion, unlike a function-reference cast,
+    /// composes with `try`, `inout` arguments, and non-class existentials.
     /// </summary>
-    private void EmitInoutWriteback(SwiftWriter writer, MethodDecl method)
+    private static string ExistentialMethodCall(MethodDecl method, ProtocolDecl protocolDecl, string callArgs)
     {
-        int argIdx = 0;
-        foreach (var param in method.CSSignature.Skip(1))
-        {
-            if (param.IsInOut)
-            {
-                string swiftType;
-                if (IsIndirectStructType(param.SwiftTypeSpec))
-                    swiftType = GetSwiftConcreteTypeName(param.SwiftTypeSpec) ?? param.SwiftTypeSpec.ToString();
-                else
-                    swiftType = GetSwiftBlittableTypeName(param.SwiftTypeSpec);
-                writer.WriteLine($"UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {swiftType}.self).pointee = arg{argIdx}");
-            }
-            argIdx++;
-        }
+        var call = $"existential.{NameProvider.ParserNameToSwift(method)}({callArgs})";
+        if (!protocolDecl.Methods.Any(other => MethodWrapperEmitter.IsReturnTypeOnlyOverloadPair(method, other)))
+            return call;
+        var returnType = method.CSSignature.First().SwiftTypeSpec;
+        var resultType = returnType.IsEmptyTuple ? "Void" : SwiftTypeNameHelper.GetSwiftTypeName(returnType);
+        return $"({call} as {resultType})";
     }
 
     /// <summary>

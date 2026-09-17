@@ -1530,6 +1530,182 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Inout Write-Back Tests
+
+    private static MethodDecl CreateInOutMethodDecl(string name, TypeSpec paramType)
+    {
+        var method = CreateMethodDecl(name);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "value",
+            PrivateName = "value",
+            SwiftTypeSpec = paramType,
+            IsInOut = true,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        return method;
+    }
+
+    [Fact]
+    public void EmitProxyClass_InOutIntParam_WritesValueBackAfterImplCall()
+    {
+        // The Swift witness hands C# a pointer to its copy and assigns the copy back afterwards, so the
+        // receiver must store the implementation's ref result into that slot, not only read from it.
+        RegisterSwiftIntType();
+        var protocolDecl = CreateSimpleProtocol("Counter");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("bump", new NamedTypeSpec("Swift.Int")));
+
+        var output = EmitProxyClass(protocolDecl);
+        var body = ExtractReceiverBody(output, "private static void Receive_bump_0(");
+
+        var call = body.IndexOf(".Bump(ref ", StringComparison.Ordinal);
+        var writeBack = body.IndexOf("SwiftMarshal.ReplaceValueInSlot<", StringComparison.Ordinal);
+        Assert.True(call >= 0, body);
+        Assert.True(writeBack > call, body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_InOutStringParam_WritesSwiftStringBack()
+    {
+        RegisterSwiftString();
+        var protocolDecl = CreateSimpleProtocol("Suffixer");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("append", new NamedTypeSpec("Swift.String")));
+
+        var output = EmitProxyClass(protocolDecl);
+        var body = ExtractReceiverBody(output, "private static void Receive_append_0(");
+
+        var call = body.IndexOf(".Append(ref ", StringComparison.Ordinal);
+        var writeBack = body.IndexOf("SwiftMarshal.ReplaceValueInSlot<Swift.SwiftString>(", StringComparison.Ordinal);
+        Assert.True(call >= 0, body);
+        Assert.True(writeBack > call, body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_InOutClassParam_ReplacesRetainedReference()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Token"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Token"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Token"),
+                MetadataAccessor = "$s10TestModule5TokenCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+        var protocolDecl = CreateSimpleProtocol("TokenSwapper");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("swap", new NamedTypeSpec("TestModule.Token")));
+
+        var output = EmitProxyClass(protocolDecl);
+        var body = ExtractReceiverBody(output, "private static void Receive_swap_0(");
+
+        var call = body.IndexOf(".Swap(ref ", StringComparison.Ordinal);
+        var writeBack = body.IndexOf("SwiftMarshal.ReplaceClassReferenceInSlot(", StringComparison.Ordinal);
+        Assert.True(call >= 0, body);
+        Assert.True(writeBack > call, body);
+        Assert.DoesNotContain("ReplaceValueInSlot", body);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ByValueParam_EmitsNoWriteBack()
+    {
+        RegisterSwiftIntType();
+        var protocolDecl = CreateSimpleProtocol("Counter");
+        var method = CreateInOutMethodDecl("observe", new NamedTypeSpec("Swift.Int"));
+        method.CSSignature[^1].IsInOut = false;
+        protocolDecl.Methods.Add(method);
+
+        var output = EmitProxyClass(protocolDecl);
+        var body = ExtractReceiverBody(output, "private static void Receive_observe_0(");
+
+        Assert.DoesNotContain("ReplaceValueInSlot", body);
+        Assert.DoesNotContain("ReplaceClassReferenceInSlot", body);
+    }
+
+    // Forward direction: the proxy lends Swift an inout slot and reads it back in a finally, so the
+    // value Swift last assigned reaches the ref parameter whether the requirement returns or throws.
+
+    [Fact]
+    public void EmitProxyClass_ForwardInOutIntParam_ReadsSlotBackInFinally()
+    {
+        RegisterSwiftIntType();
+        var protocolDecl = CreateSimpleProtocol("Counter");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("bump", new NamedTypeSpec("Swift.Int")));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        AssertReadBackAfterDispatch(output, "var arg0Slice = value;", "value = arg0Slice;");
+    }
+
+    [Fact]
+    public void EmitProxyClass_ForwardInOutStringParam_LendsStringCell()
+    {
+        // Registered as the real standard-library record is: a frozen struct holding a reference,
+        // which the indirect-struct predicate also matches. String must still lend a String cell.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.String"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSSWsMA",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+        var protocolDecl = CreateSimpleProtocol("Suffixer");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("append", new NamedTypeSpec("Swift.String")));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        AssertReadBackAfterDispatch(output,
+            "SwiftMarshal.AllocateInOutStringCell(value)",
+            "value = global::Swift.Runtime.InteropServices.SwiftMarshal.TakeInOutStringCell(arg0Slice);");
+        // A by-value String crosses as a pinned UTF-8 slice; the inout cell replaces it.
+        Assert.DoesNotContain("Encoding.UTF8.GetBytes(value ??", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ForwardInOutClassParam_LendsRetainedReference()
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Token"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Token"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Token"),
+                MetadataAccessor = "$s10TestModule5TokenCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+        var protocolDecl = CreateSimpleProtocol("TokenSwapper");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("swap", new NamedTypeSpec("TestModule.Token")));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        AssertReadBackAfterDispatch(output,
+            "Arc.UnknownObjectRetain(arg0Slice);",
+            "SwiftMarshal.AdoptInOutClassReference(ref value, arg0Slice);");
+    }
+
+    private static void AssertReadBackAfterDispatch(string output, string declaration, string readBack)
+    {
+        var declared = output.IndexOf(declaration, StringComparison.Ordinal);
+        Assert.True(declared >= 0, output);
+        var tryBlock = output.IndexOf("try", declared, StringComparison.Ordinal);
+        var dispatch = output.IndexOf("(IntPtr)(&arg0Slice)", declared, StringComparison.Ordinal);
+        var finallyBlock = output.IndexOf("finally", declared, StringComparison.Ordinal);
+        var readBackAt = output.IndexOf(readBack, declared, StringComparison.Ordinal);
+        Assert.True(tryBlock > declared && dispatch > tryBlock, output);
+        Assert.True(finallyBlock > dispatch && readBackAt > finallyBlock, output);
+    }
+
+    #endregion
+
     #region Constructor Tests
 
     [Fact]

@@ -648,6 +648,7 @@ internal static class OverloadNameDisambiguator
     public static string BuildTypeDerivedNameInput(MethodDecl method, string baseInput)
     {
         var sb = new StringBuilder(baseInput);
+        var sourceNames = GenericParameterSourceNames(method);
         bool first = true;
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
@@ -657,7 +658,7 @@ internal static class OverloadNameDisambiguator
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                 continue;
             sb.Append(first ? "With" : "And");
-            sb.Append(BuildSwiftTypeToken(arg.SwiftTypeSpec));
+            sb.Append(BuildSwiftTypeToken(arg.SwiftTypeSpec, sourceNames));
             first = false;
         }
         // A zero-parameter family cannot be type-separated either; hand back the base so the caller's
@@ -666,21 +667,42 @@ internal static class OverloadNameDisambiguator
     }
 
     /// <summary>
+    /// ABI dumps print generic parameters by depth and index (<c>τ_0_0</c>); the author's names come
+    /// from the member's and its parent's generic signatures, so a token reads <c>Model</c> rather than
+    /// carrying the depth/index spelling into a public identifier.
+    /// </summary>
+    private static Dictionary<string, string>? GenericParameterSourceNames(MethodDecl method)
+    {
+        Dictionary<string, string>? names = null;
+        var parentParameters = (method.ParentDecl as TypeDecl)?.GenericParameters ?? Enumerable.Empty<GenericArgumentDecl>();
+        foreach (var parameter in method.GenericParameters.Concat(parentParameters))
+        {
+            if (string.IsNullOrEmpty(parameter.SugaredTypeName) || parameter.SugaredTypeName == parameter.TypeName)
+                continue;
+            names ??= new Dictionary<string, string>(StringComparer.Ordinal);
+            names.TryAdd(parameter.TypeName, parameter.SugaredTypeName);
+        }
+        return names;
+    }
+
+    /// <summary>
     /// Renders a Swift type spec as a PascalCase identifier fragment. Module qualification and generic
     /// punctuation are dropped, <c>Optional&lt;T&gt;</c> reads as <c>OptionalT</c>, and anything the
     /// structured cases miss falls back to the sanitized printed form so the result is always a usable
     /// identifier fragment.
     /// </summary>
-    public static string BuildSwiftTypeToken(TypeSpec spec)
+    public static string BuildSwiftTypeToken(TypeSpec spec, IReadOnlyDictionary<string, string>? genericParameterSourceNames = null)
     {
         switch (spec)
         {
             case NamedTypeSpec named:
             {
                 var sb = new StringBuilder();
-                AppendCapitalized(sb, named.NameWithoutModule);
+                AppendCapitalized(sb, genericParameterSourceNames != null && genericParameterSourceNames.TryGetValue(named.Name, out var sourceName)
+                    ? sourceName
+                    : named.NameWithoutModule);
                 foreach (var g in named.GenericParameters)
-                    sb.Append(BuildSwiftTypeToken(g));
+                    sb.Append(BuildSwiftTypeToken(g, genericParameterSourceNames));
                 // `Foo!` and `Foo?` are the same C# projection but distinct Swift declarations; the
                 // sugar flag lives beside the spec rather than in it, so fold it in explicitly.
                 if (named.IsImplicitlyUnwrappedOptional)
@@ -691,7 +713,7 @@ internal static class OverloadNameDisambiguator
             {
                 var sb = new StringBuilder("Tuple");
                 foreach (var e in tuple.Elements)
-                    sb.Append(BuildSwiftTypeToken(e));
+                    sb.Append(BuildSwiftTypeToken(e, genericParameterSourceNames));
                 return Sanitize(sb.ToString());
             }
             case ClosureTypeSpec:

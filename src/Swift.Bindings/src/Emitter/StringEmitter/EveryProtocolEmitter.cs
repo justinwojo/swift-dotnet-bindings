@@ -1628,11 +1628,28 @@ public class EveryProtocolEmitter
         // generic parameters are in scope. Stubs use raw TypeSpec rendering which is correct.
         bool isMixedGenericProtocol = IsMixedGenericProtocol(protocolDecl);
 
-        // Emit property implementations (skip static and @objc optional properties)
+        // Emit property implementations (@objc optional properties need no witness)
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic || property.IsObjCOptional)
+            if (property.IsObjCOptional)
                 continue;
+            if (property.IsStatic)
+            {
+                // A static requirement has no per-implementer receiver, so it cannot reach a C#
+                // vtable; it still needs a witness or the whole conformance — every dispatchable
+                // instance member included — fails to type-check. Keyed per carrier: each carrier
+                // class declares its own static members.
+                var staticSignature = $"{GetCarrierClassName(protocolDecl)}{CarrierKeySeparator}static_var_{property.Name}";
+                if (globalEmittedSignatures == null || globalEmittedSignatures.Add(staticSignature))
+                {
+                    var staticAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                        property.AvailabilityAnnotations, protocolDecl);
+                    WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(
+                        writer, WrapperEmitterHelpers.DeclaredAvailability(staticAvail), availAnnotations);
+                    EmitStaticPropertyStub(writer, property);
+                }
+                continue;
+            }
             // Ownership-aware dedup: when a property name+type is shared across multiple
             // protocols (e.g., Nameable's get-only `var name: String` and MutableNamed's
             // get+set `var name: String`), exactly one protocol — chosen by accessor-set
@@ -1778,6 +1795,7 @@ public class EveryProtocolEmitter
         // extension. Distinct from methodIndices, which is async-SENSITIVE and allocates a separate
         // vtable slot per effect-overloaded requirement. See the intra-protocol effect-overload guard below.
         var emittedBodySignatures = new HashSet<string>();
+        var slotGroupKeys = new Dictionary<string, string>();
         var protoQNameForMethods = GetProtocolFallbackKey(protocolDecl);
         foreach (var method in protocolDecl.Methods)
         {
@@ -1811,6 +1829,20 @@ public class EveryProtocolEmitter
             // nonThrowingOverrides lookup, which is tracked async-blind by design (a non-throwing method
             // satisfies a throwing requirement regardless of effect).
             var witnessGroupKey = GetSwiftMethodFullSignature(method, includeAsyncEffect: EmitsRealAsyncWitness(method));
+            // The declared witness shape: the group key with variadic parameters spelled `E...`.
+            // `f(_: E...)` and `f(_: [E])` are distinct requirements that share a vtable slot, a C#
+            // member, and a plan (all variadic-blind), yet each needs its own `func` declaration.
+            var witnessDeclarationKey = GetSwiftMethodFullSignature(method,
+                includeAsyncEffect: EmitsRealAsyncWitness(method), includeVariadic: true);
+            if (isNewMethod)
+                slotGroupKeys[methodKey] = witnessGroupKey;
+            // A later requirement on an already-allocated slot with the SAME group key can only be a
+            // variadic twin or an exact duplicate; the body dedup below drops the duplicate. With a
+            // DIFFERENT group key it differs only by return type (the slot key is return-blind): a
+            // distinct Swift requirement that needs its own witness but has no C# member or slot.
+            var slotGroupKnown = slotGroupKeys.TryGetValue(methodKey, out var slotGroupKey);
+            var isVariadicTwin = !isNewMethod && slotGroupKnown && slotGroupKey == witnessGroupKey;
+            var isReturnTypeTwin = !isNewMethod && slotGroupKnown && slotGroupKey != witnessGroupKey;
 
             // Ownership-aware dedup: when a method full-signature (name + parameter types + return
             // type) is shared across multiple protocols, exactly one — chosen by lexicographic
@@ -1840,7 +1872,7 @@ public class EveryProtocolEmitter
                 }
             }
             // Legacy first-seen-wins dedup for callers that don't supply method plans.
-            else if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(witnessGroupKey))
+            else if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(witnessDeclarationKey))
             {
                 _logger.LogDebug($"Skipping method '{method.Name}' in {protocolDecl.Name}: conflicts with already-emitted method");
                 continue;
@@ -1869,12 +1901,21 @@ public class EveryProtocolEmitter
             // the sync `func m(...) -> T`, so an intra-protocol sync+real-async effect overload must
             // emit BOTH bodies. Keying on witnessGroupKey (async-included only for the real-async one)
             // lets both Add, whereas the async-omitted key would suppress the second as a redeclaration.
-            if (isNewMethod && emittedBodySignatures.Add(witnessGroupKey))
+            if ((isNewMethod || isVariadicTwin || isReturnTypeTwin) && emittedBodySignatures.Add(witnessDeclarationKey))
             {
                 var methodAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                     method.AvailabilityAnnotations, protocolDecl);
                 WrapperEmitterHelpers.EmitSwiftAvailabilityDelta(
                     writer, WrapperEmitterHelpers.DeclaredAvailability(methodAvail), availAnnotations);
+                // A return-type-only overload of a requirement that already owns the shared slot. C#
+                // cannot overload on return type, so the interface keeps only the first; dispatching
+                // this one through the shared slot would read the wrong result type. Checked before
+                // every dispatching branch below for that reason.
+                if (isReturnTypeTwin)
+                {
+                    EmitCollapsedOverloadMethodStub(writer, method,
+                        $"return-type-only overload '{method.Name}' is not representable in C# — only the first overload dispatches");
+                }
                 // @objc protocol existential in an unsupported nested position (container/tuple/closure)
                 // on any parameter or the return: dropped fail-closed from the C# interface AND the
                 // reverse-dispatch vtable slot (see VtableLayoutBuilder.ClassifyMethod, skip-but-consume).
@@ -1886,7 +1927,7 @@ public class EveryProtocolEmitter
                 // struct omits the field and consumes the index identically regardless of which reason wins,
                 // and the stub emitted here is a fatalError either way. Membership — not the verdict label —
                 // is the lockstep invariant, and it agrees.
-                if (MethodHasUnsupportedObjCExistential(method))
+                else if (MethodHasUnsupportedObjCExistential(method))
                 {
                     EmitObjCExistentialMethodStub(writer, method);
                 }
@@ -1932,16 +1973,16 @@ public class EveryProtocolEmitter
                 {
                     EmitClosureMethodStub(writer, method);
                 }
-                // An inout ObjC-bridgeable param (inout URL/URLRequest/Decimal, or the optional
-                // inout URL?) would need the mutated ObjC pointer bridged back into the Swift value
-                // type after the vtable call — a writeback path neither the Swift caller arm nor the
-                // C# receiver implements. Emit a trap stub so the requirement is satisfied, rather
-                // than the type-mismatched pointer writeback EmitMethodImplementation would otherwise
-                // produce (the optional param-in arm's `{p}Ref` writeback source is an
-                // UnsafeMutableRawPointer?, not the URL? the inout signature declares).
-                else if (MethodHasInOutObjCBridgeableParam(method))
+                // An inout param the C# receiver cannot write back into the Swift slot would dispatch
+                // and then silently drop the implementation's mutation. That covers the ObjC-bridgeable
+                // values (inout URL/URLRequest/Decimal, or the optional inout URL?), which cross as a
+                // bridged ObjC pointer — the param-in arm's `{p}Ref` writeback source is not even the
+                // declared type — and every other kind the receiver has no slot write-back for
+                // (existentials, closures, tuples, key paths, ObjC-bridged collections). Emit a trap
+                // stub so the requirement is satisfied and the failure is explicit.
+                else if (MethodHasInOutParamWithoutWriteBack(method))
                 {
-                    EmitInOutObjCBridgeableMethodStub(writer, method);
+                    EmitInOutWithoutWriteBackMethodStub(writer, method);
                 }
                 // Collapsed existential overload: this method KEEPS its own vtable slot (raw-distinct
                 // GetMethodKey) but the C# fillability walk (proxy receiver + static-init) leaves that
@@ -1953,7 +1994,8 @@ public class EveryProtocolEmitter
                 // ComputeCollapsedUnfilledMethodSlotKeys mirrors the receiver loop's fillability filters.
                 else if (collapsedUnfilledSlotKeys.Contains(methodKey))
                 {
-                    EmitCollapsedOverloadMethodStub(writer, method);
+                    EmitCollapsedOverloadMethodStub(writer, method,
+                        $"collapsed existential overload '{method.Name}' is not representable in C# — only the first overload dispatches");
                 }
                 // Real-async reverse-dispatch witness (S13 Pillar C): emit a genuine
                 // `func m(...) async throws -> T` that suspends on withCheckedThrowingContinuation and
@@ -2012,14 +2054,20 @@ public class EveryProtocolEmitter
     /// receiver sibling-fallback grouping (<see cref="ComputeSiblingMethodFallbacks"/>), where the
     /// sync and async requirements project to distinct members (<c>Foo</c> vs <c>FooAsync</c>) and
     /// must NOT be siblings. See the body for the full rationale.</param>
-    internal string GetSwiftMethodFullSignature(MethodDecl method, bool includeAsyncEffect = false)
+    /// <param name="includeVariadic">When true a variadic parameter renders as `E...` rather than
+    /// `[E]`, so the key tells apart two requirements that differ only in variadic-ness. Those share
+    /// one vtable slot and one C# member (the variadic-blind default), but each needs its own witness
+    /// declaration.</param>
+    internal string GetSwiftMethodFullSignature(MethodDecl method, bool includeAsyncEffect = false, bool includeVariadic = false)
     {
         var parts = new List<string>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
             var label = GetSwiftParameterLabel(param, i);
-            var typeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var typeName = includeVariadic
+                ? SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, GetSwiftTypeName)
+                : GetSwiftTypeName(param.SwiftTypeSpec);
             parts.Add($"{label}:{typeName}");
         }
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
@@ -3013,12 +3061,34 @@ public class EveryProtocolEmitter
         writer.Indent++;
         if (hasGetter)
         {
-            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         if (hasSetter)
         {
-            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits a fatalError() stub for a static protocol property requirement. Static members have
+    /// no instance to route through a vtable, so a stub is the only witness the carrier can offer.
+    /// </summary>
+    private void EmitStaticPropertyStub(SwiftWriter writer, PropertyDecl property)
+    {
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        var swiftTypeName = ContainsSelfTypeParam(property.SwiftTypeSpec)
+            ? RenderTypeSpecWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec)
+            : GetSwiftTypeNameForDeclaration(property.SwiftTypeSpec);
+        var message = $"[SwiftBindings] EveryProtocol: static property '{property.Name}' cannot be dispatched through vtable";
+
+        writer.WriteLine($"public static var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
+        writer.Indent++;
+        writer.WriteLine($"get {{ Swift.fatalError(\"{message}\") }}");
+        if (hasSetter)
+            writer.WriteLine($"set {{ Swift.fatalError(\"{message}\") }}");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -3038,11 +3108,11 @@ public class EveryProtocolEmitter
         writer.Indent++;
         if (hasGetter)
         {
-            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         if (hasSetter)
         {
-            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: Self-typed property '{property.Name}' cannot be dispatched through vtable\") }}");
         }
         writer.Indent--;
         writer.WriteLine("}");
@@ -3161,7 +3231,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for getter of '{property.Name}'\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for getter of '{property.Name}'\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -3263,7 +3333,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for setter of '{property.Name}'\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for setter of '{property.Name}'\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -3350,7 +3420,7 @@ public class EveryProtocolEmitter
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, GetSwiftTypeNameForDeclaration);
             var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
             var internalName = $"arg{i}";
             parameters.Add($"{externalLabel} {internalName}: {paramTypeName}");
@@ -3450,7 +3520,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for getter of subscript\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for getter of subscript\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -3548,7 +3618,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for setter of subscript\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for setter of subscript\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -3801,7 +3871,7 @@ public class EveryProtocolEmitter
                         bool isOptional = named.Name == "Swift.Optional";
                         var renderedParams = string.Join(", ", named.GenericParameters
                             .Select(p => RenderTypeSpec(p, suppressEscaping: isOptional)));
-                        return $"{named.Name}<{renderedParams}>";
+                        return SwiftTypeNameHelper.AppendInnerTypes($"{named.Name}<{renderedParams}>", named, t => RenderTypeSpec(t));
                     }
                     return GetSwiftTypeName(ts);
                 }
@@ -3866,14 +3936,15 @@ public class EveryProtocolEmitter
         string RenderTypeSpecForDeclaration(TypeSpec? ts) =>
             SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts), ts);
         var parameters = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
             // RenderTypeSpec already handles @escaping for direct closures and
             // suppresses it for Optional<Closure> (always escaping in Swift).
-            var paramTypeName = RenderTypeSpecForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var inoutPrefix = param.IsInOut ? "inout " : "";
 
             if (externalLabel == "_")
@@ -3894,12 +3965,12 @@ public class EveryProtocolEmitter
         // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
         // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = RenderThrowsClause(method, method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl}{genericWhereClause} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
+        writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -3950,7 +4021,7 @@ public class EveryProtocolEmitter
                         // Render generic params recursively (e.g., ServiceEntry<τ_1_1> → ServiceEntry<_G1>)
                         var renderedParams = string.Join(", ", named.GenericParameters
                             .Select(p => RenderTypeSpec(p, suppressEscaping: isOptional)));
-                        return $"{named.Name}<{renderedParams}>";
+                        return SwiftTypeNameHelper.AppendInnerTypes($"{named.Name}<{renderedParams}>", named, t => RenderTypeSpec(t));
                     }
                     return GetSwiftTypeName(ts);
                 }
@@ -4012,12 +4083,13 @@ public class EveryProtocolEmitter
         string RenderTypeSpecForDeclaration(TypeSpec? ts) =>
             SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts), ts);
         var parameters = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var inoutPrefix = param.IsInOut ? "inout " : "";
             if (externalLabel == "_")
                 parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
@@ -4037,7 +4109,7 @@ public class EveryProtocolEmitter
         // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
         // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = RenderThrowsClause(method, method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
         bool isOptionalReturn = hasReturn && returnType is NamedTypeSpec nts &&
             nts.Name == "Swift.Optional";
@@ -4049,13 +4121,15 @@ public class EveryProtocolEmitter
             writer.WriteLine("// Method-level generic stub: no-op for Void return");
         else if (isOptionalReturn)
             writer.WriteLine("return nil // Method-level generic stub: can't dispatch through vtable");
-        else if (method.Throws)
+        // A typed-throws requirement can only throw its declared error type, which a stub cannot
+        // construct, so it traps like the non-throwing stub.
+        else if (method.Throws && !method.HasTypedThrows)
         {
             writer.WriteLine("// Method-level generic stub: throws error — can't dispatch through vtable");
             writer.WriteLine($"throw NSError(domain: \"SwiftBindings\", code: -1, userInfo: [NSLocalizedDescriptionKey: \"Protocol method with generic parameters is not supported\"])");
         }
         else
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method-level generic method '{method.Name}' cannot be dispatched through vtable\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: method-level generic method '{method.Name}' cannot be dispatched through vtable\")");
 
         writer.Indent--;
         writer.WriteLine("}");
@@ -4070,12 +4144,13 @@ public class EveryProtocolEmitter
     {
         // Build parameter list using Self-substituted type rendering
         var parameters = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecWithSelfSubstitutionForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var inoutPrefix = param.IsInOut ? "inout " : "";
             if (externalLabel == "_")
                 parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
@@ -4095,54 +4170,59 @@ public class EveryProtocolEmitter
         // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
         // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = RenderThrowsClause(method, method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: Self-typed method '{method.Name}' cannot be dispatched through vtable\")");
+        writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: Self-typed method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
     }
 
     /// <summary>
-    /// True when any parameter is both <c>inout</c> and an ObjC-bridgeable value type — either the
-    /// non-optional shape (<c>inout URL</c>/<c>URLRequest</c>/<c>Decimal</c>) or the optional shape
-    /// (<c>inout URL?</c>). The reverse-dispatch path cannot write the mutated value back across the
-    /// ObjC bridge in either case — the param-in arms bind a bridged ObjC-pointer temporary
-    /// (<c>{p}Ref</c>) as the writeback source, so a dispatched body would assign that pointer to the
-    /// Swift value type and fail to compile — so such methods get a trap stub instead. The optional
-    /// arm must be caught here too because <see cref="IsObjCBridgeableParam"/> does NOT unwrap
-    /// <c>Optional</c>, so it alone would let <c>inout URL?</c> slip past into the dispatch body.
+    /// True when any <c>inout</c> parameter has no write-back from the C# receiver into the Swift slot.
+    /// The ObjC-bridgeable value types are checked by record first — the non-optional shape
+    /// (<c>inout URL</c>/<c>URLRequest</c>/<c>Decimal</c>) and the optional one (<c>inout URL?</c>),
+    /// whose param-in arms bind a bridged ObjC-pointer temporary (<c>{p}Ref</c>) as the writeback source,
+    /// so a dispatched body would not even compile; <see cref="IsObjCBridgeableParam"/> does NOT unwrap
+    /// <c>Optional</c>, so the optional arm is named separately. Every other type defers to
+    /// <see cref="ProtocolProxyEmitter.ClassifyInOutWriteBack"/>, the classification the receiver emits
+    /// its write-back from, so the two sides cannot disagree about which mutations reach Swift.
     /// </summary>
-    private bool MethodHasInOutObjCBridgeableParam(MethodDecl method)
+    private bool MethodHasInOutParamWithoutWriteBack(MethodDecl method)
     {
         for (int i = 1; i < method.CSSignature.Count; i++) // skip return at [0]
         {
             var param = method.CSSignature[i];
-            if (param.IsInOut &&
-                (IsObjCBridgeableParam(param.SwiftTypeSpec) ||
-                 GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null))
+            if (!param.IsInOut)
+                continue;
+            if (IsObjCBridgeableParam(param.SwiftTypeSpec) ||
+                GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
+                return true;
+            if (ProtocolProxyEmitter.ClassifyInOutWriteBack(param.SwiftTypeSpec, _typeDatabase, _moduleName, _emissionContext)
+                == ProtocolProxyEmitter.ReceiverInOutWriteBackKind.Unsupported)
                 return true;
         }
         return false;
     }
 
     /// <summary>
-    /// Emits a fatalError() stub for a method with an inout ObjC-bridgeable parameter. The
-    /// witness satisfies the protocol requirement but traps if dispatched, because bridging the
-    /// mutated ObjC pointer back into the Swift value type is not wired on either side.
+    /// Emits a fatalError() stub for a method with an inout parameter the C# receiver cannot write
+    /// back. The witness satisfies the protocol requirement but traps if dispatched, rather than run
+    /// the C# implementation and discard its mutation.
     /// </summary>
-    private void EmitInOutObjCBridgeableMethodStub(SwiftWriter writer, MethodDecl method)
+    private void EmitInOutWithoutWriteBackMethodStub(SwiftWriter writer, MethodDecl method)
     {
         var parameters = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecWithSelfSubstitutionForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var inoutPrefix = param.IsInOut ? "inout " : "";
             if (externalLabel == "_")
                 parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
@@ -4162,12 +4242,12 @@ public class EveryProtocolEmitter
         // the owner whose extension emits this stub is async/throwing only when EVERY sibling is
         // (an all-async or all-throwing group), where the matching-effect stub satisfies them all.
         var asyncDecl = method.IsAsync ? " async" : "";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = RenderThrowsClause(method, method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with an inout ObjC-bridgeable parameter cannot be dispatched through vtable\")");
+        writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with an inout parameter that cannot be written back cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -4264,19 +4344,21 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Emits a fatalError() stub for a collapsed existential overload whose vtable slot the C#
-    /// fillability walk leaves null. Satisfies the Swift protocol requirement; never dispatched (only
+    /// Emits a fatalError() stub for an overload with no C# member to dispatch into: a collapsed
+    /// existential overload whose vtable slot the C# fillability walk leaves null, or a return-type-only
+    /// overload sharing its sibling's slot. Satisfies the Swift protocol requirement; never dispatched (only
     /// the first, surviving overload has a filled slot and a C# interface member).
     /// </summary>
-    private void EmitCollapsedOverloadMethodStub(SwiftWriter writer, MethodDecl method)
+    private void EmitCollapsedOverloadMethodStub(SwiftWriter writer, MethodDecl method, string reason)
     {
         var parameters = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecWithSelfSubstitutionForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var inoutPrefix = param.IsInOut ? "inout " : "";
             if (externalLabel == "_")
                 parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
@@ -4292,12 +4374,12 @@ public class EveryProtocolEmitter
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = RenderThrowsClause(method, method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: collapsed existential overload '{method.Name}' is not representable in C# — only the first overload dispatches\")");
+        writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: {reason}\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -4340,9 +4422,9 @@ public class EveryProtocolEmitter
         writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
         if (hasGetter)
-            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: property '{property.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: property '{property.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
         if (hasSetter)
-            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: property '{property.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: property '{property.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -4355,12 +4437,13 @@ public class EveryProtocolEmitter
     private void EmitObjCExistentialMethodStub(SwiftWriter writer, MethodDecl method)
     {
         var parameters = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecWithSelfSubstitutionForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var inoutPrefix = param.IsInOut ? "inout " : "";
             if (externalLabel == "_")
                 parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
@@ -4376,12 +4459,12 @@ public class EveryProtocolEmitter
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
-        var throwsDecl = method.Throws ? " throws" : "";
+        var throwsDecl = RenderThrowsClause(method, method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\")");
+        writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: method '{method.Name}' with a nested @objc protocol existential cannot be dispatched through vtable\")");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -4397,7 +4480,7 @@ public class EveryProtocolEmitter
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var typeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
+            var typeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecWithSelfSubstitutionForDeclaration);
             var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
             var internalName = $"arg{i}";
             parameters.Add($"{externalLabel} {internalName}: {typeName}");
@@ -4408,9 +4491,9 @@ public class EveryProtocolEmitter
         writer.WriteLine($"public subscript({string.Join(", ", parameters)}) -> {returnTypeName} {{");
         writer.Indent++;
         if (subscript.HasGetter)
-            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: subscript with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: subscript with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
         if (subscript.HasSetter)
-            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: subscript with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: subscript with a nested @objc protocol existential cannot be dispatched through vtable\") }}");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
@@ -4427,7 +4510,7 @@ public class EveryProtocolEmitter
         for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
             var param = subscript.IndexParameters[i];
-            var typeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(param.SwiftTypeSpec);
+            var typeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, RenderTypeSpecWithSelfSubstitutionForDeclaration);
             var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
             var internalName = $"arg{i}";
             parameters.Add($"{externalLabel} {internalName}: {typeName}");
@@ -4439,11 +4522,11 @@ public class EveryProtocolEmitter
         writer.Indent++;
         if (subscript.HasGetter)
         {
-            writer.WriteLine($"get {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"get {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
         }
         if (subscript.HasSetter)
         {
-            writer.WriteLine($"set {{ fatalError(\"[SwiftBindings] EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
+            writer.WriteLine($"set {{ Swift.fatalError(\"[SwiftBindings] EveryProtocol: Self-typed subscript cannot be dispatched through vtable\") }}");
         }
         writer.Indent--;
         writer.WriteLine("}");
@@ -4456,14 +4539,13 @@ public class EveryProtocolEmitter
     {
         // Build parameter list with proper Swift labeling
         var parameters = new List<string>();
-        var internalNames = new List<string>(); // Names used inside the function body
+        var internalNames = BuildSwiftParameterNames(method); // Names used inside the function body
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, GetSwiftTypeNameForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
-            internalNames.Add(internalName);
+            var internalName = internalNames[i - 1];
 
             // Add inout modifier if the parameter is passed by reference.
             // Add `consuming` for ~Copyable params (Swift 6 requires explicit ownership; the
@@ -4495,11 +4577,12 @@ public class EveryProtocolEmitter
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetSwiftTypeNameForDeclaration(returnType!) : "Void";
         var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
-        // `async` must be propagated to the conformance declaration ONLY for the
-        // EveryObjCProtocol path (NSObject-rooted twin used for @objc protocols):
-        // @objc async requirements bridge to ObjC `:completion:`-suffixed selectors,
-        // and swiftc rejects sync candidates with "candidate is not 'async', but
-        // '@objc' protocol requirement is".
+        // `async` must be propagated to the conformance declaration for an @objc protocol, whatever
+        // carrier the conformance lands on: @objc async requirements bridge to ObjC
+        // `:completion:`-suffixed selectors, and swiftc rejects sync candidates with "candidate is
+        // not 'async', but '@objc' protocol requirement is". An @objc protocol with Swift-only
+        // parents routes to the plain EveryProtocol carrier, so keying on the carrier alone emits a
+        // sync witness there. The EveryObjCProtocol carrier keeps `async` as before.
         //
         // For pure-Swift protocols (EveryProtocol base, `_useObjCBase == false`),
         // a sync candidate trivially satisfies an async requirement (sync = "never
@@ -4508,8 +4591,8 @@ public class EveryProtocolEmitter
         // satisfied by member-inheritance from this same conformance (e.g., a sync
         // sub-protocol refining an async base; marking the base witness `async`
         // breaks the sub-protocol's empty-body conformance).
-        var asyncDecl = (method.IsAsync && _useObjCBase) ? " async" : "";
-        var throwsDecl = (effectiveThrows ?? method.Throws) ? " throws" : "";
+        var asyncDecl = (method.IsAsync && (_useObjCBase || protocolDecl.IsObjC)) ? " async" : "";
+        var throwsDecl = RenderThrowsClause(method, effectiveThrows ?? method.Throws);
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         var fieldName = GetMethodVtableFieldName(method, index);
@@ -4750,7 +4833,7 @@ public class EveryProtocolEmitter
         }
         writer.WriteLine("else {");
         writer.Indent++;
-        writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for method {method.Name}\")");
+        writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for method {method.Name}\")");
         writer.Indent--;
         writer.WriteLine("}");
 
@@ -4844,14 +4927,15 @@ public class EveryProtocolEmitter
         var parameters = new List<string>();
         var argCopyLines = new List<string>();
         var argRefList = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(param) || param.SwiftTypeSpec.IsEmptyTuple)
                 continue;
-            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, GetSwiftTypeNameForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
+            var internalName = internalNames[i - 1];
             var escaped = NameProvider.EscapeSwiftKeyword(internalName);
             if (externalLabel == "_")
                 parameters.Add($"_ {internalName}: {paramTypeName}");
@@ -4948,7 +5032,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for method {method.Name}\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for method {method.Name}\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -4974,14 +5058,13 @@ public class EveryProtocolEmitter
         // Build parameter list — same shape as EmitMethodImplementation so the Swift protocol
         // signature matches the requirement. Only closure params get expanded passing logic.
         var parameters = new List<string>();
-        var internalNames = new List<string>();
+        var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var param = method.CSSignature[i];
-            var paramTypeName = GetSwiftTypeNameForDeclaration(param.SwiftTypeSpec);
+            var paramTypeName = SwiftTypeNameHelper.RenderParameterTypeForDeclaration(param.SwiftTypeSpec, GetSwiftTypeNameForDeclaration);
             var externalLabel = GetSwiftParameterLabel(param, i);
-            var internalName = GetSwiftParameterName(param, i);
-            internalNames.Add(internalName);
+            var internalName = internalNames[i - 1];
 
             // Closure params are escaping — they outlive this call. Other params follow
             // the same ownership rules as EmitMethodImplementation.
@@ -5213,7 +5296,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure method {method.Name}\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure method {method.Name}\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -5346,7 +5429,7 @@ public class EveryProtocolEmitter
                 }
                 writer.WriteLine("else {");
                 writer.Indent++;
-                writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure property '{property.Name}' getter\")");
+                writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure property '{property.Name}' getter\")");
                 writer.Indent--;
                 writer.WriteLine("}");
             }
@@ -5358,7 +5441,7 @@ public class EveryProtocolEmitter
             if (isOptional)
                 writer.WriteLine("guard let _fnPtr = fnPtrSlot else { return nil }");
             else
-                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"[SwiftBindings] EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
+                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
             writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
             writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
             writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
@@ -5475,7 +5558,7 @@ public class EveryProtocolEmitter
             }
             writer.WriteLine("else {");
             writer.Indent++;
-            writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure-returning method {method.Name}\")");
+            writer.WriteLine($"Swift.fatalError(\"[SwiftBindings] EveryProtocol: no sibling vtable populated for closure-returning method {method.Name}\")");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -5484,7 +5567,7 @@ public class EveryProtocolEmitter
             let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
             resultPtr.deallocate()
             """);
-        writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"[SwiftBindings] EveryProtocol: closure-returning method '" + method.Name + "' returned nil function pointer\") }");
+        writer.WriteLine("guard let _fnPtr = fnPtrSlot else { Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure-returning method '" + method.Name + "' returned nil function pointer\") }");
         writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
         writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
         writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
@@ -6530,7 +6613,7 @@ public class EveryProtocolEmitter
                         bool isOptional = namedType.Name == "Swift.Optional";
                         var renderedParams = string.Join(", ", namedType.GenericParameters
                             .Select(p => RenderTypeSpecWithSelfSubstitution(p, suppressEscaping: isOptional)));
-                        return $"{namedType.Name}<{renderedParams}>";
+                        return SwiftTypeNameHelper.AppendInnerTypes($"{namedType.Name}<{renderedParams}>", namedType, t => RenderTypeSpecWithSelfSubstitution(t));
                     }
                     return GetSwiftTypeName(typeSpec);
                 }
@@ -6704,6 +6787,20 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// The ` throws` effect of a witness or stub declaration, spelled `throws(E)` for a typed-throws
+    /// requirement: an untyped `throws` witness is a wider function type than the requirement and
+    /// fails the conformance.
+    /// </summary>
+    internal static string RenderThrowsClause(MethodDecl method, bool throws)
+    {
+        if (!throws)
+            return "";
+        return method.ThrownErrorType is { } errorType
+            ? $" throws({SwiftTypeNameHelper.GetSwiftTypeName(errorType)})"
+            : " throws";
+    }
+
+    /// <summary>
     /// THE single classifier oracle for whether an <c>async</c> protocol requirement is satisfied by a
     /// REAL asynchronous reverse-dispatch witness (Swift suspends on <c>withCheckedThrowingContinuation</c>
     /// and hands the continuation to C# through the widened vtable slot) rather than the legacy
@@ -6737,6 +6834,10 @@ public class EveryProtocolEmitter
     public static bool EmitsRealAsyncWitness(MethodDecl method)
     {
         if (!method.IsAsync)
+            return false;
+        // The continuation resumes with an error rebuilt from the C# fault, which cannot be the
+        // requirement's declared error type; the blocking witness keeps the typed clause instead.
+        if (method.HasTypedThrows)
             return false;
         if (method.IsConstructor || method.MethodType == MethodType.Static || method.IsObjCOptional)
             return false;
@@ -6841,6 +6942,53 @@ public class EveryProtocolEmitter
             return swiftName;
         }
         return $"arg{index}";
+    }
+
+    /// <summary>
+    /// The body-local names for a declaration's parameters, unique within that declaration and
+    /// index-aligned with <c>method.CSSignature</c> from position 1 (so parameter <c>i</c> is
+    /// <c>[i - 1]</c>).
+    /// <para>
+    /// Swift lets one declaration repeat an external argument label as long as the internal names
+    /// differ — <c>collectionView(_:moveItem:inSection:toDestinationItem:inSection:)</c> writes
+    /// <c>inSection source:</c> and <c>inSection destination:</c>. The ABI JSON carries only the
+    /// label, so both parameters arrive here under one name and introducing them both would be an
+    /// invalid redeclaration, taking the whole wrapper module down with it. Repeats are moved aside
+    /// with the numeric suffix the C# plane already uses for the same collision (see
+    /// <c>NameProvider.DeduplicateParameterNames</c>): the first keeps its spelling, later ones
+    /// become <c>name2</c>, <c>name3</c>, … Only the internal name moves, and witness matching is on
+    /// the labels, so the conformance this declaration satisfies is unchanged.
+    /// </para>
+    /// </summary>
+    private static List<string> BuildSwiftParameterNames(MethodDecl method)
+    {
+        var preferred = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+            preferred.Add(GetSwiftParameterName(method.CSSignature[i], i));
+
+        // A suffixed name must also dodge a LATER parameter that already spells itself that way,
+        // so every preferred spelling is off-limits before any renaming starts.
+        var reserved = new HashSet<string>(preferred, StringComparer.Ordinal);
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var names = new List<string>(preferred.Count);
+        foreach (var preferredName in preferred)
+        {
+            if (used.Add(preferredName))
+            {
+                names.Add(preferredName);
+                continue;
+            }
+            var suffix = 2;
+            string candidate;
+            do
+            {
+                candidate = $"{preferredName}{suffix++}";
+            }
+            while (reserved.Contains(candidate) || used.Contains(candidate));
+            used.Add(candidate);
+            names.Add(candidate);
+        }
+        return names;
     }
 
     /// <summary>

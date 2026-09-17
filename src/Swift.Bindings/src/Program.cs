@@ -869,6 +869,7 @@ namespace BindingsGeneration
                 // Create concrete specialization engine and index module-local conformances
                 var specializationEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
                 specializationEngine.IndexModuleConformances(decl);
+                specializationEngine.EmissionContext = emissionContext;
                 emissionContext.SpecializationEngine = specializationEngine;
 
                 // Build the constructed-once-per-module marshalling context: the fully-configured
@@ -991,6 +992,7 @@ namespace BindingsGeneration
                     // rebuilding them is what makes their internals irrelevant to containment.
                     var retryEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
                     retryEngine.IndexModuleConformances(decl);
+                    retryEngine.EmissionContext = emissionContext;
                     emissionContext.SpecializationEngine = retryEngine;
                     emissionContext.Marshaling = new MarshalingContext(decl, typeDatabase, retryEngine)
                     {

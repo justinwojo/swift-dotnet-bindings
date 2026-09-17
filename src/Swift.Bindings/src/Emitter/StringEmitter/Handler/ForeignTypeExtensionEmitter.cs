@@ -832,7 +832,7 @@ public static class ForeignTypeExtensionEmitter
                 // Reconstruct the enum from its raw scalar (guard-let / preconditionFailure,
                 // matching CrossModuleExtensionEmitter's identical SimpleEnum reconstruction).
                 var localName = $"{paramName}Val";
-                ctx.AddForeignExtWrapperLine($"    guard let {localName} = {qualifiedSwiftType}(rawValue: {paramName}) else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({paramName}) for {qualifiedSwiftType}\") }}");
+                ctx.AddForeignExtWrapperLine($"    guard let {localName} = {qualifiedSwiftType}(rawValue: {paramName}) else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\({paramName}) for {qualifiedSwiftType}\") }}");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
             else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&

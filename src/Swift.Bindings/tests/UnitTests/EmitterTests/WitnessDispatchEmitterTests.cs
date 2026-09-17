@@ -569,55 +569,80 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void EmitMethod_InoutParam_EmitsWriteback()
+    public void EmitMethod_InoutBlittableParam_MutatesCallerSlotInPlace()
     {
-        // Simulates hash(into: inout Hasher) — the emitted Swift code must write back
-        // the mutated inout parameter to the caller's buffer via UnsafeMutableRawPointer(mutating:).
-        var protocol = CreateSimpleProtocol("Hashable");
-        var method = new MethodDecl
+        // Simulates hash(into: inout Hasher): the witness must mutate the caller's storage itself,
+        // so the mutation survives a throwing or value-returning requirement, rather than mutate a
+        // local copy and assign it back afterwards.
+        var output = EmitDispatch(CreateInOutProtocol("Hashable", "hash", new NamedTypeSpec("Swift.Int64")));
+
+        Assert.Contains("let arg0Slot = UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: Int64.self)", output);
+        Assert.Contains("&arg0Slot.pointee", output);
+        Assert.DoesNotContain("pointee = arg0", output);
+        Assert.DoesNotContain("var arg0", output);
+    }
+
+    [Fact]
+    public void EmitMethod_InoutStringParam_MutatesStringCellTheSlotPointsAt()
+    {
+        // An inout String crosses as a pointer to a cell holding a Swift String, not as the
+        // UTF-8 slice a by-value String uses — the witness must reach the String through it.
+        var output = EmitDispatch(CreateInOutProtocol("Suffixing", "append", new NamedTypeSpec("Swift.String")));
+
+        Assert.Contains("let arg0Slot = arg0Ptr.load(as: UnsafeMutableRawPointer.self).assumingMemoryBound(to: Swift.String.self)", output);
+        Assert.Contains("&arg0Slot.pointee", output);
+        Assert.DoesNotContain("arg0Ptr.load(as: SBW_Utf8Slice.self)", output);
+    }
+
+    [Fact]
+    public void EmitMethod_InoutSwiftClassParam_MutatesReferenceInSlot()
+    {
+        var pureClass = SwiftTypeName.FromModuleQualifiedName("TestModule.InOutToken");
+        _testModule.RegisterType(pureClass, new TypeRecord
         {
-            Name = "hash",
-            MangledName = "$shash",
-            MethodType = MethodType.Instance,
-            IsConstructor = false,
-            CSSignature = new List<ArgumentDecl>
-            {
-                new ArgumentDecl
-                {
-                    Name = "",
-                    SwiftTypeSpec = TupleTypeSpec.Empty,
-                    PrivateName = "",
-                    IsInOut = false,
-                    IsGeneric = false,
-                    ParentDecl = null,
-                    ModuleDecl = null
-                },
-                new ArgumentDecl
-                {
-                    Name = "into",
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int64"),
-                    PrivateName = "hasher",
-                    IsInOut = true,
-                    IsGeneric = false,
-                    ParentDecl = null,
-                    ModuleDecl = null
-                }
-            },
-            GenericParameters = new List<GenericArgumentDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null,
-            Throws = false,
-            IsAsync = false,
-            IsSynthesizedAccessor = false
-        };
-        protocol.Methods.Add(method);
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "InOutToken"),
+            SwiftTypeName = pureClass,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
 
-        var output = EmitDispatch(protocol);
+        var output = EmitDispatch(CreateInOutProtocol("Swapping", "swap", new NamedTypeSpec("TestModule.InOutToken")));
 
-        // Verify: inout param uses 'var' binding instead of 'let'
-        Assert.Contains("var arg0 = arg0Ptr.load(as: Int64.self)", output);
-        // Verify: writeback line writes mutated value back through the caller's pointer
-        Assert.Contains("UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: Int64.self).pointee = arg0", output);
+        Assert.Contains("let arg0Slot = UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: ", output);
+        Assert.Contains("InOutToken.self)", output);
+        Assert.Contains("&arg0Slot.pointee", output);
+        Assert.DoesNotContain("pointee = arg0", output);
+    }
+
+    [Fact]
+    public void ClassifyMethod_InoutObjCBridgedParam_IsNotDispatchable()
+    {
+        // An ObjC-handle parameter crosses as the object pointer itself, so there is no Swift
+        // storage an inout mutation could land in.
+        var bridged = SwiftTypeName.FromModuleQualifiedName("TestModule.BridgedRef");
+        _testModule.RegisterType(bridged, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGContext"),
+            SwiftTypeName = bridged,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        var method = CreateInOutProtocol("Drawing", "draw", new NamedTypeSpec("TestModule.BridgedRef")).Methods[0];
+
+        Assert.False(_emitter.IsParameterDispatchable(method.CSSignature[1]));
+        method.CSSignature[1].IsInOut = false;
+        Assert.True(_emitter.IsParameterDispatchable(method.CSSignature[1]));
+    }
+
+    private ProtocolDecl CreateInOutProtocol(string protocolName, string methodName, TypeSpec paramType)
+    {
+        var protocol = CreateProtocolWithMethodAndParams(protocolName, methodName,
+            returnType: TupleTypeSpec.Empty,
+            paramTypes: new[] { ("value", paramType) });
+        protocol.Methods[0].CSSignature[1].IsInOut = true;
+        return protocol;
     }
 
     [Fact]

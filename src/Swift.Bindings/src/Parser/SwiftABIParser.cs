@@ -479,7 +479,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Sets availability annotations on a member declaration from swiftinterface data.
-        /// When <paramref name="signatureNode"/> is provided, the lookup first tries the
+        /// When a parameter <paramref name="signature"/> is provided (see
+        /// <see cref="ComputeAbiParamSignature"/>), the lookup first tries the
         /// disamb-suffixed key <c>"{TypePath}.{printedName}|sig"</c> before falling back
         /// to the bare key. This is how Family-F-1 / Family-F-4 are resolved without
         /// requiring a separate ambiguous-key set: producers store overloads under their
@@ -487,20 +488,16 @@ namespace BindingsGeneration
         /// LEFT EMPTY so an unmatched bare-key lookup safely returns nothing rather
         /// than misapplying another overload's annotations.
         /// </summary>
-        private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName, Node? signatureNode = null)
+        private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName, string? signature = null)
         {
             var bareKey = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (signatureNode != null)
+            if (!string.IsNullOrEmpty(signature))
             {
-                var sig = ComputeAbiParamSignature(signatureNode);
-                if (!string.IsNullOrEmpty(sig))
+                var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, signature);
+                if (_facts.AvailabilityAnnotations.TryGetValue(disambKey, out var disambAnnotations))
                 {
-                    var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, sig);
-                    if (_facts.AvailabilityAnnotations.TryGetValue(disambKey, out var disambAnnotations))
-                    {
-                        decl.AvailabilityAnnotations = disambAnnotations;
-                        return;
-                    }
+                    decl.AvailabilityAnnotations = disambAnnotations;
+                    return;
                 }
             }
             if (_facts.AvailabilityAnnotations.TryGetValue(bareKey, out var annotations))
@@ -523,10 +520,19 @@ namespace BindingsGeneration
         /// <see cref="SwiftSyntaxInterfaceFactsProducer"/>'s output without staging a
         /// full ABI-JSON fixture. The index-0 return-type skip and the per-child
         /// <c>printedName</c> normalization are the consumer-specific behavior (Finding 46).
+        /// <para/>
+        /// Two ABI spellings differ from the interface text and are reconciled here. Generic
+        /// parameters print by depth and index (<c>τ_1_0</c>) where the interface names them
+        /// (<c>O</c>); the node's sugared signature lists the same parameters in the same order,
+        /// so each <c>τ</c> name is replaced by its source name. A variadic <c>T...</c> prints as
+        /// a plain <c>[T]</c>, indistinguishable from an array-typed sibling, while the interface
+        /// producer keys it by <c>T</c>; <paramref name="variadicParameters"/> (one flag per
+        /// parameter, from the mangled name's variadic marker) selects the element spelling.
         /// </summary>
-        internal static string ComputeAbiParamSignature(Node node)
+        internal static string ComputeAbiParamSignature(Node node, IReadOnlyList<bool>? variadicParameters = null)
         {
             if (node.Children == null) return string.Empty;
+            var sourceNames = MapGenericParametersToSourceNames(node.GenericSig, node.sugared_genericSig);
             var raw = new List<string>();
             int i = 0;
             foreach (var child in node.Children)
@@ -534,9 +540,62 @@ namespace BindingsGeneration
                 // Index 0 of a Function/Constructor/Subscript Children list is the
                 // return type; the parser-side signature only lists parameters.
                 if (i++ == 0) continue;
-                raw.Add(child.PrintedName ?? string.Empty);
+                var parameterIndex = i - 2;
+                var printed = child.PrintedName ?? string.Empty;
+                if (variadicParameters != null && parameterIndex < variadicParameters.Count &&
+                    variadicParameters[parameterIndex] &&
+                    child.Children?.ToList() is { Count: 1 } arrayElement)
+                {
+                    printed = arrayElement[0].PrintedName ?? string.Empty;
+                }
+                if (sourceNames != null)
+                    printed = DepthIndexGenericParameterName.Replace(
+                        printed, m => sourceNames.TryGetValue(m.Value, out var name) ? name : m.Value);
+                raw.Add(printed);
             }
             return MemberSignatureNormalizer.BuildSignature(raw);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex DepthIndexGenericParameterName =
+            new(@"τ_[0-9]+_[0-9]+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Pairs each depth-and-index generic parameter name in <paramref name="genericSig"/> with
+        /// the source name at the same position in <paramref name="sugaredGenericSig"/>. Returns
+        /// null when there is nothing to translate: no signature, no sugared twin, a signature that
+        /// is already sugared, or parameter lists that do not line up.
+        /// </summary>
+        private static Dictionary<string, string>? MapGenericParametersToSourceNames(string? genericSig, string? sugaredGenericSig)
+        {
+            if (string.IsNullOrEmpty(genericSig) || string.IsNullOrEmpty(sugaredGenericSig) ||
+                !genericSig.Contains("τ_", StringComparison.Ordinal))
+                return null;
+
+            var depthIndexNames = GenericParameterNames(genericSig);
+            var sourceNames = GenericParameterNames(sugaredGenericSig);
+            if (depthIndexNames.Count == 0 || depthIndexNames.Count != sourceNames.Count)
+                return null;
+
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int k = 0; k < depthIndexNames.Count; k++)
+                map[depthIndexNames[k]] = sourceNames[k];
+            return map;
+
+            // `<A, B : P where ...>` → [A, B]: the parameter list ends at `where`, and an inline
+            // constraint (`B : P`) follows the name.
+            static List<string> GenericParameterNames(string signature)
+            {
+                var body = signature.Trim();
+                if (body.StartsWith('<') && body.EndsWith('>'))
+                    body = body[1..^1];
+                var whereIndex = body.IndexOf(" where ", StringComparison.Ordinal);
+                if (whereIndex >= 0)
+                    body = body[..whereIndex];
+                return SwiftTypeListText.SplitTopLevelCommas(body)
+                    .Select(p => p.Split(':')[0].Trim())
+                    .Where(p => p.Length > 0)
+                    .ToList();
+            }
         }
 
         /// <summary>
@@ -785,8 +844,11 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var argIdx = i - 1;
-                if (argIdx < perParam.Count &&
-                    methodDecl.CSSignature[i].SwiftTypeSpec is ClosureTypeSpec closureSpec)
+                // An optional closure parameter carries its attributes on the wrapped function type.
+                var paramSpec = methodDecl.CSSignature[i].SwiftTypeSpec;
+                if (paramSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
+                    paramSpec = optionalSpec.GenericParameters[0];
+                if (argIdx < perParam.Count && paramSpec is ClosureTypeSpec closureSpec)
                 {
                     foreach (var attrName in perParam[argIdx])
                     {
@@ -1595,7 +1657,11 @@ namespace BindingsGeneration
                 }
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
                 decl.Operators.AddRange(childDecls.OfType<OperatorDecl>());
-                decl.Subscripts.AddRange(childDecls.OfType<SubscriptDecl>());
+                // Same contract filter as properties and methods above: a protocol-extension subscript
+                // is a default, and treating it as a requirement asks every conformer for a witness it
+                // already inherits (and a generic one can never be dispatched, dropping the protocol).
+                decl.Subscripts.AddRange(childDecls.OfType<SubscriptDecl>()
+                    .Where(s => decl is not ProtocolDecl || !(s.IsFromExtension && !s.IsProtocolRequirement)));
                 decl.GenericParameters = genericParameters;
 
                 // TypeAlias children (incl. those introduced by `extension`) carry the
@@ -2815,38 +2881,10 @@ namespace BindingsGeneration
                 methodDecl.IsModuleInternal = true;
             }
 
-            // Look up typed throws error type from swiftinterface data
-            if (methodDecl.Throws)
-            {
-                var throwsKey = parentDecl is TypeDecl throwsParent
-                    ? $"{BuildSwiftTypeQualifiedPath(throwsParent)}.{node.PrintedName}"
-                    : node.PrintedName;
-                var throwsSignature = ComputeAbiParamSignature(node);
-                if (!_facts.TypedThrowsErrors.TryGetValue(MemberSignatureNormalizer.ComposeKey(throwsKey, throwsSignature), out var errorTypeName))
-                    _facts.TypedThrowsErrors.TryGetValue(throwsKey, out errorTypeName);
-
-                if (errorTypeName != null)
-                {
-                    // EOF-strict Parse throws on a malformed/over-captured error-type string (the
-                    // producer or input may be malformed). Leave ThrownErrorType null on failure
-                    // so the method still emits — just without the typed-error refinement — rather than
-                    // dropping the entire declaration via HandleNode's catch.
-                    try
-                    {
-                        methodDecl.ThrownErrorType = TypeSpecParser.Parse(errorTypeName);
-                    }
-                    catch (TypeSpecParseException ex)
-                    {
-                        _logger.LogDebug($"Failed to parse typed-throws error type '{errorTypeName}' for '{node.PrintedName}': {ex.Message}");
-                    }
-                }
-            }
-
             // Apply member-level actor isolation from swiftinterface data
             if (parentDecl is TypeDecl parentType)
             {
                 ApplyMemberActorIsolation(methodDecl, parentType, node.PrintedName);
-                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName, node);
                 ApplyMemberPosition(methodDecl, parentType, node.PrintedName);
             }
             else if (parentDecl is ModuleDecl)
@@ -2857,20 +2895,6 @@ namespace BindingsGeneration
                     methodDecl.IsActorIsolated = true;
                 if (_facts.MainActorIsolatedMembers.Contains(node.PrintedName))
                     methodDecl.IsMainActorIsolated = true;
-                // Free function availability: keyed by bare printedName, with optional
-                // disamb suffix when overload disambiguation is needed.
-                var freeSig = ComputeAbiParamSignature(node);
-                if (!string.IsNullOrEmpty(freeSig) &&
-                    _facts.AvailabilityAnnotations.TryGetValue(
-                        MemberSignatureNormalizer.ComposeKey(node.PrintedName, freeSig),
-                        out var disambFree))
-                {
-                    methodDecl.AvailabilityAnnotations = disambFree;
-                }
-                else if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
-                {
-                    methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
-                }
                 // Free function position uses the same bare-printedName key the parser
                 // emitted under FreeFunctionLine.
                 if (_facts.AvailabilityAnnotationPositions.TryGetValue(node.PrintedName, out var freeFuncPos))
@@ -3011,6 +3035,8 @@ namespace BindingsGeneration
                 // name-keyed tier-3 fallback it never over-skips a plain-array overload.
                 methodDecl.HasVariadicParameter = demangler.HasVariadicParameterMarker(mangledName);
             }
+            if (methodDecl.HasVariadicParameter)
+                MarkVariadicParameterElements(methodDecl, functionReduction?.Function?.ParameterList as TupleTypeSpec);
             if (!methodDecl.HasVariadicParameter &&
                 !methodDecl.CSSignature.Skip(1).Any(p => IsArraySpec(p.SwiftTypeSpec)))
             {
@@ -3030,6 +3056,11 @@ namespace BindingsGeneration
                     methodDecl.HasVariadicParameter = true;
                 }
             }
+
+            // Facts keyed by parameter signature wait for the variadic marking above: a variadic
+            // parameter and an array-typed sibling print identically in the ABI descriptor, and only
+            // the per-parameter variadic flag tells the two overloads' keys apart.
+            ApplySignatureKeyedFacts(methodDecl, parentDecl, node);
 
             // Apply default parameter value expressions from swiftinterface data.
             // Must happen after the argument-construction loop since it mutates CSSignature entries.
@@ -3061,6 +3092,104 @@ namespace BindingsGeneration
                 (named.Name == "Swift.Array" || named.Name == "Array") &&
                 named.GenericParameters.Count > 0 &&
                 named.GenericParameters[0].IsVariadic;
+        }
+
+        /// <summary>
+        /// Applies the swiftinterface facts that are keyed by a member's parameter signature — the
+        /// typed-throws error and availability — once the parameters are built and their variadic
+        /// flags are known.
+        /// </summary>
+        private void ApplySignatureKeyedFacts(MethodDecl methodDecl, BaseDecl parentDecl, Node node)
+        {
+            var variadicParameters = methodDecl.CSSignature.Skip(1)
+                .Select(p => IsVariadicArraySpec(p.SwiftTypeSpec))
+                .ToList();
+            var signature = ComputeAbiParamSignature(node, variadicParameters);
+
+            // Look up typed throws error type from swiftinterface data
+            if (methodDecl.Throws)
+            {
+                var throwsKey = parentDecl is TypeDecl throwsParent
+                    ? $"{BuildSwiftTypeQualifiedPath(throwsParent)}.{node.PrintedName}"
+                    : node.PrintedName;
+                if (!_facts.TypedThrowsErrors.TryGetValue(MemberSignatureNormalizer.ComposeKey(throwsKey, signature), out var errorTypeName))
+                    _facts.TypedThrowsErrors.TryGetValue(throwsKey, out errorTypeName);
+
+                if (errorTypeName != null)
+                {
+                    // EOF-strict Parse throws on a malformed/over-captured error-type string (the
+                    // producer or input may be malformed). Leave ThrownErrorType null on failure
+                    // so the method still emits — just without the typed-error refinement — rather than
+                    // dropping the entire declaration via HandleNode's catch.
+                    try
+                    {
+                        methodDecl.ThrownErrorType = TypeSpecParser.Parse(errorTypeName);
+                    }
+                    catch (TypeSpecParseException ex)
+                    {
+                        _logger.LogDebug($"Failed to parse typed-throws error type '{errorTypeName}' for '{node.PrintedName}': {ex.Message}");
+                    }
+                }
+            }
+
+            if (parentDecl is TypeDecl parentType)
+            {
+                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName, signature);
+            }
+            else if (parentDecl is ModuleDecl)
+            {
+                // Free function availability: keyed by bare printedName, with optional
+                // disamb suffix when overload disambiguation is needed.
+                if (!string.IsNullOrEmpty(signature) &&
+                    _facts.AvailabilityAnnotations.TryGetValue(
+                        MemberSignatureNormalizer.ComposeKey(node.PrintedName, signature),
+                        out var disambFree))
+                {
+                    methodDecl.AvailabilityAnnotations = disambFree;
+                }
+                else if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
+                {
+                    methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Carries a method's variadic-ness down to the parameter it belongs to, by setting
+        /// <see cref="TypeSpec.IsVariadic"/> on the element of that parameter's lowered
+        /// <c>Array&lt;E&gt;</c>. The concrete-element form prints as a plain <c>[E]</c> in the ABI JSON,
+        /// so only the method-level flag knew about it; a declaration that has to reproduce the
+        /// signature (a protocol witness) needs to know WHICH parameter is <c>E...</c>. The
+        /// demangled parameter list is exact per position; without it, a method with a single
+        /// array parameter is unambiguous. Anything else is left unmarked rather than guessed.
+        /// </summary>
+        internal static void MarkVariadicParameterElements(MethodDecl methodDecl, TupleTypeSpec? demangledParameters)
+        {
+            var parameters = methodDecl.CSSignature.Skip(1).ToList();
+            static TypeSpec? ArrayElement(TypeSpec spec) =>
+                spec is NamedTypeSpec named && IsArraySpec(named) && named.GenericParameters.Count == 1
+                    ? named.GenericParameters[0]
+                    : null;
+
+            if (demangledParameters != null && demangledParameters.Elements.Count == parameters.Count)
+            {
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    if (IsVariadicArraySpec(demangledParameters.Elements[i]) &&
+                        ArrayElement(parameters[i].SwiftTypeSpec) is { } element)
+                    {
+                        element.IsVariadic = true;
+                    }
+                }
+                return;
+            }
+
+            var arrayElements = parameters
+                .Select(p => ArrayElement(p.SwiftTypeSpec))
+                .Where(e => e != null)
+                .ToList();
+            if (arrayElements.Count == 1)
+                arrayElements[0]!.IsVariadic = true;
         }
 
         /// <summary>
@@ -3598,7 +3727,9 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsModuleInternal = IsNodeModuleInternal(node),
-                IsSpiProtected = IsNodeSpiProtected(node)
+                IsSpiProtected = IsNodeSpiProtected(node),
+                IsProtocolRequirement = node.protocolReq == true,
+                IsFromExtension = node.isFromExtension == true
             };
             // Classify visibility from the ABI JSON attributes, exactly as methods and
             // properties do. An ABI-visible internal subscript is always @usableFromInline
@@ -3611,7 +3742,7 @@ namespace BindingsGeneration
             // genuinely public subscript.
             if (parentDecl is TypeDecl subscriptParentType)
             {
-                ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName, node);
+                ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName, ComputeAbiParamSignature(node));
                 ApplyMemberPosition(decl, subscriptParentType, node.PrintedName);
             }
             // Propagate subscript availability to accessor MethodDecls (same rationale as

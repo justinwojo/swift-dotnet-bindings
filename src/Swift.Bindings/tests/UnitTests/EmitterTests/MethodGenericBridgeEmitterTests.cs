@@ -643,6 +643,89 @@ public class MethodGenericBridgeEmitterTests
 
     #endregion
 
+    #region Scalar direct returns
+
+    // A scalar return crosses the @_cdecl boundary by value, in the width its mapping declares.
+    // The Swift wrapper must declare that return type and convert to it (Bool → Int8 ternary,
+    // simple enum → raw value), and the P/Invoke must read the same width back and convert to
+    // the public type. A wrapper that declared no return type while still returning a value did
+    // not compile, and an IntPtr P/Invoke returned from a `bool`/`long` method did not either.
+
+    [Fact]
+    public void TryEmit_BoolReturn_CrossesAsInt8AndReadsBackAsMarshalledBool()
+    {
+        var (handled, csResult, swiftResult) = EmitBridgeWithReturn(new NamedTypeSpec("Swift.Bool"));
+
+        Assert.True(handled);
+        Assert.Contains(") -> Int8 {", swiftResult);
+        Assert.Contains("return result ? 1 : 0", swiftResult);
+        Assert.Contains(MarshallingHelpers.BoolPInvokeReturnAttribute, csResult);
+        Assert.Contains("partial bool PInvoke_", csResult);
+        Assert.Contains("public bool Process(", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_Int64Return_CrossesByValueInItsOwnWidth()
+    {
+        var (handled, csResult, swiftResult) = EmitBridgeWithReturn(new NamedTypeSpec("Swift.Int64"));
+
+        Assert.True(handled);
+        Assert.Contains(") -> Int64 {", swiftResult);
+        Assert.Contains("partial long PInvoke_", csResult);
+        Assert.Matches(@"public (long|System\.Int64) Process\(", csResult);
+        Assert.DoesNotContain("partial IntPtr PInvoke_", csResult);
+    }
+
+    [Fact]
+    public void TryEmit_SimpleEnumReturn_CrossesAsRawValueAndCastsBack()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var module = new ModuleTypeDatabase("EnumModule", "/tmp/EnumModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("EnumModule.Level"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("EnumModule", "Level"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("EnumModule.Level"),
+                MetadataAccessor = "$s10EnumModule5LevelOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Swift.Int32"
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var (handled, csResult, swiftResult) = EmitBridgeWithReturn(new NamedTypeSpec("EnumModule.Level"), typeDatabase);
+
+        Assert.True(handled);
+        Assert.Contains(") -> Int32 {", swiftResult);
+        Assert.Contains("return Int32(result.rawValue)", swiftResult);
+        Assert.Contains("partial int PInvoke_", csResult);
+        Assert.Contains("Level)PInvoke_", csResult);
+    }
+
+    private static (bool handled, string csResult, string swiftResult) EmitBridgeWithReturn(
+        TypeSpec returnSpec, TypeDatabase typeDatabase = null)
+    {
+        var (csOutput, swiftOutput) = (new StringWriter(), new StringWriter());
+        var method = CreateMethodDeclWithGenericParam();
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        method.CSSignature[0] = CreateArg("", returnSpec, method.ModuleDecl);
+        if (typeDatabase is null)
+        {
+            typeDatabase = CreateTypeDatabase();
+            typeDatabase.AsyncLibraryName = "TestBindings";
+        }
+
+        var handled = MethodGenericBridgeEmitter.TryEmit(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput),
+            new MethodEnvironment(method, typeDatabase), parent, new ModuleEmissionContext());
+        return (handled, csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    #endregion
+
     #region Helpers
 
     /// <summary>
@@ -823,6 +906,16 @@ public class MethodGenericBridgeEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int64"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int64"),
+                MetadataAccessor = "$ss5Int64VMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });

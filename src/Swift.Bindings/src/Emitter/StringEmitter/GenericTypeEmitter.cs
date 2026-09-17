@@ -119,6 +119,26 @@ public static class GenericTypeEmitter
     /// <param name="typeDatabase">Optional type database for checking protocol capabilities.</param>
     /// <returns>The where clause, or empty string if no constraints.</returns>
     public static string GetWhereClause(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
+        => BuildWhereClause(typeDecl, typeDatabase, interfaceConstraintsByParam: null);
+
+    /// <summary>
+    /// The protocol interfaces <see cref="GetWhereClause"/> places on each of the type's own
+    /// generic parameters, keyed by the Swift parameter name. A closed instantiation of the
+    /// type compiles only with arguments whose C# projection implements every one of them.
+    /// Class constraints and the <c>ISwiftObject</c> seed are not included.
+    /// </summary>
+    public static IReadOnlyDictionary<string, List<string>> GetWhereClauseInterfaceConstraints(
+        TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        var byParam = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        BuildWhereClause(typeDecl, typeDatabase, byParam);
+        return byParam;
+    }
+
+    private static string BuildWhereClause(
+        TypeDecl typeDecl,
+        ITypeDatabase? typeDatabase,
+        Dictionary<string, List<string>>? interfaceConstraintsByParam)
     {
         var ownParams = GetTypeDeclOwnGenericParams(typeDecl);
         if (ownParams.Count == 0)
@@ -362,6 +382,12 @@ public static class GenericTypeEmitter
                         : conformance.ConformanceTarget.Module;
                     var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: resolvedConstraintModule, currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
                     paramConstraints.Add(interfaceName);
+                    if (interfaceConstraintsByParam != null)
+                    {
+                        if (!interfaceConstraintsByParam.TryGetValue(param.TypeName, out var surfaced))
+                            interfaceConstraintsByParam[param.TypeName] = surfaced = new List<string>();
+                        surfaced.Add(interfaceName);
+                    }
                 }
             }
 

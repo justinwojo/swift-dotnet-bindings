@@ -55,34 +55,98 @@ public class ProtocolExtensionDefaultsIndex
         {
             foreach (var method in methods)
             {
-                if (method.IsProperty)
-                {
-                    if (!_propertyDefaults.TryGetValue(qualifiedProtoName, out var propSet))
-                    {
-                        propSet = new HashSet<string>();
-                        _propertyDefaults[qualifiedProtoName] = propSet;
-                    }
-                    propSet.Add(method.MethodName);
+                IndexDefault(qualifiedProtoName, method);
 
-                    if (method.HasSetter)
-                    {
-                        if (!_propertySetterDefaults.TryGetValue(qualifiedProtoName, out var setterSet))
-                        {
-                            setterSet = new HashSet<string>();
-                            _propertySetterDefaults[qualifiedProtoName] = setterSet;
-                        }
-                        setterSet.Add(method.MethodName);
-                    }
-                }
-                else
+                // `extension P where Self : Q { ... }` is how Swift supplies the witness for one
+                // of Q's requirements to every type conforming to both. The member is spelled on
+                // P, and P does not inherit Q, so neither the direct lookup nor the sub-protocol
+                // walk can reach it from Q — keyed by the extended protocol alone, Q's
+                // requirement looks unsatisfiable and is emitted as an abstract C# member that
+                // no conformer relying on the default can implement. Attribute the same member
+                // to each protocol a `Self : Q` constraint names, in addition to P.
+                foreach (var constrainedProto in ResolveSelfConstraintProtocols(method.WhereConstraints, protocols))
                 {
-                    if (!_methodDefaults.TryGetValue(qualifiedProtoName, out var methodSet))
-                    {
-                        methodSet = new HashSet<string>();
-                        _methodDefaults[qualifiedProtoName] = methodSet;
-                    }
-                    methodSet.Add(method.PrintedName);
+                    if (!string.Equals(constrainedProto, qualifiedProtoName, StringComparison.Ordinal))
+                        IndexDefault(constrainedProto, method);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Records one extension member as a default under <paramref name="qualifiedProtoName"/>.
+    /// </summary>
+    private void IndexDefault(string qualifiedProtoName, ProtocolExtensionMethodDecl method)
+    {
+        if (method.IsProperty)
+        {
+            if (!_propertyDefaults.TryGetValue(qualifiedProtoName, out var propSet))
+            {
+                propSet = new HashSet<string>();
+                _propertyDefaults[qualifiedProtoName] = propSet;
+            }
+            propSet.Add(method.MethodName);
+
+            if (method.HasSetter)
+            {
+                if (!_propertySetterDefaults.TryGetValue(qualifiedProtoName, out var setterSet))
+                {
+                    setterSet = new HashSet<string>();
+                    _propertySetterDefaults[qualifiedProtoName] = setterSet;
+                }
+                setterSet.Add(method.MethodName);
+            }
+        }
+        else
+        {
+            if (!_methodDefaults.TryGetValue(qualifiedProtoName, out var methodSet))
+            {
+                methodSet = new HashSet<string>();
+                _methodDefaults[qualifiedProtoName] = methodSet;
+            }
+            methodSet.Add(method.PrintedName);
+        }
+    }
+
+    /// <summary>
+    /// Yields the qualified names of the protocols named by `Self : Q` constraints on an
+    /// extension, which are the protocols whose requirements the extension's members can be
+    /// witnessing.
+    /// <para/>
+    /// Only a constraint on `Self` itself attributes: `Self.RawValue : Q` constrains an
+    /// associated type and `Self == C` is a same-type constraint, neither of which makes the
+    /// member a witness for a requirement of anything. A name that cannot be resolved to a
+    /// declared protocol (`Self : AnyObject`, or a class in a composition) is skipped rather
+    /// than invented as a key.
+    /// </summary>
+    private static IEnumerable<string> ResolveSelfConstraintProtocols(
+        IEnumerable<string> whereConstraints, List<ProtocolDecl> protocols)
+    {
+        foreach (var constraint in whereConstraints)
+        {
+            var colonIdx = constraint.IndexOf(':');
+            if (colonIdx < 0)
+                continue;
+            if (!string.Equals(constraint.Substring(0, colonIdx).Trim(), "Self", StringComparison.Ordinal))
+                continue;
+
+            // A composition (`Self : First & Second`) constrains Self to every member.
+            foreach (var part in constraint.Substring(colonIdx + 1).Split('&'))
+            {
+                var name = part.Trim();
+                if (name.Length == 0)
+                    continue;
+
+                // Already module-qualified — that is the key shape requirements are looked up by.
+                if (name.Contains('.'))
+                {
+                    yield return name;
+                    continue;
+                }
+
+                var declared = protocols.FirstOrDefault(p => p.Name == name);
+                if (declared != null)
+                    yield return declared.SwiftTypeName?.ModuleQualifiedName ?? name;
             }
         }
     }

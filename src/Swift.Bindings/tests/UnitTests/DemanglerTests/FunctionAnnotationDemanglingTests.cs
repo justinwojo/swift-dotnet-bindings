@@ -22,6 +22,8 @@ namespace BindingsGeneration.Tests;
 ///   public func sendableVariadic(_ b: @Sendable () -> Void, _ xs: Int...)
 ///   public func asyncClosure(_ b: () async -> Void)
 ///   public func plainClosure(_ b: () -> Void)
+///   public func takesAutoclosure(_ v: @autoclosure () -> String)
+///   public func takesEscapingAutoclosure(_ v: @escaping @autoclosure () -> String)
 /// </summary>
 public class FunctionAnnotationDemanglingTests
 {
@@ -76,6 +78,23 @@ public class FunctionAnnotationDemanglingTests
         var fn = result as FunctionReduction;
         Assert.NotNull(fn);
         Assert.Equal("asyncClosure", fn.Function.Name);
+    }
+
+    [Theory]
+    [InlineData("_$s2S816takesAutoclosureyySSyXKF", "takesAutoclosure", false)]
+    [InlineData("_$s2S824takesEscapingAutoclosureyySSyXAF", "takesEscapingAutoclosure", true)]
+    public void AutoclosureParameter_ReducesToAutoclosureFunction(string mangledName, string name, bool escaping)
+    {
+        // @autoclosure () -> String  →  ...SSyXK (AutoClosureType); @escaping @autoclosure  →  ...SSyXA
+        var demangler = new Swift5Demangler();
+        var result = demangler.Run(mangledName);
+
+        var fn = result as FunctionReduction;
+        Assert.NotNull(fn);
+        Assert.Equal(name, fn.Function.Name);
+        var closure = Assert.IsType<ClosureTypeSpec>(Assert.Single(fn.Function.ParameterList.Elements));
+        Assert.True(closure.IsAutoClosure);
+        Assert.Equal(escaping, closure.IsEscaping);
     }
 
     [Fact]

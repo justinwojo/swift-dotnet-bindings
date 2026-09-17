@@ -84,3 +84,32 @@ public struct ExistentialVariadicBuilder {
         return 0
     }
 }
+
+// MARK: - Generic caseless result builder
+//
+// A result builder spelled as a generic caseless enum: `enum Builder<Element>` holding only
+// static methods. The type projects as a generic C# static class, which cannot host a
+// P/Invoke declaration, so its entry points must live on the non-generic helper holder the
+// way a generic struct's do. The `Element` and `Element?` overloads project to the same C#
+// signature, so their disambiguated names must spell the source generic parameter.
+public enum ElementArrayBuilder<Element> {
+    public static func buildExpression(_ expression: Element) -> [Element] {
+        [expression]
+    }
+
+    public static func buildExpression(_ expression: [Element]) -> [Element] {
+        expression
+    }
+
+    public static func buildExpression(_ expression: Element?) -> [Element] {
+        expression.map { [$0] } ?? []
+    }
+
+    public static func buildBlock(_ children: [Element]...) -> [Element] {
+        children.flatMap { $0 }
+    }
+
+    public static func buildOptional(_ children: [Element]?) -> [Element] {
+        children ?? []
+    }
+}

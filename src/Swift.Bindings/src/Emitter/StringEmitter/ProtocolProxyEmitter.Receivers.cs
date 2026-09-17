@@ -1327,10 +1327,13 @@ public partial class ProtocolProxyEmitter
         // (e.g., SwiftOptional<SwiftString> → string?) to match the interface method signature.
         // P0: Use ABI types for MarshalFromSwift — idiomatic types (string, bool?) can't read Swift memory.
         var argNames = new List<string>();
-        // Parallel `ref `/`` modifiers for inout params. The unmarshalled `param{i}` locals are
-        // writable, so `ref param{i}` binds to the interface method's `ref` slot; mutation through
-        // the shared payload pointer round-trips to Swift exactly as on the forward path.
+        // Parallel `ref `/`` modifiers for inout params. `ref param{i}` binds the interface method's
+        // `ref` slot to a managed local that holds a COPY of the Swift value, so nothing the
+        // implementation stores there reaches Swift on its own: every impl call below is followed by
+        // the write-backs collected here, which assign each local back into the slot the Swift
+        // conformance passed (`&xCopy`, assigned to `x` once the receiver returns).
         var argModifiers = new List<string>();
+        var inOutWriteBacks = new List<string>();
         int argIndex = 0;
         foreach (var param in nonEmptyParams)
         {
@@ -1381,6 +1384,16 @@ public partial class ProtocolProxyEmitter
             // Every other shape goes through the shared input pipeline (string read, class copy-out,
             // dictionary materialization, optional ObjC-bridgeable value read, discriminator-aware
             // optional conversion, plain raw read) — the same pipeline subscript indices use.
+            else if (param.IsInOut)
+            {
+                // `ref` binds only a local of exactly the interface's parameter type, which the read's
+                // carrier-shaped local need not be (a SwiftArray<T> read for an IEnumerable<T> slot), so
+                // read into a temporary and declare the bound local with the interface type.
+                EmitReceiverArgumentRead(writer, param.SwiftTypeSpec, $"rawArg{argIndex}", rawArgName, $"{argName}In");
+                writer.WriteLine($"{GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true)} {argName} = {argName}In;");
+                if (BuildInOutWriteBack(param.SwiftTypeSpec, $"rawArg{argIndex}", argName) is string writeBack)
+                    inOutWriteBacks.Add(writeBack);
+            }
             else
             {
                 EmitReceiverArgumentRead(writer, param.SwiftTypeSpec, $"rawArg{argIndex}", rawArgName, argName);
@@ -1463,7 +1476,7 @@ public partial class ProtocolProxyEmitter
             // sibling proxy the C# impl populated — not necessarily the one matching this interface.
             // Params are already unmarshalled once above; try this interface first, then each
             // recorded sibling interface, then fall back to the dead-impl null value.
-            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv);
+            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv, inOutWriteBacks);
             int siblingIdx = 0;
             foreach (var sibling in siblingFallbacks!)
             {
@@ -1474,7 +1487,7 @@ public partial class ProtocolProxyEmitter
                 // interface actually emitted — reusing pascalMethodName would emit a call to a
                 // method the sibling interface never defined (CS1061/CS1955).
                 var siblingPascalMethodName = ComputeReceiverPascalMethodName(method, sibling.Proto, hasReturn, isSelfReturning);
-                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv);
+                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv, inOutWriteBacks);
                 siblingIdx++;
             }
             EmitSiblingFanOutTerminal(writer, protocolDecl, $"{method.Name}()", methodDegradation);
@@ -1482,6 +1495,7 @@ public partial class ProtocolProxyEmitter
         else if (hasReturn)
         {
             writer.WriteLine($"var result = impl.{pascalMethodName}({implCallArgs}){asyncResultUnwrap};");
+            foreach (var writeBack in inOutWriteBacks) writer.WriteLine(writeBack);
             if (isStringMethodReturn)
             {
                 writer.WriteLine("return MarshalStringToUtf8Slice(result);");
@@ -1499,6 +1513,7 @@ public partial class ProtocolProxyEmitter
         else
         {
             writer.WriteLine($"impl.{pascalMethodName}({implCallArgs}){asyncResultUnwrap};");
+            foreach (var writeBack in inOutWriteBacks) writer.WriteLine(writeBack);
         }
 
         // Async receivers on this legacy fallback path block the Task on the sync-ABI slot (Issue 1)
@@ -2129,6 +2144,57 @@ public partial class ProtocolProxyEmitter
         }
 
         writer.WriteLine($"var {varName} = {GetReceiverRawMaterialization(abiTypeName, slotExpr, typeSpec)};");
+    }
+
+    /// <summary>
+    /// Classifies how a reverse-dispatch receiver writes an <c>inout</c> parameter of
+    /// <paramref name="typeSpec"/> back to Swift. The Swift conformance consults the same answer and
+    /// traps rather than dispatch a requirement whose mutation the receiver could not write back.
+    /// </summary>
+    internal static ReceiverInOutWriteBackKind ClassifyInOutWriteBack(TypeSpec typeSpec, ITypeDatabase typeDatabase,
+        string moduleName, ModuleEmissionContext? emissionContext)
+    {
+        var projection = s_projectionFactory.Project(typeSpec,
+            new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext });
+        return projection?.Accept(new ReceiverInOutWriteBackKindVisitor()) ?? ReceiverInOutWriteBackKind.Unsupported;
+    }
+
+    /// <summary>
+    /// The statement that assigns the managed <c>inout</c> local <paramref name="varName"/> back into
+    /// the initialized Swift slot <paramref name="slotExpr"/> after the implementation returns, or
+    /// <c>null</c> when the type has no write-back (the Swift conformance traps before dispatching).
+    /// The value is lowered with the conversion a return of the same type uses, so an <c>inout</c>
+    /// write-back and a return cannot drift in carrier or ownership.
+    /// </summary>
+    private string? BuildInOutWriteBack(TypeSpec typeSpec, string slotExpr, string varName)
+    {
+        const string Marshal = "global::Swift.Runtime.InteropServices.SwiftMarshal";
+        switch (ClassifyInOutWriteBack(typeSpec, _typeDatabase, _moduleName, _emissionContext))
+        {
+            case ReceiverInOutWriteBackKind.Value:
+            {
+                var abiTypeName = IsStringTypeSpec(typeSpec)
+                    ? "Swift.SwiftString"
+                    : GetCSharpTypeName(typeSpec, forAbiMarshalling: true);
+                var conversion = GetReceiverGetterConversion(varName, typeSpec) ?? varName;
+                return $"{Marshal}.ReplaceValueInSlot<{abiTypeName}>({slotExpr}, {conversion});";
+            }
+            case ReceiverInOutWriteBackKind.ClassReference:
+            {
+                var projection = s_projectionFactory.Project(typeSpec,
+                    new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+                var isOptional = projection is OptionalProjection;
+                var classProjection = projection is OptionalProjection opt ? opt.InnerProjection : projection;
+                var handleMember = classProjection is ClassProjection ? "Payload.DangerousGetHandle()" : "Handle";
+                var handleExpr = isOptional
+                    ? $"({varName} is {{}} {varName}Ref ? {varName}Ref.{handleMember} : global::System.IntPtr.Zero)"
+                    : $"{varName}.{handleMember}";
+                // The slot takes its own retain inside the call; keep the wrapper alive until then.
+                return $"{Marshal}.ReplaceClassReferenceInSlot({slotExpr}, {handleExpr}); global::System.GC.KeepAlive({varName});";
+            }
+            default:
+                return null;
+        }
     }
 
     private string GetReceiverRawMaterialization(string abiTypeName, string slotExpr, TypeSpec? typeSpec)
@@ -3197,7 +3263,8 @@ public partial class ProtocolProxyEmitter
     /// <paramref name="returnConv"/> expression — which references <c>result</c> — binds correctly.
     /// </summary>
     private static void EmitMethodLookupHit(CSharpWriter writer, string interfaceName, string slug,
-        string pascalMethodName, string argsString, bool hasReturn, bool isStringReturn, string? returnConv)
+        string pascalMethodName, string argsString, bool hasReturn, bool isStringReturn, string? returnConv,
+        IReadOnlyList<string> inOutWriteBacks)
     {
         var implVar = $"impl_{slug}";
         writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
@@ -3206,6 +3273,7 @@ public partial class ProtocolProxyEmitter
         if (hasReturn)
         {
             writer.WriteLine($"var result = {implVar}.{pascalMethodName}({argsString});");
+            foreach (var writeBack in inOutWriteBacks) writer.WriteLine(writeBack);
             if (isStringReturn)
             {
                 writer.WriteLine("return MarshalStringToUtf8Slice(result);");
@@ -3223,6 +3291,7 @@ public partial class ProtocolProxyEmitter
         else
         {
             writer.WriteLine($"{implVar}.{pascalMethodName}({argsString});");
+            foreach (var writeBack in inOutWriteBacks) writer.WriteLine(writeBack);
             writer.WriteLine("return;");
         }
         writer.Indent--;

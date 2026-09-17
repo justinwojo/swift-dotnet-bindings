@@ -334,7 +334,7 @@ public static class MetatypeArrayBridgeEmitter
                     reconstruction.Add("    }");
                 }
                 reconstruction.Add("    else {");
-                reconstruction.Add($"        fatalError(\"[SwiftBindings] MetatypeArrayBridge: unknown conformer of {protocolName}\")");
+                reconstruction.Add($"        Swift.fatalError(\"[SwiftBindings] MetatypeArrayBridge: unknown conformer of {protocolName}\")");
                 reconstruction.Add("    }");
                 reconstruction.Add("}");
 

@@ -605,7 +605,7 @@ public static class CdeclParamMapper
                     var reconstructed = typeRecord.Flags.HasFlag(TypeRecordFlags.ExternalAppleEnum)
                         ? $"({swiftType}(rawValue: {rawArg}) as {swiftType}?)"
                         : $"{swiftType}(rawValue: {rawArg})";
-                    conversion = $"guard let {label}Val = {reconstructed} else {{ preconditionFailure(\"[SwiftBindings] Invalid raw value \\({label}) for {swiftType}\") }}";
+                    conversion = $"guard let {label}Val = {reconstructed} else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\({label}) for {swiftType}\") }}";
                 }
                 else
                 {

@@ -51,6 +51,19 @@ public record SubscriptDecl : BaseDecl
     public bool IsSpiProtected { get; set; } = false;
 
     /// <summary>
+    /// Whether the ABI marks this subscript as a protocol requirement. Mirrors
+    /// <see cref="PropertyDecl.IsProtocolRequirement"/>.
+    /// </summary>
+    public bool IsProtocolRequirement { get; set; } = false;
+
+    /// <summary>
+    /// Whether this subscript was declared in an extension. On a protocol, an extension subscript
+    /// that is not a requirement is a default every conformer inherits, not part of the contract.
+    /// Mirrors <see cref="PropertyDecl.IsFromExtension"/>.
+    /// </summary>
+    public bool IsFromExtension { get; set; } = false;
+
+    /// <summary>
     /// Whether this subscript has a getter.
     /// </summary>
     public bool HasGetter => Accessors.Any(a => a is GetAccessorDecl);

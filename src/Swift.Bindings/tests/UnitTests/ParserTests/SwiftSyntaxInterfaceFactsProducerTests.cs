@@ -239,6 +239,63 @@ public class SwiftSyntaxInterfaceFactsProducerTests
 
     #endregion
 
+    #region Closure parameter attributes — typealiased closure types
+
+    /// <summary>
+    /// A closure parameter spelled through a typealias carries the alias's <c>@MainActor</c> /
+    /// <c>@Sendable</c> attributes, which the ABI descriptor desugars away. The fact must follow
+    /// the alias — module-qualified, scope-qualified, optional, or relative — or a synthesized
+    /// witness declares a plain closure and fails its conformance. A name that matches aliases
+    /// with different attributes must resolve to nothing rather than a guess.
+    /// </summary>
+    [SkippableFact]
+    public void ClosureParameterAttributes_FollowTypealiases()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ClosureParameterAttributes_FollowTypealiases));
+        var path = WriteTempFile(
+            "import Swift\n" +
+            "public typealias CompletionBlock = @MainActor @Sendable (Swift.String?) -> Swift.Void\n" +
+            "public typealias PlainBlock = (Swift.Int) -> Swift.Void\n" +
+            "public class Outer {\n" +
+            "  public typealias Handler = @Sendable (Swift.Int) -> Swift.Void\n" +
+            "}\n" +
+            "public enum First { public typealias Callback = @MainActor () -> Swift.Void }\n" +
+            "public enum Second { public typealias Callback = @Sendable () -> Swift.Void }\n" +
+            "public protocol Service {\n" +
+            "  func qualified(completion: @escaping Kit.CompletionBlock)\n" +
+            "  func optional(completion: Kit.CompletionBlock?)\n" +
+            "  func scoped(handler: @escaping Outer.Handler)\n" +
+            "  func plain(block: @escaping PlainBlock)\n" +
+            "  func ambiguous(callback: @escaping Callback)\n" +
+            "  func spelled(block: @escaping @Sendable () -> Swift.Void)\n" +
+            "}\n");
+        try
+        {
+            var result = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+            var attrs = result.Facts.ClosureParameterAttributes;
+            Assert.NotNull(attrs);
+
+            List<string> Only(string key)
+            {
+                Assert.True(attrs!.TryGetValue(key, out var perParam), $"missing closure attribute fact for {key}");
+                return Assert.Single(perParam!);
+            }
+
+            Assert.Equal(new[] { "MainActor", "Sendable" }, Only("Service.qualified(completion:)"));
+            Assert.Equal(new[] { "MainActor", "Sendable" }, Only("Service.optional(completion:)"));
+            Assert.Equal(new[] { "Sendable" }, Only("Service.scoped(handler:)"));
+            Assert.Equal(new[] { "Sendable" }, Only("Service.spelled(block:)"));
+            foreach (var key in new[] { "Service.plain(block:)", "Service.ambiguous(callback:)" })
+            {
+                if (attrs!.TryGetValue(key, out var perParam))
+                    Assert.All(perParam, param => Assert.Empty(param));
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     #region Protocol-extension members — mutating detection
 
     [SkippableFact]

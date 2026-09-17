@@ -269,4 +269,87 @@ public partial class ProtocolProxyEmitter
                 ? ReceiverSlotReadKind.RawRead
                 : ReceiverSlotReadKind.CopiedValue;
     }
+    /// <summary>
+    /// How a reverse-dispatch receiver lowers a C# implementation's mutated <c>inout</c> parameter back
+    /// into the initialized Swift slot it was handed. The generated Swift conformance passes
+    /// <c>&amp;xCopy</c> and assigns <c>x = xCopy</c> after the call, so the receiver has to leave the
+    /// new value in that slot in the Swift type's own in-memory layout.
+    /// </summary>
+    internal enum ReceiverInOutWriteBackKind
+    {
+        /// <summary>
+        /// No sound in-memory lowering exists. The Swift conformance traps instead of dispatching, so a
+        /// mutation is never silently dropped.
+        /// </summary>
+        Unsupported,
+
+        /// <summary>
+        /// <c>SwiftMarshal.ReplaceValueInSlot</c> over the value converted to its ABI carrier with the
+        /// same conversion a return of that type uses.
+        /// </summary>
+        Value,
+
+        /// <summary>
+        /// <c>SwiftMarshal.ReplaceClassReferenceInSlot</c>: the slot is one (possibly nil) class
+        /// reference word whose retain the slot owns.
+        /// </summary>
+        ClassReference,
+    }
+
+    /// <summary>
+    /// Classifies a reverse-dispatch <c>inout</c> parameter's write-back. Shared by the C# receiver,
+    /// which emits the write-back, and the Swift conformance, which traps on
+    /// <see cref="ReceiverInOutWriteBackKind.Unsupported"/> — the two must never disagree.
+    /// </summary>
+    internal sealed class ReceiverInOutWriteBackKindVisitor : IProjectionVisitor<ReceiverInOutWriteBackKind>
+    {
+        private readonly bool _insideOptional;
+        public ReceiverInOutWriteBackKindVisitor(bool insideOptional = false) => _insideOptional = insideOptional;
+
+        // Reference-counted wrappers copy their value into the slot at +1 and keep their own reference.
+        public ReceiverInOutWriteBackKind Visit(StringProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(DataProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(NativeRemappedProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(NonFrozenStructProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(FrozenWithMemoryProjection p) => ReceiverInOutWriteBackKind.Value;
+        // A native Swift collection is one storage reference. One bridged through an Objective-C
+        // container crosses as an NS pointer, which is not the Swift collection's layout.
+        public ReceiverInOutWriteBackKind Visit(ArrayProjection p) =>
+            p.UsesObjCContainerBridge ? ReceiverInOutWriteBackKind.Unsupported : ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(DictionaryProjection p) =>
+            p.UsesObjCContainerBridge ? ReceiverInOutWriteBackKind.Unsupported : ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(SetProjection p) =>
+            p.UsesObjCContainerBridge ? ReceiverInOutWriteBackKind.Unsupported : ReceiverInOutWriteBackKind.Value;
+
+        // Trivial values: written by value (an enum at its Swift discriminator width).
+        public ReceiverInOutWriteBackKind Visit(BlittableProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(BoolProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(DateProjection p) => ReceiverInOutWriteBackKind.Value;
+        public ReceiverInOutWriteBackKind Visit(SimpleEnumProjection p) => ReceiverInOutWriteBackKind.Value;
+
+        // A class reference, native or Objective-C, is one retained word — and so is an Optional of
+        // one, since nil is the null pointer.
+        public ReceiverInOutWriteBackKind Visit(ClassProjection p) => ReceiverInOutWriteBackKind.ClassReference;
+        public ReceiverInOutWriteBackKind Visit(ObjCRootedClassProjection p) => ReceiverInOutWriteBackKind.ClassReference;
+        public ReceiverInOutWriteBackKind Visit(ObjCBridgedProjection p) => ReceiverInOutWriteBackKind.ClassReference;
+
+        public ReceiverInOutWriteBackKind Visit(OptionalProjection p)
+        {
+            if (_insideOptional)
+                return ReceiverInOutWriteBackKind.Unsupported;
+            var inner = p.InnerProjection.Accept(new ReceiverInOutWriteBackKindVisitor(insideOptional: true));
+            return inner;
+        }
+
+        // An Objective-C-bridgeable value (URL, an NS_TYPED_ENUM newtype) reaches C# as a bridged object;
+        // turning it back into the Swift value needs a Swift-side bridge the slot write cannot perform.
+        public ReceiverInOutWriteBackKind Visit(ObjCBridgeableProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+        // Existential containers, closures, tuples, results and key paths have no slot write-back.
+        public ReceiverInOutWriteBackKind Visit(ExistentialProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+        public ReceiverInOutWriteBackKind Visit(ClosureProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+        public ReceiverInOutWriteBackKind Visit(AsyncProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+        public ReceiverInOutWriteBackKind Visit(TupleProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+        public ReceiverInOutWriteBackKind Visit(ResultProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+        public ReceiverInOutWriteBackKind Visit(KeyPathProjection p) => ReceiverInOutWriteBackKind.Unsupported;
+    }
 }

@@ -721,6 +721,211 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Writes a C# implementation's mutated <c>inout</c> value back into the initialized Swift slot a
+    /// protocol-proxy reverse-dispatch receiver was handed — the write-direction counterpart of
+    /// <see cref="MarshalCopiedValueFromSlot{T}"/>. The generated Swift conformance passes
+    /// <c>&amp;xCopy</c> for an <c>inout</c> requirement parameter and assigns <c>x = xCopy</c> once the
+    /// receiver returns, so whatever this leaves in the slot is what the Swift caller observes.
+    /// <para>
+    /// The slot still owns its original value, so the replacement is an <i>assignment</i>, never an
+    /// initialization: the old value is destroyed through its value witness and the new one takes its
+    /// place. Ownership of the new value follows the reverse-dispatch RETURN contract exactly (the
+    /// proxy-local <c>MarshalToSwiftBuffer</c>), so an <c>inout</c> write-back and a return of the same
+    /// type lower identically:
+    /// <list type="bullet">
+    /// <item><b>Reference-backed <see cref="ISwiftObject"/> wrapper</b> (<c>SwiftString</c>,
+    /// <c>SwiftArray</c>, <c>SwiftOptional</c>, a non-frozen struct wrapper, …): the wrapper copies its
+    /// value out at <c>+1</c> (<c>MarshalToSwift</c>) and keeps its own reference.</item>
+    /// <item><b>Value-type <see cref="ISwiftObject"/></b> (<c>Foundation.Data</c>): a non-owning view
+    /// whose bytes carry the reference its factory minted; they are moved into the slot bitwise, so
+    /// pass a freshly produced value.</item>
+    /// <item><b>Payload-less enum</b>: the discriminator is written at the width Swift stores, never the
+    /// wider C# backing width that would overwrite the neighbouring bytes.</item>
+    /// <item><b>Primitive or blittable value</b>: written by value; there is nothing to destroy.</item>
+    /// </list>
+    /// </para>
+    /// Class references do not come through here — see <see cref="ReplaceClassReferenceInSlot"/>.
+    /// </summary>
+    /// <typeparam name="T">The ABI carrier type occupying the slot.</typeparam>
+    /// <param name="slot">Address of the initialized Swift slot to assign.</param>
+    /// <param name="value">The new value.</param>
+    /// <exception cref="SwiftRuntimeException">
+    /// <typeparamref name="T"/> is an <see cref="ISwiftObject"/> whose Swift metadata does not resolve,
+    /// so the old value cannot be destroyed.
+    /// </exception>
+    /// <exception cref="NotSupportedException"><typeparamref name="T"/> has no value-slot lowering.</exception>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Metadata resolution only; no dynamic code on these paths")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Metadata resolution only")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Metadata resolution only")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Metadata resolution only")]
+    public static unsafe void ReplaceValueInSlot<T>(IntPtr slot, T value)
+    {
+        if (slot == IntPtr.Zero)
+            throw new ArgumentNullException(nameof(slot));
+        ArgumentNullException.ThrowIfNull(value);
+
+        var type = typeof(T);
+        if (typeof(ISwiftObject).IsAssignableFrom(type))
+        {
+            if (!TypeMetadata.TryGetTypeMetadata<T>(out var md) || !md.Value.IsValid)
+                throw new SwiftRuntimeException(
+                    $"Cannot write an inout value of type {type} back to Swift: its Swift type metadata did " +
+                    "not resolve, so the value the slot already holds cannot be destroyed.");
+
+            var metadata = md.Value;
+            var size = checked((int)metadata.Size);
+            var temp = (byte*)NativeMemory.Alloc((nuint)Math.Max(size, 1));
+            try
+            {
+                if (type.IsValueType)
+                {
+                    if (Unsafe.SizeOf<T>() != size)
+                        throw new SwiftRuntimeException(
+                            $"Cannot write an inout value of type {type} back to Swift: its managed size " +
+                            $"{Unsafe.SizeOf<T>()} does not match the Swift size {size}.");
+                    Unsafe.Write(temp, value);
+                }
+                else
+                {
+                    var span = new Span<byte>(temp, size);
+                    ((ISwiftObject)value).MarshalToSwift(ref span);
+                }
+                // Destroys the slot's old value and moves the temporary's in, leaving the temporary
+                // uninitialized — only its storage remains to free.
+                metadata.ValueWitnessTable->AssignWithTake((void*)slot, temp, metadata);
+            }
+            finally
+            {
+                NativeMemory.Free(temp);
+            }
+            return;
+        }
+
+        if (type.IsEnum)
+        {
+            ulong caseValue = Enum.GetUnderlyingType(type) == typeof(ulong)
+                ? Convert.ToUInt64(value)
+                : unchecked((ulong)Convert.ToInt64(value));
+            var enumMetadata = TypeMetadata.TryGetTypeMetadata<T>(out var enumMd) ? enumMd.Value : default;
+            // A single-case enum occupies no storage; there is no discriminator to write.
+            if (enumMetadata.IsValid && enumMetadata.Size == 0)
+                return;
+            WriteDiscriminator(caseValue, enumMetadata, (byte*)slot);
+            return;
+        }
+
+        if (type.IsValueType && !RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        {
+            Unsafe.Write((void*)slot, value);
+            return;
+        }
+
+        throw new NotSupportedException($"Cannot write an inout value of type {type} back to a Swift slot");
+    }
+
+    /// <summary>
+    /// Replaces the class reference (or <c>nil</c>) held by an initialized Swift slot with
+    /// <paramref name="handle"/> — the class arm of <see cref="ReplaceValueInSlot{T}"/>. The slot keeps
+    /// its own <c>+1</c>: the new reference is retained before the old one is released, both through
+    /// the kind-dispatching unknown-object entry points, so a native Swift instance and an Objective-C
+    /// one are balanced alike and assigning the reference the slot already holds is safe.
+    /// </summary>
+    /// <param name="slot">Address of the initialized one-word Swift slot to assign.</param>
+    /// <param name="handle">The new instance pointer, or <see cref="IntPtr.Zero"/> for <c>nil</c>.</param>
+    public static unsafe void ReplaceClassReferenceInSlot(IntPtr slot, IntPtr handle)
+    {
+        if (slot == IntPtr.Zero)
+            throw new ArgumentNullException(nameof(slot));
+        Arc.UnknownObjectRetain(handle);
+        var old = *(IntPtr*)slot;
+        *(IntPtr*)slot = handle;
+        Arc.UnknownObjectRelease(old);
+    }
+
+    /// <summary>
+    /// Allocates a Swift <c>String</c> cell initialized with <paramref name="value"/> for a forward
+    /// witness dispatch that passes the string <c>inout</c>: the Swift accessor mutates the cell in
+    /// place and <see cref="TakeInOutStringCell"/> reads the result back and releases the cell.
+    /// </summary>
+    /// <param name="value">The string the Swift requirement starts from; <c>null</c> is treated as empty.</param>
+    /// <returns>The address of the initialized cell, owning one reference to its storage.</returns>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "SwiftString metadata is statically known")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "SwiftString metadata is statically known")]
+    public static unsafe IntPtr AllocateInOutStringCell(string? value)
+    {
+        using var swiftValue = new SwiftString(value ?? string.Empty);
+        var metadata = ResolveInOutCellMetadata<SwiftString>();
+        var size = checked((int)metadata.Size);
+        var cell = (byte*)NativeMemory.Alloc((nuint)Math.Max(size, 1));
+        try
+        {
+            var span = new Span<byte>(cell, size);
+            ((ISwiftObject)swiftValue).MarshalToSwift(ref span);
+        }
+        catch
+        {
+            NativeMemory.Free(cell);
+            throw;
+        }
+        return (IntPtr)cell;
+    }
+
+    /// <summary>
+    /// Reads the string a forward <c>inout</c> witness dispatch left in a cell from
+    /// <see cref="AllocateInOutStringCell"/>, then destroys the cell's value and frees its storage.
+    /// </summary>
+    /// <param name="cell">The cell address; <see cref="IntPtr.Zero"/> is rejected.</param>
+    /// <returns>The managed copy of the cell's final value.</returns>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "SwiftString metadata is statically known")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "SwiftString metadata is statically known")]
+    public static unsafe string TakeInOutStringCell(IntPtr cell)
+    {
+        if (cell == IntPtr.Zero)
+            throw new ArgumentNullException(nameof(cell));
+        try
+        {
+            using var result = MarshalMovedValueFromSlot<SwiftString>((void*)cell, ResolveInOutCellMetadata<SwiftString>());
+            return result.ToString();
+        }
+        finally
+        {
+            NativeMemory.Free((void*)cell);
+        }
+    }
+
+    /// <summary>
+    /// Adopts the class reference a forward <c>inout</c> witness dispatch left in its one-word slot.
+    /// The caller retained the reference it placed in the slot before the call; the Swift requirement
+    /// either kept that reference or released it when assigning a new one, so the slot owns exactly one
+    /// <c>+1</c> afterwards, which the returned wrapper takes over. The previous wrapper keeps its own.
+    /// </summary>
+    /// <typeparam name="T">The Swift-class wrapper type.</typeparam>
+    /// <param name="value">The caller's <c>ref</c> parameter, replaced with the slot's final instance.</param>
+    /// <param name="handle">The instance pointer the slot holds after the call.</param>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwift")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwift")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwift")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwift")]
+    public static void AdoptInOutClassReference<T>(ref T value, IntPtr handle) where T : class
+    {
+        if (handle == IntPtr.Zero)
+            throw new ArgumentNullException(nameof(handle));
+        value = MarshalFromSwift<T>(handle);
+    }
+
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Metadata resolution only")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Metadata resolution only")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Metadata resolution only")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Metadata resolution only")]
+    private static TypeMetadata ResolveInOutCellMetadata<T>()
+    {
+        if (!TypeMetadata.TryGetTypeMetadata<T>(out var md) || !md.Value.IsValid)
+            throw new SwiftRuntimeException(
+                $"Cannot pass an inout value of type {typeof(T)} to Swift: its Swift type metadata did not resolve.");
+        return md.Value;
+    }
+
+    /// <summary>
     /// Extracts a payload value of type <typeparamref name="T"/> out of a Swift wire carrier — the
     /// <c>Some</c> payload of <c>SwiftOptional&lt;T&gt;</c> or the success/failure payload of
     /// <c>SwiftResult</c> — into a freshly-constructed managed wrapper that owns an <b>independent</b>

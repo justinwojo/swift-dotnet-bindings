@@ -45,6 +45,7 @@ internal static class GenericProtocolEmitter
     /// </param>
     /// <param name="protocolConstraint">Optional protocol constraint (e.g., "AnyObject" for class-only protocols).</param>
     /// <param name="extensionAvailability">Optional merged availability annotations applied to the conformance extension. Conformance extensions are top-level decls and don't inherit the enclosing type's availability.</param>
+    /// <param name="conformanceBody">Optional lines implementing the requirement inside the conformance extension, for a member the type cannot witness directly. Null leaves the extension empty.</param>
     /// <returns>The generated protocol name (e.g., "_SBW_P_A1B2C3D4").</returns>
     internal static string EmitProtocolAndConformance(
         SwiftWriter swiftWriter,
@@ -54,7 +55,8 @@ internal static class GenericProtocolEmitter
         string moduleQualifiedName,
         ArtifactId originAnchor,
         string? protocolConstraint = null,
-        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null,
+        IReadOnlyList<string>? conformanceBody = null)
     {
         var protocolName = GetProtocolName(prefix, symbolName);
         var constraintClause = protocolConstraint != null ? $": {protocolConstraint} " : "";
@@ -71,9 +73,26 @@ internal static class GenericProtocolEmitter
             {{extensionAvailPrefix}}private protocol {{protocolName}}{{constraintClause}} {
                 {{memberDeclaration}}
             }
-            {{anchor}}
-            {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
+        if (conformanceBody is null)
+        {
+            swiftWriter.WriteLines($$"""
+                {{anchor}}
+                {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                {{anchor}}
+                {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {
+                """);
+            swiftWriter.Indent++;
+            foreach (var line in conformanceBody)
+                swiftWriter.WriteLine(line);
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+        }
 
         return protocolName;
     }
@@ -117,12 +136,25 @@ internal static class GenericProtocolEmitter
         bool isFailable,
         bool throws)
     {
-        var initParams = new List<string>();
-        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var paramString = string.Join(", ",
+            GetConstructorRequirementParameters(methodDecl).Select(p => $"{p.Label}: {p.SwiftType}"));
+        var throwsClause = throws ? " throws" : "";
+        var failableQ = isFailable ? "?" : "";
 
-        for (int i = 0; i < keptArgs.Count; i++)
+        return $"init{failableQ}({paramString}){throwsClause}";
+    }
+
+    /// <summary>
+    /// The kept parameters of a constructor dispatch requirement: the bare external label
+    /// (<c>_</c> when unlabeled), a positional binding name for a forwarding body, and the
+    /// rendered Swift type.
+    /// </summary>
+    internal static IReadOnlyList<(string Label, string Binding, string SwiftType)> GetConstructorRequirementParameters(
+        MethodDecl methodDecl)
+    {
+        var parameters = new List<(string Label, string Binding, string SwiftType)>();
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
-            var arg = keptArgs[i];
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
                 continue;
             if (arg.SwiftTypeSpec.IsEmptyTuple)
@@ -137,13 +169,8 @@ internal static class GenericProtocolEmitter
                 var n when string.IsNullOrEmpty(n) => "_",
                 _ => NameProvider.RecoverSwiftArgumentLabel(arg)
             };
-            initParams.Add($"{label}: {swiftType}");
+            parameters.Add((label, $"a{parameters.Count}", swiftType));
         }
-
-        var paramString = string.Join(", ", initParams);
-        var throwsClause = throws ? " throws" : "";
-        var failableQ = isFailable ? "?" : "";
-
-        return $"init{failableQ}({paramString}){throwsClause}";
+        return parameters;
     }
 }

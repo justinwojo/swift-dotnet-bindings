@@ -1069,6 +1069,133 @@ public class SwiftABIParserRuntimeTests
         Assert.Equal(string.Empty, SwiftABIParser.ComputeAbiParamSignature(node));
     }
 
+    [Theory]
+    // The ABI descriptor spells a member's generic parameters by depth and index; the interface
+    // producer spells them by their source names. The sugared signature pairs the two positionally.
+    [InlineData("<τ_0_0, τ_1_0 where τ_0_0 : TestModule.Source>", "<Self, O where Self : TestModule.Source>",
+        "TestModule.Box<τ_1_0>|[any TestModule.Clause]", "TestModule.Box<O>|[any TestModule.Clause]")]
+    [InlineData("<τ_0_0, τ_0_1>", "<Key, Value>",
+        "[τ_0_0 : τ_0_1]|τ_0_1?", "[Key: Value]|Value?")]
+    // The digester dialect already prints sugared names, so there is nothing to translate.
+    [InlineData("<Self, O where Self : TestModule.Source>", null,
+        "TestModule.Box<O>", "TestModule.Box<O>")]
+    public void ComputeAbiParamSignature_GenericParameters_UseSourceNames(
+        string genericSig, string? sugaredSig, string abiParamsPipe, string interfaceParamsPipe)
+    {
+        var node = MakeAbiFunctionNode("m", "m(_:)", "()", abiParamsPipe.Split('|'));
+        node.GenericSig = genericSig;
+        node.sugared_genericSig = sugaredSig;
+
+        Assert.Equal(
+            MemberSignatureNormalizer.BuildSignature(interfaceParamsPipe.Split('|')),
+            SwiftABIParser.ComputeAbiParamSignature(node));
+    }
+
+    [Fact]
+    public void ComputeAbiParamSignature_VariadicParameter_IsSpelledByItsElement()
+    {
+        // A variadic `any Clause...` and a plain `[any Clause]` print identically in the ABI
+        // descriptor; the interface producer keys the variadic one by its element type.
+        var array = MakeTypeNode("[any TestModule.Clause]");
+        array.Children = new[] { MakeTypeNode("any TestModule.Clause") };
+        var node = CreateFunctionNode("m", "m(_:_:)", funcSelfKind: null,
+            children: new[] { MakeTypeNode("()"), MakeTypeNode("Swift.Int"), array });
+
+        Assert.Equal("Int,Clause", SwiftABIParser.ComputeAbiParamSignature(node, new[] { false, true }));
+        Assert.Equal("Int,Array<Clause>", SwiftABIParser.ComputeAbiParamSignature(node, new[] { false, false }));
+    }
+
+    [Theory]
+    // Twin overloads told apart only by variadic-vs-array spelling, each with its own typed-throws
+    // error, staged under exactly the keys the interface producer writes for them. On a protocol the
+    // members are also method-level generic, so their ABI signatures spell `τ_1_0` where the
+    // producer spells `O`.
+    [InlineData("Source", "first(_:_:)",
+        "$s10TestModule6SourceP5firstyqd__SgAA3BoxVyqd__G_AA6Clause_pdtAA11LoaderErrorOYKlF",
+        "$s10TestModule6SourceP5firstyqd__SgAA3BoxVyqd__G_SayAA6Clause_pGtAA10OtherErrorOYKlF",
+        "Source.first(_:_:)|Box<O>,Clause", "Source.first(_:_:)|Box<O>,Array<Clause>")]
+    [InlineData("Tally", "sum(_:)",
+        "$s10TestModule5TallyC3sumyS2id_tAA11LoaderErrorOYKF",
+        "$s10TestModule5TallyC3sumySiSaySiGAA10OtherErrorOYKF",
+        "Tally.sum(_:)|Int", "Tally.sum(_:)|Array<Int>")]
+    public void ParseModule_VariadicAndArrayTwins_EachGetTheirOwnTypedThrows(
+        string typeName, string printedName, string variadicMangled, string arrayMangled,
+        string variadicKey, string arrayKey)
+    {
+        var typeNode = JsonConvert.DeserializeObject<Node>(TypedThrowsTwinsAbi[typeName])!;
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            TypedThrowsErrors = new Dictionary<string, string>
+            {
+                [variadicKey] = "TestModule.LoaderError",
+                [arrayKey] = "TestModule.OtherError",
+            },
+        };
+
+        using var fixture = CreateParserWithFacts(facts, typeNode);
+        var type = Assert.Single(fixture.Parser.ParseModule().ModuleDecl.Types);
+
+        var variadic = type.Methods.Single(m => m.MangledName == variadicMangled);
+        var array = type.Methods.Single(m => m.MangledName == arrayMangled);
+        Assert.Equal(printedName.Split('(')[0], variadic.Name);
+        Assert.True(variadic.HasVariadicParameter);
+        Assert.False(array.HasVariadicParameter);
+        Assert.Equal("TestModule.LoaderError", SwiftTypeNameHelper.GetSwiftTypeName(variadic.ThrownErrorType!));
+        Assert.Equal("TestModule.OtherError", SwiftTypeNameHelper.GetSwiftTypeName(array.ThrownErrorType!));
+    }
+
+    // Trimmed from the ABI descriptor `swift-frontend -compile-module-from-interface` writes for:
+    //     public protocol Source: AnyObject {
+    //       func first<O>(_ from: Box<O>, _ clauses: any Clause...) throws(LoaderError) -> O?
+    //       func first<O>(_ from: Box<O>, _ clauses: [any Clause]) throws(OtherError) -> O?
+    //     }
+    //     public final class Tally {
+    //       public func sum(_ values: Int...) throws(LoaderError) -> Int
+    //       public func sum(_ values: [Int]) throws(OtherError) -> Int
+    //     }
+    private static readonly Dictionary<string, string> TypedThrowsTwinsAbi = new()
+    {
+        ["Source"] = """
+            {"kind":"TypeDecl","declKind":"Protocol","name":"Source","printedName":"Source","moduleName":"TestModule",
+             "mangledName":"$s10TestModule6SourceP","genericSig":"<τ_0_0 : AnyObject>","sugared_genericSig":"<Self : AnyObject>",
+             "declAttributes":["AccessControl"],
+             "children":[
+              {"kind":"Function","declKind":"Func","name":"first","printedName":"first(_:_:)","moduleName":"TestModule",
+               "mangledName":"$s10TestModule6SourceP5firstyqd__SgAA3BoxVyqd__G_AA6Clause_pdtAA11LoaderErrorOYKlF",
+               "genericSig":"<τ_0_0, τ_1_0 where τ_0_0 : TestModule.Source>","sugared_genericSig":"<Self, O where Self : TestModule.Source>",
+               "protocolReq":true,"throwing":true,"funcSelfKind":"NonMutating",
+               "children":[
+                {"kind":"TypeNominal","name":"Optional","printedName":"τ_1_0?","children":[{"kind":"TypeNominal","name":"GenericTypeParam","printedName":"τ_1_0"}]},
+                {"kind":"TypeNominal","name":"Box","printedName":"TestModule.Box<τ_1_0>","children":[{"kind":"TypeNominal","name":"GenericTypeParam","printedName":"τ_1_0"}]},
+                {"kind":"TypeNominal","name":"Array","printedName":"[any TestModule.Clause]","children":[{"kind":"TypeNominal","name":"Clause","printedName":"any TestModule.Clause"}]}]},
+              {"kind":"Function","declKind":"Func","name":"first","printedName":"first(_:_:)","moduleName":"TestModule",
+               "mangledName":"$s10TestModule6SourceP5firstyqd__SgAA3BoxVyqd__G_SayAA6Clause_pGtAA10OtherErrorOYKlF",
+               "genericSig":"<τ_0_0, τ_1_0 where τ_0_0 : TestModule.Source>","sugared_genericSig":"<Self, O where Self : TestModule.Source>",
+               "protocolReq":true,"throwing":true,"funcSelfKind":"NonMutating",
+               "children":[
+                {"kind":"TypeNominal","name":"Optional","printedName":"τ_1_0?","children":[{"kind":"TypeNominal","name":"GenericTypeParam","printedName":"τ_1_0"}]},
+                {"kind":"TypeNominal","name":"Box","printedName":"TestModule.Box<τ_1_0>","children":[{"kind":"TypeNominal","name":"GenericTypeParam","printedName":"τ_1_0"}]},
+                {"kind":"TypeNominal","name":"Array","printedName":"[any TestModule.Clause]","children":[{"kind":"TypeNominal","name":"Clause","printedName":"any TestModule.Clause"}]}]}]}
+            """,
+        ["Tally"] = """
+            {"kind":"TypeDecl","declKind":"Class","name":"Tally","printedName":"Tally","moduleName":"TestModule",
+             "mangledName":"$s10TestModule5TallyC","declAttributes":["Final","AccessControl"],
+             "children":[
+              {"kind":"Function","declKind":"Func","name":"sum","printedName":"sum(_:)","moduleName":"TestModule",
+               "mangledName":"$s10TestModule5TallyC3sumyS2id_tAA11LoaderErrorOYKF","throwing":true,"funcSelfKind":"NonMutating",
+               "declAttributes":["AccessControl"],
+               "children":[
+                {"kind":"TypeNominal","name":"Int","printedName":"Swift.Int"},
+                {"kind":"TypeNominal","name":"Array","printedName":"[Swift.Int]","children":[{"kind":"TypeNominal","name":"Int","printedName":"Swift.Int"}]}]},
+              {"kind":"Function","declKind":"Func","name":"sum","printedName":"sum(_:)","moduleName":"TestModule",
+               "mangledName":"$s10TestModule5TallyC3sumySiSaySiGAA10OtherErrorOYKF","throwing":true,"funcSelfKind":"NonMutating",
+               "declAttributes":["AccessControl"],
+               "children":[
+                {"kind":"TypeNominal","name":"Int","printedName":"Swift.Int"},
+                {"kind":"TypeNominal","name":"Array","printedName":"[Swift.Int]","children":[{"kind":"TypeNominal","name":"Int","printedName":"Swift.Int"}]}]}]}
+            """,
+    };
+
     [Fact]
     public void ParseModule_OverloadedMembers_AvailabilityAppliesOnlyToMatchingSignature()
     {

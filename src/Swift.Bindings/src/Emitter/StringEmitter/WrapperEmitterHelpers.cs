@@ -228,7 +228,7 @@ public static class WrapperEmitterHelpers
         if (keys.Count == 0)
             return;
         swiftWriter.WriteLine(
-            $"guard #available({string.Join(", ", keys)}, *) else {{ fatalError(\"[SwiftBindings] {memberDescription} " +
+            $"guard #available({string.Join(", ", keys)}, *) else {{ Swift.fatalError(\"[SwiftBindings] {memberDescription} " +
             $"marshals a parameterized protocol type, which needs runtime support from {string.Join(", ", keys)} or newer\") }}");
     }
 

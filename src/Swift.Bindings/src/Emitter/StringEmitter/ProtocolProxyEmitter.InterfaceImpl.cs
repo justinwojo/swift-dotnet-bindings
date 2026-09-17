@@ -1781,7 +1781,7 @@ public partial class ProtocolProxyEmitter
                 writer.Indent++;
 
                 // Declare pin handles before try for exception-safe cleanup
-                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
                 bool needsOuterTry = pinHandles.Count > 0;
 
                 if (needsOuterTry)
@@ -1792,7 +1792,7 @@ public partial class ProtocolProxyEmitter
                 }
 
                 // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
-                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
                 // Build P/Invoke call
                 var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
@@ -1876,7 +1876,7 @@ public partial class ProtocolProxyEmitter
                 writer.Indent++;
 
                 // Declare pin handles before try for exception-safe cleanup
-                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+                var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
                 bool needsOuterTry = pinHandles.Count > 0;
 
                 if (needsOuterTry)
@@ -1887,7 +1887,7 @@ public partial class ProtocolProxyEmitter
                 }
 
                 // Marshal each parameter — String via GCHandle-pinned Utf8Slice, blittable via copy
-                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+                EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
                 var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
                 pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
@@ -2137,7 +2137,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -2148,7 +2148,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
         // Build P/Invoke call args
         var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
@@ -2489,7 +2489,7 @@ public partial class ProtocolProxyEmitter
             writer.Indent++;
 
             // Declare pin handles before try for exception-safe cleanup
-            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
             bool needsOuterTry = pinHandles.Count > 0;
 
             if (needsOuterTry)
@@ -2500,7 +2500,7 @@ public partial class ProtocolProxyEmitter
             }
 
             // Marshal each parameter
-            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
             // Build P/Invoke call args
             var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
@@ -2591,7 +2591,7 @@ public partial class ProtocolProxyEmitter
             writer.Indent++;
 
             // Declare pin handles before try for exception-safe cleanup
-            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+            var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
             bool needsOuterTry = pinHandles.Count > 0;
 
             if (needsOuterTry)
@@ -2601,7 +2601,7 @@ public partial class ProtocolProxyEmitter
                 writer.Indent++;
             }
 
-            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+            EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
             var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
             pInvokeArgs.AddRange(SliceArguments(argNames.Count, bodyScope));
@@ -2666,7 +2666,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -2677,7 +2677,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
         // Build P/Invoke call args
         var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };
@@ -2772,7 +2772,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -2783,7 +2783,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
         // Build P/Invoke call args: containerPtr + resultBuf + params + errorOut
         // resultBuf inserted below after buffer allocation
@@ -2873,11 +2873,14 @@ public partial class ProtocolProxyEmitter
     /// All params end up as arg{i}Slice for uniform pointer passing.
     /// Handle variables must be pre-declared by EmitPinHandleDeclarations before the enclosing try block.
     /// </summary>
-    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, WitnessDispatchEmitter? dispatchEmitter = null, IReadOnlySet<int>? includedIndexes = null)
+    private static void EmitMethodParameterMarshalling(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, WitnessDispatchEmitter? dispatchEmitter = null, IReadOnlySet<int>? includedIndexes = null, MethodDecl? method = null)
     {
+        var inOutIndexes = InOutSlotIndexes(method, dispatchEmitter, paramSwiftTypeSpecs);
         for (int i = 0; i < argNames.Count; i++)
         {
             if (includedIndexes != null && !includedIndexes.Contains(i))
+                continue;
+            if (inOutIndexes.Contains(i))
                 continue;
             var sliceName = SliceLocal(bodyScope, i);
             if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
@@ -2929,15 +2932,43 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Emits GCHandle.Free() calls for pinned string parameter handles.
-    /// Uses IsAllocated check for exception-safe cleanup.
+    /// Emits the cleanup statements <see cref="EmitPinHandleDeclarations"/> collected: GCHandle frees
+    /// for pinned string parameters, and the read-back of every <c>inout</c> slot into its <c>ref</c>
+    /// parameter.
     /// </summary>
-    private static void EmitPinHandleCleanup(CSharpWriter writer, List<string> pinHandles)
+    private static void EmitPinHandleCleanup(CSharpWriter writer, List<string> cleanupStatements)
     {
-        foreach (var handle in pinHandles)
+        foreach (var statement in cleanupStatements)
         {
-            writer.WriteLine($"if ({handle}.IsAllocated) {handle}.Free();");
+            writer.WriteLine(statement);
         }
+    }
+
+    /// <summary>
+    /// Indexes of the dispatched parameters of <paramref name="method"/> that are <c>inout</c> and lent
+    /// to Swift as a slot declared ahead of the dispatch try block. An indirect struct is not among them:
+    /// its payload pointer already addresses storage Swift mutates in place, so it marshals like a
+    /// by-value struct and needs no read-back.
+    /// </summary>
+    private static HashSet<int> InOutSlotIndexes(MethodDecl? method, WitnessDispatchEmitter? dispatchEmitter, List<TypeSpec?> paramSwiftTypeSpecs)
+    {
+        var indexes = new HashSet<int>();
+        if (method is null || dispatchEmitter is null)
+            return indexes;
+        var dispatched = method.CSSignature.Skip(1)
+            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
+            .ToList();
+        for (int i = 0; i < dispatched.Count && i < paramSwiftTypeSpecs.Count; i++)
+        {
+            if (!dispatched[i].IsInOut)
+                continue;
+            // String is checked first, as the Swift accessor does: it lowers to a String cell,
+            // never to the indirect-struct payload it would otherwise classify as.
+            if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i])
+                || !dispatchEmitter.IsIndirectStructType(paramSwiftTypeSpecs[i]))
+                indexes.Add(i);
+        }
+        return indexes;
     }
 
     /// <summary>
@@ -2945,21 +2976,49 @@ public partial class ProtocolProxyEmitter
     /// This ensures handles can be safely checked with IsAllocated in finally blocks
     /// even if an exception occurs during allocation of subsequent handles.
     /// </summary>
-    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, IReadOnlySet<int>? includedIndexes = null)
+    private static List<string> EmitPinHandleDeclarations(CSharpWriter writer, List<string> argNames, List<TypeSpec?> paramSwiftTypeSpecs, SyntheticNameScope bodyScope, IReadOnlySet<int>? includedIndexes = null, MethodDecl? method = null, WitnessDispatchEmitter? dispatchEmitter = null)
     {
-        var pinHandles = new List<string>();
+        var cleanupStatements = new List<string>();
+        var inOutIndexes = InOutSlotIndexes(method, dispatchEmitter, paramSwiftTypeSpecs);
         for (int i = 0; i < argNames.Count; i++)
         {
             if (includedIndexes != null && !includedIndexes.Contains(i))
                 continue;
+            if (inOutIndexes.Contains(i))
+            {
+                // Swift mutates an inout slot in place and leaves it holding the value it last
+                // assigned whether the requirement returns or throws, so the read-back sits in the
+                // finally. Declaring the slot here, ahead of the try, keeps it in scope there.
+                var sliceName = SliceLocal(bodyScope, i);
+                var arg = argNames[i];
+                if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
+                {
+                    writer.WriteLine($"var {sliceName} = global::Swift.Runtime.InteropServices.SwiftMarshal.AllocateInOutStringCell({arg});");
+                    cleanupStatements.Add($"{arg} = global::Swift.Runtime.InteropServices.SwiftMarshal.TakeInOutStringCell({sliceName});");
+                }
+                else if (dispatchEmitter!.IsSwiftClassType(paramSwiftTypeSpecs[i]))
+                {
+                    // The slot owns a +1 of its own: Swift releases it when assigning a new instance,
+                    // and the read-back adopts whichever +1 the slot holds afterwards.
+                    writer.WriteLine($"var {sliceName} = {arg}.Payload.DangerousGetHandle();");
+                    writer.WriteLine($"global::Swift.Runtime.Arc.UnknownObjectRetain({sliceName});");
+                    cleanupStatements.Add($"global::Swift.Runtime.InteropServices.SwiftMarshal.AdoptInOutClassReference(ref {arg}, {sliceName});");
+                }
+                else
+                {
+                    writer.WriteLine($"var {sliceName} = {arg};");
+                    cleanupStatements.Add($"{arg} = {sliceName};");
+                }
+                continue;
+            }
             if (WitnessDispatchEmitter.IsStringDispatchType(paramSwiftTypeSpecs[i]))
             {
                 var handleName = bodyScope.Mint($"arg{i}Handle");
                 writer.WriteLine($"var {handleName} = default(GCHandle);");
-                pinHandles.Add(handleName);
+                cleanupStatements.Add($"if ({handleName}.IsAllocated) {handleName}.Free();");
             }
         }
-        return pinHandles;
+        return cleanupStatements;
     }
 
     /// <summary>
@@ -3118,7 +3177,7 @@ public partial class ProtocolProxyEmitter
         writer.Indent++;
 
         // Declare pin handles before try for exception-safe cleanup
-        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope);
+        var pinHandles = EmitPinHandleDeclarations(writer, argNames, paramSwiftTypeSpecs, bodyScope, method: method, dispatchEmitter: dispatchEmitter);
         bool needsOuterTry = pinHandles.Count > 0;
 
         if (needsOuterTry)
@@ -3129,7 +3188,7 @@ public partial class ProtocolProxyEmitter
         }
 
         // Marshal each parameter
-        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter);
+        EmitMethodParameterMarshalling(writer, argNames, paramSwiftTypeSpecs, bodyScope, dispatchEmitter, method: method);
 
         // Build P/Invoke call args
         var pInvokeArgs = new List<string> { $"(IntPtr){containerPtrName}" };

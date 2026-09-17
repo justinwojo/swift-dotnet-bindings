@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
@@ -88,5 +89,50 @@ public class VariadicResultBuilderTests : TestBase
         var count = ExistentialVariadicBuilder.BuildBlock();
 
         AssertEqual(0, (int)count, "Zero-children buildBlock() returns 0");
+    }
+
+    // A generic caseless enum builder projects as a generic static class whose entry points live
+    // on the non-generic helper holder. Its statics take each generic parameter's own metadata
+    // (a value type's metatype self is thin), so these round-trips prove both the placement and
+    // the metadata argument.
+    public void TestGenericCaselessBuilder_ElementExpression()
+    {
+        var ints = ElementArrayBuilder<int>.BuildExpressionWithElement(7);
+        AssertEqual(1, ints.Count, "BuildExpression(Element) wraps one element");
+        AssertEqual(7, ints[0], "BuildExpression(Element) preserves the value");
+
+        using var epoxy = new SwiftString("epoxy");
+        var strings = ElementArrayBuilder<SwiftString>.BuildExpressionWithElement(epoxy);
+        AssertEqual(1, strings.Count, "BuildExpression(Element) wraps a non-trivial element");
+        AssertEqual("epoxy", strings[0].ToString(), "BuildExpression(Element) preserves the string");
+    }
+
+    public void TestGenericCaselessBuilder_ArrayExpressionAndBlock()
+    {
+        var expression = ElementArrayBuilder<int>.BuildExpression(new[] { 1, 2 });
+        AssertEqual("1,2", string.Join(",", expression), "BuildExpression([Element]) passes the array through");
+
+        var block = ElementArrayBuilder<SwiftString>.BuildBlock(new[]
+        {
+            new[] { new SwiftString("a") },
+            new[] { new SwiftString("b"), new SwiftString("c") },
+        });
+        AssertEqual("a,b,c", string.Join(",", block), "BuildBlock([Element]...) flattens in order");
+    }
+
+    public void TestGenericCaselessBuilder_OptionalElementExpression()
+    {
+        AssertEqual(0, ElementArrayBuilder<SwiftString>.BuildExpressionWithOptionalElement(null).Count,
+            "BuildExpression(Element?) with nil is empty");
+        using var some = new SwiftString("some");
+        AssertEqual("some", string.Join(",", ElementArrayBuilder<SwiftString>.BuildExpressionWithOptionalElement(some)),
+            "BuildExpression(Element?) with a value wraps it");
+    }
+
+    public void TestGenericCaselessBuilder_OptionalChildren()
+    {
+        AssertEqual(0, ElementArrayBuilder<int>.BuildOptional(null).Count, "BuildOptional(nil) is empty");
+        AssertEqual("4,5", string.Join(",", ElementArrayBuilder<int>.BuildOptional(new[] { 4, 5 })),
+            "BuildOptional(some) passes the children through");
     }
 }
