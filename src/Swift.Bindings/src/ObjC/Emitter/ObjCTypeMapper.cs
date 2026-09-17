@@ -146,6 +146,10 @@ public static class ObjCTypeMapper
                     GenericArgs = [.. resolved.GenericArgs],
                     BlockReturnType = resolved.BlockReturnType,
                     IsBlock = resolved.IsBlock,
+                    // Pointer to a function(-pointer) typedef or an anonymous record: the address
+                    // still binds as IntPtr, which only the carried shape flag can tell step 0a.
+                    IsFunctionPointer = resolved.IsFunctionPointer,
+                    IsAnonymousRecord = resolved.IsAnonymousRecord,
                 };
                 withPointer.BlockParams.AddRange(resolved.BlockParams);
                 return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);

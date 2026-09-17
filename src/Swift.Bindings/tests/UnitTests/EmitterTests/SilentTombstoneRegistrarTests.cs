@@ -175,6 +175,92 @@ public class SilentTombstoneRegistrarTests
     }
 
     [Fact]
+    public void Precompute_NestedTypeUnderUnderscoreSuppressedParent_NotRegistered()
+    {
+        // Nested types are dispatched only from inside their parent's handler, so a parent
+        // HandleBaseDecl suppresses never emits its children at all. A member-less nested type
+        // under such a parent (an internal hash table's storage, header and iterator helpers,
+        // reachable through @usableFromInline) would otherwise be registered here with no
+        // matching opaque emission and trip AssertSilentTombstoneInvariant.
+        var moduleDecl = BuildModule();
+        var parent = BuildStruct(moduleDecl, "_Table", withSkippedMember: false);
+        AddNestedMemberlessStruct(moduleDecl, parent, "Storage");
+        moduleDecl.Types.Add(parent);
+
+        var ctx = new ModuleEmissionContext();
+        ctx.SetUnderscoreSuppressedNames(new HashSet<string> { "TestModule._Table" });
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.False(ctx.IsSilentTombstone("TestModule._Table.Storage"));
+    }
+
+    [Fact]
+    public void Precompute_NestedTypeUnderSpiParent_NotRegistered()
+    {
+        // Same subtree rule as the underscore case, for the @_spi gate.
+        var moduleDecl = BuildModule();
+        var parent = BuildStruct(moduleDecl, "SpiParent", withSkippedMember: false);
+        parent.IsSpiProtected = true;
+        AddNestedMemberlessStruct(moduleDecl, parent, "Inner");
+        moduleDecl.Types.Add(parent);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.False(ctx.IsSilentTombstone("TestModule.SpiParent.Inner"));
+    }
+
+    [Fact]
+    public void Precompute_NestedTypeUnderSingleCaseEnum_NotRegistered()
+    {
+        // EnumHandler returns for a single-case payload-less enum before it dispatches the
+        // enum's nested types, so nothing under it is emitted.
+        var moduleDecl = BuildModule();
+        var parent = BuildEnum(moduleDecl, "Unit", cases: new() { BuildCase("only") }, withSkippedGenericMethod: false);
+        AddNestedMemberlessStruct(moduleDecl, parent, "Inner");
+        moduleDecl.Types.Add(parent);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.False(ctx.IsSilentTombstone("TestModule.Unit.Inner"));
+    }
+
+    [Fact]
+    public void Precompute_NestedTypeUnderEmittedParent_Registered()
+    {
+        // Positive control for the subtree rule: an ordinary parent dispatches its nested
+        // types, so a member-less nested type still takes the opaque branch.
+        var moduleDecl = BuildModule();
+        var parent = BuildStruct(moduleDecl, "Outer", withSkippedMember: false);
+        AddNestedMemberlessStruct(moduleDecl, parent, "Inner");
+        moduleDecl.Types.Add(parent);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.True(ctx.IsSilentTombstone("TestModule.Outer.Inner"));
+    }
+
+    [Fact]
+    public void Precompute_ForeignTypeNestedUnderExtensionReceiver_RegisteredLikeLocalType()
+    {
+        // The handlers route a foreign type through the cross-module extension path only
+        // when it is top-level. A type declared inside `extension Owner.Holder { ... }` is
+        // owned by this module and goes through the normal path, opaque branch included.
+        var moduleDecl = BuildModule("ExtensionModule");
+        var parent = BuildStruct(moduleDecl, "Holder", withSkippedMember: false);
+        parent.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OwnerModule.Holder");
+        AddNestedMemberlessStruct(moduleDecl, parent, "Inner");
+        moduleDecl.Types.Add(parent);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.True(ctx.IsSilentTombstone("OwnerModule.Holder.Inner"));
+    }
+
+    [Fact]
     public void Precompute_SpiProtectedStruct_NotRegistered()
     {
         // HandleBaseDecl suppresses @_spi types — they never emit a C# type,
@@ -381,6 +467,14 @@ public class SilentTombstoneRegistrarTests
         ParentDecl = moduleDecl,
         ModuleDecl = moduleDecl,
     };
+
+    private static void AddNestedMemberlessStruct(ModuleDecl moduleDecl, TypeDecl parent, string name)
+    {
+        var nested = BuildStruct(moduleDecl, name, withSkippedMember: true);
+        nested.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{parent.SwiftTypeName.ModuleQualifiedName}.{name}");
+        nested.ParentDecl = parent;
+        parent.Types.Add(nested);
+    }
 
     private static EnumDecl BuildEnum(
         ModuleDecl moduleDecl,

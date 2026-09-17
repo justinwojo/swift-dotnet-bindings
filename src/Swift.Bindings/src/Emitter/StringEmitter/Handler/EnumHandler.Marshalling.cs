@@ -118,8 +118,10 @@ namespace BindingsGeneration
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
                 if (protocolList != null)
                 {
-                    var protocolCount = protocolList.Protocols.Count;
-                    csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetExistentialTypeMetadata({protocolCount});");
+                    // Marker protocols (Sendable, Copyable, ...) carry no witness table, so they do not
+                    // count toward the existential's layout: `any Sendable` is the zero-witness `Any` type.
+                    var witnessTableCount = ExistentialHandler.GetNonMarkerProtocols(protocolList).Count;
+                    csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetExistentialTypeMetadata({witnessTableCount});");
                     return;
                 }
             }
@@ -308,7 +310,12 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktOffset))
+                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    {
+                        EmitZeroWitnessExistentialPayloadExtraction(csWriter, varName,
+                            sourcePtrExpr: $"{sourcePtr} + (int){offsetVar}", declareVar: false);
+                    }
+                    else if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktOffset))
                     {
                         // Well-known protocol (Swift.Error): `any Error` is a single boxed reference,
                         // so read only the 8-byte box pointer into Payload0 rather than over-reading a
@@ -520,7 +527,12 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktMarshal))
+                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    {
+                        EmitZeroWitnessExistentialPayloadExtraction(csWriter, varName,
+                            sourcePtrExpr: sourcePtr, declareVar: false);
+                    }
+                    else if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktMarshal))
                     {
                         // Well-known protocol (Swift.Error): `any Error` is a single boxed reference,
                         // so read only the 8-byte box pointer into Payload0 rather than over-reading a
@@ -784,7 +796,12 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktDecl))
+                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    {
+                        EmitZeroWitnessExistentialPayloadExtraction(csWriter, varName,
+                            sourcePtrExpr: sourcePtr, declareVar: true);
+                    }
+                    else if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktDecl))
                     {
                         // Well-known protocol (Swift.Error): `any Error` is a single boxed reference,
                         // so read only the 8-byte box pointer into Payload0 rather than over-reading a
@@ -956,6 +973,35 @@ namespace BindingsGeneration
             csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free(__{varName}_heap);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
+        /// <summary>
+        /// Zero-witness existential payload (bare <c>Any</c>, or a marker-only composition such as
+        /// <c>any Sendable</c>): the payload is an <c>ExistentialContainer0</c> projected to <c>object</c>.
+        /// <c>ExistentialContainer0.Unbox</c> copies the contained value out rather than adopting it,
+        /// so the +1 the enclosing enum copy left on the payload is released here with the
+        /// existential's own value witnesses. The enum-copy buffer is never destroyed as a whole, so
+        /// without this release every extraction of a reference-counted value would leak it. The
+        /// release sits in a finally because Unbox throws for a contained type it cannot project.
+        /// </summary>
+        private static void EmitZeroWitnessExistentialPayloadExtraction(CSharpWriter csWriter, string varName, string sourcePtrExpr, bool declareVar)
+        {
+            if (declareVar)
+                csWriter.WriteLine($"object {varName};");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer0>(new IntPtr({sourcePtrExpr}));");
+            csWriter.WriteLine($"{varName} = Swift.Runtime.ExistentialContainer0.Unbox(_{varName}_raw);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var __{varName}_meta = global::Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(0);");
+            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{varName}_meta);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

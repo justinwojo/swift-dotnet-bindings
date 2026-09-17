@@ -64,6 +64,21 @@ public class ObjCUmbrellaFixtureTests : TestBase
         AssertEqual(12, ObjCUmbrellaFunctions.OUExportedTriple(4), "exported C function round-trips");
     }
 
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    static int CombineDigits(int lhs, int rhs) => lhs * 10 + rhs;
+
+    /// <summary>
+    /// Shape 16 — a pointer to a function-TYPE typedef binds as <c>IntPtr</c> in parameter and
+    /// struct-field position, and the address a managed caller hands over is callable from native.
+    /// </summary>
+    public unsafe void TestFunctionTypeTypedefPointerIsCallable()
+    {
+        var op = (IntPtr)(delegate* unmanaged[Cdecl]<int, int, int>)&CombineDigits;
+        AssertEqual(34, ObjCUmbrellaFunctions.OUApplyBinaryOp(op, 3, 4), "native calls back through the parameter");
+        var table = new OUOpTable { Op = op, Bias = 100 };
+        AssertEqual(156, ObjCUmbrellaFunctions.OUApplyOpTable(table, 5, 6), "native calls back through the struct field");
+    }
+
     /// <summary>
     /// Shape 13 — <c>extern</c> constants read their real native values.
     ///

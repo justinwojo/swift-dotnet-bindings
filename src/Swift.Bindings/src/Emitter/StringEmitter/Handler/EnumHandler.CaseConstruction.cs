@@ -528,11 +528,15 @@ namespace BindingsGeneration
                             var heapName = bodyScope.Mint($"{bareName}Heap");
                             var containerType = preScanHandler.GetCSharpExistentialType(protocolList);
                             bool hasTypeRecords = preScanHandler.AllProtocolsHaveTypeRecords(protocolList);
+                            // A zero-witness existential (bare Any, `any Sendable`) is boxed by
+                            // ExistentialContainer0.Box, which always yields an owned +1 container.
+                            bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
                             bool owningCandidate =
+                                !zeroWitness &&
                                 hasTypeRecords &&
                                 containerType == "Swift.Runtime.ExistentialContainer1" &&
                                 !preScanHandler.TryGetWellKnownProtocolType(protocolList, out _);
-                            string? ownsVar = owningCandidate ? bodyScope.Mint($"{bareName}Owns") : null;
+                            string? ownsVar = owningCandidate || zeroWitness ? bodyScope.Mint($"{bareName}Owns") : null;
                             // Change 4 (B2): an auto-wrapped proxy is registered WEAKLY now, so
                             // nothing strong roots it across the native call. Capture it here and
                             // GC.KeepAlive it in the finally so the proxy (and its construction-time
@@ -543,11 +547,15 @@ namespace BindingsGeneration
                             //    itself IS the proxy (no auto-wrap), so pin the param directly — no backing
                             //    local. (Unknown protocols with no records pass a raw blittable container
                             //    with no R0 to protect, so no pin.)
+                            //  - Zero-witness: Box copies the value into the container, so there is no
+                            //    managed peer whose lifetime the native call depends on.
                             string? keepAliveVar =
                                 owningCandidate ? bodyScope.Mint($"{bareName}KeepAlive")
-                                : hasTypeRecords ? name
+                                : hasTypeRecords && !zeroWitness ? name
                                 : null;
-                            existentialHeaps.Add((heapName, ownsVar, protocolList.Protocols.Count, keepAliveVar));
+                            // The destroy runs with the container's layout metadata, and marker protocols
+                            // contribute no witness table to that layout.
+                            existentialHeaps.Add((heapName, ownsVar, ExistentialHandler.GetNonMarkerProtocols(protocolList).Count, keepAliveVar));
                             csWriter.WriteLine($"void* {heapName} = null;");
                             if (ownsVar != null)
                                 csWriter.WriteLine($"bool {ownsVar} = false;");
@@ -588,7 +596,15 @@ namespace BindingsGeneration
                         if (protocolList != null)
                         {
                             var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                            if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
+                            bool boxesZeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+                            if (boxesZeroWitness)
+                            {
+                                // Zero-witness existential (bare Any, `any Sendable`): the public type is
+                                // `object`, boxed into an owned ExistentialContainer0 — the same arm a
+                                // method parameter of that type takes.
+                                csWriter.WriteLine($"var {bodyScope.Mint($"{bareName}Container")} = Swift.Runtime.ExistentialContainer0.Box({name});");
+                            }
+                            else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                             {
                                 // GetOrCreate only works for single-protocol (EC1) interfaces.
                                 if (containerType == "Swift.Runtime.ExistentialContainer1" && !existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
@@ -631,9 +647,13 @@ namespace BindingsGeneration
                             }
                             // Heap-allocate the container to avoid NativeAOT stack reuse issues
                             // (same fix as WrapperEmitter.EmitExistentialContainerMarshalling)
-                            var heapName = existentialHeaps[existentialIndex++].HeapName;
+                            var heapInfo = existentialHeaps[existentialIndex++];
+                            var heapName = heapInfo.HeapName;
                             csWriter.WriteLine($"{heapName} = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
                             csWriter.WriteLine($"Unsafe.Copy({heapName}, ref {bodyScope.Mint($"{bareName}Container")});");
+                            // The heap now holds the boxed +1; the finally releases it after the call.
+                            if (boxesZeroWitness)
+                                csWriter.WriteLine($"{heapInfo.OwnsVar} = true;");
                         }
                     }
                     else if (typeSpec is TupleTypeSpec)
@@ -1079,6 +1099,10 @@ namespace BindingsGeneration
             if (existentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                // Zero-witness existentials (bare Any, `any Sendable`) project to `object` through
+                // ExistentialContainer0.Box/Unbox, as they do in every other member position.
+                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    return "object";
                 if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
                     return existentialHandler.GetPublicExistentialType(protocolList);
@@ -1088,6 +1112,8 @@ namespace BindingsGeneration
             // Handle protocol list types (protocol composition)
             if (typeSpec is ProtocolListTypeSpec protocolListSpec)
             {
+                if (ExistentialHandler.IsZeroWitnessExistential(protocolListSpec))
+                    return "object";
                 if (existentialHandler.AllProtocolsHaveTypeRecords(protocolListSpec))
                 {
                     return existentialHandler.GetPublicExistentialType(protocolListSpec);
@@ -1174,6 +1200,10 @@ namespace BindingsGeneration
             if (existentialHandler.IsExistential(typeSpec))
             {
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                // Zero-witness existential (bare Any, `any Sendable`): the `object` argument is boxed.
+                // The case constructor takes its payload owned, so the call consumes the box's +1.
+                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    return $"Swift.Runtime.ExistentialContainer0.Box({paramName})";
                 if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);

@@ -3343,6 +3343,92 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("IError", csOutput);
     }
 
+    public static TheoryData<string, ProtocolListTypeSpec> ZeroWitnessExistentials => new()
+    {
+        { "any Sendable", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") }) },
+        { "Any", new ProtocolListTypeSpec() },
+    };
+
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
+    public void Emit_TryGetWithZeroWitnessExistential_UnboxesAndReleasesPayload(string shape, ProtocolListTypeSpec payload)
+    {
+        // A marker-only existential has no witness table and no proxy: it is the `Any` layout,
+        // projected to `object`. The SwiftDraw `invalidAttribute(value: any Sendable)` shape used to
+        // construct a `SendableProxy` no emitter writes (CS0246).
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ParseError", moduleDecl, isFrozen: true);
+
+        var valueCase = CreateCase("invalid");
+        valueCase.AssociatedValues.Add(payload);
+        enumDecl.Cases.Add(valueCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.DoesNotContain("SendableProxy", csOutput);
+        Assert.Contains("TryGetInvalid([MaybeNullWhen(false)] out object ", csOutput);
+        Assert.Contains("ExistentialContainer0.Unbox(", csOutput);
+        // Unbox copies, so the enum copy's +1 on the payload is released with the Any witnesses.
+        Assert.Contains("GetExistentialTypeMetadata(0)", csOutput);
+        Assert.Contains("ValueWitnessTable->Destroy(", csOutput);
+        _ = shape;
+    }
+
+    [Fact]
+    public void Emit_LabeledTupleWithMarkerExistential_UsesZeroWitnessElementMetadata()
+    {
+        // `case invalidAttribute(name: String, value: any Sendable)`: the tuple metadata accessor must
+        // describe the element as the zero-witness existential. Counting the marker protocol asked
+        // for a one-witness container, whose layout is a word wider than the payload.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ParseError", moduleDecl, isFrozen: true);
+
+        var attributeCase = CreateCase("invalidAttribute");
+        attributeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.String") { TypeLabel = "name" });
+        attributeCase.AssociatedValues.Add(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") }) { TypeLabel = "value" });
+        enumDecl.Cases.Add(attributeCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.DoesNotContain("SendableProxy", csOutput);
+        Assert.Contains("GetExistentialTypeMetadata(0)", csOutput);
+        Assert.DoesNotContain("GetExistentialTypeMetadata(1)", csOutput);
+        Assert.Contains("out object value", csOutput);
+        Assert.Contains("ExistentialContainer0.Unbox(", csOutput);
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
+    public void Emit_CdeclEnumCaseFactoryWithZeroWitnessExistential_BoxesAndReleasesOwnedContainer(string shape, ProtocolListTypeSpec payload)
+    {
+        // The factory takes `object` and boxes it; Box yields an owned +1 that the borrowing
+        // @_cdecl wrapper copies, so the finally must destroy it (owns-bit set) with the zero-witness
+        // layout. A cast to ISwiftExistentialConvertible would throw for every boxed C# value.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ParseError", moduleDecl, isFrozen: false);
+
+        var valueCase = CreateCase("invalid");
+        valueCase.AssociatedValues.Add(payload);
+        enumDecl.Cases.Add(valueCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public static unsafe ParseError Invalid(object ", csOutput);
+        Assert.Contains("ExistentialContainer0.Box(", csOutput);
+        Assert.DoesNotContain("ISwiftExistentialConvertible", csOutput);
+        Assert.Matches(@"\w+Owns = true;", csOutput);
+        Assert.Matches(@"DestroyAndFreeExistential\(\w+, 0, \w+Owns\)", csOutput);
+        _ = shape;
+    }
+
     [Fact]
     public void Emit_TryGetWithExistentialProxy_WrapsInProxy()
     {

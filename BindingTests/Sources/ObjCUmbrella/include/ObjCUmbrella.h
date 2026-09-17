@@ -424,4 +424,24 @@ typedef NS_ENUM(NSInteger, OUSourceKind) {
 @property(class, readonly, getter=newProperty) OUOwnershipToken *familyProperty;
 @end
 
+// MARK: - Shape 16 — a typedef that names a C function TYPE, used through a pointer.
+//
+// `typedef int32_t OUBinaryOp(int32_t, int32_t);` has no `(*)`: the pointer is written at each use
+// (`OUBinaryOp *op`). Clang prints the typedef's underlying type as `int32_t (int32_t, int32_t)`,
+// and before the parser recognized that spelling the declarator text flowed straight into
+// StructsAndEnums.cs as a C# type name, which does not parse — one such function fails the whole
+// binding. OpenSSL-family C libraries declare their ex-data callbacks exactly this way. Covered in
+// parameter and struct-field position; the function is invoked through a managed
+// UnmanagedCallersOnly pointer, so the address is asserted to arrive callable, not just to compile.
+typedef int32_t OUBinaryOp(int32_t lhs, int32_t rhs);
+
+struct OUOpTable {
+    OUBinaryOp *op;
+    int32_t bias;
+};
+typedef struct OUOpTable OUOpTable;
+
+extern int32_t OUApplyBinaryOp(OUBinaryOp *op, int32_t lhs, int32_t rhs);
+extern int32_t OUApplyOpTable(OUOpTable table, int32_t lhs, int32_t rhs);
+
 NS_ASSUME_NONNULL_END

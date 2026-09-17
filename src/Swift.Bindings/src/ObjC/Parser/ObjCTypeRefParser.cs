@@ -59,6 +59,20 @@ public static class ObjCTypeRefParser
             };
         }
 
+        // 3b. Detect C function TYPES: int (void *, long). Clang spells a typedef that names a
+        // function type (`typedef void Free(void *);`) this way — no `(*)`, the pointer lives at the
+        // use site (`Free *`). A function type is only ever reachable through a pointer, so it takes
+        // the function-pointer shape; left as a plain name, the declarator text leaks into C#.
+        if (!isBlockType && IsFunctionType(s))
+        {
+            return new ObjCTypeRef
+            {
+                Name = "FunctionPointer",
+                IsFunctionPointer = true,
+                RawQualType = raw
+            };
+        }
+
         // 4. Detect block types: void (^)(NSString *)
         if (TryParseBlock(s, nullability, raw, out var blockRef))
             return blockRef;
@@ -311,6 +325,25 @@ public static class ObjCTypeRefParser
         // Look for "(* " or "(*)" — the signature of a C function pointer after stripping
         int parenStar = s.IndexOf("(*", StringComparison.Ordinal);
         return parenStar >= 0;
+    }
+
+    /// <summary>
+    /// Detects a C function type as clang prints it: a return type, a space, then a parenthesized
+    /// parameter list that closes the string (<c>void (void *, long)</c>). The space separates it
+    /// from call-like spellings such as <c>_Atomic(int)</c> or <c>__typeof__(x)</c>.
+    /// </summary>
+    private static bool IsFunctionType(string s)
+    {
+        if (s.Length == 0 || s[^1] != ')')
+            return false;
+        var depth = 0;
+        for (var i = s.Length - 1; i >= 0; i--)
+        {
+            if (s[i] == ')') depth++;
+            else if (s[i] == '(' && --depth == 0)
+                return i >= 2 && s[i - 1] == ' ' && s[..(i - 1)].Trim().Length > 0;
+        }
+        return false;
     }
 
     private static int FindAtDepthZero(string s, string token)

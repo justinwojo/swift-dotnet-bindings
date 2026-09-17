@@ -9,6 +9,10 @@
 // Shape 2 — the genuinely-exported C function (the inline sibling is header-only).
 int32_t OUExportedTriple(int32_t x) { return x * 3; }
 
+// Shape 16 — call back through a pointer to a function-TYPE typedef.
+int32_t OUApplyBinaryOp(OUBinaryOp *op, int32_t lhs, int32_t rhs) { return op(lhs, rhs); }
+int32_t OUApplyOpTable(OUOpTable table, int32_t lhs, int32_t rhs) { return table.op(lhs, rhs) + table.bias; }
+
 // Shape 13 — the constant definitions that give each `extern` declaration a real exported
 // symbol. Values are deliberately unrelated to the symbol names so a null read cannot pass.
 NSString * const OUDefaultChannelName = @"ou.channel.default";

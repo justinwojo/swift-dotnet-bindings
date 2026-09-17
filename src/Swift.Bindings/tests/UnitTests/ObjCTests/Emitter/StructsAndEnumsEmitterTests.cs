@@ -1318,6 +1318,55 @@ public class StructsAndEnumsEmitterTests
         var output = EmitAndRead(module);
         Assert.Contains("public static extern void TLProcess(IntPtr data, uint size);", output);
     }
+    // A pointer to a function-TYPE typedef (`typedef void TLFree(void *); … TLFree *free_func`) and a
+    // pointer to a function-POINTER typedef (`typedef void (*TLHook)(int); … TLHook *hooks`) are both
+    // addresses, so both bind as IntPtr — in parameter and struct-field position alike. The C
+    // declarator text must never reach the C# (it does not parse).
+    [Fact]
+    public void EmitFunctionAndStruct_PointerToFunctionTypedef_EmitsIntPtr()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "TLFree", UnderlyingType = ObjCTypeRefParser.Parse("void (void *, long)") },
+                new ObjCTypedefDecl { Name = "TLHook", UnderlyingType = ObjCTypeRefParser.Parse("void (*)(int)") },
+            ],
+            Structs =
+            [
+                new ObjCStructDecl
+                {
+                    Name = "TLCallbacks",
+                    Fields =
+                    [
+                        new ObjCStructField { Name = "onFree", Type = ObjCTypeRefParser.Parse("TLFree *") },
+                        new ObjCStructField { Name = "hooks", Type = ObjCTypeRefParser.Parse("TLHook *") },
+                    ]
+                }
+            ],
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "TLRegister",
+                    ReturnType = SimpleType("int"),
+                    Parameters =
+                    [
+                        new ObjCParameterDecl { Name = "free_func", Type = ObjCTypeRefParser.Parse("TLFree *") },
+                        new ObjCParameterDecl { Name = "hooks", Type = ObjCTypeRefParser.Parse("TLHook *") },
+                    ]
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public static extern int TLRegister(IntPtr free_func, IntPtr hooks);", output);
+        Assert.Contains("public IntPtr OnFree;", output);
+        Assert.Contains("public IntPtr Hooks;", output);
+        Assert.DoesNotContain("void (", output);
+        Assert.DoesNotContain("FunctionPointer", output);
+    }
 
     private static string EmitAndRead(ObjCModule module, string ns = "TestLib.Binding") =>
         EmitStructsAndEnums(module, ns);
