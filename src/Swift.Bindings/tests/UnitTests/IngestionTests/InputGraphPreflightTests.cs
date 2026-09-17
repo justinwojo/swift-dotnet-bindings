@@ -245,6 +245,76 @@ public class BindingInputGraphTests
     }
 
     [Fact]
+    public void UnresolvedImportOfUnreachableDependency_IsNotACandidate()
+    {
+        // A package's test-support sibling supplied alongside the primary (e.g. a whole package's
+        // frameworks handed over as dependencies) may import a module the run never supplies. The
+        // primary never imports that sibling, so neither the wrapper compile nor a consumer of the
+        // primary ever loads it: its open import must not fail the primary's closure.
+        var inv = new InputInventory
+        {
+            Primary = Mod("Clock", InputSource.Primary),
+            Dependencies = new[]
+            {
+                Mod("Reporting", InputSource.ExplicitDependency),
+                Mod("ReportingTestSupport", InputSource.ExplicitDependency),
+            },
+        };
+        var graph = Build(inv, new()
+        {
+            ["Clock"] = new[] { Import("Reporting") },
+            ["ReportingTestSupport"] = new[] { Import("Reporting"), Import("Testing") },
+        });
+
+        Assert.Empty(graph.UnresolvedPublicCompileImports());
+    }
+
+    [Fact]
+    public void UnresolvedImportOfTransitivelyReachedDependency_IsACandidate()
+    {
+        // Reachability is transitive over public imports: a dependency the primary reaches through
+        // another supplied dependency is loaded by the wrapper compile, so its open import still counts.
+        var inv = new InputInventory
+        {
+            Primary = Mod("App", InputSource.Primary),
+            Dependencies = new[]
+            {
+                Mod("Middle", InputSource.ExplicitDependency),
+                Mod("Leaf", InputSource.ExplicitDependency),
+            },
+        };
+        var graph = Build(inv, new()
+        {
+            ["App"] = new[] { Import("Middle") },
+            ["Middle"] = new[] { Import("Leaf", exported: true) },
+            ["Leaf"] = new[] { Import("Missing") },
+        });
+
+        var edge = Assert.Single(graph.UnresolvedPublicCompileImports());
+        Assert.Equal("Leaf", edge.FromModule);
+        Assert.Equal("Missing", edge.ToModule);
+    }
+
+    [Fact]
+    public void DependencyReachedOnlyThroughNonPublicImport_IsNotACandidateSource()
+    {
+        // An @_implementationOnly import is never loaded by the wrapper compile, so a dependency reached
+        // only that way contributes no obligations of its own.
+        var inv = new InputInventory
+        {
+            Primary = Mod("App", InputSource.Primary),
+            Dependencies = new[] { Mod("Hidden", InputSource.ExplicitDependency) },
+        };
+        var graph = Build(inv, new()
+        {
+            ["App"] = new[] { Import("Hidden", implOnly: true) },
+            ["Hidden"] = new[] { Import("Missing") },
+        });
+
+        Assert.Empty(graph.UnresolvedPublicCompileImports());
+    }
+
+    [Fact]
     public void DuplicateImporterMissingPairs_AreDeduped()
     {
         var inv = new InputInventory

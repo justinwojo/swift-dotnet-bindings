@@ -118,15 +118,21 @@ public sealed class BindingInputGraph
     /// The compile-import edges whose target is unresolved AND public (a plain/public/@_exported import).
     /// These are the CANDIDATE missing-module obligations — non-public / @_implementationOnly imports are
     /// excluded because they are never re-emitted into the wrapper and so can never break its compile.
+    /// Only importers the primary reaches through public imports count: a supplied dependency the
+    /// primary never imports (a package's test-support sibling handed over with the rest) is never
+    /// loaded by the wrapper compile, so its open imports are not the primary's obligations.
     /// One entry per distinct (importer, missing-module) pair, in first-seen order.
     /// </summary>
     public IReadOnlyList<BindingInputEdge> UnresolvedPublicCompileImports()
     {
+        var reachable = ModulesReachableFromPrimary();
         var seen = new HashSet<(string, string)>();
         var result = new List<BindingInputEdge>();
         foreach (var edge in CompileImportEdges)
         {
             if (edge.Import is null || edge.Import.IsNonPublic)
+                continue;
+            if (!reachable.Contains(edge.FromModule))
                 continue;
             if (_nodes.TryGetValue(edge.ToModule, out var target) && target.IsResolved)
                 continue;
@@ -234,6 +240,30 @@ public sealed class BindingInputGraph
             deps.Sort(StringComparer.Ordinal);
         return result.ToDictionary(
             kv => kv.Key, kv => (IReadOnlyList<string>)kv.Value, StringComparer.Ordinal);
+    }
+
+    // The primary plus every module it reaches through public compile-import edges — the modules a
+    // compile that imports the primary actually loads.
+    private HashSet<string> ModulesReachableFromPrimary()
+    {
+        var reachable = new HashSet<string>(
+            _nodes.Values.Where(n => n.Source == InputSource.Primary).Select(n => n.ModuleName),
+            StringComparer.Ordinal);
+        var queue = new Queue<string>(reachable);
+        while (queue.Count > 0)
+        {
+            var from = queue.Dequeue();
+            foreach (var edge in CompileImportEdges)
+            {
+                if (!string.Equals(edge.FromModule, from, StringComparison.Ordinal))
+                    continue;
+                if (edge.Import is null || edge.Import.IsNonPublic)
+                    continue;
+                if (reachable.Add(edge.ToModule))
+                    queue.Enqueue(edge.ToModule);
+            }
+        }
+        return reachable;
     }
 
     // The modules this run actually builds: supplied (primary + supplied dependencies) nodes only.
