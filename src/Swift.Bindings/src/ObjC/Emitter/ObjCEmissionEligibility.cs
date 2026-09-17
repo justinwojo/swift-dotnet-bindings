@@ -49,9 +49,8 @@ internal static class ObjCEmissionEligibility
                 foreach (var field in s.Fields)
                 {
                     var mapped = field.Type.FixedArraySize is > 0
-                        ? ObjCTypeMapper.MapType(new ObjCTypeRef { Name = field.Type.Name, IsPointer = field.Type.IsPointer }, typedefMap: typedefs)
+                        ? ObjCTypeMapper.MapType(field.Type with { FixedArraySize = null }, typedefMap: typedefs)
                         : ObjCTypeMapper.MapType(field.Type, typedefMap: typedefs);
-                    if (mapped == s.Name) continue; // Existing self-pointer → IntPtr carrier.
                     var dependency = RefusedDependency(field.Type);
                     if (dependency != null || !ObjCTypeMapper.IsTypeResolvable(mapped, known, field.Type.Name))
                     {

@@ -1318,6 +1318,7 @@ public class StructsAndEnumsEmitterTests
         var output = EmitAndRead(module);
         Assert.Contains("public static extern void TLProcess(IntPtr data, uint size);", output);
     }
+
     // A pointer to a function-TYPE typedef (`typedef void TLFree(void *); … TLFree *free_func`) and a
     // pointer to a function-POINTER typedef (`typedef void (*TLHook)(int); … TLHook *hooks`) are both
     // addresses, so both bind as IntPtr — in parameter and struct-field position alike. The C
@@ -1990,7 +1991,7 @@ public class StructsAndEnumsEmitterTests
                         new ObjCStructField
                         {
                             Name = "next",
-                            Type = SimpleType("LinkedNode"),
+                            Type = ObjCTypeRefParser.Parse("struct LinkedNode *"),
                         }
                     ]
                 }
@@ -1998,7 +1999,7 @@ public class StructsAndEnumsEmitterTests
         };
 
         var output = EmitAndRead(module);
-        // Self-referential field should be IntPtr to avoid CS0523
+        // A pointer back to the record itself is an address, never the record by value (CS0523)
         Assert.Contains("public IntPtr Next;", output);
         Assert.Contains("public int Value;", output);
     }
@@ -2437,5 +2438,110 @@ public class StructsAndEnumsEmitterTests
         Assert.Equal(["MapTiler", "Mapbox"], names);
         foreach (var name in names)
             Assert.Contains($"        {name},", output);
+    }
+
+    // Two records that point at each other must not become a struct layout cycle, and a pointer to
+    // an opaque or system record (`FILE *`) crosses as its address — in field, parameter and return
+    // position alike. A C array of arrays is one contiguous block, marshalled flattened.
+    [Fact]
+    public void EmitStructAndFunction_RecordPointersAndMultiDimArray_BindAsAddressesAndFlatArray()
+    {
+        ObjCTypeRefParser.SetRecordTypeNames(["OUNode", "OUNodeList", "OUMatrix", "FILE", "__sFILE"]);
+        ObjCModule module;
+        try
+        {
+            module = new ObjCModule
+            {
+                ModuleName = "TestLib",
+                Typedefs =
+                [
+                    new ObjCTypedefDecl { Name = "FILE", UnderlyingType = ObjCTypeRefParser.Parse("struct __sFILE") },
+                ],
+                Structs =
+                [
+                    new ObjCStructDecl
+                    {
+                        Name = "OUNode",
+                        Fields =
+                        [
+                            new ObjCStructField { Name = "value", Type = ObjCTypeRefParser.Parse("int32_t") },
+                            new ObjCStructField { Name = "owner", Type = ObjCTypeRefParser.Parse("const struct OUNodeList *") },
+                        ]
+                    },
+                    new ObjCStructDecl
+                    {
+                        Name = "OUNodeList",
+                        Fields =
+                        [
+                            new ObjCStructField { Name = "nodes", Type = ObjCTypeRefParser.Parse("OUNode *") },
+                            new ObjCStructField { Name = "count", Type = ObjCTypeRefParser.Parse("int32_t") },
+                        ]
+                    },
+                    new ObjCStructDecl
+                    {
+                        Name = "OUMatrix",
+                        Fields = [new ObjCStructField { Name = "cells", Type = ObjCTypeRefParser.Parse("uint32_t [3][2]") }]
+                    },
+                ],
+                Functions =
+                [
+                    new ObjCFunctionDecl
+                    {
+                        Name = "OUNodeListSum",
+                        ReturnType = ObjCTypeRefParser.Parse("int32_t"),
+                        Parameters = [new ObjCParameterDecl { Name = "list", Type = ObjCTypeRefParser.Parse("const OUNodeList *") }]
+                    },
+                    new ObjCFunctionDecl
+                    {
+                        Name = "OUOpenNullStream",
+                        ReturnType = ObjCTypeRefParser.Parse("FILE *"),
+                        Parameters = []
+                    },
+                    new ObjCFunctionDecl
+                    {
+                        Name = "OUCloseStream",
+                        ReturnType = ObjCTypeRefParser.Parse("int32_t"),
+                        Parameters = [new ObjCParameterDecl { Name = "stream", Type = ObjCTypeRefParser.Parse("FILE *") }]
+                    },
+                ]
+            };
+        }
+        finally
+        {
+            ObjCTypeRefParser.SetRecordTypeNames(null);
+        }
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public IntPtr Owner;", output);
+        Assert.Contains("public IntPtr Nodes;", output);
+        Assert.DoesNotContain("public OUNodeList Owner;", output);
+        Assert.DoesNotContain("public OUNode Nodes;", output);
+        Assert.Contains("SizeConst = 6)]", output);
+        Assert.Contains("public uint[] Cells;", output);
+        Assert.Contains("public static extern int OUNodeListSum(IntPtr list);", output);
+        Assert.Contains("public static extern IntPtr OUOpenNullStream();", output);
+        Assert.Contains("public static extern int OUCloseStream(IntPtr stream);", output);
+    }
+
+    // A function that returns a function pointer returns an address, not the pointer's own return type.
+    [Fact]
+    public void EmitFunction_ReturningFunctionPointer_ReturnsIntPtr()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "TestLib",
+            Functions =
+            [
+                new ObjCFunctionDecl
+                {
+                    Name = "OUGetSubtractOp",
+                    ReturnType = ObjCTypeRefParser.Parse(ClangAstParser.ParseFunctionReturnType("int32_t (* _Nonnull (void))(int32_t, int32_t)")),
+                    Parameters = []
+                }
+            ]
+        };
+
+        var output = EmitAndRead(module);
+        Assert.Contains("public static extern IntPtr OUGetSubtractOp();", output);
     }
 }

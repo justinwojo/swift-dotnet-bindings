@@ -30,13 +30,25 @@ public static class ObjCTypeMapper
         // Must be checked before primitive mapping, which would discard the array size.
         if (typeRef.FixedArraySize is > 0)
         {
-            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer }, declaringClassName, genericTypeParams, typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
+            var elementType = MapType(new ObjCTypeRef { Name = typeRef.Name, IsPointer = typeRef.IsPointer, PointeeType = typeRef.PointeeType, IsRecord = typeRef.IsRecord }, declaringClassName, genericTypeParams, typedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
             return $"{elementType}[{typeRef.FixedArraySize}]";
         }
 
         // 1. Block types
         if (typeRef.IsBlock)
             return MapBlockType(typeRef, genericTypeParams, typedefMap, localProtocolNames, classProtocolClashNames, synthesizedProtocolInterfaces);
+
+        // 1b. An indirection that does not name an ObjC object reference is an address. C spells a
+        // record handle (`Ctx *`, `FILE *`), an out-slot (`BOOL *stop`), a C string (`const char *`)
+        // and a pointer to an object pointer (`NSString **`) with the same star, and every one of
+        // them crosses the boundary as a pointer-sized value. Mapped by the pointee's name instead,
+        // the indirection is silently dropped: the callee is handed a copy of the value where it
+        // reads an address, a system record names a type C# never declares, and two records that
+        // point at each other become a struct layout cycle. IntPtr is the projection this mapper
+        // already gives `void *` and function pointers; positions with a richer sound projection
+        // (`out T`, a counted array, `out NSError`) claim the parameter before it reaches here.
+        if (IsAddressOnlyPointer(typeRef, typedefMap))
+            return "IntPtr";
 
         // 2. instancetype
         if (typeRef.Name == "instancetype")
@@ -150,6 +162,7 @@ public static class ObjCTypeMapper
                     // still binds as IntPtr, which only the carried shape flag can tell step 0a.
                     IsFunctionPointer = resolved.IsFunctionPointer,
                     IsAnonymousRecord = resolved.IsAnonymousRecord,
+                    IsRecord = resolved.IsRecord,
                 };
                 withPointer.BlockParams.AddRange(resolved.BlockParams);
                 return MapType(withPointer, declaringClassName, genericTypeParams, typedefMap: null, blockTypedefMap: blockTypedefMap, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, synthesizedProtocolInterfaces: synthesizedProtocolInterfaces);
@@ -673,6 +686,12 @@ public static class ObjCTypeMapper
             if (AppleFrameworkRegistry.IsObjCSystemEnum(target.Name))
                 break;
 
+            // Stop on a CoreFoundation ref for the same reason: `CGImageRef` is the handle the
+            // bare-name mapping binds to its managed type, and flattening past it to
+            // `struct CGImage *` would leave a record pointer where the chain named a handle.
+            if (AppleFrameworkRegistry.IsCoreFoundationRefType(target.Name))
+                break;
+
             if (!visited.Add(target.Name) || !typedefMap.TryGetValue(target.Name, out var deeper))
                 break;
             target = deeper;
@@ -680,6 +699,43 @@ public static class ObjCTypeMapper
         terminal = target;
         return true;
     }
+
+    /// <summary>
+    /// True when the type is an indirection whose pointee is not an ObjC object reference: one or
+    /// more stars onto a value or handle (a C record, a primitive, an Apple SDK struct or enum, a
+    /// CoreFoundation ref, <c>SEL</c>/<c>Class</c>, an unqualified <c>id</c>), or two or more stars onto anything
+    /// else. Counts the stars the use spells and the ones its typedef chain adds, and reads
+    /// record-ness from either end of the chain.
+    /// </summary>
+    static bool IsAddressOnlyPointer(ObjCTypeRef typeRef, Dictionary<string, ObjCTypeRef>? typedefMap)
+    {
+        var useDepth = PointerDepthOf(typeRef);
+        // `id` is already the object reference. The parser flags `id<Proto>` as a pointer too, so
+        // only a star on an unqualified `id` addresses a slot holding one.
+        if (typeRef.Name == "id")
+            return useDepth >= 2 || (useDepth > 0 && typeRef.ProtocolQualifications.Count == 0);
+        if (IsValueOrHandleName(typeRef.Name))
+            return useDepth > 0;
+
+        if (!TryResolveTypedefChain(typeRef.Name, typedefMap, out var terminal, out _, out var aliasDepth))
+            return useDepth >= 2 || (useDepth > 0 && typeRef.IsRecord);
+
+        var depth = useDepth + aliasDepth;
+        if (typeRef.IsRecord || terminal.IsRecord || IsValueOrHandleName(terminal.Name))
+            return depth > 0;
+        return depth >= 2;
+    }
+
+    /// <summary>
+    /// Names that denote a value, or an opaque handle that is itself the reference, so that any star
+    /// written on them addresses storage rather than naming an ObjC object.
+    /// </summary>
+    static bool IsValueOrHandleName(string name) =>
+        name is "void" or "SEL" or "Class"
+        || AppleFrameworkRegistry.IsObjCPrimitiveType(name)
+        || AppleFrameworkRegistry.IsCoreFoundationRefType(name)
+        || AppleFrameworkRegistry.IsObjCSystemStruct(name)
+        || AppleFrameworkRegistry.IsObjCSystemEnum(name);
 
     /// <summary>
     /// How many levels of indirection a single type reference spells. <c>PointeeType</c> is the

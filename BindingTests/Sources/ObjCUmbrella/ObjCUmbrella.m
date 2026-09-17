@@ -13,6 +13,72 @@ int32_t OUExportedTriple(int32_t x) { return x * 3; }
 int32_t OUApplyBinaryOp(OUBinaryOp *op, int32_t lhs, int32_t rhs) { return op(lhs, rhs); }
 int32_t OUApplyOpTable(OUOpTable table, int32_t lhs, int32_t rhs) { return table.op(lhs, rhs) + table.bias; }
 
+// Shape 17 — record pointers crossing as addresses.
+struct OUTally { int32_t value; };
+
+OUTally *OUTallyCreate(int32_t start) {
+    OUTally *tally = malloc(sizeof(OUTally));
+    tally->value = start;
+    return tally;
+}
+int32_t OUTallyIncrement(OUTally *tally) { return ++tally->value; }
+void OUTallyDestroy(struct OUTally *tally) { free(tally); }
+
+OUNodeList *OUNodeListCreate(int32_t count) {
+    OUNodeList *list = malloc(sizeof(OUNodeList));
+    list->nodes = calloc((size_t)count, sizeof(OUNode));
+    list->count = count;
+    for (int32_t i = 0; i < count; i++) {
+        list->nodes[i].value = (i + 1) * 10;
+        list->nodes[i].owner = list;
+    }
+    return list;
+}
+int32_t OUNodeListSum(const OUNodeList *list) {
+    int32_t sum = 0;
+    for (int32_t i = 0; i < list->count; i++) sum += list->nodes[i].value;
+    return sum;
+}
+int32_t OUNodeListOwnerIsList(const OUNodeList *list) {
+    for (int32_t i = 0; i < list->count; i++)
+        if (list->nodes[i].owner != list) return 0;
+    return 1;
+}
+void OUNodeListDestroy(OUNodeList *list) {
+    free(list->nodes);
+    free(list);
+}
+
+FILE *OUOpenNullStream(void) { return fopen("/dev/null", "w"); }
+int32_t OUCloseStream(FILE *stream) { return (int32_t)fclose(stream); }
+
+uint32_t OUMatrixCell(const OUMatrix *matrix, int32_t row, int32_t column) { return matrix->cells[row][column]; }
+
+static int32_t OUSubtract(int32_t lhs, int32_t rhs) { return lhs - rhs; }
+int32_t (*OUGetSubtractOp(void))(int32_t lhs, int32_t rhs) { return OUSubtract; }
+
+// Shape 18 — value pointers in a field, a return and a block parameter.
+static int32_t OULabeledSlotStorage;
+
+OULabeledSlot OULabeledSlotMake(int32_t initial) {
+    OULabeledSlotStorage = initial;
+    return (OULabeledSlot){ .label = "tally", .slot = &OULabeledSlotStorage };
+}
+int32_t OULabeledSlotBump(OULabeledSlot slot) { return ++*slot.slot; }
+const char *OUFixtureLabel(void) { return "ou.fixture"; }
+
+@implementation OUValueWalker
+- (int32_t)walkUpTo:(int32_t)count visitor:(void (^)(int32_t value, BOOL *stop))visitor {
+    int32_t visited = 0;
+    BOOL stop = NO;
+    for (int32_t i = 0; i < count && !stop; i++) {
+        visitor(i, &stop);
+        visited++;
+    }
+    return visited;
+}
+@end
+
 // Shape 13 — the constant definitions that give each `extern` declaration a real exported
 // symbol. Values are deliberately unrelated to the symbol names so a null read cannot pass.
 NSString * const OUDefaultChannelName = @"ou.channel.default";

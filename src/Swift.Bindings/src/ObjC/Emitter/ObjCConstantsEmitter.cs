@@ -176,23 +176,19 @@ internal static class ObjCConstantsEmitter
     /// </summary>
     internal static bool IsNSStringType(ObjCTypeRef type, Dictionary<string, ObjCTypeRef> typedefMap)
     {
-        // Direct NSString* check
-        if (type is { Name: "NSString", IsPointer: true })
-            return true;
+        // Exactly one indirection in total, counting the use and the typedef it names: a
+        // `NSString **` (or a starred `MOSNotification *`) is the address of a string slot, which
+        // the general mapping binds as an address rather than as a string.
+        // The typedefMap resolves chains, so a single lookup reaches the leaf
+        // (e.g., typedef NSString *MOSNotification).
+        static int Depth(ObjCTypeRef t) => (t.IsPointer ? 1 : 0) + (t.PointeeType != null ? 1 : 0);
 
-        // Resolve through typedef chain: the constant's type name may be a typedef
-        // for NSString* (e.g., typedef NSString *MOSNotification).
-        // The typedefMap resolves chains, so we just need a single lookup.
-        if (typedefMap.TryGetValue(type.Name, out var resolved))
-        {
-            if (resolved is { Name: "NSString", IsPointer: true })
-                return true;
-            // Also handle when the typedef drops the pointer but the usage adds it
-            if (resolved.Name == "NSString" && type.IsPointer)
-                return true;
-        }
+        if (type.Name == "NSString")
+            return Depth(type) == 1;
 
-        return false;
+        return typedefMap.TryGetValue(type.Name, out var resolved)
+            && resolved.Name == "NSString"
+            && Depth(type) + Depth(resolved) == 1;
     }
 
     /// <summary>

@@ -26,6 +26,14 @@ public sealed record ObjCTypeRef
     public bool IsAnonymousRecord { get; init; }
 
     /// <summary>
+    /// True when <see cref="Name"/> denotes a C record (a <c>struct</c> or <c>union</c>), whether it
+    /// was spelled with its tag or through a typedef. A pointer to a record is an address whatever
+    /// the record holds — opaque handle, self-referential node, system type such as <c>FILE</c> — so
+    /// the pointer, not the record, is what crosses the boundary.
+    /// </summary>
+    public bool IsRecord { get; init; }
+
+    /// <summary>
     /// True when the pointee is <c>const</c>-qualified (<c>const T *</c> / <c>T const *</c>). This is
     /// the read-only marker C carries on a pointer parameter, and it is what separates an input buffer
     /// from a caller-allocated output slot: a <c>const T *</c> parameter can never be written through,

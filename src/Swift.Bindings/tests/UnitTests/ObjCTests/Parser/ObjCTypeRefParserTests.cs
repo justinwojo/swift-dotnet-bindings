@@ -480,6 +480,31 @@ public class ObjCTypeRefParserTests
         Assert.Equal("FunctionPointer", result.Name);
     }
 
+    // A typedef can name a C function TYPE rather than a pointer to one
+    // (`typedef void Free(void *);`, used as `Free *`). Clang spells its underlying type without the
+    // `(*)`, and such a type is only ever reachable through a pointer, so it must parse to the same
+    // function-pointer shape instead of leaking the C declarator text as a type name.
+    [Theory]
+    [InlineData("int (int, int)")]
+    [InlineData("void (void)")]
+    [InlineData("void (void *, void *, CRYPTO_EX_DATA *, int, long, void *)")]
+    [InlineData("int (CRYPTO_EX_DATA *, const CRYPTO_EX_DATA *, void **, int, long, void *)")]
+    public void Parse_FunctionType_ParsesAsFunctionPointerShape(string qualType)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.True(result.IsFunctionPointer, $"Expected function-pointer shape for: {qualType}");
+        Assert.False(result.IsBlock);
+    }
+
+    [Theory]
+    [InlineData("void (^)(int)")]
+    [InlineData("NSString *")]
+    [InlineData("uint8_t [4]")]
+    public void Parse_NonFunctionTypes_NotFunctionPointerShape(string qualType)
+    {
+        Assert.False(ObjCTypeRefParser.Parse(qualType).IsFunctionPointer);
+    }
+
     // --- 7a: Block nested nullability ---
 
     [Fact]
@@ -729,5 +754,80 @@ public class ObjCTypeRefParserTests
         Assert.True(result.IsConst);
         Assert.False(result.IsPointer);
         Assert.Equal("NSInteger", result.Name);
+    }
+
+    // A record spelled with its tag is a record whatever it holds; the tag keyword never reaches the name.
+    [Theory]
+    [InlineData("struct OUTally *", "OUTally")]
+    [InlineData("const struct OUNodeList *", "OUNodeList")]
+    [InlineData("union OUValue *", "OUValue")]
+    public void Parse_TaggedRecordPointer_FlagsIsRecord(string qualType, string expectedName)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.True(result.IsRecord);
+        Assert.True(result.IsPointer);
+        Assert.Equal(expectedName, result.Name);
+    }
+
+    [Fact]
+    public void Parse_TaggedRecordDoublePointer_FlagsIsRecordOnBothLevels()
+    {
+        var result = ObjCTypeRefParser.Parse("struct OUNode **");
+        Assert.Equal("OUNode", result.Name);
+        Assert.True(result.IsRecord);
+        Assert.NotNull(result.PointeeType);
+        Assert.True(result.PointeeType!.IsRecord);
+    }
+
+    // Clang spells a record reached through its typedef as the bare name, so record-ness comes from
+    // the names the translation unit declares — and only while that set is installed.
+    [Fact]
+    public void Parse_RecordTypedefName_FlagsIsRecordOnlyWhileNamesAreSet()
+    {
+        ObjCTypeRefParser.SetRecordTypeNames(["FILE", "OUNode"]);
+        try
+        {
+            Assert.True(ObjCTypeRefParser.Parse("FILE *").IsRecord);
+            Assert.True(ObjCTypeRefParser.Parse("const OUNode *").IsRecord);
+            Assert.False(ObjCTypeRefParser.Parse("NSString *").IsRecord);
+            Assert.False(ObjCTypeRefParser.Parse("int32_t *").IsRecord);
+        }
+        finally
+        {
+            ObjCTypeRefParser.SetRecordTypeNames(null);
+        }
+        Assert.False(ObjCTypeRefParser.Parse("FILE *").IsRecord);
+    }
+
+    // C lays an array of arrays out row after row with no header, so the element count is the product.
+    [Theory]
+    [InlineData("uint32_t [3][2]", "uint32_t", 6)]
+    [InlineData("uint32_t [16][2]", "uint32_t", 32)]
+    [InlineData("uint8_t [2][3][4]", "uint8_t", 24)]
+    [InlineData("uint8_t [4]", "uint8_t", 4)]
+    public void Parse_ConstantArray_FlattensDimensions(string qualType, string expectedName, int expectedSize)
+    {
+        var result = ObjCTypeRefParser.Parse(qualType);
+        Assert.Equal(expectedName, result.Name);
+        Assert.Equal(expectedSize, result.FixedArraySize);
+    }
+
+    [Theory]
+    [InlineData("uint8_t []")]
+    [InlineData("uint8_t [N]")]
+    [InlineData("uint8_t [4][]")]
+    public void Parse_ArrayWithoutLiteralSize_IsNotFixedArray(string qualType)
+    {
+        Assert.Null(ObjCTypeRefParser.Parse(qualType).FixedArraySize);
+    }
+
+    [Fact]
+    public void Parse_ArrayOfTaggedRecords_CarriesIsRecord()
+    {
+        var result = ObjCTypeRefParser.Parse("struct OUNode [4]");
+        Assert.Equal("OUNode", result.Name);
+        Assert.Equal(4, result.FixedArraySize);
+        Assert.True(result.IsRecord);
+        Assert.False(result.IsPointer);
     }
 }

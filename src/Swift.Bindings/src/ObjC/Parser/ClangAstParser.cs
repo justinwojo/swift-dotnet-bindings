@@ -116,6 +116,11 @@ public static class ClangAstParser
         ObjCTypeRefParser.SetAdditionalGenericContainers(
             astGenericContainers.Count > 0 ? astGenericContainers : null);
 
+        // Pre-scan: which names denote C records, so a record spelled through its typedef
+        // (`OUNode *`, `FILE *`) is known to be one when its pointer is mapped.
+        var recordTypeNames = ScanRecordTypeNames(inner);
+        ObjCTypeRefParser.SetRecordTypeNames(recordTypeNames.Count > 0 ? recordTypeNames : null);
+
         // Pre-scan: which class/protocol names have a REAL definition somewhere in this TU, and in
         // which file. Needed before Pass 1 so a body-less node in THIS framework's headers can be
         // recognised as a re-declaration of a type another module defines — see
@@ -440,6 +445,7 @@ public static class ClangAstParser
         finally
         {
             ObjCTypeRefParser.SetAdditionalGenericContainers(null);
+            ObjCTypeRefParser.SetRecordTypeNames(null);
             _sourceByteCache = null;
             _parameterDirections = null;
         }
@@ -1999,6 +2005,53 @@ public static class ClangAstParser
         return result;
     }
 
+    /// <summary>
+    /// Collects every name the translation unit declares as a C record: named <c>struct</c>/<c>union</c>
+    /// tags, and typedefs whose underlying type is a record (<c>typedef struct __sFILE FILE;</c>,
+    /// <c>typedef struct { … } Point;</c>). A name that is also an ObjC class is left out: C keeps
+    /// tags in their own namespace, so <c>struct Foo</c> and <c>@interface Foo</c> can coexist, and
+    /// the bare spelling <c>Foo *</c> then names the class.
+    /// </summary>
+    internal static HashSet<string> ScanRecordTypeNames(JsonElement inner)
+    {
+        var records = new HashSet<string>(StringComparer.Ordinal);
+        var classes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in inner.EnumerateArray())
+        {
+            var name = GetName(node);
+            if (string.IsNullOrEmpty(name))
+                continue;
+            switch (GetOptionalString(node, "kind"))
+            {
+                case "RecordDecl" when GetOptionalString(node, "tagUsed") is "struct" or "union":
+                    records.Add(name);
+                    break;
+                case "TypedefDecl":
+                    var underlying = GetQualType(node);
+                    if (underlying != null && IsRecordSpelling(underlying))
+                        records.Add(name);
+                    break;
+                case "ObjCInterfaceDecl":
+                    classes.Add(name);
+                    break;
+            }
+        }
+        records.ExceptWith(classes);
+        return records;
+
+        // Exactly a tagged record — `struct X`, `const union Y` — with no declarator after it, so a
+        // typedef of a POINTER to a record (`typedef struct X *XRef;`) is not mistaken for the record.
+        static bool IsRecordSpelling(string qualType)
+        {
+            var t = qualType.Trim();
+            if (t.StartsWith("const ", StringComparison.Ordinal))
+                t = t[6..];
+            if (!t.StartsWith("struct ", StringComparison.Ordinal) && !t.StartsWith("union ", StringComparison.Ordinal))
+                return false;
+            return t.IndexOfAny(['*', '(', '[', '^']) < 0;
+        }
+    }
+
     private static string? GetName(JsonElement element)
     {
         return GetOptionalString(element, "name");
@@ -2031,14 +2084,57 @@ public static class ClangAstParser
         return null;
     }
 
-    private static string ParseFunctionReturnType(string funcTypeStr)
+    internal static string ParseFunctionReturnType(string funcTypeStr)
     {
         // Function types in clang AST look like "void (int, float)"
         // Extract the return type (everything before the first '(')
         var parenIdx = funcTypeStr.IndexOf('(');
-        if (parenIdx > 0)
-            return funcTypeStr[..parenIdx].Trim();
-        return funcTypeStr;
+        if (parenIdx <= 0)
+            return funcTypeStr;
+
+        // A function that returns a function pointer nests its own parameter list inside the
+        // returned pointer's declarator: `int (*(void))(int, int)` is "function of (void) returning
+        // int (*)(int, int)". Cutting at the first '(' would leave just `int` — a signature that
+        // compiles and reads a code address as an integer. Removing the function's own parameter
+        // group, the last group inside the declarator, yields the returned type.
+        if (funcTypeStr.AsSpan(parenIdx).StartsWith("(*"))
+        {
+            var declaratorClose = FindClosingParen(funcTypeStr, parenIdx);
+            if (declaratorClose > 0
+                && declaratorClose + 1 < funcTypeStr.Length
+                && funcTypeStr[(declaratorClose + 1)..].TrimStart().StartsWith('(')
+                && funcTypeStr[declaratorClose - 1] == ')')
+            {
+                var ownParamsClose = declaratorClose - 1;
+                var ownParamsOpen = FindOpeningParen(funcTypeStr, ownParamsClose);
+                if (ownParamsOpen > parenIdx)
+                    return (funcTypeStr[..ownParamsOpen].TrimEnd() + funcTypeStr[(ownParamsClose + 1)..]).Trim();
+            }
+        }
+
+        return funcTypeStr[..parenIdx].Trim();
+
+        static int FindClosingParen(string text, int open)
+        {
+            var depth = 0;
+            for (var i = open; i < text.Length; i++)
+            {
+                if (text[i] == '(') depth++;
+                else if (text[i] == ')' && --depth == 0) return i;
+            }
+            return -1;
+        }
+
+        static int FindOpeningParen(string text, int close)
+        {
+            var depth = 0;
+            for (var i = close; i >= 0; i--)
+            {
+                if (text[i] == ')') depth++;
+                else if (text[i] == '(' && --depth == 0) return i;
+            }
+            return -1;
+        }
     }
 
     private static List<T> DeduplicateByRichest<T>(

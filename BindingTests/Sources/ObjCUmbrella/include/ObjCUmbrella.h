@@ -444,4 +444,71 @@ typedef struct OUOpTable OUOpTable;
 extern int32_t OUApplyBinaryOp(OUBinaryOp *op, int32_t lhs, int32_t rhs);
 extern int32_t OUApplyOpTable(OUOpTable table, int32_t lhs, int32_t rhs);
 
+// MARK: - Shape 17 — pointers to C records, arrays of arrays, and a function returning a function
+// pointer.
+//
+// A pointer to a C struct is an address, whatever the struct is. The mapping used to drop the
+// indirection and name the record, so `OUTally *` bound as the record BY VALUE: an opaque handle
+// became an empty C# struct handed over where the callee reads an address, a system record
+// (`FILE *` → `__sFILE`) named a type C# never declares, and two records that point at each other
+// became a struct layout cycle. Only the last two stopped the build; the first compiled and was
+// silently wrong. Covered through a typedef'd name, the tag-spelled `struct X *`, a return, struct
+// fields (including the mutual pair) and a system record. The same C libraries declare
+// multi-dimensional fixed arrays in their structs (`uint32_t subkeys[16][2]`) and getters that
+// return a function pointer, which clang spells with the function's own parameter list nested
+// inside the returned pointer's declarator.
+typedef struct OUTally OUTally;
+
+extern OUTally *OUTallyCreate(int32_t start);
+extern int32_t OUTallyIncrement(OUTally *tally);
+extern void OUTallyDestroy(struct OUTally *tally);
+
+struct OUNodeList;
+
+typedef struct OUNode {
+    int32_t value;
+    const struct OUNodeList *owner;
+} OUNode;
+
+typedef struct OUNodeList {
+    OUNode *nodes;
+    int32_t count;
+} OUNodeList;
+
+extern OUNodeList *OUNodeListCreate(int32_t count);
+extern int32_t OUNodeListSum(const OUNodeList *list);
+extern int32_t OUNodeListOwnerIsList(const OUNodeList *list);
+extern void OUNodeListDestroy(OUNodeList *list);
+
+extern FILE *OUOpenNullStream(void);
+extern int32_t OUCloseStream(FILE *stream);
+
+typedef struct OUMatrix {
+    uint32_t cells[3][2];
+} OUMatrix;
+
+extern uint32_t OUMatrixCell(const OUMatrix *matrix, int32_t row, int32_t column);
+
+extern int32_t (*OUGetSubtractOp(void))(int32_t lhs, int32_t rhs);
+
+// MARK: - Shape 18 — pointers to values outside a parameter.
+//
+// A parameter spelled `int32_t *` binds as `out int`, but the same star in a struct field, a
+// return or a block parameter has no such projection. The mapping used to drop it there and bind
+// the pointee's name, which compiles: `const char *label` became a one-byte field, `int32_t *slot`
+// an int, a C-string return a byte, and a block's `BOOL *stop` a bool the block could never write
+// back through. Every one of them is an address.
+typedef struct OULabeledSlot {
+    const char *label;
+    int32_t *slot;
+} OULabeledSlot;
+
+extern OULabeledSlot OULabeledSlotMake(int32_t initial);
+extern int32_t OULabeledSlotBump(OULabeledSlot slot);
+extern const char *OUFixtureLabel(void);
+
+@interface OUValueWalker : NSObject
+- (int32_t)walkUpTo:(int32_t)count visitor:(void (^)(int32_t value, BOOL *stop))visitor;
+@end
+
 NS_ASSUME_NONNULL_END

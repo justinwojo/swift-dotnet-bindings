@@ -638,15 +638,10 @@ public static class StructsAndEnumsEmitter
             var mappedType = ObjCTypeMapper.MapType(field.Type, typedefMap: typedefMap);
             var pascalName = ToPascalCase(field.Name);
 
-            // Self-referential struct fields (e.g., linked list next pointers) cause CS0523.
-            // These are always pointers in C — emit as IntPtr.
-            if (mappedType == structDecl.Name)
-                mappedType = "IntPtr";
-
             // Handle C fixed-size array fields (parsed from clang's "uint8_t [4]" qualType)
             if (field.Type.FixedArraySize is > 0)
             {
-                var elementType = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = field.Type.Name, IsPointer = field.Type.IsPointer }, typedefMap: typedefMap);
+                var elementType = ObjCTypeMapper.MapType(field.Type with { FixedArraySize = null }, typedefMap: typedefMap);
                 sb.AppendLine($"        [global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.ByValArray, SizeConst = {field.Type.FixedArraySize})]");
                 sb.AppendLine($"        public {elementType}[] {pascalName};");
             }

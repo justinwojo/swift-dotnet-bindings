@@ -58,7 +58,6 @@ public class ObjCTypeMapperTests
     [InlineData("NSSet", "NSSet")]
     [InlineData("NSDate", "NSDate")]
     [InlineData("NSObject", "NSObject")]
-    [InlineData("CGImageRef", "CGImage")]
     public void MapType_KnownPointerTypes_MapsCorrectly(string objcType, string expected)
     {
         var typeRef = new ObjCTypeRef { Name = objcType, IsPointer = true };
@@ -361,7 +360,7 @@ public class ObjCTypeMapperTests
         {
             Name = "block",
             IsBlock = true,
-            BlockReturnType = new ObjCTypeRef { Name = "MyStringAlias", IsPointer = true },
+            BlockReturnType = new ObjCTypeRef { Name = "MyStringAlias" },
             BlockParams = [new ObjCTypeRef { Name = "NSInteger" }],
         };
         Assert.Equal("Func<nint, string>", ObjCTypeMapper.MapType(typeRef, typedefMap: typedefMap));
@@ -697,11 +696,15 @@ public class ObjCTypeMapperTests
 
     // --- BOOL pointer mapping ---
 
+    // Outside the positions that project a value pointer as `out T` (method and function
+    // parameters claim it before MapType), a `BOOL *` — a block's `stop` flag, a struct field, a
+    // return — is an address. Mapped as `bool`, the callee or caller would read one byte of the
+    // pointer instead of the flag it points at.
     [Fact]
-    public void MapType_BOOLPointer_ReturnsBool()
+    public void MapType_BOOLPointer_IsAddress()
     {
         var typeRef = new ObjCTypeRef { Name = "BOOL", IsPointer = true };
-        Assert.Equal("bool", ObjCTypeMapper.MapType(typeRef));
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(typeRef));
     }
 
     // --- Unknown pointer types fall through to typedef resolution ---
@@ -1652,5 +1655,134 @@ public class ObjCTypeMapperTests
         Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable("NSJsonReadingOptions", knownTypes, appleSdkTypeNames, NoSynthesized));
         Assert.True(ObjCTypeMapper.IsApiDefinitionTypeResolvable("UIUserInterfaceStyle", knownTypes, appleSdkTypeNames, NoSynthesized));
         Assert.False(ObjCTypeMapper.IsApiDefinitionTypeResolvable("ZZVendorAuthorizationStatus", knownTypes, appleSdkTypeNames, NoSynthesized));
+    }
+
+    // A pointer to a C record is an address, whatever the record holds and however the record is
+    // named: by tag, through a typedef of the record, or through an alias that adds the star.
+    [Fact]
+    public void MapType_RecordPointer_MapsToIntPtr()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["FILE"] = new ObjCTypeRef { Name = "__sFILE", IsRecord = true },
+            ["OUTallyRef"] = new ObjCTypeRef { Name = "OUTally", IsPointer = true, IsRecord = true },
+        };
+
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "OUTally", IsPointer = true, IsRecord = true }, typedefMap: typedefMap));
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "OUNode", IsPointer = true, IsConst = true, IsRecord = true }));
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "FILE", IsPointer = true }, typedefMap: typedefMap));
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "OUTallyRef" }, typedefMap: typedefMap));
+    }
+
+    [Fact]
+    public void MapType_RecordByValue_KeepsRecordName()
+    {
+        Assert.Equal("OUMatrix", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "OUMatrix", IsRecord = true }));
+    }
+
+    // Record-ness is what decides; a pointer to a non-record keeps its established mapping.
+    [Fact]
+    public void MapType_NonRecordPointers_Unchanged()
+    {
+        Assert.Equal("string", ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "NSString", IsPointer = true }));
+        var withoutRecord = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "CGImageRef" });
+        var withRecordTypedef = ObjCTypeMapper.MapType(new ObjCTypeRef { Name = "CGImageRef" },
+            typedefMap: new Dictionary<string, ObjCTypeRef> { ["CGImageRef"] = new ObjCTypeRef { Name = "CGImage", IsPointer = true, IsRecord = true } });
+        Assert.NotEqual("IntPtr", withoutRecord);
+        Assert.Equal(withoutRecord, withRecordTypedef);
+    }
+
+    // A star on a value, a handle or an object pointer addresses storage for one: it is never the
+    // pointee's own mapping. Covers primitives, C strings, Apple structs, CoreFoundation handles,
+    // SEL/Class, an unqualified `id`, and pointers to object pointers (directly or via an alias).
+    [Theory]
+    [InlineData("int32_t *")]
+    [InlineData("const char *")]
+    [InlineData("char **")]
+    [InlineData("uint8_t *")]
+    [InlineData("NSInteger *")]
+    [InlineData("CGPoint *")]
+    [InlineData("NSRange *")]
+    [InlineData("CGImageRef *")]
+    [InlineData("SEL *")]
+    [InlineData("id *")]
+    [InlineData("NSString **")]
+    public void MapType_PointerToValueHandleOrObjectPointer_IsAddress(string qualType)
+    {
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse(qualType)));
+    }
+
+    [Fact]
+    public void MapType_StarredAliasOfObjectPointerOrPrimitive_IsAddress()
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["MyStringAlias"] = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+            ["MyCount"] = new ObjCTypeRef { Name = "int32_t" },
+        };
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("MyStringAlias *"), typedefMap: typedefMap));
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("MyCount *"), typedefMap: typedefMap));
+        Assert.Equal("string", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("MyStringAlias"), typedefMap: typedefMap));
+        Assert.Equal("int", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("MyCount"), typedefMap: typedefMap));
+    }
+
+    // An alias over a CoreFoundation handle keeps the handle's managed type: the chain walk stops at
+    // the ref name instead of flattening to the `struct CGImage *` record pointer behind it.
+    [Fact]
+    public void MapType_AliasOverCoreFoundationRef_KeepsManagedHandleType()
+    {
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Typedefs =
+            [
+                new ObjCTypedefDecl { Name = "CGImageRef", UnderlyingType = ObjCTypeRefParser.Parse("struct CGImage *") },
+                new ObjCTypedefDecl { Name = "OUImage", UnderlyingType = ObjCTypeRefParser.Parse("CGImageRef") },
+            ]
+        };
+        var map = ObjCTypeMapper.BuildResolvedTypedefMap(module);
+        Assert.Equal("CGImage", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("OUImage"), typedefMap: map));
+        Assert.Equal("CGImage", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("CGImageRef"), typedefMap: map));
+        Assert.Equal("IntPtr", ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse("OUImage *"), typedefMap: map));
+    }
+
+    // Object references themselves keep their managed types.
+    [Theory]
+    [InlineData("NSString *", "string")]
+    [InlineData("id<NSURLSessionDelegate>", "INSUrlSessionDelegate")]
+    [InlineData("id", "NSObject")]
+    [InlineData("SEL", "Selector")]
+    public void MapType_ObjectReferences_KeepManagedTypes(string qualType, string expected)
+    {
+        Assert.Equal(expected, ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse(qualType)));
+    }
+
+    // A string constant is exactly one indirection to NSString, counting the typedef it names; the
+    // address of a string slot is not a string constant.
+    [Theory]
+    [InlineData("NSString *", true)]
+    [InlineData("OUEventName", true)]
+    [InlineData("NSString **", false)]
+    [InlineData("OUEventName *", false)]
+    [InlineData("OUEventPointer", false)]
+    public void ConstantsEmitter_IsNSStringType_RequiresExactlyOneIndirection(string qualType, bool expected)
+    {
+        var typedefMap = new Dictionary<string, ObjCTypeRef>
+        {
+            ["OUEventName"] = ObjCTypeRefParser.Parse("NSString *"),
+            ["OUEventPointer"] = ObjCTypeRefParser.Parse("NSString **"),
+        };
+        Assert.Equal(expected, ObjCConstantsEmitter.IsNSStringType(ObjCTypeRefParser.Parse(qualType), typedefMap));
+    }
+
+    // Elements of a fixed array follow the same pointer rule as a scalar of the element type.
+    [Theory]
+    [InlineData("const char *[4]", "IntPtr[4]")]
+    [InlineData("NSString **[2]", "IntPtr[2]")]
+    [InlineData("NSString *[4]", "string[4]")]
+    [InlineData("int32_t [3][2]", "int[6]")]
+    public void MapType_FixedArrayElements_FollowPointerRule(string qualType, string expected)
+    {
+        Assert.Equal(expected, ObjCTypeMapper.MapType(ObjCTypeRefParser.Parse(qualType)));
     }
 }

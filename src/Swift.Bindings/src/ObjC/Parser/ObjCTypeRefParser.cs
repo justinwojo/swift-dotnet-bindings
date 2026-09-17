@@ -88,7 +88,7 @@ public static class ObjCTypeRefParser
         // 6. Detect double pointer: NSError ** or NSError * * (space between stars after nullability stripping)
         if (s.EndsWith("**") || s.EndsWith("* *"))
         {
-            var inner = s.TrimEnd(' ', '*').Trim();
+            var inner = StripRecordTag(s.TrimEnd(' ', '*').Trim(), out var innerIsRecord);
             return new ObjCTypeRef
             {
                 Name = inner,
@@ -98,8 +98,10 @@ public static class ObjCTypeRefParser
                 {
                     Name = inner,
                     IsPointer = true,
+                    IsRecord = innerIsRecord,
                     RawQualType = $"{inner} *"
                 },
+                IsRecord = innerIsRecord,
                 RawQualType = raw
             };
         }
@@ -116,40 +118,86 @@ public static class ObjCTypeRefParser
             isPointer = true;
         }
 
-        // 7. Strip C type specifiers (clang qualType includes "enum Foo", "struct Bar")
+        // 7. Strip C type specifiers (clang qualType includes "enum Foo", "struct Bar", "union Baz")
         if (s.StartsWith("enum ", StringComparison.Ordinal))
             s = s[5..];
-        else if (s.StartsWith("struct ", StringComparison.Ordinal))
-            s = s[7..];
+        s = StripRecordTag(s, out var isRecord);
 
-        // 8. Detect C constant array types (e.g., "uint8_t [4]", "NSString *[4]")
+        // 8. Detect C constant array types (e.g., "uint8_t [4]", "NSString *[4]"). A C array of
+        //    arrays (`uint32_t [16][2]`) is one contiguous block of its innermost element — C lays
+        //    it out row after row with no header — so it takes the flattened element count.
         var bracketIdx = s.IndexOf('[');
-        if (bracketIdx > 0 && s.EndsWith(']'))
+        if (bracketIdx > 0 && s.EndsWith(']') && TryParseArrayDimensions(s[bracketIdx..], out var arraySize))
         {
-            var elementStr = s[..bracketIdx].Trim();
-            var sizeStr = s[(bracketIdx + 1)..^1].Trim();
-            if (int.TryParse(sizeStr, out var arraySize))
+            // Parse the element type to handle pointers, type specifiers, etc.
+            var elementRef = Parse(s[..bracketIdx].Trim());
+            return new ObjCTypeRef
             {
-                // Parse the element type to handle pointers, type specifiers, etc.
-                var elementRef = Parse(elementStr);
-                return new ObjCTypeRef
-                {
-                    Name = elementRef.Name,
-                    IsPointer = elementRef.IsPointer || isPointer,
-                    Nullability = nullability,
-                    FixedArraySize = arraySize,
-                    RawQualType = raw
-                };
-            }
+                Name = elementRef.Name,
+                IsPointer = elementRef.IsPointer || isPointer,
+                PointeeType = elementRef.PointeeType,
+                IsRecord = elementRef.IsRecord || isRecord,
+                Nullability = nullability,
+                FixedArraySize = arraySize,
+                RawQualType = raw
+            };
         }
 
         return new ObjCTypeRef
         {
             Name = s,
             IsPointer = isPointer,
+            IsRecord = isRecord,
             Nullability = nullability,
             RawQualType = raw
         };
+    }
+
+    /// <summary>
+    /// Removes a <c>struct </c>/<c>union </c> tag keyword and reports whether the name denotes a C
+    /// record — either because the spelling carried the tag or because the name is one the
+    /// translation unit declares as a record (<see cref="SetRecordTypeNames"/>). Clang spells a
+    /// record through its typedef as the bare name (<c>OUNode *</c>), so the tag alone would miss
+    /// every typedef'd use.
+    /// </summary>
+    private static string StripRecordTag(string s, out bool isRecord)
+    {
+        if (s.StartsWith("struct ", StringComparison.Ordinal))
+        {
+            isRecord = true;
+            return s[7..];
+        }
+        if (s.StartsWith("union ", StringComparison.Ordinal))
+        {
+            isRecord = true;
+            return s[6..];
+        }
+        isRecord = _recordTypeNames != null && _recordTypeNames.Contains(s);
+        return s;
+    }
+
+    /// <summary>
+    /// Reads one or more <c>[N]</c> dimensions (<c>[4]</c>, <c>[16][2]</c>) into their product.
+    /// Fails on anything else — an incomplete <c>[]</c>, a non-literal size, trailing text — so the
+    /// caller falls back to the plain-name path rather than inventing a size.
+    /// </summary>
+    private static bool TryParseArrayDimensions(string dims, out int size)
+    {
+        size = 1;
+        var i = 0;
+        var any = false;
+        while (i < dims.Length)
+        {
+            if (dims[i] == ' ') { i++; continue; }
+            if (dims[i] != '[') return false;
+            var close = dims.IndexOf(']', i);
+            if (close < 0 || !int.TryParse(dims[(i + 1)..close].Trim(), out var dim) || dim <= 0)
+                return false;
+            size = checked(size * dim);
+            any = true;
+            i = close + 1;
+        }
+        return any;
     }
 
     private static string StripAttributes(string s)
@@ -583,6 +631,18 @@ public static class ObjCTypeRefParser
     private static readonly HashSet<string> KnownGenericContainers = ["NSArray", "NSDictionary", "NSSet",
         "NSOrderedSet", "NSEnumerator", "NSMutableArray", "NSMutableDictionary", "NSMutableSet",
         "NSMutableOrderedSet", "NSCache", "NSMapTable", "NSHashTable", "NSPointerArray"];
+
+    // Names the translation unit declares as C records (struct/union tags, and typedefs that name
+    // one), minus any that are also ObjC classes. Set by ClangAstParser before parsing;
+    // thread-static for test parallelism safety.
+    [ThreadStatic] private static HashSet<string>? _recordTypeNames;
+
+    /// <summary>
+    /// Sets the C record type names discovered from the clang AST. Call with null to clear after
+    /// parsing.
+    /// </summary>
+    public static void SetRecordTypeNames(HashSet<string>? names) =>
+        _recordTypeNames = names;
 
     // Additional generic containers discovered from the AST (classes with ObjCTypeParamDecl).
     // Set by ClangAstParser before parsing; thread-static for test parallelism safety.

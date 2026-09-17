@@ -80,6 +80,88 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 17 — a pointer to a C record crosses as its address, whatever the record is: an opaque
+    /// handle, two records that point at each other, or a system record (<c>FILE</c>). Bound by the
+    /// record's name instead, the indirection is dropped and the callee reads a copy where it expects
+    /// an address. A C array of arrays marshals as one flattened run, and a function that returns a
+    /// function pointer returns a callable address.
+    /// </summary>
+    public unsafe void TestRecordPointersCrossAsAddresses()
+    {
+        var tally = ObjCUmbrellaFunctions.OUTallyCreate(41);
+        AssertTrue(tally != IntPtr.Zero, "opaque record handle is created");
+        AssertEqual(42, ObjCUmbrellaFunctions.OUTallyIncrement(tally), "native mutates through the handle");
+        AssertEqual(43, ObjCUmbrellaFunctions.OUTallyIncrement(tally), "the handle keeps native state");
+        ObjCUmbrellaFunctions.OUTallyDestroy(tally);
+
+        var list = ObjCUmbrellaFunctions.OUNodeListCreate(3);
+        try
+        {
+            AssertEqual(60, ObjCUmbrellaFunctions.OUNodeListSum(list), "native walks the node run through the list pointer");
+            AssertEqual(1, ObjCUmbrellaFunctions.OUNodeListOwnerIsList(list), "each node's owner points back at the list");
+            var header = System.Runtime.InteropServices.Marshal.PtrToStructure<OUNodeList>(list);
+            AssertEqual(3, header.Count, "the list header reads in place");
+            var second = System.Runtime.InteropServices.Marshal.PtrToStructure<OUNode>(header.Nodes + sizeof(OUNode));
+            AssertEqual(20, second.Value, "a node reads through the list's node pointer");
+            AssertTrue(second.Owner == list, "a node's owner field is the list's address");
+        }
+        finally
+        {
+            ObjCUmbrellaFunctions.OUNodeListDestroy(list);
+        }
+
+        var stream = ObjCUmbrellaFunctions.OUOpenNullStream();
+        AssertTrue(stream != IntPtr.Zero, "system record pointer is returned");
+        AssertEqual(0, ObjCUmbrellaFunctions.OUCloseStream(stream), "system record pointer is accepted back");
+
+        var matrix = new OUMatrix { Cells = [10, 11, 20, 21, 30, 31] };
+        var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf<OUMatrix>());
+        try
+        {
+            AssertEqual(6 * sizeof(uint), System.Runtime.InteropServices.Marshal.SizeOf<OUMatrix>(), "the flattened array occupies the record");
+            System.Runtime.InteropServices.Marshal.StructureToPtr(matrix, buffer, false);
+            AssertEqual(10u, ObjCUmbrellaFunctions.OUMatrixCell(buffer, 0, 0), "first cell");
+            AssertEqual(21u, ObjCUmbrellaFunctions.OUMatrixCell(buffer, 1, 1), "row-major middle cell");
+            AssertEqual(31u, ObjCUmbrellaFunctions.OUMatrixCell(buffer, 2, 1), "last cell");
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+        }
+
+        var subtract = (delegate* unmanaged[Cdecl]<int, int, int>)ObjCUmbrellaFunctions.OUGetSubtractOp();
+        AssertEqual(4, subtract(7, 3), "the returned function pointer is callable");
+    }
+
+    /// <summary>
+    /// Shape 18 — a pointer to a value outside a parameter is an address: a C-string field, an
+    /// integer-slot field, a C-string return, and a block's <c>BOOL *stop</c>. Bound by the pointee's
+    /// name, each compiled and read the wrong bytes; the block could not stop the enumeration.
+    /// </summary>
+    public void TestValuePointersOutsideParametersCrossAsAddresses()
+    {
+        var slot = ObjCUmbrellaFunctions.OULabeledSlotMake(9);
+        AssertEqual(2 * IntPtr.Size, System.Runtime.InteropServices.Marshal.SizeOf<OULabeledSlot>(), "two pointer fields occupy two words");
+        AssertEqual("tally", System.Runtime.InteropServices.Marshal.PtrToStringUTF8(slot.Label), "C-string field reads through its address");
+        AssertEqual(9, System.Runtime.InteropServices.Marshal.ReadInt32(slot.Slot), "integer-slot field reads through its address");
+        AssertEqual(10, ObjCUmbrellaFunctions.OULabeledSlotBump(slot), "native writes through the field the managed copy carried");
+        AssertEqual(10, System.Runtime.InteropServices.Marshal.ReadInt32(slot.Slot), "the write is visible through the same address");
+
+        AssertEqual("ou.fixture", System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ObjCUmbrellaFunctions.OUFixtureLabel()), "C-string return is an address");
+
+        using var walker = new OUValueWalker();
+        var seen = new System.Collections.Generic.List<int>();
+        var visited = walker.WalkUpTo(5, (value, stop) =>
+        {
+            seen.Add(value);
+            if (value == 2)
+                System.Runtime.InteropServices.Marshal.WriteByte(stop, 1);
+        });
+        AssertEqual(3, visited, "the block stops the walk by writing through its stop pointer");
+        AssertEqual("0,1,2", string.Join(",", seen), "the block saw each value up to the stop");
+    }
+
+    /// <summary>
     /// Shape 13 — <c>extern</c> constants read their real native values.
     ///
     /// This is the one defect in the family a compiler cannot catch. A <c>[Field]</c> property

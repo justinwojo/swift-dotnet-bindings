@@ -4329,4 +4329,96 @@ public class ClangAstParserTests
         var category = Assert.Single(module.Categories, c => c.ClassName == "ForeignOwned");
         Assert.Contains(category.Methods, m => m.Selector == "extra");
     }
+
+    // A function returning a function pointer nests its own parameter list inside the returned
+    // pointer's declarator; the return type is the pointer, never the pointer's own return type.
+    [Theory]
+    [InlineData("int32_t (* _Nonnull (void))(int32_t, int32_t)", "int32_t (* _Nonnull)(int32_t, int32_t)")]
+    [InlineData("int (*(void))(int, int)", "int (*)(int, int)")]
+    [InlineData("void (*(int, void (*)(int)))(void)", "void (*)(void)")]
+    [InlineData("void (int, void (*)(int))", "void")]
+    [InlineData("int (float, float)", "int")]
+    [InlineData("void ()", "void")]
+    public void ParseFunctionReturnType_ExtractsReturnedType(string functionType, string expected)
+    {
+        Assert.Equal(expected, ClangAstParser.ParseFunctionReturnType(functionType));
+    }
+
+    [Fact]
+    public void Parse_FunctionReturningFunctionPointer_ReturnTypeIsFunctionPointer()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "FunctionDecl",
+            "name": "OUGetSubtractOp",
+            {{MakeLoc()}},
+            "type": { "qualType": "int32_t (* _Nonnull (void))(int32_t, int32_t)" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var function = Assert.Single(module.Functions);
+        Assert.True(function.ReturnType.IsFunctionPointer);
+    }
+
+    // Records are collected from tags and from typedefs of a record, but not from a typedef of a
+    // POINTER to a record, and not when an ObjC class shares the name (the bare name is the class).
+    [Fact]
+    public void Parse_RecordTypedefUses_FlagIsRecordFromDeclaredNames()
+    {
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "RecordDecl",
+            "name": "__sFILE",
+            "tagUsed": "struct",
+            "loc": { "file": "/usr/include/_stdio.h" },
+            "inner": []
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "FILE",
+            "loc": { "file": "/usr/include/_stdio.h" },
+            "type": { "qualType": "struct __sFILE" }
+        },
+        {
+            "kind": "TypedefDecl",
+            "name": "OUTallyRef",
+            {{MakeLoc()}},
+            "type": { "qualType": "struct OUTally *" }
+        },
+        {
+            "kind": "RecordDecl",
+            "name": "OUCounter",
+            "tagUsed": "struct",
+            {{MakeLoc()}},
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "OUCounter",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "FunctionDecl",
+            "name": "OUUse",
+            {{MakeLoc()}},
+            "type": { "qualType": "FILE * (OUTallyRef, OUCounter *)" },
+            "inner": [
+                { "kind": "ParmVarDecl", "name": "tally", "type": { "qualType": "OUTallyRef" } },
+                { "kind": "ParmVarDecl", "name": "counter", "type": { "qualType": "OUCounter *" } }
+            ]
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        var function = Assert.Single(module.Functions, f => f.Name == "OUUse");
+        Assert.Equal("FILE", function.ReturnType.Name);
+        Assert.True(function.ReturnType.IsRecord);
+        Assert.False(function.Parameters[0].Type.IsRecord);
+        Assert.False(function.Parameters[1].Type.IsRecord);
+        Assert.False(ObjCTypeRefParser.Parse("FILE *").IsRecord);
+    }
 }
