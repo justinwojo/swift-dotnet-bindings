@@ -83,6 +83,13 @@ public static class DeviceCtl
         {
             FileName = "xcrun",
             Arguments = $"devicectl device process launch --device {udid} --console {bundleId} {launchArgs}",
+            // `--console` forwards our stdin to the app. An inherited stdin the launcher cannot
+            // forward — e.g. a peerless unix socket, which is what an agent- or CI-spawned nuke
+            // inherits — fails EVERY launch with CoreDeviceError 10002 / NSPOSIXErrorDomain 22
+            // (EINVAL) before the process starts. Always hand it a pipe we own, and keep that pipe
+            // OPEN for the whole launch: a closed pipe (immediate EOF) launches the app but drops
+            // its forwarded console, so the RESULTS FLUSHED marker never arrives.
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -216,16 +223,89 @@ public static class DeviceCtl
         }
     }
 
+    /// <summary>
+    /// Terminates every running instance of <paramref name="bundleId"/>. `devicectl device process
+    /// terminate` only accepts <c>--pid</c>, so the PID is resolved first: the app's installed bundle
+    /// URL, then the running processes whose executable lives inside it. Killing the `--console`
+    /// launcher does not reliably stop the app, so without this a timed-out or abandoned run can
+    /// leave the previous instance running into the next launch.
+    /// </summary>
     public static void Terminate(string udid, string bundleId)
     {
         try
         {
-            ProcessTasks.StartProcess(
-                    "xcrun", $"devicectl device process terminate --device {udid} {bundleId}",
-                    logOutput: false, timeout: 5000)
-                .WaitForExit();
+            using var apps = RunDeviceCtlJson($"device info apps --device {udid} --bundle-id {bundleId}");
+            var bundleUrl = apps?.RootElement.GetProperty("result").GetProperty("apps")
+                .EnumerateArray().Select(a => a.GetProperty("url").GetString()).FirstOrDefault(u => u != null);
+            if (bundleUrl == null)
+                return;
+
+            using var processes = RunDeviceCtlJson($"device info processes --device {udid}");
+            if (processes == null)
+                return;
+
+            foreach (var p in processes.RootElement.GetProperty("result").GetProperty("runningProcesses").EnumerateArray())
+            {
+                if (p.TryGetProperty("executable", out var exe)
+                    && exe.GetString()?.StartsWith(bundleUrl, StringComparison.Ordinal) == true
+                    && p.TryGetProperty("processIdentifier", out var pid))
+                {
+                    ProcessTasks.StartProcess(
+                            "xcrun", $"devicectl device process terminate --device {udid} --pid {pid.GetInt32()} -q",
+                            logOutput: false, timeout: 5000)
+                        .WaitForExit();
+                }
+            }
         }
         catch { /* Best-effort termination */ }
+    }
+
+    /// <summary>
+    /// Runs a devicectl subcommand and parses its <c>--json-output</c> file — the only output
+    /// devicectl documents as a stable interface for programs. Returns null on any failure.
+    /// </summary>
+    static System.Text.Json.JsonDocument? RunDeviceCtlJson(string subcommand)
+    {
+        var jsonPath = Path.Combine(Path.GetTempPath(), $"devicectl-{Guid.NewGuid():N}.json");
+        try
+        {
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "xcrun",
+                Arguments = $"devicectl {subcommand} -q --json-output \"{jsonPath}\"",
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            process.Start();
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(15000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                Log.Debug("devicectl {Subcommand} timed out", subcommand);
+                return null;
+            }
+            if (process.ExitCode != 0 || !File.Exists(jsonPath))
+            {
+                Log.Debug("devicectl {Subcommand} failed (exit {ExitCode}): {Output}",
+                    subcommand, process.ExitCode, (stdout.Result + stderr.Result).Trim());
+                return null;
+            }
+            return System.Text.Json.JsonDocument.Parse(File.ReadAllText(jsonPath));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("devicectl {Subcommand} failed: {Message}", subcommand, ex.Message);
+            return null;
+        }
+        finally
+        {
+            try { File.Delete(jsonPath); } catch { }
+        }
     }
 
     // --- Output Parsers ---
