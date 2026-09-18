@@ -3948,10 +3948,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (methodParams.Count == 0)
                 {
                     // No method-generic params: emit one overload per parent tuple.
-                    TryEmitConcreteOverload(
+                    if (TryEmitConcreteOverload(
                         csWriter, swiftWriter, method, typeDecl, parentTuple,
                         moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                        emittedSignatures, logger, isExtension: true);
+                        emittedSignatures, logger, isExtension: true))
+                    {
+                        RecordCsmMethodRecovered(method, typeDecl, parentTuple);
+                    }
                     continue;
                 }
 
@@ -3978,10 +3981,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         continue;
                     }
 
-                    TryEmitConcreteOverload(
+                    if (TryEmitConcreteOverload(
                         csWriter, swiftWriter, method, typeDecl, fullPairing,
                         moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                        emittedSignatures, logger, isExtension: true);
+                        emittedSignatures, logger, isExtension: true))
+                    {
+                        // Keyed on parentTuple, not fullPairing: the receiver a consumer names is the
+                        // closed parent, and the method-own conformers vary across overloads that all
+                        // recover the same skipped member. RecordMemberRecovered de-duplicates, so the
+                        // several pairings annotate the skip row once per closed receiver.
+                        RecordCsmMethodRecovered(method, typeDecl, parentTuple);
+                    }
                 }
             }
 
@@ -4009,8 +4019,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // matches the recorded skip.
                 if (emitted)
                 {
-                    var closedReceiver = $"{typeDecl.Name}<{string.Join(", ", parentTuple.Select(p => p.Conformer.CSharpType))}>";
-                    ReportCollector.RecordMemberRecovered(specProp.Property, $"{closedReceiver}.{specProp.Property.Name}");
+                    ReportCollector.RecordMemberRecovered(
+                        specProp.Property,
+                        $"{SpellClosedReceiver(typeDecl, parentTuple)}.{specProp.Property.Name}");
                 }
             }
 
@@ -4019,4 +4030,29 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine();
         }
     }
+
+    /// <summary>
+    /// Annotates the skip row for an open-generic method that a closed CSM overload has just recovered.
+    /// The mirror of the property arm above: the member-validation pipeline withdraws the open-generic
+    /// method on the shell, and the closed extension re-surfaces it per closed parent, so the report
+    /// would otherwise keep calling a reachable member unreachable. Keyed on the ORIGINAL method decl so
+    /// the containing-type + name matches the recorded skip.
+    /// </summary>
+    private static void RecordCsmMethodRecovered(
+        MethodDecl method,
+        TypeDecl typeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] parentTuple)
+    {
+        ReportCollector.RecordMemberRecovered(method, $"{SpellClosedReceiver(typeDecl, parentTuple)}.{method.Name}");
+    }
+
+    /// <summary>
+    /// Spells the closed receiver a consumer names for this parent pairing, e.g.
+    /// <c>LibraryResponse&lt;Album&gt;</c>. Only the parent's conformers appear: method-own generics are
+    /// arguments at the call, not part of the receiver.
+    /// </summary>
+    private static string SpellClosedReceiver(
+        TypeDecl typeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] parentTuple)
+        => $"{typeDecl.Name}<{string.Join(", ", parentTuple.Select(p => p.Conformer.CSharpType))}>";
 }

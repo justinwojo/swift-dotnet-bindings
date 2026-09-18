@@ -1031,14 +1031,18 @@ public static class ReportCollector
 
     /// <summary>
     /// Records that a skipped member's consumer surface was recovered by a closed CSM projection.
-    /// <paramref name="baseMember"/> is the ORIGINAL open-generic decl that PropertyHandler skipped (so
-    /// its containing-type + name key matches the recorded skip row exactly); <paramref name="projection"/>
+    /// <paramref name="baseMember"/> is the ORIGINAL open-generic decl whose handler skipped it — a
+    /// property skipped by PropertyHandler, or a method the member-validation pipeline withdrew — so its
+    /// containing-type + name key matches the recorded skip row exactly; <paramref name="projection"/>
     /// names the closed typed projection that recovers it (e.g. <c>MusicLibraryResponse&lt;Album&gt;.items</c>).
+    /// Typed as <see cref="BaseDecl"/> rather than a member-kind subtype because the key is built from the
+    /// containing type and the member name, which every decl kind carries; a method and a property recover
+    /// through the same closed receiver and belong on the same row.
     /// Called once per emitted projection; the annotations accumulate and are joined onto the skip row in
     /// <see cref="Complete"/>. No-op outside an active session. Never call this from a name heuristic — only
     /// from the emission site that actually produced the projection.
     /// </summary>
-    public static void RecordMemberRecovered(PropertyDecl baseMember, string projection)
+    public static void RecordMemberRecovered(BaseDecl baseMember, string projection)
     {
         ArgumentNullException.ThrowIfNull(baseMember);
         ArgumentException.ThrowIfNullOrWhiteSpace(projection);
