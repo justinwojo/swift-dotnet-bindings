@@ -193,6 +193,15 @@ public class ObjCInteropTests : TestBase
         AssertTrue(!notResponds, "SelectorTarget does not respond to nonExistentMethod");
     }
 
+    public void TestHandleActionWithSenderTakesPlainString()
+    {
+        // The sender parameter is a bare `Any`: a plain C# string has to be boxed into a container
+        // of its own, since it implements none of the existential-convertible interfaces.
+        using var target = TestLibFunctions.CreateSelectorTarget();
+        target.HandleActionWithSender("x");
+        AssertEqual("handleActionWithSender", target.LastAction, "the action ran in Swift");
+    }
+
     #endregion
 
     #region Singleton patterns on @objc NSObject classes

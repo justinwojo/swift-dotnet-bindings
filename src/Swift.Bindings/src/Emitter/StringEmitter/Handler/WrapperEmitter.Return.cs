@@ -186,7 +186,7 @@ namespace BindingsGeneration
                 : $"SwiftMarshal.MarshalFromSwift<{containerType}>({resultLocation})";
             csWriter.WriteLine($"var {ExistentialResultName} = {existentialRead};");
 
-            if (protocolList.Protocols.Count == 0) { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
+            if (ExistentialHandler.IsZeroWitnessExistential(protocolList)) { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
             // Return position (pure read) → allow the PAT-with-conformers union projection.
             var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
             if (publicType == "object") { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
@@ -951,9 +951,9 @@ namespace BindingsGeneration
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
 
-                // Any (zero-protocol existential) → no proxy class; return container directly
+                // Zero-witness existential (Any, or markers only) → no proxy class; return container directly
                 // ExistentialContainer0 boxes to 'object' matching the public return type
-                if (protocolList.Protocols.Count == 0)
+                if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
                 {
                     csWriter.WriteLine($"return {ReturnLocalName};");
                     return;

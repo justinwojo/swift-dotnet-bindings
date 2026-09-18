@@ -836,8 +836,10 @@ namespace BindingsGeneration
                 var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                 var csName = NameProvider.GetMarshallingBaseName(arg);
                 // GetOrCreate only works for single-protocol (EC1) interfaces.
-                // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
+                // Zero-witness (EC0) boxes the plain value; well-known types (AnyError) and
+                // compositions (EC2+) use the direct cast.
                 bool owningCandidate = IsOwningExistentialCandidate(protocolList);
+                bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
                 if (owningCandidate)
                 {
                     // Auto-wrap fallback only when we actually emit a proxy class for the protocol.
@@ -889,10 +891,22 @@ namespace BindingsGeneration
                         : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, out {csName}Owns, out {csName}KeepAlive)";
                     csWriter.WriteLine($"var {csName}Container = {createExpr};");
                 }
+                else if (zeroWitness)
+                {
+                    // A zero-witness existential projects to `object`: the caller hands in a plain C#
+                    // value (string, long, a generated wrapper, ...), which never implements
+                    // ISwiftExistentialConvertible, so the borrowed cast below would throw
+                    // InvalidCastException on every call. Box builds a fresh container at +1 instead;
+                    // the owns-bit is raised only once the heap holds it, so a throw from Box leaves
+                    // nothing to destroy.
+                    csWriter.WriteLine($"var {csName}Container = Swift.Runtime.ExistentialContainer0.Box({csName});");
+                }
                 else
                     csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
                 csWriter.WriteLine($"{csName}Heap = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
                 csWriter.WriteLine($"Unsafe.Copy({csName}Heap, ref {csName}Container);");
+                if (zeroWitness)
+                    csWriter.WriteLine($"{csName}Owns = true;");
                 csWriter.WriteLine($"IntPtr {csName}Ptr = (IntPtr){csName}Heap;");
 
                 if (isAsync)
@@ -903,10 +917,14 @@ namespace BindingsGeneration
                     // keep-alive reference (change 4) so the GCHandle-rooted holder keeps R0 alive
                     // across the suspension (the async analog of the synchronous GC.KeepAlive): the
                     // owning-candidate path pins the GetOrCreate-boxed proxy local, the EC2+/well-known
-                    // borrowed path pins the parameter itself (owns=false — it never boxed a +1).
+                    // borrowed path pins the parameter itself (owns=false — it never boxed a +1). The
+                    // zero-witness box owns its +1 and references nothing managed, so it pins nothing.
+                    var witnessTableCount = ExistentialHandler.GetNonMarkerProtocols(protocolList).Count;
                     var holderCtor = owningCandidate
-                        ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {protocolList.Protocols.Count}, {csName}KeepAlive)"
-                        : $"new ExistentialContainerHeap((IntPtr){csName}Heap, false, {protocolList.Protocols.Count}, {csName})";
+                        ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {witnessTableCount}, {csName}KeepAlive)"
+                        : zeroWitness
+                            ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {witnessTableCount}, null)"
+                            : $"new ExistentialContainerHeap((IntPtr){csName}Heap, false, {witnessTableCount}, {csName})";
                     csWriter.WriteLine($"_asyncCallHolder.ExistentialHeaps.Add({holderCtor});");
                 }
             }

@@ -1305,7 +1305,11 @@ namespace BindingsGeneration
                 // (EC2+/well-known go through the borrowed GetExistentialContainer() cast). This gate
                 // MUST mirror EmitExistentialContainerMarshalling's branch at the GetOrCreate site.
                 bool owningCandidate = IsOwningExistentialCandidate(protocolList);
-                string? ownsVar = owningCandidate ? $"{csName}Owns" : null;
+                // A zero-witness existential (bare `Any`, or markers only such as `any Sendable`) is
+                // boxed from a plain C# value by ExistentialContainer0.Box, which always yields a +1
+                // the borrowing wrapper copies rather than consumes — so it too threads an owns-bit.
+                bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+                string? ownsVar = owningCandidate || zeroWitness ? $"{csName}Owns" : null;
                 // Both existential-arg paths must pin the backing reference across the borrowed native
                 // call (change 4): the JIT may treat the source as dead once its bytes are copied into
                 // the call buffer, and under B2's weak proxy registration nothing else strong-roots an
@@ -1315,8 +1319,12 @@ namespace BindingsGeneration
                 // passes the proxy/wrapper THROUGH as the parameter, so it pins the parameter local
                 // (csName) directly — no fresh local to declare. (EC2+ compositions are always a
                 // Swift-vended proxy; well-known wrappers self-own — pinning is harmless there.)
-                string? keepAliveVar = owningCandidate ? $"{csName}KeepAlive" : csName;
-                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, protocolList.Protocols.Count, keepAliveVar));
+                // The zero-witness box holds its own copy of the value (Box re-creates a Swift string or
+                // copies through the value witness), so nothing managed backs it across the call.
+                string? keepAliveVar = owningCandidate ? $"{csName}KeepAlive" : zeroWitness ? null : csName;
+                // The destroy's layout is the container actually built, whose witness-table count
+                // excludes marker protocols (`any Sendable` is a 4-word ExistentialContainer0).
+                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, ExistentialHandler.GetNonMarkerProtocols(protocolList).Count, keepAliveVar));
                 csWriter.WriteLine($"void* {heapName} = null;");
                 if (ownsVar != null)
                     csWriter.WriteLine($"bool {ownsVar} = false;");
@@ -1329,9 +1337,11 @@ namespace BindingsGeneration
 
         /// <summary>
         /// True when an existential parameter routes through the EC1 <c>GetOrCreate</c> path, which
-        /// can freshly box a value-type conformer at +1. EC2+ compositions and
-        /// well-known existentials (e.g. <c>AnyError</c>/EC0) instead take the borrowed
+        /// can freshly box a value-type conformer at +1. EC2+ compositions and well-known
+        /// existentials (e.g. <c>AnyError</c>) instead take the borrowed
         /// <c>GetExistentialContainer()</c> cast and never own a destroyable +1 at the call site.
+        /// Zero-witness existentials (<c>ExistentialContainer0</c>) are neither: they box through
+        /// <c>ExistentialContainer0.Box</c>, which always owns its +1.
         /// Mirrors the branch in <see cref="EmitExistentialContainerMarshalling"/>.
         /// </summary>
         private bool IsOwningExistentialCandidate(ProtocolListTypeSpec protocolList)
