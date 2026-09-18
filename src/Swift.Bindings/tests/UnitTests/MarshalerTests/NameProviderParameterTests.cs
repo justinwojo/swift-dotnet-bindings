@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -674,6 +675,113 @@ public class NameProviderParameterTests
         Assert.Equal("__in", compoundName);
         Assert.DoesNotContain("@", compoundName);
     }
+
+    #endregion
+
+    #region Marshalling base name composed with de-escaping
+
+    // Two independent concerns meet on the same name, and an emitter that builds a scratch local
+    // has to satisfy both. ResolveMarshallingBaseName answers "does a real sibling parameter already
+    // spell a local I am about to mint?" and moves the name aside when it does. StripVerbatimPrefix
+    // answers "is this spelling legal in the middle of a compound identifier?" Neither subsumes the
+    // other: the resolver's pass-through arm hands back the escaped name untouched, and stripping
+    // says nothing about collisions. The order is fixed — resolve first, then strip — because the
+    // resolver has to see the same csName the public signature emits.
+
+    [Theory]
+    [InlineData("@object", "object")]
+    [InlineData("@event", "event")]
+    [InlineData("count", "count")]
+    public void ResolveMarshallingBaseName_NoSiblingShadows_ReturnsTheNameUnchanged(string csName, string bare)
+    {
+        // The pass-through arm: nothing collides, so the name comes back exactly as it went in —
+        // INCLUDING the verbatim marker. This is why MarshallingBaseName alone is not the fix for
+        // a prepended scratch local; `_@object_raw` still would not parse.
+        var siblings = new[] { bare, "other" };
+
+        Assert.Equal(csName, NameProvider.ResolveMarshallingBaseName(csName, siblings));
+    }
+
+    [Theory]
+    // The derived local a container parameter spawns is `{name}Buffer`; a real sibling spelled that
+    // way forces the keyword-named parameter's marshalling base aside.
+    [InlineData("@object", "objectBuffer")]
+    // …and one suffix over, the string conversion local `{name}Swift`.
+    [InlineData("@object", "objectSwift")]
+    public void ResolveMarshallingBaseName_SiblingShadowsADerivedLocal_MovesAsideAndIsAlreadyBare(
+        string csName, string shadowingSibling)
+    {
+        var siblings = new[] { "object", shadowingSibling };
+
+        var resolved = NameProvider.ResolveMarshallingBaseName(csName, siblings);
+
+        // The moved-aside form is minted from the bare name, so it is already legal to prepend onto.
+        Assert.NotEqual(csName, resolved);
+        Assert.DoesNotContain("@", resolved);
+        Assert.DoesNotContain(shadowingSibling, DerivedLocalNames(resolved));
+    }
+
+    [Theory]
+    [InlineData("@object", new[] { "object", "other" })]
+    [InlineData("@object", new[] { "object", "objectBuffer" })]
+    [InlineData("@object", new[] { "object", "objectSwift" })]
+    [InlineData("count", new[] { "count", "countBuffer" })]
+    [InlineData("count", new[] { "count", "other" })]
+    public void StripAfterResolve_AlwaysYieldsALegalCompoundIdentifier(string csName, string[] siblings)
+    {
+        // The composition every scratch-local site uses. Whichever arm the resolver takes, the
+        // result of stripping afterwards is a name that can be prepended onto.
+        var baseName = NameProvider.StripVerbatimPrefix(
+            NameProvider.ResolveMarshallingBaseName(csName, siblings));
+
+        foreach (var derived in DerivedLocalNames(baseName))
+        {
+            Assert.True(SyntaxFacts.IsValidIdentifier(derived), $"'{derived}' is not a legal C# identifier");
+        }
+    }
+
+    [Fact]
+    public void StripAfterResolve_KeepsTheCollisionAvoidanceTheResolverPerformed()
+    {
+        // Stripping must not undo the move: the whole point of the move was that `objectBuffer` is
+        // taken by a real parameter, and de-escaping afterwards cannot hand that spelling back.
+        var siblings = new[] { "object", "objectBuffer" };
+
+        var baseName = NameProvider.StripVerbatimPrefix(
+            NameProvider.ResolveMarshallingBaseName("@object", siblings));
+
+        Assert.DoesNotContain("objectBuffer", DerivedLocalNames(baseName));
+    }
+
+    [Fact]
+    public void StripBeforeResolve_LosesTheCollisionTheResolverIsAskedAbout()
+    {
+        // The inverse order, recorded as the wrong one. The resolver's shadow test is defined over
+        // the csName the signature emits; handing it an already-stripped name makes the bare form
+        // indistinguishable from a sibling that genuinely carries it, so the arms diverge.
+        var siblings = new[] { "object", "objectBuffer" };
+
+        var resolveThenStrip = NameProvider.StripVerbatimPrefix(
+            NameProvider.ResolveMarshallingBaseName("@object", siblings));
+        var stripThenResolve = NameProvider.ResolveMarshallingBaseName(
+            NameProvider.StripVerbatimPrefix("@object"), siblings);
+
+        // Both happen to move here; what differs is that only the first is guaranteed to have been
+        // resolved against the name the emitted signature actually declares.
+        Assert.Equal(resolveThenStrip, NameProvider.StripVerbatimPrefix(stripThenResolve));
+        Assert.DoesNotContain("@", resolveThenStrip);
+    }
+
+    /// <summary>
+    /// The scratch locals the marshalling sites mint from a parameter's base name — one prepended
+    /// shape per family the emitters actually compose (raw payload temp, metadata, class pointer,
+    /// heap copy, bool bridge, closure GCHandle) plus the appended container buffer.
+    /// </summary>
+    private static string[] DerivedLocalNames(string baseName) => new[]
+    {
+        $"_{baseName}_raw", $"__{baseName}_meta", $"__{baseName}_classPtr", $"__{baseName}_heap",
+        $"_{baseName}_boolBridge", $"__{baseName}Handle", $"__{baseName}Bytes", $"{baseName}Buffer",
+    };
 
     #endregion
 

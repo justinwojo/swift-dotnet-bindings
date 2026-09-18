@@ -7,6 +7,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -5446,6 +5448,111 @@ public class EnumHandlerOutputTests
         // Valid compound names should be present
         Assert.Contains("__operator", csOutput);
         Assert.Contains("__class", csOutput);
+    }
+
+    // Read-back direction. The construction side (above) de-escapes before composing `__{name}`;
+    // the marshalling side names its scratch temps `_{name}_raw` / `__{name}_meta` and used to
+    // compose them straight onto the escaped spelling. Only a MULTI-payload case reaches it with a
+    // label-derived name — a single payload marshals under the emitter's own `value` — so the
+    // shapes here all carry a sibling.
+    public static TheoryData<string, TypeSpec> KeywordLabelledPayloads => new()
+    {
+        // Bare `Any`: the zero-witness existential extraction, which mints `_{name}_raw` for the
+        // container and `__{name}_meta` for the witness-table destroy.
+        { "object", new ProtocolListTypeSpec() },
+        // Marker-only composition, same container, different spelling of the same path.
+        { "params", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") }) },
+        // Container payload: the projection path mints `_{name}_raw` and converts out of it.
+        { "base", new NamedTypeSpec("Swift.String") },
+        // Plain scalar: no temp at all, so this one guards against the fix disturbing the
+        // signature's own escaped spelling.
+        { "event", new NamedTypeSpec("Swift.Int") },
+    };
+
+    [Theory]
+    [MemberData(nameof(KeywordLabelledPayloads))]
+    public void Emit_MultiPayloadCaseWithKeywordLabel_EmitsParseableCSharp(string keywordLabel, TypeSpec payload)
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LoadError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("failed");
+        payload.TypeLabel = keywordLabel;
+        failedCase.AssociatedValues.Add(payload);
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.String") { TypeLabel = "reason" });
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The property the C# compiler cares about, asserted structurally rather than by naming a
+        // spelling: `@` is only legal as an identifier's FIRST character, so an emitted file is
+        // unparseable the moment one follows an identifier character. This used to be `_@object_raw`.
+        AssertEmittedCSharpParses(csOutput);
+    }
+
+    [Theory]
+    [MemberData(nameof(KeywordLabelledPayloads))]
+    public void Emit_MultiPayloadCaseWithKeywordLabel_KeepsTheEscapedSpellingOnTheValueItself(
+        string keywordLabel, TypeSpec payload)
+    {
+        // The other half of the contract: the de-escaping is for compound names only. The projected
+        // payload is part of the public surface, so it must still be declared as `@object` — the
+        // faithful Swift label — not silently renamed.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LoadError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("failed");
+        payload.TypeLabel = keywordLabel;
+        failedCase.AssociatedValues.Add(payload);
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.String") { TypeLabel = "reason" });
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains($"@{keywordLabel}", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MultiPayloadCaseWithOrdinaryLabel_IsUnchangedByTheDeEscaping()
+    {
+        // The control. Nothing is escaped, so the temps keep the spellings the corpus has always
+        // carried — the fix is inert for every label that is not a keyword.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LoadError", moduleDecl, isFrozen: true);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec { TypeLabel = "payload" });
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.String") { TypeLabel = "reason" });
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        AssertEmittedCSharpParses(csOutput);
+        Assert.Contains("_payload_raw", csOutput);
+        Assert.Contains("__payload_meta", csOutput);
+    }
+
+    /// <summary>
+    /// Parses the emitted C# and fails on any syntax error. Parsing, not binding — the fixture's
+    /// type database is a stub, so unresolved names are expected and irrelevant; what is being
+    /// asserted is that the text is a well-formed compilation unit at all. An identifier carrying a
+    /// verbatim <c>@</c> anywhere but its first character is exactly the shape that is not.
+    /// </summary>
+    private static void AssertEmittedCSharpParses(string csOutput)
+    {
+        var diagnostics = CSharpSyntaxTree.ParseText(csOutput)
+            .GetDiagnostics()
+            .Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+            .Select(d => d.ToString())
+            .ToList();
+
+        Assert.Empty(diagnostics);
     }
 
     #endregion

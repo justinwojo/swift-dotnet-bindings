@@ -174,7 +174,7 @@ public static partial class CrossModuleExtensionEmitter
         var closureCallbackNames = new Dictionary<string, string>(); // paramName -> C# callback name
         foreach (var cp in closureParams)
         {
-            closureCallbackNames[cp.Name] = $"__{methodName}_{cp.Name}_Callback_{symbolHash}";
+            closureCallbackNames[cp.Name] = $"__{methodName}_{cp.BareName}_Callback_{symbolHash}";
         }
 
         // ====== Emit public C# extension method ======
@@ -209,8 +209,8 @@ public static partial class CrossModuleExtensionEmitter
         //    is the sole authoritative release).
         foreach (var cp in closureParams)
         {
-            csWriter.WriteLine($"var __{cp.Name}Handle = global::System.Runtime.InteropServices.GCHandle.Alloc({cp.Name});");
-            csWriter.WriteLine($"bool __{cp.Name}Transferred = false;");
+            csWriter.WriteLine($"var __{cp.BareName}Handle = global::System.Runtime.InteropServices.GCHandle.Alloc({cp.Name});");
+            csWriter.WriteLine($"bool __{cp.BareName}Transferred = false;");
         }
 
         csWriter.WriteLine("try");
@@ -224,7 +224,7 @@ public static partial class CrossModuleExtensionEmitter
         var stringParams = parameters.Where(p => p.Kind == ClassTrampolineParamKind.String).ToList();
         foreach (var sp in stringParams)
         {
-            csWriter.WriteLine($"var __{sp.Name}Bytes = global::System.Text.Encoding.UTF8.GetBytes({sp.Name} ?? string.Empty);");
+            csWriter.WriteLine($"var __{sp.BareName}Bytes = global::System.Text.Encoding.UTF8.GetBytes({sp.Name} ?? string.Empty);");
         }
 
         // Open one combined `fixed` over every String byte[] so all pointers are
@@ -234,7 +234,7 @@ public static partial class CrossModuleExtensionEmitter
         if (stringParams.Count > 0)
         {
             var fixedDecls = string.Join(", ",
-                stringParams.Select(sp => $"__{sp.Name}Ptr = __{sp.Name}Bytes"));
+                stringParams.Select(sp => $"__{sp.BareName}Ptr = __{sp.BareName}Bytes"));
             csWriter.WriteLine($"fixed (byte* {fixedDecls})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -247,7 +247,7 @@ public static partial class CrossModuleExtensionEmitter
             if (p.Kind == ClassTrampolineParamKind.Closure)
             {
                 nativeArgs.Add($"&{closureCallbackNames[p.Name]}");
-                nativeArgs.Add($"global::System.Runtime.InteropServices.GCHandle.ToIntPtr(__{p.Name}Handle)");
+                nativeArgs.Add($"global::System.Runtime.InteropServices.GCHandle.ToIntPtr(__{p.BareName}Handle)");
             }
             else
             {
@@ -307,7 +307,7 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.Indent++;
         foreach (var cp in closureParams)
         {
-            csWriter.WriteLine($"if (!__{cp.Name}Transferred && __{cp.Name}Handle.IsAllocated) __{cp.Name}Handle.Free();");
+            csWriter.WriteLine($"if (!__{cp.BareName}Transferred && __{cp.BareName}Handle.IsAllocated) __{cp.BareName}Handle.Free();");
         }
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -385,7 +385,7 @@ public static partial class CrossModuleExtensionEmitter
         {
             foreach (var cp in closureParams)
             {
-                csWriter.WriteLine($"__{cp.Name}Transferred = true;");
+                csWriter.WriteLine($"__{cp.BareName}Transferred = true;");
             }
         }
 
@@ -940,7 +940,7 @@ public static partial class CrossModuleExtensionEmitter
         // String: emit two comma-joined tokens — the pinned byte pointer and
         // the byte-array length. The enclosing C# body pre-encoded the bytes
         // and opened a `fixed` block over __{name}Bytes producing __{name}Ptr.
-        ClassTrampolineParamKind.String => $"__{p.Name}Ptr, (nint)__{p.Name}Bytes.Length",
+        ClassTrampolineParamKind.String => $"__{p.BareName}Ptr, (nint)__{p.BareName}Bytes.Length",
         _ => p.Name,
     };
 
@@ -1806,6 +1806,15 @@ public static partial class CrossModuleExtensionEmitter
     private sealed class ClassTrampolineParamInfo
     {
         public required string Name { get; init; }
+
+        // Name with any verbatim `@` prefix removed. Name itself is what the public C# signature
+        // declares and what every reference to the value spells, so it must keep the escape when
+        // the Swift label is a C# keyword (`object` -> `@object`). Scratch locals derived by
+        // PREPENDING onto it (`__{...}Handle`, `__{...}Bytes`, the callback method name) must use
+        // this instead: `@` is only legal as an identifier's first character, so `__@objectHandle`
+        // does not parse and takes the whole generated file down with it. Escaping is injective,
+        // so de-escaping cannot make two siblings' derived locals collide.
+        public string BareName => NameProvider.StripVerbatimPrefix(Name);
         public required ClassTrampolineParamKind Kind { get; init; }
         public required string CSharpType { get; init; }
         public required string SwiftTypeRendering { get; init; }

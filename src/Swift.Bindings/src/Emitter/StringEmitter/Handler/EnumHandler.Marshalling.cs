@@ -273,6 +273,13 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
+            // A payload label that spells a C# keyword arrives here already escaped to a verbatim
+            // identifier (`object` -> `@object`), which is what the destination variable must keep
+            // being called. Every scratch local below PREPENDS onto that name, and `@` is only
+            // legal as an identifier's first character — `_@object_raw` does not parse, and one
+            // unparseable local fails the whole generated file rather than the single member. Name
+            // the temps off the bare form; the destination keeps the escaped spelling.
+            var bareName = NameProvider.StripVerbatimPrefix(varName);
             // Thread CurrentModuleName so the TryGet body's cross-module proxy construction is
             // module-qualified (GetQualifiedProxyClassName below). A cross-module `{P}Proxy` lives
             // in the sibling's `{Module}.SwiftInterop` namespace, which the consuming module does
@@ -323,8 +330,8 @@ namespace BindingsGeneration
                         // enum's metadata, not the container). Owned extraction: the enum copy was taken
                         // at +1 (InitializeWithCopy), so the self-owning wrapper adopts and releases it
                         // (AnyError → ownsContainer: true).
-                        csWriter.WriteLine($"var _{varName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr} + (int){offsetVar}) }};");
-                        csWriter.WriteLine($"{varName} = new {wktOffset}(_{varName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktOffset)});");
+                        csWriter.WriteLine($"var _{bareName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr} + (int){offsetVar}) }};");
+                        csWriter.WriteLine($"{varName} = new {wktOffset}(_{bareName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktOffset)});");
                     }
                     else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
@@ -352,8 +359,8 @@ namespace BindingsGeneration
                         var rawRead = existentialHandler.IsClassBoundArity1Existential(protocolList)
                             ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(new IntPtr({sourcePtr} + (int){offsetVar}))"
                             : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}))";
-                        csWriter.WriteLine($"var _{varName}_raw = {rawRead};");
-                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
+                        csWriter.WriteLine($"var _{bareName}_raw = {rawRead};");
+                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{bareName}_raw{ownsProxyArg});");
                     }
                     else
                     {
@@ -369,16 +376,16 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec dataOffset && dataOffset.Name == "Foundation.Data")
             {
                 AppleSupplementReferences.Record("Foundation.Data", "EnumHandler.Marshalling:OffsetFoundationData");
-                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Foundation.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
-                csWriter.WriteLine($"{varName} = _{varName}_raw.ToByteArray();");
+                csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Foundation.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                csWriter.WriteLine($"{varName} = _{bareName}_raw.ToByteArray();");
                 return;
             }
 
             // Foundation.Date → DateTimeOffset: marshal as double, then convert
             if (typeSpec is NamedTypeSpec dateOffset && dateOffset.Name == "Foundation.Date")
             {
-                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr} + (int){offsetVar}));");
-                csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
+                csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{bareName}_raw);");
                 return;
             }
 
@@ -407,15 +414,15 @@ namespace BindingsGeneration
                     if (projection != null)
                     {
                         var containerType = projection.ContainerTypeName;
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
-                        var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
-                        var elemConv = projection.GetReturnElementConversion($"_{varName}_raw");
+                        csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                        var containerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
+                        var elemConv = projection.GetReturnElementConversion($"_{bareName}_raw");
                         if (containerConv != null)
                             csWriter.WriteLine($"{varName} = {containerConv};");
                         else if (elemConv != null)
                             csWriter.WriteLine($"{varName} = {elemConv};");
                         else
-                            csWriter.WriteLine($"{varName} = _{varName}_raw;");
+                            csWriter.WriteLine($"{varName} = _{bareName}_raw;");
                         return;
                     }
                 }
@@ -458,9 +465,8 @@ namespace BindingsGeneration
             var fallbackRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
             if (IsSwiftClassPayload(fallbackRecord))
             {
-                var bareNameClassOffset = NameProvider.StripVerbatimPrefix(varName);
-                csWriter.WriteLine($"var _{bareNameClassOffset}_classPtr = *(IntPtr*)({sourcePtr} + (int){offsetVar});");
-                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareNameClassOffset}_classPtr);");
+                csWriter.WriteLine($"var _{bareName}_classPtr = *(IntPtr*)({sourcePtr} + (int){offsetVar});");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareName}_classPtr);");
                 return;
             }
 
@@ -474,11 +480,10 @@ namespace BindingsGeneration
             // transfer; SwiftObjectHelper<T> also rejects non-ISwiftObject types at compile time).
             if (IsSwiftObjectBackedPayload(typeSpec, fallbackRecord, csharpType))
             {
-                var bareNameOffset = NameProvider.StripVerbatimPrefix(varName);
-                csWriter.WriteLine($"var _{bareNameOffset}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
-                csWriter.WriteLine($"var _{bareNameOffset}_heap = (byte*)NativeMemory.Alloc(_{bareNameOffset}_meta.Size);");
-                csWriter.WriteLine($"_{bareNameOffset}_meta.ValueWitnessTable->InitializeWithCopy(_{bareNameOffset}_heap, {sourcePtr} + (int){offsetVar}, _{bareNameOffset}_meta);");
-                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareNameOffset}_heap));");
+                csWriter.WriteLine($"var _{bareName}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var _{bareName}_heap = (byte*)NativeMemory.Alloc(_{bareName}_meta.Size);");
+                csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->InitializeWithCopy(_{bareName}_heap, {sourcePtr} + (int){offsetVar}, _{bareName}_meta);");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareName}_heap));");
                 // This arm COPIES rather than adopting: the wrapper owns the heap buffer, so the
                 // enum copy's own +1 on this element is still outstanding and nothing else will
                 // release it (the stackalloc buffer is never value-witness-destroyed). Release it
@@ -486,7 +491,7 @@ namespace BindingsGeneration
                 // slots independently, and the adopt arms above deliberately hand their +1 to the
                 // wrapper instead. Without this every TryGet call leaks one retain of the payload,
                 // so a class reachable from it never deallocs even though every dispose runs.
-                csWriter.WriteLine($"_{bareNameOffset}_meta.ValueWitnessTable->Destroy({sourcePtr} + (int){offsetVar}, _{bareNameOffset}_meta);");
+                csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->Destroy({sourcePtr} + (int){offsetVar}, _{bareName}_meta);");
             }
             else
             {
@@ -500,6 +505,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
+            // Scratch locals are named off the de-escaped form; see EmitPayloadMarshalWithOffset.
+            var bareName = NameProvider.StripVerbatimPrefix(varName);
             // Thread CurrentModuleName so the TryGet body's cross-module proxy construction is
             // module-qualified (GetQualifiedProxyClassName below) rather than a bare, CS0246
             // `new ParameterEncodingProxy(...)`. See EmitPayloadMarshalWithOffset.
@@ -540,8 +547,8 @@ namespace BindingsGeneration
                         // enum's metadata, not the container). Owned extraction: the enum copy was taken
                         // at +1 (InitializeWithCopy), so the self-owning wrapper adopts and releases it
                         // (AnyError → ownsContainer: true).
-                        csWriter.WriteLine($"var _{varName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr}) }};");
-                        csWriter.WriteLine($"{varName} = new {wktMarshal}(_{varName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktMarshal)});");
+                        csWriter.WriteLine($"var _{bareName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr}) }};");
+                        csWriter.WriteLine($"{varName} = new {wktMarshal}(_{bareName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktMarshal)});");
                     }
                     else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
@@ -562,8 +569,8 @@ namespace BindingsGeneration
                         var rawRead = existentialHandler.IsClassBoundArity1Existential(protocolList)
                             ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(new IntPtr({sourcePtr}))"
                             : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}))";
-                        csWriter.WriteLine($"var _{varName}_raw = {rawRead};");
-                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
+                        csWriter.WriteLine($"var _{bareName}_raw = {rawRead};");
+                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{bareName}_raw{ownsProxyArg});");
                     }
                     else
                     {
@@ -603,10 +610,10 @@ namespace BindingsGeneration
                         // GetReturnContainerConversion, which calls NSArray.ArrayFromHandle<T>.
                         if (projection.UsesObjCContainerBridge)
                         {
-                            var objcContainerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
+                            var objcContainerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
                             if (objcContainerConv != null)
                             {
-                                csWriter.WriteLine($"IntPtr _{varName}_raw = *(IntPtr*){sourcePtr};");
+                                csWriter.WriteLine($"IntPtr _{bareName}_raw = *(IntPtr*){sourcePtr};");
                                 csWriter.WriteLine($"{varName} = {objcContainerConv};");
                                 return;
                             }
@@ -624,26 +631,26 @@ namespace BindingsGeneration
                             && optProj.InnerProjection is ArrayProjection or DictionaryProjection or SetProjection
                             && optProj.InnerProjection.UsesObjCContainerBridge)
                         {
-                            var innerContainerConv = optProj.InnerProjection.GetReturnContainerConversion($"_{varName}_raw");
+                            var innerContainerConv = optProj.InnerProjection.GetReturnContainerConversion($"_{bareName}_raw");
                             if (innerContainerConv != null)
                             {
                                 var innerPublicType = optProj.InnerProjection.PublicType;
-                                csWriter.WriteLine($"IntPtr _{varName}_raw = *(IntPtr*){sourcePtr};");
-                                csWriter.WriteLine($"{varName} = _{varName}_raw == IntPtr.Zero ? ({innerPublicType}?)null : {innerContainerConv};");
+                                csWriter.WriteLine($"IntPtr _{bareName}_raw = *(IntPtr*){sourcePtr};");
+                                csWriter.WriteLine($"{varName} = _{bareName}_raw == IntPtr.Zero ? ({innerPublicType}?)null : {innerContainerConv};");
                                 return;
                             }
                         }
 
                         var containerType = projection.ContainerTypeName;
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
-                        var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
-                        var elemConv = projection.GetReturnElementConversion($"_{varName}_raw");
+                        csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        var containerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
+                        var elemConv = projection.GetReturnElementConversion($"_{bareName}_raw");
                         if (containerConv != null)
                             csWriter.WriteLine($"{varName} = {containerConv};");
                         else if (elemConv != null)
                             csWriter.WriteLine($"{varName} = {elemConv};");
                         else
-                            csWriter.WriteLine($"{varName} = _{varName}_raw;");
+                            csWriter.WriteLine($"{varName} = _{bareName}_raw;");
                         return;
                     }
                 }
@@ -652,8 +659,8 @@ namespace BindingsGeneration
             // Foundation.Date → DateTimeOffset: marshal as double, then convert
             if (typeSpec is NamedTypeSpec dateMarshal && dateMarshal.Name == "Foundation.Date")
             {
-                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
-                csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
+                csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
+                csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{bareName}_raw);");
                 return;
             }
 
@@ -695,18 +702,16 @@ namespace BindingsGeneration
             var marshalRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
             if (IsSwiftClassPayload(marshalRecord))
             {
-                var bareNameClassMarshal = NameProvider.StripVerbatimPrefix(varName);
-                csWriter.WriteLine($"var _{bareNameClassMarshal}_classPtr = *(IntPtr*)({sourcePtr});");
-                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareNameClassMarshal}_classPtr);");
+                csWriter.WriteLine($"var _{bareName}_classPtr = *(IntPtr*)({sourcePtr});");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareName}_classPtr);");
                 return;
             }
             if (IsSwiftObjectBackedPayload(typeSpec, marshalRecord, csharpType))
             {
-                var bareNameMarshal = NameProvider.StripVerbatimPrefix(varName);
-                csWriter.WriteLine($"var _{bareNameMarshal}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
-                csWriter.WriteLine($"var _{bareNameMarshal}_heap = (byte*)NativeMemory.Alloc(_{bareNameMarshal}_meta.Size);");
-                csWriter.WriteLine($"_{bareNameMarshal}_meta.ValueWitnessTable->InitializeWithCopy(_{bareNameMarshal}_heap, {sourcePtr}, _{bareNameMarshal}_meta);");
-                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareNameMarshal}_heap));");
+                csWriter.WriteLine($"var _{bareName}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var _{bareName}_heap = (byte*)NativeMemory.Alloc(_{bareName}_meta.Size);");
+                csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->InitializeWithCopy(_{bareName}_heap, {sourcePtr}, _{bareName}_meta);");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareName}_heap));");
                 // This arm COPIES rather than adopting: the wrapper owns the heap buffer, so the
                 // enum copy's own +1 on the projected payload is still outstanding and nothing else
                 // will release it (the stackalloc buffer is never value-witness-destroyed). Release
@@ -714,7 +719,7 @@ namespace BindingsGeneration
                 // +1 to the wrapper instead, which is why this cannot be a blanket destroy at the
                 // end of TryGet. Without this every TryGet call leaks one retain of the payload, so
                 // a class reachable from it never deallocs even though every dispose runs.
-                csWriter.WriteLine($"_{bareNameMarshal}_meta.ValueWitnessTable->Destroy({sourcePtr}, _{bareNameMarshal}_meta);");
+                csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->Destroy({sourcePtr}, _{bareName}_meta);");
             }
             else
             {
@@ -728,6 +733,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null, ModuleEmissionContext? emissionCtx = null)
         {
+            // Scratch locals are named off the de-escaped form; see EmitPayloadMarshalWithOffset.
+            var bareName = NameProvider.StripVerbatimPrefix(varName);
             // Thread CurrentModuleName so the TryGet body's cross-module proxy construction is
             // module-qualified (GetQualifiedProxyClassName below) rather than a bare, CS0246
             // `new ParameterEncodingProxy(...)`. See EmitPayloadMarshalWithOffset.
@@ -775,15 +782,15 @@ namespace BindingsGeneration
                     if (projection != null)
                     {
                         var containerType = projection.ContainerTypeName;
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
-                        var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
-                        var elemConv = projection.GetReturnElementConversion($"_{varName}_raw");
+                        csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        var containerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
+                        var elemConv = projection.GetReturnElementConversion($"_{bareName}_raw");
                         if (containerConv != null)
                             csWriter.WriteLine($"var {varName} = {containerConv};");
                         else if (elemConv != null)
                             csWriter.WriteLine($"var {varName} = {elemConv};");
                         else
-                            csWriter.WriteLine($"var {varName} = _{varName}_raw;");
+                            csWriter.WriteLine($"var {varName} = _{bareName}_raw;");
                         return;
                     }
                 }
@@ -809,8 +816,8 @@ namespace BindingsGeneration
                         // enum's metadata, not the container). Owned extraction: the enum copy was taken
                         // at +1 (InitializeWithCopy), so the self-owning wrapper adopts and releases it
                         // (AnyError → ownsContainer: true).
-                        csWriter.WriteLine($"var _{varName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr}) }};");
-                        csWriter.WriteLine($"var {varName} = new {wktDecl}(_{varName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktDecl)});");
+                        csWriter.WriteLine($"var _{bareName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr}) }};");
+                        csWriter.WriteLine($"var {varName} = new {wktDecl}(_{bareName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktDecl)});");
                     }
                     else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
@@ -831,8 +838,8 @@ namespace BindingsGeneration
                         var rawRead = existentialHandler.IsClassBoundArity1Existential(protocolList)
                             ? $"Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(new IntPtr({sourcePtr}))"
                             : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}))";
-                        csWriter.WriteLine($"var _{varName}_raw = {rawRead};");
-                        csWriter.WriteLine($"var {varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
+                        csWriter.WriteLine($"var _{bareName}_raw = {rawRead};");
+                        csWriter.WriteLine($"var {varName} = new {proxyClassName}(_{bareName}_raw{ownsProxyArg});");
                     }
                     else
                     {
@@ -845,8 +852,8 @@ namespace BindingsGeneration
             // Foundation.Date → DateTimeOffset: marshal as double, then convert
             if (typeSpec is NamedTypeSpec dateDecl && dateDecl.Name == "Foundation.Date")
             {
-                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
-                csWriter.WriteLine($"var {varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
+                csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
+                csWriter.WriteLine($"var {varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{bareName}_raw);");
                 return;
             }
 
@@ -931,24 +938,26 @@ namespace BindingsGeneration
         /// </summary>
         private static void EmitGenericTypeParameterPayloadExtraction(CSharpWriter csWriter, string typeParamName, string varName, string sourcePtrExpr, bool declareVar)
         {
+            // Scratch locals are named off the de-escaped form; see EmitPayloadMarshalWithOffset.
+            var bareName = NameProvider.StripVerbatimPrefix(varName);
             if (declareVar)
             {
                 csWriter.WriteLine($"{typeParamName} {varName};");
             }
             // Hoist metadata so both branches share it without recomputation.
-            csWriter.WriteLine($"var __{varName}_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{typeParamName}>();");
+            csWriter.WriteLine($"var __{bareName}_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{typeParamName}>();");
             csWriter.WriteLine($"if (typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName}))");
             csWriter.WriteLine($"    && !typeof({typeParamName}).IsValueType");
             csWriter.WriteLine($"    && !typeof(global::Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({typeParamName}))");
-            csWriter.WriteLine($"    && __{varName}_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class)");
+            csWriter.WriteLine($"    && __{bareName}_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             // Class T: read the class pointer at sourcePtr and hand it to MarshalFromSwift, which
             // ADOPTS the +1 the enclosing InitializeWithCopy already deposited. No extra Arc retain —
             // mirrors the concrete IsSwiftClassPayload branch (EmitPayloadMarshal /
             // EmitPayloadMarshalWithOffset). A redundant retain leaks +1 per extraction (issue #40).
-            csWriter.WriteLine($"var __{varName}_classPtr = *(IntPtr*)({sourcePtrExpr});");
-            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(__{varName}_classPtr);");
+            csWriter.WriteLine($"var __{bareName}_classPtr = *(IntPtr*)({sourcePtrExpr});");
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(__{bareName}_classPtr);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("else");
@@ -958,19 +967,19 @@ namespace BindingsGeneration
             // for an ISwiftObject T takes ownership of the heap pointer (SafeHandle frees on
             // dispose). For primitives / non-ISwiftObject value types, MarshalFromSwift reads the
             // value by value and we Destroy + Free the heap ourselves.
-            csWriter.WriteLine($"void* __{varName}_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__{varName}_meta.Size);");
-            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->InitializeWithCopy(__{varName}_heap, (void*)({sourcePtrExpr}), __{varName}_meta);");
-            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr(__{varName}_heap));");
+            csWriter.WriteLine($"void* __{bareName}_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__{bareName}_meta.Size);");
+            csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->InitializeWithCopy(__{bareName}_heap, (void*)({sourcePtrExpr}), __{bareName}_meta);");
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr(__{bareName}_heap));");
             // The copy above left the enum copy's own +1 on this payload outstanding, and the
             // stackalloc buffer is never value-witness-destroyed, so release it here (a no-op for a
             // trivial T). Only this non-class arm copies; the class arm above hands its +1 to the
             // wrapper, which is why the release cannot sit outside the branch.
-            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{varName}_meta);");
+            csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{bareName}_meta);");
             csWriter.WriteLine($"if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName})))");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->Destroy(__{varName}_heap, __{varName}_meta);");
-            csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free(__{varName}_heap);");
+            csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->Destroy(__{bareName}_heap, __{bareName}_meta);");
+            csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free(__{bareName}_heap);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.Indent--;
@@ -988,20 +997,22 @@ namespace BindingsGeneration
         /// </summary>
         private static void EmitZeroWitnessExistentialPayloadExtraction(CSharpWriter csWriter, string varName, string sourcePtrExpr, bool declareVar)
         {
+            // Scratch locals are named off the de-escaped form; see EmitPayloadMarshalWithOffset.
+            var bareName = NameProvider.StripVerbatimPrefix(varName);
             if (declareVar)
                 csWriter.WriteLine($"object {varName};");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer0>(new IntPtr({sourcePtrExpr}));");
-            csWriter.WriteLine($"{varName} = Swift.Runtime.ExistentialContainer0.Unbox(_{varName}_raw);");
+            csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Runtime.ExistentialContainer0>(new IntPtr({sourcePtrExpr}));");
+            csWriter.WriteLine($"{varName} = Swift.Runtime.ExistentialContainer0.Unbox(_{bareName}_raw);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("finally");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"var __{varName}_meta = global::Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(0);");
-            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{varName}_meta);");
+            csWriter.WriteLine($"var __{bareName}_meta = global::Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(0);");
+            csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{bareName}_meta);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

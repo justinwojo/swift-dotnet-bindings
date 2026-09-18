@@ -633,7 +633,11 @@ namespace BindingsGeneration
                         string marshalSource = csName;
                         if (ClosureEmitter.NeedsConventionCBoolBridge(closureTypeSpec))
                         {
-                            var bridgeName = $"_{csName}_boolBridge";
+                            // csName may still be a verbatim identifier (`@object`) when no sibling
+                            // forced it aside; prepending onto that spells `_@object_boolBridge`,
+                            // which does not parse. The bridge local takes the bare name — csName
+                            // itself keeps its escaped spelling because it names the real value.
+                            var bridgeName = $"_{NameProvider.StripVerbatimPrefix(csName)}_boolBridge";
                             ClosureEmitter.EmitConventionCBoolBridge(csWriter, csName, bridgeName, closureTypeSpec, _env.ClosureHandler);
                             marshalSource = bridgeName;
                             csWriter.WriteLine($"var {bridgeName}Handle = global::System.Runtime.InteropServices.GCHandle.Alloc({bridgeName});");
