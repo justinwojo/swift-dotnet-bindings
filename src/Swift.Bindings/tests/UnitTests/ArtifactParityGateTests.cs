@@ -111,9 +111,9 @@ public class ArtifactParityGateTests
     [Theory]
     [InlineData("SBW_Foo_bar_123", true)]
     [InlineData("SBSW_MCB_ABC_0_run", true)]
-    [InlineData("Get_EveryProtocol_VariadicItem_WitnessTable", true)]
-    [InlineData("Get_EveryObjCProtocol_Foo_WitnessTable", true)]
-    [InlineData("SetSummable_vtable", true)]
+    [InlineData("SBW_Get_EveryProtocol_VariadicItem_WitnessTable", true)]
+    [InlineData("SBW_Get_EveryObjCProtocol_Foo_WitnessTable", true)]
+    [InlineData("SBW_SetSummable_vtable", true)]
     [InlineData("Get_SwiftBindingsTestLib_ReadOnlyProps_storedInt", true)]
     [InlineData("$s18SwiftBindingsTestLib7Genericxcfr", false)] // mangled Swift — not authored
     [InlineData("swift_release", false)]

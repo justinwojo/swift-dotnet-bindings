@@ -2651,7 +2651,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// Records that <see cref="EveryProtocolEmitter"/> emitted the
-    /// <c>Get_EveryProtocol_{Protocol}_WitnessTable</c> Swift getter into the wrapper module
+    /// <c>SBW_Get_EveryProtocol_{Protocol}_WitnessTable</c> Swift getter into the wrapper module
     /// for the given protocol. This is the authoritative "did the wrapper actually export the
     /// getter symbol?" signal — distinct from <see cref="WasSetVtableEmitted"/> (a
     /// marker/composition conformance can emit the getter without a vtable setter) and from
@@ -2671,7 +2671,7 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// Returns true when the wrapper module exported the
-    /// <c>Get_EveryProtocol_{Protocol}_WitnessTable</c> getter for this protocol. False for
+    /// <c>SBW_Get_EveryProtocol_{Protocol}_WitnessTable</c> getter for this protocol. False for
     /// read-only (class-superclass-skipped) and cross-module proxies whose getter symbol is not
     /// present in this wrapper — the C# proxy then suppresses the getter P/Invoke and fails the
     /// CALLBACK direction clean. <paramref name="protocolKey"/> must be the module-qualified name

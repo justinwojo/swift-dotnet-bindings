@@ -216,14 +216,16 @@ public class AsyncStreamHandler
     }
 
     /// <summary>
-    /// Gets the Swift wrapper function name for an AsyncStream property.
+    /// Gets the Swift wrapper function name for an AsyncStream property. It doubles as the
+    /// <c>@_cdecl</c> symbol the C# P/Invoke names, so it carries the <c>SBW_</c> wrapper prefix
+    /// that <see cref="BindingsGeneration.WrapperSymbolIntegrityGate"/> reconciles.
     /// </summary>
     /// <param name="propertyDecl">The property declaration.</param>
     /// <returns>The Swift wrapper function name.</returns>
     public string GetSwiftWrapperFunctionName(PropertyDecl propertyDecl)
     {
         var parentName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.Name : "Module";
-        return $"{parentName}_{propertyDecl.Name}_AsyncStream";
+        return $"SBW_{parentName}_{propertyDecl.Name}_AsyncStream";
     }
 
     /// <summary>

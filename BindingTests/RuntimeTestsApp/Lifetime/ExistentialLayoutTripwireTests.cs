@@ -195,12 +195,12 @@ public class ExistentialLayoutTripwireTests : TestBase
 internal static partial class ExistentialSizeAccessors
 {
     /// <summary><c>ReverseInvariantAlpha</c> — an opaque (non-<c>AnyObject</c>) protocol.</summary>
-    [LibraryImport("SwiftBindings", EntryPoint = "Get_EveryProtocol_ReverseInvariantAlpha_ExistentialSize")]
+    [LibraryImport("SwiftBindings", EntryPoint = "SBW_Get_EveryProtocol_ReverseInvariantAlpha_ExistentialSize")]
     [UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
     internal static partial nint OpaqueSize();
 
     /// <summary><c>ReverseStoredDelegate</c> — a class-bound (<c>: AnyObject</c>) protocol.</summary>
-    [LibraryImport("SwiftBindings", EntryPoint = "Get_EveryProtocol_ReverseStoredDelegate_ExistentialSize")]
+    [LibraryImport("SwiftBindings", EntryPoint = "SBW_Get_EveryProtocol_ReverseStoredDelegate_ExistentialSize")]
     [UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
     internal static partial nint ClassBoundSize();
 }

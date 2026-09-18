@@ -69,7 +69,15 @@ justified only when the failure it prevents would otherwise *compile*.
 | Constructor | `SBW_{module}_{type}_init_{hash8}` |
 | Subscript accessor | `SBW_{SubGet\|SubSet}_{module}_{type}_{hash8}` |
 | Property accessor | `SBW_{Get\|Set}_{module}_{type}_{property}` — **no hash** |
+| Reverse-conformance vtable setter | `SBW_Set{sourceModule_}{protocol}_vtable` |
+| Reverse-conformance witness table / existential size | `SBW_Get_EveryProtocol_{protocol}_{WitnessTable\|ExistentialSize}` |
+| `AsyncStream` property bridge | `SBW_{type}_{property}_AsyncStream` |
 | `@_silgen_name` (Swift-convention) shims | `SBSW_…` |
+
+Every `@_cdecl` symbol a binding P/Invokes carries one of these two prefixes, because the
+post-emission integrity gate below recognises a wrapper symbol by its prefix alone: an entry point
+spelled without it is invisible to the gate, so a withdrawn definition would ship as an
+`EntryPointNotFoundException` instead of failing generation.
 
 `hash8` is an FNV-1a 32-bit digest of the member's *original mangled* name, so it distinguishes
 overloads and per-specialization emissions. The property scheme has no such digest, and it flattens

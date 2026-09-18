@@ -337,7 +337,7 @@ public class EveryProtocolEmitterTests
         // @_cdecl (not @_silgen_name): the symbol must be a C-exported entry point so it is a
         // linker root that survives dead-stripping on NativeAOT/device builds. The C# P/Invoke
         // calls it with CallConvCdecl.
-        Assert.Contains("@_cdecl(\"SetTestProtocol_vtable\")", output);
+        Assert.Contains("@_cdecl(\"SBW_SetTestProtocol_vtable\")", output);
     }
 
     [Fact]
@@ -1291,7 +1291,7 @@ public class EveryProtocolEmitterTests
         // reached only from C# via P/Invoke (CallConvCdecl). As a C-exported entry point it becomes
         // a linker root and survives dead-stripping on NativeAOT/device builds; an unreferenced
         // @_silgen_name free function is dropped there.
-        Assert.Contains("@_cdecl(\"Get_EveryProtocol_TestProtocol_WitnessTable\")", output);
+        Assert.Contains("@_cdecl(\"SBW_Get_EveryProtocol_TestProtocol_WitnessTable\")", output);
     }
 
     [Fact]
@@ -1322,7 +1322,7 @@ public class EveryProtocolEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitWitnessTableGetter(protocolDecl);
 
-        Assert.Contains("@_cdecl(\"Get_EveryProtocol_TestProtocol_ExistentialSize\")", output);
+        Assert.Contains("@_cdecl(\"SBW_Get_EveryProtocol_TestProtocol_ExistentialSize\")", output);
         Assert.Contains("public func getEveryProtocolTestProtocolExistentialSize() -> Int", output);
         Assert.Contains("MemoryLayout<any TestModule.TestProtocol>.size", output);
     }
@@ -1336,7 +1336,7 @@ public class EveryProtocolEmitterTests
         var output = stringWriter.ToString();
 
         // @_cdecl (not @_silgen_name) for the same dead-strip-survival reason as the witness getters.
-        Assert.Contains("@_cdecl(\"Get_EveryProtocol_TypeMetadata\")", output);
+        Assert.Contains("@_cdecl(\"SBW_Get_EveryProtocol_TypeMetadata\")", output);
     }
 
     [Fact]

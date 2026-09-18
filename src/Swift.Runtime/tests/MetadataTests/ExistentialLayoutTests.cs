@@ -86,7 +86,7 @@ public class ExistentialLayoutTests
     [Fact]
     public void MissingSizeAccessor_NamesProtocolAndPreservesInner()
     {
-        var inner = new EntryPointNotFoundException("Get_EveryProtocol_SomeProtocol_ExistentialSize");
+        var inner = new EntryPointNotFoundException("SBW_Get_EveryProtocol_SomeProtocol_ExistentialSize");
 
         var ex = ExistentialLayout.MissingSizeAccessor("SomeProtocol", inner);
 

@@ -155,7 +155,7 @@ public class VisionKitSmokeTests : TestBase
     /// is missing from the parsed symbol set marks the protocol
     /// <c>HasMissingTbdMethodDescriptors</c>, which drops the
     /// <c>extension EveryProtocol: VisionKit.ImageAnalysisInteractionDelegate</c> conformance
-    /// from the wrapper — and with it the <c>Get_EveryProtocol_…_WitnessTable</c> entry point
+    /// from the wrapper — and with it the <c>SBW_Get_EveryProtocol_…_WitnessTable</c> entry point
     /// the proxy calls to hand Swift a witness table for a C# implementation. The proxy type
     /// itself is emitted either way (the vtable/receiver path stays available on purpose), so
     /// the conformance is what must be asserted. Those descriptors live in VisionKit's own
@@ -181,7 +181,7 @@ public class VisionKitSmokeTests : TestBase
                 "protocol's Tq method descriptors are absent from the parsed .tbd symbol set.");
 
             var witnessTable = (IntPtr)getWitnessTable!.Invoke(null, null)!;
-            TestLogger.Info($"Get_EveryProtocol_ImageAnalysisInteractionDelegate_WitnessTable = 0x{witnessTable:x}");
+            TestLogger.Info($"SBW_Get_EveryProtocol_ImageAnalysisInteractionDelegate_WitnessTable = 0x{witnessTable:x}");
             AssertTrue(witnessTable != IntPtr.Zero,
                 "The EveryProtocol conformance witness table must resolve to a non-null pointer.");
         }

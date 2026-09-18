@@ -588,10 +588,10 @@ partial class Build
                         throw new Exception($"resilience-kitchen: {label} {protocol}.{field} has no matching callback wiring.");
                 }
                 if (!swift.Contains($"extension EveryProtocol: {ResilienceModule}.{protocol}", StringComparison.Ordinal) ||
-                    !swift.Contains($"Set{protocol}_vtable", StringComparison.Ordinal) ||
-                    !managed.Contains($"Set{protocol}_vtable", StringComparison.Ordinal) ||
-                    !swift.Contains($"Get_EveryProtocol_{protocol}_WitnessTable", StringComparison.Ordinal) ||
-                    !managed.Contains($"Get_EveryProtocol_{protocol}_WitnessTable", StringComparison.Ordinal))
+                    !swift.Contains($"SBW_Set{protocol}_vtable", StringComparison.Ordinal) ||
+                    !managed.Contains($"SBW_Set{protocol}_vtable", StringComparison.Ordinal) ||
+                    !swift.Contains($"SBW_Get_EveryProtocol_{protocol}_WitnessTable", StringComparison.Ordinal) ||
+                    !managed.Contains($"SBW_Get_EveryProtocol_{protocol}_WitnessTable", StringComparison.Ordinal))
                     throw new Exception($"resilience-kitchen: {label} {protocol} lost its complete reverse capability.");
             }
             var dependent = File.ReadAllText(directory / $"{ResilienceModule}.Types.KitchenRetained.cs");

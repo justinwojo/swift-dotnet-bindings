@@ -37,7 +37,7 @@ public partial class ProtocolProxyEmitter
     private bool _setVtableEmitted = true;
 
     /// <summary>
-    /// True when EveryProtocolEmitter exported the <c>Get_EveryProtocol_{P}_WitnessTable</c> Swift
+    /// True when EveryProtocolEmitter exported the <c>SBW_Get_EveryProtocol_{P}_WitnessTable</c> Swift
     /// getter for the protocol currently being emitted (or when running outside a
     /// ModuleEmissionContext, e.g. unit tests). When false, the proxy suppresses the matching
     /// C# getter P/Invoke and <c>GetWitnessTableFromSwift()</c> throws

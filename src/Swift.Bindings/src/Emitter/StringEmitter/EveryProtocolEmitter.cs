@@ -2164,7 +2164,7 @@ public class EveryProtocolEmitter
             // C# calls this via P/Invoke (CallConvCdecl) to construct existential containers.
             // Exported as a C entry point (@_cdecl) for the same dead-strip-survival reason as the
             // witness-table getters above.
-            @_cdecl("Get_EveryProtocol_TypeMetadata")
+            @_cdecl("SBW_Get_EveryProtocol_TypeMetadata")
             public func getEveryProtocolTypeMetadata() -> UnsafeRawPointer {
                 return unsafeBitCast(EveryProtocol.self as Any.Type, to: UnsafeRawPointer.self)
             }
@@ -2889,7 +2889,7 @@ public class EveryProtocolEmitter
             writer.WriteLine();
         }
         // The witness-table getter is symbol-named via `@_cdecl`
-        // (`Get_EveryProtocol_{Name}_WitnessTable`) without the
+        // (`SBW_Get_EveryProtocol_{Name}_WitnessTable`) without the
         // source-module prefix the vtable setter carries. For cross-module
         // parents the dependency module's wrapper already emits this symbol
         // for the same protocol; re-emitting it here would create a
@@ -6728,9 +6728,20 @@ public class EveryProtocolEmitter
 
     private string GetSetVtableMangledName(ProtocolDecl protocolDecl)
     {
-        // @_cdecl symbol name that C# will call.
-        // ProtocolProxyEmitter.GetSetVtablePInvokeName must produce the matching entry point.
-        return $"Set{GetCrossModulePrefix(protocolDecl)}{protocolDecl.Name}_vtable";
+        return GetSetVtableEntryPoint(GetCrossModulePrefix(protocolDecl), protocolDecl.Name);
+    }
+
+    /// <summary>
+    /// The <c>@_cdecl</c> symbol of the vtable setter C# calls to register a proxy's vtable, and the
+    /// single spelling both the wrapper and every C# declaration of it use (the same-module proxy and
+    /// the cross-module-parent companion). <paramref name="modulePrefix"/> is empty for a same-module
+    /// protocol and <c>{SourceModule}_</c> for a cross-module parent. It carries the <c>SBW_</c>
+    /// prefix so <see cref="WrapperSymbolIntegrityGate"/> reconciles it like every other wrapper
+    /// entry point.
+    /// </summary>
+    internal static string GetSetVtableEntryPoint(string modulePrefix, string protocolName)
+    {
+        return $"SBW_Set{modulePrefix}{protocolName}_vtable";
     }
 
     private static string GetWitnessTableGetterFunctionName(ProtocolDecl protocolDecl)
@@ -6738,10 +6749,13 @@ public class EveryProtocolEmitter
         return $"getEveryProtocol{protocolDecl.Name}WitnessTable";
     }
 
-    private static string GetWitnessTableGetterMangledName(ProtocolDecl protocolDecl)
+    /// <summary>
+    /// The <c>@_cdecl</c> symbol of the witness-table getter. <c>ProtocolProxyEmitter</c> declares
+    /// its P/Invoke from this same builder. <c>SBW_</c>-prefixed so the integrity gate sees it.
+    /// </summary>
+    internal static string GetWitnessTableGetterMangledName(ProtocolDecl protocolDecl)
     {
-        // @_cdecl symbol name that C# will call
-        return $"Get_EveryProtocol_{protocolDecl.Name}_WitnessTable";
+        return $"SBW_Get_EveryProtocol_{protocolDecl.Name}_WitnessTable";
     }
 
     private static string GetExistentialSizeGetterFunctionName(ProtocolDecl protocolDecl)
@@ -6756,7 +6770,7 @@ public class EveryProtocolEmitter
     /// </summary>
     internal static string GetExistentialSizeGetterMangledName(ProtocolDecl protocolDecl)
     {
-        return $"Get_EveryProtocol_{protocolDecl.Name}_ExistentialSize";
+        return $"SBW_Get_EveryProtocol_{protocolDecl.Name}_ExistentialSize";
     }
 
     /// <summary>

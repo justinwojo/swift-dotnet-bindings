@@ -232,16 +232,15 @@ public static class ArtifactParityGate
     public static bool IsAuthoredWrapperSymbol(string symbol)
         => symbol.StartsWith("SBW_", StringComparison.Ordinal)
            || symbol.StartsWith("SBSW_", StringComparison.Ordinal)
-           || symbol.StartsWith("Get_SwiftBindingsTestLib", StringComparison.Ordinal)
-           || WitnessTableSymbol.IsMatch(symbol)
-           || SetVtableSymbol.IsMatch(symbol);
+           || symbol.StartsWith("Get_SwiftBindingsTestLib", StringComparison.Ordinal);
 
-    private static readonly Regex WitnessTableSymbol = new(@"^Get_Every[A-Za-z0-9_]*Protocol_[A-Za-z0-9_]+_WitnessTable$", RegexOptions.Compiled);
-    private static readonly Regex SetVtableSymbol = new(@"^Set[A-Za-z0-9_]+_vtable$", RegexOptions.Compiled);
+    // The reverse-conformance getters and vtable setters carry the SBW_ prefix, so the prefix test
+    // above already admits them; this narrower shape picks the witness-table getters out of an nm dump.
+    private static readonly Regex WitnessTableSymbol = new(@"^SBW_Get_Every[A-Za-z0-9_]*Protocol_[A-Za-z0-9_]+_WitnessTable$", RegexOptions.Compiled);
 
     /// <summary>
     /// True for an EveryProtocol witness-table getter export
-    /// (<c>Get_Every…Protocol_…_WitnessTable</c>). Shared with the wrapper-strip getter-parity
+    /// (<c>SBW_Get_Every…Protocol_…_WitnessTable</c>). Shared with the wrapper-strip getter-parity
     /// oracle (<c>Build.WrapperStrip.cs</c>) so both gates filter <c>nm</c> dumps with the
     /// identical regex rather than maintaining a second, drift-prone copy.
     /// </summary>

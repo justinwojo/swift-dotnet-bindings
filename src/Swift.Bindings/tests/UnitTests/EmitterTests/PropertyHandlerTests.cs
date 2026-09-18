@@ -442,11 +442,55 @@ public class PropertyHandlerTests
 
         Assert.Contains("public IAsyncEnumerable<nint> Updates", csOutput);
         Assert.Contains("private static unsafe byte updates_AsyncStream_OnElement", csOutput);
-        Assert.Contains("PInvoke_Feed_updates_AsyncStream", csOutput);
-        Assert.Contains("public func Feed_updates_AsyncStream", swiftOutput);
+        Assert.Contains("PInvoke_SBW_Feed_updates_AsyncStream", csOutput);
+        Assert.Contains("public func SBW_Feed_updates_AsyncStream", swiftOutput);
         Assert.Contains("for await element in __self.updates", swiftOutput);
         Assert.Contains("@_cdecl(", swiftOutput);
         Assert.Contains("_ self_: UnsafeMutableRawPointer", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncStreamProperty_WrapperEntryPoint_IsVisibleToTheIntegrityGate()
+    {
+        // The stream's @_cdecl pump is a wrapper entry point the C# side calls. If it is spelled
+        // outside the wrapper prefixes, the integrity gate cannot reconcile it, so a lost definition
+        // would ship and throw EntryPointNotFoundException when the consumer first iterates.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Feed", moduleDecl);
+        var property = new PropertyDecl
+        {
+            Name = "updates",
+            SwiftTypeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Swift.Int")),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+        var entryPoint = System.Text.RegularExpressions.Regex
+            .Match(csOutput, "EntryPoint\\s*=\\s*\"([^\"]+_AsyncStream)\"").Groups[1].Value;
+        Assert.NotEqual("", entryPoint);
+        Assert.Contains($"@_cdecl(\"{entryPoint}\")", swiftOutput);
+
+        var dir = Path.Combine(Path.GetTempPath(), "sbw-asyncstream-gate-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "TestModule.cs"), csOutput);
+            File.WriteAllText(Path.Combine(dir, "TestModule.swift"),
+                swiftOutput.Replace($"@_cdecl(\"{entryPoint}\")", $"@_cdecl(\"{entryPoint}_withdrawn\")"));
+            Assert.True(
+                WrapperSymbolIntegrityGate.HasViolations(dir, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+                $"The integrity gate cannot see the AsyncStream entry point '{entryPoint}'.");
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
     }
 
     [Fact]

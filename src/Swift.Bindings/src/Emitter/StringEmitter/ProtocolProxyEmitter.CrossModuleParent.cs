@@ -160,7 +160,7 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Emits a <c>[DllImport]</c> P/Invoke for the LOCAL <c>Set{Module}_{Parent}_vtable</c>
+    /// Emits a <c>[DllImport]</c> P/Invoke for the LOCAL <c>SBW_Set{Module}_{Parent}_vtable</c>
     /// symbol — emitted as a <c>@_cdecl</c> in the bound module's wrapper by
     /// <see cref="EveryProtocolEmitter.EmitSetVtableFunction"/> when the cross-module
     /// parent's companion conformance is emitted (see <c>ModuleHandler.CollectCrossModuleParentDecls</c>).
@@ -201,9 +201,8 @@ public partial class ProtocolProxyEmitter
     private static string GetCrossModuleSetVtableEntryPoint(ProtocolDecl parentDecl)
     {
         var sourceModule = parentDecl.ModuleDecl?.Name ?? string.Empty;
-        return string.IsNullOrEmpty(sourceModule)
-            ? $"Set{parentDecl.Name}_vtable"
-            : $"Set{sourceModule}_{parentDecl.Name}_vtable";
+        return EveryProtocolEmitter.GetSetVtableEntryPoint(
+            string.IsNullOrEmpty(sourceModule) ? "" : sourceModule + "_", parentDecl.Name);
     }
 
     /// <summary>

@@ -100,6 +100,53 @@ public class EveryProtocolCarrierAbsenceEmitterTests : IDisposable
     }
 
     [Fact]
+    public void SuitableModule_EveryWrapperSymbolTheProxyCalls_IsVisibleToTheIntegrityGate()
+    {
+        // The integrity gate only reconciles symbols spelled with the wrapper prefixes, so a
+        // reverse-conformance entry point spelled any other way (the vtable setter, the witness-table
+        // getter, the existential-size accessor) could lose its Swift definition and still pass
+        // generation, then throw EntryPointNotFoundException on first use. For every symbol the C#
+        // side calls and the Swift wrapper defines, drop just that definition and require the gate to
+        // report it: a symbol the gate cannot see is a symbol it cannot protect.
+        var protocolDecl = BuildProxyEligibleProtocol("UnknownFieldsDecodable");
+        var (csOutput, swiftOutput, _) = EmitModule("TestModule", protocolDecl);
+
+        var referenced = System.Text.RegularExpressions.Regex
+            .Matches(csOutput, "EntryPoint\\s*=\\s*\"([^\"]+)\"")
+            .Select(m => m.Groups[1].Value)
+            .ToHashSet();
+        var wrapperDefined = System.Text.RegularExpressions.Regex
+            .Matches(swiftOutput, "@_(?:cdecl|silgen_name)\\s*\\(\\s*\"([^\"]+)\"")
+            .Select(m => m.Groups[1].Value)
+            .Where(referenced.Contains)
+            .Distinct()
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+
+        // Setup check: the proxy really calls the reverse-conformance entry points this pins.
+        Assert.Contains(wrapperDefined, s => s.EndsWith("UnknownFieldsDecodable_vtable", StringComparison.Ordinal));
+        Assert.Contains(wrapperDefined, s => s.EndsWith("UnknownFieldsDecodable_WitnessTable", StringComparison.Ordinal));
+        Assert.Contains(wrapperDefined, s => s.EndsWith("UnknownFieldsDecodable_ExistentialSize", StringComparison.Ordinal));
+
+        var invisible = new List<string>();
+        foreach (var symbol in wrapperDefined)
+        {
+            var withoutDefinition = System.Text.RegularExpressions.Regex.Replace(
+                swiftOutput,
+                "(@_(?:cdecl|silgen_name)\\s*\\(\\s*\")" + System.Text.RegularExpressions.Regex.Escape(symbol) + "\"",
+                "$1" + symbol + "_withdrawn\"");
+            WriteSource("TestModule.cs", csOutput);
+            WriteSource("TestModule.swift", withoutDefinition);
+            if (!WrapperSymbolIntegrityGate.HasViolations(_dir, new CapturingLogger()))
+                invisible.Add(symbol);
+        }
+
+        Assert.True(invisible.Count == 0,
+            "The integrity gate cannot see these wrapper entry points, so a lost definition would ship " +
+            "as a runtime EntryPointNotFoundException: " + string.Join(", ", invisible));
+    }
+
+    [Fact]
     public void ReadOnlyProxy_CarrierEmitted_DoesNotDeclareCarrierTrio()
     {
         // A read-only (Swift-vended-only) proxy never CALLS the EveryProtocol factory trio — it
@@ -114,6 +161,32 @@ public class EveryProtocolCarrierAbsenceEmitterTests : IDisposable
         Assert.DoesNotContain("EntryPoint = \"SBW_CreateEveryProtocol\"", csOutput);
         Assert.DoesNotContain("EntryPoint = \"SBW_GetMetadata_EveryProtocol\"", csOutput);
         Assert.DoesNotContain("EntryPoint = \"SBW_SetEveryProtocolDeinitCallback\"", csOutput);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProxyWithoutOwnVtableSetter_DeclaresNoWrapperEntryPointTheWrapperDoesNotDefine(bool readOnly)
+    {
+        // A protocol with no requirements gets a proxy but no vtable setter in the wrapper, since
+        // there is nothing to dispatch. The proxy must then not declare the setter either: an
+        // uncalled declaration still names an entry point no binary exports, and the integrity gate
+        // cannot tell it from a real dangling reference — it would have to fail the generation or
+        // ignore every vtable setter.
+        var protocolDecl = BuildProxyEligibleProtocol("MarkerOnly");
+        protocolDecl.Methods.Clear();
+        var (csOutput, swiftOutput, _) = EmitModule("TestModule", protocolDecl, markReadOnlyProxy: readOnly);
+
+        // Setup check: the proxy is emitted, and the wrapper really has no setter for it.
+        Assert.Contains("MarkerOnlyProxy", csOutput);
+        Assert.DoesNotContain("MarkerOnly_vtable\"", swiftOutput);
+
+        WriteSource("TestModule.cs", csOutput);
+        WriteSource("TestModule.swift", swiftOutput);
+        var logger = new CapturingLogger();
+        Assert.False(WrapperSymbolIntegrityGate.HasViolations(_dir, logger),
+            "The read-only proxy declares a wrapper entry point the wrapper does not define:\n" +
+            string.Join("\n", logger.Messages));
     }
 
     // A non-class, non-Self protocol that is full-proxy-eligible (has an implementable `ping()`

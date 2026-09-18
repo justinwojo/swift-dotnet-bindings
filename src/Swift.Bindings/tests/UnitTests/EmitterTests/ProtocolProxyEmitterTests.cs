@@ -1841,7 +1841,7 @@ public class ProtocolProxyEmitterTests
 
         // P/Invoke should target the module library path (fallback when AsyncLibraryName is null)
         Assert.Contains("LibraryImport(\"/fake/path\"", output);
-        Assert.Contains("EntryPoint = \"SetTestProtocol_vtable\"", output);
+        Assert.Contains("EntryPoint = \"SBW_SetTestProtocol_vtable\"", output);
     }
 
     [Fact]
@@ -4712,7 +4712,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("EntryPoint = \"Get_EveryProtocol_TestProtocol_WitnessTable\"", output);
+        Assert.Contains("EntryPoint = \"SBW_Get_EveryProtocol_TestProtocol_WitnessTable\"", output);
         Assert.Contains("public static partial IntPtr GetWitnessTable()", output);
     }
 
@@ -9027,8 +9027,8 @@ public class ProtocolProxyEmitterTests
         // symbol table can host both Set_vtable trampolines side-by-side.
         Assert.Contains("NativeMethods_xm_DepA_ParentDelegate", output);
         Assert.Contains("NativeMethods_xm_DepB_ParentDelegate", output);
-        Assert.Contains("EntryPoint = \"SetDepA_ParentDelegate_vtable\"", output);
-        Assert.Contains("EntryPoint = \"SetDepB_ParentDelegate_vtable\"", output);
+        Assert.Contains("EntryPoint = \"SBW_SetDepA_ParentDelegate_vtable\"", output);
+        Assert.Contains("EntryPoint = \"SBW_SetDepB_ParentDelegate_vtable\"", output);
 
         // The UNQUALIFIED forms must not appear at the cross-module emission
         // sites — both would be ambiguous.
