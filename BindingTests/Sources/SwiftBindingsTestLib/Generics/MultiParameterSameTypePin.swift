@@ -14,8 +14,13 @@ import Foundation
 //
 // The pinned members bind on the closed instantiations their `where` clause admits, re-surfaced as
 // extension methods on `PinRange<PinFine, PinCoarse>` / `PinRange<PinCoarse, PinCoarse>` — the
-// open-generic class cannot carry them, so a marker there records where they went. A pinned *static*
-// method (`coarse`) is the one shape still without a spelling: C# has no static extension members.
+// open-generic class cannot carry them, so a marker there records where they went.
+//
+// `coarse` covers the static case, and deliberately returns `PinRange` rather than a scalar. Written
+// that way the return names the parent with both parameters still open, so it only binds if the
+// pairing is substituted into the return type before the result ABI is classified; it comes back
+// through an indirect result pointer. A static lands as a plain (non-`this`) member of the same
+// generated extension class the instance members extend.
 
 public protocol PinGranularity {}
 public protocol PinFineGranularity: PinGranularity {}

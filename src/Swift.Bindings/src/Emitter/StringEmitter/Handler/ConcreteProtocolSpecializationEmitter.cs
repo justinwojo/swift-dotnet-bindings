@@ -2539,16 +2539,33 @@ public static partial class ConcreteProtocolSpecializationEmitter
             TryMatchGenericParam(returnTypeSpec, pairing, out _, out returnConformer);
         bool isStringReturn = !isVoidReturn && !returnsGenericParam && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
-        // Property getters project a bound generic that mentions a parent parameter
-        // (Collection<τ_0_0>); substitute the pairing to its concrete conformer (Collection<Song>)
+        // A member can project a bound generic that mentions a parent parameter
+        // (Collection<τ_0_0>, or the closed parent itself as in `static func coarse() -> PinRange<Lo, Hi>`);
+        // substitute the pairing to its concrete conformer (Collection<Song>, PinRange<PinFine, PinCoarse>)
         // before classifying the @_cdecl return ABI, so this gate and both emit sites (the Swift
-        // wrapper and the C# P/Invoke) agree on ONE closed return type. Scoped to
-        // IsExtensionPropertyGetter — the only decl kind reaching this path with a τ-encoded
-        // composite return — so existing method admission stays byte-identical: returnsGenericParam
-        // and the string/Self checks above still key off the RAW spec.
-        var effectiveReturnTypeSpec = method.IsExtensionPropertyGetter
-            ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
-            : returnTypeSpec;
+        // wrapper and the C# P/Invoke) agree on ONE closed return type.
+        //
+        // Extended from property getters to statics, and deliberately no further. The substitution
+        // replaces exactly what the pairing binds and leaves everything else alone, so it is a no-op
+        // for a return with no parent-param mentions; a method-own or associated-type param survives
+        // it and is still (correctly) rejected by the unresolved-generic gate below.
+        //
+        // It stops at statics because this predicate is not only an emission gate: IsCsmSyncEligible-
+        // ForGenericParent calls it to decide whether to SUPPRESS a sync instance method's open-generic
+        // form, on the theory that the concrete extensions replace it. Admitting more instance methods
+        // here therefore deletes open-generic surface rather than adding to it — an instance method
+        // `paired() -> Pair<Item>` becomes an extension named `Paired` on the one conformer, so a
+        // consumer calling `GetPaired()` on any other instantiation loses the member and the rest are
+        // renamed. Statics carry no such risk: that predicate returns false for them before it ever
+        // reaches here, and a static lands on the extension class without shadowing anything, so the
+        // widening can only add. Lifting the instance restriction means fixing the suppression side
+        // first — it is not a conservatism that can simply be dropped.
+        //
+        // returnsGenericParam and the string/Self checks above still key off the RAW spec.
+        var effectiveReturnTypeSpec =
+            method.IsExtensionPropertyGetter || method.MethodType == MethodType.Static
+                ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+                : returnTypeSpec;
 
         // Self return: @_cdecl global functions can't return Self.
         if (!isVoidReturn && !isConstructor && IsSelfReturn(returnTypeSpec))

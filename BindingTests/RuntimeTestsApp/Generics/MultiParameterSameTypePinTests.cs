@@ -61,30 +61,45 @@ public class MultiParameterSameTypePinTests : TestBase
     }
 
     /// <summary>
-    /// The one shape with no C# spelling: a pinned STATIC method. C# has no static extension members,
-    /// so <c>coarse</c> is expected to stay unbound — asserted on each generated extension class,
-    /// since an extension method is a static member of another class entirely and so would be
-    /// invisible to a lookup on <c>PinRange</c> itself.
+    /// A pinned STATIC method returning its own closed parent. This is the shape a static returning a
+    /// scalar would not prove: the return type is written <c>PinRange</c> in Swift, meaning the parent
+    /// with both parameters still open, so binding it at all requires substituting the pairing into the
+    /// return before the ABI is classified. The value comes back through an indirect result pointer.
+    ///
+    /// Dispatching a further member on the returned range is the assertion that matters — it shows the
+    /// result is a live closed parent whose metadata resolves, not merely a struct that marshalled.
     /// </summary>
-    public void TestPinnedStaticMethodRemainsUnbound()
+    public void TestPinnedStaticMethodDispatchesReturningClosedParent()
     {
-        // The four CSM extension classes are named outright rather than swept out of the assembly.
+        using var range = PinRangeSwiftBindingsTestLib_PinFineSwiftBindingsTestLib_PinCoarseCsmExtensions.Coarse(41);
+        AssertEqual((nint)41, range.Raw, "coarse(_:) returned a PinRange<PinFine, PinCoarse> carrying its argument");
+        AssertEqual((nint)41000, range.CoarseUnits(), "a pinned member dispatches on the returned closed parent");
+    }
+
+    /// <summary>
+    /// The pin is honoured rather than widened: <c>coarse</c> is declared under
+    /// <c>where Lo: PinFineGranularity, Hi == PinCoarse</c>, so it belongs only on the pairings whose
+    /// <c>Hi</c> is <c>PinCoarse</c>. Emitting it on all four would mean the substitution had stopped
+    /// respecting the <c>where</c> clause. Asserted on the generated extension classes, since an
+    /// extension method is a static member of another class entirely and so would be invisible to a
+    /// lookup on <c>PinRange</c> itself.
+    /// </summary>
+    public void TestPinnedStaticMethodIsAbsentWherePinIsUnsatisfiable()
+    {
+        // The CSM extension classes are named outright rather than swept out of the assembly.
         // A GetTypes() sweep trips the trimmer, and worse, it would report "absent" for a member
         // that trimming had merely removed — a negative that passes for the wrong reason. Naming
         // each class roots it, so absence here means the generator did not emit it.
-        void AssertNoCoarse(
+        static MethodInfo? Coarse(
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] System.Type cls) =>
-            AssertNull(cls.GetMethod("Coarse", BindingFlags.Public | BindingFlags.Static),
-                $"a pinned static method has no C# static-extension spelling ({cls.Name})");
+            cls.GetMethod("Coarse", BindingFlags.Public | BindingFlags.Static);
 
-        AssertNoCoarse(typeof(PinRangeSwiftBindingsTestLib_PinCoarseSwiftBindingsTestLib_PinCoarseCsmExtensions));
-        AssertNoCoarse(typeof(PinRangeSwiftBindingsTestLib_PinCoarseSwiftBindingsTestLib_PinFineCsmExtensions));
-        AssertNoCoarse(typeof(PinRangeSwiftBindingsTestLib_PinFineSwiftBindingsTestLib_PinCoarseCsmExtensions));
-        AssertNoCoarse(typeof(PinRangeSwiftBindingsTestLib_PinFineSwiftBindingsTestLib_PinFineCsmExtensions));
+        AssertNull(Coarse(typeof(PinRangeSwiftBindingsTestLib_PinCoarseSwiftBindingsTestLib_PinFineCsmExtensions)),
+            "Hi is not PinCoarse, so the pinned static does not belong on Lo == PinCoarse, Hi == PinFine");
+        AssertNull(Coarse(typeof(PinRangeSwiftBindingsTestLib_PinFineSwiftBindingsTestLib_PinFineCsmExtensions)),
+            "Hi is not PinCoarse, so the pinned static does not belong on Lo == PinFine, Hi == PinFine");
 
-        AssertNull(
-            typeof(PinRange<PinFine, PinCoarse>).GetMethod(
-                "Coarse", BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static),
-            "nor is it on the closed generic type itself");
+        AssertNotNull(Coarse(typeof(PinRangeSwiftBindingsTestLib_PinCoarseSwiftBindingsTestLib_PinCoarseCsmExtensions)),
+            "and it does belong on the other admitted pairing, Lo == PinCoarse, Hi == PinCoarse");
     }
 }
