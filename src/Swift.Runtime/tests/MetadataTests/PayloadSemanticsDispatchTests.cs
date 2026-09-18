@@ -89,10 +89,13 @@ public class PayloadSemanticsDispatchTests
     }
 
     [Fact]
-    public void SystemString_IsNotISwiftObject_ShortCircuitsToInline()
+    public void SystemString_CrossesAsSwiftString_IsCopy()
     {
-        // System.String has no Swift metadata and is not an ISwiftObject — Inline, never a cache lookup.
-        Assert.Equal(PayloadConstructionSemantics.Inline, SwiftMarshal.GetPayloadSemanticsForType(typeof(string)));
+        // System.String is not an ISwiftObject but stands for Swift.String at a generic seam: the read
+        // copies the text out and the seam still owns the Swift value, so it must destroy it (Copy),
+        // where Inline would free the buffer and leak the String's storage. Never a cache lookup.
+        Assert.Equal(PayloadConstructionSemantics.Copy, SwiftMarshal.GetPayloadSemanticsForType(typeof(string)));
+        Assert.Equal(PayloadConstructionSemantics.Copy, SwiftMarshal.GetPayloadSemantics<string>());
     }
 
     [Fact]

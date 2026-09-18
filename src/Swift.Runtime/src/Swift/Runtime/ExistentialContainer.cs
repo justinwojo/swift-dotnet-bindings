@@ -981,7 +981,21 @@ public static class ExistentialContainerFactory
         var witnessTable = ProtocolWitnessTable.GetOrThrowAuto<T, TProtocol>();
         container[0] = witnessTable.Handle;
         MarshalPayload(value, metadata, ref container);
+        // A class instance is one reference word, so the same container is also a valid
+        // class-bound existential once the witness table sits in the word after it: Swift reads
+        // `any P` for `P: AnyObject` as [reference][witness table]. An opaque reader never looks
+        // past a class payload's first inline word, so filling the second serves both layouts.
+        if (IsReferencePayload(metadata))
+            container.Payload1 = witnessTable.Handle;
         return container;
+    }
+
+    private static bool IsReferencePayload(TypeMetadata metadata)
+    {
+        var kind = metadata.Kind;
+        return kind == TypeMetadataKind.Class
+            || kind == TypeMetadataKind.ForeignClass
+            || kind == TypeMetadataKind.ObjCClassWrapper;
     }
 
     /// <summary>

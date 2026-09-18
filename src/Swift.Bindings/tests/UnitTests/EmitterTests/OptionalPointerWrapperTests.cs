@@ -647,6 +647,34 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
+    public void Emit_OptionalProtocolParam_SwiftWrapperTakesTheAddressCSharpPasses()
+    {
+        // C# hands an Optional protocol existential to this wrapper as the address of its
+        // buffer. The wrapper must take that address and dereference it: declaring the Optional
+        // by value only matches while Swift passes it indirectly, and a class-bound one (two
+        // words) travels in registers, so the wrapper would read the address as the reference.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optProtocolType = new NamedTypeSpec("Swift.Optional");
+        optProtocolType.GenericParameters.Add(new NamedTypeSpec("TestModule.MyProtocol"));
+
+        var method = CreateMethodDecl("describe", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int32"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("value", optProtocolType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("_optbuf", swiftOutput);
+        Assert.Contains("Payload.DangerousGetHandle()", csOutput);
+        Assert.Matches(@"_ value: UnsafeRawPointer", swiftOutput);
+        Assert.Matches(@"let valueVal = value\.assumingMemoryBound\(to: [^\n]*MyProtocol[^\n]*\)\.pointee", swiftOutput);
+        Assert.DoesNotMatch(@"_ value: [^\n,)]*Optional", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_InstanceMethod_SwiftWrapperHasSelfParam()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -1825,6 +1853,16 @@ public class OptionalPointerWrapperTests
         var typeDatabase = new TypeDatabase();
 
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
         swiftModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
             new TypeRecord

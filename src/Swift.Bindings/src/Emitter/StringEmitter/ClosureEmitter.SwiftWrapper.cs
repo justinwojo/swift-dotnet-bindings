@@ -1171,8 +1171,9 @@ public static partial class ClosureEmitter
             // Closure params are already C-compatible (funcPtr + context)
             if (env.ClosureHandler.IsClosure(arg))
                 continue;
-            // Large optional params are already UnsafeRawPointer
-            if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+            // Large optional params are already UnsafeRawPointer. An Optional protocol existential
+            // is widened too, but it stays off the @_cdecl route: the protocol check below rejects it.
+            if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
                 continue;
             if (arg.IsGeneric) return false;
             if (CdeclParamMapper.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))

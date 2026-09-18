@@ -150,7 +150,7 @@ public static class OptionalPointerWrapperEmitter
             // Escape Swift keywords with backticks for use in generated Swift code
             var swiftName = NameProvider.EscapeSwiftKeyword(csName);
 
-            if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
+            if (ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
                 // Large Optional: accept UnsafeRawPointer, dereference in body. Route through
                 // GetDerefCode so Optional<NonFrozenStruct> / Optional<ComplexEnum> (projected
@@ -258,7 +258,7 @@ public static class OptionalPointerWrapperEmitter
             {
                 var csName = NameProvider.GetCSharpParameterName(arg);
                 var swiftName = NameProvider.EscapeSwiftKeyword(csName);
-                var valName = env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec)
+                var valName = ShouldWidenParam(arg, env.BoundGenericsHandler)
                     ? $"{csName}Val" : swiftName;
 
                 // For setter, first param is newValue — capture separately for assignment RHS
@@ -500,11 +500,19 @@ public static class OptionalPointerWrapperEmitter
     }
 
     /// <summary>
-    /// Returns true if the argument is a large Optional parameter that needs UnsafeRawPointer widening.
+    /// Returns true if the argument is an Optional the C# side hands a Swift wrapper as the address
+    /// of its buffer, so the wrapper must take <c>UnsafeRawPointer</c> and dereference it.
     /// Shared by all Swift wrapper emitters (ArraySlice, DefaultParam, ClosureCdecl, opaque return, async).
+    /// <para>
+    /// An Optional protocol existential is on that list for every wrapper route. Declaring it by
+    /// value instead only works while Swift happens to pass it indirectly: an opaque
+    /// <c>Optional&lt;any P&gt;</c> does, but a class-bound one is two words and travels in
+    /// registers, so the wrapper would read the buffer address as the object reference.
+    /// </para>
     /// </summary>
     public static bool ShouldWidenParam(ArgumentDecl arg, BoundGenericsHandler bgHandler)
-        => bgHandler.IsLargeOptionalParam(arg.SwiftTypeSpec);
+        => bgHandler.IsLargeOptionalParam(arg.SwiftTypeSpec)
+           || bgHandler.IsLargeOptionalProtocolParam(arg.SwiftTypeSpec);
 
     /// <summary>
     /// Returns the Swift code to dereference an UnsafeRawPointer parameter to its original Optional type.

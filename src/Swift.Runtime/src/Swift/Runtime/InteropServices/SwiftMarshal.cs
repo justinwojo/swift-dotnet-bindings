@@ -1345,13 +1345,16 @@ public static class SwiftMarshal
     /// <summary>
     /// Non-generic resolution of declared payload-construction semantics, keyed off a runtime
     /// <see cref="Type"/> (for tuple-element marshalling where the element type is only a <see cref="Type"/>).
-    /// Short-circuits non-<see cref="ISwiftObject"/> and value-type to <see cref="PayloadConstructionSemantics.Inline"/>,
+    /// Resolves <see cref="string"/> (Swift.String) to <see cref="PayloadConstructionSemantics.Copy"/>, then
+    /// short-circuits non-<see cref="ISwiftObject"/> and value-type to <see cref="PayloadConstructionSemantics.Inline"/>,
     /// then the by-Type cache (exact, then open-generic), then the reflection backstop (which registers the
     /// resolved value and throws loudly on a genuine miss rather than guessing).
     /// </summary>
     internal static PayloadConstructionSemantics GetPayloadSemanticsForType(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type)
     {
+        if (type == typeof(string))
+            return PayloadConstructionSemantics.Copy;     // Swift.String: the read copies the text, the Swift value stays with the seam to destroy
         if (!typeof(ISwiftObject).IsAssignableFrom(type))
             return PayloadConstructionSemantics.Inline;   // primitives / tuples / existential containers — read by value
         if (type.IsValueType)
@@ -1485,6 +1488,27 @@ public static class SwiftMarshal
         }
 
         var type = typeof(T);
+        if (type == typeof(string))
+        {
+            // A C# string stands for Swift.String (its metadata mapping resolves T to String), so
+            // it crosses as an owned Swift String; the generic seam destroys it through String's
+            // value witness once Swift has taken its copy.
+            var text = (string?)(object?)value
+                ?? throw new ArgumentNullException(nameof(value), "A Swift String argument cannot be null.");
+            int size;
+            unsafe { size = sizeof(SwiftString.Buffer); }
+            if (size > swiftDestSpan.Length)
+                throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
+            unsafe
+            {
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    SwiftString.CreateOwnedInto(text, (IntPtr)swiftDest);
+                }
+            }
+            return size;
+        }
+
         if ((type.IsPrimitive || typeof(nint).IsAssignableFrom(type) || typeof(nuint).IsAssignableFrom(type)) && !typeof(char).IsAssignableFrom(type))
         {
             unsafe
@@ -1887,6 +1911,11 @@ public static class SwiftMarshal
             return (T)SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), swiftSource);
         }
         var type = typeof(T);
+        if (type == typeof(string))
+        {
+            // Borrowed read: the seam that owns the Swift String destroys it afterwards.
+            return (T)(object)SwiftString.ReadBorrowed(swiftSource);
+        }
         if (type.IsPrimitive)
         {
             unsafe

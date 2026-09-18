@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "c899df45c",
+  "git_sha": "b6012a84c",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -16489,6 +16489,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "MakePassBackCounter(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_makePassBackCounter_865B70BD"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "MakePendingDelivery()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_makePendingDelivery_5A3F1F8C"
     },
@@ -20806,6 +20811,41 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ParseNumber(string)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_parseNumber_B8AA2BEC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackHolder.Bump(IPassBackCounter,int)",
+      "symbol": "SBW_SwiftBindingsTestLib_PassBackHolder_bump_6B9FEC72"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackHolder.Held",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PassBackHolder_held|SBW_Set_SwiftBindingsTestLib_PassBackHolder_held"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackHolder.PassBackHolder()",
+      "symbol": "thunk_SwiftBindingsTestLib_f0622007"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackHolder.ReadHeld()",
+      "symbol": "thunk_SwiftBindingsTestLib_f2ae6922"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackIsSame(IPassBackCounter,SwiftBindingsTestLib.SwiftPassBackCounter)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_passBackIsSame_21E282A2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackRead(IPassBackCounter)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_passBackRead_1BEC6E77"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PassBackReadOptional(IPassBackCounter?)",
+      "symbol": "$s20SwiftBindingsTestLib20passBackReadOptionalys5Int32VAA04PassF7Counter_pSgF"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -25524,6 +25564,41 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericCell.GetDescribe()\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_StringGenericCell_describe_D8F7134F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericCell.Replace(T)\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_StringGenericCell_replace_5CB77FED"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericCell.StringGenericCell(T)\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_StringGenericCell_init_2D28B8B4"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericCell.Value",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_StringGenericCell_value|SBW_Set_SwiftBindingsTestLib_StringGenericCell_value"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericHost.Describe(T)\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_StringGenericHost_describe_9CF079A0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericHost.Echo(T)\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_StringGenericHost_echo_9D729FCE"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StringGenericHost.StringGenericHost()",
+      "symbol": "SBW_SwiftBindingsTestLib_StringGenericHost_init_1D5C0E27"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "StringKeyTag.StringKeyTag()",
       "symbol": "SBW_SwiftBindingsTestLib_StringKeyTag_init_A41D1ADA"
     },
@@ -25986,6 +26061,26 @@
       "module": "SwiftBindingsTestLib",
       "signature": "SwapValues(ref int,ref int)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_swapValues_F7EE6364"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SwiftPassBackCounter.PassBackBump(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_d793ae03"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SwiftPassBackCounter.PassBackValue()",
+      "symbol": "thunk_SwiftBindingsTestLib_28e19fcc"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SwiftPassBackCounter.SwiftPassBackCounter(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_b154dd7e"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SwiftPassBackCounter.Total",
+      "symbol": "thunk_SwiftBindingsTestLib_fa4aa762"
     },
     {
       "module": "SwiftBindingsTestLib",

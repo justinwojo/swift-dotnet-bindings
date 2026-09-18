@@ -293,6 +293,51 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     /// <summary>
+    /// Initializes a Swift String holding <paramref name="str"/> at <paramref name="dest"/> (16 bytes),
+    /// handing the caller its +1; the caller destroys it through String's value witness.
+    /// </summary>
+    internal static unsafe void CreateOwnedInto(string str, IntPtr dest)
+    {
+        byte[] utf8Bytes = Encoding.UTF8.GetBytes(str);
+        try
+        {
+            fixed (byte* utf8BytesPtr = utf8Bytes)
+            {
+                RuntimeNativeMethods.SwiftString_Create((IntPtr)utf8BytesPtr, utf8Bytes.Length, dest);
+            }
+        }
+        catch (DllNotFoundException ex) { ThrowMissingRuntime(ex); }
+        catch (EntryPointNotFoundException ex) { ThrowMissingRuntime(ex); }
+    }
+
+    /// <summary>
+    /// Reads the Swift String stored at <paramref name="source"/> into a managed string without
+    /// consuming it: the caller still owns the Swift value.
+    /// </summary>
+    internal static unsafe string ReadBorrowed(IntPtr source)
+    {
+        IntPtr utf8Ptr;
+        nint utf8Len;
+        try
+        {
+            RuntimeNativeMethods.SwiftString_ToUtf8(source, out utf8Ptr, out utf8Len);
+        }
+        catch (DllNotFoundException ex) { ThrowMissingRuntime(ex); return ""; }
+        catch (EntryPointNotFoundException ex) { ThrowMissingRuntime(ex); return ""; }
+
+        if (utf8Ptr == IntPtr.Zero)
+            return string.Empty;
+        try
+        {
+            return utf8Len <= 0 ? string.Empty : Encoding.UTF8.GetString((byte*)utf8Ptr, (int)utf8Len);
+        }
+        finally
+        {
+            RuntimeNativeMethods.SwiftString_FreeUtf8(utf8Ptr);
+        }
+    }
+
+    /// <summary>
     /// Translates raw interop exceptions into clear SwiftRuntimeException.
     /// No fallback to CallConvSwift — the wrapper library is required.
     /// </summary>
