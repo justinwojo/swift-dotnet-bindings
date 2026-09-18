@@ -134,6 +134,80 @@ public class CsmGenericParentRecoveryTests
         }
     }
 
+    [Fact]
+    public void GenericParentMethod_WithACdeclWrapper_KeepsItsOpenGenericFormBesideTheClosedOverloads()
+    {
+        // The closed overloads cover only the conformers this module declares, and they are named
+        // by the CSM scheme rather than the member's own projected name. Withholding the open form
+        // in their favour takes the member away from every other instantiation. That trade is only
+        // made when the open form has no wrapper to go through; a member that wraps keeps it.
+        var (db, engine, typeDecl) = CreateFixture();
+        var withheld = typeDecl.Methods.Single(m => m.Name == "coarseUnitsTwice");
+
+        // Same shape, but nothing else owns its wrapper, so the method handler would give it one.
+        var wrapped = withheld with
+        {
+            Name = "coarseUnitsWrapped",
+            MangledName = "$sTestLib6PinBagV18coarseUnitsWrapped",
+            UsesWrapperLibrary = false,
+        };
+        wrapped.ParentDecl = typeDecl;
+        typeDecl.Methods.Add(wrapped);
+
+        // Positive controls: both methods are ones the closed overloads cover, and they differ
+        // only in whether the open form gets a @_cdecl wrapper — so the verdicts below measure
+        // that difference and nothing else.
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent(wrapped, typeDecl, db, engine));
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent(withheld, typeDecl, db, engine));
+        Assert.Equal(WrapperDecision.WrapperRequired,
+            WrapperValidation.DetermineMethodWrapperDecision(new MethodEnvironment(wrapped, db)));
+        Assert.Equal(WrapperDecision.CannotWrap,
+            WrapperValidation.DetermineMethodWrapperDecision(new MethodEnvironment(withheld, db)));
+
+        var pipeline = new MemberValidationPipeline(db);
+        var context = new ValidationContext(
+            db, null, new ModuleEmissionContext { SpecializationEngine = engine }, typeDecl, null, null, null);
+
+        Assert.True(pipeline.ValidateMethodEmission(wrapped, context).ShouldEmit,
+            "a CSM-covered method whose open form wraps must keep the open form");
+        var withheldVerdict = pipeline.ValidateMethodEmission(withheld, context);
+        Assert.False(withheldVerdict.ShouldEmit);
+        Assert.True(withheldVerdict.IsRoutedElsewhere,
+            "an open form with no wrapper stays withheld in favour of the closed overloads");
+
+        // The closed overloads are emitted for both either way; keeping the open form is additive.
+        var cs = EmitGenericParent(db, engine, typeDecl);
+        Assert.Contains("CoarseUnitsWrapped(this PinBag<", cs);
+        Assert.Contains("CoarseUnitsTwice(this PinBag<", cs);
+    }
+
+    [Fact]
+    public void OpenGenericWrapperVerdict_DoesNotMoveOnceEmissionClaimsTheWrapper()
+    {
+        // Emitting the wrapper sets UsesWrapperLibrary on the decl, which the wrapper decision
+        // reads as "another wrapper owns this member". A re-validation after emission (sibling
+        // and conformance checks do this) must still see the open form as kept, or the pipeline
+        // would report a member that shipped as routed elsewhere.
+        var (db, engine, typeDecl) = CreateFixture();
+        var wrapped = typeDecl.Methods.Single(m => m.Name == "coarseUnitsTwice") with
+        {
+            Name = "coarseUnitsWrapped",
+            MangledName = "$sTestLib6PinBagV18coarseUnitsWrapped",
+            UsesWrapperLibrary = false,
+        };
+        wrapped.ParentDecl = typeDecl;
+        typeDecl.Methods.Add(wrapped);
+
+        var pipeline = new MemberValidationPipeline(db);
+        var context = new ValidationContext(
+            db, null, new ModuleEmissionContext { SpecializationEngine = engine }, typeDecl, null, null, null);
+
+        Assert.True(pipeline.ValidateMethodEmission(wrapped, context).ShouldEmit);
+        wrapped.UsesWrapperLibrary = true;
+        Assert.True(pipeline.ValidateMethodEmission(wrapped, context).ShouldEmit);
+        Assert.False(ConcreteProtocolSpecializationEmitter.WithholdsOpenGenericForGenericParent(wrapped, typeDecl, db, engine));
+    }
+
     // ==================== Fixture ====================
 
     /// <summary>

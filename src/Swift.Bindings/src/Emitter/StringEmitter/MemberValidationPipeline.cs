@@ -455,10 +455,12 @@ public class MemberValidationPipeline
 
         // Gate 4a (sync, generic parent): CSM emits concrete overloads as extension
         // methods on a {Type}{ParentConformer}CsmExtensions class. The open-generic
-        // instance method on the parent class would shadow those extensions during C#
-        // overload resolution (instance methods win over extensions), routing callers
-        // into the broken open-generic path. Suppress the open-generic emission so the
-        // CSM extension binds cleanly via instance-call syntax.
+        // instance method on the parent class shadows those extensions during C#
+        // overload resolution (instance methods win over extensions). Where the open
+        // form has no @_cdecl wrapper it falls to the direct CallConvSwift path this
+        // gate keeps callers away from, so it is suppressed and the CSM extension binds
+        // via instance-call syntax. Where it does wrap, it is the sound, wider surface —
+        // every instantiation, under the member's own name — and it stays.
         //
         // Scoped tight: fires only for generic-parent cases. Non-generic-parent sync
         // CSM emits concrete overloads as instance methods (no shadow) and goes through
@@ -473,10 +475,24 @@ public class MemberValidationPipeline
             // overloads are emitted as extension methods on a {Type}{ParentConformer}CsmExtensions
             // class and shadow-resolve via static dispatch. This is NOT an unsupported outcome —
             // do not emit `// Unsupported:` or record as skipped.
-            return ValidationResult.RoutedElsewhere(
+            var csmRouted = ValidationResult.RoutedElsewhere(
                 "Routed to concrete CSM-sync specialization (generic parent extension).");
+            if (ConcreteProtocolSpecializationEmitter.WithholdsOpenGenericForGenericParent(
+                    methodDecl, parentTypeForSyncCsm, _typeDatabase, specEngineForSyncCsm))
+                return csmRouted;
+
+            // The open form is kept only if it clears the remaining gates. One that does not
+            // is still covered by the CSM overloads, so it keeps the routed verdict rather
+            // than gaining a skip marker it never had.
+            var openForm = ValidateMethodEmissionAfterSyncCsmGate(methodDecl, context);
+            return openForm.ShouldEmit ? openForm : csmRouted;
         }
 
+        return ValidateMethodEmissionAfterSyncCsmGate(methodDecl, context);
+    }
+
+    private ValidationResult ValidateMethodEmissionAfterSyncCsmGate(MethodDecl methodDecl, ValidationContext? context)
+    {
         // Per-V keypath-sort suppression. A method with a method-own unconstrained V
         // that appears only in a KeyPath Value slot rooted at the parent's PAT
         // associated-type bag would otherwise fall into the GenericProtocolConstraint

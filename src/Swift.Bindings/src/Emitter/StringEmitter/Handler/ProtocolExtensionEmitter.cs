@@ -503,8 +503,9 @@ public static class ProtocolExtensionEmitter
             // concrete-specialization (CSM) generic-parent path. When CSM routes it,
             // ConcreteProtocolSpecializationEmitter emits a per-concrete-argument
             // `@_cdecl("SBW_CSM_…")` wrapper that a C# extension method on the closed generic type
-            // P/Invokes, AND MemberValidationPipeline suppresses the open-generic member emission
-            // (RoutedElsewhere) — so nothing ever P/Invokes the generic `@_silgen_name("SBSW_…")`
+            // P/Invokes, AND MemberValidationPipeline withholds the open-generic member emission
+            // (RoutedElsewhere; a synthetic member is never an open form that keeps its own
+            // wrapper) — so nothing ever P/Invokes the generic `@_silgen_name("SBSW_…")`
             // wrapper this method would produce, leaving a dead exported symbol (the parity gate's
             // `symbol-reverse` divergence; a real dead symbol RealityFoundation shipped). Gating on
             // the SAME predicate the pipeline uses (not a blanket `IsGeneric`) keeps the wrapper for
@@ -515,7 +516,7 @@ public static class ProtocolExtensionEmitter
             // it by reference; the symbol stays claimed either way so no later pass re-emits it.
             bool routedToCsm = conformingType.IsGeneric &&
                 ctx.SpecializationEngine is { } specEngine &&
-                ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent(
+                ConcreteProtocolSpecializationEmitter.WithholdsOpenGenericForGenericParent(
                     syntheticMethod, conformingType, typeDatabase, specEngine);
             if (!routedToCsm)
             {

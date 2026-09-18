@@ -18,18 +18,16 @@ public class CsmGenericParentTests : TestBase
 {
     public CsmGenericParentTests(TestResults results) : base(results) { }
 
-    // NOTE: GenericContainer.count()/tagBytes() have no @_cdecl wrapper (non-generic methods on
-    // a generic struct → direct CallConvSwift with metadata). Those getters crash under Mono
-    // JIT on simulator, so we can't use them to witness state. Tests only verify CSM extension
-    // dispatch without crashing — proving the parent-generic specialization pipeline (wrapper
-    // symbol, extension-class emission, mutating-self handle round-trip) is wired.
+    // These verify CSM extension dispatch without crashing — proving the parent-generic
+    // specialization pipeline (wrapper symbol, extension-class emission, mutating-self handle
+    // round-trip) is wired.
     //
     // All calls use instance syntax (container.Append(...)) — this is the regression test for
     // the shadow fix. Previously the open-generic Append<D>(T,D) where D:ISwiftObject was also
     // emitted on GenericContainer<T> and won C# overload resolution over the CSM extensions
-    // when D=Data, routing callers into a broken no-wrapper path. The fix suppresses that open
-    // generic for CSM-eligible methods on generic parents, so these instance-syntax calls now
-    // bind directly to the extension methods.
+    // when D=Data, routing callers into a broken no-wrapper path. That open generic has no
+    // @_cdecl wrapper, so it stays withheld and these instance-syntax calls bind directly to
+    // the extension methods.
 
     public void TestGenericContainerSongItem_Append_Data()
     {
@@ -88,11 +86,10 @@ public class CsmGenericParentTests : TestBase
     }
 
     // --- Mutating-self witness via a second CSM-eligible method on the same parent.
-    // `count()`/`tagBytes()` are non-generic methods on a generic struct (CallConvSwift +
-    // metadata) and crash Mono JIT, so they can't witness `append`'s mutation. `countSeen`
-    // is method-generic (D: DataProtocol) → it routes through the CSM extension pipeline
-    // just like `append`, giving us a crash-free read path. If the mutating-self write-back
-    // on `append` regresses, `countSeen` will return 0 even after multiple appends.
+    // `countSeen` is method-generic (D: DataProtocol), so it routes through the CSM extension
+    // pipeline just like `append`. If the mutating-self write-back on `append` regresses,
+    // `countSeen` will return 0 even after multiple appends. (`count()`/`tagBytes()` read the
+    // same state through their open-generic wrappers; GenericParentOpenFormTests covers them.)
 
     public void TestGenericContainerSongItem_CountSeenAfterAppend_Data()
     {
