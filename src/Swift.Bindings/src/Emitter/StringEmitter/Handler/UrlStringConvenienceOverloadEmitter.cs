@@ -136,6 +136,7 @@ internal static class UrlStringConvenienceOverloadEmitter
         // the forwarder as reachable on lower OS versions than the platform-gated target it delegates to.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
+        NativeIntOverloadEmitter.EmitForwarderTombstoneMarker(csWriter, methodEnv, methodName);
 
         if (hasReturn)
         {

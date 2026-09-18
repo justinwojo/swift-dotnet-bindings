@@ -271,6 +271,9 @@ internal static class NativeIntOverloadEmitter
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
 
+        if (methodEnv.EmissionContext?.WasMethodProduceThrow(methodDecl) != true)
+            EmitForwarderTombstoneMarker(csWriter, methodEnv, constructorName ?? methodName);
+
         // Emit the overload
         if (isConstructorOverload && ctorShape.Kind != ConstructorEmissionKind.Constructor)
         {
@@ -317,6 +320,22 @@ internal static class NativeIntOverloadEmitter
         else
         {
             csWriter.WriteLine($"public {staticModifier}void {methodName}({paramStr}) => {methodName}({argsStr});");
+        }
+    }
+
+    /// <summary>
+    /// Marks a convenience forwarder whose primary the ABI floor tombstoned. The primary carries
+    /// SB0009, which a binding build refuses to reference from an unmarked member, so an unmarked
+    /// forwarder fails the whole binding's compile. Carrying the same marker also gives a consumer
+    /// calling the convenience overload the warning the primary gives before its call throws.
+    /// </summary>
+    internal static void EmitForwarderTombstoneMarker(
+        CSharpWriter csWriter, MethodEnvironment methodEnv, string emittedName)
+    {
+        if (WrapperValidation.IsAbiFloorTombstoned(methodEnv)
+            && MethodHandler.GetSafetyObsoleteAttribute(methodEnv, emittedName) is { } attribute)
+        {
+            csWriter.WriteLine(attribute);
         }
     }
 

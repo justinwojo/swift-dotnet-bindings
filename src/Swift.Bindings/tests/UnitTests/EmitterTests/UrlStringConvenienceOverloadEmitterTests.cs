@@ -207,6 +207,24 @@ public class UrlStringConvenienceOverloadEmitterTests
         Assert.Equal(string.Empty, writer2.ToString());
     }
 
+    [Fact]
+    public void TryEmitOverload_TombstonedPrimary_ForwarderCarriesMarker()
+    {
+        // A static on a generic class with no wrapper is tombstoned by the ABI floor (SB0009). A
+        // binding build refuses an unmarked reference to it, so the string forwarder carries the
+        // same marker.
+        var method = CreateMethod("open", MethodType.Static,
+            returnType: TupleTypeSpec.Empty,
+            ("url", "Foundation.URL"));
+        ((ClassDecl)method.ParentDecl!).GenericParameters.Add(
+            new GenericArgumentDecl("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+
+        var output = EmitMethodOverload(method);
+
+        Assert.Contains("Open(string url)", output);
+        Assert.Contains($"DiagnosticId = \"{WrapperValidation.UncallableAbiDiagnosticId}\"", output);
+    }
+
     #region Helpers
 
     private static ModuleDecl CreateModuleDecl() => new()

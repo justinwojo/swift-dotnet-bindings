@@ -444,8 +444,12 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericClassParent_StaticProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_StaticProperty_ReturnsTrue()
     {
+        // A static accessor on a generic class takes the thick metatype in the self
+        // register, which a direct P/Invoke cannot supply — the static-aware GSM
+        // getter wrapper (`Self.shared` through the metadata-rebuilt metatype) is the
+        // route that carries it.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -467,7 +471,7 @@ public class PropertyWrapperEmitterTests
         };
         var env = new MethodEnvironment(getterMethod, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     // ─────────────────────────────────────────────────────────────────────

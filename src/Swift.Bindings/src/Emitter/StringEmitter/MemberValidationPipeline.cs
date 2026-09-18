@@ -583,7 +583,12 @@ public class MemberValidationPipeline
                     $"Extension method '{collisionSwiftName}' on generic type '{constrainedWrapperParent.Name}' collides with a same-name overload on the parent; the unconstrained conformance wrapper cannot disambiguate (conditional-conformance wrapper not yet supported).");
             }
 
-            if (MethodWrapperEmitter.WouldGenericStaticDispatchSkipForNarrowerConstraint(
+            // A static behind a narrowing constraint never reaches the wrapper: the static-dispatch
+            // gate turns it away with the same predicate, so it keeps its direct call, and the ABI
+            // floor decides whether that call is sound. Skipping it here would drop a member that
+            // still binds.
+            if (methodDecl.MethodType != MethodType.Static
+                && MethodWrapperEmitter.WouldGenericStaticDispatchSkipForNarrowerConstraint(
                     wrapperProbeEnv, constrainedWrapperParent, out var narrowerSwiftName))
             {
                 return ValidationResult.Skip(SkipReason.ConstrainedExtensionWrapper,

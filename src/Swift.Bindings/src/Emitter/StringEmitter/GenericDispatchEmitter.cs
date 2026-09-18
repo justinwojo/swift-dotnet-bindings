@@ -347,7 +347,12 @@ internal static class GenericDispatchEmitter
         if (parentTypeDecl is not ClassDecl)
             return true;
 
-        // Generic class: check if property type references T
+        // A static on a generic class has no receiver for instance dispatch to cast; the
+        // wrapper reaches it through the metatype it rebuilds, whatever the property's type.
+        if (propertyDecl.IsStatic)
+            return true;
+
+        // Generic class instance property: check if property type references T
         var genericParamNames = parentTypeDecl.GenericParameters
             .Select(p => p.TypeName)
             .ToHashSet();
@@ -362,7 +367,7 @@ internal static class GenericDispatchEmitter
     /// Returns true when the static dispatch pattern can handle this specific member.
     /// Replaces MethodWrapperEmitter.CanEmitGenericStaticMethodWrapper,
     ///          ConstructorWrapperEmitter.CanEmitGenericStaticFactoryWrapper.
-    /// Unified logic: checks instance-only (methods), T-param simplicity,
+    /// Unified logic: checks T-param simplicity and closure rejection (methods),
     /// T-closure rejection (constructors), failable rejection (constructors).
     /// </summary>
     /// <summary>
@@ -384,9 +389,12 @@ internal static class GenericDispatchEmitter
         {
             case GenericDispatchKind.Method:
             {
-                // Instance methods only — static methods lack self pointer for dispatch
-                if (env.MethodDecl.MethodType == MethodType.Static)
-                    return false;
+                // Statics take this route too. The dispatch never goes through a receiver: the
+                // wrapper rebuilds the parent's metatype from the type-parameter metadata the caller
+                // passes and calls the requirement on it, so a static simply calls `Self.member(…)`
+                // there. Swift then owns the static ABI — no self for a struct or enum, the thick
+                // metatype for a class, each parameter's own metadata, and the indirect result —
+                // which the direct CallConvSwift P/Invoke gets wrong for every one of those.
 
                 // A member declared in a CONSTRAINED extension is invisible to the
                 // unconditional conformance extension the static-dispatch pattern emits, so
@@ -397,6 +405,17 @@ internal static class GenericDispatchEmitter
                 // needed a Collection-family carve-out to claw back the witness methods
                 // (`index(_:offsetBy:)`, `distance(from:to:)`) that shape wrongly caught.
                 if (MemberNarrowsParentGenericSignature(env.MethodDecl, parentTypeDecl))
+                    return false;
+
+                // A static from an extension that pins a parent parameter to a concrete type
+                // (`extension Query where T == Forecast<Day> { static func daily(…) }`) is just as
+                // invisible there, and `Self.daily(…)` fails to type-check. The narrowing predicate
+                // leaves such pins to wrapper verify-recover, which withdraws the member outright.
+                // For a static that throws away a call the direct path may spell correctly (a scalar
+                // result), and the one it cannot (a resilient generic result) is tombstoned by the ABI
+                // floor with the declaration kept, so the static stops here instead.
+                if (env.MethodDecl.MethodType == MethodType.Static
+                    && HasSameTypeConstraintOnParentGenericParam(env.MethodDecl, parentTypeDecl))
                     return false;
 
                 // Check params: T-typed must be simple direct generic params
@@ -431,7 +450,8 @@ internal static class GenericDispatchEmitter
                 // shapes via RenderSwiftTypeSpecWithSugaredNames + initializeMemory.
                 var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
                 if (WrapperValidation.TypeSpecReferencesGenericParam(returnSpec, genericParamNames)
-                    && !IsBareOrSimplyParameterizedNamedTypeSpec(returnSpec, genericParamNames))
+                    && !IsBareOrSimplyParameterizedNamedTypeSpec(returnSpec, genericParamNames)
+                    && !IsStaticReturningOwnNestedType(env.MethodDecl, returnSpec, genericParamNames, parentTypeDecl))
                 {
                     return false;
                 }
@@ -443,8 +463,8 @@ internal static class GenericDispatchEmitter
             {
                 // Constrained constructors (e.g., init where Value == Data?) can't use the
                 // protocol factory pattern because the constraint can't be expressed in the protocol.
-                // Detect same-type requirements on parent generic params (τ_0_X == ConcreteType).
-                if (HasSameTypeConstraintOnParentGenericParam(env.MethodDecl))
+                // Same detector as the static path, so a pin spelled in either dump dialect counts.
+                if (HasSameTypeConstraintOnParentGenericParam(env.MethodDecl, parentTypeDecl))
                     return false;
 
                 foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
@@ -520,22 +540,46 @@ internal static class GenericDispatchEmitter
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Returns true if the method's generic signature contains a same-type constraint
-    /// on a parent generic param (e.g., "τ_0_0 == Foundation.Data?"). Such constructors
-    /// only exist for specific specializations and can't be dispatched through a protocol
-    /// factory that covers ALL specializations.
+    /// Returns true if the member's generic signature pins a parent generic param to a concrete
+    /// type (e.g., "τ_0_0 == Foundation.Data?"). Such a member only exists for that one
+    /// specialization, so the unconditional conformance extension the static wrapper and the
+    /// static factory are emitted in cannot name it. The one detector for constructors, statics
+    /// and static properties: swiftc's ABI descriptor spells the subject desugared
+    /// (<c>τ_0_X</c>), swift-api-digester only sugared, with the parent's own parameter name
+    /// (<c>&lt;T where T == Forecast&lt;Day&gt;&gt;</c>), and both must count.
     /// </summary>
-    private static bool HasSameTypeConstraintOnParentGenericParam(MethodDecl methodDecl)
+    internal static bool HasSameTypeConstraintOnParentGenericParam(
+        MethodDecl methodDecl, TypeDecl parentTypeDecl)
     {
-        // Finding 19: query the parsed signature for a DIRECT same-type constraint on a depth-0
-        // (parent-level) generic param — τ_0_X == ConcreteType. Method-level params are depth 1+
-        // (τ_1_0). A member clause (τ_0_0.Element == …) is not a parent-param pin and was excluded
-        // by the legacy `τ_0_\d+\s*==` regex (the operator had to follow the bare param), so the
-        // IsDirect filter mirrors that.
+        // Query the parsed signature for a DIRECT same-type constraint on a parent-level generic
+        // param. Desugared, parent params are depth 0 (τ_0_X) and method-level ones depth 1+
+        // (τ_1_0); sugared, the parent's declared names appear instead. A member clause
+        // (τ_0_0.Element == …) is not a parent-param pin, so the IsDirect filter excludes it.
+        var sugaredParentNames = parentTypeDecl.GenericParameters
+            .Select(p => p.SugaredTypeName)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToHashSet(StringComparer.Ordinal);
         return methodDecl.ParsedGenericSignature.Requirements.Any(r =>
             r.Kind == GenericRequirementKind.SameType && r.IsDirect &&
-            System.Text.RegularExpressions.Regex.IsMatch(r.SubjectRoot, @"^τ_0_\d+$"));
+            (System.Text.RegularExpressions.Regex.IsMatch(r.SubjectRoot, @"^τ_0_\d+$")
+             || sugaredParentNames.Contains(r.SubjectRoot)));
     }
+
+    /// <summary>
+    /// True when a static returns a type nested directly in its own generic parent
+    /// (<c>static func makeLeaf() -&gt; Outer&lt;T&gt;.Leaf</c>). The static has no other correct
+    /// route: Swift returns a nested struct whose layout comes from the outer's metadata through
+    /// the indirect-result register, which the direct P/Invoke does not pass, so without the
+    /// wrapper the managed side would adopt its own stack slot as the value. Inside the conformance
+    /// extension <c>Self</c> is the outer, so the wrapper names the result as <c>Outer&lt;T&gt;.Leaf</c>
+    /// and hands it back through the result buffer (a nested class comes back as a retained
+    /// pointer). Instance members keep the conservative gate in
+    /// <see cref="IsBareOrSimplyParameterizedNamedTypeSpec"/>.
+    /// </summary>
+    internal static bool IsStaticReturningOwnNestedType(
+        MethodDecl methodDecl, TypeSpec returnSpec, HashSet<string> genericParamNames, TypeDecl parentTypeDecl)
+        => methodDecl.MethodType == MethodType.Static
+           && IsNestedTypeOfParentGeneric(returnSpec, genericParamNames, parentTypeDecl);
 
     /// <summary>
     /// Returns true when <paramref name="spec"/> is either a bare parent generic param

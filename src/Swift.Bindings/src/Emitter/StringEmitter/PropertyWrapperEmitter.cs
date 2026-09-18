@@ -860,16 +860,21 @@ public static class PropertyWrapperEmitter
     internal static bool CanEmitGenericClassPropertyWrapper(
         PropertyDecl propertyDecl, TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
-        // Static properties don't need self-based erasure, but static dispatch
-        // uses wrong metadata for generic types — skip for now.
-        // EXCEPTION — closed static factory: a static property whose return type is a
-        // fully closed bound generic of the parent (e.g.
+        // Closed static factory: a static property whose return type is a fully closed bound
+        // generic of the parent (e.g.
         // `PatBoundedStatsQuery<T>.presetA : PatBoundedStatsQuery<StatPayloadA>`) emits
         // a parameter-free @_cdecl wrapper that source-calls the closed instantiation.
         // No parent metadata or PWT threading required — the Swift compiler resolves
         // both at the hard-coded `T'`. See ClosedStaticFactoryGate.
-        if (propertyDecl.IsStatic)
-            return ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl);
+        //
+        // Every other static property takes the static-dispatch route below under the same shape
+        // rules as an instance property. Swift passes a static accessor no receiver on a struct
+        // or enum and the thick metatype on a class, while the direct P/Invoke passes the
+        // parent's generic metadata as ordinary arguments; the wrapper rebuilds the metatype of
+        // the caller's instantiation and reads `Self.name` on it, so Swift supplies whichever
+        // convention the accessor actually has.
+        if (propertyDecl.IsStatic && ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl))
+            return true;
 
         // A property declared in a CONSTRAINED extension is invisible to the unconditional
         // conformance extension every generic-parent wrapper route emits, so ask that question
@@ -878,14 +883,23 @@ public static class PropertyWrapperEmitter
         if (PropertyNarrowsParentGenericSignature(propertyDecl, parentTypeDecl))
             return false;
 
+        // A static from an extension that pins a parent parameter to a concrete type is kept off
+        // the static-dispatch route for the same reason as a pinned static method: `Self.name`
+        // does not type-check in the unconditional conformance extension.
+        if (propertyDecl.IsStatic && propertyDecl.Accessors.Any(a =>
+                GenericDispatchEmitter.HasSameTypeConstraintOnParentGenericParam(a.Method, parentTypeDecl)))
+            return false;
+
         // Check if property type references the parent's generic type parameters
         var genericParamNames = parentTypeDecl.GenericParameters
             .Select(p => p.TypeName)
             .ToHashSet();
         bool referencesT = MethodWrapperEmitter.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
 
-        // Path 1: Generic class with concrete property type — existing protocol dispatch
-        if (parentTypeDecl is ClassDecl && !referencesT)
+        // Path 1: Generic class instance property with concrete type — existing protocol
+        // dispatch through the receiver. A static has no receiver to cast, so it stays on the
+        // static-dispatch route below.
+        if (parentTypeDecl is ClassDecl && !referencesT && !propertyDecl.IsStatic)
             return true;
 
         // Everything below here is the STATIC-dispatch route, and it renders its accessor
@@ -1139,18 +1153,26 @@ public static class PropertyWrapperEmitter
         // The ABI digester drops `mutating` from accessors, so the trigger widens to "settable
         // struct property": a non-frozen struct reads through `_modify` and needs mutable self
         // even when the getter is not spelled `mutating`. Widening only costs a pointer type.
-        bool isMutatingGetter = !isClass
+        //
+        // A static property has no receiver at all. The extension reads it as `Self.name` on the
+        // metatype the @_cdecl rebuilt, which is the instantiation the caller's metadata selected,
+        // and Swift supplies the static accessor's own convention — nothing for a struct or enum,
+        // the thick metatype for a class.
+        bool isMutatingGetter = !isStatic && !isClass
             && (propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method.IsMutating == true
                 || propertyDecl.Accessors.OfType<SetAccessorDecl>().Any());
 
-        if (isClass || isMutatingGetter)
-            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-        else
-            cdeclParams.Add("_ self_: UnsafeRawPointer");
-        protocolParams.Add(isClass || isMutatingGetter
-            ? "selfPtr: UnsafeMutableRawPointer"
-            : "selfPtr: UnsafeRawPointer");
-        cdeclCallArgs.Add("selfPtr: self_");
+        if (!isStatic)
+        {
+            if (isClass || isMutatingGetter)
+                cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+            else
+                cdeclParams.Add("_ self_: UnsafeRawPointer");
+            protocolParams.Add(isClass || isMutatingGetter
+                ? "selfPtr: UnsafeMutableRawPointer"
+                : "selfPtr: UnsafeRawPointer");
+            cdeclCallArgs.Add("selfPtr: self_");
+        }
 
         string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
@@ -1158,14 +1180,20 @@ public static class PropertyWrapperEmitter
         // A ~Copyable receiver cannot be bound to a local (that copies it); it is read in place.
         bool readsInPlace = isMutatingGetter || WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
         var bodyLines = new List<string>();
-        if (isClass)
+        if (isStatic)
+        {
+            // No receiver to reconstruct.
+        }
+        else if (isClass)
             bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         else if (!readsInPlace)
             bodyLines.Add("let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
 
-        var propAccess = !isClass && readsInPlace
-            ? $"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name}"
-            : $"obj.{propertyDecl.Name}";
+        var propAccess = isStatic
+            ? $"Self.{propertyDecl.Name}"
+            : !isClass && readsInPlace
+                ? $"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name}"
+                : $"obj.{propertyDecl.Name}";
 
         if (isString)
         {
@@ -1416,13 +1444,22 @@ public static class PropertyWrapperEmitter
         for (int i = 0; i < setterPwtCount; i++)
             cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
 
-        cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-        protocolParams.Add("selfPtr: UnsafeMutableRawPointer");
-        cdeclCallArgs.Add("selfPtr: self_");
+        // A static property has no receiver: the extension assigns `Self.name` on the metatype the
+        // @_cdecl rebuilt (see the getter).
+        if (!isStatic)
+        {
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+            protocolParams.Add("selfPtr: UnsafeMutableRawPointer");
+            cdeclCallArgs.Add("selfPtr: self_");
+        }
 
         // Build extension body
         var bodyLines = new List<string>();
-        if (isClass)
+        if (isStatic)
+        {
+            // No receiver to reconstruct.
+        }
+        else if (isClass)
             bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         else
             bodyLines.Add("// Mutate through pointer for struct setter");
@@ -1466,7 +1503,9 @@ public static class PropertyWrapperEmitter
             valueExpr = "newValue";
         }
 
-        if (isClass)
+        if (isStatic)
+            bodyLines.Add($"Self.{propertyDecl.Name} = {valueExpr}");
+        else if (isClass)
             bodyLines.Add($"obj.{propertyDecl.Name} = {valueExpr}");
         else
             bodyLines.Add($"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name} = {valueExpr}");

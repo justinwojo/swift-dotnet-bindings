@@ -1535,9 +1535,11 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
-    public void IsEligible_GenericParentType_StaticMethod_ReturnsFalse()
+    public void IsEligible_GenericParentType_StaticMethod_ReturnsTrue()
     {
-        // Static methods on generic parents are still blocked — type metadata passing is complex.
+        // A static on a generic parent bridges through the @_cdecl trampoline: the parent's
+        // metadata arrive as explicit arguments and the trampoline calls `Self.member` on the
+        // metatype it rebuilds, so there is no receiver for the bridge to need.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
@@ -1553,7 +1555,7 @@ public class MethodClosureBridgeTests
         method.MethodType = MethodType.Static;
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
     [Fact]
@@ -1597,10 +1599,10 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
-    public void CanRerouteGenericParentToCdecl_StaticMethod_ReturnsFalse()
+    public void CanRerouteGenericParentToCdecl_StaticMethod_ReturnsTrue()
     {
-        // A static method has no self to reconstruct from a pointer, so the trampoline's
-        // self-reconstruction has nothing to stand on.
+        // A static method has no self to reconstruct, and needs none: the trampoline takes
+        // only the parent's metadata and calls `Self.member` on the metatype it rebuilds.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
@@ -1617,7 +1619,7 @@ public class MethodClosureBridgeTests
         var env = new MethodEnvironment(method, typeDatabase, null,
             new PInvokeHelperContext("GenericClass", new[] { "T" }));
 
-        Assert.False(MethodClosureBridge.CanRerouteGenericParentToCdecl(method, parentDecl, env));
+        Assert.True(MethodClosureBridge.CanRerouteGenericParentToCdecl(method, parentDecl, env));
     }
 
     [Fact]

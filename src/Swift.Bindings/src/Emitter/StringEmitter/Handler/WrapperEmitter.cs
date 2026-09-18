@@ -1147,6 +1147,17 @@ namespace BindingsGeneration
             "that witness table from a register nobody wrote. It is declared so that source and " +
             "protocol conformances referencing it still compile.";
 
+        internal const string GenericClassStaticMetatypeAbiMessage =
+            "This member has no ABI-correct call path: it is a static member of a generic class, which " +
+            "Swift calls with the class's metatype as self, and no Swift wrapper could be generated to " +
+            "supply it. It is declared so that source and protocol conformances referencing it still compile.";
+
+        internal const string GenericValueStaticIndirectResultAbiMessage =
+            "This member has no ABI-correct call path: it is a static member of a generic type returning " +
+            "a value whose layout depends on the type's generic parameters, which Swift returns through a " +
+            "result buffer the direct call does not pass, and no Swift wrapper could be generated to call " +
+            "it instead. It is declared so that source and protocol conformances referencing it still compile.";
+
         /// <summary>
         /// Body replacement for a member classified as having no ABI-correct call route. Emitting the call
         /// anyway does not produce a member that "might" misbehave — it faults the process on invocation —
@@ -1238,6 +1249,20 @@ namespace BindingsGeneration
                     + "nobody wrote. The member is emitted as a throwing tombstone (declaration retained "
                     + "so conformances referencing it still compile) and carries the "
                     + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.HasMisconventionedGenericParentStaticDirectDispatch(_env))
+            {
+                message = _env.MethodDecl.ParentDecl is ClassDecl
+                    ? GenericClassStaticMetatypeAbiMessage
+                    : GenericValueStaticIndirectResultAbiMessage;
+                skipDetail =
+                    "The static member of a generic parent was turned down by the generic "
+                    + "static-dispatch wrapper, and the direct CallConvSwift P/Invoke it falls back to "
+                    + "passes the parent's generic metadata as ordinary arguments and returns by value — "
+                    + "but Swift passes a class's static member its metatype as self, and returns a "
+                    + "resilient generic value through the indirect-result register. The member is "
+                    + "emitted as a throwing tombstone (declaration retained so conformances referencing "
+                    + $"it still compile) and carries the {WrapperValidation.UncallableAbiDiagnosticId} marker.";
             }
             else
             {

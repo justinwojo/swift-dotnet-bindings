@@ -403,12 +403,14 @@ public static class MethodWrapperEmitter
         bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
         bool needsStaticDispatch = WrapperValidation.NeedsGenericDispatch(env, MemberKind.Method);
 
-        // For generic static dispatch methods, delegate to the specialized emitter.
-        if (needsStaticDispatch && !isStatic)
+        // For generic static dispatch methods, delegate to the specialized emitter. Statics on a
+        // generic parent take the same route: the call goes through the metatype the wrapper
+        // rebuilds from the type-parameter metadata, so no receiver is needed.
+        if (needsStaticDispatch && parentTypeDecl != null)
         {
             EmitGenericStaticDispatchMethod(swiftWriter, env, ctx, symbolName,
-                parentTypeDecl!, moduleQualifiedSwiftName,
-                isClass, isMutating, throws, returnTypeSpec, isVoidReturn, isString,
+                parentTypeDecl, moduleQualifiedSwiftName,
+                isClass, isStatic, isMutating, throws, returnTypeSpec, isVoidReturn, isString,
                 needsResultPtr, returnMapping);
             return;
         }
@@ -857,16 +859,18 @@ public static class MethodWrapperEmitter
         swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);
         var methodDecl = env.MethodDecl;
         bool isStatic = methodDecl.MethodType == MethodType.Static;
-        if (isStatic) return false;
         if (!WrapperValidation.NeedsGenericDispatch(env, MemberKind.Method)) return false;
         if (!methodDecl.IsExtensionMethod) return false;
 
+        // A static is called as `Self.name(…)`, which only static siblings can make ambiguous; an
+        // instance member with the same selector is not a candidate at that call.
         var baseName = methodDecl.Name;
         var thisSelector = BuildSwiftSelectorSignature(methodDecl);
         return parentTypeDecl.Methods.Any(m =>
             m != methodDecl
             && m.Name == baseName
             && !m.IsAccessor
+            && (!isStatic || m.MethodType == MethodType.Static)
             && BuildSwiftSelectorSignature(m) == thisSelector);
     }
 
@@ -891,12 +895,9 @@ public static class MethodWrapperEmitter
     /// Method-local generic parameters (depth &gt; 0, i.e. introduced by the method
     /// signature itself rather than inherited from the parent) are filtered out: their
     /// constraints are scoped to the method and don't require propagation onto the
-    /// conformance extension. Static methods are also excluded — they don't reach the
-    /// GSM/instance-class-dispatch emission paths in the same way (statics flow through
-    /// metatype-derived dispatch with a different emission shape), and no real-world
-    /// constrained-static-extension regression has been observed; the
-    /// <c>GenericStaticDispatch_StaticConstrainedExtension_DoesNotMisfire</c> unit
-    /// test pins this behavior.
+    /// conformance extension. Statics are covered too: they ride the same GSM conformance
+    /// extension (called as <c>Self.member(…)</c>), so a constrained-extension static is just
+    /// as invisible to it.
     /// </para>
     /// </summary>
     internal static bool WouldGenericStaticDispatchSkipForNarrowerConstraint(
@@ -904,12 +905,6 @@ public static class MethodWrapperEmitter
     {
         swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);
         var methodDecl = env.MethodDecl;
-        // Statics flow through metatype-derived dispatch with a different emission shape
-        // (see GenericStaticDispatch_StaticConstrainedExtension_DoesNotMisfire); no
-        // real-world constrained-static-extension regression has been observed, so the
-        // narrowing gate is scoped to instance methods here. The shared predicate itself
-        // is dispatch-neutral — the property path applies it to statics too.
-        if (methodDecl.MethodType == MethodType.Static) return false;
         return WrapperValidation.GenericParamsNarrowParentConstraints(
             methodDecl.GenericParameters, parentTypeDecl);
     }
@@ -958,6 +953,7 @@ public static class MethodWrapperEmitter
         TypeDecl parentTypeDecl,
         string moduleQualifiedSwiftName,
         bool isClass,
+        bool isStatic,
         bool isMutating,
         bool throws,
         TypeSpec returnTypeSpec,
@@ -980,11 +976,16 @@ public static class MethodWrapperEmitter
         // A ~Copyable receiver cannot be bound to a local (that copies it): the call goes through
         // the pointer, a `consuming` member moves the value out of the buffer, and a mutation lands
         // in place so there is nothing to write back.
-        bool nonCopyableSelf = !isClass && WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
+        //
+        // A static has no receiver at all: the dispatch shim runs on the metatype the @_cdecl
+        // rebuilt, so the member is called as `Self.member(…)` and Swift supplies whatever the
+        // static ABI wants (nothing for a struct or enum, the thick metatype for a class).
+        bool nonCopyableSelf = !isStatic && !isClass && WrapperValidation.IsNonCopyableStructParent(parentTypeDecl);
         bool consumesSelf = nonCopyableSelf && methodDecl.IsConsuming;
-        bool mutableSelfPtr = isMutating || consumesSelf;
-        bool writesSelfBack = isMutating && !isClass && !nonCopyableSelf;
-        string selfRef = isClass || !nonCopyableSelf ? "obj"
+        bool mutableSelfPtr = !isStatic && (isMutating || consumesSelf);
+        bool writesSelfBack = !isStatic && isMutating && !isClass && !nonCopyableSelf;
+        string selfRef = isStatic ? "Self"
+            : isClass || !nonCopyableSelf ? "obj"
             : consumesSelf ? "selfPtr.assumingMemoryBound(to: Self.self).move()"
             : "selfPtr.assumingMemoryBound(to: Self.self).pointee";
 
@@ -1005,8 +1006,15 @@ public static class MethodWrapperEmitter
             Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx);
         }
 
-        // Determine if return type references T
-        bool returnReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(returnTypeSpec, genericParamNames);
+        // Determine if return type references T. A class carrier that mentions T (the parent bound
+        // to its own parameter, `Box<T>`) is still one retained object pointer on the wire, and
+        // the managed side derives its P/Invoke shape from the same classification — it reads a
+        // returned pointer, never a result buffer. Forcing the buffer here would shift every
+        // managed argument one slot left. The property getter path applies the same exception.
+        bool returnReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(returnTypeSpec, genericParamNames)
+            && returnMapping.Kind is not (CdeclReturnKind.ClassPointer
+                or CdeclReturnKind.OptionalClassPointer
+                or CdeclReturnKind.OptionalErrorPointer);
 
         // Build protocol method and @_cdecl signatures
         var protocolParams = new List<string>();
@@ -1028,13 +1036,13 @@ public static class MethodWrapperEmitter
 
         // Assemble the @_cdecl ABI parameter list from the shared parameter-order contract —
         // the same phase sequence the normal method path drives — so the ordering has a
-        // single source. Self is always present (instance dispatch) and the error-out follows
-        // the contract's throws decision. Protocol params and cdeclCallArgs use labeled
+        // single source. Self is present for an instance member and absent for a static, and the
+        // error-out follows the contract's throws decision. Protocol params and cdeclCallArgs use labeled
         // arguments (order-independent) and are appended alongside their @_cdecl counterparts;
         // the Metadata phase contributes only to the @_cdecl signature, since generic metadata
         // and PWTs are resolved through the metatype accessor, not passed to the protocol method.
         var cdeclOrder = CdeclSignatureContract.DetermineParameterOrder(
-            env, overrideNeedsResultPtr: cdeclNeedsResultPtr, overrideNeedsSelf: true);
+            env, overrideNeedsResultPtr: cdeclNeedsResultPtr, overrideNeedsSelf: !isStatic);
         foreach (var phase in cdeclOrder.Phases)
         {
             switch (phase)
@@ -1191,7 +1199,11 @@ public static class MethodWrapperEmitter
         var methodCallArgString = string.Join(", ", methodCallArgs);
 
         // Reconstruct self inside the extension body
-        if (isClass)
+        if (isStatic)
+        {
+            // No receiver: selfRef is `Self`.
+        }
+        else if (isClass)
         {
             extensionBodyLines.Insert(0, "let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         }

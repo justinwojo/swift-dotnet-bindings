@@ -2740,7 +2740,100 @@ public static class WrapperValidation
         => HasTruncatedLargeOptionalDirectDispatch(env)
            || HasForeignObjectRenderedDirectDispatch(env)
            || IsUncallableInternalDirectDispatch(env)
-           || HasWitnessTableArityMismatch(env);
+           || HasWitnessTableArityMismatch(env)
+           || HasMisconventionedGenericParentStaticDirectDispatch(env);
+
+    /// <summary>
+    /// True when a static member of a generic type is left on the direct P/Invoke with a call
+    /// shape Swift does not use for it.
+    ///
+    /// <para>The direct path spells a static on a generic parent like an instance member without
+    /// a receiver: the parent's generic metadata go in as ordinary trailing arguments and the
+    /// result comes back by value. Two cases make that provably wrong:</para>
+    /// <list type="bullet">
+    /// <item><b>A class parent.</b> A static or <c>class</c> member on a class takes its thick
+    /// metatype as <c>self</c>, in the dedicated self register, and no metadata arguments. The
+    /// direct call passes the metadata in argument registers and leaves the self register
+    /// unwritten, so the callee dispatches through whatever it happened to hold.</item>
+    /// <item><b>A struct or enum parent returning a resilient value built from its generic
+    /// parameters</b> (<c>static func make(_:) -> Box&lt;T&gt;</c> on a non-frozen type). Swift
+    /// returns a value it cannot see the layout of through the indirect-result register. The
+    /// direct call declares a by-value return and passes no result buffer, so the callee writes
+    /// through an unset register and the caller reads a word that was never a value.</item>
+    /// </list>
+    /// <para>The static-dispatch wrapper exists for exactly these members and calls them from
+    /// Swift source, so nothing here fires when any Swift-side carrier took the member. What
+    /// remains is a member the wrapper turned down — a constrained extension it cannot reach, a
+    /// parent whose metadata it cannot rebuild — and its only other route is one of the shapes
+    /// above. Everything the direct path does spell correctly stays callable: a struct or enum
+    /// static with scalar or bare-generic results takes no self and the trailing metadata the
+    /// direct call passes.</para>
+    ///
+    /// <para>Both failures compile on each side, which is why this is an emission floor rather
+    /// than a wrapper-compile check.</para>
+    /// </summary>
+    internal static bool HasMisconventionedGenericParentStaticDirectDispatch(MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+        if (methodDecl.MethodType != MethodType.Static || methodDecl.IsConstructor)
+            return false;
+        if (methodDecl.ParentDecl is not TypeDecl { IsGeneric: true } parent)
+            return false;
+        if (DirectOptionalAbi.UsesSwiftSideCarrier(methodDecl))
+            return false;
+
+        if (parent is ClassDecl)
+            return true;
+
+        return ReturnsResilientParentGenericValueByValue(env, parent);
+    }
+
+    /// <summary>
+    /// The sentence for <see cref="HasMisconventionedGenericParentStaticDirectDispatch"/>, shared by
+    /// the declaration marker and the tombstone body so the two cannot describe different causes.
+    /// </summary>
+    internal static string GenericParentStaticMisconventionMessage(MethodDecl methodDecl)
+        => (methodDecl.ParentDecl is ClassDecl
+               ? "This static member of a generic class takes its class's metatype as self, which "
+                 + "the direct P/Invoke has no slot for, and no Swift wrapper could be generated to "
+                 + "call it from Swift instead."
+               : "This static member of a generic type returns a value whose layout depends on the "
+                 + "type's generic parameters, which Swift hands back through a result buffer the "
+                 + "direct P/Invoke does not pass, and no Swift wrapper could be generated to call "
+                 + "it from Swift instead.")
+           + " It is declared for source and conformance compatibility only and throws "
+           + "NotSupportedException when called";
+
+    /// <summary>
+    /// True when <paramref name="env"/>'s result is a non-frozen struct or enum bound over one of
+    /// <paramref name="parent"/>'s generic parameters and the direct P/Invoke declares it as a
+    /// by-value return. A non-frozen value type is address-only across a library-evolution
+    /// boundary, so Swift always returns it through the indirect-result register.
+    /// </summary>
+    private static bool ReturnsResilientParentGenericValueByValue(MethodEnvironment env, TypeDecl parent)
+    {
+        var signature = env.MethodDecl.CSSignature;
+        if (signature.Count == 0)
+            return false;
+        if (signature[0].SwiftTypeSpec is not NamedTypeSpec { GenericParameters.Count: > 0 } returned)
+            return false;
+        if (MarshallingHelpers.MethodRequiresIndirectResult(env))
+            return false;
+
+        var parentGenericNames = parent.GenericParameters.Select(p => p.TypeName).ToHashSet();
+        if (!TypeSpecReferencesGenericParam(returned, parentGenericNames))
+            return false;
+
+        // A nested result (`Outer<T>.Node`) carries its own name in the InnerType chain; the
+        // outer's record would describe the wrong type, so resolve the innermost segment.
+        var returnedName = returned.Name;
+        for (var inner = returned.InnerType; inner is not null; inner = inner.InnerType)
+            returnedName += "." + inner.Name;
+        if (!env.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(returnedName), out var record))
+            return false;
+        return record.Kind is TypeRecordKind.Struct or TypeRecordKind.Enum
+            && !record.Flags.HasFlag(TypeRecordFlags.Frozen);
+    }
 
     /// <summary>
     /// True when the member's P/Invoke reaches a Swift-ABI generic entry point with a different
@@ -2883,6 +2976,11 @@ public static class WrapperValidation
                 + "protocol is not projected to C#), so the call would hand Swift a witness table "
                 + "it never received. It is declared for source and conformance compatibility only "
                 + "and throws NotSupportedException when called");
+        }
+
+        if (!env.MethodDecl.IsAccessor && HasMisconventionedGenericParentStaticDirectDispatch(env))
+        {
+            return (UncallableAbiDiagnosticId, GenericParentStaticMisconventionMessage(env.MethodDecl));
         }
 
         if (!HasUnmitigatedNonBlittableCallConvSwift(env))

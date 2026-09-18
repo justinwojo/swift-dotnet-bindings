@@ -409,8 +409,11 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericClassParent_StaticMethod_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_StaticMethod_ReturnsTrue()
     {
+        // A static on a generic class takes its metatype as self, which the direct P/Invoke has
+        // no slot for. The static-dispatch wrapper rebuilds the metatype from the caller's
+        // metadata and calls the member from Swift, so the wrapper is the route, not a decline.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -423,7 +426,7 @@ public class MethodWrapperEmitterTests
         method.MethodType = MethodType.Static;
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -4488,14 +4491,12 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void GenericStaticDispatch_StaticConstrainedExtension_DoesNotMisfire()
+    public void GenericStaticDispatch_StaticConstrainedExtension_SkipsWrapper()
     {
-        // Pins current behavior: static methods are explicitly excluded from the
-        // narrowing-conformance skip. Statics on generic classes flow through a
-        // different metatype-derived dispatch shape; no real-world regression has
-        // surfaced from a static constrained extension. If one does, lift the
-        // static guard in WouldGenericStaticDispatchSkipForNarrowerConstraint and
-        // mirror the predicate to ConstructorWrapperEmitter.
+        // Statics take the static-dispatch wrapper like instance members, so they meet the
+        // same limit: a member declared in a constrained extension is invisible to the
+        // unconditional conformance extension the wrapper calls it through, and the wrapper
+        // must decline rather than emit a call swiftc rejects.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -4532,10 +4533,48 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
         var output = sw.ToString();
 
-        // Skip-comment must NOT be emitted for the static case — the guard short-circuits
-        // before the conformance diff. (This is a behavior pin, not a correctness claim
-        // that statics are safe — see the predicate's doc comment.)
-        Assert.DoesNotContain("Generic static dispatch wrapper skipped for 'create'", output);
+        Assert.Contains("Generic static dispatch wrapper skipped for 'create'", output);
+        Assert.DoesNotContain("extension TestModule.Box: _SBW_GSM_", output);
+    }
+
+    [Fact]
+    public void StaticConstrainedExtension_StaysBoundOnDirectPath()
+    {
+        // `extension KingfisherWrapper where Base: UIImage { static func animatedImage(…) }`: the
+        // wrapper cannot reach a static behind a narrowing constraint, so the static keeps the
+        // direct call it had before statics took the wrapper (with the ABI floor still deciding
+        // whether that call is sound). The planning gate must not drop it as if it were headed
+        // for the wrapper.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Box", moduleDecl);
+        var pProtocol = SwiftTypeName.FromModuleQualifiedName("TestModule.P");
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        var method = CreateMethodWithReturn("create", TypeSpecParser.Parse("Swift.Bool")!, parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        method.IsExtensionMethod = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, pProtocol, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        parentDecl.Methods.Add(method);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(new MethodEnvironment(method, typeDb)));
+
+        var result = new MemberValidationPipeline(typeDb).ValidateMethodEmission(method, null);
+        Assert.NotEqual(SkipReason.ConstrainedExtensionWrapper, result.Reason);
     }
 
     [Fact]

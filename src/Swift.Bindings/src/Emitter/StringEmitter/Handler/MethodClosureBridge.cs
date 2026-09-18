@@ -82,15 +82,30 @@ public static class MethodClosureBridge
     internal static bool CanRerouteGenericParentToCdecl(
         MethodDecl method, TypeDecl? parentDecl, MethodEnvironment env)
     {
-        if (parentDecl is not { IsGeneric: true })
-            return false;
-        if (method.MethodType == MethodType.Static)
-            return false;
-
         // The metadata + PWT arguments the trampoline needs come from the type's non-generic
         // P/Invoke helper class. Without it there is nowhere to source them, and the Swift and
         // C# signatures would disagree on arity.
-        if (env.PInvokeHelperContext == null)
+        return env.PInvokeHelperContext != null
+            && CanRerouteGenericParentStructurally(method, parentDecl, env.TypeDatabase);
+    }
+
+    /// <summary>
+    /// The part of <see cref="CanRerouteGenericParentToCdecl"/> that depends only on the member
+    /// and its parent, so the eligibility predicate — which has no emission environment — asks
+    /// the same question for a static.
+    /// <para>
+    /// A static takes this route as well as an instance member. The conformance extension calls
+    /// it as <c>Self.member(…)</c> on the metatype the trampoline rebuilt, so Swift supplies the
+    /// static calling convention itself: no receiver for a struct or enum, the thick metatype for
+    /// a class. There is no other sound route for one — a direct call would have to reproduce
+    /// that convention from managed code, and the <c>@_silgen_name</c> extension shim is an
+    /// instance-shaped function.
+    /// </para>
+    /// </summary>
+    internal static bool CanRerouteGenericParentStructurally(
+        MethodDecl method, TypeDecl? parentDecl, ITypeDatabase typeDatabase)
+    {
+        if (parentDecl is not { IsGeneric: true })
             return false;
 
         var genericParamNames = parentDecl.GenericParameters
@@ -106,7 +121,7 @@ public static class MethodClosureBridge
         // The dlsym'd `…Ma` accessor's register signature has to match the wrapper's _metadata /
         // _pwt slots exactly; an arity disagreement corrupts caller-saved registers and PAC-traps
         // on arm64e.
-        if (GenericDispatchEmitter.HasWrapperHelperGateBlocker(parentDecl, env.TypeDatabase))
+        if (GenericDispatchEmitter.HasWrapperHelperGateBlocker(parentDecl, typeDatabase))
             return false;
 
         // A member declared in a CONSTRAINED extension is invisible to the unconditional
@@ -201,11 +216,13 @@ public static class MethodClosureBridge
         if (!hasBoundGenericInClosure && !hasComplexEnumInClosure && !hasErrorExistentialInClosure)
             return false;
 
-        // Generic parent types: instance methods use @_silgen_name extension (inherits
-        // generic context) + CallConvSwift/SwiftSelf on C# side. Static methods on generic
-        // types are still blocked — they require type metadata passing which is complex.
+        // Generic parent types: an instance method falls back to a @_silgen_name extension
+        // (inherits the generic context) when it cannot take the static-dispatch route, but a
+        // static has no such fallback — that shim is instance-shaped — so a static is eligible
+        // only where the static-dispatch route can carry it.
         if (method.ParentDecl is TypeDecl parentTd && parentTd.IsGeneric &&
-            method.MethodType == MethodType.Static)
+            method.MethodType == MethodType.Static &&
+            !CanRerouteGenericParentStructurally(method, parentTd, typeDatabase))
             return false;
 
         // Check non-closure params: each must be a class (IntPtr), primitive, or have a default value
@@ -246,6 +263,13 @@ public static class MethodClosureBridge
         var method = env.MethodDecl;
 
         if (!IsEligible(method, env.ClosureHandler, env.TypeDatabase))
+            return false;
+
+        // A static on a generic parent has exactly one route, and it needs the helper class that
+        // supplies the type-parameter metadata. IsEligible cannot see the emission environment, so
+        // decline here rather than emit a bridge whose trampoline has no metadata to rebuild from.
+        if (method.MethodType == MethodType.Static && parentDecl is { IsGeneric: true }
+            && !CanRerouteGenericParentToCdecl(method, parentDecl, env))
             return false;
 
         // Collect all closure parameters
@@ -440,8 +464,10 @@ public static class MethodClosureBridge
         // signature names the parent's T and so cannot be spelled in a module-scope protocol,
         // fall back to the @_silgen_name extension that inherits the generic context.
         // Non-generic types use a @_cdecl free function with an explicit self parameter.
+        // A static on a generic parent always takes the static-dispatch route (TryEmit declines it
+        // otherwise); an instance member takes it when it can and falls back to the extension.
         bool isGenericParent = parentDecl is TypeDecl ptd && ptd.IsGeneric;
-        bool reroutesToCdecl = isGenericParent && isInstance
+        bool reroutesToCdecl = isGenericParent
             && CanRerouteGenericParentToCdecl(method, parentDecl, env);
         bool usesSilgenExtension = isGenericParent && isInstance && !reroutesToCdecl;
 
@@ -693,6 +719,8 @@ public static class MethodClosureBridge
             callTarget = $"{selfParamName}.assumingMemoryBound(to: {selfSwiftTypeName}.self).pointee";
         else if (isInstance)
             callTarget = selfObjName;
+        else if (reroutesToCdecl)
+            callTarget = "Self"; // Static on a generic parent: the instantiation the metatype selected.
         else
             callTarget = typeName; // Static method: the type name; free function: "" (no parent).
 
@@ -852,8 +880,8 @@ public static class MethodClosureBridge
         if (reroutesToCdecl)
         {
             EmitGenericParentDispatchTrampoline(
-                swiftWriter, method, env, ctx, parentDecl!, closures, swiftParamPairs, selfParamName,
-                silgenName, dispatchProtocolName, dispatchMethodName, dispatchPwtCount,
+                swiftWriter, method, env, ctx, parentDecl!, closures, swiftParamPairs,
+                isInstance ? selfParamName : null, silgenName, dispatchProtocolName, dispatchMethodName, dispatchPwtCount,
                 swiftReturnType, returnsValue, needsMainActor, availability);
         }
 
@@ -866,7 +894,8 @@ public static class MethodClosureBridge
     /// (and witness tables) the managed caller passed, erases it to <c>Any.Type</c>, casts to the
     /// private dispatch protocol's metatype, and forwards every parameter unchanged.
     /// <para>
-    /// The parameter order — bridge parameters, then metadata, then witness tables, then self —
+    /// The parameter order — bridge parameters, then metadata, then witness tables, then self for
+    /// an instance member (a static has none) —
     /// is the contract the C# P/Invoke declaration and its call site both reproduce
     /// (<see cref="EmitPInvoke"/>, <see cref="EmitPublicMethod"/>). All three have to agree or
     /// arguments land in the wrong registers.
@@ -880,7 +909,7 @@ public static class MethodClosureBridge
         TypeDecl parentDecl,
         List<ClosureInfo> closures,
         List<(string Name, string Type)> swiftParamPairs,
-        string selfParamName,
+        string? selfParamName,
         string silgenName,
         string dispatchProtocolName,
         string dispatchMethodName,
@@ -890,16 +919,21 @@ public static class MethodClosureBridge
         bool needsMainActor,
         IReadOnlyList<AvailabilityAnnotation>? availability)
     {
-        // Self is the last entry of swiftParamPairs; the metadata block goes immediately ahead of
-        // it so the trailing receiver slot matches every other generic-parent @_cdecl wrapper.
-        var bridgeParams = swiftParamPairs.Take(swiftParamPairs.Count - 1).ToList();
+        // For an instance member self is the last entry of swiftParamPairs; the metadata block goes
+        // immediately ahead of it so the trailing receiver slot matches every other generic-parent
+        // @_cdecl wrapper. A static (null selfParamName) has no receiver, so the metadata block is
+        // simply last.
+        var bridgeParams = selfParamName == null
+            ? swiftParamPairs
+            : swiftParamPairs.Take(swiftParamPairs.Count - 1).ToList();
 
         var cdeclParams = bridgeParams.Select(p => $"    _ {p.Name}: {p.Type}").ToList();
         for (int i = 0; i < parentDecl.GenericParameters.Count; i++)
             cdeclParams.Add($"    _ _metadata{i}: UnsafeRawPointer");
         for (int i = 0; i < pwtCount; i++)
             cdeclParams.Add($"    _ _pwt{i}: UnsafeRawPointer");
-        cdeclParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
+        if (selfParamName != null)
+            cdeclParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
 
         var helperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(
             swiftWriter, parentDecl, ctx, pwtCount);
@@ -1371,13 +1405,14 @@ public static class MethodClosureBridge
         // non-null TypeDecl parent, matching BuildBridgeSymbolName (:48).
         bool isInstance = method.MethodType != MethodType.Static && method.ParentDecl is TypeDecl;
         bool isGenericParent = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
-        bool reroutesToCdecl = isGenericParent && isInstance
+        bool reroutesToCdecl = isGenericParent
             && CanRerouteGenericParentToCdecl(method, method.ParentDecl as TypeDecl, env);
         bool usesSwiftCallingConvention = isGenericParent && isInstance && !reroutesToCdecl;
 
         // Static-dispatch route: the trampoline resolves the parent's metadata from these, one
         // per type parameter followed by one per resolvable witness table, immediately ahead of
-        // the receiver. Same order as the Swift @_cdecl signature and the call site.
+        // the receiver (last, for a static). Same order as the Swift @_cdecl signature and the
+        // call site.
         if (reroutesToCdecl)
             pinvokeParams.AddRange(env.PInvokeHelperContext!.GetTypeMetadataAccessorParameterDeclarations());
 
@@ -1700,15 +1735,15 @@ public static class MethodClosureBridge
         // A free/global function is modeled as MethodType.Instance but has no TypeDecl parent (so no
         // `Payload`); its @_cdecl wrapper and P/Invoke decl (EmitPInvoke :1139) already omit self, so
         // the call must too. Require a non-null TypeDecl parent, matching BuildBridgeSymbolName (:48).
+        bool reroutesToCdecl = method.ParentDecl is TypeDecl rTd && rTd.IsGeneric
+            && CanRerouteGenericParentToCdecl(method, rTd, env);
+        // Static-dispatch route: metadata + witness tables immediately ahead of the receiver (or
+        // last, for a static), matching the Swift @_cdecl signature and the P/Invoke declaration.
+        if (reroutesToCdecl)
+            callArgs.AddRange(env.PInvokeHelperContext!.GetTypeMetadataAccessorArgumentList());
+
         if (!isStatic && method.ParentDecl is TypeDecl)
         {
-            bool reroutesToCdecl = method.ParentDecl is TypeDecl rTd && rTd.IsGeneric
-                && CanRerouteGenericParentToCdecl(method, rTd, env);
-            // Static-dispatch route: metadata + witness tables immediately ahead of the receiver,
-            // matching the Swift @_cdecl signature and the P/Invoke declaration.
-            if (reroutesToCdecl)
-                callArgs.AddRange(env.PInvokeHelperContext!.GetTypeMetadataAccessorArgumentList());
-
             bool usesSwiftSelf = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric && !reroutesToCdecl;
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
             var selfHandle = isObjCRooted ? "Handle" : "Payload.DangerousGetHandle()";
