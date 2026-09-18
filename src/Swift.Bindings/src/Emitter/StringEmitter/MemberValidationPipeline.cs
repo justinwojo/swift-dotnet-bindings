@@ -526,9 +526,19 @@ public class MemberValidationPipeline
             // call a member that only exists under the extension's where-clause.
             if (ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(methodDecl) == null)
             {
+                // Same split the property arm makes below: a direct pin on a multi-parameter parent
+                // is withheld from the open-generic level only, because the concrete-specialization
+                // emitter re-surfaces it on each closed parent tuple, so the member still binds.
+                if (ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(methodDecl))
+                {
+                    return ValidationResult.Skip(
+                        SkipReason.UnsupportedSignature,
+                        $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.");
+                }
+
                 return ValidationResult.Skip(
                     SkipReason.UnsupportedSignature,
-                    $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is only available where a parent generic parameter is pinned to a concrete type, and that pin does not by itself name a single instantiation of the parent (a multi-parameter parent, or a pin on an associated type); ConstrainedExtensionEmitter spells a closed parent with a single type argument.");
+                    $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is only available where a parent generic parameter is pinned to a concrete type, and that pin hangs off an associated type rather than naming a parent generic argument, so no closed parent spelling satisfies it.");
             }
 
             if (ConstrainedExtensionEmitter.IsEmittableConstrainedExtensionMethod(methodDecl))

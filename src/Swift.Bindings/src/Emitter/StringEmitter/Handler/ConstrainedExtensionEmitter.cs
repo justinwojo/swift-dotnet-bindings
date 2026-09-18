@@ -294,6 +294,32 @@ public static class ConstrainedExtensionEmitter
                     c.Kind == ConformanceKind.ConcreteType && IsSpecializableConcretePin(c.ConformanceTarget)));
     }
 
+    /// <summary>
+    /// Method-side mirror of <see cref="HasUnclosableDirectParentPin(PropertyDecl)"/>, reading the
+    /// constraints off the method's own generic parameters rather than a getter accessor's.
+    /// Separates the two causes a caller would otherwise report as one: a direct pin on a
+    /// multi-parameter parent, which the concrete-specialization emitter re-surfaces per closed
+    /// parent tuple, from a pin that hangs off an associated type, for which no closed parent
+    /// spelling exists at all.
+    ///
+    /// Reporting-side discriminator ONLY — it decides which skip reason a withheld method carries,
+    /// never whether the method is emitted. Do not mirror the property overload's use here: that one
+    /// also routes a property into concrete specialization, whereas a method pinned this way is
+    /// emitted by the zero-method-generic arm of
+    /// <c>ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent</c>,
+    /// one overload per closed parent tuple, gated by <c>CanEmitConcreteOverloadForPairing</c>.
+    /// Wiring this predicate into that path would emit the member twice.
+    /// </summary>
+    internal static bool HasUnclosableDirectParentPin(MethodDecl method)
+    {
+        if (ExtractSameTypeConstraintForMethod(method) != null) return false;
+
+        return method.GenericParameters.Count > 1 &&
+            method.GenericParameters.Any(p =>
+                p.GenericConformances.Any(c =>
+                    c.Kind == ConformanceKind.ConcreteType && IsSpecializableConcretePin(c.ConformanceTarget)));
+    }
+
     private static void EmitSpecializationClass(
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
