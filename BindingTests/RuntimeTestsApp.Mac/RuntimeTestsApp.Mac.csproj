@@ -60,6 +60,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/MallocProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MainQueueSynchronizationContext.cs" />
   </ItemGroup>
 
@@ -84,6 +85,7 @@
     <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Properties/ZeroWitnessExistentialPropertyTests.cs" />
     <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
     <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />

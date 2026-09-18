@@ -1137,15 +1137,23 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// Records a non-generic ISwiftObject type's declared payload-construction semantics so the module
-    /// initializer can call <c>SwiftMarshal.RegisterPayloadSemantics(typeof(T), ...)</c>. Mirrors the
-    /// nesting/open-generic-ancestor guards of <see cref="RecordSwiftObjectType"/>: a type nested inside
-    /// an open generic outer can't be named in the static-init context, so it falls back to the runtime
-    /// reflection backstop instead.
+    /// initializer can call <c>SwiftMarshal.RegisterPayloadSemantics(typeof(T), ...)</c>.
+    /// <para>
+    /// A type nested inside an open generic outer (<c>Outcome&lt;T&gt;.Failure</c>) is a generic type
+    /// in the CLR, and its closed form names a type parameter that is not in scope in the static-init
+    /// context. It is registered in its <b>open</b> form instead (<c>typeof(Outcome&lt;&gt;.Failure)</c>),
+    /// which is the generic type definition the dispatcher's open-generic fallback looks up for every
+    /// closed instantiation. Leaving it unregistered sends every extraction of it to the reflection
+    /// backstop, which NativeAOT cannot satisfy for a nested type.
+    /// </para>
     /// </summary>
     public void RecordPayloadSemantics(string csharpTypeName, Swift.Runtime.PayloadConstructionSemantics semantics)
     {
         if (HasOpenGenericAncestor())
+        {
+            _payloadSemantics.Add((GetOpenQualifiedTypeName(csharpTypeName, swiftArity: 0), semantics));
             return;
+        }
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         _payloadSemantics.Add((qualifiedName, semantics));
     }
@@ -1154,17 +1162,59 @@ public sealed class ModuleEmissionContext
     /// Records an open-generic ISwiftObject type definition's payload-construction semantics using the
     /// <b>open</b> <c>typeof</c> form (e.g. <c>Pair&lt;,&gt;</c>). One registration covers every closed
     /// instantiation via the dispatcher's open-generic fallback. The handler passes the simple C# name
-    /// (no generic suffix) and the arity; nesting is resolved here.
+    /// (no generic suffix) and the Swift declaration's generic-parameter count, which for a nested type
+    /// includes the parameters it inherits from its outer types. Nesting is resolved here: an open
+    /// generic outer is opened too (<c>Outer&lt;&gt;.Pair&lt;,&gt;</c>) for the reason
+    /// <see cref="RecordPayloadSemantics"/> gives, and the leaf keeps only the parameters it declares
+    /// itself, because C# nests the inherited ones in the outer (<c>Outcome&lt;&gt;.Failure</c>).
     /// </summary>
     public void RecordOpenGenericPayloadSemantics(string simpleTypeName, int arity, Swift.Runtime.PayloadConstructionSemantics semantics)
     {
         if (string.IsNullOrEmpty(simpleTypeName) || arity <= 0)
             return;
-        if (HasOpenGenericAncestor())
-            return;
-        var qualifiedName = GetQualifiedTypeName(simpleTypeName);
-        var openForm = $"{qualifiedName}<{new string(',', arity - 1)}>";
-        _payloadSemantics.Add((openForm, semantics));
+        _payloadSemantics.Add((GetOpenQualifiedTypeName(simpleTypeName, arity), semantics));
+    }
+
+    /// <summary>
+    /// The unbound <c>typeof</c> operand for a type at the current nesting position: every generic
+    /// ancestor's argument list is emptied (<c>Outer&lt;T, U&gt;</c> becomes <c>Outer&lt;,&gt;</c>) and
+    /// the leaf gets one empty slot per parameter it declares beyond those its ancestors carry.
+    /// C# only accepts an unbound name when every generic part of it is unbound, so the ancestors and
+    /// the leaf are opened together.
+    /// </summary>
+    private string GetOpenQualifiedTypeName(string simpleTypeName, int swiftArity)
+    {
+        var parts = new List<string>();
+        int inherited = 0;
+        foreach (var ancestor in _typeNestingStack.Reverse())
+        {
+            var (openAncestor, ancestorArity) = ToOpenGenericForm(ancestor);
+            parts.Add(openAncestor);
+            inherited += ancestorArity;
+        }
+        var ownArity = swiftArity - inherited;
+        parts.Add(ownArity > 0 ? $"{simpleTypeName}<{new string(',', ownArity - 1)}>" : simpleTypeName);
+        return string.Join(".", parts);
+    }
+
+    /// <summary>
+    /// Empties the argument list of a declared generic name and counts its parameters:
+    /// <c>Outer&lt;T, U&gt;</c> becomes (<c>Outer&lt;,&gt;</c>, 2); a plain name is returned with 0.
+    /// </summary>
+    private static (string OpenForm, int Arity) ToOpenGenericForm(string typeNameWithGenerics)
+    {
+        var open = typeNameWithGenerics.IndexOf('<');
+        if (open < 0)
+            return (typeNameWithGenerics, 0);
+        int depth = 0, commas = 0;
+        for (int i = open; i < typeNameWithGenerics.Length; i++)
+        {
+            var c = typeNameWithGenerics[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 1) commas++;
+        }
+        return ($"{typeNameWithGenerics.Substring(0, open)}<{new string(',', commas)}>", commas + 1);
     }
 
     // ==================== Open Generic ISwiftObject Trimmer Roots ====================

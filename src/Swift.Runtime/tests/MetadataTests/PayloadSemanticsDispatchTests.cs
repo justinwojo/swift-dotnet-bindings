@@ -62,6 +62,23 @@ public class PayloadSemanticsDispatchTests
             => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
     }
 
+    /// <summary>Generic outer whose nested wrapper is itself a generic type in the CLR (<c>Outer`1+Nested</c>).</summary>
+    private sealed class GenericOuterFake<T>
+    {
+        /// <summary>Declares Adopt, but its open form is registered as Move — the registration must win.</summary>
+        public sealed class NestedFake : ISwiftObject
+        {
+            public void Dispose() { }
+            public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+            public static TypeMetadata GetTypeMetadata() => TypeMetadata.Zero;
+            public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+            public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+                => throw new NotSupportedException();
+            public static PayloadConstructionSemantics PayloadConstructionSemantics
+                => global::Swift.Runtime.PayloadConstructionSemantics.Adopt;
+        }
+    }
+
     // ─── Short-circuits ───
 
     [Fact]
@@ -106,6 +123,18 @@ public class PayloadSemanticsDispatchTests
         // the registered Move wins over the type's declared Adopt.
         SwiftMarshal.RegisterPayloadSemantics(typeof(SeededClassFake), PayloadConstructionSemantics.Move);
         Assert.Equal(PayloadConstructionSemantics.Move, SwiftMarshal.GetPayloadSemanticsForType(typeof(SeededClassFake)));
+    }
+
+    [Fact]
+    public void OpenRegistrationOfTypeNestedInGenericOuter_ResolvesClosedInstantiation()
+    {
+        // A generated module initializer cannot name Outer<T>.Nested closed, so it registers
+        // typeof(Outer<>.Nested). That open form must be the generic type definition the closed
+        // instantiation resolves through, without reaching the reflection backstop NativeAOT
+        // cannot satisfy for a nested type.
+        SwiftMarshal.RegisterPayloadSemantics(typeof(GenericOuterFake<>.NestedFake), PayloadConstructionSemantics.Move);
+        Assert.Equal(PayloadConstructionSemantics.Move,
+            SwiftMarshal.GetPayloadSemanticsForType(typeof(GenericOuterFake<SwiftString>.NestedFake)));
     }
 
     // ─── Representative runtime types (the leak fix keys on these declared values) ───

@@ -65,6 +65,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/MallocProbe.cs" />
   </ItemGroup>
 
   <!-- Domain test classes. tvOS has the same UIKit surface iOS uses, so most

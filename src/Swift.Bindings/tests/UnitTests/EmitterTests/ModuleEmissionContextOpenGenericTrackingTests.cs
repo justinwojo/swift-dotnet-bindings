@@ -63,6 +63,62 @@ public class ModuleEmissionContextOpenGenericTrackingTests
     }
 
     [Fact]
+    public void RecordPayloadSemantics_NestedInsideOpenOuter_RegistersUnboundForm()
+    {
+        // The closed name would reference the outer's type parameter, which is not in scope in the
+        // module initializer, but the unbound form names the generic type definition that every
+        // closed instantiation resolves through. Unregistered, the type falls to a reflection
+        // backstop NativeAOT cannot satisfy for a nested type.
+        var ctx = new ModuleEmissionContext();
+        ctx.PushTypeNesting("Outcome<TSigned>");
+        ctx.RecordPayloadSemantics("Failure", Swift.Runtime.PayloadConstructionSemantics.Adopt);
+        ctx.PopTypeNesting();
+
+        Assert.Equal(("Outcome<>.Failure", Swift.Runtime.PayloadConstructionSemantics.Adopt), Assert.Single(ctx.PayloadSemantics));
+    }
+
+    [Fact]
+    public void RecordOpenGenericPayloadSemantics_NestedInsideOpenOuter_OpensEveryGenericPart()
+    {
+        // C# rejects a partially-unbound name such as Outer<T, U>.Pair<,>, so the ancestors are
+        // opened alongside the leaf, and a non-generic intermediate ancestor keeps its plain name.
+        // The Swift arity counts the two inherited parameters as well as Pair's own two.
+        var ctx = new ModuleEmissionContext();
+        ctx.PushTypeNesting("Outer<T, U>");
+        ctx.PushTypeNesting("Middle");
+        ctx.RecordOpenGenericPayloadSemantics("Pair", arity: 4, Swift.Runtime.PayloadConstructionSemantics.Copy);
+        ctx.PopTypeNesting();
+        ctx.PopTypeNesting();
+
+        Assert.Equal(("Outer<,>.Middle.Pair<,>", Swift.Runtime.PayloadConstructionSemantics.Copy), Assert.Single(ctx.PayloadSemantics));
+    }
+
+    [Fact]
+    public void RecordOpenGenericPayloadSemantics_NestedTypeWithOnlyInheritedParameters_IsNotGenericInCSharp()
+    {
+        // Swift counts a nested type's inherited outer parameters as its own, so the handler reports
+        // arity 1 for Outcome<T>.Failure. C# declares Failure with no parameters of its own, and
+        // naming it Failure<> is CS0308.
+        var ctx = new ModuleEmissionContext();
+        ctx.PushTypeNesting("Outcome<TSigned>");
+        ctx.RecordOpenGenericPayloadSemantics("Failure", arity: 1, Swift.Runtime.PayloadConstructionSemantics.Adopt);
+        ctx.PopTypeNesting();
+
+        Assert.Equal(("Outcome<>.Failure", Swift.Runtime.PayloadConstructionSemantics.Adopt), Assert.Single(ctx.PayloadSemantics));
+    }
+
+    [Fact]
+    public void RecordPayloadSemantics_NestedInsideClosedOuter_KeepsQualifiedName()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.PushTypeNesting("Outer");
+        ctx.RecordPayloadSemantics("Inner", Swift.Runtime.PayloadConstructionSemantics.Move);
+        ctx.PopTypeNesting();
+
+        Assert.Equal(("Outer.Inner", Swift.Runtime.PayloadConstructionSemantics.Move), Assert.Single(ctx.PayloadSemantics));
+    }
+
+    [Fact]
     public void RecordOpenGenericISwiftObjectType_IsIdempotent()
     {
         // Two emission passes for the same type (handler called twice in different code

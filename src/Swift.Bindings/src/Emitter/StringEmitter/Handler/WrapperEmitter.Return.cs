@@ -186,7 +186,14 @@ namespace BindingsGeneration
                 : $"SwiftMarshal.MarshalFromSwift<{containerType}>({resultLocation})";
             csWriter.WriteLine($"var {ExistentialResultName} = {existentialRead};");
 
-            if (ExistentialHandler.IsZeroWitnessExistential(protocolList)) { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
+            // Zero-witness existential (Any, or markers only): the public type is 'object', so hand
+            // back the plain value, never the container. The read is the callee's +1 copy, which
+            // UnboxOwned destroys once the value is out.
+            if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+            {
+                csWriter.WriteLine($"return Swift.Runtime.ExistentialContainer0.UnboxOwned({ExistentialResultName});");
+                return true;
+            }
             // Return position (pure read) → allow the PAT-with-conformers union projection.
             var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
             if (publicType == "object") { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }

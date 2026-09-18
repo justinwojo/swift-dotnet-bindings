@@ -1013,6 +1013,10 @@ public static partial class ClosureEmitter
                 var qp = closureHandler.GetQualifiedProxyClassName(typeSpec) ?? cdeclProxyName;
                 return $"new {qp}({containerAccess})";
             }
+            // Zero-witness existential: the delegate takes the plain value. The adapter still owns
+            // the container, so Unbox borrows it.
+            if (closureHandler.IsZeroWitnessExistentialParam(typeSpec))
+                return $"global::Swift.Runtime.ExistentialContainer0.Unbox({containerAccess})";
             return $"(object)({containerAccess})";
         }
 

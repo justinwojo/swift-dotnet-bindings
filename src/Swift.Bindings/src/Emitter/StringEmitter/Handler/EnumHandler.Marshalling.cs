@@ -472,8 +472,8 @@ namespace BindingsGeneration
 
             // Generated ISwiftObject wrappers (nested enums, non-frozen structs) take ownership of
             // the pointer passed to NewFromPayload — the SafeHandle would Free() the stackalloc
-            // enumCopy address on dispose. Heap-alloc + InitializeWithCopy first (mirrors
-            // SwiftResult.ExtractPayloadValue). AnyType fallback catches nested-on-generic-outer
+            // enumCopy address on dispose, so the element is extracted through the runtime's
+            // borrowed-source copy (MarshalExtractedPayloadValue). AnyType fallback catches nested-on-generic-outer
             // types whose TypeRecord isn't in the database but which we generate as ISwiftObject
             // wrappers. Blittable primitives and ObjC-bridged classes keep the source-pointer
             // path (MarshalFromSwift uses Unsafe.Read or ObjC fast paths with no ownership
@@ -481,16 +481,18 @@ namespace BindingsGeneration
             if (IsSwiftObjectBackedPayload(typeSpec, fallbackRecord, csharpType))
             {
                 csWriter.WriteLine($"var _{bareName}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
-                csWriter.WriteLine($"var _{bareName}_heap = (byte*)NativeMemory.Alloc(_{bareName}_meta.Size);");
-                csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->InitializeWithCopy(_{bareName}_heap, {sourcePtr} + (int){offsetVar}, _{bareName}_meta);");
-                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareName}_heap));");
-                // This arm COPIES rather than adopting: the wrapper owns the heap buffer, so the
-                // enum copy's own +1 on this element is still outstanding and nothing else will
-                // release it (the stackalloc buffer is never value-witness-destroyed). Release it
-                // here with the ELEMENT's witness at its own offset — sibling elements own their
-                // slots independently, and the adopt arms above deliberately hand their +1 to the
-                // wrapper instead. Without this every TryGet call leaks one retain of the payload,
-                // so a class reachable from it never deallocs even though every dispose runs.
+                // The runtime builds the wrapper from its own +1 copy of the element and frees its
+                // temporary buffer according to how that wrapper type constructs itself. A wrapper
+                // that adopts the buffer keeps it; one that copies or moves out of it (SwiftString)
+                // leaves it behind, and a generated Alloc here would leak it on every call.
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalExtractedPayloadValue<{csharpType}>({sourcePtr} + (int){offsetVar}, _{bareName}_meta.Size);");
+                // The extraction copied the element, so the enum copy's own +1 on it is still
+                // outstanding and nothing else will release it (the stackalloc buffer is never
+                // value-witness-destroyed). Release it here with the ELEMENT's witness at its own
+                // offset — sibling elements own their slots independently, and the adopt arms above
+                // deliberately hand their +1 to the wrapper instead. Without this every TryGet call
+                // leaks one retain of the payload, so a class reachable from it never deallocs
+                // even though every dispose runs.
                 csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->Destroy({sourcePtr} + (int){offsetVar}, _{bareName}_meta);");
             }
             else
@@ -709,12 +711,11 @@ namespace BindingsGeneration
             if (IsSwiftObjectBackedPayload(typeSpec, marshalRecord, csharpType))
             {
                 csWriter.WriteLine($"var _{bareName}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
-                csWriter.WriteLine($"var _{bareName}_heap = (byte*)NativeMemory.Alloc(_{bareName}_meta.Size);");
-                csWriter.WriteLine($"_{bareName}_meta.ValueWitnessTable->InitializeWithCopy(_{bareName}_heap, {sourcePtr}, _{bareName}_meta);");
-                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareName}_heap));");
-                // This arm COPIES rather than adopting: the wrapper owns the heap buffer, so the
-                // enum copy's own +1 on the projected payload is still outstanding and nothing else
-                // will release it (the stackalloc buffer is never value-witness-destroyed). Release
+                // See EmitPayloadMarshalWithOffset: the runtime owns the temporary buffer's lifetime.
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalExtractedPayloadValue<{csharpType}>({sourcePtr}, _{bareName}_meta.Size);");
+                // The extraction copied the payload, so the enum copy's own +1 on it is still
+                // outstanding and nothing else will release it (the stackalloc buffer is never
+                // value-witness-destroyed). Release
                 // it here with the PAYLOAD's witness — the adopt arms above deliberately hand their
                 // +1 to the wrapper instead, which is why this cannot be a blanket destroy at the
                 // end of TryGet. Without this every TryGet call leaks one retain of the payload, so
@@ -926,13 +927,13 @@ namespace BindingsGeneration
         /// extraction and the payload never deallocs even though every dispose runs (issue #40 —
         /// enum-payload over-retain leak).
         ///
-        /// Non-class generic T (ISwiftObject non-class, ISwiftStruct, primitives, value
-        /// structs) — heap-allocate a buffer, <c>InitializeWithCopy</c> from the source
-        /// (stack) pointer, hand the heap pointer to <c>MarshalFromSwift</c>. For ISwiftObject
-        /// T, the produced wrapper takes ownership of the heap buffer (its SafeHandle's
-        /// ReleaseHandle frees + destroys it). For non-ISwiftObject T (primitive, plain
-        /// value struct), MarshalFromSwift reads the value out and we own the heap — Destroy
-        /// then Free. The CRITICAL invariant: never hand the stack buffer pointer directly
+        /// Non-class ISwiftObject T (ISwiftStruct and other wrapper-backed values) — the runtime's
+        /// <c>MarshalExtractedPayloadValue</c> builds the wrapper from its own +1 copy of the
+        /// element and frees its temporary buffer according to how that wrapper constructs itself:
+        /// an adopting wrapper keeps the buffer, while a copying or moving one (<c>SwiftString</c>)
+        /// leaves it behind for the runtime to free. For non-ISwiftObject T (primitive, plain value
+        /// struct), heap-copy the element, let MarshalFromSwift read it out by value, then Destroy
+        /// and Free the heap. The CRITICAL invariant: never hand the stack buffer pointer directly
         /// to MarshalFromSwift, because <c>SwiftSafeHandle.ReleaseHandle</c> would call
         /// <c>NativeMemory.Free</c> on a non-heap pointer.
         /// </summary>
@@ -963,25 +964,33 @@ namespace BindingsGeneration
             csWriter.WriteLine("else");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            // Non-class T: heap-allocate, InitializeWithCopy from the stack source. NewFromPayload
-            // for an ISwiftObject T takes ownership of the heap pointer (SafeHandle frees on
-            // dispose). For primitives / non-ISwiftObject value types, MarshalFromSwift reads the
-            // value by value and we Destroy + Free the heap ourselves.
+            // Non-class ISwiftObject T: the runtime takes its own +1 copy of the element and frees
+            // its temporary according to the wrapper's construction semantics. A wrapper that copies
+            // or moves out of the buffer (SwiftString) leaves it behind, so allocating the buffer
+            // here and handing it to MarshalFromSwift leaked it on every call.
+            csWriter.WriteLine($"if (typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName})))");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalExtractedPayloadValue<{typeParamName}>((void*)({sourcePtrExpr}), __{bareName}_meta.Size);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("else");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            // Primitives / non-ISwiftObject value types: MarshalFromSwift reads the value out by
+            // value, so the heap copy stays ours to Destroy + Free.
             csWriter.WriteLine($"void* __{bareName}_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__{bareName}_meta.Size);");
             csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->InitializeWithCopy(__{bareName}_heap, (void*)({sourcePtrExpr}), __{bareName}_meta);");
             csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr(__{bareName}_heap));");
-            // The copy above left the enum copy's own +1 on this payload outstanding, and the
-            // stackalloc buffer is never value-witness-destroyed, so release it here (a no-op for a
-            // trivial T). Only this non-class arm copies; the class arm above hands its +1 to the
-            // wrapper, which is why the release cannot sit outside the branch.
-            csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{bareName}_meta);");
-            csWriter.WriteLine($"if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName})))");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
             csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->Destroy(__{bareName}_heap, __{bareName}_meta);");
             csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free(__{bareName}_heap);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            // Both copies above left the enum copy's own +1 on this payload outstanding, and the
+            // stackalloc buffer is never value-witness-destroyed, so release it here (a no-op for a
+            // trivial T). Only this non-class arm copies; the class arm above hands its +1 to the
+            // wrapper, which is why the release cannot sit outside the branch.
+            csWriter.WriteLine($"__{bareName}_meta.ValueWitnessTable->Destroy((void*)({sourcePtrExpr}), __{bareName}_meta);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

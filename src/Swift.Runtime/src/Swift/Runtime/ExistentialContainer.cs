@@ -199,6 +199,31 @@ public struct ExistentialContainer0 : IExistentialContainer
             $"Cannot unbox ExistentialContainer0 with metadata handle 0x{metadata.Handle:X}. " +
             $"Supported types: Bool, Int, Double, String.");
     }
+
+    /// <summary>
+    /// Unboxes a container Swift handed over at +1, such as a getter's or a Swift closure's
+    /// result, and then destroys it. <see cref="Unbox"/> only borrows: it takes its own copy of the
+    /// payload and leaves the container's retain in place, so an owned container must be destroyed
+    /// afterwards or its payload is never released. The destroy runs even when the contained type
+    /// cannot be unboxed.
+    /// </summary>
+    /// <param name="container">The owned container. It is consumed and must not be used again.</param>
+    /// <returns>The contained value as a C# object.</returns>
+    /// <exception cref="NotSupportedException">Thrown if the contained type is not recognized.</exception>
+    public static unsafe object UnboxOwned(ExistentialContainer0 container)
+    {
+        try
+        {
+            return Unbox(container);
+        }
+        finally
+        {
+            // The existential value-witness destroy releases an inline payload's retains and a
+            // boxed payload's box alike.
+            Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains(
+                (IntPtr)(&container), TypeMetadata.GetExistentialTypeMetadata(0));
+        }
+    }
 }
 
 /// <summary>

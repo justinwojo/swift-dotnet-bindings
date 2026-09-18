@@ -442,6 +442,18 @@ public partial class ClosureHandler
             // allocation and marshalling which isn't implemented for return values yet.
             if (!IsSupportedClosureReturnType(closureTypeSpec.ReturnType))
                 return false;
+
+            // A closure that returns `Any` or a marker-only existential (`any Sendable`) has no
+            // sound route. Swift returns an opaque existential indirectly, into a buffer the caller
+            // passes in the indirect-result register, but the four-word ExistentialContainer0 fits
+            // the register-return lowering .NET applies to a CallConvSwift signature. A C# callback
+            // then leaves Swift's buffer unwritten and an invoker reads registers Swift never set,
+            // in both directions and on every runtime. Wider containers exceed four words and are
+            // returned indirectly on both sides, which is why only this arity is refused. The
+            // compilers cannot see the mismatch, so the member skips with
+            // SkipReason.UnsupportedClosure rather than binding a call that corrupts memory.
+            if (IsZeroWitnessExistentialParam(closureTypeSpec.ReturnType))
+                return false;
         }
 
         return true;
@@ -2768,6 +2780,20 @@ public partial class ClosureHandler
         // Known protocols with proxy classes handled by NeedsProxyWrapping
         if (NeedsProxyWrapping(typeSpec, out _)) return false;
         return true;
+    }
+
+    /// <summary>
+    /// True for an <see cref="IsExistentialParam"/> type whose container is
+    /// <c>ExistentialContainer0</c> (<c>Any</c>, or marker protocols only). Its C# type is
+    /// <c>object</c> holding the plain value, so crossing the closure boundary goes through
+    /// <c>ExistentialContainer0.Box</c> / <c>Unbox</c> / <c>UnboxOwned</c>. A cast would only
+    /// box the container struct itself, or throw when unboxing a plain value.
+    /// </summary>
+    public bool IsZeroWitnessExistentialParam(TypeSpec typeSpec)
+    {
+        if (!IsExistentialParam(typeSpec)) return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        return protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList);
     }
 
     /// <summary>

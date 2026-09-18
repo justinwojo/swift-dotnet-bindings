@@ -1007,6 +1007,69 @@ public class EnumHandlerOutputTests
         Assert.Contains("None = 1,", csOutput);
     }
 
+    // SwiftString copies the buffer it is built from into one of its own, so a TryGet that allocates
+    // the temporary itself and hands it to MarshalFromSwift leaks that buffer on every call. A tuple
+    // element takes the wrapper-backed arm, so the extraction must go through the runtime's
+    // borrowed-source copy, which frees the temporary according to how the wrapper constructs
+    // itself. (A bare String payload takes the string projection arm, which reads the enum copy in
+    // place and never allocates.)
+    [Fact]
+    public void Emit_EnumWithStringTupleElement_ExtractsThroughRuntimeCopyWithoutGeneratedAlloc()
+    {
+        var typeDatabase = CreateTypeDatabaseWithManagedString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var stringCase = CreateCase("named");
+        stringCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int")
+        }));
+        enumDecl.Cases.Add(stringCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var bodyStart = csOutput.IndexOf("public bool TryGetNamed(", StringComparison.Ordinal);
+        Assert.True(bodyStart >= 0, "TryGetNamed is emitted");
+        var bodyEnd = csOutput.IndexOf("return true;", bodyStart, StringComparison.Ordinal);
+        var tryGetBody = csOutput.Substring(bodyStart, bodyEnd - bodyStart);
+
+        Assert.Contains("SwiftMarshal.MarshalExtractedPayloadValue<Swift.SwiftString>(enumCopy + (int)offset0", tryGetBody);
+        Assert.DoesNotContain("NativeMemory.Alloc(", tryGetBody);
+        // The enum copy's own +1 on the element is still released at the element's offset.
+        Assert.Contains("Destroy(enumCopy + (int)offset0, _value0_meta)", tryGetBody);
+    }
+
+    [Fact]
+    public void Emit_GenericEnumTypeParameterPayload_ExtractsWrapperBackedValueThroughRuntimeCopy()
+    {
+        // The payload type is only known at run time, so the ISwiftObject arm must route through the
+        // same runtime copy as the concrete arm; only plain values keep a generated heap copy, which
+        // they destroy and free themselves.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+        var wrappedCase = CreateCase("wrapped");
+        wrappedCase.AssociatedValues.Add(new NamedTypeSpec("τ_0_0"));
+        enumDecl.Cases.Add(wrappedCase);
+        enumDecl.Cases.Add(CreateCase("empty"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("TryGetWrapped(", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalExtractedPayloadValue<T>(", csOutput);
+        var alloc = csOutput.IndexOf("NativeMemory.Alloc(", StringComparison.Ordinal);
+        Assert.True(alloc >= 0, "plain-value arm keeps its own heap copy");
+        Assert.True(csOutput.IndexOf("NativeMemory.Free(", alloc, StringComparison.Ordinal) > alloc,
+            "the generated heap copy is freed in the arm that allocates it");
+    }
+
     [Fact]
     public void Emit_EnumWithAbsentApplePayload_WithdrawsTryGetAndReportsRow()
     {
@@ -1812,14 +1875,18 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("global::Swift.Runtime.Arc.UnknownObjectRetain(__value_classPtr);", csOutput);
         Assert.DoesNotContain("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(__value_classPtr)", csOutput);
-        // Non-class fallback: heap-alloc + InitializeWithCopy + ownership-transfer cleanup
-        // for non-ISwiftObject T. Must NOT pass the stack buffer pointer directly.
+        // Non-class wrapper-backed T: the runtime copies the element out of the source and owns
+        // its temporary buffer. Must NOT pass the stack buffer pointer directly.
+        Assert.Contains("if (typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(T)))", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalExtractedPayloadValue<T>((void*)(enumCopy), __value_meta.Size)", csOutput);
+        // Non-class plain T: heap-alloc + InitializeWithCopy, read by value, then Destroy + Free.
         Assert.Contains("void* __value_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__value_meta.Size);", csOutput);
         Assert.Contains("__value_meta.ValueWitnessTable->InitializeWithCopy(__value_heap, (void*)(enumCopy), __value_meta);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(new IntPtr(__value_heap))", csOutput);
-        Assert.Contains("if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(T)))", csOutput);
         Assert.Contains("__value_meta.ValueWitnessTable->Destroy(__value_heap, __value_meta);", csOutput);
         Assert.Contains("global::System.Runtime.InteropServices.NativeMemory.Free(__value_heap);", csOutput);
+        // Both non-class arms copied, so the enum copy's own +1 on the payload is released.
+        Assert.Contains("__value_meta.ValueWitnessTable->Destroy((void*)(enumCopy), __value_meta);", csOutput);
         // The pre-fix shape — passing the stack buffer pointer to MarshalFromSwift —
         // must not regress.
         Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<T>(new IntPtr(enumCopy))", csOutput);
@@ -1874,10 +1941,11 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("global::Swift.Runtime.Arc.UnknownObjectRetain(__value_classPtr);", csOutput);
         Assert.DoesNotContain("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(__value_classPtr)", csOutput);
+        Assert.Contains("if (typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(TSignedType)))", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalExtractedPayloadValue<TSignedType>((void*)(enumCopy), __value_meta.Size)", csOutput);
         Assert.Contains("void* __value_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__value_meta.Size);", csOutput);
         Assert.Contains("__value_meta.ValueWitnessTable->InitializeWithCopy(__value_heap, (void*)(enumCopy), __value_meta);", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(new IntPtr(__value_heap))", csOutput);
-        Assert.Contains("if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(TSignedType)))", csOutput);
         Assert.Contains("__value_meta.ValueWitnessTable->Destroy(__value_heap, __value_meta);", csOutput);
         Assert.Contains("global::System.Runtime.InteropServices.NativeMemory.Free(__value_heap);", csOutput);
         // The pre-fix stack-pointer shape (passing the stack buffer pointer to MarshalFromSwift) must not regress.
@@ -2520,6 +2588,40 @@ public class EnumHandlerOutputTests
         // Without AsyncLibraryName, wrapper P/Invoke falls back to module library path
         Assert.Contains("LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_TestModule_ErrorCode_InitWithRawValue\"", csOutput);
         Assert.DoesNotContain("LibraryImport(\"SwiftBindings\"", csOutput);
+    }
+
+    /// <summary>
+    /// String registered the way the shipped Swift database registers it: frozen, 16 bytes inline,
+    /// and memory-managed, so a payload of it is wrapper-backed rather than a plain C# struct.
+    /// </summary>
+    private static TypeDatabase CreateTypeDatabaseWithManagedString()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
     }
 
     private static TypeDatabase CreateTypeDatabaseWithString()
@@ -3524,8 +3626,9 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // The copy into the wrapper-owned heap buffer…
-        Assert.Contains("InitializeWithCopy(_value_heap, enumCopy", csOutput);
+        // The runtime's copy of the payload, which the returned wrapper owns…
+        Assert.Contains("MarshalExtractedPayloadValue<", csOutput);
+        Assert.Contains(">(enumCopy, _value_meta.Size)", csOutput);
         // …and the matching release of the source the copy was taken from.
         Assert.Contains("Destroy(enumCopy, _value_meta)", csOutput);
     }
@@ -3555,8 +3658,8 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // The copy into the wrapper-owned heap buffer, read from the element's offset…
-        Assert.Contains("InitializeWithCopy(_value0_heap, enumCopy + (int)offset0", csOutput);
+        // The runtime's copy of the element, read from the element's offset…
+        Assert.Contains(">(enumCopy + (int)offset0, _value0_meta.Size)", csOutput);
         // …and the release of that same slot with that element's own witness table.
         Assert.Contains("Destroy(enumCopy + (int)offset0, _value0_meta)", csOutput);
         // The whole-copy release belongs to the single-payload shape; here it would take out the

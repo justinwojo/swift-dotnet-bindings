@@ -69,11 +69,71 @@ public class ZeroWitnessExistentialParameterEmitterTests
         _ = shape;
     }
 
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
+    public void CdeclMethod_ZeroWitnessReturn_UnboxesAndDestroysOwnedContainer(string shape, ProtocolListTypeSpec returnType)
+    {
+        // The wrapper hands the result back at +1 and the public type is 'object': the value must
+        // come out of the container and the container's retain must be dropped, not leaked by a
+        // borrowing Unbox or returned as the container struct itself.
+        var (csOutput, _) = EmitCdeclMethod(new NamedTypeSpec("Swift.Int"), isAsync: false, returnType: returnType);
+
+        Assert.Contains("ExistentialContainer0.UnboxOwned(", csOutput);
+        Assert.DoesNotContain("ExistentialContainer0.Unbox(", csOutput);
+        _ = shape;
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
+    public void CdeclClosureCallback_ZeroWitnessArgument_ReceivesPlainValue(string shape, ProtocolListTypeSpec argumentType)
+    {
+        // Swift lends the argument to the callback, so the callback unboxes a borrowed container
+        // into the plain value the delegate's 'object' parameter expects.
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(argumentType, new NamedTypeSpec("Swift.Int"));
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitEscapingClosureCallback(
+            new CSharpWriter(output), "callWithAny", "body", closureTypeSpec, closureHandler,
+            "$s10TestModule6LoaderC11callWithAnyyS2iypXEF", useCdecl: true);
+
+        var result = output.ToString();
+        Assert.Contains("ExistentialContainer0.Unbox(", result);
+        Assert.DoesNotContain("ExistentialContainer0.UnboxOwned(", result);
+        _ = shape;
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
+    public void Closure_ReturningZeroWitnessExistential_IsRefused(string shape, ProtocolListTypeSpec returnType)
+    {
+        // Swift returns the four-word container indirectly while a CallConvSwift signature returns
+        // it in registers, so neither a C# callback nor an invoker of a Swift closure can carry it.
+        var handler = new ClosureHandler(CreateTypeDatabase());
+
+        Assert.False(handler.IsSupportedClosure(new ClosureTypeSpec(TupleTypeSpec.Empty, returnType)));
+        Assert.False(handler.IsSupportedClosure(new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), returnType)));
+        _ = shape;
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
+    public void Closure_TakingZeroWitnessExistential_IsSupported(string shape, ProtocolListTypeSpec argumentType)
+    {
+        // The control for the refusal above: the same existential as an argument stays bound, so
+        // the refusal is attributable to the return position alone.
+        var handler = new ClosureHandler(CreateTypeDatabase());
+
+        Assert.True(handler.IsSupportedClosure(new ClosureTypeSpec(argumentType, new NamedTypeSpec("Swift.Int"))));
+        _ = shape;
+    }
+
     #region Helpers
 
     private static string Normalize(string s) => Regex.Replace(s, @"\(\s+", "(");
 
-    private static (string csOutput, string swiftOutput) EmitCdeclMethod(TypeSpec parameterType, bool isAsync)
+    private static (string csOutput, string swiftOutput) EmitCdeclMethod(TypeSpec parameterType, bool isAsync, TypeSpec? returnType = null)
     {
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -88,7 +148,7 @@ public class ZeroWitnessExistentialParameterEmitterTests
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
             {
-                CreateArg(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArg(string.Empty, returnType ?? TupleTypeSpec.Empty, moduleDecl),
                 CreateArg("sender", parameterType, moduleDecl),
             },
             GenericParameters = new List<GenericArgumentDecl>(),
