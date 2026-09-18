@@ -965,6 +965,7 @@ public static class DefaultParameterOverloadEmitter
             IsAccessor = original.IsAccessor,
             IsMutating = original.IsMutating,
             UsesWrapperLibrary = true,
+            CallsDefaultArgumentShim = true,
             AvailabilityAnnotations = original.AvailabilityAnnotations,
         };
 

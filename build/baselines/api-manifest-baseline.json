@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "f5fce85e0",
+  "git_sha": "db3e54d82",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -7941,6 +7941,76 @@
       "module": "SwiftBindingsTestLib",
       "signature": "DedupMarkerBeta.DedupMarkerBeta()",
       "symbol": "SBW_SwiftBindingsTestLib_DedupMarkerBeta_init_BE5A59AD"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.Adjusted",
+      "symbol": "thunk_SwiftBindingsTestLib_375e2a78"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.Apply(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_apply_C9C4246F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.Apply(int,IDefaultOptionalAdjuster?)",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_apply_CAC42602"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.Apply(int,IDefaultOptionalAdjuster?,SwiftBindingsTestLib.OptParamFlags)",
+      "symbol": "$s20SwiftBindingsTestLib30DefaultOptionalAdjustedSessionC5apply_8adjuster4flags5Int32VAH_AA0eF8Adjuster_pSgAA13OptParamFlagsVtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.Code",
+      "symbol": "thunk_SwiftBindingsTestLib_3165c4eb"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.DefaultOptionalAdjustedSession()",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_init_D4D1E95E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.DefaultOptionalAdjustedSession(IDefaultOptionalAdjuster?)",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_init_D7D1EE17"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.DefaultOptionalAdjustedSession(IDefaultOptionalAdjuster?,int?)",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_init_D6D1EC84"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.DefaultOptionalAdjustedSession(IDefaultOptionalAdjuster?,int?,object?)",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_init_D9D1F13D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.DefaultOptionalAdjustedSession(IDefaultOptionalAdjuster?,int?,object?,SwiftBindingsTestLib.OptParamFlags)",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_init_B89D6461"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.TagDescription",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_DefaultOptionalAdjustedSession_tagDescription"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalAdjustedSession.Verbose",
+      "symbol": "thunk_SwiftBindingsTestLib_6611d3c6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalDoubler.Adjust(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_4b410ae7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DefaultOptionalDoubler.DefaultOptionalDoubler()",
+      "symbol": "SBW_SwiftBindingsTestLib_DefaultOptionalDoubler_init_BDAE1F3D"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26301,6 +26371,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "SumArraySlice(IEnumerable\u003Cint\u003E)",
       "symbol": "$s20SwiftBindingsTestLib13sumArraySliceys5Int32Vs0fG0VyADGF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SumArraySliceAdjusted(IEnumerable\u003Cint\u003E,IDefaultOptionalAdjuster?)",
+      "symbol": "$s20SwiftBindingsTestLib21sumArraySliceAdjusted_8adjusters5Int32Vs0fG0VyAEG_AA23DefaultOptionalAdjuster_pSgtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SumArraySliceWithBias(IEnumerable\u003Cint\u003E,int?)",
+      "symbol": "$s20SwiftBindingsTestLib21sumArraySliceWithBias_4biass5Int32Vs0fG0VyAEG_AESgtF"
     },
     {
       "module": "SwiftBindingsTestLib",

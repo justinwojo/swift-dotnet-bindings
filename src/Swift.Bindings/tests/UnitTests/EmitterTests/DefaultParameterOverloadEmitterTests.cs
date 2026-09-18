@@ -79,6 +79,20 @@ public class DefaultParameterOverloadEmitterTests
     }
 
     [Fact]
+    public void BuildOverloadDecl_MarksTheShimCall_GateReducedDeclDoesNot()
+    {
+        // The reduced-arity overload calls the _dbw_ shim, which takes widened parameters by
+        // address. The gate-reduced clone calls the declaration by name, so it is not marked.
+        var method = CreateMethodWithArgs(
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true));
+
+        Assert.False(method.CallsDefaultArgumentShim);
+        Assert.True(DefaultParameterOverloadEmitter.BuildOverloadDecl(method, trimCount: 1).CallsDefaultArgumentShim);
+        Assert.False(DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, dropCount: 1).CallsDefaultArgumentShim);
+    }
+
+    [Fact]
     public void BuildOverloadDecl_CorrectParamCount()
     {
         // Original: return + 3 params, trim 2 → return + 1 param

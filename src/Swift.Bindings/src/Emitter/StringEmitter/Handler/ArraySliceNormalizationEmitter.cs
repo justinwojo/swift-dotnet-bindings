@@ -529,6 +529,9 @@ public static class ArraySliceNormalizationEmitter
         // The call-value loop below recomputes the identical set, keeping param decls and forwarded
         // values in sync.
         var sliceSiblings = CdeclParamMapper.CollectSiblingBindingNames(normalizedArgs);
+        // The call-site expression each @_cdecl lowering produced (label-free), read back by the
+        // call-value loop so the forwarded value is exactly what the lowering bound.
+        var cdeclCallValues = new string?[normalizedArgs.Count];
         for (int i = 0; i < normalizedArgs.Count; i++)
         {
             var arg = normalizedArgs[i];
@@ -555,6 +558,7 @@ public static class ArraySliceNormalizationEmitter
                 argParams.Add(lowering.CdeclParam);
                 if (lowering.Reconstruction != null) derefLines.Add(lowering.Reconstruction);
                 if (lowering.WriteBack != null) derefLines.Add($"defer {{ {lowering.WriteBack} }}");
+                cdeclCallValues[i] = lowering.CallArg;
             }
             else
             {
@@ -592,13 +596,15 @@ public static class ArraySliceNormalizationEmitter
             var valueRef = OptionalPointerWrapperEmitter.ShouldWidenParam(normArg, normalizedEnv.BoundGenericsHandler)
                 ? $"{privateName}Val" : privateName;
 
-            // For @_cdecl converted params, use the reconstructed value
-            if (useCdecl && derefLines.Any(l => l.Contains($"let {privateName}Val ")))
-                valueRef = $"{privateName}Val";
-
+            // For @_cdecl converted params, forward the lowering's own call expression: the local it
+            // reconstructed, under whichever name that arm binds (`xVal`, `xOpt`, `&xVal` for an
+            // inout), or the parameter itself when the arm needs no reconstruction. Guessing the
+            // local's name from the body text missed arms that bind something other than `xVal`.
+            if (cdeclCallValues[i] is { } cdeclValue)
+                valueRef = cdeclValue;
             // An inout forwards by reference: the @_cdecl body's mutable copy, or the @_silgen_name
             // wrapper's own inout parameter.
-            if (normArg.IsInOut)
+            else if (normArg.IsInOut)
                 valueRef = useCdecl ? $"&{privateName}Val" : $"&{privateName}";
 
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely

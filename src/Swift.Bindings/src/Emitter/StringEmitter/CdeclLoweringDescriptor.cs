@@ -46,6 +46,7 @@ internal enum CdeclParamCategory
     NonCopyableBorrow,
     NonCopyableConsume,
     Inout,
+    ShimAddress,
     Fallback,
 }
 

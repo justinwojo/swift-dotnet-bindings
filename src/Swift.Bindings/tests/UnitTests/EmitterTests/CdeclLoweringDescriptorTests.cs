@@ -275,10 +275,56 @@ public class CdeclLoweringDescriptorTests
             "_ value: UnsafeRawPointer", $"let valueOpt: {localType} = {rhs}", "valueOpt");
     }
 
-    [Fact]
-    public void OptionalBlittablePrimitive_OmitLabels_PassesPointerThrough()
-        => AssertDescriptor(Describe(Optional(Named("Swift.Int32")), omitLabels: true),
-            CdeclParamCategory.OptionalBlittablePrimitive, "_ value: UnsafeRawPointer", null, "value");
+    /// <summary>
+    /// With <c>omitLabels</c> the wrapper calls a @_silgen_name default-argument shim, which takes
+    /// exactly the <see cref="OptionalPointerWrapperEmitter.ShouldWidenParam"/> parameters as an
+    /// address and every other parameter by value. The wrapper must hand a widened parameter over
+    /// as the address it received, and reconstruct everything else before passing it. The expected
+    /// widening is stated per case, so a shape that silently leaves the predicate still fails here.
+    /// </summary>
+    [Theory]
+    [InlineData("Int32?", false)]
+    [InlineData("Int?", true)]
+    [InlineData("any MyProto?", true)]
+    [InlineData("Any?", true)]
+    [InlineData("MyComplexEnum?", true)]
+    [InlineData("MyNonFrozenStruct?", true)]
+    [InlineData("String?", true)]
+    [InlineData("MyClass?", false)]
+    public void OmitLabels_PassesAddressExactlyWhenTheShimWidens(string shape, bool expectWidened)
+    {
+        var (db, module) = NewFixture();
+        var env = Env(db, module);
+        TypeSpec inner = shape switch
+        {
+            "Int32?" => Named("Swift.Int32"),
+            "Int?" => Named("Swift.Int"),
+            "any MyProto?" => new ProtocolListTypeSpec(new[] { Named("TestModule.MyProto") }),
+            "Any?" => new ProtocolListTypeSpec(),
+            "MyComplexEnum?" => Named("TestModule.MyComplexEnum"),
+            "MyNonFrozenStruct?" => Named("TestModule.MyNonFrozenStruct"),
+            "String?" => Named("Swift.String"),
+            "MyClass?" => Named("TestModule.MyClass"),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+        var arg = Arg(Optional(inner), module, ParameterOwnership.Default);
+
+        Assert.Equal(expectWidened, OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler));
+
+        var toShim = CdeclParamMapper.Describe(arg, Label, env, omitLabels: true);
+        if (expectWidened)
+        {
+            AssertDescriptor(toShim, CdeclParamCategory.ShimAddress, "_ value: UnsafeRawPointer", null, "value");
+        }
+        else
+        {
+            // Passed by value: the call argument is the reconstructed local, and the lowering is the
+            // one a direct call gets (Arg has no external label, so omitLabels changes nothing else).
+            Assert.NotNull(toShim.Reconstruction);
+            Assert.Contains($"let {toShim.CallArg}", toShim.Reconstruction);
+            Assert.Equal(CdeclParamMapper.Describe(arg, Label, env, omitLabels: false), toShim);
+        }
+    }
 
     [Fact]
     public void OptionalOpaque_ReadsPointerOptional()
@@ -612,7 +658,8 @@ public class CdeclLoweringDescriptorTests
     {
         var (db, module) = NewFixture();
         var env = Env(db, module);
-        var arg = Arg(Optional(Named("Swift.Int32")), module, ParameterOwnership.Default);
+        // A shape the default-argument shim widens, so omitLabels changes the lowering.
+        var arg = Arg(Optional(Named("Swift.Int")), module, ParameterOwnership.Default);
 
         var dOmit = CdeclParamMapper.Describe(arg, Label, env, omitLabels: true);
         var dKeep = CdeclParamMapper.Describe(arg, Label, env, omitLabels: false);

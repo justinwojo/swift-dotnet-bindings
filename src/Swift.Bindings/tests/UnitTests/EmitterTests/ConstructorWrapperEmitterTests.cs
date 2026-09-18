@@ -2694,6 +2694,85 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftWrapper_SilgenTarget_PassesOptionalExistentialAddressAndSmallOptionalValue()
+    {
+        // A default-argument shim takes an Optional protocol existential by address (it is widened)
+        // and an Optional<Int32> by value (it is not). The wrapper calling it must match both: hand
+        // the existential's address straight through, and decode the Int32? before the call.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Session",
+            ("TestModule.Interceptor", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var optionalInterceptor = new NamedTypeSpec("Swift.Optional");
+        optionalInterceptor.GenericParameters.Add(new NamedTypeSpec("TestModule.Interceptor"));
+        var optionalCode = new NamedTypeSpec("Swift.Optional");
+        optionalCode.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+
+        var parentDecl = CreateClassDecl("Session", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule7SessionC11interceptor4codeAcA11Interceptor_pSg_s5Int32VSgtcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "interceptor",
+                    PrivateName = "interceptor",
+                    SwiftTypeSpec = optionalInterceptor,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = "code",
+                    PrivateName = "code",
+                    SwiftTypeSpec = optionalCode,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Session", method.MangledName);
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(cdeclSymbol);
+        Assert.True(OptionalPointerWrapperEmitter.ShouldWidenParam(method.CSSignature[1], env.BoundGenericsHandler));
+        Assert.False(OptionalPointerWrapperEmitter.ShouldWidenParam(method.CSSignature[2], env.BoundGenericsHandler));
+
+        var sw = new StringWriter();
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
+            new SwiftWriter(sw), env, new ModuleEmissionContext(), silgenTarget: "_dbw_init_Session_1");
+        var output = sw.ToString();
+
+        Assert.Contains("_ interceptor: UnsafeRawPointer", output);
+        Assert.Contains("_ code: UnsafeRawPointer", output);
+        // The existential is never loaded in the wrapper; the shim reads it from the address.
+        Assert.DoesNotContain("interceptor.load(", output);
+        Assert.DoesNotContain("interceptorVal", output);
+        // The Int32? is decoded to a value, and the shim receives the address and the value.
+        Assert.Contains("let codeOpt: Int32? =", output);
+        Assert.Contains("_dbw_init_Session_1(interceptor, codeOpt)", output);
+    }
+
+    [Fact]
     public void EmitSwiftWrapper_WithStringParam_UsesTwoIntWords()
     {
         // Issue L: @_cdecl bridges String ↔ NSString* which is incompatible with SwiftString.Buffer.

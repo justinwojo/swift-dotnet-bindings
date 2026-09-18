@@ -123,6 +123,17 @@ public static class CdeclParamMapper
                 WriteBack: $"{label}.assumingMemoryBound(to: {inoutSwiftType}.self).pointee = {label}Val");
         }
 
+        // omitLabels means the callee is a @_silgen_name default-argument shim. That shim takes
+        // every parameter in OptionalPointerWrapperEmitter.ShouldWidenParam as an address and reads
+        // the value itself, and takes every other parameter by value. Ask the shim's own predicate
+        // here, before any by-value arm: a widened parameter is handed over as the address the
+        // caller received, and anything else falls through to be reconstructed and passed by value.
+        // When the predicate grows, both sides move together.
+        if (omitLabels && OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+        {
+            return Simple(CdeclParamCategory.ShimAddress, $"_ {label}: UnsafeRawPointer", null, label);
+        }
+
         // Swift.UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: 16-byte stdlib structs
         // (base + count) that @_cdecl can't represent. Split into (ptr, len) at the C ABI
         // boundary and reconstruct via (Mutable)RawBufferPointer(start:count:) in the wrapper
@@ -278,13 +289,6 @@ public static class CdeclParamMapper
             var decode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(swiftTypeSpec, label);
             if (decode is not null)
             {
-                // When calling _dbw_init_* (omitLabels=true), the dispatch method accepts
-                // UnsafeRawPointer and decodes the Optional internally. Pass the pointer through
-                // to avoid type mismatch (Optional<Int> vs UnsafeRawPointer).
-                if (omitLabels)
-                {
-                    return Simple(CdeclParamCategory.OptionalBlittablePrimitive, $"_ {label}: UnsafeRawPointer", null, $"{label}");
-                }
                 var (localType, rhs) = decode.Value;
                 var reconstruction = $"let {label}Opt: {localType} = {rhs}";
                 return Simple(CdeclParamCategory.OptionalBlittablePrimitive,
@@ -318,14 +322,6 @@ public static class CdeclParamMapper
                                       !MarshallingHelpers.IsTypeFrozen(innerOpaqueRecord)));
                 if (isOpaqueType)
                 {
-                    // When calling _dbw_init_* (omitLabels=true), the dispatch method accepts
-                    // UnsafeRawPointer for opaque Optional params and decodes internally.
-                    // Pass the pointer through to avoid type mismatch.
-                    if (omitLabels)
-                    {
-                        return Simple(CdeclParamCategory.OptionalOpaque, $"_ {label}: UnsafeRawPointer", null, $"{label}");
-                    }
-
                     var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
                     var reconstruction = $"let {label}Val: {innerSwiftType}? = {label}.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
                     return Simple(CdeclParamCategory.OptionalOpaque,
@@ -363,17 +359,6 @@ public static class CdeclParamMapper
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))
         {
-            // When calling _dbw_init_* (omitLabels=true) and the param is a large Optional
-            // that _dbw_init_* also widens to UnsafeRawPointer, pass the pointer through directly
-            // instead of loading the Optional value (which would cause a type mismatch).
-            if (omitLabels && OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
-            {
-                return Simple(CdeclParamCategory.GenericContainer,
-                        $"_ {label}: UnsafeRawPointer",
-                        null,
-                        $"{label}");
-            }
-
             // Use assumingMemoryBound(to:).pointee instead of load(as:) — for generic containers
             // like Optional<EnumWithAssociatedValues>, load(as:) can SIGSEGV because the container
             // may not satisfy BitwiseCopyable constraints. assumingMemoryBound(to:).pointee

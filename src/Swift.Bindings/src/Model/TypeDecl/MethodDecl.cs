@@ -546,6 +546,15 @@ namespace BindingsGeneration
         /// <see cref="NativeThunkEmitter.ShouldEmitThunk"/> returns false for any decl carrying it.
         /// </summary>
         public bool IsGateReducedOverload { get; set; } = false;
+
+        /// <summary>
+        /// True for a reduced-arity (default-argument) overload whose Swift side is a
+        /// <c>@_silgen_name</c> shim that fills the dropped defaults. The shim takes every
+        /// parameter <c>OptionalPointerWrapperEmitter.ShouldWidenParam</c> widens as an address,
+        /// so a @_cdecl wrapper in front of it forwards that address instead of rebuilding the
+        /// value itself.
+        /// </summary>
+        public bool CallsDefaultArgumentShim { get; init; } = false;
     }
 
     /// <summary>

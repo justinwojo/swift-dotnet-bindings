@@ -70,3 +70,18 @@ public func firstOrThrow(_ slice: ArraySlice<UInt8>) throws -> UInt8 {
     }
     return first
 }
+
+// MARK: - ArraySlice beside optional parameters
+
+/// Sums the slice, starting from the bias when one is given. An optional small primitive is
+/// read by value from its tag-byte buffer before the call.
+public func sumArraySliceWithBias(_ slice: ArraySlice<Int32>, bias: Int32?) -> Int32 {
+    return slice.reduce(bias ?? 0, +)
+}
+
+/// Sums the slice, then applies the adjuster when one is given. An optional existential is
+/// passed to the wrapper by address.
+public func sumArraySliceAdjusted(_ slice: ArraySlice<Int32>, adjuster: (any DefaultOptionalAdjuster)?) -> Int32 {
+    let sum = slice.reduce(0, +)
+    return adjuster?.adjust(sum) ?? sum
+}

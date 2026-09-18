@@ -1025,6 +1025,49 @@ public class ArraySliceNormalizationEmitterTests
             $"The ArraySlice normalization wrapper must clear errorOut before executing Swift code.\n{swiftOutput}");
     }
 
+    [Fact]
+    public void TryEmitNormalized_CdeclOptionalSmallPrimitive_ForwardsTheDecodedValue()
+    {
+        // A UInt8? crosses the @_cdecl wrapper as the address of its tag-byte buffer. The wrapper
+        // decodes it into a local and must forward that local to the original method, not the
+        // address it received.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "SwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Transformer", moduleDecl, typeDatabase);
+
+        var arraySliceUInt8 = new NamedTypeSpec("Swift.ArraySlice", new NamedTypeSpec("Swift.UInt8"));
+        var optionalUInt8 = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.UInt8"));
+
+        var method = new MethodDecl
+        {
+            Name = "sum",
+            MangledName = "$s10TestModule11TransformerC3sum_4biass5UInt8Vs10ArraySliceVyAFG_AFSgtF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.UInt8"), moduleDecl),
+                CreateArgument("data", arraySliceUInt8, moduleDecl),
+                CreateArgument("bias", optionalUInt8, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("@_cdecl", swiftOutput);
+        Assert.Contains("_ bias: UnsafeRawPointer", swiftOutput);
+        Assert.Contains("let biasOpt: UInt8? =", swiftOutput);
+        Assert.Contains("bias: biasOpt", swiftOutput);
+        Assert.DoesNotContain("bias: bias)", swiftOutput);
+    }
+
     #endregion
 
     #region Helper Methods

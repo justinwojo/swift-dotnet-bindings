@@ -1625,6 +1625,12 @@ public static class MethodWrapperEmitter
 
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
+            // A default-argument shim takes a widened parameter by address, and the wrapper hands
+            // that address straight through (CdeclParamMapper's ShimAddress lowering keys on the
+            // same predicate), so nothing here needs the proxy conversion this gate guards.
+            if (env.MethodDecl.CallsDefaultArgumentShim
+                && OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
+                continue;
             if (IsUnsupportedGenericContainer(arg.SwiftTypeSpec, env.TypeDatabase)
                 && !ExistentialHandler.IsObjCProtocolExistentialSpec(arg.SwiftTypeSpec, env.TypeDatabase))
                 return true;

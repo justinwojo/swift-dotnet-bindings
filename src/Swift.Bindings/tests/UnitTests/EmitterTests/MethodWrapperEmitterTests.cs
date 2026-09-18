@@ -1504,6 +1504,66 @@ public class MethodWrapperEmitterTests
 
     #endregion
 
+    #region Default-Argument Shim Eligibility
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EvaluateWrapperEligibility_OptionalExistentialParam_WrappableExactlyWhenCallingTheShim(bool callsShim)
+    {
+        // An Optional<non-@objc protocol> parameter needs a proxy conversion the method wrapper
+        // does not do, so a method that calls the Swift declaration has no @_cdecl wrapper. A
+        // default-argument overload calls a shim that takes that parameter by address, which the
+        // wrapper forwards unchanged. Refusing it left the overload on a CallConvSwift call with
+        // a SwiftSelf argument, which Mono JIT does not place in x20.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Session",
+            ("TestModule.Adjuster", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var optionalAdjuster = new NamedTypeSpec("Swift.Optional");
+        optionalAdjuster.GenericParameters.Add(new NamedTypeSpec("TestModule.Adjuster"));
+        var parentDecl = CreateClassDecl("Session", moduleDecl);
+        var method = CreateMethodWithParam("apply", optionalAdjuster, "adjuster", parentDecl, moduleDecl)
+            with { CallsDefaultArgumentShim = callsShim };
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(OptionalPointerWrapperEmitter.ShouldWidenParam(method.CSSignature[1], env.BoundGenericsHandler));
+
+        var eligibility = MethodWrapperEmitter.EvaluateWrapperEligibility(env);
+
+        Assert.Equal(callsShim, eligibility.IsWrappable);
+        if (!callsShim)
+            Assert.Equal("unsupported_generic_container", eligibility.Reason);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_DefaultArgumentShim_ForwardsOptionalExistentialAddress()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Session",
+            ("TestModule.Adjuster", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var optionalAdjuster = new NamedTypeSpec("Swift.Optional");
+        optionalAdjuster.GenericParameters.Add(new NamedTypeSpec("TestModule.Adjuster"));
+        var parentDecl = CreateClassDecl("Session", moduleDecl);
+        var method = CreateMethodWithParam("apply", optionalAdjuster, "adjuster", parentDecl, moduleDecl)
+            with { CallsDefaultArgumentShim = true };
+        method.UsesCdeclMethodWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+        env.PromoteSymbol(MethodWrapperEmitter.GetMethodSymbolName("TestModule", "Session", "apply", method.MangledName));
+
+        var sw = new StringWriter();
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(
+            new SwiftWriter(sw), env, new ModuleEmissionContext(), silgenTarget: "_dbw_apply_Session_1");
+        var output = sw.ToString();
+
+        Assert.Contains("_ adjuster: UnsafeRawPointer", output);
+        Assert.Contains("_dbw_apply_Session_1(adjuster)", output);
+        // The shim reads the existential from the address; the wrapper never loads it.
+        Assert.DoesNotContain("assumingMemoryBound", output);
+    }
+
+    #endregion
+
     #region Variadic Instance Shape
 
     [Fact]
