@@ -77,6 +77,8 @@ public static class CdeclSignatureContract
     ///
     /// Regular methods, property/subscript accessors:
     /// - [ResultPtr?] [Arguments?] [Metadata] [Self?] [ErrorOut?] [OpenRefusal?]
+    /// - [ResultPtr?] [Arguments?] [Self?] [Metadata] [ErrorOut?] when the receiver is a declared
+    ///   parameter of a <c>@_silgen_name</c> closure wrapper (<see cref="SelfIsExplicitSwiftAbiParameter"/>)
     /// </summary>
     /// <param name="env">The method environment.</param>
     /// <param name="overrideNeedsResultPtr">
@@ -144,8 +146,11 @@ public static class CdeclSignatureContract
                 phases.Add(CdeclPhase.ResultPtr);
             if (hasArgs)
                 phases.Add(CdeclPhase.Arguments);
+            bool selfIsExplicit = needsSelf && SelfIsExplicitSwiftAbiParameter(env);
+            if (selfIsExplicit)
+                phases.Add(CdeclPhase.Self);
             phases.Add(CdeclPhase.Metadata);
-            if (needsSelf)
+            if (needsSelf && !selfIsExplicit)
                 phases.Add(CdeclPhase.Self);
             if (throws)
                 phases.Add(CdeclPhase.ErrorOut);
@@ -157,6 +162,20 @@ public static class CdeclSignatureContract
 
         return new CdeclParameterOrder(phases, needsResultPtr);
     }
+
+    /// <summary>
+    /// True when the receiver reaches a <c>@_silgen_name</c> closure wrapper as an ordinary
+    /// declared parameter. That wrapper is a module-scope function, and when it is generic Swift
+    /// places its type metadata and witness tables after every declared parameter, so the
+    /// receiver has to precede the Metadata phase. A <c>@_cdecl</c> wrapper never carries generic
+    /// arguments, and on the direct lane the receiver travels in the self register, where its
+    /// position in the list does not matter, so both keep the regular order.
+    /// </summary>
+    internal static bool SelfIsExplicitSwiftAbiParameter(MethodEnvironment env) =>
+        !env.MethodDecl.IsConstructor &&
+        env.MethodDecl.HasClosureCdeclWrapper &&
+        env.MethodDecl.UsesFreeFunctionWrapper &&
+        !env.MethodDecl.UsesCdeclMethodWrapper;
 
     /// <summary>
     /// Returns true if the method has any non-debug parameters that require the

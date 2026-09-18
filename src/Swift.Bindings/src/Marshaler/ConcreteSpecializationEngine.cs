@@ -965,13 +965,33 @@ public class ConcreteSpecializationEngine
             if (getter.MethodType == MethodType.Static) continue;
             if (getter.IsAsync || getter.Throws || getter.IsMutating) continue;
 
+            if (getter.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not NamedTypeSpec returnSpec)
+                continue;
+
+            // A constrained-extension property whose pin cannot close the parent over a SINGLE type
+            // argument — the multi-parameter parent shape — has no open-shell form at all: the
+            // member exists only for the instantiations its `where` clause admits, so declaring it
+            // on the open generic would require an unsatisfiable conformance. CSM is the only
+            // emitter that spells a closed parent with N type arguments, so it is the only place
+            // such a property can bind, whatever its return type. That includes a plain concrete
+            // return, which for an UNCONSTRAINED property really does emit on the open shell and is
+            // rejected below. Single-argument pins are excluded here on purpose: those close fine
+            // and ConstrainedExtensionEmitter already surfaces them, so admitting them would emit a
+            // second, shadowing extension for one Swift property.
+            if (ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(property))
+            {
+                result.Add(new SpecializableProperty(
+                    property,
+                    BuildSyntheticPropertyGetter(property, getter),
+                    new List<SpecializableParam>(parentSpecializableParams)));
+                continue;
+            }
+
             // Only a BOUND generic (a container) that MENTIONS a parent generic parameter is in
             // scope — the AnyTypeFallback shape. A bare parent-param return is already served by
             // the method-CSM returnsGenericParam path, and a concrete return emits on the open
             // shell as-is. The parent-param name set is exactly the set the emitter's pairing
             // substitution replaces, so discovery and emission agree by construction.
-            if (getter.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not NamedTypeSpec returnSpec)
-                continue;
             if (returnSpec.GenericParameters.Count == 0) continue;
             if (!TypeSpecHelpers.ContainsAnyTypeName(returnSpec, parentParamNames)) continue;
             // A stdlib container of the parent param (e.g. `[Item]` → Swift.Array) is NOT the

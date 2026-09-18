@@ -464,6 +464,29 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
+    /// Renders a member's own generic signature in the raw ABI spelling — the
+    /// <c>&lt;τ_0_0, …&gt;</c> parameter list and a <c>where</c> clause carrying every requirement of
+    /// <see cref="MethodDecl.ParsedGenericSignature"/> verbatim — for a module-scope
+    /// <c>@_silgen_name</c> wrapper whose parameter list renders the member's argument types in that
+    /// same raw spelling. Every requirement is kept (markers and same-type clauses included) so the
+    /// wrapper's canonical signature is the member's own, which is what fixes the order of the
+    /// trailing metadata and witness-table arguments the managed side passes.
+    /// Returns empty strings for a non-generic member.
+    /// </summary>
+    public static (string GenericParams, string WhereClause) BuildRawMethodGenericSignature(MethodDecl methodDecl)
+    {
+        if (!methodDecl.IsGeneric || methodDecl.GenericParameters.Count == 0)
+            return (string.Empty, string.Empty);
+
+        var sig = methodDecl.ParsedGenericSignature;
+        var clauses = sig.Requirements.Select(r =>
+            $"{string.Join(".", r.Subject)}{(r.Kind == GenericRequirementKind.SameType ? " == " : " : ")}{r.Target}");
+        var whereClause = sig.Requirements.Count > 0 ? " where " + string.Join(", ", clauses) : string.Empty;
+        var genericParams = $"<{string.Join(", ", methodDecl.GenericParameters.Select(p => p.TypeName))}>";
+        return (genericParams, whereClause);
+    }
+
+    /// <summary>
     /// Builds a Swift where clause from generic parameter constraints.
     /// Returns an empty string if no constraints exist, or " where T : Proto, U : Proto2" etc.
     /// </summary>

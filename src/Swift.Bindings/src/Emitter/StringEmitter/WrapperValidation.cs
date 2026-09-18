@@ -2739,7 +2739,68 @@ public static class WrapperValidation
     internal static bool IsAbiFloorTombstoned(MethodEnvironment env)
         => HasTruncatedLargeOptionalDirectDispatch(env)
            || HasForeignObjectRenderedDirectDispatch(env)
-           || IsUncallableInternalDirectDispatch(env);
+           || IsUncallableInternalDirectDispatch(env)
+           || HasWitnessTableArityMismatch(env);
+
+    /// <summary>
+    /// True when the member's P/Invoke reaches a Swift-ABI generic entry point with a different
+    /// number of protocol witness tables for the member's own generic parameters than that entry
+    /// point takes.
+    ///
+    /// <para>A generic Swift function takes, after its declared parameters, one metadata pointer per
+    /// generic parameter and one witness table per protocol requirement on a generic parameter.
+    /// The P/Invoke declares a witness-table slot only for a conformance the type database can
+    /// project (<see cref="MethodValidationGates.IsProtocolAvailableForConstraint"/>). A
+    /// protocol it does not know — <c>Swift.Sequence</c>, <c>Swift.Collection</c> — or one it
+    /// knows but does not project, such as <c>Swift.Error</c>, gets no slot, so the callee reads
+    /// that witness table from a register nobody wrote and faults on its first witness call. The
+    /// direct symbol, a native thunk that forwards the same arguments, and a
+    /// <c>@_silgen_name</c> wrapper declaring the member's generic signature all have this
+    /// convention, and no compiler sees both sides of it.</para>
+    ///
+    /// <para>What the entry point takes is read from the mangled symbol
+    /// (<see cref="GenericWitnessRequirements.ReadOwn"/>), not the parsed signature, which spells a
+    /// superclass bound and a protocol conformance alike. Arity is compared rather than names
+    /// because an opaque <c>some P</c> parameter carries a synthetic name on the parsed side;
+    /// arity catches a surplus slot (a projected protocol Swift passes no table for) as well as a
+    /// missing one. A <c>@_cdecl</c> wrapper is out of scope: it cannot be generic, so it
+    /// declares exactly the slots it reads and must satisfy the requirements in its own body,
+    /// which the Swift compiler checks.</para>
+    /// </summary>
+    internal static bool HasWitnessTableArityMismatch(MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+        if (methodDecl.UsesCdeclWrapper || !HasMethodOwnGenericParameters(methodDecl))
+            return false;
+        if (MethodLevelGenericOpening.AppliesTo(env))
+            return false;
+
+        var parentParamNames = methodDecl.ParentDecl is TypeDecl { IsGeneric: true } parent
+            ? new HashSet<string>(parent.GenericParameters.Select(p => p.TypeName), StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+        var ownConformances = methodDecl.GenericParameters
+            .Where(p => !parentParamNames.Contains(p.TypeName))
+            .SelectMany(p => p.GenericConformances)
+            .Where(c => c.Kind == ConformanceKind.Protocol)
+            .ToList();
+        int passed = ownConformances.Count(c =>
+            MethodValidationGates.IsProtocolAvailableForConstraint(c.ConformanceTarget, env.TypeDatabase));
+
+        var required = GenericWitnessRequirements.ReadOwn(methodDecl.MangledName);
+        if (required is not null)
+            return required.Count != passed;
+
+        // The symbol did not demangle, so what the entry point takes is unknown. Refuse only on
+        // positive evidence from the parsed signature that a conformance lost its slot: a target
+        // that is neither projected, nor a known class (a superclass bound takes no table), nor a
+        // marker protocol (which has no table).
+        return ownConformances.Any(c =>
+            !MethodValidationGates.IsProtocolAvailableForConstraint(c.ConformanceTarget, env.TypeDatabase)
+            && !(env.TypeDatabase.TryGetTypeRecord(c.ConformanceTarget, out var record)
+                 && (record.Kind == TypeRecordKind.Class || TypeDatabaseExtensions.IsStdlibMarkerProtocol(record)))
+            && !TypeDatabaseExtensions.IsStdlibMarkerProtocol(c.ConformanceTarget.ModuleQualifiedName));
+    }
+
 
     /// <summary>
     /// Diagnostic id for a member left on the direct-CallConvSwift path with a predicted
@@ -2812,6 +2873,16 @@ public static class WrapperValidation
                 + "with no separate tag byte also decides whether the value reads as nil. It is "
                 + "declared for source and conformance compatibility only and throws "
                 + "NotSupportedException when called");
+        }
+
+        if (!env.MethodDecl.IsAccessor && HasWitnessTableArityMismatch(env))
+        {
+            return (UncallableAbiDiagnosticId,
+                "This generic member's Swift entry point takes a protocol witness table for a "
+                + "constraint on one of its generic parameters that the binding cannot supply (the "
+                + "protocol is not projected to C#), so the call would hand Swift a witness table "
+                + "it never received. It is declared for source and conformance compatibility only "
+                + "and throws NotSupportedException when called");
         }
 
         if (!HasUnmitigatedNonBlittableCallConvSwift(env))

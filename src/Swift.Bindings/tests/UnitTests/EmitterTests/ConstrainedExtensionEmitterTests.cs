@@ -148,6 +148,80 @@ public class ConstrainedExtensionEmitterTests
         Assert.Null(result);
     }
 
+    // ==================== Pins on a multi-parameter parent ====================
+    //
+    // The closed parent is spelled Parent<Concrete>, which names an instantiation only when the
+    // pinned parameter is the member's sole generic parameter. On `struct Span<Lo, Hi>` both a
+    // partial pin (`where Lo: Fine, Hi == Era`) and a full pin (`where Lo == Year, Hi == Era`)
+    // would render Span<Era> — "specialized with too few type parameters" in the wrapper.
+
+    [Fact]
+    public void ExtractSameTypeConstraint_PinWithSecondParentParameterOpen_ReturnsNull()
+    {
+        var property = CreatePropertyWithConstraint("eras", "TestModule.Era");
+        var getter = property.Accessors.OfType<GetAccessorDecl>().Single().Method;
+        getter.GenericParameters.Insert(0, new GenericArgumentDecl("τ_0_0", "Lo",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("TestModule.Fine"), ConformanceKind.Protocol)
+            }, new()));
+        getter.GenericParameters[1] = RepinAs(getter.GenericParameters[1], "τ_0_1", "Hi");
+
+        Assert.Null(ConstrainedExtensionEmitter.ExtractSameTypeConstraint(property));
+        Assert.True(ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(property));
+        Assert.True(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property));
+    }
+
+    [Fact]
+    public void ExtractSameTypeConstraint_EveryParentParameterPinned_ReturnsNull()
+    {
+        var property = CreatePropertyWithConstraint("yearsPerEra", "TestModule.Year");
+        var getter = property.Accessors.OfType<GetAccessorDecl>().Single().Method;
+        getter.GenericParameters.Add(new GenericArgumentDecl("τ_0_1", "Hi",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_1" }, SwiftTypeName.FromModuleQualifiedName("TestModule.Era"), ConformanceKind.ConcreteType)
+            }, new()));
+
+        Assert.Null(ConstrainedExtensionEmitter.ExtractSameTypeConstraint(property));
+        Assert.True(ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(property));
+    }
+
+    [Fact]
+    public void HasUnclosableDirectParentPin_SingleParameterPin_ReturnsFalse()
+    {
+        // The closable shape is routed to ConstrainedExtensionEmitter, not skipped.
+        var property = CreatePropertyWithConstraint("doubled", "TestModule.Era");
+        Assert.False(ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(property));
+    }
+
+    [Fact]
+    public void FindConstrainedSpecializations_MultiParameterParentPins_AreNotGrouped()
+    {
+        var typeDecl = CreateGenericStructDecl("Span", "Lo");
+        typeDecl.GenericParameters.Add(new GenericArgumentDecl("τ_0_1", "Hi", new(), new()));
+        var property = CreatePropertyWithConstraint("yearsPerEra", "TestModule.Year");
+        property.Accessors.OfType<GetAccessorDecl>().Single().Method.GenericParameters.Add(
+            new GenericArgumentDecl("τ_0_1", "Hi",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_1" }, SwiftTypeName.FromModuleQualifiedName("TestModule.Era"), ConformanceKind.ConcreteType)
+                }, new()));
+        typeDecl.Properties.Add(property);
+
+        Assert.Empty(ConstrainedExtensionEmitter.FindConstrainedSpecializations(typeDecl));
+    }
+
+    private static GenericArgumentDecl RepinAs(GenericArgumentDecl source, string typeName, string sugaredName) =>
+        source with
+        {
+            TypeName = typeName,
+            SugaredTypeName = sugaredName,
+            GenericConformances = source.GenericConformances
+                .Select(c => new GenericParameterConformance(new[] { typeName }, c.ConformanceTarget, c.Kind))
+                .ToList(),
+        };
+
     // ==================== Dependent-member same-type constraint detection ====================
     //
     // Bug A from AppIntents 0.12.0: `extension IntentParameter where Value.ValueType == X`
@@ -873,6 +947,39 @@ public class ConstrainedExtensionEmitterTests
         var method = CreateUnconstrainedMethod("foo");
         var result = ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(method);
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractSameTypeConstraintForMethod_PinOnMultiParameterParent_ReturnsNull()
+    {
+        var method = CreateMethodWithConcreteConstraint("erasTwice", "TestModule.Era",
+            new NamedTypeSpec("Swift.Int"), isStatic: false);
+        method.GenericParameters.Add(new GenericArgumentDecl("τ_0_1", "Hi", new(), new()));
+
+        Assert.Null(ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(method));
+    }
+
+    [Fact]
+    public void HasParentExtensionSameTypeConstraint_Method_SeesPinsTheExtractorCannotClose()
+    {
+        // The pipeline keys its constrained-extension gate on this, so an un-closable pin
+        // lands on a skip instead of falling through to open-generic wrapper emission.
+        var parent = CreateGenericStructDecl("Span", "Lo");
+        parent.GenericParameters.Add(new GenericArgumentDecl("τ_0_1", "Hi", new(), new()));
+        var method = CreateMethodWithConcreteConstraint("erasTwice", "TestModule.Era",
+            new NamedTypeSpec("Swift.Int"), isStatic: false);
+        method.GenericParameters.Add(new GenericArgumentDecl("τ_0_1", "Hi", new(), new()));
+
+        Assert.True(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(method, parent));
+    }
+
+    [Fact]
+    public void HasParentExtensionSameTypeConstraint_Method_ProtocolConstraintOnly_ReturnsFalse()
+    {
+        var parent = CreateGenericStructDecl("Wrapper", "T");
+        var method = CreateMethodWithProtocolConstraint("foo", "TestModule.SomeProtocol");
+
+        Assert.False(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(method, parent));
     }
 
     [Fact]

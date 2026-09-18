@@ -3667,40 +3667,98 @@ public class EveryProtocolEmitter
     /// crashes if called. The C# proxy already throws NotSupportedException for closure methods,
     /// so the fatalError() is a safety net only.
     /// </summary>
-    private void EmitClosureMethodStub(SwiftWriter writer, MethodDecl method)
+    /// <summary>
+    /// Maps a stub's method-level generic parameters onto wrapper-safe names (τ_1_0 → _G0,
+    /// τ_1_1 → _G1, …). Depth-0 parameters are the protocol's own Self and are not re-declared.
+    /// </summary>
+    private static Dictionary<string, string> BuildStubGenericNameMap(MethodDecl method)
     {
-        // Build generic param name mapping for method-level generics (τ_1_0 → _G0, etc.)
-        // Closure methods can also have method-level generics — we need both in the stub.
         var genericNameMap = new Dictionary<string, string>();
         int genericIdx = 0;
         foreach (var gp in method.GenericParameters)
         {
             if (gp.TypeName?.StartsWith("τ_0_") == true)
-                continue; // Skip depth-0 (Self)
+                continue;
             var safeName = $"_G{genericIdx++}";
             if (gp.TypeName != null) genericNameMap[gp.TypeName] = safeName;
         }
+        return genericNameMap;
+    }
 
-        // Build generic clause with constraints (e.g., <_G0: Decodable>)
+    /// <summary>
+    /// Builds the angle-bracket generic clause for a stub, including a trailing <c>where</c> clause
+    /// for the parameters' same-type requirements.
+    ///
+    /// <para>A generic parameter carries both kinds of requirement in one
+    /// <see cref="GenericArgumentDecl.GenericConformances"/> list. A
+    /// <see cref="ConformanceKind.Protocol"/> entry is a conformance and belongs after the colon;
+    /// a <see cref="ConformanceKind.ConcreteType"/> entry is a same-type pin, and for a pin onto
+    /// another parameter's associated type (<c>E == S.Element</c>) the target is stored as that
+    /// other parameter in <see cref="SwiftTypeName.Module"/> with the associated type in
+    /// <see cref="SwiftTypeName.Name"/>. Spelling such an entry after the colon emits
+    /// <c>&lt;_G0: RosterEntry &amp; Element&gt;</c>, where <c>Element</c> names nothing in the
+    /// wrapper's scope — the wrapper then fails to compile and the whole binding is withdrawn.
+    /// Dropping the pins instead is no better: two requirements that differ only in their pin
+    /// render as one signature, which is a redeclaration.</para>
+    ///
+    /// <para>A pin rooted at a parameter this stub does not declare (the protocol's own Self, or a
+    /// parent-level parameter) has no spelling here and is dropped: the stub's signature is then
+    /// more general than the requirement, which still witnesses it, and the body traps regardless.
+    /// </para>
+    /// </summary>
+    /// <param name="whereClause">The <c>where …</c> suffix, already spaced, or the empty string.
+    /// Swift places it after the return type, so it is returned apart from the bracket clause.
+    /// </param>
+    private static string BuildStubGenericClause(
+        MethodDecl method, Dictionary<string, string> genericNameMap, out string whereClause)
+    {
+        // A pin's target is either `<other parameter>.<associated type>` or a concrete type.
+        string? RenderPinTarget(SwiftTypeName target)
+        {
+            if (genericNameMap.TryGetValue(target.Module, out var mappedRoot))
+                return $"{mappedRoot}.{target.Name}";
+            if (target.Module.StartsWith("τ_", StringComparison.Ordinal))
+                return null;
+            return target.ModuleQualifiedName;
+        }
+
         var genericParts = new List<string>();
+        var whereParts = new List<string>();
         foreach (var gp in method.GenericParameters)
         {
             if (gp.TypeName?.StartsWith("τ_0_") == true) continue;
             if (!genericNameMap.TryGetValue(gp.TypeName ?? "", out var safeName)) continue;
-            if (gp.GenericConformances.Count > 0)
+
+            var constraints = gp.GenericConformances
+                .Where(c => c.Kind == ConformanceKind.Protocol)
+                .Select(c => c.ConformanceTarget.Name)
+                .ToList();
+            genericParts.Add(constraints.Count > 0
+                ? $"{safeName}: {string.Join(" & ", constraints)}"
+                : safeName);
+
+            foreach (var pin in gp.GenericConformances.Where(c => c.Kind == ConformanceKind.ConcreteType))
             {
-                var constraints = string.Join(" & ", gp.GenericConformances
-                    .Select(c => c.ConformanceTarget.Name));
-                genericParts.Add($"{safeName}: {constraints}");
-            }
-            else
-            {
-                genericParts.Add(safeName);
+                if (RenderPinTarget(pin.ConformanceTarget) is { } rendered)
+                    whereParts.Add($"{safeName} == {rendered}");
             }
         }
-        var genericClause = genericParts.Count > 0
-            ? $"<{string.Join(", ", genericParts)}>"
-            : "";
+
+        if (genericParts.Count == 0)
+        {
+            whereClause = "";
+            return "";
+        }
+
+        whereClause = whereParts.Count > 0 ? $" where {string.Join(", ", whereParts)}" : "";
+        return $"<{string.Join(", ", genericParts)}>";
+    }
+
+    private void EmitClosureMethodStub(SwiftWriter writer, MethodDecl method)
+    {
+        // Closure methods can also have method-level generics — we need both in the stub.
+        var genericNameMap = BuildStubGenericNameMap(method);
+        var genericClause = BuildStubGenericClause(method, genericNameMap, out var genericWhereClause);
 
         // Render TypeSpec, substituting generic param names.
         // suppressEscaping: true when inside Optional — Optional closures are always escaping in Swift,
@@ -3839,7 +3897,7 @@ public class EveryProtocolEmitter
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
-        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl}{genericWhereClause} {{");
         writer.Indent++;
         writer.WriteLine($"fatalError(\"[SwiftBindings] EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
         writer.Indent--;
@@ -3849,37 +3907,8 @@ public class EveryProtocolEmitter
 
     private void EmitMethodLevelGenericStub(SwiftWriter writer, MethodDecl method)
     {
-        // Build generic param name mapping: τ_1_0 → _G0, τ_1_1 → _G1, etc.
-        // Filter out depth-0 params (Self).
-        var genericNameMap = new Dictionary<string, string>();
-        int genericIdx = 0;
-        foreach (var gp in method.GenericParameters)
-        {
-            if (gp.TypeName?.StartsWith("τ_0_") == true)
-                continue;
-            var safeName = $"_G{genericIdx++}";
-            if (gp.TypeName != null) genericNameMap[gp.TypeName] = safeName;
-        }
-        // Build generic clause with constraints (e.g., <_G0: Decodable>)
-        var genericParts = new List<string>();
-        foreach (var gp in method.GenericParameters)
-        {
-            if (gp.TypeName?.StartsWith("τ_0_") == true) continue;
-            if (!genericNameMap.TryGetValue(gp.TypeName ?? "", out var safeName)) continue;
-            if (gp.GenericConformances.Count > 0)
-            {
-                var constraints = string.Join(" & ", gp.GenericConformances
-                    .Select(c => c.ConformanceTarget.Name));
-                genericParts.Add($"{safeName}: {constraints}");
-            }
-            else
-            {
-                genericParts.Add(safeName);
-            }
-        }
-        var genericClause = genericParts.Count > 0
-            ? $"<{string.Join(", ", genericParts)}>"
-            : "";
+        var genericNameMap = BuildStubGenericNameMap(method);
+        var genericClause = BuildStubGenericClause(method, genericNameMap, out var genericWhereClause);
 
         // Render TypeSpec preserving generic params (replacing τ_1_0 → _G0, etc.)
         // suppressEscaping: true when inside Optional — Optional closures are always escaping in Swift.
@@ -4013,7 +4042,7 @@ public class EveryProtocolEmitter
         bool isOptionalReturn = hasReturn && returnType is NamedTypeSpec nts &&
             nts.Name == "Swift.Optional";
 
-        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {NameProvider.ParserNameToSwift(method)}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl}{genericWhereClause} {{");
         writer.Indent++;
 
         if (!hasReturn)

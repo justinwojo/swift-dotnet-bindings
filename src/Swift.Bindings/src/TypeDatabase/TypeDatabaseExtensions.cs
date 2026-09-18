@@ -393,14 +393,20 @@ public static class TypeDatabaseExtensions
     /// extension so emitter gates can ask the question without duplicating the list.
     /// </summary>
     public static bool IsStdlibMarkerProtocol(TypeRecord record)
-    {
-        var name = record.SwiftTypeName.ModuleQualifiedName;
-        return name is "Swift.Sendable"
+        => IsStdlibMarkerProtocol(record.SwiftTypeName.ModuleQualifiedName);
+
+    /// <summary>
+    /// Name-only form, for callers that reach the question without a record — chiefly a gate
+    /// reading a requirement out of a mangled symbol, where a marker requirement IS spelled in the
+    /// signature but no witness table is passed for it. Shares the one list with the record form so
+    /// the two cannot drift.
+    /// </summary>
+    public static bool IsStdlibMarkerProtocol(string moduleQualifiedName)
+        => moduleQualifiedName is "Swift.Sendable"
             or "Swift.Copyable"
             or "Swift.Escapable"
             or "Swift.SendableMetatype"
             or "Swift.BitwiseCopyable";
-    }
 
     /// <summary>
     /// Gets the type record for an existential type (protocol or protocol composition).

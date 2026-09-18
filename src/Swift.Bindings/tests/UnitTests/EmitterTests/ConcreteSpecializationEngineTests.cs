@@ -1248,6 +1248,38 @@ public class ConcreteSpecializationEngineTests
         Assert.Empty(result);
     }
 
+    // A constrained-extension property on a MULTI-parameter parent (`extension Range where Lo == Fine,
+    // Hi == Coarse`) has no open-generic form — declaring it there needs an unsatisfiable protocol-group
+    // conformance — and ConstrainedExtensionEmitter cannot re-surface it either, because it spells a
+    // closed parent with a single type argument. CSM is the only emitter that spells N type arguments,
+    // so it must pick the property up even though the return type is concrete.
+
+    [Fact]
+    public void FindSpecializableProperties_MultiParamConstrainedPinConcreteReturn_ReturnsProperty()
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithPinnedExtensionProperty(
+            "Range", "coarseUnits", "TestLib.Processable",
+            new NamedTypeSpec("Swift.Int"), "TestLib.ConcreteItem");
+
+        var result = engine.FindSpecializableProperties(typeDecl);
+
+        Assert.Single(result);
+        Assert.Equal("coarseUnits", result[0].Property.Name);
+        Assert.Equal("coarseUnits", result[0].Getter.Name);
+        Assert.True(result[0].Getter.IsExtensionPropertyGetter);
+        // Both parent parameters are enumerated, so the emitter can build the closed tuples the
+        // `where` clause admits rather than a single-argument parent.
+        Assert.Equal(2, result[0].ParentParams.Count);
+        Assert.All(result[0].ParentParams, p => Assert.True(p.IsParentGeneric));
+    }
+
     [Fact]
     public void FindSpecializableProperties_BareParentParamProperty_ReturnsEmpty()
     {
@@ -4123,6 +4155,90 @@ public class ConcreteSpecializationEngineTests
             MangledName = "",
             IsFrozen = true,
             GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },
+            Properties = new List<PropertyDecl> { property },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        getterMethod.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    /// <summary>
+    /// A two-parameter generic struct whose property comes from a constrained extension pinning a
+    /// parent parameter to a concrete type. The pin lives on the GETTER's generic parameters, which
+    /// is where the parser records a constrained extension's where-clause, and there are two of them
+    /// so no single type argument can close the parent.
+    /// </summary>
+    private static StructDecl CreateGenericStructWithPinnedExtensionProperty(
+        string typeName, string propertyName, string protocolName, TypeSpec returnSpec, string pinnedConcreteType)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+        var pinnedTypeName = SwiftTypeName.FromModuleQualifiedName(pinnedConcreteType);
+
+        GenericArgumentDecl MakeParam(string mangled, string name) => new(
+            mangled, name,
+            new List<GenericParameterConformance>
+            {
+                new(new[] { mangled }, protocolTypeName, ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>());
+
+        // The getter re-declares both parent parameters, and pins the second one to a concrete type.
+        var getterLo = MakeParam("τ_0_0", "Lo");
+        var getterHi = new GenericArgumentDecl(
+            "τ_0_1", "Hi",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_1" }, pinnedTypeName, ConformanceKind.ConcreteType)
+            },
+            new List<GenericParameterConformance>());
+
+        var getterMethod = new MethodDecl
+        {
+            Name = $"{propertyName}_Get",
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{propertyName}g",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            IsMutating = false,
+            IsSynthesizedAccessor = true,
+            UsesWrapperLibrary = true,
+            GenericParameters = new List<GenericArgumentDecl> { getterLo, getterHi },
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = returnSpec, IsGeneric = false }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var property = new PropertyDecl
+        {
+            Name = propertyName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = returnSpec,
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } }
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl> { MakeParam("τ_0_0", "Lo"), MakeParam("τ_0_1", "Hi") },
             Properties = new List<PropertyDecl> { property },
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),

@@ -496,6 +496,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027PinRange.coarse\u0027 \u2014 parameter or return type not yet supported (Constrained-extension method \u0027coarse\u0027 on generic type \u0027PinRange\u0027 is only available where a parent generic parameter is pinned to a concrete type, and that pin does not by itself name a single instantiation of the parent (a multi-parameter parent, or a pin on an associated type); ConstrainedExtensionEmitter spells a closed parent with a single type argument.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027ProcessedItem.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
@@ -1187,6 +1193,24 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027ObjCExistentialOutOfScopeGateBox.dictProp\u0027 \u2014 protocol-typed parameter/return not yet projected (Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinSingle.doubled\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027doubled\u0027 on generic type \u0027PinSingle\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinRange.finePerCoarse\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027finePerCoarse\u0027 on generic type \u0027PinRange\u0027 pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinRange.coarseUnits\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027coarseUnits\u0027 on generic type \u0027PinRange\u0027 pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.)",
       "count": 1
     },
     {

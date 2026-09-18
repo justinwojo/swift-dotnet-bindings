@@ -518,8 +518,19 @@ public class MemberValidationPipeline
             !methodDecl.IsSubscriptAccessor &&
             methodDecl.ParentDecl is TypeDecl methodConstrainedParent &&
             methodConstrainedParent.IsGeneric &&
-            ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(methodDecl) != null)
+            ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(methodDecl, methodConstrainedParent))
         {
+            // A pin that cannot close the parent on its own — another parent parameter stays open
+            // or is pinned too, or the pin hangs off an associated type — has no closed spelling
+            // this emitter can produce. It must still stop here: the open-generic wrapper would
+            // call a member that only exists under the extension's where-clause.
+            if (ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(methodDecl) == null)
+            {
+                return ValidationResult.Skip(
+                    SkipReason.UnsupportedSignature,
+                    $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is only available where a parent generic parameter is pinned to a concrete type, and that pin does not by itself name a single instantiation of the parent (a multi-parameter parent, or a pin on an associated type); ConstrainedExtensionEmitter spells a closed parent with a single type argument.");
+            }
+
             if (ConstrainedExtensionEmitter.IsEmittableConstrainedExtensionMethod(methodDecl))
             {
                 return ValidationResult.RoutedElsewhere(
@@ -852,6 +863,15 @@ public class MemberValidationPipeline
             // satisfies the constraint), and emitting at the open-generic level produces an
             // unsatisfiable `_SBW_PG_*` conformance extension that fails the Swift wrapper
             // build. Drop it from emission entirely.
+            // A direct pin on a multi-parameter parent is withheld from the open-generic level only:
+            // the concrete-specialization emitter re-surfaces it on each closed parent tuple, so the
+            // member still binds. This records where it went, not that it was lost.
+            if (ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(propertyDecl))
+            {
+                return ValidationResult.Skip(SkipReason.UnsupportedType,
+                    $"Constrained-extension property '{propertyDecl.Name}' on generic type '{constrainedExtensionParent.Name}' pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.");
+            }
+
             if (ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(propertyDecl))
             {
                 return ValidationResult.Skip(SkipReason.UnsupportedType,

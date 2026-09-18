@@ -187,14 +187,30 @@ public static class ConstrainedExtensionEmitter
         var getter = property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getter == null) return null;
 
-        foreach (var genericParam in getter.Method.GenericParameters)
+        return ExtractClosingPin(getter.Method.GenericParameters);
+    }
+
+    /// <summary>
+    /// Returns the concrete type a same-type pin closes the parent over, or null when the pin
+    /// cannot close it on its own. The emitter spells the result as <c>Parent&lt;Concrete&gt;</c>,
+    /// which names the whole instantiation only when the pinned parameter is the sole generic
+    /// parameter in the member's signature. A parent with further parameters leaves them open
+    /// (<c>extension Span where Lo: Fine, Hi == Era</c>) or needs every one of them bound
+    /// (<c>where Lo == Year, Hi == Era</c>), and a one-argument spelling of either is not a type
+    /// Swift accepts ("specialized with too few type parameters"). Those members stay pinned —
+    /// <see cref="HasParentExtensionSameTypeConstraint(PropertyDecl)"/> still sees them — so they
+    /// surface as a skip rather than as open-generic emission.
+    /// </summary>
+    private static SwiftTypeName? ExtractClosingPin(IReadOnlyList<GenericArgumentDecl> genericParameters)
+    {
+        if (genericParameters.Count != 1)
+            return null;
+
+        foreach (var conformance in genericParameters[0].GenericConformances)
         {
-            foreach (var conformance in genericParam.GenericConformances)
-            {
-                if (conformance.Kind == ConformanceKind.ConcreteType &&
-                    IsSpecializableConcretePin(conformance.ConformanceTarget))
-                    return conformance.ConformanceTarget;
-            }
+            if (conformance.Kind == ConformanceKind.ConcreteType &&
+                IsSpecializableConcretePin(conformance.ConformanceTarget))
+                return conformance.ConformanceTarget;
         }
 
         return null;
@@ -260,6 +276,22 @@ public static class ConstrainedExtensionEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when a property carries a direct same-type pin on a parent generic parameter that
+    /// <see cref="ExtractSameTypeConstraint"/> nonetheless cannot close the parent over — the
+    /// multi-parameter parent shape. Lets callers report it apart from dependent-member pins.
+    /// </summary>
+    internal static bool HasUnclosableDirectParentPin(PropertyDecl property)
+    {
+        var getter = property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+        if (getter == null || ExtractSameTypeConstraint(property) != null) return false;
+
+        return getter.Method.GenericParameters.Count > 1 &&
+            getter.Method.GenericParameters.Any(p =>
+                p.GenericConformances.Any(c =>
+                    c.Kind == ConformanceKind.ConcreteType && IsSpecializableConcretePin(c.ConformanceTarget)));
     }
 
     private static void EmitSpecializationClass(
@@ -1169,18 +1201,28 @@ public static class ConstrainedExtensionEmitter
     /// constraint sits directly on <c>methodDecl.GenericParameters</c> rather
     /// than on a getter accessor's method.
     /// </summary>
-    internal static SwiftTypeName? ExtractSameTypeConstraintForMethod(MethodDecl method)
+    internal static SwiftTypeName? ExtractSameTypeConstraintForMethod(MethodDecl method) =>
+        ExtractClosingPin(method.GenericParameters);
+
+    /// <summary>
+    /// Method-side mirror of <see cref="HasParentExtensionSameTypeConstraint(PropertyDecl)"/>:
+    /// true when any generic parameter the parent declares carries a same-type pin, direct or
+    /// dependent-member, whether or not <see cref="ExtractSameTypeConstraintForMethod"/> can close
+    /// the parent over it. Such a method only exists for particular instantiations, so the
+    /// open-generic class can never dispatch it.
+    /// </summary>
+    internal static bool HasParentExtensionSameTypeConstraint(MethodDecl method, TypeDecl parent)
     {
+        var parentParamNames = new HashSet<string>(parent.GenericParameters.Select(p => p.TypeName), StringComparer.Ordinal);
         foreach (var genericParam in method.GenericParameters)
         {
-            foreach (var conformance in genericParam.GenericConformances)
-            {
-                if (conformance.Kind == ConformanceKind.ConcreteType &&
-                    IsSpecializableConcretePin(conformance.ConformanceTarget))
-                    return conformance.ConformanceTarget;
-            }
+            if (!parentParamNames.Contains(genericParam.TypeName))
+                continue;
+            if (genericParam.GenericConformances.Any(c => c.Kind == ConformanceKind.ConcreteType) ||
+                genericParam.AssosiatedTypeConformances.Any(c => c.Kind == ConformanceKind.ConcreteType))
+                return true;
         }
-        return null;
+        return false;
     }
 
     /// <summary>

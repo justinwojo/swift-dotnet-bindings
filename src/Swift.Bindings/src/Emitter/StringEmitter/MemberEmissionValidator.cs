@@ -178,6 +178,17 @@ public static class MemberEmissionValidator
             // open-generic class level produces an unsatisfiable
             // `extension Wrapper<Value>: _SBW_PG_X {}` (Swift compile error
             // "type does not conform"). Drop the property at the open-generic level.
+            // A direct pin on a multi-parameter parent (e.g. `where Lo == Fine, Hi == Coarse`) is
+            // NOT dropped: the member exists only for the instantiations the `where` clause admits,
+            // so the open-generic class cannot declare it, but the concrete-specialization emitter
+            // re-surfaces it on each closed parent tuple — the only place a parent with N type
+            // arguments can be spelled. This marker records where the member went, not its loss.
+            if (ConstrainedExtensionEmitter.HasUnclosableDirectParentPin(property))
+            {
+                skipDetails = $"Constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.";
+                return SkipReason.UnsupportedType;
+            }
+
             if (ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property))
             {
                 skipDetails = $"Constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' requires a dependent-member same-type constraint on a parent associated type (e.g. `where Value.ValueType == Concrete`); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.";

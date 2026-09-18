@@ -1447,10 +1447,17 @@ public static partial class ClosureEmitter
         // is collision-safe.
         if (useCdecl)
             emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(methodDecl));
+        // A generic member's non-closure arguments pass through in @_silgen_name mode with their
+        // raw generic spelling (τ_0_0), so the module-scope wrapper has to declare that signature
+        // itself; its metadata and witness-table arguments then trail the parameter list exactly as
+        // they do on the original symbol. @_cdecl mode never admits a generic member.
+        var (genericParams, genericWhere) = useCdecl
+            ? (string.Empty, string.Empty)
+            : WrapperEmitterHelpers.BuildRawMethodGenericSignature(methodDecl);
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(");
+        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}{genericParams}(");
         swiftWriter.WriteLine($"    {paramsStr}");
-        swiftWriter.WriteLine($"){throwsStr}{returnTypeStr} {{");
+        swiftWriter.WriteLine($"){throwsStr}{returnTypeStr}{genericWhere} {{");
 
         // Emit self conversion for instance methods
         if (!string.IsNullOrEmpty(selfConversion))

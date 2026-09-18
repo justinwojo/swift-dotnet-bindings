@@ -1140,6 +1140,13 @@ namespace BindingsGeneration
             "tag byte, also decides whether the value reads as nil. It is declared so that source and " +
             "protocol conformances referencing it still compile.";
 
+        internal const string WitnessTableArityMismatchAbiMessage =
+            "This member has no ABI-correct call path: its Swift entry point takes a protocol witness " +
+            "table for a constraint on one of its own generic parameters that the binding cannot " +
+            "supply, because the protocol is not projected to C#. Calling it would leave Swift reading " +
+            "that witness table from a register nobody wrote. It is declared so that source and " +
+            "protocol conformances referencing it still compile.";
+
         /// <summary>
         /// Body replacement for a member classified as having no ABI-correct call route. Emitting the call
         /// anyway does not produce a member that "might" misbehave — it faults the process on invocation —
@@ -1217,6 +1224,19 @@ namespace BindingsGeneration
                     + "CallConvSwift P/Invoke it falls back "
                     + "to has a non-blittable signature. The member is emitted as a throwing tombstone "
                     + "(declaration retained so conformances referencing it still compile) and carries the "
+                    + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.HasWitnessTableArityMismatch(_env))
+            {
+                message = WitnessTableArityMismatchAbiMessage;
+                skipDetail =
+                    "The member's generic Swift entry point (its own symbol, a native thunk forwarding "
+                    + "to it, or a @_silgen_name wrapper declaring its generic signature) takes a "
+                    + "different number of protocol witness tables for the member's own generic "
+                    + "parameters than the P/Invoke passes: a constraint to a protocol the binding does "
+                    + "not project gets no slot, so Swift would read that witness table from a register "
+                    + "nobody wrote. The member is emitted as a throwing tombstone (declaration retained "
+                    + "so conformances referencing it still compile) and carries the "
                     + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.";
             }
             else
