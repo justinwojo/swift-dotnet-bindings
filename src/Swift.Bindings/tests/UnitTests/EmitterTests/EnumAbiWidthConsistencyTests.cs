@@ -36,14 +36,15 @@ public class EnumAbiWidthConsistencyTests
     };
 
     // Byte widths for the Swift scalar names GetSwiftRawValueType can produce for integral inputs.
+    // Keys are the module-qualified spellings the mapper now emits (Swift.Int32, not Int32).
     private static int SwiftScalarByteWidth(string swiftType) => swiftType switch
     {
-        "Int8" or "UInt8" => 1,
-        "Int16" or "UInt16" => 2,
-        "Int32" or "UInt32" => 4,
-        "Int64" or "UInt64" => 8,
+        "Swift.Int8" or "Swift.UInt8" => 1,
+        "Swift.Int16" or "Swift.UInt16" => 2,
+        "Swift.Int32" or "Swift.UInt32" => 4,
+        "Swift.Int64" or "Swift.UInt64" => 8,
         // Swift.Int / Swift.UInt are pointer-width (64-bit on arm64 / x86_64).
-        "Int" or "UInt" => 8,
+        "Swift.Int" or "Swift.UInt" => 8,
         _ => throw new Xunit.Sdk.XunitException($"Unexpected Swift scalar '{swiftType}' — extend the width map."),
     };
 
@@ -98,7 +99,7 @@ public class EnumAbiWidthConsistencyTests
         Assert.Equal("int", EnumHandler.GetCSharpEnumUnderlyingType(rawValueTypeName));
         // The Swift @_cdecl transport scalar must be the matching 32-bit Int32 — never
         // pointer-width Int (the latent width mismatch).
-        Assert.Equal("Int32", CdeclParamMapper.GetSwiftRawValueType(rawValueTypeName));
+        Assert.Equal("Swift.Int32", CdeclParamMapper.GetSwiftRawValueType(rawValueTypeName));
     }
 
     // The tuple-element metadata mapper (GetSwiftAbiMetadataType) feeds TypeMetadata construction

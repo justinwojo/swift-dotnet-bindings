@@ -1116,7 +1116,7 @@ public static class DefaultParameterOverloadEmitter
             // Large Optional params: accept UnsafeRawPointer, dereference in body
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
-                swiftParams.Add($"_ {label}: UnsafeRawPointer");
+                swiftParams.Add($"_ {label}: Swift.UnsafeRawPointer");
                 derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, env.TypeDatabase));
             }
             else
@@ -1163,7 +1163,7 @@ public static class DefaultParameterOverloadEmitter
         bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
         if (hasLargeOptionalReturn)
         {
-            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+            swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
         }
 
         var swiftParamString = string.Join(", ", swiftParams);
@@ -1521,7 +1521,7 @@ public static class DefaultParameterOverloadEmitter
             var label = CdeclParamMapper.BuildSwiftBindingName(rawLabel, siblings);
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
-                swiftParams.Add($"_ {label}: UnsafeRawPointer");
+                swiftParams.Add($"_ {label}: Swift.UnsafeRawPointer");
                 derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, env.TypeDatabase));
             }
             else
@@ -1557,7 +1557,7 @@ public static class DefaultParameterOverloadEmitter
         // Large optional return buffer
         bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl);
         if (hasLargeOptionalReturn)
-            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+            swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
 
         var swiftParamString = string.Join(", ", swiftParams);
 

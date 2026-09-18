@@ -609,12 +609,12 @@ namespace BindingsGeneration
                 WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
                 swiftWriter.WriteLines($$"""
                     @_cdecl("{{wrapperSymbol}}")
-                    public func {{wrapperSymbol}}(_ slicePtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
+                    public func {{wrapperSymbol}}(_ slicePtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer? {
                         let slice = slicePtr.load(as: SBW_Utf8Slice.self)
-                        let str: String
+                        let str: Swift.String
                         if slice.len > 0 {
-                            str = String(unsafeUninitializedCapacity: slice.len) { buf in
-                                UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                            str = Swift.String(unsafeUninitializedCapacity: slice.len) { buf in
+                                Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
                                 return slice.len
                             }
                         } else {
@@ -623,9 +623,9 @@ namespace BindingsGeneration
                         guard let result = {{enumFullName}}(rawValue: str) else {
                             return nil
                         }
-                        let ptr = UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
+                        let ptr = Swift.UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
                         ptr.initialize(to: result)
-                        return UnsafeMutableRawPointer(ptr)
+                        return Swift.UnsafeMutableRawPointer(ptr)
                     }
 
                     """);
@@ -637,12 +637,12 @@ namespace BindingsGeneration
                 WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
                 swiftWriter.WriteLines($$"""
                     @_cdecl("{{wrapperSymbol}}")
-                    public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
+                    public func {{wrapperSymbol}}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ slicePtr: Swift.UnsafeRawPointer) {
                         let slice = slicePtr.load(as: SBW_Utf8Slice.self)
-                        let str: String
+                        let str: Swift.String
                         if slice.len > 0 {
-                            str = String(unsafeUninitializedCapacity: slice.len) { buf in
-                                UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                            str = Swift.String(unsafeUninitializedCapacity: slice.len) { buf in
+                                Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
                                 return slice.len
                             }
                         } else {
@@ -650,9 +650,9 @@ namespace BindingsGeneration
                         }
                         let result: {{enumFullName}}? = {{enumFullName}}(rawValue: str)
                         // Use withUnsafePointer + copyMemory instead of storeBytes to avoid
-                        // BitwiseCopyable requirement (Swift 6+) for Optional<Enum> with String raw values
-                        withUnsafePointer(to: result) { _srcPtr in
-                            resultPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{{enumFullName}}?>.size)
+                        // BitwiseCopyable requirement (Swift 6+) for Swift.Optional<Enum> with String raw values
+                        Swift.withUnsafePointer(to: result) { _srcPtr in
+                            resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
                         }
                     }
 
@@ -678,10 +678,10 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLines($$"""
                 @_cdecl("{{wrapperSymbol}}")
-                public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ rawValue: {{rawTypeName}}) {
+                public func {{wrapperSymbol}}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ rawValue: {{TypeSpecHelpers.QualifyStdlibScalarName(rawTypeName)}}) {
                     let result: {{enumFullName}}? = {{enumFullName}}(rawValue: rawValue)
-                    withUnsafePointer(to: result) { _srcPtr in
-                        resultPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{{enumFullName}}?>.size)
+                    Swift.withUnsafePointer(to: result) { _srcPtr in
+                        resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
                     }
                 }
 
@@ -719,7 +719,7 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"@_cdecl(\"{caseByIndexSymbol}\")");
-            sb.AppendLine($"public func {caseByIndexSymbol}(_ index: Int) -> UnsafeMutableRawPointer {{");
+            sb.AppendLine($"public func {caseByIndexSymbol}(_ index: Swift.Int) -> Swift.UnsafeMutableRawPointer {{");
             sb.AppendLine($"    let value: {enumFullName}");
             sb.AppendLine("    switch index {");
             for (int i = 0; i < simpleCases.Count; i++)
@@ -734,9 +734,9 @@ namespace BindingsGeneration
             }
             sb.AppendLine($"    default: Swift.fatalError(\"[SwiftBindings] Invalid case index \\(index) for {enumFullName}\")");
             sb.AppendLine("    }");
-            sb.AppendLine($"    let ptr = UnsafeMutablePointer<{enumFullName}>.allocate(capacity: 1)");
+            sb.AppendLine($"    let ptr = Swift.UnsafeMutablePointer<{enumFullName}>.allocate(capacity: 1)");
             sb.AppendLine("    ptr.initialize(to: value)");
-            sb.AppendLine("    return UnsafeMutableRawPointer(ptr)");
+            sb.AppendLine("    return Swift.UnsafeMutableRawPointer(ptr)");
             sb.AppendLine("}");
 
             swiftWriter.WriteLines(sb.ToString());

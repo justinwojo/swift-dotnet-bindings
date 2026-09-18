@@ -367,7 +367,7 @@ public class ReceiverConversionVisitorTests
         var set = new SetProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
         Assert.True(set.UsesObjCContainerBridge);
         Assert.Equal(
-            "global::Swift.Runtime.Arc.UnknownObjectRetain(new Foundation.NSSet(result.ToArray()).Handle)",
+            "global::Swift.Runtime.Arc.UnknownObjectRetain(new Foundation.NSSet(global::System.Linq.Enumerable.ToArray(result)).Handle)",
             set.GetReverseReceiverObjCBridgeConversion("result"));
     }
 
@@ -377,7 +377,7 @@ public class ReceiverConversionVisitorTests
         var arr = new ArrayProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
         Assert.True(arr.UsesObjCContainerBridge);
         Assert.Equal(
-            "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects(result.ToArray()).Handle)",
+            "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(result)).Handle)",
             arr.GetReverseReceiverObjCBridgeConversion("result"));
     }
 
@@ -390,8 +390,8 @@ public class ReceiverConversionVisitorTests
         // Value (URL) is already an NSObject → passed through; String key → new NSString(...).
         Assert.Equal(
             "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSDictionary.FromObjectsAndKeys(" +
-            "result.Select(kvp => kvp.Value).ToArray(), " +
-            "result.Select(kvp => new Foundation.NSString(kvp.Key)).ToArray()).Handle)",
+            "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => kvp.Value)), " +
+            "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => new Foundation.NSString(kvp.Key)))).Handle)",
             dict.GetReverseReceiverObjCBridgeConversion("result"));
     }
 

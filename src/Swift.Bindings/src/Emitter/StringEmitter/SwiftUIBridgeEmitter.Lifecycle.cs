@@ -23,8 +23,8 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     internal static void EmitSwiftLifecycleStateVars(StringBuilder sb)
     {
-        sb.AppendLine("    var lifecycleOnAppear: (() -> Void)? = nil");
-        sb.AppendLine("    var lifecycleOnDisappear: (() -> Void)? = nil");
+        sb.AppendLine("    var lifecycleOnAppear: (() -> Swift.Void)? = nil");
+        sb.AppendLine("    var lifecycleOnDisappear: (() -> Swift.Void)? = nil");
     }
 
     /// <summary>
@@ -50,16 +50,16 @@ public static partial class SwiftUIBridgeEmitter
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
         sb.AppendLine($"public func {funcName}(");
-        sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?,");
-        sb.AppendLine($"    _ onAppearCb: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,");
-        sb.AppendLine($"    _ onAppearUd: UnsafeMutableRawPointer?,");
-        sb.AppendLine($"    _ onDisappearCb: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?,");
-        sb.AppendLine($"    _ onDisappearUd: UnsafeMutableRawPointer?");
+        sb.AppendLine($"    _ handle: Swift.UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ onAppearCb: (@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.Void)?,");
+        sb.AppendLine($"    _ onAppearUd: Swift.UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ onDisappearCb: (@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.Void)?,");
+        sb.AppendLine($"    _ onDisappearUd: Swift.UnsafeMutableRawPointer?");
         sb.AppendLine(") {");
         sb.AppendLine("    SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
         sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
         sb.AppendLine($"        session.state.lifecycleOnAppear = onAppearCb != nil ? {{ onAppearCb!(onAppearUd) }} : nil");
         sb.AppendLine($"        session.state.lifecycleOnDisappear = onDisappearCb != nil ? {{ onDisappearCb!(onDisappearUd) }} : nil");
@@ -83,7 +83,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("    @Published var u_backgroundColor: SwiftUI.Color? = nil");
         sb.AppendLine("    @Published var u_foregroundColor: SwiftUI.Color? = nil");
         sb.AppendLine("    @Published var u_cornerRadius: CGFloat? = nil");
-        sb.AppendLine("    @Published var u_opacity: Double? = nil");
+        sb.AppendLine("    @Published var u_opacity: Swift.Double? = nil");
         sb.AppendLine("    @Published var u_font: SwiftUI.Font? = nil");
     }
 
@@ -123,7 +123,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetFrame",
-            new[] { "_ hasWidth: Int32", "_ width: Double", "_ hasHeight: Int32", "_ height: Double" },
+            new[] { "_ hasWidth: Swift.Int32", "_ width: Swift.Double", "_ hasHeight: Swift.Int32", "_ height: Swift.Double" },
             new[] {
                 "        session.state.u_frameWidth = hasWidth != 0 ? CGFloat(width) : nil",
                 "        session.state.u_frameHeight = hasHeight != 0 ? CGFloat(height) : nil",
@@ -131,32 +131,32 @@ public static partial class SwiftUIBridgeEmitter
 
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetPadding",
-            new[] { "_ hasValue: Int32", "_ value: Double" },
+            new[] { "_ hasValue: Swift.Int32", "_ value: Swift.Double" },
             new[] { "        session.state.u_padding = hasValue != 0 ? CGFloat(value) : nil" });
 
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetBackground",
-            new[] { "_ hasValue: Int32", "_ r: Double", "_ g: Double", "_ b: Double", "_ a: Double" },
+            new[] { "_ hasValue: Swift.Int32", "_ r: Swift.Double", "_ g: Swift.Double", "_ b: Swift.Double", "_ a: Swift.Double" },
             new[] { "        session.state.u_backgroundColor = hasValue != 0 ? SwiftUI.Color(red: r, green: g, blue: b, opacity: a) : nil" });
 
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetForegroundColor",
-            new[] { "_ hasValue: Int32", "_ r: Double", "_ g: Double", "_ b: Double", "_ a: Double" },
+            new[] { "_ hasValue: Swift.Int32", "_ r: Swift.Double", "_ g: Swift.Double", "_ b: Swift.Double", "_ a: Swift.Double" },
             new[] { "        session.state.u_foregroundColor = hasValue != 0 ? SwiftUI.Color(red: r, green: g, blue: b, opacity: a) : nil" });
 
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetCornerRadius",
-            new[] { "_ hasValue: Int32", "_ value: Double" },
+            new[] { "_ hasValue: Swift.Int32", "_ value: Swift.Double" },
             new[] { "        session.state.u_cornerRadius = hasValue != 0 ? CGFloat(value) : nil" });
 
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetOpacity",
-            new[] { "_ hasValue: Int32", "_ value: Double" },
+            new[] { "_ hasValue: Swift.Int32", "_ value: Swift.Double" },
             new[] { "        session.state.u_opacity = hasValue != 0 ? value : nil" });
 
         EmitUniversalSetFunction(sb, prefix, sessionClass, handlesVar, viewModifierNames, emissionContext,
             "SetFont",
-            new[] { "_ hasValue: Int32", "_ size: Double" },
+            new[] { "_ hasValue: Swift.Int32", "_ size: Swift.Double" },
             new[] { "        session.state.u_font = hasValue != 0 ? SwiftUI.Font.system(size: CGFloat(size)) : nil" });
     }
 
@@ -175,7 +175,7 @@ public static partial class SwiftUIBridgeEmitter
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
 
-        var allParams = new List<string> { "_ handle: UnsafeMutableRawPointer?" };
+        var allParams = new List<string> { "_ handle: Swift.UnsafeMutableRawPointer?" };
         allParams.AddRange(extraParams);
 
         sb.AppendLine($"public func {funcName}(");
@@ -184,7 +184,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("    SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
         sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
         foreach (var line in bodyLines)
             sb.AppendLine(line);
@@ -209,12 +209,12 @@ public static partial class SwiftUIBridgeEmitter
         // SwiftUI presentation helpers in `_direct_helper` bucket. Three fixed-suffix funcs per view (`_PresentAsSheet`/`_PushOnNav`/`_Dismiss`); per-view `prefix` makes them globally unique.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
-        sb.AppendLine($"public func {funcName}(_ handle: UnsafeMutableRawPointer?, _ fromVC: UnsafeMutableRawPointer?) {{");
+        sb.AppendLine($"public func {funcName}(_ handle: Swift.UnsafeMutableRawPointer?, _ fromVC: Swift.UnsafeMutableRawPointer?) {{");
         sb.AppendLine("    SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle, let fromVC = fromVC,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
-        sb.AppendLine($"        let parent = Unmanaged<UIViewController>.fromOpaque(fromVC).takeUnretainedValue()");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
+        sb.AppendLine($"        let parent = Swift.Unmanaged<UIViewController>.fromOpaque(fromVC).takeUnretainedValue()");
         sb.AppendLine($"        parent.present(session.hostingController, animated: true)");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -225,12 +225,12 @@ public static partial class SwiftUIBridgeEmitter
         // see PresentAsSheet above — same `_direct_helper` bucket, per-view `prefix` + fixed suffix.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
-        sb.AppendLine($"public func {funcName}(_ handle: UnsafeMutableRawPointer?, _ navVC: UnsafeMutableRawPointer?) {{");
+        sb.AppendLine($"public func {funcName}(_ handle: Swift.UnsafeMutableRawPointer?, _ navVC: Swift.UnsafeMutableRawPointer?) {{");
         sb.AppendLine("    SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle, let navVC = navVC,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
-        sb.AppendLine($"        let nav = Unmanaged<UINavigationController>.fromOpaque(navVC).takeUnretainedValue()");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
+        sb.AppendLine($"        let nav = Swift.Unmanaged<UINavigationController>.fromOpaque(navVC).takeUnretainedValue()");
         sb.AppendLine($"        nav.pushViewController(session.hostingController, animated: true)");
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -241,11 +241,11 @@ public static partial class SwiftUIBridgeEmitter
         // see PresentAsSheet above — same `_direct_helper` bucket, per-view `prefix` + fixed suffix.
         emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
         sb.AppendLine($"@_cdecl(\"{funcName}\")");
-        sb.AppendLine($"public func {funcName}(_ handle: UnsafeMutableRawPointer?) {{");
+        sb.AppendLine($"public func {funcName}(_ handle: Swift.UnsafeMutableRawPointer?) {{");
         sb.AppendLine("    SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
         sb.AppendLine($"        session.hostingController.dismiss(animated: true)");
         sb.AppendLine("    }");
         sb.AppendLine("}");

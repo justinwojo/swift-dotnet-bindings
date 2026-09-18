@@ -47,14 +47,14 @@ public static class SwiftErrorMintEmitter
             // Swift caller that receives this error on the reverse path (a C# closure/proxy threw into
             // native Swift) can recover the managed exception's identity beyond the flattened message.
             @_cdecl("{{symbol}}")
-            public func SBW_CreateError(_ message: UnsafePointer<CChar>, _ managedTypeName: UnsafePointer<CChar>?) -> UnsafeMutableRawPointer {
-                let msg = String(cString: message)
-                var userInfo: [String: Any] = [NSLocalizedDescriptionKey: msg]
+            public func SBW_CreateError(_ message: Swift.UnsafePointer<Swift.CChar>, _ managedTypeName: Swift.UnsafePointer<Swift.CChar>?) -> Swift.UnsafeMutableRawPointer {
+                let msg = Swift.String(cString: message)
+                var userInfo: [Swift.String: Any] = [NSLocalizedDescriptionKey: msg]
                 if let managedTypeName = managedTypeName {
-                    userInfo["SwiftBindingsManagedExceptionType"] = String(cString: managedTypeName)
+                    userInfo["SwiftBindingsManagedExceptionType"] = Swift.String(cString: managedTypeName)
                 }
                 let error = NSError(domain: "SwiftBindings", code: -1, userInfo: userInfo)
-                return Unmanaged.passRetained(error as AnyObject).toOpaque()
+                return Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
             }
 
             """);

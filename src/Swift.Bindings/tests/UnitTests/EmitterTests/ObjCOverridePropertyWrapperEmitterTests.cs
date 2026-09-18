@@ -203,8 +203,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
         var output = sw.ToString();
         Assert.Contains("@_silgen_name(\"SBW_Get_VectorAnimation_AnimationViewBase_contentMode\")", output);
         Assert.Contains("_ self_: VectorAnimation.AnimationViewBase", output);
-        // RenderSwiftTypeSpec strips module prefix: "Swift.Int" → "Int"
-        Assert.Contains("-> Int", output);
+        Assert.Contains("-> Swift.Int", output);
         Assert.Contains("return self_.contentMode", output);
     }
 
@@ -225,7 +224,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("@_silgen_name(\"SBW_Set_VectorAnimation_AnimationViewBase_contentMode\")", output);
-        Assert.Contains("_ newValue: Int", output);
+        Assert.Contains("_ newValue: Swift.Int", output);
         Assert.Contains("_ self_: VectorAnimation.AnimationViewBase", output);
         Assert.Contains("self_.contentMode = newValue", output);
     }

@@ -859,16 +859,16 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 sb.AppendLine($"    let {param.Name}Callback: ({param.SwiftAbiType.TrimEnd('?')})?");
-                sb.AppendLine($"    let {param.Name}UserData: UnsafeMutableRawPointer?");
+                sb.AppendLine($"    let {param.Name}UserData: Swift.UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.ResultClosure)
             {
                 var successAbi = BuildResultBranchSwiftAbiType(param.ResultSuccessParam!);
                 var errorAbi = BuildResultBranchSwiftAbiType(param.ResultErrorParam!);
                 sb.AppendLine($"    let {param.Name}SuccessCallback: ({successAbi.TrimEnd('?')})?");
-                sb.AppendLine($"    let {param.Name}SuccessUserData: UnsafeMutableRawPointer?");
+                sb.AppendLine($"    let {param.Name}SuccessUserData: Swift.UnsafeMutableRawPointer?");
                 sb.AppendLine($"    let {param.Name}ErrorCallback: ({errorAbi.TrimEnd('?')})?");
-                sb.AppendLine($"    let {param.Name}ErrorUserData: UnsafeMutableRawPointer?");
+                sb.AppendLine($"    let {param.Name}ErrorUserData: Swift.UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
@@ -886,26 +886,26 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 initParams.Add($"{param.Name}Callback: {param.SwiftAbiType}");
-                initParams.Add($"{param.Name}UserData: UnsafeMutableRawPointer?");
+                initParams.Add($"{param.Name}UserData: Swift.UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.ResultClosure)
             {
                 var successAbi = BuildResultBranchSwiftAbiType(param.ResultSuccessParam!);
                 var errorAbi = BuildResultBranchSwiftAbiType(param.ResultErrorParam!);
                 initParams.Add($"{param.Name}SuccessCallback: {successAbi}");
-                initParams.Add($"{param.Name}SuccessUserData: UnsafeMutableRawPointer?");
+                initParams.Add($"{param.Name}SuccessUserData: Swift.UnsafeMutableRawPointer?");
                 initParams.Add($"{param.Name}ErrorCallback: {errorAbi}");
-                initParams.Add($"{param.Name}ErrorUserData: UnsafeMutableRawPointer?");
+                initParams.Add($"{param.Name}ErrorUserData: Swift.UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
-                initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
-                initParams.Add($"{param.Name}Len: Int");
+                initParams.Add($"{param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                initParams.Add($"{param.Name}Len: Swift.Int");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
             {
-                initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
-                initParams.Add($"{param.Name}Len: Int");
+                initParams.Add($"{param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                initParams.Add($"{param.Name}Len: Swift.Int");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -913,15 +913,15 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
-                initParams.Add($"{param.Name}HasValue: Int32");
+                initParams.Add($"{param.Name}HasValue: Swift.Int32");
                 initParams.Add($"{param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
             }
             else if (param.IsBindingCodableStruct)
             {
                 // Binding<CodableStruct>: ABI carries the value as JSON UTF-8 bytes (ptr+len).
                 // The Swift side decodes via JSONDecoder before storing on @Published state.
-                initParams.Add($"{param.Name}Ptr: UnsafePointer<UInt8>?");
-                initParams.Add($"{param.Name}Len: Int");
+                initParams.Add($"{param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                initParams.Add($"{param.Name}Len: Swift.Int");
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -930,7 +930,7 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
                 initParams.Add($"{param.Name}Ptr: {param.SwiftAbiType}");
-                initParams.Add($"{param.Name}Count: Int");
+                initParams.Add($"{param.Name}Count: Swift.Int");
             }
             else
             {
@@ -962,7 +962,7 @@ public static partial class SwiftUIBridgeEmitter
                     // object pointer (C# passes `.Handle`), NOT raw Swift struct bytes. Reading it
                     // via assumingMemoryBound reinterprets an object pointer as struct memory →
                     // type confusion / SIGSEGV. Reconstruct the bridged value instead.
-                    sb.AppendLine($"        self.{param.SwiftName} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                    sb.AppendLine($"        self.{param.SwiftName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
                 else
                     sb.AppendLine($"        self.{param.SwiftName} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
@@ -977,7 +977,7 @@ public static partial class SwiftUIBridgeEmitter
                     // rather than trapping the process or silently defaulting/dropping the element.
                     sb.AppendLine($"            var {param.Name}Elements: [{inner.BridgeTypeName}] = []");
                     sb.AppendLine($"            {param.Name}Elements.reserveCapacity({param.Name}Count)");
-                    sb.AppendLine($"            for {param.Name}Raw in UnsafeBufferPointer(start: ptr, count: {param.Name}Count) {{");
+                    sb.AppendLine($"            for {param.Name}Raw in Swift.UnsafeBufferPointer(start: ptr, count: {param.Name}Count) {{");
                     sb.AppendLine($"                guard let {param.Name}Element = {inner.BridgeTypeName}(rawValue: {param.Name}Raw) else {{ return nil }}");
                     sb.AppendLine($"                {param.Name}Elements.append({param.Name}Element)");
                     sb.AppendLine($"            }}");
@@ -986,7 +986,7 @@ public static partial class SwiftUIBridgeEmitter
                 else
                 {
                     var elementConversion = inner.SwiftConversion != null ? $"$0 {inner.SwiftConversion}" : "$0";
-                    sb.AppendLine($"            self.{param.SwiftName} = UnsafeBufferPointer(start: ptr, count: {param.Name}Count).map {{ {elementConversion} }}");
+                    sb.AppendLine($"            self.{param.SwiftName} = Swift.UnsafeBufferPointer(start: ptr, count: {param.Name}Count).map {{ {elementConversion} }}");
                 }
                 sb.AppendLine($"        }} else {{");
                 sb.AppendLine($"            self.{param.SwiftName} = []");
@@ -1047,7 +1047,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Handle tracking
-        sb.AppendLine($"var {handlesVar} = Set<UnsafeMutableRawPointer>()");
+        sb.AppendLine($"var {handlesVar} = Swift.Set<Swift.UnsafeMutableRawPointer>()");
         sb.AppendLine();
 
         // SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
@@ -1061,26 +1061,26 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 createParams.Add($"_ {param.Name}Callback: {param.SwiftAbiType}");
-                createParams.Add($"_ {param.Name}UserData: UnsafeMutableRawPointer?");
+                createParams.Add($"_ {param.Name}UserData: Swift.UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.ResultClosure)
             {
                 var successAbi = BuildResultBranchSwiftAbiType(param.ResultSuccessParam!);
                 var errorAbi = BuildResultBranchSwiftAbiType(param.ResultErrorParam!);
                 createParams.Add($"_ {param.Name}SuccessCallback: {successAbi}");
-                createParams.Add($"_ {param.Name}SuccessUserData: UnsafeMutableRawPointer?");
+                createParams.Add($"_ {param.Name}SuccessUserData: Swift.UnsafeMutableRawPointer?");
                 createParams.Add($"_ {param.Name}ErrorCallback: {errorAbi}");
-                createParams.Add($"_ {param.Name}ErrorUserData: UnsafeMutableRawPointer?");
+                createParams.Add($"_ {param.Name}ErrorUserData: Swift.UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
-                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
-                createParams.Add($"_ {param.Name}Len: Int");
+                createParams.Add($"_ {param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                createParams.Add($"_ {param.Name}Len: Swift.Int");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
             {
-                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
-                createParams.Add($"_ {param.Name}Len: Int");
+                createParams.Add($"_ {param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                createParams.Add($"_ {param.Name}Len: Swift.Int");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -1088,13 +1088,13 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
-                createParams.Add($"_ {param.Name}HasValue: Int32");
+                createParams.Add($"_ {param.Name}HasValue: Swift.Int32");
                 createParams.Add($"_ {param.Name}Value: {param.InnerParameter!.SwiftAbiType}");
             }
             else if (param.IsBindingCodableStruct)
             {
-                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
-                createParams.Add($"_ {param.Name}Len: Int");
+                createParams.Add($"_ {param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                createParams.Add($"_ {param.Name}Len: Swift.Int");
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -1103,7 +1103,7 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
                 createParams.Add($"_ {param.Name}Ptr: {param.SwiftAbiType}");
-                createParams.Add($"_ {param.Name}Count: Int");
+                createParams.Add($"_ {param.Name}Count: Swift.Int");
             }
             else
             {
@@ -1111,7 +1111,7 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
         sb.AppendLine(string.Join(",\n    ", createParams));
-        sb.AppendLine(") -> UnsafeMutableRawPointer? {");
+        sb.AppendLine(") -> Swift.UnsafeMutableRawPointer? {");
         sb.AppendLine("    return SBW_onMainThread {");
 
         // Build session init call
@@ -1175,7 +1175,7 @@ public static partial class SwiftUIBridgeEmitter
 
         sb.AppendLine($"        guard let session = {sessionClass}(");
         sb.AppendLine($"            {string.Join(",\n            ", sessionArgs)}) else {{ return nil }}");
-        sb.AppendLine($"        let handle = Unmanaged.passRetained(session).toOpaque()");
+        sb.AppendLine($"        let handle = Swift.Unmanaged.passRetained(session).toOpaque()");
         sb.AppendLine($"        {handlesVar}.insert(handle)");
         sb.AppendLine($"        return handle");
         sb.AppendLine("    }");
@@ -1187,14 +1187,14 @@ public static partial class SwiftUIBridgeEmitter
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
         sb.AppendLine($"public func {prefix}_GetViewController(");
-        sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?");
-        sb.AppendLine(") -> UnsafeMutableRawPointer? {");
+        sb.AppendLine($"    _ handle: Swift.UnsafeMutableRawPointer?");
+        sb.AppendLine(") -> Swift.UnsafeMutableRawPointer? {");
         sb.AppendLine("    return SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return nil }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
         sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
-        sb.AppendLine($"        return Unmanaged.passUnretained(session.hostingController).toOpaque()");
+        sb.AppendLine($"        return Swift.Unmanaged.passUnretained(session.hostingController).toOpaque()");
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -1215,18 +1215,18 @@ public static partial class SwiftUIBridgeEmitter
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(");
-        sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?,");
-        sb.AppendLine($"    _ handleBuffer: UnsafeMutableRawPointer?,");
-        sb.AppendLine($"    _ handleCount: Int32,");
-        sb.AppendLine($"    _ postReleaseFreeFn: UnsafeMutableRawPointer?");
+        sb.AppendLine($"    _ handle: Swift.UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ handleBuffer: Swift.UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ handleCount: Swift.Int32,");
+        sb.AppendLine($"    _ postReleaseFreeFn: Swift.UnsafeMutableRawPointer?");
         sb.AppendLine($") {{");
-        sb.AppendLine($"    let release: () -> Void = {{");
+        sb.AppendLine($"    let release: () -> Swift.Void = {{");
         sb.AppendLine($"        if let handle = handle, {handlesVar}.remove(handle) != nil {{");
-        sb.AppendLine($"            Unmanaged<{sessionClass}>.fromOpaque(handle).release()");
+        sb.AppendLine($"            Swift.Unmanaged<{sessionClass}>.fromOpaque(handle).release()");
         sb.AppendLine($"        }}");
         sb.AppendLine($"        if let fnPtr = postReleaseFreeFn {{");
-        sb.AppendLine($"            typealias FreeFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void");
-        sb.AppendLine($"            let fn = unsafeBitCast(fnPtr, to: FreeFn.self)");
+        sb.AppendLine($"            typealias FreeFn = @convention(c) (Swift.UnsafeMutableRawPointer?, Swift.Int32) -> Swift.Void");
+        sb.AppendLine($"            let fn = Swift.unsafeBitCast(fnPtr, to: FreeFn.self)");
         sb.AppendLine($"            fn(handleBuffer, handleCount)");
         sb.AppendLine($"        }}");
         sb.AppendLine($"    }}");
@@ -1288,7 +1288,7 @@ public static partial class SwiftUIBridgeEmitter
             {
                 if (mod.IsParameterless)
                 {
-                    sb.AppendLine($"    @Published var mod_{mod.MethodName}: Bool = false");
+                    sb.AppendLine($"    @Published var mod_{mod.MethodName}: Swift.Bool = false");
                 }
                 else
                 {
@@ -1334,7 +1334,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var param in bridgeParams.Where(p => !p.IsUpdatable))
         {
             if (param.Kind == BridgeParameterKind.VoidClosure)
-                sb.AppendLine($"    let {param.SwiftName}: () -> Void");
+                sb.AppendLine($"    let {param.SwiftName}: () -> Swift.Void");
             else if (param.Kind == BridgeParameterKind.TypedClosure)
             {
                 var swiftClosureType = GetSwiftClosureType(param);
@@ -1343,7 +1343,7 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.ResultClosure)
             {
                 var resultType = GetSwiftResultType(param);
-                sb.AppendLine($"    let {param.SwiftName}: ({resultType}) -> Void");
+                sb.AppendLine($"    let {param.SwiftName}: ({resultType}) -> Swift.Void");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
@@ -1474,9 +1474,9 @@ public static partial class SwiftUIBridgeEmitter
     {
         if (param.Kind == BridgeParameterKind.String)
         {
-            sb.AppendLine($"        let {param.Name}Converted: String");
+            sb.AppendLine($"        let {param.Name}Converted: Swift.String");
             sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
-            sb.AppendLine($"            {param.Name}Converted = String(bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len), encoding: .utf8) ?? \"\"");
+            sb.AppendLine($"            {param.Name}Converted = Swift.String(bytes: Swift.UnsafeBufferPointer(start: ptr, count: {param.Name}Len), encoding: .utf8) ?? \"\"");
             sb.AppendLine($"        }} else {{");
             sb.AppendLine($"            {param.Name}Converted = \"\"");
             sb.AppendLine($"        }}");
@@ -1489,7 +1489,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
-            sb.AppendLine($"        let {param.Name}Converted = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+            sb.AppendLine($"        let {param.Name}Converted = Swift.Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
         }
         else if (param.IsBindingCodableStruct)
         {
@@ -1499,7 +1499,7 @@ public static partial class SwiftUIBridgeEmitter
             // here is a programmer error (corrupted bytes, version skew, etc.) not a runtime
             // condition the bridge can recover from.
             sb.AppendLine($"        guard let {param.Name}Ptr = {param.Name}Ptr, {param.Name}Len > 0 else {{ Swift.preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: nil/empty JSON buffer\") }}");
-            sb.AppendLine($"        let {param.Name}Data = Data(buffer: UnsafeBufferPointer(start: {param.Name}Ptr, count: {param.Name}Len))");
+            sb.AppendLine($"        let {param.Name}Data = Data(buffer: Swift.UnsafeBufferPointer(start: {param.Name}Ptr, count: {param.Name}Len))");
             sb.AppendLine($"        let {param.Name}Converted: {param.BridgeTypeName}");
             sb.AppendLine($"        do {{ {param.Name}Converted = try JSONDecoder().decode({param.BridgeTypeName}.self, from: {param.Name}Data) }}");
             sb.AppendLine($"        catch {{ Swift.preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: JSONDecoder failed: \\(error)\") }}");
@@ -1509,28 +1509,28 @@ public static partial class SwiftUIBridgeEmitter
             if (param.IsObjCBridgeable)
                 // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer, not
                 // raw struct bytes — reconstruct the bridged value via Unmanaged<AnyObject>.
-                sb.AppendLine($"        let {param.Name}Converted = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                sb.AppendLine($"        let {param.Name}Converted = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
             else
                 sb.AppendLine($"        let {param.Name}Converted = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
         {
-            sb.AppendLine($"        let {param.Name}Converted: String?");
+            sb.AppendLine($"        let {param.Name}Converted: Swift.String?");
             sb.AppendLine($"        if {param.Name}Ptr == nil {{ {param.Name}Converted = nil }}");
-            sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}Converted = String(bytes: UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
+            sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}Converted = Swift.String(bytes: Swift.UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
             sb.AppendLine($"        else {{ {param.Name}Converted = \"\" }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
         {
             var inner = param.InnerParameter!;
-            sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+            sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Swift.Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
         {
             var inner = param.InnerParameter!;
             if (inner.IsObjCBridgeable)
                 // ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
-                sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
+                sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
             else
                 sb.AppendLine($"        let {param.Name}Converted: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
         }
@@ -1584,9 +1584,9 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static string GetSwiftNativeType(BridgeParameter param) => param.Kind switch
     {
-        BridgeParameterKind.Primitive when param.SwiftConversion == "!= 0" => "Bool",
+        BridgeParameterKind.Primitive when param.SwiftConversion == "!= 0" => "Swift.Bool",
         BridgeParameterKind.Primitive => param.SwiftAbiType,
-        BridgeParameterKind.String => "String",
+        BridgeParameterKind.String => "Swift.String",
         BridgeParameterKind.BoundEnum => param.BridgeTypeName!,
         BridgeParameterKind.BoundType => param.BridgeTypeName!,
         BridgeParameterKind.BoundStruct => param.BridgeTypeName!,
@@ -1605,7 +1605,7 @@ public static partial class SwiftUIBridgeEmitter
         var closureArgs = param.ClosureArguments!;
         var closureReturn = param.ClosureReturn;
         var argTypes = closureArgs.Select(a => GetSwiftTypeFromAbi(a)).ToList();
-        var returnType = closureReturn != null ? GetSwiftTypeFromAbi(closureReturn) : "Void";
+        var returnType = closureReturn != null ? GetSwiftTypeFromAbi(closureReturn) : "Swift.Void";
         return $"({string.Join(", ", argTypes)}) -> {returnType}";
     }
 
@@ -1626,16 +1626,16 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
 
             // Build parameter list matching ABI
-            var updateParams = new List<string> { "_ handle: UnsafeMutableRawPointer?" };
+            var updateParams = new List<string> { "_ handle: Swift.UnsafeMutableRawPointer?" };
             if (param.Kind == BridgeParameterKind.String)
             {
-                updateParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
-                updateParams.Add("_ newValueLen: Int");
+                updateParams.Add("_ newValuePtr: Swift.UnsafePointer<Swift.UInt8>?");
+                updateParams.Add("_ newValueLen: Swift.Int");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
             {
-                updateParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
-                updateParams.Add("_ newValueLen: Int");
+                updateParams.Add("_ newValuePtr: Swift.UnsafePointer<Swift.UInt8>?");
+                updateParams.Add("_ newValueLen: Swift.Int");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -1643,13 +1643,13 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
-                updateParams.Add("_ newValueHasValue: Int32");
+                updateParams.Add("_ newValueHasValue: Swift.Int32");
                 updateParams.Add($"_ newValueValue: {param.InnerParameter!.SwiftAbiType}");
             }
             else if (param.IsBindingCodableStruct)
             {
-                updateParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
-                updateParams.Add("_ newValueLen: Int");
+                updateParams.Add("_ newValuePtr: Swift.UnsafePointer<Swift.UInt8>?");
+                updateParams.Add("_ newValueLen: Swift.Int");
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
@@ -1666,7 +1666,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("    SBW_onMainThread {");
             sb.AppendLine($"        guard let handle = handle,");
             sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-            sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+            sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
             sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
 
             // Emit the conversion + assignment
@@ -1695,22 +1695,22 @@ public static partial class SwiftUIBridgeEmitter
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
             sb.AppendLine($"public func {funcName}(");
-            sb.AppendLine("    _ handle: UnsafeMutableRawPointer?,");
-            sb.AppendLine("    _ outLen: UnsafeMutablePointer<Int>?");
-            sb.AppendLine(") -> UnsafeMutablePointer<UInt8>? {");
+            sb.AppendLine("    _ handle: Swift.UnsafeMutableRawPointer?,");
+            sb.AppendLine("    _ outLen: Swift.UnsafeMutablePointer<Swift.Int>?");
+            sb.AppendLine(") -> Swift.UnsafeMutablePointer<Swift.UInt8>? {");
             sb.AppendLine("    return SBW_onMainThread {");
             sb.AppendLine("        outLen?.pointee = 0");
             sb.AppendLine($"        guard let handle = handle, {handlesVar}.contains(handle) else {{ return nil }}");
-            sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+            sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
             sb.AppendLine("            .fromOpaque(handle).takeUnretainedValue()");
             sb.AppendLine("        let data: Data");
             sb.AppendLine($"        do {{ data = try JSONEncoder().encode(session.state.{param.SwiftName}) }}");
             sb.AppendLine($"        catch {{ Swift.preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: JSONEncoder failed in Read: \\(error)\") }}");
             sb.AppendLine("        let len = data.count");
-            sb.AppendLine("        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: len)");
+            sb.AppendLine("        let buffer = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: len)");
             sb.AppendLine("        data.withUnsafeBytes { src in");
             sb.AppendLine("            if let base = src.baseAddress, len > 0 {");
-            sb.AppendLine("                buffer.initialize(from: base.assumingMemoryBound(to: UInt8.self), count: len)");
+            sb.AppendLine("                buffer.initialize(from: base.assumingMemoryBound(to: Swift.UInt8.self), count: len)");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine("        outLen?.pointee = len");
@@ -1724,7 +1724,7 @@ public static partial class SwiftUIBridgeEmitter
         var freeFuncName = $"{prefix}_FreeJsonBuffer";
         emissionContext?.TryAddDirectHelperWrapperSymbol(freeFuncName);
         sb.AppendLine($"@_cdecl(\"{freeFuncName}\")");
-        sb.AppendLine($"public func {freeFuncName}(_ ptr: UnsafeMutablePointer<UInt8>?) {{");
+        sb.AppendLine($"public func {freeFuncName}(_ ptr: Swift.UnsafeMutablePointer<Swift.UInt8>?) {{");
         sb.AppendLine("    ptr?.deallocate()");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -1738,7 +1738,7 @@ public static partial class SwiftUIBridgeEmitter
         if (param.Kind == BridgeParameterKind.String)
         {
             sb.AppendLine($"        if let ptr = newValuePtr, newValueLen > 0 {{");
-            sb.AppendLine($"            session.state.{param.SwiftName} = String(bytes: UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
+            sb.AppendLine($"            session.state.{param.SwiftName} = Swift.String(bytes: Swift.UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
             sb.AppendLine($"        }} else {{");
             sb.AppendLine($"            session.state.{param.SwiftName} = \"\"");
             sb.AppendLine($"        }}");
@@ -1751,7 +1751,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
-            sb.AppendLine($"        session.state.{param.SwiftName} = Unmanaged<{param.BridgeTypeName}>.fromOpaque(newValuePtr).takeUnretainedValue()");
+            sb.AppendLine($"        session.state.{param.SwiftName} = Swift.Unmanaged<{param.BridgeTypeName}>.fromOpaque(newValuePtr).takeUnretainedValue()");
         }
         else if (param.IsBindingCodableStruct)
         {
@@ -1759,7 +1759,7 @@ public static partial class SwiftUIBridgeEmitter
             // Same trap-on-failure contract as the Create path — the C# caller must have
             // produced the buffer via EncodeToJson() so a decode failure is a programmer error.
             sb.AppendLine($"        guard let newValuePtr = newValuePtr, newValueLen > 0 else {{ Swift.preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: nil/empty JSON buffer in Update\") }}");
-            sb.AppendLine($"        let newValueData = Data(buffer: UnsafeBufferPointer(start: newValuePtr, count: newValueLen))");
+            sb.AppendLine($"        let newValueData = Data(buffer: Swift.UnsafeBufferPointer(start: newValuePtr, count: newValueLen))");
             sb.AppendLine($"        do {{ session.state.{param.SwiftName} = try JSONDecoder().decode({param.BridgeTypeName}.self, from: newValueData) }}");
             sb.AppendLine($"        catch {{ Swift.preconditionFailure(\"[SwiftBindings] Binding<{param.BridgeTypeName}>: JSONDecoder failed in Update: \\(error)\") }}");
         }
@@ -1767,27 +1767,27 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.IsObjCBridgeable)
                 // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
-                sb.AppendLine($"        session.state.{param.SwiftName} = Unmanaged<AnyObject>.fromOpaque(newValuePtr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                sb.AppendLine($"        session.state.{param.SwiftName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(newValuePtr).takeUnretainedValue() as! {param.BridgeTypeName}");
             else
                 sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
         {
             sb.AppendLine($"        if newValuePtr == nil {{ session.state.{param.SwiftName} = nil }}");
-            sb.AppendLine($"        else if newValueLen > 0 {{ session.state.{param.SwiftName} = String(bytes: UnsafeBufferPointer(start: newValuePtr!, count: newValueLen), encoding: .utf8) ?? \"\" }}");
+            sb.AppendLine($"        else if newValueLen > 0 {{ session.state.{param.SwiftName} = Swift.String(bytes: Swift.UnsafeBufferPointer(start: newValuePtr!, count: newValueLen), encoding: .utf8) ?? \"\" }}");
             sb.AppendLine($"        else {{ session.state.{param.SwiftName} = \"\" }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
         {
             var inner = param.InnerParameter!;
-            sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
+            sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ Swift.Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
         }
         else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
         {
             var inner = param.InnerParameter!;
             if (inner.IsObjCBridgeable)
                 // ObjC-bridgeable struct pointer is an object pointer, not struct bytes.
-                sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
+                sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeUnretainedValue() as! {inner.BridgeTypeName} }}");
             else
                 sb.AppendLine($"        session.state.{param.SwiftName} = newValuePtr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
         }
@@ -2181,34 +2181,34 @@ public static partial class SwiftUIBridgeEmitter
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
 
-            var setParams = new List<string> { "_ handle: UnsafeMutableRawPointer?" };
+            var setParams = new List<string> { "_ handle: Swift.UnsafeMutableRawPointer?" };
             if (mod.IsParameterless)
             {
-                setParams.Add("_ enabled: Int32");
+                setParams.Add("_ enabled: Swift.Int32");
             }
             else
             {
                 var param = mod.Parameter!;
                 if (param.Kind == BridgeParameterKind.String)
                 {
-                    setParams.Add("_ newValuePtr: UnsafePointer<UInt8>?");
-                    setParams.Add("_ newValueLen: Int");
+                    setParams.Add("_ newValuePtr: Swift.UnsafePointer<Swift.UInt8>?");
+                    setParams.Add("_ newValueLen: Swift.Int");
                 }
                 else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == "!= 0")
                 {
                     // Bool param: hasValue + value (both Int32)
-                    setParams.Add("_ hasValue: Int32");
-                    setParams.Add("_ value: Int32");
+                    setParams.Add("_ hasValue: Swift.Int32");
+                    setParams.Add("_ value: Swift.Int32");
                 }
                 else if (param.Kind == BridgeParameterKind.BoundEnum)
                 {
-                    setParams.Add("_ hasValue: Int32");
+                    setParams.Add("_ hasValue: Swift.Int32");
                     setParams.Add($"_ value: {param.SwiftAbiType}");
                 }
                 else
                 {
                     // Other primitives: hasValue + value
-                    setParams.Add("_ hasValue: Int32");
+                    setParams.Add("_ hasValue: Swift.Int32");
                     setParams.Add($"_ value: {param.SwiftAbiType}");
                 }
             }
@@ -2219,7 +2219,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("    SBW_onMainThread {");
             sb.AppendLine($"        guard let handle = handle,");
             sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return }}");
-            sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+            sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
             sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
 
             // Emit assignment
@@ -2233,7 +2233,7 @@ public static partial class SwiftUIBridgeEmitter
                 if (param.Kind == BridgeParameterKind.String)
                 {
                     sb.AppendLine($"        if let ptr = newValuePtr, newValueLen > 0 {{");
-                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = String(bytes: UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
+                    sb.AppendLine($"            session.state.mod_{mod.MethodName} = Swift.String(bytes: Swift.UnsafeBufferPointer(start: ptr, count: newValueLen), encoding: .utf8) ?? \"\"");
                     sb.AppendLine($"        }} else if newValuePtr != nil {{");
                     sb.AppendLine($"            session.state.mod_{mod.MethodName} = \"\"");
                     sb.AppendLine($"        }} else {{");
@@ -2438,26 +2438,8 @@ public static partial class SwiftUIBridgeEmitter
         {
             sb.AppendLine("// Auto-generated by SwiftBindings — SwiftUI Bridge");
             sb.AppendLine("#nullable enable");
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Runtime.CompilerServices;");
-            sb.AppendLine("using System.Runtime.InteropServices;");
-            sb.AppendLine("using System.Text;");
-            sb.AppendLine("using System.Threading.Tasks;");
-
-            // Add Swift.Runtime.InteropServices when class/struct closure args need SwiftMarshal
-            bool hasClassClosureArgs = bridgeResults.Any(r => r.IsFunctional && r.Params != null &&
-                r.Params.Any(p => p.Kind == BridgeParameterKind.TypedClosure &&
-                    p.ClosureArguments != null &&
-                    p.ClosureArguments.Any(a => a.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)));
-            if (hasClassClosureArgs)
-                sb.AppendLine("using Swift.Runtime.InteropServices;");
-            // Add Swift.Runtime when class closure returns need Arc.Retain
-            bool hasClassClosureReturns = bridgeResults.Any(r => r.IsFunctional && r.Params != null &&
-                r.Params.Any(p => p.Kind == BridgeParameterKind.TypedClosure &&
-                    p.ClosureReturn != null &&
-                    p.ClosureReturn.Kind == BridgeParameterKind.BoundType));
-            if (hasClassClosureReturns)
-                sb.AppendLine("using Swift.Runtime;");
+            // No usings: every external name is written from global::, so a bound member of the
+            // same name cannot capture it.
             sb.AppendLine();
             sb.AppendLine($"namespace {@namespace}");
             sb.AppendLine("{");
@@ -3449,9 +3431,9 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static string GetModifierSwiftStateType(BridgeParameter param) => param.Kind switch
     {
-        BridgeParameterKind.Primitive when param.SwiftConversion == "!= 0" => "Bool",
+        BridgeParameterKind.Primitive when param.SwiftConversion == "!= 0" => "Swift.Bool",
         BridgeParameterKind.Primitive => param.SwiftAbiType,
-        BridgeParameterKind.String => "String",
+        BridgeParameterKind.String => "Swift.String",
         BridgeParameterKind.BoundEnum => param.BridgeTypeName!,
         _ => param.SwiftAbiType,
     };
@@ -3540,7 +3522,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             // (args...) -> ReturnType
             var swiftReturnType = GetSwiftTypeFromAbi(closureReturn);
-            var defaultVal = closureReturn.SwiftAbiType is "Double" or "Float" ? "0.0" : "0";
+            var defaultVal = closureReturn.SwiftAbiType is "Swift.Double" or "Swift.Float" ? "0.0" : "0";
             var callExpr = $"cb_{param.Name}?({callbackArgStr}) ?? {defaultVal}";
 
             if (closureReturn.SwiftConversion != null)
@@ -3582,7 +3564,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (closureArgs[i].Kind == BridgeParameterKind.String)
             {
-                sb.Append($"            let arg{i}Bytes = Array(arg{i}.utf8)\n");
+                sb.Append($"            let arg{i}Bytes = Swift.Array(arg{i}.utf8)\n");
                 stringArgIndices.Add(i);
             }
         }
@@ -3611,12 +3593,12 @@ public static partial class SwiftUIBridgeEmitter
                     BridgeParameterKind.String => "return \"\"",
                     BridgeParameterKind.BoundType =>
                         $"Swift.fatalError(\"[SwiftBindings] SBW: closure callback not provided for non-optional class return\")",
-                    _ when closureReturn.SwiftAbiType is "Double" or "Float" => "return 0.0",
+                    _ when closureReturn.SwiftAbiType is "Swift.Double" or "Swift.Float" => "return 0.0",
                     _ => "return 0",
                 };
                 if (closureReturn.Kind is not BridgeParameterKind.String and not BridgeParameterKind.BoundType
                     && closureReturn.SwiftConversion != null)
-                    defaultRet = $"return {(closureReturn.SwiftAbiType is "Double" or "Float" ? "0.0" : "0")} {closureReturn.SwiftConversion}";
+                    defaultRet = $"return {(closureReturn.SwiftAbiType is "Swift.Double" or "Swift.Float" ? "0.0" : "0")} {closureReturn.SwiftConversion}";
                 sb.Append(defaultRet);
             }
             else
@@ -3642,11 +3624,11 @@ public static partial class SwiftUIBridgeEmitter
                     // pointer as struct memory → type confusion / SIGSEGV. Bridge to an object here
                     // and deliver Unmanaged.passUnretained(...).toOpaque() below, held alive across
                     // the synchronous callback by withExtendedLifetime.
-                    sb.Append($"            let arg{i}Obj = arg{i} as AnyObject\n");
+                    sb.Append($"            let arg{i}Obj = arg{i} as Swift.AnyObject\n");
                     continue;
                 }
                 var typeName = closureArgs[i].BridgeTypeName;
-                sb.Append($"            let arg{i}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
+                sb.Append($"            let arg{i}Ptr = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{typeName}>.size, alignment: Swift.MemoryLayout<{typeName}>.alignment)\n");
                 if (closureArgs[i].StructProjection == StructProjectionKind.FrozenWithMemory)
                 {
                     // A frozen struct with reference-holding fields (ClassWithBufferStruct) is
@@ -3688,7 +3670,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             var oi = objcArgIndices[o];
             var returnPrefix = hasReturn ? "return " : "";
-            sb.Append($"{currentIndent}{returnPrefix}withExtendedLifetime(arg{oi}Obj) {{\n");
+            sb.Append($"{currentIndent}{returnPrefix}Swift.withExtendedLifetime(arg{oi}Obj) {{\n");
             currentIndent += "    ";
         }
 
@@ -3701,18 +3683,18 @@ public static partial class SwiftUIBridgeEmitter
             if (a.Kind == BridgeParameterKind.String)
             {
                 callbackArgs.Add($"buf{i}.baseAddress");
-                callbackArgs.Add($"Int(buf{i}.count)");
+                callbackArgs.Add($"Swift.Int(buf{i}.count)");
             }
             else if (a.Kind == BridgeParameterKind.BoundType)
             {
-                callbackArgs.Add($"Unmanaged.passRetained(arg{i}).toOpaque()");
+                callbackArgs.Add($"Swift.Unmanaged.passRetained(arg{i}).toOpaque()");
             }
             else if (a.Kind == BridgeParameterKind.BoundStruct)
             {
                 if (a.IsObjCBridgeable)
                     // ObjC-bridgeable struct: deliver the bridged object pointer (held alive by the
                     // enclosing withExtendedLifetime block). C# reads it via GetNSObject, not VWT.
-                    callbackArgs.Add($"Unmanaged.passUnretained(arg{i}Obj).toOpaque()");
+                    callbackArgs.Add($"Swift.Unmanaged.passUnretained(arg{i}Obj).toOpaque()");
                 else
                     // Heap-allocate the value type and transfer ownership to C#.
                     // C#'s SwiftSafeHandle will call VWT Destroy + NativeMemory.Free on dispose.
@@ -3741,13 +3723,13 @@ public static partial class SwiftUIBridgeEmitter
             if (isStringReturn)
             {
                 // String return: decode UTF-8 buffer returned from C# callback
-                sb.Append($"{currentIndent}var retLen: Int = 0\n");
-                sb.Append($"{currentIndent}let retPtr = withUnsafeMutablePointer(to: &retLen) {{ lenPtr in\n");
+                sb.Append($"{currentIndent}var retLen: Swift.Int = 0\n");
+                sb.Append($"{currentIndent}let retPtr = Swift.withUnsafeMutablePointer(to: &retLen) {{ lenPtr in\n");
                 sb.Append($"{currentIndent}    cb_{param.Name}?({callbackArgStr})\n");
                 sb.Append($"{currentIndent}}}\n");
                 sb.Append($"{currentIndent}defer {{ retPtr?.deallocate() }}\n");
                 sb.Append($"{currentIndent}guard let retBuf = retPtr, retLen > 0 else {{ return \"\" }}\n");
-                sb.Append($"{currentIndent}return String(bytes: UnsafeBufferPointer(start: retBuf, count: retLen), encoding: .utf8) ?? \"\"\n");
+                sb.Append($"{currentIndent}return Swift.String(bytes: Swift.UnsafeBufferPointer(start: retBuf, count: retLen), encoding: .utf8) ?? \"\"\n");
             }
             else if (isClassReturn)
             {
@@ -3756,12 +3738,12 @@ public static partial class SwiftUIBridgeEmitter
                 sb.Append($"{currentIndent}guard let retPtr = {callExpr} else {{\n");
                 sb.Append($"{currentIndent}    Swift.fatalError(\"[SwiftBindings] SBW: closure returned null for non-optional class return\")\n");
                 sb.Append($"{currentIndent}}}\n");
-                sb.Append($"{currentIndent}return Unmanaged<{closureReturn.BridgeTypeName}>.fromOpaque(retPtr).takeRetainedValue()\n");
+                sb.Append($"{currentIndent}return Swift.Unmanaged<{closureReturn.BridgeTypeName}>.fromOpaque(retPtr).takeRetainedValue()\n");
             }
             else
             {
                 // Primitive return: default value + optional chaining + conversion
-                var defaultVal = closureReturn.SwiftAbiType is "Double" or "Float" ? "0.0" : "0";
+                var defaultVal = closureReturn.SwiftAbiType is "Swift.Double" or "Swift.Float" ? "0.0" : "0";
                 var callExpr = $"cb_{param.Name}?({callbackArgStr}) ?? {defaultVal}";
                 if (closureReturn.SwiftConversion != null)
                     callExpr = $"({callExpr}) {closureReturn.SwiftConversion}";
@@ -3803,8 +3785,8 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static string GetSwiftTypeFromAbi(BridgeParameter param)
     {
-        if (param.SwiftConversion == "!= 0") return "Bool";
-        if (param.Kind == BridgeParameterKind.String) return "String";
+        if (param.SwiftConversion == "!= 0") return "Swift.Bool";
+        if (param.Kind == BridgeParameterKind.String) return "Swift.String";
         if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct) return param.BridgeTypeName!;
         return param.SwiftAbiType;
     }
@@ -3987,7 +3969,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("                        unsafe");
             sb.AppendLine("                        {");
             sb.AppendLine("                            var nativePtr = (byte*)NativeMemory.Alloc((nuint)bytes.Length);");
-            sb.AppendLine("                            bytes.CopyTo(new Span<byte>(nativePtr, bytes.Length));");
+            sb.AppendLine("                            global::System.MemoryExtensions.CopyTo(bytes, new Span<byte>(nativePtr, bytes.Length));");
             sb.AppendLine("                            *(nint*)retLenPtr = bytes.Length;");
             sb.AppendLine("                            return (IntPtr)nativePtr;");
             sb.AppendLine("                        }");
@@ -4097,15 +4079,15 @@ public static partial class SwiftUIBridgeEmitter
         var abiArgs = new List<string>();
         if (branchParam.Kind == BridgeParameterKind.String)
         {
-            abiArgs.Add("UnsafePointer<UInt8>?");
-            abiArgs.Add("Int"); // length
+            abiArgs.Add("Swift.UnsafePointer<Swift.UInt8>?");
+            abiArgs.Add("Swift.Int"); // length
         }
         else
         {
             abiArgs.Add(branchParam.SwiftAbiType);
         }
-        abiArgs.Add("UnsafeMutableRawPointer?"); // userData
-        return $"(@convention(c) ({string.Join(", ", abiArgs)}) -> Void)?";
+        abiArgs.Add("Swift.UnsafeMutableRawPointer?"); // userData
+        return $"(@convention(c) ({string.Join(", ", abiArgs)}) -> Swift.Void)?";
     }
 
     /// <summary>
@@ -4136,7 +4118,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         var successType = GetSwiftTypeFromAbi(param.ResultSuccessParam!);
         var errorType = GetSwiftTypeFromAbi(param.ResultErrorParam!);
-        return $"Result<{successType}, {errorType}>";
+        return $"Swift.Result<{successType}, {errorType}>";
     }
 
     /// <summary>
@@ -4249,9 +4231,9 @@ public static partial class SwiftUIBridgeEmitter
 
         if (branchParam.Kind == BridgeParameterKind.String)
         {
-            sb.Append($"                let {varName}Bytes = Array({varName}.utf8)\n");
+            sb.Append($"                let {varName}Bytes = Swift.Array({varName}.utf8)\n");
             sb.Append($"                {varName}Bytes.withUnsafeBufferPointer {{ buf in\n");
-            sb.Append($"                    {cbName}?(buf.baseAddress, Int(buf.count), {udName})\n");
+            sb.Append($"                    {cbName}?(buf.baseAddress, Swift.Int(buf.count), {udName})\n");
             sb.Append($"                }}\n");
         }
         else if (branchParam.Kind == BridgeParameterKind.BoundType)
@@ -4261,11 +4243,11 @@ public static partial class SwiftUIBridgeEmitter
                 // ObjC class: passUnretained is safe because the Swift Result case
                 // binding keeps the object alive for the callback duration. C# uses
                 // GetNSObject to wrap without ownership transfer.
-                sb.Append($"                {cbName}?(Unmanaged.passUnretained({varName}).toOpaque(), {udName})\n");
+                sb.Append($"                {cbName}?(Swift.Unmanaged.passUnretained({varName}).toOpaque(), {udName})\n");
             }
             else
             {
-                sb.Append($"                {cbName}?(Unmanaged.passRetained({varName}).toOpaque(), {udName})\n");
+                sb.Append($"                {cbName}?(Swift.Unmanaged.passRetained({varName}).toOpaque(), {udName})\n");
             }
         }
         else if (branchParam.Kind == BridgeParameterKind.BoundStruct)
@@ -4280,9 +4262,9 @@ public static partial class SwiftUIBridgeEmitter
                 // C# callback dereferences it → use-after-free. Bind the bridged object to a local
                 // and hold it across the call with
                 // withExtendedLifetime so it outlives the raw-pointer use.
-                sb.Append($"                let {varName}Obj = {varName} as AnyObject\n");
-                sb.Append($"                withExtendedLifetime({varName}Obj) {{\n");
-                sb.Append($"                    {cbName}?(Unmanaged.passUnretained({varName}Obj).toOpaque(), {udName})\n");
+                sb.Append($"                let {varName}Obj = {varName} as Swift.AnyObject\n");
+                sb.Append($"                Swift.withExtendedLifetime({varName}Obj) {{\n");
+                sb.Append($"                    {cbName}?(Swift.Unmanaged.passUnretained({varName}Obj).toOpaque(), {udName})\n");
                 sb.Append($"                }}\n");
             }
             else
@@ -4291,7 +4273,7 @@ public static partial class SwiftUIBridgeEmitter
                 // Guard against nil callback to avoid leaking heap-allocated BoundStruct values.
                 // Same pattern as BuildComplexClosureViewInitArg's nil guard.
                 sb.Append($"                guard {cbName} != nil else {{ return }}\n");
-                sb.Append($"                let {varName}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
+                sb.Append($"                let {varName}Ptr = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{typeName}>.size, alignment: Swift.MemoryLayout<{typeName}>.alignment)\n");
                 if (branchParam.StructProjection == StructProjectionKind.FrozenWithMemory)
                 {
                     // A frozen-with-memory struct is copied (InitializeWithCopy) by C#, not adopted,

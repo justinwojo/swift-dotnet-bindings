@@ -239,7 +239,7 @@ namespace BindingsGeneration
             // Build Swift parameter list — self as UnsafeMutableRawPointer (not concrete type)
             var swiftParams = new List<string>();
             if (isInstance)
-                swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+                swiftParams.Add("_ _self: Swift.UnsafeMutableRawPointer");
 
             // Sibling bindings: this emitter binds each param to its external label (p.Name), or
             // arg{i} for an unnamed param — NOT the canonical PrivateName??Name — so collect the set
@@ -316,7 +316,7 @@ namespace BindingsGeneration
             {
                 var qualifiedTypeName = parentTypeName!.ModuleQualifiedName;
                 if (isClass)
-                    swiftWriter.WriteLine($"    let __self = unsafeBitCast(OpaquePointer(_self), to: {qualifiedTypeName}.self)");
+                    swiftWriter.WriteLine($"    let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {qualifiedTypeName}.self)");
                 else
                     swiftWriter.WriteLine($"    let __self = _self.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee");
             }

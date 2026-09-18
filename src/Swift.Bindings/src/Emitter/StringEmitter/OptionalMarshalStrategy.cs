@@ -238,7 +238,7 @@ public static class OptionalMarshalClassifier
         var rawType = CdeclParamMapper.GetSwiftRawValueType(innerNamed.Name);
         var tagOffset = GetSwiftTagByteOffsetString(innerNamed.Name) ?? "8";
         return ($"{rawType}?",
-                $"{paramName}.advanced(by: {tagOffset}).load(as: UInt8.self) == 0 ? {paramName}.load(as: {rawType}.self) : nil");
+                $"{paramName}.advanced(by: {tagOffset}).load(as: Swift.UInt8.self) == 0 ? {paramName}.load(as: {rawType}.self) : nil");
     }
 
     /// <summary>
@@ -281,7 +281,7 @@ public static class OptionalMarshalClassifier
     public const string SwiftHasValueParam = "hasValue";
 
     /// <summary>Swift type for the hasValue parameter/value across @_cdecl boundaries.</summary>
-    public const string SwiftHasValueType = "Int8";
+    public const string SwiftHasValueType = "Swift.Int8";
 
     /// <summary>C#-side hasValue local variable name (for reading the flag from a buffer).</summary>
     public const string CSharpHasValueLocal = "_hasValue";

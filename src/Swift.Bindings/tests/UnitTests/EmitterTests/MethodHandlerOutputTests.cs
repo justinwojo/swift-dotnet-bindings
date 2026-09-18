@@ -583,7 +583,7 @@ public class MethodHandlerOutputTests
         Assert.Contains("variantCopyBuffer", csOutput);
         Assert.Contains("variant.Payload.DangerousGetHandle()", csOutput);
         // Swift wrapper should receive as UnsafeRawPointer and read via .pointee
-        Assert.Contains("variant: UnsafeRawPointer", swiftOutput);
+        Assert.Contains("variant: Swift.UnsafeRawPointer", swiftOutput);
         Assert.Contains("variantValue", swiftOutput);
     }
 

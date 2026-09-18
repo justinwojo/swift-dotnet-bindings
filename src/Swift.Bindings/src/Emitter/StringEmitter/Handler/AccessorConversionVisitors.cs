@@ -86,7 +86,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
         }
         var elemConv = set.ElementProjection.GetReturnElementConversion("e");
         if (elemConv != null)
-            return ($"{resultExpr}.Select(e => {elemConv}).ToHashSet()", true);
+            return ($"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({resultExpr}, e => {elemConv}))", true);
         return (null, false);
     }
 
@@ -259,7 +259,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             {
                 var innerConv = arr.ElementProjection.GetParameterElementConversion("e");
                 if (innerConv != null)
-                    return ($"Foundation.NSArray.FromNSObjects({valueExpr}.Select(e => (Foundation.NSObject){innerConv}).ToArray())", true);
+                    return ($"Foundation.NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, e => (Foundation.NSObject){innerConv})))", true);
             }
             // Leaf elements go through the projection's own expression rather than a bare ToArray():
             // an element that is already an NSObject is passed straight through, while an Apple typed
@@ -277,7 +277,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? null
             : ExistentialElementCarrier.ParamConversion(arr.ElementProjection, "e");
         if (elemConv != null)
-            return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+            return ($"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({valueExpr}, e => {elemConv}))", true);
         return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
@@ -288,7 +288,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         {
             var keyToNS = DictionaryProjection.ToNSObject(dict.KeyProjection, "kvp.Key");
             var valToNS = DictionaryProjection.ToNSObject(dict.ValueProjection, "kvp.Value");
-            return ($"Foundation.NSDictionary.FromObjectsAndKeys({valueExpr}.Select(kvp => {valToNS}).ToArray(), {valueExpr}.Select(kvp => {keyToNS}).ToArray())", true);
+            return ($"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, kvp => {keyToNS})))", true);
         }
 
         // Keys can never be existential (`any P` is not Hashable), so only the VALUE rides the owned
@@ -305,7 +305,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         {
             var keyExpr = keyConv ?? "kvp.Key";
             var valExpr = valConv ?? "kvp.Value";
-            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
+            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({valueExpr}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
         }
         return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
     }
@@ -321,7 +321,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             {
                 var innerConv = set.ElementProjection.GetParameterElementConversion("e");
                 if (innerConv != null)
-                    return ($"new Foundation.NSSet({valueExpr}.Select(e => (Foundation.NSObject){innerConv}).ToArray())", true);
+                    return ($"new Foundation.NSSet(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, e => (Foundation.NSObject){innerConv})))", true);
             }
             // Same leaf rule as the array twin — see ArraySetterConversion.
             return ($"new Foundation.NSSet({set.ObjCLeafElementArrayExpr(valueExpr)})", true);
@@ -334,7 +334,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? null
             : ExistentialElementCarrier.ParamConversion(set.ElementProjection, "e");
         if (elemConv != null)
-            return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+            return ($"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({valueExpr}, e => {elemConv}))", true);
         return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 

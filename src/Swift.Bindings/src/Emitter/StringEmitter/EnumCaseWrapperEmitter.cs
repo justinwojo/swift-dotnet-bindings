@@ -259,7 +259,7 @@ public static class EnumCaseWrapperEmitter
         }
 
         // Result pointer (last param — receives the constructed enum value)
-        swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+        swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         var swiftParamString = string.Join(", ", swiftParams);
         var swiftFuncName = $"_sbw_case_{caseDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";

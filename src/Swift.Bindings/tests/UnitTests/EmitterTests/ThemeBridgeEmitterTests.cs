@@ -407,8 +407,8 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
-        Assert.Contains("func SBW_fontWeight(_ raw: Int32) -> Font.Weight", content);
-        Assert.Contains("func SBW_fontDesign(_ raw: Int32) -> Font.Design", content);
+        Assert.Contains("func SBW_fontWeight(_ raw: Swift.Int32) -> Font.Weight", content);
+        Assert.Contains("func SBW_fontDesign(_ raw: Swift.Int32) -> Font.Design", content);
     }
 
     [Fact]
@@ -1103,7 +1103,7 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
-        Assert.Contains("func SBW_uiFontWeight(_ raw: Int32) -> UIFont.Weight", content);
+        Assert.Contains("func SBW_uiFontWeight(_ raw: Swift.Int32) -> UIFont.Weight", content);
         // Should NOT contain SwiftUI font helpers (no SwiftUI fonts)
         Assert.DoesNotContain("SBW_fontWeight", content);
         Assert.DoesNotContain("SBW_fontDesign", content);
@@ -1294,11 +1294,11 @@ public class ThemeBridgeEmitterTests : IDisposable
         var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         Assert.Contains("@_cdecl(\"SBW_MyTheme_get_alertColor\")", content);
-        Assert.Contains("UnsafeMutablePointer<Double>", content);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Double>", content);
         // SwiftUI.Color getter converts to UIColor first
         Assert.Contains("let uiColor = UIColor(MyTheme.shared.alertColor)", content);
         Assert.Contains("uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)", content);
-        Assert.Contains("rOut.pointee = Double(r)", content);
+        Assert.Contains("rOut.pointee = Swift.Double(r)", content);
     }
 
     [Fact]

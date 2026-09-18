@@ -129,16 +129,31 @@ namespace BindingsGeneration
                     }
                 }
 
-                // QualifyNamespaceReferences is position-independent (local lookahead only), so
-                // running it per output file is equivalent to running it once on the combined
-                // string and slicing. No-op unless the module name collides with a type name.
+                // Both rewrites below are position-independent (the collision rewrite reads a local
+                // lookahead only; the root qualifier judges a name by its enclosing declarations), so
+                // running them per output file is equivalent to running them once on the combined
+                // string and slicing. The collision rewrite is a no-op unless the module name
+                // collides with a type name.
                 // The journal overload records each rewrite so a file's fragment intervals — measured
                 // against the pre-qualify text the splitter slices — can be carried onto the qualified
                 // text that is actually written, without changing what the rewrite does.
+                // Every namespace-rooted reference is then spelled from global::, because a bound
+                // member named like a root (System, Swift, Foundation, the module) captures it inside
+                // the type that declares it. The root set and the module's declared type names are
+                // fixed once, from the whole output, so every file is judged against the same module.
+                var qualifierRoots = CSharpGlobalQualifier.BuildRoots(
+                    new[] { @namespace }
+                        .Concat(_typeDatabase.GetDependencyModuleDecls()
+                            .Select(d => _namespacePatternResolver.ResolveNamespace(d.Name)))
+                        .Concat(CrossModuleBindingReferences.Current
+                            .Select(m => _namespacePatternResolver.ResolveNamespace(m))));
+                var declaredTypeNames = CSharpGlobalQualifier.CollectDeclaredTypeNames(preQualifyOutput);
+                var typeHierarchy = CSharpGlobalQualifier.TypeHierarchy.Build(preQualifyOutput);
                 string Qualify(string source, TextEditJournal? journal = null) =>
-                    collisionType != null
-                        ? QualifyNamespaceReferences(source, @namespace, nestedTypeNames, journal)
-                        : source;
+                    CSharpGlobalQualifier.Qualify(
+                        source, qualifierRoots, declaredTypeNames,
+                        collisionNamespace: collisionType != null ? @namespace : null,
+                        nestedTypeNames, journal, typeHierarchy);
 
                 var wholeOutput = Qualify(preQualifyOutput);
 
@@ -274,6 +289,20 @@ namespace BindingsGeneration
                     ThemeBridgeEmitter.EmitThemeBridge(
                         _outputDirectory, @namespace, moduleDecl.Name, themeInfos,
                         viewBridgeExists: hasViews, _logger, emissionContext);
+                }
+
+                // The bridge file is written in pieces by two emitters; qualify it once, complete, the
+                // same way as the module's own files.
+                var bridgeCsPath = Path.Combine(_outputDirectory, $"{@namespace}.SwiftUIBridge.cs");
+                if ((hasViews || hasThemes) && File.Exists(bridgeCsPath))
+                {
+                    var bridgeCs = File.ReadAllText(bridgeCsPath);
+                    var bridgeDeclared = new HashSet<string>(declaredTypeNames, StringComparer.Ordinal);
+                    bridgeDeclared.UnionWith(CSharpGlobalQualifier.CollectDeclaredTypeNames(bridgeCs));
+                    File.WriteAllText(bridgeCsPath, CSharpGlobalQualifier.Qualify(
+                        bridgeCs, qualifierRoots, bridgeDeclared, collisionNamespace: null,
+                        collisionNestedTypeNames: null, journal: null,
+                        CSharpGlobalQualifier.TypeHierarchy.Build(preQualifyOutput, bridgeCs)));
                 }
             }
             else

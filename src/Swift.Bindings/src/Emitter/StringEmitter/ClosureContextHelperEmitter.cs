@@ -79,20 +79,20 @@ public static class ClosureContextHelperEmitter
             // to a no-destroy-hook box — same leak behaviour as 0.10.0 and earlier.
 
             fileprivate final class _SBClosureCtxFallback {
-                let ctx: UnsafeMutableRawPointer
-                init(_ ctx: UnsafeMutableRawPointer) { self.ctx = ctx }
+                let ctx: Swift.UnsafeMutableRawPointer
+                init(_ ctx: Swift.UnsafeMutableRawPointer) { self.ctx = ctx }
             }
 
-            fileprivate let _sbNewClosureContextSymbol: UnsafeMutableRawPointer? = {
+            fileprivate let _sbNewClosureContextSymbol: Swift.UnsafeMutableRawPointer? = {
                 let handle = dlopen(nil, 0)
                 return dlsym(handle, "SwiftBindings_NewClosureContext")
             }()
 
             @inline(never)
-            fileprivate func _sbWrapClosureContext(_ ctx: UnsafeMutableRawPointer) -> AnyObject {
+            fileprivate func _sbWrapClosureContext(_ ctx: Swift.UnsafeMutableRawPointer) -> Swift.AnyObject {
                 if let sym = _sbNewClosureContextSymbol {
-                    let factory = unsafeBitCast(sym, to: (@convention(c) (UnsafeMutableRawPointer) -> UnsafeMutableRawPointer).self)
-                    return Unmanaged<AnyObject>.fromOpaque(factory(ctx)).takeRetainedValue()
+                    let factory = Swift.unsafeBitCast(sym, to: (@convention(c) (Swift.UnsafeMutableRawPointer) -> Swift.UnsafeMutableRawPointer).self)
+                    return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(factory(ctx)).takeRetainedValue()
                 }
                 return _SBClosureCtxFallback(ctx)
             }

@@ -1556,7 +1556,7 @@ public class MethodWrapperEmitterTests
             new SwiftWriter(sw), env, new ModuleEmissionContext(), silgenTarget: "_dbw_apply_Session_1");
         var output = sw.ToString();
 
-        Assert.Contains("_ adjuster: UnsafeRawPointer", output);
+        Assert.Contains("_ adjuster: Swift.UnsafeRawPointer", output);
         Assert.Contains("_dbw_apply_Session_1(adjuster)", output);
         // The shim reads the existential from the address; the wrapper never loads it.
         Assert.DoesNotContain("assumingMemoryBound", output);
@@ -1751,7 +1751,7 @@ public class MethodWrapperEmitterTests
 
         var output = sw.ToString();
         // Must have resultPtr parameter
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         // Must use initializeMemory for tuple
         Assert.Contains("initializeMemory(as: (Swift.Int, Swift.Int).self", output);
         // Function signature must not have a return clause (indirect result — Void return)
@@ -1771,9 +1771,9 @@ public class MethodWrapperEmitterTests
 
         var output = sw.ToString();
         // Must have UnsafeMutableRawPointer return type
-        Assert.Contains("-> UnsafeMutableRawPointer", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", output);
         // Must use Unmanaged.passRetained for class pointer return
-        Assert.Contains("Unmanaged.passRetained(", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(", output);
         Assert.Contains(".toOpaque()", output);
         // Must NOT have resultPtr parameter
         Assert.DoesNotContain("resultPtr", output);
@@ -1792,8 +1792,8 @@ public class MethodWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("@_cdecl(\"SBW_TestModule_MyType_doWork_abc12345\")", output);
-        Assert.Contains("_ self_: UnsafeMutableRawPointer", output);
-        Assert.Contains("Unmanaged<TestModule.MyType>.fromOpaque(self_).takeUnretainedValue()", output);
+        Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", output);
+        Assert.Contains("Swift.Unmanaged<TestModule.MyType>.fromOpaque(self_).takeUnretainedValue()", output);
     }
 
     [Fact]
@@ -1808,9 +1808,9 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ self_: UnsafeRawPointer", output);
+        Assert.Contains("_ self_: Swift.UnsafeRawPointer", output);
         Assert.Contains("self_.assumingMemoryBound(to: TestModule.MyType.self).pointee", output);
-        Assert.Contains("-> Int", output);
+        Assert.Contains("-> Swift.Int", output);
     }
 
     [Fact]
@@ -1826,7 +1826,7 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ self_: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("self_.assumingMemoryBound(to: TestModule.MyType.self).pointee", output);
     }
 
@@ -1860,10 +1860,10 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
         Assert.Contains("do {", output);
         Assert.Contains("try obj.doWork()", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
         var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
         Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
             $"The method wrapper must clear errorOut before executing Swift code.\n{output}");
@@ -1881,10 +1881,10 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("SBW_Utf8Slice", output);
         Assert.Contains("utf8", output);
-        Assert.Contains("UnsafeMutablePointer<UInt8>.allocate", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.UInt8>.allocate", output);
     }
 
     [Fact]
@@ -1909,8 +1909,8 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer", output);
-        Assert.Contains("Unmanaged.passRetained(", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(", output);
     }
 
     [Fact]
@@ -1925,7 +1925,7 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> Int8", output);
+        Assert.Contains("-> Swift.Int8", output);
         Assert.Contains("? 1 : 0", output);
     }
 
@@ -1951,7 +1951,7 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> Int", output);
+        Assert.Contains("-> Swift.Int", output);
         Assert.Contains(".rawValue)", output);
     }
 
@@ -1977,7 +1977,7 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("initializeMemory", output);
     }
 
@@ -2043,7 +2043,7 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ count: Int", output);
+        Assert.Contains("_ count: Swift.Int", output);
         Assert.Contains("count: count", output);
     }
 
@@ -2135,14 +2135,14 @@ public class MethodWrapperEmitterTests
         var (output, _) = EmitGenericBoxPurge(gateReduced: true);
 
         var requirement = System.Text.RegularExpressions.Regex.Match(
-            output, @"private protocol _SBW_P_\w+ \{\s*func (\w+)\(animatingDifferences: Bool\)");
+            output, @"private protocol _SBW_P_\w+ \{\s*func (\w+)\(animatingDifferences: Swift.Bool\)");
         Assert.True(requirement.Success, output);
         var requirementName = requirement.Groups[1].Value;
         Assert.NotEqual("purge", requirementName);
         // The conformance implements the requirement by calling the declaration with the kept
         // arguments, so the dropped defaults are filled in by Swift.
         Assert.Matches(@"extension TestModule\.GenericBox: _SBW_P_\w+ \{\s*func " + requirementName
-            + @"\(animatingDifferences: Bool\) \{\s*return self\.purge\(animatingDifferences: animatingDifferences\)", output);
+            + @"\(animatingDifferences: Swift.Bool\) \{\s*return self\.purge\(animatingDifferences: animatingDifferences\)", output);
         Assert.Contains($"obj.{requirementName}(animatingDifferences: ", output);
         Assert.DoesNotContain("obj.purge(", output);
     }
@@ -2152,7 +2152,7 @@ public class MethodWrapperEmitterTests
     {
         var (output, _) = EmitGenericBoxPurge(gateReduced: false);
 
-        Assert.Contains("func purge(animatingDifferences: Bool)", output);
+        Assert.Contains("func purge(animatingDifferences: Swift.Bool)", output);
         Assert.Matches(@"extension TestModule\.GenericBox: _SBW_P_\w+ \{\}", output);
         Assert.Contains("obj.purge(animatingDifferences: ", output);
     }
@@ -2220,11 +2220,11 @@ public class MethodWrapperEmitterTests
         Assert.Contains("func reset()", output);
         Assert.Contains("extension TestModule.GenericBox:", output);
         // Metadata parameter
-        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata0: Swift.UnsafeRawPointer", output);
         // Self reconstruction via AnyObject
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_P_", output);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_P_", output);
         // Should NOT use concrete type
-        Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
+        Assert.DoesNotContain("Swift.Unmanaged<TestModule.GenericBox>", output);
     }
 
     [Fact]
@@ -2487,7 +2487,7 @@ public class MethodWrapperEmitterTests
         var result = MethodWrapperEmitter.BuildProtocolMethodDeclaration(method, env);
 
         // Must produce valid Swift: `func append(_ element: Int)`, NOT `func append( element: Int)`
-        Assert.Contains("_ element: Int", result);
+        Assert.Contains("_ element: Swift.Int", result);
         Assert.DoesNotContain("( ", result); // no empty external label
     }
 
@@ -2549,8 +2549,8 @@ public class MethodWrapperEmitterTests
 
         // Both labels stay — they are what the declaration is matched on. Only the repeat's
         // internal name moves aside, in the short `label:` / explicit `label name:` pair.
-        Assert.Contains("inSection: Int", result);
-        Assert.Contains("inSection inSection2: Int", result);
+        Assert.Contains("inSection: Swift.Int", result);
+        Assert.Contains("inSection inSection2: Swift.Int", result);
     }
 
     #endregion
@@ -2591,11 +2591,11 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
         var output = sw.ToString();
 
-        Assert.Contains("_ self_: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains(".move().consumeSelf()", output);
         // The consuming path must NOT borrow self through .pointee (that would fail to compile).
         Assert.DoesNotContain(".pointee.consumeSelf()", output);
-        Assert.DoesNotContain("_ self_: UnsafeRawPointer", output);
+        Assert.DoesNotContain("_ self_: Swift.UnsafeRawPointer", output);
     }
 
     [Fact]
@@ -2619,11 +2619,11 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
         var output = sw.ToString();
 
-        Assert.Contains("_ self_: UnsafeRawPointer", output);
+        Assert.Contains("_ self_: Swift.UnsafeRawPointer", output);
         Assert.Contains(".pointee.inspect()", output);
         // Borrowing self must NOT move() the value out of the buffer.
         Assert.DoesNotContain(".move()", output);
-        Assert.DoesNotContain("_ self_: UnsafeMutableRawPointer", output);
+        Assert.DoesNotContain("_ self_: Swift.UnsafeMutableRawPointer", output);
     }
 
     #endregion
@@ -3396,10 +3396,10 @@ public class MethodWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "other", env);
 
-        Assert.Contains("UnsafeRawPointer", cdeclParam);
+        Assert.Contains("Swift.UnsafeRawPointer", cdeclParam);
         Assert.DoesNotContain("UnsafeMutableRawPointer?", cdeclParam);
-        Assert.Contains("load(as: Optional<Any>.self)", reconstruction!);
-        Assert.DoesNotContain("Unmanaged<AnyObject>", reconstruction!);
+        Assert.Contains("load(as: Swift.Optional<Any>.self)", reconstruction!);
+        Assert.DoesNotContain("Swift.Unmanaged<Swift.AnyObject>", reconstruction!);
         Assert.Contains("other: otherVal", callArg);
     }
 
@@ -3430,9 +3430,9 @@ public class MethodWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "buffer", env);
 
-        Assert.Contains("bufferPtr: UnsafeRawPointer?", cdeclParam);
-        Assert.Contains("bufferLen: Int", cdeclParam);
-        Assert.Contains("UnsafeRawBufferPointer(start: bufferPtr, count: bufferLen)", reconstruction!);
+        Assert.Contains("bufferPtr: Swift.UnsafeRawPointer?", cdeclParam);
+        Assert.Contains("bufferLen: Swift.Int", cdeclParam);
+        Assert.Contains("Swift.UnsafeRawBufferPointer(start: bufferPtr, count: bufferLen)", reconstruction!);
         Assert.Contains("buffer: bufferVal", callArg);
     }
 
@@ -3464,11 +3464,11 @@ public class MethodWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "buffer", env);
 
-        Assert.Contains("bufferPtr: UnsafeMutableRawPointer?", cdeclParam);
-        Assert.Contains("bufferLen: Int", cdeclParam);
-        Assert.Contains("UnsafeMutableRawBufferPointer(start: bufferPtr, count: bufferLen)", reconstruction!);
+        Assert.Contains("bufferPtr: Swift.UnsafeMutableRawPointer?", cdeclParam);
+        Assert.Contains("bufferLen: Swift.Int", cdeclParam);
+        Assert.Contains("Swift.UnsafeMutableRawBufferPointer(start: bufferPtr, count: bufferLen)", reconstruction!);
         // The read-only initializer must NOT appear — that would silently demote write-back.
-        Assert.DoesNotContain("= UnsafeRawBufferPointer(", reconstruction!);
+        Assert.DoesNotContain("= Swift.UnsafeRawBufferPointer(", reconstruction!);
         Assert.Contains("buffer: bufferVal", callArg);
     }
 
@@ -3521,7 +3521,7 @@ public class MethodWrapperEmitterTests
         var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalSelf, typeDb);
 
         Assert.Equal(CdeclReturnKind.OptionalClassPointer, mapping.Kind);
-        Assert.Equal("UnsafeMutableRawPointer?", mapping.CdeclReturnType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer?", mapping.CdeclReturnType);
         Assert.False(needsResultPtr);
     }
 
@@ -3941,10 +3941,10 @@ public class MethodWrapperEmitterTests
 
         // Data parameter must be received as two Int words (matching String pattern),
         // not Foundation.Data (which triggers ObjC bridging to NSData*)
-        Assert.Contains("_dW0_data: Int", output);
-        Assert.Contains("_dW1_data: Int", output);
+        Assert.Contains("_dW0_data: Swift.Int", output);
+        Assert.Contains("_dW1_data: Swift.Int", output);
         // Must reconstruct via unsafeBitCast to Foundation.Data.self
-        Assert.Contains("unsafeBitCast", output);
+        Assert.Contains("Swift.unsafeBitCast", output);
         Assert.Contains("Foundation.Data.self", output);
         // Must NOT have bare "Foundation.Data" as a @_cdecl parameter type
         Assert.DoesNotContain("_ data: Data,", output);
@@ -4014,9 +4014,9 @@ public class MethodWrapperEmitterTests
         var output = sw.ToString();
 
         // Data parameter must be received as two Int words
-        Assert.Contains("_dW0_data: Int", output);
-        Assert.Contains("_dW1_data: Int", output);
-        Assert.Contains("unsafeBitCast", output);
+        Assert.Contains("_dW0_data: Swift.Int", output);
+        Assert.Contains("_dW1_data: Swift.Int", output);
+        Assert.Contains("Swift.unsafeBitCast", output);
         Assert.Contains("Foundation.Data.self", output);
     }
 
@@ -4127,12 +4127,12 @@ public class MethodWrapperEmitterTests
         // Tag-only enum must use safe copyMemory widening, NOT .rawValue or load(as: Int.self).
         // Transport scalar is 32-bit Int32 to match the C# `int` P/Invoke side (the int↔Int
         // width contract pinned by EnumAbiWidthConsistencyTests).
-        Assert.Contains("let resultSize = MemoryLayout.size(ofValue: result)", output);
-        Assert.Contains("var tag: Int32 = 0", output);
+        Assert.Contains("let resultSize = Swift.MemoryLayout.size(ofValue: result)", output);
+        Assert.Contains("var tag: Swift.Int32 = 0", output);
         Assert.Contains("copyMemory", output);
         Assert.Contains("byteCount: resultSize", output);
         Assert.DoesNotContain(".rawValue", output);
-        Assert.DoesNotContain("load(as: Int.self)", output);
+        Assert.DoesNotContain("load(as: Swift.Int.self)", output);
     }
 
     [Fact]
@@ -4328,8 +4328,8 @@ public class MethodWrapperEmitterTests
 
         // Wrapper must be present and Optional<N> must be preserved on both annotation and metatype.
         Assert.Contains("extension TestModule.Box: _SBW_GSM_", output);
-        Assert.Contains("let result: Optional<N> = ", output);
-        Assert.Contains("initializeMemory(as: Optional<N>.self,", output);
+        Assert.Contains("let result: Swift.Optional<N> = ", output);
+        Assert.Contains("initializeMemory(as: Swift.Optional<N>.self,", output);
     }
 
     [Fact]
@@ -5129,8 +5129,8 @@ public class MethodWrapperEmitterTests
         // The protocol-based static dispatch extension must declare `result` with the
         // full Optional<N> shape so Swift overload resolution picks the Optional
         // sibling (not the non-optional one).
-        Assert.Contains("let result: Optional<N>", output);
-        Assert.Contains("initializeMemory(as: Optional<N>.self", output);
+        Assert.Contains("let result: Swift.Optional<N>", output);
+        Assert.Contains("initializeMemory(as: Swift.Optional<N>.self", output);
     }
 
     [Fact]
@@ -5179,8 +5179,8 @@ public class MethodWrapperEmitterTests
 
         var output = EmitOne(method, typeDb, promotedSymbol: "SBW_TestModule_Mapper_mapArrayOptional");
 
-        Assert.Contains("let result: Optional<Array<N>>", output);
-        Assert.Contains("initializeMemory(as: Optional<Array<N>>.self", output);
+        Assert.Contains("let result: Swift.Optional<Swift.Array<N>>", output);
+        Assert.Contains("initializeMemory(as: Swift.Optional<Swift.Array<N>>.self", output);
     }
 
     #endregion
@@ -5664,8 +5664,8 @@ public class MethodWrapperEmitterTests
             new SwiftWriter(sw), env, new ModuleEmissionContext());
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
-        Assert.Contains("Unmanaged.passRetained", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("Swift.Unmanaged.passRetained", output);
         Assert.DoesNotContain("resultPtr", output);
         Assert.DoesNotContain("hasValuePtr", output);
     }

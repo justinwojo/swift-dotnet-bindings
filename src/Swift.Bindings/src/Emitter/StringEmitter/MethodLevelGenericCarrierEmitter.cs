@@ -120,7 +120,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
         swiftWriter.Indent++;
         swiftWriter.WriteLine($"{refusalParam}.pointee = 0");
         swiftWriter.WriteLine(
-            $"let {localNames.AnyType[opened.Ordinal]} = unsafeBitCast({localNames.Metadata[opened.Ordinal]}, to: Any.Type.self)");
+            $"let {localNames.AnyType[opened.Ordinal]} = Swift.unsafeBitCast({localNames.Metadata[opened.Ordinal]}, to: Any.Type.self)");
 
         string outcomeExpression;
         if (opened.Strategy == MlgOpeningStrategy.AssociatedTypeCarrier)
@@ -175,7 +175,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLine("} catch {");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            swiftWriter.WriteLine("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()");
             if (!isVoidReturn && !needsResultPtr)
                 CdeclReturnRenderer.WriteErrorSentinel(swiftWriter, returnMapping);
             swiftWriter.Indent--;

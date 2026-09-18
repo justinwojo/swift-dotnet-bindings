@@ -461,7 +461,7 @@ public class CrossModuleExtensionEmitterTests
             cs);
         Assert.Contains("EntryPoint = \"SBW_GetErrorDescription_TestModule\"", cs);
         Assert.Contains("EntryPoint = \"SBW_ReleaseError_TestModule\"", cs);
-        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", swiftOutput.ToString());
+        Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", swiftOutput.ToString());
         Assert.DoesNotContain("GetINativeObject<global::Foundation.NSError>", cs);
         Assert.DoesNotContain("SBW_ReleaseError(errorPtr)", cs);
     }
@@ -626,13 +626,13 @@ public class CrossModuleExtensionEmitterTests
         Assert.Contains("return (OrigModule.OrigStatus)NativeMethods.", csResult);
 
         // Swift signature uses Int32 for both param and return — the @_cdecl C ABI shape.
-        Assert.Contains("_ status: Int32", swiftResult);
-        Assert.Contains(") -> Int32", swiftResult);
+        Assert.Contains("_ status: Swift.Int32", swiftResult);
+        Assert.Contains(") -> Swift.Int32", swiftResult);
         // Swift body reconstructs the enum via guard-let (preconditionFailure on
         // invalid raw, matching CdeclParamMapper) and re-exposes rawValue on return.
         Assert.Contains("guard let statusVal = OrigModule.OrigStatus(rawValue: status)", swiftResult);
         // Emitted traps carry the [SwiftBindings] breadcrumb so a raw-value abort is attributable.
-        Assert.Contains("preconditionFailure(\"[SwiftBindings] Invalid raw value", swiftResult);
+        Assert.Contains("Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value", swiftResult);
         Assert.Contains(".rawValue", swiftResult);
         // The Swift trampoline must NOT declare the Swift enum type in its @_cdecl signature.
         Assert.DoesNotContain("_ status: OrigModule.OrigStatus", swiftResult);
@@ -689,13 +689,13 @@ public class CrossModuleExtensionEmitterTests
         Assert.DoesNotContain("OrigModule.OrigStatus value, IntPtr __self", csResult);
 
         // Swift setter @_cdecl signature uses Int32, NOT the enum.
-        Assert.Contains("_ newValue: Int32", swiftResult);
+        Assert.Contains("_ newValue: Swift.Int32", swiftResult);
         Assert.DoesNotContain("_ newValue: OrigModule.OrigStatus", swiftResult);
         // Swift body reconstructs the enum via guard-let before assigning,
         // matching CdeclParamMapper's preconditionFailure shape.
         Assert.Contains("guard let newValueVal = OrigModule.OrigStatus(rawValue: newValue)", swiftResult);
         // Emitted traps carry the [SwiftBindings] breadcrumb so a raw-value abort is attributable.
-        Assert.Contains("preconditionFailure(\"[SwiftBindings] Invalid raw value", swiftResult);
+        Assert.Contains("Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value", swiftResult);
     }
 
     [Theory]
@@ -1136,7 +1136,7 @@ public class CrossModuleExtensionEmitterTests
         CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
 
         var swift = swiftOutput.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swift);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", swift);
         Assert.Contains("resultPtr.initializeMemory(as: OrigModule.OrigPoint.self, repeating:", swift);
     }
 

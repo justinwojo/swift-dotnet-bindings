@@ -616,7 +616,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         //   cancelKey: Int64 (producer-cancel registry key)
         var swiftParams = new List<string>();
         if (!isVoid)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         // Per-param Utf8Slice marshalling. The selective-opt-out gate above has
         // already filtered to Utf8Slice only — every arg here is Swift.String.
@@ -637,17 +637,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (NameProvider.IsSwiftKeyword(label))
                 label = $"{label}Param";
             var argLabel = ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
-            swiftParams.Add($"_ _{label}Utf8Ptr: UnsafePointer<UInt8>");
-            swiftParams.Add($"_ _{label}Utf8Len: Int");
+            swiftParams.Add($"_ _{label}Utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+            swiftParams.Add($"_ _{label}Utf8Len: Swift.Int");
             reconstructions.Add(
-                $"let _{label}Val = String(bytes: UnsafeBufferPointer(start: _{label}Utf8Ptr, count: _{label}Utf8Len), encoding: .utf8)!");
+                $"let _{label}Val = Swift.String(bytes: Swift.UnsafeBufferPointer(start: _{label}Utf8Ptr, count: _{label}Utf8Len), encoding: .utf8)!");
             callArgs.Add($"{argLabel}_{label}Val");
         }
 
-        swiftParams.Add("_ self_: UnsafeRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
         swiftParams.Add(isVoid
-            ? "_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void"
-            : "_ completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
+            ? "_ completion: @convention(c) (Swift.UnsafeMutableRawPointer) -> Swift.Void"
+            : "_ completion: @convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer) -> Swift.Void");
         if (throws)
         {
             // The error pointer is optional: a nil error pointer is the cancellation
@@ -655,10 +655,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // signal CancellationError through the existing two-argument callback without
             // widening the wire. ABI-identical to a non-optional pointer.
             swiftParams.Add(
-                "_ errorCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer) -> Void");
+                "_ errorCallback: @convention(c) (Swift.UnsafeMutableRawPointer?, Swift.UnsafeMutableRawPointer) -> Swift.Void");
         }
-        swiftParams.Add("_ context: UnsafeMutableRawPointer");
-        swiftParams.Add("_ cancelKey: Int64");
+        swiftParams.Add("_ context: Swift.UnsafeMutableRawPointer");
+        swiftParams.Add("_ cancelKey: Swift.Int64");
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             method.ParentDecl, method.IsMainActorIsolated, method.IsNonisolated);
@@ -725,11 +725,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // Task on the C# side, not a faulted one. Signal cancellation with a nil error
             // pointer (the sentinel the C# callback maps to TrySetCanceled); every other
             // error boxes and flows through the normal fault path.
-            swiftWriter.WriteLine("        } catch is CancellationError {");
+            swiftWriter.WriteLine("        } catch is _Concurrency.CancellationError {");
             swiftWriter.WriteLine("            errorCallback(nil, context)");
             swiftWriter.WriteLine("        } catch {");
             swiftWriter.WriteLine(
-                "            let errorPtr = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+                "            let errorPtr = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()");
             swiftWriter.WriteLine("            errorCallback(errorPtr, context)");
             swiftWriter.WriteLine("        }");
         }

@@ -511,7 +511,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, ov.MergedAvailability);
         swiftWriter.WriteLine($"@_cdecl(\"{ov.CdeclSymbol}\")");
 
-        var swiftParams = new List<string> { "_ _by: UnsafeRawPointer" };
+        var swiftParams = new List<string> { "_ _by: Swift.UnsafeRawPointer" };
         // Sibling bindings (this emitter binds each param to `_{Name}`) so a reserved-name escape
         // (`_by`) also dodges a sibling user binding. EmitTrampolineCall recomputes the
         // identical set, keeping decl and call in sync.
@@ -527,7 +527,7 @@ internal static class KeyPathBagValueSpecializationEmitter
                 rawBinding, CdeclParamMapper.ExcludeSelf(siblings, rawBinding));
             swiftParams.Add($"_ {binding}: {SwiftPrimitiveToCdeclType(p.SwiftType)}");
         }
-        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
 
         swiftWriter.WriteLine($"public func {ov.CdeclSymbol}(");
         swiftWriter.WriteLine($"    {string.Join(",\n    ", swiftParams)}");
@@ -543,7 +543,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         string selfWriteBack = string.Empty;
         if (ov.IsClassReceiver)
         {
-            swiftWriter.WriteLine($"let __self = unsafeBitCast(OpaquePointer(self_), to: {ov.ParentSwiftClosed}.self)");
+            swiftWriter.WriteLine($"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(self_), to: {ov.ParentSwiftClosed}.self)");
         }
         else if (ov.Method.IsMutating)
         {
@@ -560,11 +560,11 @@ internal static class KeyPathBagValueSpecializationEmitter
         // against each Swift V variant in the collapse group. C# can't differentiate
         // `KeyPath<Bag, String>` from `KeyPath<Bag, String?>` (NRT erasure), so the
         // single C# overload dispatches to whichever Swift V the heap KP carries.
-        swiftWriter.WriteLine("let anyKp = Unmanaged<AnyKeyPath>.fromOpaque(_by).takeUnretainedValue()");
+        swiftWriter.WriteLine("let anyKp = Swift.Unmanaged<Swift.AnyKeyPath>.fromOpaque(_by).takeUnretainedValue()");
 
         foreach (var swiftV in ov.SwiftValueVariants)
         {
-            swiftWriter.WriteLine($"if let typedKp = anyKp as? KeyPath<{ov.BagSwiftQualified}, {swiftV}> {{");
+            swiftWriter.WriteLine($"if let typedKp = anyKp as? Swift.KeyPath<{ov.BagSwiftQualified}, {swiftV}> {{");
             swiftWriter.Indent++;
             EmitTrampolineCall(swiftWriter, ov, selfWriteBack);
             swiftWriter.WriteLine("return");
@@ -648,7 +648,7 @@ internal static class KeyPathBagValueSpecializationEmitter
     /// </summary>
     private static string SwiftPrimitiveToCdeclType(string swiftType)
     {
-        if (SwiftPrimitiveIsBool(swiftType)) return "Int8";
+        if (SwiftPrimitiveIsBool(swiftType)) return "Swift.Int8";
         return swiftType;
     }
 

@@ -379,8 +379,8 @@ internal static class CollectionProjectionEmitter
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
             private protocol {{protocolName}} {
-                static func {{countDispatchName}}(selfPtr: UnsafeRawPointer) -> Int
-                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) -> Int
+                static func {{countDispatchName}}(selfPtr: Swift.UnsafeRawPointer) -> Swift.Int
+                static func {{subDispatchName}}(resultPtr: Swift.UnsafeMutableRawPointer, position: Swift.Int, selfPtr: Swift.UnsafeRawPointer) -> Swift.Int
             }
             """);
 
@@ -420,11 +420,11 @@ internal static class CollectionProjectionEmitter
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLines($$"""
             extension {{moduleQualifiedName}}: {{protocolName}} {
-                static func {{countDispatchName}}(selfPtr: UnsafeRawPointer) -> Int {
+                static func {{countDispatchName}}(selfPtr: Swift.UnsafeRawPointer) -> Swift.Int {
                     let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
                     return obj.count
                 }
-                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) -> Int {
+                static func {{subDispatchName}}(resultPtr: Swift.UnsafeMutableRawPointer, position: Swift.Int, selfPtr: Swift.UnsafeRawPointer) -> Swift.Int {
                     let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
                     let elementCount = obj.count
                     guard position >= 0, position < elementCount else {
@@ -448,9 +448,9 @@ internal static class CollectionProjectionEmitter
         WrapperEmitterHelpers.EmitCdeclAnnotation(
             swiftWriter, countSymbol, needsMainActor: false,
             availabilityAnnotations: availability);
-        swiftWriter.WriteLine($"public func _sbw_coll_count_cdecl_{hash}(_ parentMetaPtr: UnsafeRawPointer, _ self_: UnsafeRawPointer) -> Int {{");
+        swiftWriter.WriteLine($"public func _sbw_coll_count_cdecl_{hash}(_ parentMetaPtr: Swift.UnsafeRawPointer, _ self_: Swift.UnsafeRawPointer) -> Swift.Int {{");
         swiftWriter.Indent++;
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"let metatype = Swift.unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
         swiftWriter.WriteLine($"return metatype.{countDispatchName}(selfPtr: self_)");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
@@ -467,9 +467,9 @@ internal static class CollectionProjectionEmitter
         WrapperEmitterHelpers.EmitCdeclAnnotation(
             swiftWriter, subscriptSymbol, needsMainActor: false,
             availabilityAnnotations: availability);
-        swiftWriter.WriteLine($"public func _sbw_coll_subscript_cdecl_{hash}(_ resultPtr: UnsafeMutableRawPointer, _ position: Int, _ parentMetaPtr: UnsafeRawPointer, _ self_: UnsafeRawPointer) -> Int {{");
+        swiftWriter.WriteLine($"public func _sbw_coll_subscript_cdecl_{hash}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ position: Swift.Int, _ parentMetaPtr: Swift.UnsafeRawPointer, _ self_: Swift.UnsafeRawPointer) -> Swift.Int {{");
         swiftWriter.Indent++;
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"let metatype = Swift.unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
         swiftWriter.WriteLine($"return metatype.{subDispatchName}(resultPtr: resultPtr, position: position, selfPtr: self_)");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");

@@ -43,7 +43,7 @@ internal static class GenericProtocolEmitter
     /// <c>// SBW-ORIGIN:</c> anchor ahead of each of the two symbol-less blocks so a wrapper-compile
     /// diagnostic landing in either attributes to that member rather than the coarse module scope.
     /// </param>
-    /// <param name="protocolConstraint">Optional protocol constraint (e.g., "AnyObject" for class-only protocols).</param>
+    /// <param name="protocolConstraint">Optional protocol constraint (e.g., "Swift.AnyObject" for class-only protocols).</param>
     /// <param name="extensionAvailability">Optional merged availability annotations applied to the conformance extension. Conformance extensions are top-level decls and don't inherit the enclosing type's availability.</param>
     /// <param name="conformanceBody">Optional lines implementing the requirement inside the conformance extension, for a member the type cannot witness directly. Null leaves the extension empty.</param>
     /// <returns>The generated protocol name (e.g., "_SBW_P_A1B2C3D4").</returns>

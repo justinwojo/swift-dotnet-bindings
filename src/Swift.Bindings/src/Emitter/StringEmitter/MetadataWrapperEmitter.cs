@@ -45,13 +45,13 @@ public static class MetadataWrapperEmitter
         var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, typeDecl);
         var availabilityGuard = WrapperEmitterHelpers.BuildAvailabilityGuardExpression(availability);
         var funcName = $"_sbw_getMetadata_{EmitterUtility.DeterministicHash8(symbolName)}";
-        var typeReference = $"unsafeBitCast({moduleQualifiedSwiftName}.self as Any.Type, to: UnsafeMutableRawPointer.self)";
+        var typeReference = $"Swift.unsafeBitCast({moduleQualifiedSwiftName}.self as Any.Type, to: Swift.UnsafeMutableRawPointer.self)";
 
         if (string.IsNullOrEmpty(availabilityGuard))
         {
             // Type is available at the module's deployment floor — reference it unconditionally.
             swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
-            swiftWriter.WriteLine($"public func {funcName}() -> UnsafeMutableRawPointer {{");
+            swiftWriter.WriteLine($"public func {funcName}() -> Swift.UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine(typeReference);
             swiftWriter.Indent--;
@@ -68,7 +68,7 @@ public static class MetadataWrapperEmitter
             // @available here — it would lift the function's availability context to the floor,
             // making the inner #available always-true and dead-coding the else branch.
             swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
-            swiftWriter.WriteLine($"public func {funcName}() -> UnsafeMutableRawPointer? {{");
+            swiftWriter.WriteLine($"public func {funcName}() -> Swift.UnsafeMutableRawPointer? {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"if {availabilityGuard} {{");
             swiftWriter.Indent++;

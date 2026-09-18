@@ -600,19 +600,19 @@ public static partial class CrossModuleExtensionEmitter
         var swiftParams = new List<string>();
         bool returnsViaResultPtr = returnCategory == ReturnKind.FrozenStruct;
         if (returnsViaResultPtr)
-            swiftParams.Add("_ __resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ __resultPtr: Swift.UnsafeMutableRawPointer");
         foreach (var p in parameters)
         {
             swiftParams.Add($"_ {p.SwiftBindingName}: {RenderSwiftParamType(p)}");
         }
-        swiftParams.Add("_ self_: UnsafeRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
 
         string swiftReturn = returnCategory switch
         {
             ReturnKind.Void or ReturnKind.FrozenStruct => "",
             ReturnKind.Primitive when returnEnumLowering is { } e => " -> " + e.UnderlyingSwiftType,
             ReturnKind.Primitive => " -> " + ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec!),
-            ReturnKind.ObjCClass or ReturnKind.SwiftClass => " -> UnsafeMutableRawPointer",
+            ReturnKind.ObjCClass or ReturnKind.SwiftClass => " -> Swift.UnsafeMutableRawPointer",
             _ => "",
         };
 
@@ -675,7 +675,7 @@ public static partial class CrossModuleExtensionEmitter
             case ReturnKind.ObjCClass:
             case ReturnKind.SwiftClass:
                 swiftWriter.WriteLine($"let __r = {callExpr}");
-                swiftWriter.WriteLine("return Unmanaged.passRetained(__r).toOpaque()");
+                swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(__r).toOpaque()");
                 break;
             case ReturnKind.FrozenStruct:
                 // Module-qualified — unqualified Swift names can collide when the
@@ -704,14 +704,14 @@ public static partial class CrossModuleExtensionEmitter
         bool returnsViaResultPtr = returnCategory == ReturnKind.FrozenStruct;
         var swiftParams = new List<string>();
         if (returnsViaResultPtr)
-            swiftParams.Add("_ __resultPtr: UnsafeMutableRawPointer");
-        swiftParams.Add("_ self_: UnsafeRawPointer");
+            swiftParams.Add("_ __resultPtr: Swift.UnsafeMutableRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
 
         string swiftReturn = returnCategory switch
         {
             ReturnKind.Primitive when returnEnumLowering is { } e => " -> " + e.UnderlyingSwiftType,
             ReturnKind.Primitive => " -> " + ExistentialBypassEmitter.RenderSwiftTypeSpec(property.SwiftTypeSpec!),
-            ReturnKind.ObjCClass or ReturnKind.SwiftClass => " -> UnsafeMutableRawPointer",
+            ReturnKind.ObjCClass or ReturnKind.SwiftClass => " -> Swift.UnsafeMutableRawPointer",
             ReturnKind.FrozenStruct => "",
             _ => "",
         };
@@ -735,7 +735,7 @@ public static partial class CrossModuleExtensionEmitter
             case ReturnKind.ObjCClass:
             case ReturnKind.SwiftClass:
                 swiftWriter.WriteLine($"let __r = {accessExpr}");
-                swiftWriter.WriteLine("return Unmanaged.passRetained(__r).toOpaque()");
+                swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(__r).toOpaque()");
                 break;
             case ReturnKind.FrozenStruct:
                 var retSwift = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(property.SwiftTypeSpec!);
@@ -767,7 +767,7 @@ public static partial class CrossModuleExtensionEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Cross-module struct-extension @_cdecl setter trampoline for {origSwiftTypeQualified}.{property.Name}");
         swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
-        swiftWriter.WriteLine($"public func _sbw_ext_{symbolName}(_ newValue: {valueType}, _ self_: UnsafeMutableRawPointer) {{");
+        swiftWriter.WriteLine($"public func _sbw_ext_{symbolName}(_ newValue: {valueType}, _ self_: Swift.UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;
         if (enumLowering is { } el)
         {
@@ -882,12 +882,12 @@ public static partial class CrossModuleExtensionEmitter
     private static string RenderSwiftParamType(StructParamInfo p) => p.Kind switch
     {
         ParamKind.Primitive => p.SwiftType,
-        ParamKind.ObjCClass => "UnsafeMutableRawPointer",
-        ParamKind.SwiftClass => "UnsafeMutableRawPointer",
+        ParamKind.ObjCClass => "Swift.UnsafeMutableRawPointer",
+        ParamKind.SwiftClass => "Swift.UnsafeMutableRawPointer",
         // Swift @_cdecl signature uses the raw scalar; the body reconstructs the
         // enum via T(rawValue:). See ConvertCdeclSwiftArg.
         ParamKind.SimpleEnum => p.SimpleEnumUnderlyingSwiftType!,
-        _ => "UnsafeMutableRawPointer",
+        _ => "Swift.UnsafeMutableRawPointer",
     };
 
     // References the Swift @_cdecl binding (SwiftBindingName), not the C# param name (Name):
@@ -895,8 +895,8 @@ public static partial class CrossModuleExtensionEmitter
     private static string ConvertCdeclSwiftArg(StructParamInfo p) => p.Kind switch
     {
         ParamKind.Primitive => p.SwiftBindingName,
-        ParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {p.SwiftType})",
-        ParamKind.SwiftClass => $"Unmanaged<{p.SwiftType}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
+        ParamKind.ObjCClass => $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {p.SwiftType})",
+        ParamKind.SwiftClass => $"Swift.Unmanaged<{p.SwiftType}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
         // The enum was reconstructed via guard-let above the call site (see
         // EmitSwiftMethodTrampoline). Reference the bound local here.
         ParamKind.SimpleEnum => $"{p.SwiftBindingName}Val",

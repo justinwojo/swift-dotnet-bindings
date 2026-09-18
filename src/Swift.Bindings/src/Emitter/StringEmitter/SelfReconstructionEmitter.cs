@@ -38,7 +38,7 @@ public static class SelfReconstructionEmitter
     {
         if (isClass)
         {
-            swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+            swiftWriter.WriteLine($"let obj = Swift.Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
         }
         else if (isMutating)
         {
@@ -67,6 +67,6 @@ public static class SelfReconstructionEmitter
     public static void EmitProtocolCast(SwiftWriter swiftWriter, string protocolName, bool isMutable = false)
     {
         var binding = isMutable ? "var" : "let";
-        swiftWriter.WriteLine($"{binding} obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+        swiftWriter.WriteLine($"{binding} obj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
     }
 }

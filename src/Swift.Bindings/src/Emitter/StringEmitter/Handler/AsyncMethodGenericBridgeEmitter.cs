@@ -507,14 +507,14 @@ public static class AsyncMethodGenericBridgeEmitter
                 callbackTypeParams.Add(ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec));
                 break;
             case AsyncReturnKind.SwiftClass:
-                callbackTypeParams.Add("UnsafeMutableRawPointer");
+                callbackTypeParams.Add("Swift.UnsafeMutableRawPointer");
                 break;
             case AsyncReturnKind.ComplexValue:
-                callbackTypeParams.Add("UnsafeMutableRawPointer");
+                callbackTypeParams.Add("Swift.UnsafeMutableRawPointer");
                 break;
         }
-        callbackTypeParams.Add("Int64");
-        var callbackSignature = $"@convention(c) ({string.Join(", ", callbackTypeParams)}) -> Void";
+        callbackTypeParams.Add("Swift.Int64");
+        var callbackSignature = $"@convention(c) ({string.Join(", ", callbackTypeParams)}) -> Swift.Void";
 
         // Build wrapper function parameters.
         var swiftParams = new List<string>
@@ -525,13 +525,13 @@ public static class AsyncMethodGenericBridgeEmitter
         if (throws)
         {
             // Cascade error callback ABI: errorPtr, errorSize, errorMsgPtr, isCancelled, taskId, errorTypeId
-            swiftParams.Add("_ errorCallback: @convention(c) (UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32) -> Void");
+            swiftParams.Add("_ errorCallback: @convention(c) (Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32) -> Swift.Void");
         }
 
-        swiftParams.Add("_ _sbwTask: Int64");
+        swiftParams.Add("_ _sbwTask: Swift.Int64");
         // Monotonic cancellation-registry key, distinct from the GCHandle context (_sbwTask).
         // See SwiftAsyncCancellation.
-        swiftParams.Add("_ _sbwCancelKey: Int64");
+        swiftParams.Add("_ _sbwCancelKey: Swift.Int64");
 
         // Regular parameters (with existential opening for the generic param).
         var callArgs = new List<string>();
@@ -551,9 +551,9 @@ public static class AsyncMethodGenericBridgeEmitter
                 // `__self`/`_self` are reserved, so the escape resolves both; siblings cover a
                 // generic binding clashing with another user param.
                 var genericBinding = NameProvider.EscapeReservedSwiftWrapperLabel($"_{label}", siblings);
-                swiftParams.Add($"_ {genericBinding}: UnsafeRawPointer");
+                swiftParams.Add($"_ {genericBinding}: Swift.UnsafeRawPointer");
                 var argLabel = GetSwiftArgLabel(arg);
-                callArgs.Add($"{argLabel}(Unmanaged<AnyObject>.fromOpaque({genericBinding}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
+                callArgs.Add($"{argLabel}(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({genericBinding}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
             }
             else
             {
@@ -574,9 +574,9 @@ public static class AsyncMethodGenericBridgeEmitter
         if (isInstance)
         {
             if (isClass)
-                swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+                swiftParams.Add("_ _self: Swift.UnsafeMutableRawPointer");
             else
-                swiftParams.Add("_ _self: UnsafeRawPointer");
+                swiftParams.Add("_ _self: Swift.UnsafeRawPointer");
         }
 
         // Self conversion.
@@ -584,7 +584,7 @@ public static class AsyncMethodGenericBridgeEmitter
         if (isInstance)
         {
             selfConversion = isClass
-                ? $"let __self = unsafeBitCast(OpaquePointer(_self), to: {moduleQualifiedName}.self)"
+                ? $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {moduleQualifiedName}.self)"
                 : $"let __self = _self.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee";
         }
 
@@ -676,7 +676,7 @@ public static class AsyncMethodGenericBridgeEmitter
             case AsyncReturnKind.SwiftClass:
                 swiftWriter.WriteLine($"{indent}let _result = {awaitKeyword} {callExpr}");
                 // Pass +1 retained class pointer — C# ctor takes ownership of this retain.
-                swiftWriter.WriteLine($"{indent}callback(Unmanaged.passRetained(_result as AnyObject).toOpaque(), _sbwTask)");
+                swiftWriter.WriteLine($"{indent}callback(Swift.Unmanaged.passRetained(_result as Swift.AnyObject).toOpaque(), _sbwTask)");
                 break;
 
             case AsyncReturnKind.ComplexValue:
@@ -690,15 +690,15 @@ public static class AsyncMethodGenericBridgeEmitter
                         // declared on a Copyable one. The move-initializing form consumes _result
                         // into the same allocation instead, which is what this carrier wants: the
                         // C# callback takes the value back out and the raw pointer is freed after.
-                        swiftWriter.WriteLine($"{indent}let _resultTyped = UnsafeMutablePointer<{renderedReturn}>.allocate(capacity: 1)");
+                        swiftWriter.WriteLine($"{indent}let _resultTyped = Swift.UnsafeMutablePointer<{renderedReturn}>.allocate(capacity: 1)");
                         swiftWriter.WriteLine($"{indent}_resultTyped.initialize(to: _result)");
-                        swiftWriter.WriteLine($"{indent}let _resultBuf = UnsafeMutableRawPointer(_resultTyped)");
+                        swiftWriter.WriteLine($"{indent}let _resultBuf = Swift.UnsafeMutableRawPointer(_resultTyped)");
                     }
                     else
                     {
-                        swiftWriter.WriteLine($"{indent}let _resultBuf = UnsafeMutableRawPointer.allocate(");
-                        swiftWriter.WriteLine($"{indent}    byteCount: MemoryLayout<{renderedReturn}>.size,");
-                        swiftWriter.WriteLine($"{indent}    alignment: MemoryLayout<{renderedReturn}>.alignment)");
+                        swiftWriter.WriteLine($"{indent}let _resultBuf = Swift.UnsafeMutableRawPointer.allocate(");
+                        swiftWriter.WriteLine($"{indent}    byteCount: Swift.MemoryLayout<{renderedReturn}>.size,");
+                        swiftWriter.WriteLine($"{indent}    alignment: Swift.MemoryLayout<{renderedReturn}>.alignment)");
                         swiftWriter.WriteLine($"{indent}_resultBuf.initializeMemory(as: {renderedReturn}.self, repeating: _result, count: 1)");
                     }
                     // C# reads via MarshalFromSwift<T>, then VWT.Destroy + NativeMemory.Free.
@@ -721,8 +721,8 @@ public static class AsyncMethodGenericBridgeEmitter
         }
         else
         {
-            swiftWriter.WriteLine($"{indent}let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0");
-            swiftWriter.WriteLine($"{indent}let errorMessage = String(describing: error)");
+            swiftWriter.WriteLine($"{indent}let _isCancelled: Swift.Int32 = (error is _Concurrency.CancellationError) ? 1 : 0");
+            swiftWriter.WriteLine($"{indent}let errorMessage = Swift.String(describing: error)");
             swiftWriter.WriteLine($"{indent}errorMessage.withCString {{ _msgPtr in");
             swiftWriter.WriteLine($"{indent}    errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)");
             swiftWriter.WriteLine($"{indent}}}");

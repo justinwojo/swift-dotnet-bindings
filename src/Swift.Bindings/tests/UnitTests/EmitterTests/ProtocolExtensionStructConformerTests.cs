@@ -122,7 +122,7 @@ public class ProtocolExtensionStructConformerTests
         ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
-        Assert.Contains("-> UnsafeMutableRawPointer", wrapperLines);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", wrapperLines);
     }
 
     // ─── Synthetic MethodDecl has correct parent ──────────────────────
@@ -275,7 +275,7 @@ public class ProtocolExtensionStructConformerTests
 
         Assert.Single(conformingType.Methods);
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", wrapperLines);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", wrapperLines);
         Assert.DoesNotContain("UnsafeMutableRawPointer.allocate", wrapperLines);
     }
 

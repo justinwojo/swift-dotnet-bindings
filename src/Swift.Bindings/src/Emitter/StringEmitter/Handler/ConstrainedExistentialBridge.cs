@@ -110,8 +110,8 @@ public static class ConstrainedExistentialBridge
                     arg,
                     BridgeParamKind.ConstrainedExistential,
                     ISwiftObjectInterfaceName,
-                    "UnsafeMutableRawPointer",
-                    $"Unmanaged<AnyObject>.fromOpaque({GetSwiftParamName(arg, idx)}).takeUnretainedValue() as! {swiftType}",
+                    "Swift.UnsafeMutableRawPointer",
+                    $"Swift.Unmanaged<Swift.AnyObject>.fromOpaque({GetSwiftParamName(arg, idx)}).takeUnretainedValue() as! {swiftType}",
                     idx));
                 // Collect constraint type modules for imports (emitted by EmitSwiftWrapper)
                 var protocolSpec = GetConstrainedProtocolSpec(arg.SwiftTypeSpec);
@@ -155,14 +155,14 @@ public static class ConstrainedExistentialBridge
                     if (record.Kind == TypeRecordKind.Class)
                     {
                         bridgeParams.Add(new BridgeParam(
-                            arg, BridgeParamKind.PayloadHandle, csType, "UnsafeMutableRawPointer",
-                            $"Unmanaged<{named.Name}>.fromOpaque({GetSwiftParamName(arg, idx)}).takeUnretainedValue()",
+                            arg, BridgeParamKind.PayloadHandle, csType, "Swift.UnsafeMutableRawPointer",
+                            $"Swift.Unmanaged<{named.Name}>.fromOpaque({GetSwiftParamName(arg, idx)}).takeUnretainedValue()",
                             idx));
                     }
                     else // struct (non-frozen)
                     {
                         bridgeParams.Add(new BridgeParam(
-                            arg, BridgeParamKind.PayloadHandle, csType, "UnsafeMutableRawPointer",
+                            arg, BridgeParamKind.PayloadHandle, csType, "Swift.UnsafeMutableRawPointer",
                             $"{GetSwiftParamName(arg, idx)}.assumingMemoryBound(to: {named.Name}.self).pointee",
                             idx));
                     }
@@ -289,7 +289,7 @@ public static class ConstrainedExistentialBridge
         // PInvokeEmitHelper.SelectCallingConvention pins to CallConvCdecl for SBW_.
         // Bridge params are Primitive (numeric) or IntPtr/UnsafeRawPointer, all C-representable.
         swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> UnsafeMutableRawPointer {{");
+        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> Swift.UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
 
         // Emit local variables for unmarshal expressions that are multi-step
@@ -327,7 +327,7 @@ public static class ConstrainedExistentialBridge
 
         swiftWriter.WriteLine($"let result = {swiftTypeName}({string.Join(", ", updatedCallArgs)})");
         // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
-        swiftWriter.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+        swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
     }

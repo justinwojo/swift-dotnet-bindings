@@ -461,8 +461,8 @@ public class MethodGenericBridgeEmitterTests
         var swiftResult = swiftOutput.ToString();
         Assert.Contains("@_cdecl", swiftResult);
         Assert.Contains("_XM", swiftResult);
-        Assert.Contains("UnsafeRawPointer", swiftResult);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(", swiftResult);
+        Assert.Contains("Swift.UnsafeRawPointer", swiftResult);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(", swiftResult);
         Assert.Contains("as! any TestModule.Describable)", swiftResult);
 
         var csResult = csOutput.ToString();
@@ -519,10 +519,10 @@ public class MethodGenericBridgeEmitterTests
 
         Assert.True(handled);
         var swiftResult = swiftOutput.ToString();
-        Assert.Contains(") -> UnsafeMutableRawPointer? {", swiftResult);
+        Assert.Contains(") -> Swift.UnsafeMutableRawPointer? {", swiftResult);
         Assert.Contains("guard let _sbwError = result else { return nil }", swiftResult);
-        Assert.Contains("initializeMemory(as: (any Error).self", swiftResult);
-        Assert.DoesNotContain("Unmanaged.passRetained(", swiftResult);
+        Assert.Contains("initializeMemory(as: (any Swift.Error).self", swiftResult);
+        Assert.DoesNotContain("Swift.Unmanaged.passRetained(", swiftResult);
         var csResult = csOutput.ToString();
         Assert.Contains("ownsContainer: true", csResult);
         Assert.Contains("== IntPtr.Zero ? null", csResult);
@@ -637,8 +637,8 @@ public class MethodGenericBridgeEmitterTests
         // T : ISwiftObject, and `Foo?` is not a legal type-argument spelling here.
         Assert.DoesNotContain("MarshalFromSwiftObject<global::RemoteModule.RemoteHandle?>", csResult);
         Assert.Contains("let result =", swiftResult);
-        Assert.Contains("return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }", swiftResult);
-        Assert.DoesNotContain("return Unmanaged.passRetained(", swiftResult);
+        Assert.Contains("return result.map { Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }", swiftResult);
+        Assert.DoesNotContain("return Swift.Unmanaged.passRetained(", swiftResult);
     }
 
     #endregion
@@ -657,7 +657,7 @@ public class MethodGenericBridgeEmitterTests
         var (handled, csResult, swiftResult) = EmitBridgeWithReturn(new NamedTypeSpec("Swift.Bool"));
 
         Assert.True(handled);
-        Assert.Contains(") -> Int8 {", swiftResult);
+        Assert.Contains(") -> Swift.Int8 {", swiftResult);
         Assert.Contains("return result ? 1 : 0", swiftResult);
         Assert.Contains(MarshallingHelpers.BoolPInvokeReturnAttribute, csResult);
         Assert.Contains("partial bool PInvoke_", csResult);
@@ -670,7 +670,7 @@ public class MethodGenericBridgeEmitterTests
         var (handled, csResult, swiftResult) = EmitBridgeWithReturn(new NamedTypeSpec("Swift.Int64"));
 
         Assert.True(handled);
-        Assert.Contains(") -> Int64 {", swiftResult);
+        Assert.Contains(") -> Swift.Int64 {", swiftResult);
         Assert.Contains("partial long PInvoke_", csResult);
         Assert.Matches(@"public (long|System\.Int64) Process\(", csResult);
         Assert.DoesNotContain("partial IntPtr PInvoke_", csResult);
@@ -698,8 +698,8 @@ public class MethodGenericBridgeEmitterTests
         var (handled, csResult, swiftResult) = EmitBridgeWithReturn(new NamedTypeSpec("EnumModule.Level"), typeDatabase);
 
         Assert.True(handled);
-        Assert.Contains(") -> Int32 {", swiftResult);
-        Assert.Contains("return Int32(result.rawValue)", swiftResult);
+        Assert.Contains(") -> Swift.Int32 {", swiftResult);
+        Assert.Contains("return Swift.Int32(result.rawValue)", swiftResult);
         Assert.Contains("partial int PInvoke_", csResult);
         Assert.Contains("Level)PInvoke_", csResult);
     }

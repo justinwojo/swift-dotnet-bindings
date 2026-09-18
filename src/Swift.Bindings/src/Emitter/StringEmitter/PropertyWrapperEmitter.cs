@@ -319,13 +319,13 @@ public static class PropertyWrapperEmitter
 
         if (needsResultPtr)
         {
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
         }
 
         // Decomposed Optional getter: add hasValuePtr after resultPtr
         if (isDecomposedOptionalGetter)
         {
-            swiftParams.Add("_ hasValuePtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ hasValuePtr: Swift.UnsafeMutableRawPointer");
         }
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env,
@@ -340,20 +340,20 @@ public static class PropertyWrapperEmitter
                     // `get throws`. The C# side declares the matching `out IntPtr errorPtr`
                     // (PInvokeEmitter.HandleSwiftError's @_cdecl branch); the contract places it
                     // last for accessors, so both lists walk the phases rather than hardcode it.
-                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                     break;
                 case CdeclPhase.Self:
                     if (isClass || isMutatingGetter)
-                        swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
+                        swiftParams.Add($"_ self_: Swift.UnsafeMutableRawPointer");
                     else
-                        swiftParams.Add($"_ self_: UnsafeRawPointer");
+                        swiftParams.Add($"_ self_: Swift.UnsafeRawPointer");
                     break;
                 case CdeclPhase.Metadata:
                     if (isGenericParent && parentTypeDecl != null)
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
-                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
                         }
                         // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
                         // protocol constraints on the parent's generic parameters. The wrapper
@@ -363,7 +363,7 @@ public static class PropertyWrapperEmitter
                         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int i = 0; i < pwtCount; i++)
                         {
-                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _pwt{i}: Swift.UnsafeRawPointer");
                         }
                     }
                     break;
@@ -473,7 +473,7 @@ public static class PropertyWrapperEmitter
         {
             // LocalizedStringResource getter: resolve the resource to a String (iOS 16+) before
             // it rides the SBW_Utf8Slice path.
-            EmitStringGetterBody(swiftWriter, isLsr ? $"String(localized: {propAccess})" : propAccess);
+            EmitStringGetterBody(swiftWriter, isLsr ? $"Swift.String(localized: {propAccess})" : propAccess);
         }
         else if (isDecomposedOptionalGetter)
         {
@@ -516,7 +516,7 @@ public static class PropertyWrapperEmitter
                 var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNts.Name) ?? "8";
                 swiftWriter.WriteLine($"let result = {propAccess}");
                 swiftWriter.WriteLines($$"""
-                    let tagPtr = resultPtr.assumingMemoryBound(to: UInt8.self).advanced(by: {{tagOffset}})
+                    let tagPtr = resultPtr.assumingMemoryBound(to: Swift.UInt8.self).advanced(by: {{tagOffset}})
                     if let val = result {
                         resultPtr.assumingMemoryBound(to: {{rawType}}.self).pointee = val
                         tagPtr.pointee = 0
@@ -552,7 +552,7 @@ public static class PropertyWrapperEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLines("""
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                 """);
             // A getter that writes its value through resultPtr returns Void, so the catch block
             // falls off the end. A direct-return getter needs a sentinel of the declared @_cdecl
@@ -640,9 +640,9 @@ public static class PropertyWrapperEmitter
                     // NewValue parameter(s)
                     if (isString)
                     {
-                        swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
-                        swiftParams.Add("_ utf8Len: Int");
-                        reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+                        swiftParams.Add("_ utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+                        swiftParams.Add("_ utf8Len: Swift.Int");
+                        reconstructionLines.Add("let newValue = Swift.String(bytes: Swift.UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
                     }
                     else if (OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase))
                     {
@@ -650,7 +650,7 @@ public static class PropertyWrapperEmitter
                         // Swift reconstructs Optional<T> from these, avoiding C#-side VWT operations.
                         var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
                         var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
-                        swiftParams.Add("_ newValue: UnsafeRawPointer");
+                        swiftParams.Add("_ newValue: Swift.UnsafeRawPointer");
                         swiftParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
                         reconstructionLines.Add(OptionalMarshalClassifier.SwiftReconstructOptional(
                             OptionalMarshalClassifier.SwiftHasValueParam, "newValue", innerSwiftType, "newValueVal"));
@@ -663,8 +663,8 @@ public static class PropertyWrapperEmitter
                         // owner box. Only Optional permits a nil function pointer.
                         bool isOptionalClosure = env.ClosureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec);
                         var closureSpec = env.ClosureHandler.GetClosureTypeSpec(propertyDecl.SwiftTypeSpec)!;
-                        swiftParams.Add("_ newValueFuncPtr: UnsafeMutableRawPointer?");
-                        swiftParams.Add("_ newValueContext: UnsafeMutableRawPointer?");
+                        swiftParams.Add("_ newValueFuncPtr: Swift.UnsafeMutableRawPointer?");
+                        swiftParams.Add("_ newValueContext: Swift.UnsafeMutableRawPointer?");
 
                         ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
                         var adapterLines = ClosureEmitter.GetSwiftClosureAdapterCode(
@@ -709,7 +709,7 @@ public static class PropertyWrapperEmitter
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
-                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
                         }
                         // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
                         // protocol constraints on the parent's generic parameters. The wrapper
@@ -719,7 +719,7 @@ public static class PropertyWrapperEmitter
                         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int i = 0; i < pwtCount; i++)
                         {
-                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _pwt{i}: Swift.UnsafeRawPointer");
                         }
                     }
                     break;
@@ -729,12 +729,12 @@ public static class PropertyWrapperEmitter
                     // that if one ever parses as throwing, the parameter is DECLARED rather than
                     // silently dropped — a dropped slot would leave the C# P/Invoke one argument
                     // wider than the wrapper and shift every register.
-                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                     break;
 
                 case CdeclPhase.Self:
                     // Both class and struct setters use mutable self
-                    swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
+                    swiftParams.Add($"_ self_: Swift.UnsafeMutableRawPointer");
                     break;
             }
         }
@@ -798,7 +798,7 @@ public static class PropertyWrapperEmitter
         else if (isClass)
         {
             // Class: reconstruct from Unmanaged, assign property
-            swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+            swiftWriter.WriteLine($"let obj = Swift.Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
             swiftWriter.WriteLine($"obj.{propertyDecl.Name} = {valueExpr}");
         }
         else
@@ -1068,7 +1068,7 @@ public static class PropertyWrapperEmitter
             env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
             WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
-        swiftWriter.WriteLine($"public func {swiftFuncName}(_ resultPtr: UnsafeMutableRawPointer) {{");
+        swiftWriter.WriteLine($"public func {swiftFuncName}(_ resultPtr: Swift.UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;
         // Source-level call to the closed instantiation. Swift compiler resolves the open T
         // metadata and any PWTs at compile time, so the wrapper takes no extra parameters.
@@ -1118,15 +1118,15 @@ public static class PropertyWrapperEmitter
 
         if (needsResultPtr)
         {
-            cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
-            protocolParams.Add("resultPtr: UnsafeMutableRawPointer");
+            cdeclParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
+            protocolParams.Add("resultPtr: Swift.UnsafeMutableRawPointer");
             cdeclCallArgs.Add("resultPtr: resultPtr");
 
             // Decomposed Optional getter: add hasValuePtr after resultPtr
             if (isDecomposedOptionalGetter)
             {
-                cdeclParams.Add("_ hasValuePtr: UnsafeMutableRawPointer");
-                protocolParams.Add("hasValuePtr: UnsafeMutableRawPointer");
+                cdeclParams.Add("_ hasValuePtr: Swift.UnsafeMutableRawPointer");
+                protocolParams.Add("hasValuePtr: Swift.UnsafeMutableRawPointer");
                 cdeclCallArgs.Add("hasValuePtr: hasValuePtr");
             }
         }
@@ -1134,7 +1134,7 @@ public static class PropertyWrapperEmitter
         // Metadata params come BEFORE self to match C# PInvokeSignatureBuilder ordering for @_cdecl property accessors
         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
         {
-            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            cdeclParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
         }
 
         // PWT params follow the helper context's complete ordered slot description. Static
@@ -1142,7 +1142,7 @@ public static class PropertyWrapperEmitter
         int getterPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
         for (int i = 0; i < getterPwtCount; i++)
         {
-            cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+            cdeclParams.Add($"_ _pwt{i}: Swift.UnsafeRawPointer");
         }
 
         // A struct getter spelled `mutating get` reads through the caller's storage, not a copy:
@@ -1166,12 +1166,12 @@ public static class PropertyWrapperEmitter
         if (!isStatic)
         {
             if (isClass || isMutatingGetter)
-                cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+                cdeclParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
             else
-                cdeclParams.Add("_ self_: UnsafeRawPointer");
+                cdeclParams.Add("_ self_: Swift.UnsafeRawPointer");
             protocolParams.Add(isClass || isMutatingGetter
-                ? "selfPtr: UnsafeMutableRawPointer"
-                : "selfPtr: UnsafeRawPointer");
+                ? "selfPtr: Swift.UnsafeMutableRawPointer"
+                : "selfPtr: Swift.UnsafeRawPointer");
             cdeclCallArgs.Add("selfPtr: self_");
         }
 
@@ -1186,7 +1186,7 @@ public static class PropertyWrapperEmitter
             // No receiver to reconstruct.
         }
         else if (isClass)
-            bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
+            bodyLines.Add("let obj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         else if (!readsInPlace)
             bodyLines.Add("let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
 
@@ -1198,13 +1198,13 @@ public static class PropertyWrapperEmitter
 
         if (isString)
         {
-            bodyLines.Add($"let result: String = {propAccess}");
-            bodyLines.Add("let utf8 = Array(result.utf8)");
+            bodyLines.Add($"let result: Swift.String = {propAccess}");
+            bodyLines.Add("let utf8 = Swift.Array(result.utf8)");
             bodyLines.Add("if utf8.isEmpty {");
             bodyLines.Add("    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)");
             bodyLines.Add("    return");
             bodyLines.Add("}");
-            bodyLines.Add("let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)");
+            bodyLines.Add("let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)");
             bodyLines.Add("ptr.initialize(from: utf8, count: utf8.count)");
             bodyLines.Add("resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)");
         }
@@ -1311,7 +1311,7 @@ public static class PropertyWrapperEmitter
         var getPwtArgsList = Enumerable.Range(0, getterPwtCount).Select(i => $"_pwt{i}");
         var getMetaArgs = string.Join(", ", getMetaArgsList.Concat(getPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {getHelperName}({getMetaArgs})");
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"let metatype = Swift.unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
 
         if (needsResultPtr || protocolReturnType == "")
             swiftWriter.WriteLine($"metatype.{getMethodName}({string.Join(", ", cdeclCallArgs)})");
@@ -1379,25 +1379,25 @@ public static class PropertyWrapperEmitter
         // NewValue param
         if (propertyReferencesTOptional)
         {
-            cdeclParams.Add("_ newValue: UnsafeRawPointer");
+            cdeclParams.Add("_ newValue: Swift.UnsafeRawPointer");
             cdeclParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
-            protocolParams.Add("newValuePtr: UnsafeRawPointer");
+            protocolParams.Add("newValuePtr: Swift.UnsafeRawPointer");
             protocolParams.Add($"{OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
             cdeclCallArgs.Add("newValuePtr: newValue");
             cdeclCallArgs.Add($"{OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueParam}");
         }
         else if (propertyReferencesT)
         {
-            cdeclParams.Add("_ newValue: UnsafeRawPointer");
-            protocolParams.Add("newValuePtr: UnsafeRawPointer");
+            cdeclParams.Add("_ newValue: Swift.UnsafeRawPointer");
+            protocolParams.Add("newValuePtr: Swift.UnsafeRawPointer");
             cdeclCallArgs.Add("newValuePtr: newValue");
         }
         else if (isString)
         {
-            cdeclParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
-            cdeclParams.Add("_ utf8Len: Int");
-            protocolParams.Add("utf8Ptr: UnsafePointer<UInt8>");
-            protocolParams.Add("utf8Len: Int");
+            cdeclParams.Add("_ utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+            cdeclParams.Add("_ utf8Len: Swift.Int");
+            protocolParams.Add("utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+            protocolParams.Add("utf8Len: Swift.Int");
             cdeclCallArgs.Add("utf8Ptr: utf8Ptr");
             cdeclCallArgs.Add("utf8Len: utf8Len");
         }
@@ -1406,7 +1406,7 @@ public static class PropertyWrapperEmitter
             // Decomposed Optional setter: raw inner payload + hasValue flag
             var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
             var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
-            cdeclParams.Add("_ newValue: UnsafeRawPointer");
+            cdeclParams.Add("_ newValue: Swift.UnsafeRawPointer");
             cdeclParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
             protocolParams.Add($"newValue: {innerSwiftType}?");
             cdeclCallArgs.Add("newValue: newValueVal");
@@ -1437,20 +1437,20 @@ public static class PropertyWrapperEmitter
 
         // Metadata params come BEFORE self to match C# PInvokeSignatureBuilder ordering for @_cdecl property accessors
         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
-            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            cdeclParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
 
         // PWT params follow the same complete ordered slot description as the getter,
         // managed argument list, extern declaration, and metadata-accessor call.
         int setterPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
         for (int i = 0; i < setterPwtCount; i++)
-            cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+            cdeclParams.Add($"_ _pwt{i}: Swift.UnsafeRawPointer");
 
         // A static property has no receiver: the extension assigns `Self.name` on the metatype the
         // @_cdecl rebuilt (see the getter).
         if (!isStatic)
         {
-            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-            protocolParams.Add("selfPtr: UnsafeMutableRawPointer");
+            cdeclParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
+            protocolParams.Add("selfPtr: Swift.UnsafeMutableRawPointer");
             cdeclCallArgs.Add("selfPtr: self_");
         }
 
@@ -1461,7 +1461,7 @@ public static class PropertyWrapperEmitter
             // No receiver to reconstruct.
         }
         else if (isClass)
-            bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
+            bodyLines.Add("let obj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         else
             bodyLines.Add("// Mutate through pointer for struct setter");
 
@@ -1473,7 +1473,7 @@ public static class PropertyWrapperEmitter
             // Read the inner with sugared inner type, wrap in Optional.some, or use nil for None.
             var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
             var innerSugared = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(innerSpec, abiToSugaredName);
-            bodyLines.Add($"let val: {propertySwiftType} = {OptionalMarshalClassifier.SwiftHasValueParam} != 0 ? Optional.some(newValuePtr.assumingMemoryBound(to: {innerSugared}.self).pointee) : nil");
+            bodyLines.Add($"let val: {propertySwiftType} = {OptionalMarshalClassifier.SwiftHasValueParam} != 0 ? Swift.Optional.some(newValuePtr.assumingMemoryBound(to: {innerSugared}.self).pointee) : nil");
             valueExpr = "val";
         }
         else if (propertyReferencesT)
@@ -1489,14 +1489,14 @@ public static class PropertyWrapperEmitter
                 .ToHashSet();
             if (GenericDispatchEmitter.IsKeyPathFamilyOfParentGeneric(
                     propertyDecl.SwiftTypeSpec, setterGenericParamNames))
-                bodyLines.Add($"let val = Unmanaged<{propertySwiftType}>.fromOpaque(newValuePtr).takeUnretainedValue()");
+                bodyLines.Add($"let val = Swift.Unmanaged<{propertySwiftType}>.fromOpaque(newValuePtr).takeUnretainedValue()");
             else
                 bodyLines.Add($"let val = newValuePtr.assumingMemoryBound(to: {propertySwiftType}.self).pointee");
             valueExpr = "val";
         }
         else if (isString)
         {
-            bodyLines.Add("let val = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+            bodyLines.Add("let val = Swift.String(bytes: Swift.UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
             valueExpr = "val";
         }
         else
@@ -1589,7 +1589,7 @@ public static class PropertyWrapperEmitter
         var setPwtArgsList = Enumerable.Range(0, setterPwtCount).Select(i => $"_pwt{i}");
         var setMetaArgs = string.Join(", ", setMetaArgsList.Concat(setPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {setHelperName}({setMetaArgs})");
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"let metatype = Swift.unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
         swiftWriter.WriteLine($"metatype.{setMethodName}({string.Join(", ", cdeclCallArgs)})");
 
         swiftWriter.Indent--;

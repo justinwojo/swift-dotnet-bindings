@@ -400,10 +400,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var freeBody = swiftContent.Substring(freeStart, bodyEnd - freeStart);
 
         // Swift Free takes handle + buffer + count + callback fn pointer.
-        Assert.Contains("_ handleBuffer: UnsafeMutableRawPointer?", freeBody);
-        Assert.Contains("_ handleCount: Int32", freeBody);
-        Assert.Contains("_ postReleaseFreeFn: UnsafeMutableRawPointer?", freeBody);
-        Assert.Contains("unsafeBitCast(fnPtr, to: FreeFn.self)", freeBody);
+        Assert.Contains("_ handleBuffer: Swift.UnsafeMutableRawPointer?", freeBody);
+        Assert.Contains("_ handleCount: Swift.Int32", freeBody);
+        Assert.Contains("_ postReleaseFreeFn: Swift.UnsafeMutableRawPointer?", freeBody);
+        Assert.Contains("Swift.unsafeBitCast(fnPtr, to: FreeFn.self)", freeBody);
         Assert.Contains("fn(handleBuffer, handleCount)", freeBody);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
@@ -745,7 +745,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result);
         Assert.Single(result);
         Assert.Equal("int", result[0].CSharpPInvokeType);
-        Assert.Equal("Int32", result[0].SwiftAbiType);
+        Assert.Equal("Swift.Int32", result[0].SwiftAbiType);
         Assert.NotNull(result[0].SwiftConversion);
     }
 
@@ -1181,10 +1181,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // Swift side: _Free signature widens to carry the handle buffer + post-release trampoline,
         // and invokes the trampoline strictly AFTER Unmanaged.release runs inside the dispatched block.
         Assert.Contains("@_cdecl(\"SBW_BlinkIDUX_BlinkIDUXView_Free\")", swiftContent);
-        Assert.Contains("_ handleBuffer: UnsafeMutableRawPointer?", swiftContent);
-        Assert.Contains("_ handleCount: Int32", swiftContent);
-        Assert.Contains("_ postReleaseFreeFn: UnsafeMutableRawPointer?", swiftContent);
-        Assert.Contains("unsafeBitCast(fnPtr, to: FreeFn.self)", swiftContent);
+        Assert.Contains("_ handleBuffer: Swift.UnsafeMutableRawPointer?", swiftContent);
+        Assert.Contains("_ handleCount: Swift.Int32", swiftContent);
+        Assert.Contains("_ postReleaseFreeFn: Swift.UnsafeMutableRawPointer?", swiftContent);
+        Assert.Contains("Swift.unsafeBitCast(fnPtr, to: FreeFn.self)", swiftContent);
         // Thread-aware dispatch shape from the original finalizer-thread fix preserved.
         Assert.Contains("if Thread.isMainThread { release() }", swiftContent);
         Assert.Contains("DispatchQueue.main.async(execute: release)", swiftContent);
@@ -1225,7 +1225,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Single(result);
         Assert.Equal(BridgeParameterKind.BoundEnum, result[0].Kind);
         Assert.Equal("style", result[0].Name);
-        Assert.Equal("Int32", result[0].SwiftAbiType);
+        Assert.Equal("Swift.Int32", result[0].SwiftAbiType);
         Assert.Equal("int", result[0].CSharpPInvokeType);
         Assert.Equal("AlertStyle", result[0].BridgeTypeName);
         Assert.Equal("TestModule.AlertStyle", result[0].CSharpTypeName);
@@ -1306,7 +1306,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
 
         Assert.NotNull(result);
-        Assert.Equal("Int", result[0].SwiftAbiType);
+        Assert.Equal("Swift.Int", result[0].SwiftAbiType);
         Assert.Equal("nint", result[0].CSharpPInvokeType);
     }
 
@@ -1319,7 +1319,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
 
         Assert.NotNull(result);
-        Assert.Equal("UInt8", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UInt8", result[0].SwiftAbiType);
         Assert.Equal("byte", result[0].CSharpPInvokeType);
     }
 
@@ -1333,7 +1333,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ style: Int32", swiftContent);
+        Assert.Contains("_ style: Swift.Int32", swiftContent);
         // An out-of-range raw value fails creation gracefully (return nil) instead of
         // a force-unwrap SIGTRAP. The old `AlertStyle(rawValue: style)!` WAS the crash.
         Assert.Contains("guard let styleConverted = AlertStyle(rawValue: style) else { return nil }", swiftContent);
@@ -1416,7 +1416,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal("count", result[0].Name);
         Assert.NotNull(result[0].InnerParameter);
         Assert.Equal(BridgeParameterKind.Primitive, result[0].InnerParameter!.Kind);
-        Assert.Equal("Int", result[0].InnerParameter!.SwiftAbiType);
+        Assert.Equal("Swift.Int", result[0].InnerParameter!.SwiftAbiType);
     }
 
     [Fact]
@@ -1481,8 +1481,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ countHasValue: Int32", swiftContent);
-        Assert.Contains("_ countValue: Int", swiftContent);
+        Assert.Contains("_ countHasValue: Swift.Int32", swiftContent);
+        Assert.Contains("_ countValue: Swift.Int", swiftContent);
         Assert.Contains("countHasValue != 0 ? countValue : nil", swiftContent);
     }
 
@@ -1508,8 +1508,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ styleHasValue: Int32", swiftContent);
-        Assert.Contains("_ styleValue: Int32", swiftContent);
+        Assert.Contains("_ styleHasValue: Swift.Int32", swiftContent);
+        Assert.Contains("_ styleValue: Swift.Int32", swiftContent);
         // A present-but-out-of-range raw value fails creation gracefully (return nil)
         // instead of a force-unwrap trap; a nil Optional (HasValue == 0) stays nil.
         Assert.Contains("if styleHasValue != 0 {", swiftContent);
@@ -1606,7 +1606,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Single(result);
         Assert.Equal(BridgeParameterKind.BoundType, result[0].Kind);
         Assert.Equal("animation", result[0].Name);
-        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
         Assert.Equal("AnimationAsset", result[0].BridgeTypeName);
         Assert.Equal("TestModule.AnimationAsset", result[0].CSharpTypeName);
@@ -1644,7 +1644,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Single(result);
         Assert.Equal(BridgeParameterKind.BoundStruct, result[0].Kind);
         Assert.Equal(StructProjectionKind.NonFrozen, result[0].StructProjection);
-        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
         Assert.Equal("Config", result[0].BridgeTypeName);
         Assert.Equal("TestModule.Config", result[0].CSharpTypeName);
@@ -1660,8 +1660,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ animationPtr: UnsafeMutableRawPointer", swiftContent);
-        Assert.Contains("Unmanaged<AnimationAsset>.fromOpaque(animationPtr).takeUnretainedValue()", swiftContent);
+        Assert.Contains("_ animationPtr: Swift.UnsafeMutableRawPointer", swiftContent);
+        Assert.Contains("Swift.Unmanaged<AnimationAsset>.fromOpaque(animationPtr).takeUnretainedValue()", swiftContent);
     }
 
     [Fact]
@@ -1869,7 +1869,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal(BridgeParameterKind.BoundType, result[0].InnerParameter!.Kind);
         Assert.Equal("AnimationAsset", result[0].InnerParameter!.BridgeTypeName);
         // Nullable pointer: no hasValue flag
-        Assert.Equal("UnsafeMutableRawPointer?", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer?", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
     }
 
@@ -1883,8 +1883,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ animationPtr: UnsafeMutableRawPointer?", swiftContent);
-        Assert.Contains("Unmanaged<AnimationAsset>.fromOpaque($0).takeUnretainedValue()", swiftContent);
+        Assert.Contains("_ animationPtr: Swift.UnsafeMutableRawPointer?", swiftContent);
+        Assert.Contains("Swift.Unmanaged<AnimationAsset>.fromOpaque($0).takeUnretainedValue()", swiftContent);
     }
 
     [Fact]
@@ -1932,7 +1932,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Single(result);
         Assert.Equal(BridgeParameterKind.BoundStruct, result[0].Kind);
         Assert.Equal(StructProjectionKind.FrozenWithMemory, result[0].StructProjection);
-        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
     }
 
@@ -1961,7 +1961,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result[0].InnerParameter);
         Assert.Equal(BridgeParameterKind.BoundStruct, result[0].InnerParameter!.Kind);
         Assert.Equal("Config", result[0].InnerParameter!.BridgeTypeName);
-        Assert.Equal("UnsafeMutableRawPointer?", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer?", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
     }
 
@@ -1989,7 +1989,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ configPtr: UnsafeMutableRawPointer", swiftContent);
+        Assert.Contains("_ configPtr: Swift.UnsafeMutableRawPointer", swiftContent);
     }
 
     [Fact]
@@ -2079,7 +2079,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal(AsyncFlatParamKind.BoundStruct, result!.Kind);
         Assert.Equal("Config", result.BridgeTypeName);
-        Assert.Equal("UnsafeMutableRawPointer", result.SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer", result.SwiftAbiType);
     }
 
     [Fact]
@@ -2188,7 +2188,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result[0].ClosureArguments);
         Assert.Single(result[0].ClosureArguments!);
         Assert.NotNull(result[0].ClosureReturn);
-        Assert.Equal("Int32", result[0].ClosureReturn!.SwiftAbiType);
+        Assert.Equal("Swift.Int32", result[0].ClosureReturn!.SwiftAbiType);
     }
 
     [Fact]
@@ -2207,8 +2207,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Single(result);
         Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
         Assert.Equal(2, result[0].ClosureArguments!.Count);
-        Assert.Equal("Int", result[0].ClosureArguments![0].SwiftAbiType);
-        Assert.Equal("Int32", result[0].ClosureArguments![1].SwiftAbiType); // Bool → Int32
+        Assert.Equal("Swift.Int", result[0].ClosureArguments![0].SwiftAbiType);
+        Assert.Equal("Swift.Int32", result[0].ClosureArguments![1].SwiftAbiType); // Bool → Int32
     }
 
     [Fact]
@@ -2294,7 +2294,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
         Assert.Empty(result[0].ClosureArguments!);
         Assert.NotNull(result[0].ClosureReturn);
-        Assert.Equal("Int", result[0].ClosureReturn!.SwiftAbiType);
+        Assert.Equal("Swift.Int", result[0].ClosureReturn!.SwiftAbiType);
     }
 
     [Fact]
@@ -2337,7 +2337,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Should generate Swift closure with typed arg
-        Assert.Contains("arg0: Int", swiftContent);
+        Assert.Contains("arg0: Swift.Int", swiftContent);
         Assert.Contains("cb_callback?", swiftContent);
     }
 
@@ -2351,7 +2351,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("arg0: Bool", swiftContent);
+        Assert.Contains("arg0: Swift.Bool", swiftContent);
         Assert.Contains("arg0 ? 1 : 0", swiftContent); // Bool → Int32 conversion
     }
 
@@ -2365,7 +2365,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("-> Bool", swiftContent);
+        Assert.Contains("-> Swift.Bool", swiftContent);
         Assert.Contains("!= 0", swiftContent); // Int32 → Bool conversion
     }
 
@@ -2496,8 +2496,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("arg0: Int", swiftContent);
-        Assert.Contains("arg1: Bool", swiftContent);
+        Assert.Contains("arg0: Swift.Int", swiftContent);
+        Assert.Contains("arg1: Swift.Bool", swiftContent);
     }
 
     [Fact]
@@ -4052,8 +4052,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // @_cdecl signature present
         Assert.Contains("@_cdecl(\"SBW_TestModule_AsyncServiceView_Create\")", swiftContent);
         // String parameter pair
-        Assert.Contains("keyPtr: UnsafePointer<UInt8>?", swiftContent);
-        Assert.Contains("keyLen: Int", swiftContent);
+        Assert.Contains("keyPtr: Swift.UnsafePointer<Swift.UInt8>?", swiftContent);
+        Assert.Contains("keyLen: Swift.Int", swiftContent);
         // Callback typedefs
         Assert.Contains("ReadyFn", swiftContent);
         Assert.Contains("ErrorFn", swiftContent);
@@ -4103,8 +4103,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("let service: AsyncService", swiftContent);
         Assert.Contains("let processor: Processor", swiftContent);
         // Flattened params: key + mode
-        Assert.Contains("keyPtr: UnsafePointer<UInt8>?", swiftContent);
-        Assert.Contains("mode: Int32", swiftContent);
+        Assert.Contains("keyPtr: Swift.UnsafePointer<Swift.UInt8>?", swiftContent);
+        Assert.Contains("mode: Swift.Int32", swiftContent);
     }
 
     [Fact]
@@ -4186,9 +4186,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // Bool parameter ABI type
-        Assert.Contains("enabled: Int32", swiftContent);
+        Assert.Contains("enabled: Swift.Int32", swiftContent);
         // Bool conversion before Task
-        Assert.Contains("let enabledVal: Bool = enabled != 0", swiftContent);
+        Assert.Contains("let enabledVal: Swift.Bool = enabled != 0", swiftContent);
         // View construction uses enabledVal (converted) not enabled (Int32 ABI)
         Assert.Contains("BoolAsyncView(service: service, enabled: enabledVal)", swiftContent);
     }
@@ -4469,11 +4469,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         // Extra import for cross-module type
         Assert.Contains("import OtherModule", swiftContent);
         // BoundType param in Create function uses Ptr suffix
-        Assert.Contains("sdkPtr: UnsafeMutableRawPointer", swiftContent);
+        Assert.Contains("sdkPtr: Swift.UnsafeMutableRawPointer", swiftContent);
         // Unmanaged cast to typed reference
-        Assert.Contains("Unmanaged<ExternalSdk>.fromOpaque(sdkPtr).takeUnretainedValue()", swiftContent);
+        Assert.Contains("Swift.Unmanaged<ExternalSdk>.fromOpaque(sdkPtr).takeUnretainedValue()", swiftContent);
         // P1 fix: null-pointer guard before Unmanaged cast
-        Assert.Contains("sdkPtr == UnsafeMutableRawPointer(bitPattern: 0)", swiftContent);
+        Assert.Contains("sdkPtr == Swift.UnsafeMutableRawPointer(bitPattern: 0)", swiftContent);
         Assert.Contains("Null pointer passed for required object parameter", swiftContent);
         // Chain step uses the typed variable
         Assert.Contains("let service = try await AsyncService(sdk: sdk, key: key)", swiftContent);
@@ -4859,7 +4859,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Constructor [1] has Int param → Swift ABI uses "Int" type
-        Assert.Contains("count: Int", swiftContent);
+        Assert.Contains("count: Swift.Int", swiftContent);
         // Constructor [0] has closure — it should NOT be used
         Assert.DoesNotContain("onTapCallback", swiftContent);
     }
@@ -4886,7 +4886,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains(testLogger.Messages, m => m.Contains("preferredInit") && m.Contains("out of range"));
         // Falls back to constructor [0]
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("count: Int", swiftContent);
+        Assert.Contains("count: Swift.Int", swiftContent);
     }
 
     [Fact]
@@ -5190,7 +5190,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         Assert.NotNull(result);
         // ABI type should include ptr + Int for length
-        Assert.Contains("UnsafePointer<UInt8>?", result[0].SwiftAbiType);
+        Assert.Contains("Swift.UnsafePointer<Swift.UInt8>?", result[0].SwiftAbiType);
         Assert.Contains("Int", result[0].SwiftAbiType);
     }
 
@@ -5276,8 +5276,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         Assert.NotNull(result);
         // ABI should include retLen out-parameter and UnsafePointer return
-        Assert.Contains("UnsafeMutablePointer<Int>", result[0].SwiftAbiType);
-        Assert.Contains("UnsafePointer<UInt8>?", result[0].SwiftAbiType);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Int>", result[0].SwiftAbiType);
+        Assert.Contains("Swift.UnsafePointer<Swift.UInt8>?", result[0].SwiftAbiType);
     }
 
     [Fact]
@@ -5428,7 +5428,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Closure should have return type annotation and return expression
-        Assert.Contains("-> Int32 in", swiftContent);
+        Assert.Contains("-> Swift.Int32 in", swiftContent);
         Assert.Contains("return cb_validator", swiftContent);
         Assert.Contains("?? 0", swiftContent);
         // Each withUnsafeBufferPointer must have `return` prefix for non-void closures
@@ -5512,8 +5512,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("UnsafeMutablePointer<Int>", swiftContent);
-        Assert.Contains("UnsafePointer<UInt8>?", swiftContent);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Int>", swiftContent);
+        Assert.Contains("Swift.UnsafePointer<Swift.UInt8>?", swiftContent);
     }
 
     [Fact]
@@ -5527,10 +5527,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Swift decodes the returned UTF-8 buffer
-        Assert.Contains("var retLen: Int = 0", swiftContent);
-        Assert.Contains("withUnsafeMutablePointer(to: &retLen)", swiftContent);
+        Assert.Contains("var retLen: Swift.Int = 0", swiftContent);
+        Assert.Contains("Swift.withUnsafeMutablePointer(to: &retLen)", swiftContent);
         Assert.Contains("retPtr?.deallocate()", swiftContent);
-        Assert.Contains("UnsafeBufferPointer(start: retBuf, count: retLen)", swiftContent);
+        Assert.Contains("Swift.UnsafeBufferPointer(start: retBuf, count: retLen)", swiftContent);
     }
 
     [Fact]
@@ -5649,7 +5649,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void EmitClassReturnClosure_CSharp_HasSwiftRuntimeImport()
+    public void EmitClassReturnClosure_CSharp_SpellsSwiftRuntimeFromGlobal()
     {
         var typeDb = CreateClassTypeDatabase();
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
@@ -5659,7 +5659,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        Assert.Contains("using Swift.Runtime;", csContent);
+        Assert.Contains("global::Swift.Runtime.", csContent);
+        Assert.DoesNotContain("using Swift.Runtime;", csContent);
     }
 
     [Fact]
@@ -5757,8 +5758,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ titlePtr: UnsafePointer<UInt8>?", swiftContent);
-        Assert.Contains("_ titleLen: Int", swiftContent);
+        Assert.Contains("_ titlePtr: Swift.UnsafePointer<Swift.UInt8>?", swiftContent);
+        Assert.Contains("_ titleLen: Swift.Int", swiftContent);
     }
 
     [Fact]
@@ -7140,8 +7141,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("final class SBW_TestModule_CounterView_State: ObservableObject", swiftContent);
-        Assert.Contains("@Published var count: Int32", swiftContent);
-        Assert.Contains("@Published var label: String", swiftContent);
+        Assert.Contains("@Published var count: Swift.Int32", swiftContent);
+        Assert.Contains("@Published var label: Swift.String", swiftContent);
     }
 
     [Fact]
@@ -7205,7 +7206,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("session.state.label = String(bytes:", swiftContent);
+        Assert.Contains("session.state.label = Swift.String(bytes:", swiftContent);
     }
 
     [Fact]
@@ -7261,7 +7262,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Closure is on Wrapper as let, not on State as @Published
-        Assert.Contains("let onTap: () -> Void", swiftContent);
+        Assert.Contains("let onTap: () -> Swift.Void", swiftContent);
         Assert.DoesNotContain("@Published var onTap", swiftContent);
     }
 
@@ -7303,7 +7304,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("@Published var isEnabled: Bool", swiftContent);
+        Assert.Contains("@Published var isEnabled: Swift.Bool", swiftContent);
         Assert.Contains("!= 0", swiftContent);
     }
 
@@ -7760,8 +7761,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("@Published var mod_highlighted: Bool = false", swiftContent);
-        Assert.Contains("@Published var mod_animationSpeed: Double? = nil", swiftContent);
+        Assert.Contains("@Published var mod_highlighted: Swift.Bool = false", swiftContent);
+        Assert.Contains("@Published var mod_animationSpeed: Swift.Double? = nil", swiftContent);
     }
 
     [Fact]
@@ -7839,7 +7840,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("SBW_TestModule_ModOnlyView_State", swiftContent);
         Assert.Contains("SBW_TestModule_ModOnlyView_Wrapper", swiftContent);
-        Assert.Contains("@Published var mod_playing: Bool = false", swiftContent);
+        Assert.Contains("@Published var mod_playing: Swift.Bool = false", swiftContent);
     }
 
     [Fact]
@@ -7898,7 +7899,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("@Published var mod_enabled: Bool? = nil", swiftContent);
+        Assert.Contains("@Published var mod_enabled: Swift.Bool? = nil", swiftContent);
         Assert.Contains("session.state.mod_enabled = hasValue != 0 ? (value != 0) : nil", swiftContent);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
@@ -7958,14 +7959,14 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
         // The ABI is unchanged: state still holds the inner value.
-        Assert.Contains("@Published var mod_isOn: Bool? = nil", swiftContent);
+        Assert.Contains("@Published var mod_isOn: Swift.Bool? = nil", swiftContent);
 
         // The bare value must never be handed to a Binding<Bool> parameter.
         Assert.DoesNotContain("result.isOn(val)", swiftContent);
 
         // A real Binding over the same @Published field, so a SwiftUI-side write lands back on
         // the bridge state (unlabeled param → no call label).
-        Assert.Contains("result.isOn(Binding<Bool>(", swiftContent);
+        Assert.Contains("result.isOn(Binding<Swift.Bool>(", swiftContent);
         Assert.Contains("mod_isOn = $0", swiftContent);
 
         // The managed surface is unchanged: the C# setter still takes the inner value.
@@ -7985,7 +7986,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("result.toggled(state: Binding<Bool>(", swiftContent);
+        Assert.Contains("result.toggled(state: Binding<Swift.Bool>(", swiftContent);
         Assert.DoesNotContain("result.toggled(state: val)", swiftContent);
     }
 
@@ -8001,8 +8002,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views, NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("@Published var mod_text: String? = nil", swiftContent);
-        Assert.Contains("result.text(Binding<String>(", swiftContent);
+        Assert.Contains("@Published var mod_text: Swift.String? = nil", swiftContent);
+        Assert.Contains("result.text(Binding<Swift.String>(", swiftContent);
         Assert.DoesNotContain("result.text(val)", swiftContent);
     }
 
@@ -8845,8 +8846,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("var lifecycleOnAppear: (() -> Void)? = nil", swiftContent);
-        Assert.Contains("var lifecycleOnDisappear: (() -> Void)? = nil", swiftContent);
+        Assert.Contains("var lifecycleOnAppear: (() -> Swift.Void)? = nil", swiftContent);
+        Assert.Contains("var lifecycleOnDisappear: (() -> Swift.Void)? = nil", swiftContent);
     }
 
     [Fact]
@@ -8859,8 +8860,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("@_cdecl(\"SBW_TestModule_LifeView_SetLifecycle\")", swiftContent);
-        Assert.Contains("_ onAppearCb: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?", swiftContent);
-        Assert.Contains("_ onDisappearCb: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?", swiftContent);
+        Assert.Contains("_ onAppearCb: (@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.Void)?", swiftContent);
+        Assert.Contains("_ onDisappearCb: (@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.Void)?", swiftContent);
     }
 
     [Fact]
@@ -8960,7 +8961,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("@Published var u_backgroundColor: SwiftUI.Color? = nil", swiftContent);
         Assert.Contains("@Published var u_foregroundColor: SwiftUI.Color? = nil", swiftContent);
         Assert.Contains("@Published var u_cornerRadius: CGFloat? = nil", swiftContent);
-        Assert.Contains("@Published var u_opacity: Double? = nil", swiftContent);
+        Assert.Contains("@Published var u_opacity: Swift.Double? = nil", swiftContent);
         Assert.Contains("@Published var u_font: SwiftUI.Font? = nil", swiftContent);
     }
 
@@ -9521,7 +9522,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal(BridgeParameterKind.Primitive, result.Kind);
         Assert.True(result.IsBinding);
-        Assert.Equal("Int32", result.SwiftAbiType);
+        Assert.Equal("Swift.Int32", result.SwiftAbiType);
         Assert.Equal("!= 0", result.SwiftConversion);
     }
 
@@ -9579,7 +9580,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal(BridgeParameterKind.Primitive, result.Kind);
         Assert.True(result.IsBinding);
-        Assert.Equal("Int", result.SwiftAbiType);
+        Assert.Equal("Swift.Int", result.SwiftAbiType);
     }
 
     [Fact]
@@ -9939,7 +9940,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result.InnerParameter);
         Assert.Equal(BridgeParameterKind.Primitive, result.InnerParameter.Kind);
         Assert.True(result.HasLength);
-        Assert.Contains("UnsafePointer<Int>?", result.SwiftAbiType);
+        Assert.Contains("Swift.UnsafePointer<Swift.Int>?", result.SwiftAbiType);
     }
 
     [Fact]
@@ -10010,9 +10011,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Array stored as let property on Wrapper
-        Assert.Contains("let items: [Int]", swiftContent);
+        Assert.Contains("let items: [Swift.Int]", swiftContent);
         // Array reconstructed from buffer pointer in Session init
-        Assert.Contains("UnsafeBufferPointer(start: ptr, count: itemsCount)", swiftContent);
+        Assert.Contains("Swift.UnsafeBufferPointer(start: ptr, count: itemsCount)", swiftContent);
     }
 
     [Fact]
@@ -10192,7 +10193,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.NotNull(result);
         Assert.Single(result);
         Assert.Equal(BridgeParameterKind.BoundStruct, result[0].Kind);
-        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer", result[0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
         Assert.Equal("DataFormat", result[0].BridgeTypeName);
         Assert.Equal("TestModule.DataFormat", result[0].CSharpTypeName);
@@ -10294,7 +10295,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Must use allocate + initializeMemory pattern (not Unmanaged for the closure arg)
-        Assert.Contains("UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<DataFormat>.size", swiftContent);
+        Assert.Contains("Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<DataFormat>.size", swiftContent);
         Assert.Contains("initializeMemory(as: DataFormat.self", swiftContent);
         // The closure callback should NOT use Unmanaged for the BoundStruct arg
         // (Unmanaged.passRetained elsewhere is fine — it's used for session handle management)
@@ -10352,10 +10353,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // Object pointer held alive across the synchronous callback: passUnretained(... as AnyObject)
         // inside withExtendedLifetime — never a raw heap-allocated URL struct.
-        Assert.Contains("as AnyObject", swiftContent);
+        Assert.Contains("as Swift.AnyObject", swiftContent);
         Assert.Contains("withExtendedLifetime", swiftContent);
         Assert.Contains("passUnretained", swiftContent);
-        Assert.DoesNotContain("UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<URL>", swiftContent);
+        Assert.DoesNotContain("Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<URL>", swiftContent);
     }
 
     [Fact]
@@ -10404,10 +10405,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             new List<TypeDecl> { view }, NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("_ titlePtr: UnsafePointer<UInt8>", swiftContent);
-        Assert.Contains("_ subtitlePtr: UnsafePointer<UInt8>", swiftContent);
-        Assert.Contains("_ titleLen: Int", swiftContent);
-        Assert.Contains("_ subtitleLen: Int", swiftContent);
+        Assert.Contains("_ titlePtr: Swift.UnsafePointer<Swift.UInt8>", swiftContent);
+        Assert.Contains("_ subtitlePtr: Swift.UnsafePointer<Swift.UInt8>", swiftContent);
+        Assert.Contains("_ titleLen: Swift.Int", swiftContent);
+        Assert.Contains("_ subtitleLen: Swift.Int", swiftContent);
     }
 
     // --- Finding 1: BoundStruct closure arg nil-guard ---
@@ -10773,7 +10774,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
 
         Assert.NotNull(result);
-        Assert.Equal("UnsafeMutableRawPointer?", result![0].SwiftAbiType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer?", result![0].SwiftAbiType);
         Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
     }
 
@@ -11090,7 +11091,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.Contains("let completion: (Result<ScanResult, ScanError>) -> Void", swiftContent);
+        Assert.Contains("let completion: (Swift.Result<ScanResult, ScanError>) -> Swift.Void", swiftContent);
     }
 
     [Fact]
@@ -11177,7 +11178,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         // ObjC-bridgeable struct uses passUnretained (as AnyObject), not heap-allocate
         Assert.Contains("passUnretained", swiftContent);
-        Assert.Contains("as AnyObject", swiftContent);
+        Assert.Contains("as Swift.AnyObject", swiftContent);
         // Should NOT contain allocate for the success branch (only non-ObjC BoundStruct would)
         Assert.DoesNotContain("UnsafeMutableRawPointer.allocate", swiftContent);
     }

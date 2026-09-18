@@ -306,7 +306,9 @@ public static class AsyncPatternManifestLoader
                 return null;
             }
             flatParams.Add(new AsyncFlatParam(
-                p.Name, paramKind, p.SwiftAbiType, p.CSharpPInvokeType,
+                // Authors write scalar ABI types the way Swift source does; qualify the bare
+                // stdlib ones so a member of the bound module cannot capture them.
+                p.Name, paramKind, TypeSpecHelpers.QualifyStdlibScalarName(p.SwiftAbiType)!, p.CSharpPInvokeType,
                 p.SwiftConversion, p.CSharpConversion, p.BridgeTypeName, p.CSharpTypeName,
                 p.SourceModule, p.IsObjCBridgeable, p.IsSimpleEnum, p.DefaultValue));
         }

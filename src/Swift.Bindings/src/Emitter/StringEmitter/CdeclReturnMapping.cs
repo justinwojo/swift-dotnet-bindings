@@ -19,19 +19,19 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         // DynamicSelf (Self): resolves to parent class type at call site.
         // Return as class pointer (Unmanaged.passRetained().toOpaque()).
         if (typeSpec.IsDynamicSelf)
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
         // Tuple returns: route through indirect result (resultPtr buffer).
         // initializeMemory(as: (T1, T2).self) handles all tuple element types.
         if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+            return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
         // Primitives: pass through directly
         if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
         {
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-            if (MarshallingHelpers.IsBoolType(swiftType) || swiftType == "Bool")
-                return (new CdeclReturnMapping("Int8", CdeclReturnKind.Bool), false);
+            if (MarshallingHelpers.IsBoolType(swiftType) || swiftType is "Bool" or "Swift.Bool")
+                return (new CdeclReturnMapping("Swift.Int8", CdeclReturnKind.Bool), false);
             return (new CdeclReturnMapping(swiftType, CdeclReturnKind.Direct), false);
         }
 
@@ -50,7 +50,7 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         // NamedTypeSpec (from TypeSpecParser). Without this gate, it falls through to IndirectResult
         // and emits `any AnyObject.self` which is not valid Swift.
         if (CdeclParamMapper.IsAnyObjectType(typeSpec))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
         // @objc protocol existentials: a single 8-byte ObjC object pointer (no witness table, no
         // descriptor) — identical wire to a class reference. Return BY VALUE via the ClassPointer
@@ -59,16 +59,16 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         // which would route to the 40-byte opaque-container indirect result.
         if (ExistentialHandler.IsObjCProtocolExistentialSpec(typeSpec, typeDatabase, out var objcReturnIsOptional))
             return objcReturnIsOptional
-                ? (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false)
-                : (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+                ? (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false)
+                : (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
         // Closure returns: write to resultPtr buffer
         if (typeSpec is ClosureTypeSpec)
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+            return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
         // Optional<reference type>: nullable pointer ABI (no result buffer needed)
         if (CdeclParamMapper.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
 
         // Optional<Self>: nullable class pointer. Used for ObjC-bridged protocol methods like
         // PaymentSdkAPIResponseDecodable.decodedObject(fromAPIResponse:) -> Self?. At the @_cdecl
@@ -76,31 +76,31 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (typeSpec is NamedTypeSpec optSelfSpec && optSelfSpec.Name == "Swift.Optional"
             && optSelfSpec.GenericParameters.Count == 1
             && optSelfSpec.GenericParameters[0].IsDynamicSelf)
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
 
         // Containers with ObjC-bridgeable elements: return as ObjC collection pointer.
         // Swift's _ObjectiveCBridgeable bridges the entire container (e.g., [URL] → NSArray).
         if (CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, typeDatabase))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
         // Optional<container with ObjC-bridgeable elements>: nullable ObjC collection pointer.
         if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
 
         // Optional<any Error> is the one optional existential whose Swift representation is a
         // single nullable error-box pointer. Return that pointer by value and transfer an owned +1
         // through the dedicated renderer; treating it as the ordinary 5-word existential buffer
         // makes every present value look nil and strands its retain.
         if (ExistentialHandler.IsOptionalAnyErrorSpec(typeSpec))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalErrorPointer), false);
+            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer?", CdeclReturnKind.OptionalErrorPointer), false);
 
         // Generic containers (Optional, Array, etc.): need result pointer
         if (CdeclParamMapper.IsGenericContainerType(typeSpec))
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+            return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
         // Protocol existentials: need result pointer (not C-representable in @_cdecl)
         if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, typeDatabase))
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+            return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
         // Try TypeRecord-based mapping
         if (typeDatabase.TryGetTypeRecord(typeSpec, out var typeRecord))
@@ -113,7 +113,7 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
                 typeSpec is NamedTypeSpec nsTypedef &&
                 AppleFrameworkRegistry.TryGetNetTypeName(nsTypedef.Name, out var remapped) &&
                 remapped == "Foundation.NSString")
-                return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+                return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
             // Classes and ObjC-bridged: return as retained pointer.
             // Guard: Unmanaged.passRetained() requires a class type — ObjC-rooted/bridged struct
@@ -121,11 +121,11 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
             if (typeRecord.Kind == TypeRecordKind.Class ||
                 ((MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCRooted(typeRecord))
                  && typeRecord.Kind != TypeRecordKind.Struct))
-                return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+                return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
             // ObjC-bridgeable value types (URL): bridge to ObjC class pointer via `as AnyObject`.
             if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
-                return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+                return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
             // Simple enums: return the scalar the value actually crosses as. An integral raw value
             // crosses as itself; a Bool, floating-point or String raw value is not C-representable,
@@ -138,16 +138,16 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
 
             // Complex enums: need result pointer
             if (typeRecord.Kind == TypeRecordKind.Enum)
-                return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+                return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
             // All structs (frozen and non-frozen): need result pointer.
             // @_cdecl can't return Swift structs — even @frozen ones fail with
             // "result type cannot be represented in Objective-C".
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+            return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
         }
 
         // Fallback: indirect result
-        return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
+        return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
     }
 }
 

@@ -2457,8 +2457,8 @@ public class EnumHandlerOutputTests
         var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         // Should use withUnsafePointer + copyMemory pattern
-        Assert.Contains("withUnsafePointer(to: result)", swiftOutput);
-        Assert.Contains("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
+        Assert.Contains("Swift.withUnsafePointer(to: result)", swiftOutput);
+        Assert.Contains("copyMemory(from: Swift.UnsafeRawPointer(_srcPtr)", swiftOutput);
 
         // Should NOT use storeBytes API call (BitwiseCopyable crash in Swift 6+)
         Assert.DoesNotContain(".storeBytes(of:", swiftOutput);
@@ -4453,9 +4453,10 @@ public class EnumHandlerOutputTests
 
         // Swift wrapper must emit @_cdecl function for init(rawValue:)
         Assert.Contains("@_cdecl(\"SBW_TestModule_Unit_InitWithRawValue\")", swiftOutput);
-        Assert.Contains($"_ rawValue: {swiftRawType}", swiftOutput);
+        var expectedSwiftRawType = swiftRawType is "Float" or "Double" ? $"Swift.{swiftRawType}" : swiftRawType;
+        Assert.Contains($"_ rawValue: {expectedSwiftRawType}", swiftOutput);
         Assert.Contains("TestModule.Unit(rawValue: rawValue)", swiftOutput);
-        Assert.Contains("MemoryLayout<TestModule.Unit?>.size", swiftOutput);
+        Assert.Contains("Swift.MemoryLayout<TestModule.Unit?>.size", swiftOutput);
 
         // C# P/Invoke must target the wrapper with Cdecl, not the raw mangled symbol
         Assert.Contains("PInvoke_InitWithRawValue_Wrapper((IntPtr)resultBuffer, rawValue)", csOutput);
@@ -4704,8 +4705,8 @@ public class EnumHandlerOutputTests
         Assert.Contains("Encoding.UTF8.GetString", csOutput);
         Assert.Contains("PInvoke_SBW_Free", csOutput);
         // Swift wrapper returns nullable pointer and guards for nil
-        Assert.Contains("UnsafeMutableRawPointer?", swiftOutput);
-        Assert.Contains("guard let result: String", swiftOutput);
+        Assert.Contains("Swift.UnsafeMutableRawPointer?", swiftOutput);
+        Assert.Contains("guard let result: Swift.String", swiftOutput);
         Assert.Contains("else { return nil }", swiftOutput);
     }
 
@@ -4962,8 +4963,8 @@ public class EnumHandlerOutputTests
         Assert.Contains(MarshallingHelpers.BoolPInvokeReturnAttribute, csOutput);
 
         // Swift wrapper param should be scalar (Int32), not Direction
-        Assert.Contains("_ tag: Int32", swiftOutput);
-        Assert.Contains("other: Int32", swiftOutput);
+        Assert.Contains("_ tag: Swift.Int32", swiftOutput);
+        Assert.Contains("other: Swift.Int32", swiftOutput);
         // Swift wrapper should NOT declare param as Direction type
         Assert.DoesNotContain("other: Direction", swiftOutput);
     }
@@ -5095,7 +5096,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("(int)other", csOutput);
 
         // Swift wrapper should accept scalar, not enum type
-        Assert.Contains("other: Int32", swiftOutput);
+        Assert.Contains("other: Swift.Int32", swiftOutput);
         Assert.DoesNotContain("other: Direction", swiftOutput);
     }
 
@@ -5214,9 +5215,9 @@ public class EnumHandlerOutputTests
         // C# body should use fixed block for pinning
         Assert.Contains("fixed (byte*", csOutput);
         // Swift side should use UTF-8 reconstruction
-        Assert.Contains("Utf8Ptr: UnsafePointer<UInt8>", swiftOutput);
-        Assert.Contains("Utf8Len: Int", swiftOutput);
-        Assert.Contains("UnsafeBufferPointer", swiftOutput);
+        Assert.Contains("Utf8Ptr: Swift.UnsafePointer<Swift.UInt8>", swiftOutput);
+        Assert.Contains("Utf8Len: Swift.Int", swiftOutput);
+        Assert.Contains("Swift.UnsafeBufferPointer", swiftOutput);
     }
 
     [Fact]

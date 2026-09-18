@@ -139,22 +139,11 @@ namespace BindingsGeneration
             // from metadata, so this cannot under-warn them.
             csWriter.WriteLine("#pragma warning disable SB0004, SB0010 // internal references; the markers are for consumers of the interface");
             csWriter.WriteLine();
-            csWriter.WriteLine($"using System;");
-            csWriter.WriteLine($"using System.Collections.Generic;");
-            csWriter.WriteLine($"using System.Diagnostics;");
-            csWriter.WriteLine($"using System.Diagnostics.CodeAnalysis;");
-            csWriter.WriteLine($"using System.Linq;");
-            csWriter.WriteLine($"using System.Runtime.CompilerServices;");
-            csWriter.WriteLine($"using System.Runtime.InteropServices;");
-            csWriter.WriteLine($"using System.Runtime.InteropServices.Swift;");
-            csWriter.WriteLine($"using System.Threading.Tasks;");
-            csWriter.WriteLine($"using Swift;");
-            csWriter.WriteLine($"using Swift.Runtime;");
-            csWriter.WriteLine($"using Swift.Runtime.InteropServices;");
-            csWriter.WriteLine($"using System.ComponentModel;");
+            // No using directive brings an external namespace in: the generated code sits inside the
+            // types it binds, where a bound member of the same name captures any simple name a using
+            // would resolve, so every external name is written from global:: instead. The module's
+            // own interop namespace is the one import, for the helpers it declares.
             csWriter.WriteLine($"using {generatedNamespace}.SwiftInterop;");
-            // Alias the runtime Utf8Slice type so generated code can reference it unqualified
-            csWriter.WriteLine("using Utf8Slice = global::Swift.Runtime.Utf8Slice;");
 
             // (RealityKit-bug-13: The maccatalyst-only "missing `using ARKit;`" problem will need
             // a per-project SwiftFrameworkDependency-aware emit — emitting `using` for every

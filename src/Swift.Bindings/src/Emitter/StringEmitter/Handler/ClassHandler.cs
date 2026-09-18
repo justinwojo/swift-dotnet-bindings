@@ -1468,9 +1468,9 @@ namespace BindingsGeneration
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""
-            public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
-                let l = Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}
-                let r = Unmanaged<AnyObject>.fromOpaque(rhs).takeUnretainedValue() as! {{swiftTypeName}}
+            public func {{symbolName}}(_ lhs: Swift.UnsafeRawPointer, _ rhs: Swift.UnsafeRawPointer) -> Swift.UInt8 {
+                let l = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}
+                let r = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(rhs).takeUnretainedValue() as! {{swiftTypeName}}
                 return (l == r) ? 1 : 0
             }
             """);

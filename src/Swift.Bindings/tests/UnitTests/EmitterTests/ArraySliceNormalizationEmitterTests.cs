@@ -962,7 +962,7 @@ public class ArraySliceNormalizationEmitterTests
 
         Assert.NotEmpty(swiftOutput);
         // resultPtr must appear BEFORE the data parameter in the @_cdecl signature
-        var resultPtrIdx = swiftOutput.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var resultPtrIdx = swiftOutput.IndexOf("resultPtr: Swift.UnsafeMutableRawPointer");
         var dataIdx = swiftOutput.IndexOf("data:");
         Assert.True(resultPtrIdx >= 0, "resultPtr not found in wrapper output");
         Assert.True(dataIdx >= 0, "data param not found in wrapper output");
@@ -1009,7 +1009,7 @@ public class ArraySliceNormalizationEmitterTests
 
         Assert.NotEmpty(swiftOutput);
         Assert.Contains("@_cdecl", swiftOutput);
-        var resultPtrIdx = swiftOutput.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var resultPtrIdx = swiftOutput.IndexOf("resultPtr: Swift.UnsafeMutableRawPointer");
         var dataIdx = swiftOutput.IndexOf("data:");
         var selfIdx = swiftOutput.IndexOf("self_:");
         var errorOutIdx = swiftOutput.IndexOf("errorOut:");
@@ -1062,8 +1062,8 @@ public class ArraySliceNormalizationEmitterTests
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("@_cdecl", swiftOutput);
-        Assert.Contains("_ bias: UnsafeRawPointer", swiftOutput);
-        Assert.Contains("let biasOpt: UInt8? =", swiftOutput);
+        Assert.Contains("_ bias: Swift.UnsafeRawPointer", swiftOutput);
+        Assert.Contains("let biasOpt: Swift.UInt8? =", swiftOutput);
         Assert.Contains("bias: biasOpt", swiftOutput);
         Assert.DoesNotContain("bias: bias)", swiftOutput);
     }

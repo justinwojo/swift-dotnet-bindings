@@ -84,9 +84,9 @@ partial class Build
     };
 
     const string ResilienceBoxFile = ResilienceModule + ".Types.KitchenBox.cs";
-    const string ResilienceBoxAccessor = "public virtual ResilienceKitchen.KitchenWidget? HostileWidget";
-    const string ResilienceBoxDeclaration = "public partial class KitchenBox<TElement> : ISwiftObject, IDisposable, Swift.Runtime.IExistentialBoxable";
-    const string ResilienceControlBoxDeclaration = "public partial class KitchenBox<TElement> : ISwiftObject, IDisposable, IKitchenValue, Swift.Runtime.IExistentialBoxable";
+    const string ResilienceBoxAccessor = "public virtual global::ResilienceKitchen.KitchenWidget? HostileWidget";
+    const string ResilienceBoxDeclaration = "public partial class KitchenBox<TElement> : global::Swift.Runtime.ISwiftObject, global::System.IDisposable, global::Swift.Runtime.IExistentialBoxable";
+    const string ResilienceControlBoxDeclaration = "public partial class KitchenBox<TElement> : global::Swift.Runtime.ISwiftObject, global::System.IDisposable, IKitchenValue, global::Swift.Runtime.IExistentialBoxable";
     const string ResilienceBoxHostileSymbol = "KitchenBox_hostileWidget";
     const string ResilienceBoxHostileOrigin = "|KitchenBox|Property|hostileWidget|";
 
@@ -575,7 +575,7 @@ partial class Build
                     Body(swift, $"fileprivate struct {protocol}_vtable"), @"var (func_\w+)")
                     .Select(m => m.Groups[1].Value).ToArray();
                 var managedFields = System.Text.RegularExpressions.Regex.Matches(
-                    Body(managed, $"private struct {protocol}SwiftVTable"), @"public IntPtr (func_\w+);")
+                    Body(managed, $"private struct {protocol}SwiftVTable"), @"public global::System.IntPtr (func_\w+);")
                     .Select(m => m.Groups[1].Value).ToArray();
                 if (!swiftFields.SequenceEqual(fields) || !managedFields.SequenceEqual(fields))
                     throw new Exception($"resilience-kitchen: {label} {protocol} ordered native/managed vtable fields disagree.");
@@ -583,7 +583,7 @@ partial class Build
                 {
                     var suffix = field["func_".Length..];
                     if (!managed.Contains($"Func_{suffix} = &Receive_{suffix}", StringComparison.Ordinal) ||
-                        !managed.Contains($"{field} = (IntPtr)_localVTable.Func_{suffix}", StringComparison.Ordinal) ||
+                        !managed.Contains($"{field} = (global::System.IntPtr)_localVTable.Func_{suffix}", StringComparison.Ordinal) ||
                         !swift.Contains($".{field}!(", StringComparison.Ordinal))
                         throw new Exception($"resilience-kitchen: {label} {protocol}.{field} has no matching callback wiring.");
                 }

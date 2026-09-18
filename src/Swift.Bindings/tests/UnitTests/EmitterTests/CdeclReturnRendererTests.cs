@@ -144,9 +144,9 @@ public class CdeclReturnRendererTests
     private static readonly string[] TagOnlyExpected =
     {
         "var result = foo",
-        "let resultSize = MemoryLayout.size(ofValue: result)",
+        "let resultSize = Swift.MemoryLayout.size(ofValue: result)",
         "var tag: Int = 0",
-        "withUnsafeMutablePointer(to: &tag) { tagPtr in withUnsafePointer(to: &result) { resultPtr in UnsafeMutableRawPointer(tagPtr).copyMemory(from: UnsafeRawPointer(resultPtr), byteCount: resultSize) } }",
+        "Swift.withUnsafeMutablePointer(to: &tag) { tagPtr in Swift.withUnsafePointer(to: &result) { resultPtr in Swift.UnsafeMutableRawPointer(tagPtr).copyMemory(from: Swift.UnsafeRawPointer(resultPtr), byteCount: resultSize) } }",
         "return tag",
     };
 
@@ -212,7 +212,7 @@ public class CdeclReturnRendererTests
     {
         var (spec, db) = EmptyDb();
         var mapping = Map(CdeclReturnKind.ClassPointer, "UnsafeMutableRawPointer");
-        var expected = new[] { "return Unmanaged.passRetained(foo as AnyObject).toOpaque()" };
+        var expected = new[] { "return Swift.Unmanaged.passRetained(foo as Swift.AnyObject).toOpaque()" };
 
         // ClassPointer never wraps the value as (expr) — same output regardless of scalarParens.
         Assert.Equal(expected, CdeclReturnRenderer.Lines(Expr, spec, db, mapping, scalarParens: true));
@@ -226,7 +226,7 @@ public class CdeclReturnRendererTests
         var mapping = Map(CdeclReturnKind.ClassPointer, "UnsafeMutableRawPointer");
 
         Assert.Equal(
-            new[] { "let result = foo", "return Unmanaged.passRetained(result as AnyObject).toOpaque()" },
+            new[] { "let result = foo", "return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()" },
             CdeclReturnRenderer.LinesBindingResult(Expr, spec, db, mapping));
     }
 
@@ -244,7 +244,7 @@ public class CdeclReturnRendererTests
 
     [Fact]
     public void ClassPointer_Sentinel_IsNonNilBitPattern()
-        => Assert.Equal("    return UnsafeMutableRawPointer(bitPattern: 1)!",
+        => Assert.Equal("    return Swift.UnsafeMutableRawPointer(bitPattern: 1)!",
             WriteSentinel(Map(CdeclReturnKind.ClassPointer, "UnsafeMutableRawPointer")));
 
     // ----- OptionalClassPointer ------------------------------------------------------------
@@ -256,7 +256,7 @@ public class CdeclReturnRendererTests
         var mapping = Map(CdeclReturnKind.OptionalClassPointer, "UnsafeMutableRawPointer?");
         var expected = new[]
         {
-            "return (foo).map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }"
+            "return (foo).map { Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }"
         };
 
         // Optional always parenthesizes the receiver for `.map`, regardless of scalarParens.
@@ -274,7 +274,7 @@ public class CdeclReturnRendererTests
             new[]
             {
                 "let result = foo",
-                "return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }"
+                "return result.map { Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }"
             },
             CdeclReturnRenderer.LinesBindingResult(Expr, spec, db, mapping));
     }
@@ -309,8 +309,8 @@ public class CdeclReturnRendererTests
         var lines = CdeclReturnRenderer.Lines(Expr, spec, db, mapping, scalarParens);
 
         Assert.Equal("guard let _sbwError = foo else { return nil }", lines[0]);
-        Assert.Contains(lines, line => line.Contains("initializeMemory(as: (any Error).self", System.StringComparison.Ordinal));
-        Assert.Contains(lines, line => line.Contains("load(as: UnsafeMutableRawPointer.self)", System.StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("initializeMemory(as: (any Swift.Error).self", System.StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("load(as: Swift.UnsafeMutableRawPointer.self)", System.StringComparison.Ordinal));
         Assert.Contains("_sbwErrorStorage.deallocate()", lines);
         Assert.Equal("return _sbwErrorBox", lines[^1]);
         Assert.DoesNotContain(lines, line => line.Contains("deinitialize", System.StringComparison.Ordinal));

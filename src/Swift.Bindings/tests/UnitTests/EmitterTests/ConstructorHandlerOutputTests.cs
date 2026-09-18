@@ -726,7 +726,7 @@ public class ConstructorHandlerOutputTests
         var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
         Assert.Contains("@_cdecl(\"", swiftOutput);
-        Assert.Contains("_ x: Int", swiftOutput);
+        Assert.Contains("_ x: Swift.Int", swiftOutput);
     }
 
     [Fact]

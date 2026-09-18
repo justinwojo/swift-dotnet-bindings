@@ -31,4 +31,10 @@ internal static class SwiftConcurrencyNames
 
     /// <summary>Qualified <c>CheckedContinuation</c>.</summary>
     internal const string CheckedContinuation = "_Concurrency.CheckedContinuation";
+
+    /// <summary>Qualified <c>withCheckedContinuation</c>.</summary>
+    internal const string WithCheckedContinuation = "_Concurrency.withCheckedContinuation";
+
+    /// <summary>Qualified <c>withCheckedThrowingContinuation</c>.</summary>
+    internal const string WithCheckedThrowingContinuation = "_Concurrency.withCheckedThrowingContinuation";
 }

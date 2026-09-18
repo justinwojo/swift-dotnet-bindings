@@ -669,7 +669,7 @@ public class OptionalPointerWrapperTests
 
         Assert.Contains("_optbuf", swiftOutput);
         Assert.Contains("Payload.DangerousGetHandle()", csOutput);
-        Assert.Matches(@"_ value: UnsafeRawPointer", swiftOutput);
+        Assert.Matches(@"_ value: Swift\.UnsafeRawPointer", swiftOutput);
         Assert.Matches(@"let valueVal = value\.assumingMemoryBound\(to: [^\n]*MyProtocol[^\n]*\)\.pointee", swiftOutput);
         Assert.DoesNotMatch(@"_ value: [^\n,)]*Optional", swiftOutput);
     }
@@ -691,8 +691,8 @@ public class OptionalPointerWrapperTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("_self: UnsafeMutableRawPointer", swiftOutput);
-        Assert.Contains("unsafeBitCast(OpaquePointer(_self)", swiftOutput);
+        Assert.Contains("_self: Swift.UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("Swift.unsafeBitCast(Swift.OpaquePointer(_self)", swiftOutput);
     }
 
     [Fact]
@@ -852,7 +852,7 @@ public class OptionalPointerWrapperTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("unsafeBitCast(OpaquePointer(_self)", swiftOutput);
+        Assert.Contains("Swift.unsafeBitCast(Swift.OpaquePointer(_self)", swiftOutput);
         Assert.Contains("__self.title = ", swiftOutput);
     }
 
@@ -1071,7 +1071,7 @@ public class OptionalPointerWrapperTests
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
         // Swift wrapper must have _resultBuf parameter
-        Assert.Contains("_resultBuf: UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("_resultBuf: Swift.UnsafeMutableRawPointer", swiftOutput);
         // Swift wrapper must NOT have a direct return type (writes to buffer instead)
         Assert.DoesNotContain("-> (Swift.String)?", swiftOutput);
         Assert.DoesNotContain("-> Swift.Optional", swiftOutput);
@@ -1453,8 +1453,8 @@ public class OptionalPointerWrapperTests
         var output = swiftOutput.ToString();
 
         // resultPtr must appear BEFORE the value parameter in the function signature
-        var resultPtrIdx = output.IndexOf("resultPtr: UnsafeMutableRawPointer");
-        var valueIdx = output.IndexOf("value: UnsafeRawPointer");
+        var resultPtrIdx = output.IndexOf("resultPtr: Swift.UnsafeMutableRawPointer");
+        var valueIdx = output.IndexOf("value: Swift.UnsafeRawPointer");
         Assert.True(resultPtrIdx >= 0, "resultPtr not found in wrapper output");
         Assert.True(valueIdx >= 0, "value param not found in wrapper output");
         Assert.True(resultPtrIdx < valueIdx,
@@ -1509,11 +1509,11 @@ public class OptionalPointerWrapperTests
         // The `let nOpt` local and the `.advanced(by: 4).load(as: UInt8.self)` tag read are unique
         // to the blittable-primitive decode and cannot appear under omitLabels:true (which emits no
         // reconstruction and forwards the bare pointer).
-        Assert.Contains("let nOpt: Int32? =", swift);
-        Assert.Contains(".advanced(by: 4).load(as: UInt8.self)", swift);
-        Assert.Contains("load(as: Int32.self)", swift);
+        Assert.Contains("let nOpt: Swift.Int32? =", swift);
+        Assert.Contains(".advanced(by: 4).load(as: Swift.UInt8.self)", swift);
+        Assert.Contains("load(as: Swift.Int32.self)", swift);
         // The param is still received as a raw pointer (the buffer address)...
-        Assert.Contains("_ n: UnsafeRawPointer", swift);
+        Assert.Contains("_ n: Swift.UnsafeRawPointer", swift);
         // ...but the wrapper DECODES then FORWARDS the local: nOpt appears twice (declaration +
         // call site). Under the bug, nOpt would not exist at all and `n` would be forwarded raw.
         Assert.True(Regex.Matches(swift, "nOpt").Count >= 2,
@@ -1545,7 +1545,7 @@ public class OptionalPointerWrapperTests
         var doAt = swift.IndexOf("do {", StringComparison.Ordinal);
         var catchAt = swift.IndexOf("} catch {", StringComparison.Ordinal);
         var retainedAt = swift.IndexOf(
-            "errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()",
+            "errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()",
             StringComparison.Ordinal);
 
         Assert.True(clearAt >= 0 && clearAt < doAt,
@@ -1581,10 +1581,10 @@ public class OptionalPointerWrapperTests
 
         var swift = swiftOutput.ToString();
 
-        Assert.Contains("let nOpt: Int32? =", swift);
-        Assert.Contains(".advanced(by: 4).load(as: UInt8.self)", swift);
-        Assert.Contains("load(as: Int32.self)", swift);
-        Assert.Contains("_ n: UnsafeRawPointer", swift);
+        Assert.Contains("let nOpt: Swift.Int32? =", swift);
+        Assert.Contains(".advanced(by: 4).load(as: Swift.UInt8.self)", swift);
+        Assert.Contains("load(as: Swift.Int32.self)", swift);
+        Assert.Contains("_ n: Swift.UnsafeRawPointer", swift);
         Assert.True(Regex.Matches(swift, "nOpt").Count >= 2,
             $"nOpt must be declared and forwarded; output was:\n{swift}");
     }
@@ -1617,7 +1617,7 @@ public class OptionalPointerWrapperTests
 
         var swift = swiftOutput.ToString();
 
-        var resultPtrIdx = swift.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var resultPtrIdx = swift.IndexOf("resultPtr: Swift.UnsafeMutableRawPointer");
         var funcPtrIdx = swift.IndexOf("onDoneFuncPtr:");
         var contextIdx = swift.IndexOf("onDoneContext:");
         var selfIdx = swift.IndexOf("_self:");

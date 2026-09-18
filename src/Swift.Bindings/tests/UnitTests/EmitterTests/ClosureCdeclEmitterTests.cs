@@ -47,7 +47,7 @@ public class ClosureCdeclEmitterTests
         Assert.Contains(trimExport, swift);
         Assert.Contains(trimExport, cs);
         Assert.Contains("@_cdecl", swift);
-        Assert.Contains("_ text: UnsafeMutableRawPointer", swift);
+        Assert.Contains("_ text: Swift.UnsafeMutableRawPointer", swift);
         Assert.Contains("var textVal = text.assumingMemoryBound(to: Swift.String.self).pointee", swift);
         Assert.Contains("defer { text.assumingMemoryBound(to: Swift.String.self).pointee = textVal }", swift);
         Assert.Contains("&textVal", swift);
@@ -1336,11 +1336,11 @@ public class ClosureCdeclEmitterTests
         var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
             "callback", closureType, closureHandler, isOptional: false));
 
-        Assert.Contains("UnsafeMutablePointer<Swift.Array<Swift.Double>>.allocate(capacity: 1)", swift);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Array<Swift.Double>>.allocate(capacity: 1)", swift);
         Assert.Contains("__collection_0.initialize(to: p0)", swift);
         Assert.Contains("__collection_0.deinitialize(count: 1); __collection_0.deallocate()", swift);
         Assert.Contains("if let __value_1 = p1", swift);
-        Assert.Contains("__collection_1.map { UnsafeMutableRawPointer($0) }", swift);
+        Assert.Contains("__collection_1.map { Swift.UnsafeMutableRawPointer($0) }", swift);
     }
 
     [Fact]
@@ -1357,10 +1357,10 @@ public class ClosureCdeclEmitterTests
             "completion", closureType, closureHandler, isOptional: false));
 
         Assert.Contains("p0: Swift.Optional<(any Swift.Error)>", swift);
-        Assert.Contains("UnsafeMutablePointer<any Swift.Error>.allocate(capacity: 1)", swift);
+        Assert.Contains("Swift.UnsafeMutablePointer<any Swift.Error>.allocate(capacity: 1)", swift);
         Assert.Contains("__typed_0.initialize(to: __value_0)", swift);
         Assert.DoesNotContain("as Swift.Error", swift);
-        Assert.Contains("__optionalError_0.map { UnsafeMutableRawPointer($0) }", swift);
+        Assert.Contains("__optionalError_0.map { Swift.UnsafeMutableRawPointer($0) }", swift);
         Assert.Contains("deinitialize(count: 1); __typed_0.deallocate()", swift);
     }
 

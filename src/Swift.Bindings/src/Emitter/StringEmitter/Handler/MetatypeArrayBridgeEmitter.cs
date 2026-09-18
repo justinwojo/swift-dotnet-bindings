@@ -258,7 +258,7 @@ public static class MetatypeArrayBridgeEmitter
         var callArgs = new List<string>();
 
         if (isStringReturn)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         // Collect the raw (pre-escape) binding names this wrapper emits for EVERY param, so each
         // per-param escape also dodges a sibling binding. An array-of-metatype param expands
@@ -303,8 +303,8 @@ public static class MetatypeArrayBridgeEmitter
                 var countLabel = NameProvider.EscapeReservedSwiftWrapperLabel(rawCount, CdeclParamMapper.ExcludeSelf(allBindings, rawCount));
                 var localVar = NameProvider.EscapeReservedSwiftWrapperLabel(rawArr, CdeclParamMapper.ExcludeSelf(allBindings, rawArr));
 
-                swiftParams.Add($"_ {ptrLabel}: UnsafeRawPointer");
-                swiftParams.Add($"_ {countLabel}: Int");
+                swiftParams.Add($"_ {ptrLabel}: Swift.UnsafeRawPointer");
+                swiftParams.Add($"_ {countLabel}: Swift.Int");
 
                 // `any P.Type` is a 2-word existential (metatype + protocol witness table).
                 // The C# caller provides a 1-word raw metatype pointer per element.
@@ -321,10 +321,10 @@ public static class MetatypeArrayBridgeEmitter
                 for (int ci = 0; ci < conformers.Count; ci++)
                 {
                     var qName = conformers[ci].SwiftQualifiedName!;
-                    reconstruction.Add($"let _ptr{ci} = unsafeBitCast({qName}.self as Any.Type, to: UnsafeRawPointer.self)");
+                    reconstruction.Add($"let _ptr{ci} = Swift.unsafeBitCast({qName}.self as Any.Type, to: Swift.UnsafeRawPointer.self)");
                 }
                 reconstruction.Add($"for _i in 0..<{countLabel} {{");
-                reconstruction.Add($"    let _p = {ptrLabel}.load(fromByteOffset: _i * MemoryLayout<UnsafeRawPointer>.stride, as: UnsafeRawPointer.self)");
+                reconstruction.Add($"    let _p = {ptrLabel}.load(fromByteOffset: _i * Swift.MemoryLayout<Swift.UnsafeRawPointer>.stride, as: Swift.UnsafeRawPointer.self)");
                 for (int ci = 0; ci < conformers.Count; ci++)
                 {
                     var qName = conformers[ci].SwiftQualifiedName!;

@@ -113,12 +113,12 @@ public class AsyncProjection : ITypeProjection
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"@_silgen_name(\"{wrapperName}\")");
         sb.AppendLine($"public func {wrapperName}(");
-        sb.AppendLine($"    _ callback: @convention(c) ({callbackReturnParams}Int64) -> Void,");
+        sb.AppendLine($"    _ callback: @convention(c) ({callbackReturnParams}Swift.Int64) -> Swift.Void,");
         if (_throws)
         {
-            sb.AppendLine($"    _ errorCallback: @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64) -> Void,");
+            sb.AppendLine($"    _ errorCallback: @convention(c) (Swift.UnsafeRawPointer, Swift.Int, Swift.UnsafePointer<Swift.CChar>, Swift.Int32, Swift.Int64) -> Swift.Void,");
         }
-        sb.AppendLine($"    _ task: Int64) {{");
+        sb.AppendLine($"    _ task: Swift.Int64) {{");
         sb.AppendLine($"    let _entry = _SBWTaskEntry()");
         sb.AppendLine($"    _sbwRegisterTask(task, _entry)");
         sb.AppendLine($"    let _sbwLaunchedTask = Task {{");
@@ -132,10 +132,10 @@ public class AsyncProjection : ITypeProjection
             sb.AppendLine($"            {resultCapture}{awaitExpr} {callExpression}");
             sb.AppendLine($"            callback({callbackResultArg}task)");
             sb.AppendLine($"        }} catch {{");
-            sb.AppendLine($"            let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0");
-            sb.AppendLine($"            let errorMessage = String(describing: error)");
+            sb.AppendLine($"            let _isCancelled: Swift.Int32 = (error is _Concurrency.CancellationError) ? 1 : 0");
+            sb.AppendLine($"            let errorMessage = Swift.String(describing: error)");
             sb.AppendLine($"            errorMessage.withCString {{ _msgPtr in");
-            sb.AppendLine($"                errorCallback(UnsafeRawPointer(bitPattern: 1)!, 0, _msgPtr, _isCancelled, task)");
+            sb.AppendLine($"                errorCallback(Swift.UnsafeRawPointer(bitPattern: 1)!, 0, _msgPtr, _isCancelled, task)");
             sb.AppendLine($"            }}");
             sb.AppendLine($"        }}");
         }
@@ -251,17 +251,17 @@ public class AsyncProjection : ITypeProjection
     /// </summary>
     private static string MapPInvokeTypeToSwift(string pInvokeType) => pInvokeType switch
     {
-        "IntPtr" => "UnsafeRawPointer",
-        "nint" => "Int",
-        "nuint" => "UInt",
-        "Int32" or "int" => "Int32",
-        "Int64" or "long" => "Int64",
-        "UInt32" => "UInt32",
-        "UInt64" => "UInt64",
-        "Double" or "double" => "Double",
-        "Float" or "float" => "Float",
-        "byte" => "UInt8",
-        "SwiftString" => "UnsafeRawPointer",  // strings pass as raw pointer in callbacks
+        "IntPtr" => "Swift.UnsafeRawPointer",
+        "nint" => "Swift.Int",
+        "nuint" => "Swift.UInt",
+        "Int32" or "int" => "Swift.Int32",
+        "Int64" or "long" => "Swift.Int64",
+        "UInt32" => "Swift.UInt32",
+        "UInt64" => "Swift.UInt64",
+        "Double" or "double" => "Swift.Double",
+        "Float" or "float" => "Swift.Float",
+        "byte" => "Swift.UInt8",
+        "SwiftString" => "Swift.UnsafeRawPointer",  // strings pass as raw pointer in callbacks
         _ => pInvokeType  // fallback — the emitter provides SwiftCallbackReturnType for complex types
     };
 

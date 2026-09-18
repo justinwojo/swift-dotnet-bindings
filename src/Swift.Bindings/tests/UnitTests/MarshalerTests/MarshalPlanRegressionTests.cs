@@ -373,7 +373,7 @@ public class MarshalPlanRegressionTests
         Assert.Equal("namesBuffer", plan.PInvokeExpression);
 
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Select(e => new SwiftString(e)).ToList()", firstLine.Code);
+        Assert.Contains("global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(names, e => new SwiftString(e)))", firstLine.Code);
 
         // Should have try/finally with disposal
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header == "finally");
@@ -414,7 +414,7 @@ public class MarshalPlanRegressionTests
         Assert.Equal("dictBuffer", plan.PInvokeExpression);
 
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Select(kvp => new KeyValuePair<SwiftString, SwiftString>", firstLine.Code);
+        Assert.Contains("global::System.Linq.Enumerable.Select(dict, kvp => new KeyValuePair<SwiftString, SwiftString>", firstLine.Code);
         Assert.Contains("new SwiftString(kvp.Key)", firstLine.Code);
         Assert.Contains("new SwiftString(kvp.Value)", firstLine.Code);
 
@@ -1015,7 +1015,7 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetParameterPlan("names");
         var output = RenderStatements(plan.SetupStatements);
 
-        Assert.Contains("names.Select(e => new SwiftString(e)).ToList()", output);
+        Assert.Contains("global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(names, e => new SwiftString(e)))", output);
         Assert.Contains("SwiftArray<SwiftString>.FromEnumerable(namesConverted)", output);
         Assert.Contains("foreach (var _item in namesConverted) _item.Dispose()", output);
         Assert.Contains("using var namesSwift = namesSwiftInner;", output);

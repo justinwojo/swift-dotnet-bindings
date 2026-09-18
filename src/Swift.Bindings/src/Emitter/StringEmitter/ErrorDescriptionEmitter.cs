@@ -43,29 +43,29 @@ public static class ErrorDescriptionEmitter
             // Error description extraction for sync throwing methods.
             // SwiftError.Value from .NET CallConvSwift is the raw value from the Swift error register.
             //
-            // Uses Unmanaged<AnyObject>.fromOpaque to recover the error object, then dispatches:
-            //   - Swift Error (enums, structs): String(describing:) gives case name
+            // Uses Swift.Unmanaged<Swift.AnyObject>.fromOpaque to recover the error object, then dispatches:
+            //   - Swift Error (enums, structs): Swift.String(describing:) gives case name
             //   - Pure NSError: domain+code (avoid ObjC runtime operations that may crash)
-            //   - Fallback: type(of:) for anything else
+            //   - Fallback: Swift.type(of:) for anything else
             @_cdecl("{{descSymbol}}")
-            public func SBW_GetErrorDescription(_ error: UnsafeRawPointer) -> UnsafeMutablePointer<CChar>? {
-                let errorObj = Unmanaged<AnyObject>.fromOpaque(error).takeUnretainedValue()
-                let desc: String
-                if let errorValue = errorObj as? Error {
+            public func SBW_GetErrorDescription(_ error: Swift.UnsafeRawPointer) -> Swift.UnsafeMutablePointer<Swift.CChar>? {
+                let errorObj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(error).takeUnretainedValue()
+                let desc: Swift.String
+                if let errorValue = errorObj as? Swift.Error {
                     // This function runs in the Swift/ObjC runtime (via @_cdecl P/Invoke),
                     // not in CoreCLR, so ObjC runtime operations are fully available.
-                    // String(describing:) gives the case name for Swift enum errors (e.g., "divisionByZero")
+                    // Swift.String(describing:) gives the case name for Swift enum errors (e.g., "divisionByZero")
                     // and the localized description for NSError/subclasses.
                     // Previous code checked NSError first, but Swift enum errors bridge to
                     // _SwiftNativeNSError (an NSError subclass), so `as? NSError` matched everything
                     // and returned "domain (code N)" instead of the case name.
-                    desc = String(describing: errorValue)
+                    desc = Swift.String(describing: errorValue)
                 } else {
                     desc = "\(type(of: errorObj))"
                 }
                 return desc.withCString { cStr in
                     let len = strlen(cStr) + 1
-                    let buf = UnsafeMutablePointer<CChar>.allocate(capacity: len)
+                    let buf = Swift.UnsafeMutablePointer<Swift.CChar>.allocate(capacity: len)
                     buf.initialize(from: cStr, count: len)
                     return buf
                 }
@@ -73,8 +73,8 @@ public static class ErrorDescriptionEmitter
 
             // Release the error box's ARC reference. SwiftError.Value is a retained pointer.
             @_cdecl("{{releaseSymbol}}")
-            public func SBW_ReleaseError(_ error: UnsafeRawPointer) {
-                Unmanaged<AnyObject>.fromOpaque(error).release()
+            public func SBW_ReleaseError(_ error: Swift.UnsafeRawPointer) {
+                Swift.Unmanaged<Swift.AnyObject>.fromOpaque(error).release()
             }
 
             """);
@@ -174,16 +174,16 @@ public static class ErrorDescriptionEmitter
         swiftWriter.WriteLines($$"""
             // Typed error extractor for {{swiftErrorTypeName}} (C2)
             @_cdecl("{{symbol}}")
-            public func SBW_ExtractTypedError_{{safeSuffix}}(_ error: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
-                let errorObj = Unmanaged<AnyObject>.fromOpaque(error).takeUnretainedValue()
+            public func SBW_ExtractTypedError_{{safeSuffix}}(_ error: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer? {
+                let errorObj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(error).takeUnretainedValue()
                 guard let typedError = errorObj as? {{swiftErrorTypeName}} else {
                     return nil
                 }
-                let size = MemoryLayout<{{swiftErrorTypeName}}>.size
-                let alignment = MemoryLayout<{{swiftErrorTypeName}}>.alignment
-                let buf = UnsafeMutableRawPointer.allocate(byteCount: max(size, 1), alignment: alignment)
-                withUnsafePointer(to: typedError) { src in
-                    buf.copyMemory(from: UnsafeRawPointer(src), byteCount: size)
+                let size = Swift.MemoryLayout<{{swiftErrorTypeName}}>.size
+                let alignment = Swift.MemoryLayout<{{swiftErrorTypeName}}>.alignment
+                let buf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.max(size, 1), alignment: alignment)
+                Swift.withUnsafePointer(to: typedError) { src in
+                    buf.copyMemory(from: Swift.UnsafeRawPointer(src), byteCount: size)
                 }
                 return buf
             }

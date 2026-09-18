@@ -296,8 +296,8 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("_SBW_GSF_", output);
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
         var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
         Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
             $"The generic static-factory constructor must clear errorOut before executing Swift code.\n{output}");
@@ -346,7 +346,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
 
         var protocolLine = output.Split('\n').Single(l => l.Contains("private protocol _SBW_GSF_", StringComparison.Ordinal));
-        Assert.Equal(nonCopyable, protocolLine.Contains("~Copyable", StringComparison.Ordinal));
+        Assert.Equal(nonCopyable, protocolLine.Contains("~Swift.Copyable", StringComparison.Ordinal));
         Assert.Equal(!nonCopyable, output.Contains("initializeMemory(", StringComparison.Ordinal));
         if (nonCopyable)
             Assert.Contains(".initialize(to: result)", output);
@@ -1351,7 +1351,7 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("@_cdecl(\"", output);
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("resultPtr.assumingMemoryBound(to: TestModule.MyStruct.self).initialize(to: result)", output);
         Assert.DoesNotContain("errorOut", output);
     }
@@ -1366,7 +1366,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("Optional<TestModule.MyStruct>.self", output);
     }
 
@@ -1380,12 +1380,12 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
         Assert.Contains("do {", output);
         Assert.Contains("try", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
         var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
         Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
             $"The initializer wrapper must clear errorOut before executing Swift code.\n{output}");
@@ -1401,8 +1401,8 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
         Assert.Contains("Optional<TestModule.MyStruct>.self", output);
         Assert.Contains("errorOut.pointee", output);
     }
@@ -1421,7 +1421,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("Unmanaged.passRetained(result).toOpaque()", output);
         Assert.DoesNotContain("resultPtr", output);
     }
@@ -1436,7 +1436,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("guard let result =", output);
         Assert.Contains("return nil", output);
         Assert.Contains("Unmanaged.passRetained(result).toOpaque()", output);
@@ -1452,12 +1452,12 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer", output);
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
         Assert.Contains("do {", output);
         Assert.Contains("let result = try", output);
         Assert.Contains("Unmanaged.passRetained(result).toOpaque()", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
         // Must use bitPattern: 1 (non-nil sentinel), NOT bitPattern: 0 which traps on force-unwrap
         Assert.Contains("UnsafeMutableRawPointer(bitPattern: 1)!", output);
         Assert.DoesNotContain("bitPattern: 0", output);
@@ -1476,7 +1476,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("guard let result = try", output);
         Assert.Contains("return nil", output);
         Assert.Contains("errorOut.pointee", output);
@@ -1665,7 +1665,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // With silgenTarget (calling _dbw_init_*), Optional params that are widened
         // should pass the raw pointer through, NOT load Optional<String>
-        Assert.Contains("_ licensee: UnsafeRawPointer", output);
+        Assert.Contains("_ licensee: Swift.UnsafeRawPointer", output);
         // Should NOT contain the load pattern for widened Optional params
         Assert.DoesNotContain("licensee.assumingMemoryBound(to: Optional<String>.self).pointee", output);
     }
@@ -1785,7 +1785,7 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         // Custom frozen struct: passed as UnsafeRawPointer, reconstructed via .load(as:)
-        Assert.Contains("_ point: UnsafeRawPointer", output);
+        Assert.Contains("_ point: Swift.UnsafeRawPointer", output);
         Assert.Contains("point.assumingMemoryBound(to: TestModule.Point.self).pointee", output);
         Assert.Contains("point: pointVal", output);
     }
@@ -1950,7 +1950,7 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         // Non-frozen struct: passed as pointer, needs load
-        Assert.Contains("_ config: UnsafeRawPointer", output);
+        Assert.Contains("_ config: Swift.UnsafeRawPointer", output);
         Assert.Contains("config.assumingMemoryBound(to: TestModule.Config.self).pointee", output);
     }
 
@@ -2059,7 +2059,7 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         // Should emit "Int32" (the correct Swift type), NOT "Int" (the fallback)
-        Assert.Contains("_ priority: Int32", output);
+        Assert.Contains("_ priority: Swift.Int32", output);
         // Use init(rawValue:) for safe conversion — unsafeBitCast crashes when
         // enum storage size differs from parameter type. Guard against invalid raw values.
         Assert.Contains("guard let priorityVal = TestModule.Priority(rawValue: priority) else { Swift.preconditionFailure(", output);
@@ -2123,7 +2123,7 @@ public class ConstructorWrapperEmitterTests
         // Guard against invalid raw values from C#.
         Assert.Contains("guard let unitVal = TestModule.Unit(rawValue: unit) else { Swift.preconditionFailure(", output);
         Assert.DoesNotContain("unsafeBitCast", output);
-        Assert.Contains("_ unit: Int", output);
+        Assert.Contains("_ unit: Swift.Int", output);
     }
 
     [Fact]
@@ -2179,8 +2179,8 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         // Tag-only: uses safe memory load, not unsafeBitCast or init(rawValue:)
-        Assert.Contains("_ direction: Int", output); // fallback raw type for null
-        Assert.Contains("withUnsafeMutablePointer", output);
+        Assert.Contains("_ direction: Swift.Int32", output); // fallback raw type for null
+        Assert.Contains("Swift.withUnsafeMutablePointer", output);
         Assert.Contains(".load(as: TestModule.Direction.self)", output);
         Assert.DoesNotContain("unsafeBitCast", output);
         Assert.DoesNotContain("init(rawValue:", output);
@@ -2243,21 +2243,21 @@ public class ConstructorWrapperEmitterTests
         Assert.DoesNotContain("Unmanaged<CALayerContentsGravity>", output);
         // Must reconstruct via NSString → String → init(rawValue:)
         Assert.Contains("Unmanaged<NSString>", output);
-        Assert.Contains("as String)", output);
+        Assert.Contains("as Swift.String)", output);
         Assert.Contains("CALayerContentsGravity(rawValue:", output);
     }
 
     [Theory]
-    [InlineData("Swift.Bool", "Bool")]
-    [InlineData("Bool", "Bool")]
-    [InlineData("Swift.Float", "Float")]
-    [InlineData("Float", "Float")]
-    [InlineData("Swift.Double", "Double")]
-    [InlineData("Double", "Double")]
+    [InlineData("Swift.Bool", "Swift.Bool")]
+    [InlineData("Bool", "Swift.Bool")]
+    [InlineData("Swift.Float", "Swift.Float")]
+    [InlineData("Float", "Swift.Float")]
+    [InlineData("Swift.Double", "Swift.Double")]
+    [InlineData("Double", "Swift.Double")]
     [InlineData("CoreFoundation.CGFloat", "CGFloat")]
     [InlineData("CGFloat", "CGFloat")]
-    [InlineData("Swift.Int32", "Int32")]
-    [InlineData("Int32", "Int32")]
+    [InlineData("Swift.Int32", "Swift.Int32")]
+    [InlineData("Int32", "Swift.Int32")]
     public void GetSwiftRawValueType_ReturnsCorrectSwiftType(string input, string expected)
     {
         var result = CdeclParamMapper.GetSwiftRawValueType(input);
@@ -2316,7 +2316,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ value: Int", output);
+        Assert.Contains("_ value: Swift.Int", output);
         Assert.Contains("value: value", output);
     }
 
@@ -2367,7 +2367,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ flag: Int8", output);
+        Assert.Contains("_ flag: Swift.Int8", output);
         Assert.Contains("flagVal = flag != 0", output);
     }
 
@@ -2634,7 +2634,7 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         // Must be UnsafeRawPointer, NOT the protocol type
-        Assert.Contains("_ provider: UnsafeRawPointer", output);
+        Assert.Contains("_ provider: Swift.UnsafeRawPointer", output);
         Assert.DoesNotContain("_ provider: any", output);
         Assert.DoesNotContain("_ provider: AnimationProvider", output);
     }
@@ -2690,7 +2690,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ proto: UnsafeRawPointer", output);
+        Assert.Contains("_ proto: Swift.UnsafeRawPointer", output);
     }
 
     [Fact]
@@ -2762,13 +2762,13 @@ public class ConstructorWrapperEmitterTests
             new SwiftWriter(sw), env, new ModuleEmissionContext(), silgenTarget: "_dbw_init_Session_1");
         var output = sw.ToString();
 
-        Assert.Contains("_ interceptor: UnsafeRawPointer", output);
-        Assert.Contains("_ code: UnsafeRawPointer", output);
+        Assert.Contains("_ interceptor: Swift.UnsafeRawPointer", output);
+        Assert.Contains("_ code: Swift.UnsafeRawPointer", output);
         // The existential is never loaded in the wrapper; the shim reads it from the address.
         Assert.DoesNotContain("interceptor.load(", output);
         Assert.DoesNotContain("interceptorVal", output);
         // The Int32? is decoded to a value, and the shim receives the address and the value.
-        Assert.Contains("let codeOpt: Int32? =", output);
+        Assert.Contains("let codeOpt: Swift.Int32? =", output);
         Assert.Contains("_dbw_init_Session_1(interceptor, codeOpt)", output);
     }
 
@@ -2823,11 +2823,11 @@ public class ConstructorWrapperEmitterTests
 
         var output = sw.ToString();
         // Must use two Int words, NOT String type (which @_cdecl bridges to NSString*)
-        Assert.Contains("_ _sW0_value: Int", output);
-        Assert.Contains("_ _sW1_value: Int", output);
+        Assert.Contains("_ _sW0_value: Swift.Int", output);
+        Assert.Contains("_ _sW1_value: Swift.Int", output);
         Assert.DoesNotContain("_ value: String", output);
         // Must reconstruct via unsafeBitCast
-        Assert.Contains("unsafeBitCast((_sW0_value, _sW1_value), to: String.self)", output);
+        Assert.Contains("Swift.unsafeBitCast((_sW0_value, _sW1_value), to: Swift.String.self)", output);
         // Must use reconstructed value in call
         Assert.Contains("stringLiteral: valueVal", output);
     }
@@ -2885,12 +2885,12 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_sW0_first: Int", output);
-        Assert.Contains("_sW1_first: Int", output);
-        Assert.Contains("_sW0_second: Int", output);
-        Assert.Contains("_sW1_second: Int", output);
-        Assert.Contains("unsafeBitCast((_sW0_first, _sW1_first), to: String.self)", output);
-        Assert.Contains("unsafeBitCast((_sW0_second, _sW1_second), to: String.self)", output);
+        Assert.Contains("_sW0_first: Swift.Int", output);
+        Assert.Contains("_sW1_first: Swift.Int", output);
+        Assert.Contains("_sW0_second: Swift.Int", output);
+        Assert.Contains("_sW1_second: Swift.Int", output);
+        Assert.Contains("Swift.unsafeBitCast((_sW0_first, _sW1_first), to: Swift.String.self)", output);
+        Assert.Contains("Swift.unsafeBitCast((_sW0_second, _sW1_second), to: Swift.String.self)", output);
     }
 
     #endregion
@@ -2959,14 +2959,14 @@ public class ConstructorWrapperEmitterTests
 
         // Protocol: private protocol with AnyObject constraint and init
         Assert.Contains("private protocol _SBW_CI_", output);
-        Assert.Contains(": AnyObject", output);
-        Assert.Contains("init(capacity: Int)", output);
+        Assert.Contains(": Swift.AnyObject", output);
+        Assert.Contains("init(capacity: Swift.Int)", output);
 
         // Extension conformance
         Assert.Contains("extension TestModule.GenericCache: _SBW_CI_", output);
 
         // Metadata parameter
-        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata0: Swift.UnsafeRawPointer", output);
 
         // Metatype reconstruction via metadata accessor helper
         Assert.Contains("_sbw_meta_", output);
@@ -2978,7 +2978,7 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("initType.init(capacity: capacity)", output);
 
         // Return via Unmanaged with as AnyObject cast
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
     }
 
     // A gate-reduced overload drops trailing defaulted parameters from the signature. Swift never
@@ -2991,14 +2991,14 @@ public class ConstructorWrapperEmitterTests
         var output = EmitGenericCacheConstructor(gateReduced: true, throws: false);
 
         var requirement = Regex.Match(output,
-            @"private protocol _SBW_CI_\w+: AnyObject\s*\{\s*static func (\w+)\(capacity (\w+): Int\) -> AnyObject");
+            @"private protocol _SBW_CI_\w+: Swift\.AnyObject\s*\{\s*static func (\w+)\(capacity (\w+): Swift\.Int\) -> Swift\.AnyObject");
         Assert.True(requirement.Success, output);
         var factory = requirement.Groups[1].Value;
         var binding = requirement.Groups[2].Value;
-        Assert.DoesNotMatch(@"private protocol _SBW_CI_\w+: AnyObject\s*\{\s*init\(", output);
+        Assert.DoesNotMatch(@"private protocol _SBW_CI_\w+: Swift\.AnyObject\s*\{\s*init\(", output);
 
         Assert.Matches(
-            $@"extension TestModule\.GenericCache: _SBW_CI_\w+ \{{\s*static func {factory}\(capacity {binding}: Int\) -> AnyObject \{{\s*return Self\.init\(capacity: {binding}\)",
+            $@"extension TestModule\.GenericCache: _SBW_CI_\w+ \{{\s*static func {factory}\(capacity {binding}: Swift\.Int\) -> Swift\.AnyObject \{{\s*return Self\.init\(capacity: {binding}\)",
             output);
         Assert.Contains($"initType.{factory}(capacity: capacity)", output);
         Assert.DoesNotContain("initType.init(", output);
@@ -3010,7 +3010,7 @@ public class ConstructorWrapperEmitterTests
         var output = EmitGenericCacheConstructor(gateReduced: true, throws: true);
 
         var requirement = Regex.Match(output,
-            @"static func (\w+)\(capacity (\w+): Int\) throws -> AnyObject");
+            @"static func (\w+)\(capacity (\w+): Swift\.Int\) throws -> Swift\.AnyObject");
         Assert.True(requirement.Success, output);
         Assert.Contains($"return try Self.init(capacity: {requirement.Groups[2].Value})", output);
         Assert.Contains($"try initType.{requirement.Groups[1].Value}(capacity: capacity)", output);
@@ -3021,7 +3021,7 @@ public class ConstructorWrapperEmitterTests
     {
         var output = EmitGenericCacheConstructor(gateReduced: false, throws: false);
 
-        Assert.Contains("init(capacity: Int)", output);
+        Assert.Contains("init(capacity: Swift.Int)", output);
         Assert.Matches(@"extension TestModule\.GenericCache: _SBW_CI_\w+ \{\}", output);
         Assert.Contains("initType.init(capacity: capacity)", output);
     }
@@ -3127,14 +3127,14 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("init?()", output);
 
         // Failable return type: nullable pointer
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
 
         // guard let pattern for failable
         Assert.Contains("guard let result = initType.init()", output);
         Assert.Contains("else { return nil }", output);
 
         // Return via Unmanaged with as AnyObject
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
     }
 
     [Fact]
@@ -3184,13 +3184,13 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("init() throws", output);
 
         // Error out parameter
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
 
         // try/catch pattern
         Assert.Contains("let result = try initType.init()", output);
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
 
         // Throwing non-failable returns sentinel pointer on error
         Assert.Contains("UnsafeMutableRawPointer(bitPattern: 1)!", output);
@@ -3247,14 +3247,14 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("init?() throws", output);
 
         // Nullable return + error out
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", output);
 
         // Combined pattern: try + guard let
         Assert.Contains("guard let result = try initType.init()", output);
         Assert.Contains("else { return nil }", output);
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
 
         // Failable + throwing returns nil on error (not sentinel)
         Assert.Contains("return nil", output);
@@ -3321,8 +3321,8 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
 
         // Both metadata params accepted in signature
-        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
-        Assert.Contains("_ _metadata1: UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata0: Swift.UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata1: Swift.UnsafeRawPointer", output);
 
         // Both metadata params passed to metadata accessor helper for multi-generic dispatch
         Assert.Contains("_sbw_meta_", output);
@@ -4072,7 +4072,7 @@ public class ConstructorWrapperEmitterTests
         var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalSpec, typeDb);
 
         Assert.Equal(CdeclReturnKind.OptionalClassPointer, mapping.Kind);
-        Assert.Equal("UnsafeMutableRawPointer?", mapping.CdeclReturnType);
+        Assert.Equal("Swift.UnsafeMutableRawPointer?", mapping.CdeclReturnType);
         Assert.False(needsResultPtr);
     }
 
@@ -4113,7 +4113,7 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("UnsafeMutableRawPointer?", cdeclParam);
         // Reconstruction should use Unmanaged<AnyObject> (NOT Unmanaged<NSZone>)
         Assert.NotNull(reconstruction);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque", reconstruction);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque", reconstruction);
         Assert.Contains("as! Foundation.NSZone", reconstruction);
         // Should NOT contain Unmanaged<NSZone> — that's the bug this test guards against
         Assert.DoesNotContain("Unmanaged<NSZone>", reconstruction);
@@ -4306,8 +4306,8 @@ public class ConstructorWrapperEmitterTests
             CdeclParamMapper.Map(arg, "data", env);
 
         // Swift @_cdecl must accept two Int words, not Foundation.Data (ObjC bridging)
-        Assert.Contains("_dW0_data: Int", cdeclParam);
-        Assert.Contains("_dW1_data: Int", cdeclParam);
+        Assert.Contains("_dW0_data: Swift.Int", cdeclParam);
+        Assert.Contains("_dW1_data: Swift.Int", cdeclParam);
         Assert.DoesNotContain("Foundation.Data", cdeclParam);
 
         // Must reconstruct via unsafeBitCast to Foundation.Data.self inside the wrapper body
@@ -4390,7 +4390,7 @@ public class ConstructorWrapperEmitterTests
         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "item", env);
 
         // Swift @_cdecl param should be UnsafeRawPointer (existential container passed by pointer)
-        Assert.Equal("_ item: UnsafeRawPointer", cdeclParam);
+        Assert.Equal("_ item: Swift.UnsafeRawPointer", cdeclParam);
 
         // Reconstruction must include "any" prefix and parenthesized form for load(as:)
         Assert.NotNull(reconstruction);
@@ -4431,7 +4431,7 @@ public class ConstructorWrapperEmitterTests
         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "item", env);
 
         // Should use UnsafeRawPointer for existential
-        Assert.Equal("_ item: UnsafeRawPointer", cdeclParam);
+        Assert.Equal("_ item: Swift.UnsafeRawPointer", cdeclParam);
 
         // ProtocolListTypeSpec already includes "any" from RenderSwiftTypeSpecCore
         Assert.NotNull(reconstruction);
@@ -4466,7 +4466,7 @@ public class ConstructorWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg, writeBack) = CdeclParamMapper.MapInout(arg, "count", env);
 
-        Assert.Equal("_ count: UnsafeMutableRawPointer", cdeclParam);
+        Assert.Equal("_ count: Swift.UnsafeMutableRawPointer", cdeclParam);
         Assert.Contains("var count", reconstruction);
         Assert.Contains("assumingMemoryBound(to: Swift.Int32.self).pointee", reconstruction);
         Assert.Equal("count: &countVal", callArg);
@@ -4496,7 +4496,7 @@ public class ConstructorWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg, writeBack) = CdeclParamMapper.MapInout(arg, "flag", env);
 
-        Assert.Equal("_ flag: UnsafeMutableRawPointer", cdeclParam);
+        Assert.Equal("_ flag: Swift.UnsafeMutableRawPointer", cdeclParam);
         Assert.Contains("Int8", reconstruction);
         Assert.Contains("!= 0", reconstruction);
         Assert.Equal("flag: &flagVal", callArg);
@@ -4529,7 +4529,7 @@ public class ConstructorWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg, writeBack) = CdeclParamMapper.MapInout(arg, "value", env);
 
-        Assert.Equal("_ value: UnsafeMutableRawPointer", cdeclParam);
+        Assert.Equal("_ value: Swift.UnsafeMutableRawPointer", cdeclParam);
         Assert.Contains("var value", reconstruction);
         Assert.Contains(expectedTypeInReconstruction, reconstruction);
         Assert.Contains("&valueVal", callArg);

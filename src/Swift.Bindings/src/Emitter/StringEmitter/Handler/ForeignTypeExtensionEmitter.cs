@@ -637,7 +637,7 @@ public static class ForeignTypeExtensionEmitter
                 break;
             case ReturnKind.ObjCClass:
             case ReturnKind.SwiftClass:
-                swiftReturnType = "UnsafeMutableRawPointer";
+                swiftReturnType = "Swift.UnsafeMutableRawPointer";
                 wrapAsOpaque = true;
                 break;
             case ReturnKind.NonFrozenStruct:
@@ -658,8 +658,8 @@ public static class ForeignTypeExtensionEmitter
         {
             ctx.AddForeignExtWrapperLine("@MainActor");
         }
-        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: UnsafeMutableRawPointer){returnArrow} {{");
-        ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: Swift.UnsafeMutableRawPointer){returnArrow} {{");
+        ctx.AddForeignExtWrapperLine($"    let instance = Swift.Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
 
         if (wrapAsOpaque)
         {
@@ -705,8 +705,8 @@ public static class ForeignTypeExtensionEmitter
         {
             ctx.AddForeignExtWrapperLine("@MainActor");
         }
-        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: UnsafeMutableRawPointer, _ value: {renderedType}) {{");
-        ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: Swift.UnsafeMutableRawPointer, _ value: {renderedType}) {{");
+        ctx.AddForeignExtWrapperLine($"    let instance = Swift.Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
         ctx.AddForeignExtWrapperLine($"    instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)} = value");
         ctx.AddForeignExtWrapperLine("}");
     }
@@ -729,7 +729,7 @@ public static class ForeignTypeExtensionEmitter
     {
         // Build Swift parameter list for wrapper
         var swiftParams = new List<string>();
-        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
 
         // Compute the source-local wrapper bindings ONCE (sanitize + reserved-escape against
         // the injected `self_` and siblings) so the signature decls below and the call-arg loop later
@@ -748,7 +748,7 @@ public static class ForeignTypeExtensionEmitter
             else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
-                swiftParams.Add($"_ {paramName}: UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {paramName}: Swift.UnsafeMutableRawPointer");
             }
             else
             {
@@ -772,7 +772,7 @@ public static class ForeignTypeExtensionEmitter
         {
             case ReturnKind.ObjCClass:
             case ReturnKind.SwiftClass:
-                swiftReturnType = "UnsafeMutableRawPointer";
+                swiftReturnType = "Swift.UnsafeMutableRawPointer";
                 returnIsClass = true;
                 break;
             case ReturnKind.Primitive:
@@ -799,7 +799,7 @@ public static class ForeignTypeExtensionEmitter
             ctx.AddForeignExtWrapperLine("@MainActor");
         }
         ctx.AddForeignExtWrapperLine($"public func {symbolName}({string.Join(", ", swiftParams)}){returnArrow} {{");
-        ctx.AddForeignExtWrapperLine($"    let instance = Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+        ctx.AddForeignExtWrapperLine($"    let instance = Swift.Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
 
         // Build call arguments — map compatible params into call, skip incompatible (use Swift defaults)
         var compatibleSet = new HashSet<int>();
@@ -841,7 +841,7 @@ public static class ForeignTypeExtensionEmitter
                 // Use Unmanaged<AnyObject> + cast to handle both true classes and ObjC-bridged structs
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                 var localName = $"__{paramName}";
-                ctx.AddForeignExtWrapperLine($"    let {localName} = Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
+                ctx.AddForeignExtWrapperLine($"    let {localName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
             else
@@ -1047,8 +1047,8 @@ public static class ForeignTypeExtensionEmitter
     /// </summary>
     private static string FormatOpaqueClassReturn(ReturnKind returnCategory)
         => returnCategory == ReturnKind.SwiftClass
-            ? "Unmanaged.passRetained(result).toOpaque()"
-            : "Unmanaged.passUnretained(result).toOpaque()";
+            ? "Swift.Unmanaged.passRetained(result).toOpaque()"
+            : "Swift.Unmanaged.passUnretained(result).toOpaque()";
 
     /// <summary>
     /// The C# identifier one Swift parameter is emitted under. The public signature, the native

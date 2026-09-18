@@ -50,7 +50,7 @@ public class ProtocolExtensionDataParamTests
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
         Assert.Contains("Foundation.Data", wrapperLines);
         // Should NOT use UnsafeMutableRawPointer for the Data param
-        Assert.DoesNotContain("UnsafeMutableRawPointer", wrapperLines.Replace("_ self_: UnsafeMutableRawPointer", ""));
+        Assert.DoesNotContain("UnsafeMutableRawPointer", wrapperLines.Replace("_ self_: Swift.UnsafeMutableRawPointer", ""));
     }
 
     // ─── No Unmanaged conversion for Data ──────────────────────────────

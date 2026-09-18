@@ -1134,12 +1134,13 @@ public class WitnessDispatchEmitter
         {
             if (elemType is NamedTypeSpec namedElem)
             {
-                // Known Swift primitives (Swift.Int, Swift.Bool, etc.) — strip module prefix
+                // Known Swift primitives and Swift.String keep their module prefix: these accessors
+                // sit in the bound module's scope, where a same-named member or declaration would
+                // capture the bare stdlib name.
                 if (SwiftToCSharpPrimitiveMap.ContainsKey(namedElem.Name) && namedElem.GenericParameters.Count == 0)
-                    return namedElem.NameWithoutModule;
-                // Swift.String — strip module prefix
+                    return namedElem.Name;
                 if (IsStringType(elemType))
-                    return namedElem.NameWithoutModule;
+                    return namedElem.Name;
                 // Keep module-qualified for user types and render nested generics so a
                 // nested array element (Swift.Array<Float>) doesn't collapse to "Swift.Array".
                 return ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(elemType);
@@ -1161,7 +1162,7 @@ public class WitnessDispatchEmitter
         if (MarshallingHelpers.IsSwiftSet(typeSpec))
         {
             var elem = MapElement(namedType.GenericParameters[0]);
-            return $"Set<{elem}>";
+            return $"Swift.Set<{elem}>";
         }
         return null;
     }
@@ -1586,16 +1587,16 @@ public class WitnessDispatchEmitter
         var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+            public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = {{bindName}}.{{propertyName}}
-                let ptr = UnsafeMutablePointer<{{swiftTypeName}}>.allocate(capacity: 1)
+                let ptr = Swift.UnsafeMutablePointer<{{swiftTypeName}}>.allocate(capacity: 1)
                 ptr.initialize(to: result)
-                return UnsafeMutableRawPointer(ptr)
+                return Swift.UnsafeMutableRawPointer(ptr)
             }
 
             {{avail}}@_cdecl("{{freeSymbol}}")
-            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+            public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                 ptr.assumingMemoryBound(to: {{swiftTypeName}}.self).deinitialize(count: 1)
                 ptr.deallocate()
             }
@@ -1624,23 +1625,23 @@ public class WitnessDispatchEmitter
             // String getter: convert Swift String to UTF-8 bytes via SBW_Utf8Slice
             writer.WriteLines($$"""
                 {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-                public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer {
                     {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                    let result: String = {{bindName}}.{{swiftMemberName}}
-                    let utf8 = Array(result.utf8)
-                    let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
+                    let result: Swift.String = {{bindName}}.{{swiftMemberName}}
+                    let utf8 = Swift.Array(result.utf8)
+                    let bufferPtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(utf8.count, 1))
                     if !utf8.isEmpty {
                         utf8.withUnsafeBufferPointer { src in
                             bufferPtr.initialize(from: src.baseAddress!, count: src.count)
                         }
                     }
-                    let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
+                    let slicePtr = Swift.UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)
                     slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))
-                    return UnsafeMutableRawPointer(slicePtr)
+                    return Swift.UnsafeMutableRawPointer(slicePtr)
                 }
 
                 {{avail}}@_cdecl("{{freeSymbol}}")
-                public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                     let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
                     slicePtr.pointee.ptr.deallocate()
                     slicePtr.deinitialize(count: 1)
@@ -1677,14 +1678,14 @@ public class WitnessDispatchEmitter
             // String setter: decode SBW_Utf8Slice → String, then assign via typed pointee
             writer.WriteLines($$"""
                 {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-                public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+                public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeMutableRawPointer, _ valuePtr: Swift.UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee
                     let slice = valuePtr.load(as: SBW_Utf8Slice.self)
-                    let str: String
+                    let str: Swift.String
                     if slice.len > 0 {
-                        str = String(unsafeUninitializedCapacity: slice.len) { buf in
-                            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                        str = Swift.String(unsafeUninitializedCapacity: slice.len) { buf in
+                            Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
                             return slice.len
                         }
                     } else {
@@ -1703,7 +1704,7 @@ public class WitnessDispatchEmitter
 
             writer.WriteLines($$"""
                 {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-                public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
+                public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeMutableRawPointer, _ valuePtr: Swift.UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee
                     existential.{{swiftMemberName}} = valuePtr.load(as: {{swiftType}}.self)
@@ -1726,15 +1727,15 @@ public class WitnessDispatchEmitter
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        var swiftParams = new List<string> { "_ containerPtr: Swift.UnsafeRawPointer" };
         for (int i = 0; i < method.CSSignature.Count - 1; i++)
         {
-            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+            swiftParams.Add($"_ arg{i}Ptr: Swift.UnsafeRawPointer");
         }
         var swiftParamsString = string.Join(", ", swiftParams);
 
         // Build Swift return type
-        var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer" : "";
+        var swiftReturnDecl = hasReturn ? " -> Swift.UnsafeMutableRawPointer" : "";
 
         EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
@@ -1762,9 +1763,9 @@ public class WitnessDispatchEmitter
             if (isStringReturn)
             {
                 // String return: convert to UTF-8 bytes via SBW_Utf8Slice
-                writer.WriteLine($"let result: String = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-                writer.WriteLine("let utf8 = Array(result.utf8)");
-                writer.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+                writer.WriteLine($"let result: Swift.String = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
+                writer.WriteLine("let utf8 = Swift.Array(result.utf8)");
+                writer.WriteLine("let bufferPtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(utf8.count, 1))");
                 writer.WriteLine("if !utf8.isEmpty {");
                 writer.Indent++;
                 writer.WriteLine("utf8.withUnsafeBufferPointer { src in");
@@ -1774,18 +1775,18 @@ public class WitnessDispatchEmitter
                 writer.WriteLine("}");
                 writer.Indent--;
                 writer.WriteLine("}");
-                writer.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+                writer.WriteLine("let slicePtr = Swift.UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
                 writer.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
-                writer.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+                writer.WriteLine("return Swift.UnsafeMutableRawPointer(slicePtr)");
             }
             else
             {
                 // Blittable return: direct pointer allocation
                 var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
                 writer.WriteLine($"let result = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-                writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
+                writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
-                writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+                writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
             }
         }
         else
@@ -1808,7 +1809,7 @@ public class WitnessDispatchEmitter
                 // String return: free SBW_Utf8Slice + buffer
                 writer.WriteLines($$"""
                     {{avail}}@_cdecl("{{freeSymbol}}")
-                    public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                    public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                         let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
                         slicePtr.pointee.ptr.deallocate()
                         slicePtr.deinitialize(count: 1)
@@ -1824,7 +1825,7 @@ public class WitnessDispatchEmitter
 
                 writer.WriteLines($$"""
                     {{avail}}@_cdecl("{{freeSymbol}}")
-                    public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                    public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                         ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
                         ptr.deallocate()
                     }
@@ -1851,26 +1852,26 @@ public class WitnessDispatchEmitter
             .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
             .ToList();
         var accessorSymbol = GetAccessorSymbol(protocolDecl.Name, "method", method.Name, index);
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        var swiftParams = new List<string> { "_ containerPtr: Swift.UnsafeRawPointer" };
         var callArgs = new List<string>();
 
         for (int i = 0; i < parameters.Count; i++)
         {
             if (closureHandler.IsClosure(parameters[i]))
             {
-                swiftParams.Add($"_ arg{i}FuncPtr: UnsafeMutableRawPointer?");
-                swiftParams.Add($"_ arg{i}Context: UnsafeMutableRawPointer?");
+                swiftParams.Add($"_ arg{i}FuncPtr: Swift.UnsafeMutableRawPointer?");
+                swiftParams.Add($"_ arg{i}Context: Swift.UnsafeMutableRawPointer?");
             }
             else
             {
-                swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+                swiftParams.Add($"_ arg{i}Ptr: Swift.UnsafeRawPointer");
             }
         }
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var swiftExistentialType = hasReturn ? GetSwiftExistentialTypeName(returnType!) : null;
-        var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer" : "";
+        var swiftReturnDecl = hasReturn ? " -> Swift.UnsafeMutableRawPointer" : "";
 
         EmitAvailabilityAttributes(writer, method, protocolDecl);
         var mainActorAttr = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated ? "@MainActor " : "";
@@ -1902,9 +1903,9 @@ public class WitnessDispatchEmitter
         if (hasReturn)
         {
             writer.WriteLine($"let result: any {swiftExistentialType} = {call}");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<any {swiftExistentialType}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
         }
         else
         {
@@ -1920,7 +1921,7 @@ public class WitnessDispatchEmitter
             var avail = MemberAvailabilityPrefix(method, protocolDecl);
             writer.WriteLines($$"""
                 {{avail}}@_cdecl("{{freeSymbol}}")
-                public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                     ptr.assumingMemoryBound(to: (any {{swiftExistentialType}}).self).deinitialize(count: 1)
                     ptr.deallocate()
                 }
@@ -1947,16 +1948,16 @@ public class WitnessDispatchEmitter
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param + errorOut
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        var swiftParams = new List<string> { "_ containerPtr: Swift.UnsafeRawPointer" };
         for (int i = 0; i < method.CSSignature.Count - 1; i++)
         {
-            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+            swiftParams.Add($"_ arg{i}Ptr: Swift.UnsafeRawPointer");
         }
-        swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+        swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>");
         var swiftParamsString = string.Join(", ", swiftParams);
 
         // Return type: UnsafeMutableRawPointer? for value-returning (nil = error), Void for void
-        var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer?" : "";
+        var swiftReturnDecl = hasReturn ? " -> Swift.UnsafeMutableRawPointer?" : "";
 
         EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
@@ -1988,9 +1989,9 @@ public class WitnessDispatchEmitter
             if (isStringReturn)
             {
                 // String return: convert to UTF-8 bytes via SBW_Utf8Slice inside do block
-                writer.WriteLine($"let result: String = try {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-                writer.WriteLine("let utf8 = Array(result.utf8)");
-                writer.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+                writer.WriteLine($"let result: Swift.String = try {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
+                writer.WriteLine("let utf8 = Swift.Array(result.utf8)");
+                writer.WriteLine("let bufferPtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(utf8.count, 1))");
                 writer.WriteLine("if !utf8.isEmpty {");
                 writer.Indent++;
                 writer.WriteLine("utf8.withUnsafeBufferPointer { src in");
@@ -2000,18 +2001,18 @@ public class WitnessDispatchEmitter
                 writer.WriteLine("}");
                 writer.Indent--;
                 writer.WriteLine("}");
-                writer.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+                writer.WriteLine("let slicePtr = Swift.UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
                 writer.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
-                writer.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+                writer.WriteLine("return Swift.UnsafeMutableRawPointer(slicePtr)");
             }
             else
             {
                 // Blittable return: direct pointer allocation
                 var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
                 writer.WriteLine($"let result = try {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-                writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
+                writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
-                writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+                writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
             }
         }
         else
@@ -2023,7 +2024,7 @@ public class WitnessDispatchEmitter
         writer.Indent--;
         writer.WriteLine("} catch {");
         writer.Indent++;
-        writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
+        writer.WriteLine("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())");
         if (hasReturn)
             writer.WriteLine("return nil");
         writer.Indent--;
@@ -2043,7 +2044,7 @@ public class WitnessDispatchEmitter
             {
                 writer.WriteLines($$"""
                     {{avail}}@_cdecl("{{freeSymbol}}")
-                    public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                    public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                         let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
                         slicePtr.pointee.ptr.deallocate()
                         slicePtr.deinitialize(count: 1)
@@ -2058,7 +2059,7 @@ public class WitnessDispatchEmitter
 
                 writer.WriteLines($$"""
                     {{avail}}@_cdecl("{{freeSymbol}}")
-                    public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+                    public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                         ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
                         ptr.deallocate()
                     }
@@ -2126,21 +2127,21 @@ public class WitnessDispatchEmitter
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
         // + errorOut if throwing
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        var swiftParams = new List<string> { "_ containerPtr: Swift.UnsafeRawPointer" };
         for (int i = 0; i < method.CSSignature.Count - 1; i++)
         {
-            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+            swiftParams.Add($"_ arg{i}Ptr: Swift.UnsafeRawPointer");
         }
         if (method.Throws)
         {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+            swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>");
         }
         var swiftParamsString = string.Join(", ", swiftParams);
 
         // Return type: UnsafeMutableRawPointer? for optional (nil = .none) and for throwing (nil = error)
         var swiftReturnDecl = (method.Throws || isOptionalReturn)
-            ? " -> UnsafeMutableRawPointer?"
-            : " -> UnsafeMutableRawPointer";
+            ? " -> Swift.UnsafeMutableRawPointer?"
+            : " -> Swift.UnsafeMutableRawPointer";
 
         EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
@@ -2173,14 +2174,14 @@ public class WitnessDispatchEmitter
             writer.WriteLine("do {");
             writer.Indent++;
             writer.WriteLine($"let result: {swiftTypeName} = {tryPrefix}{ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
 
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
             writer.Indent--;
             writer.WriteLine("} catch {");
             writer.Indent++;
-            writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
+            writer.WriteLine("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())");
             writer.WriteLine("return nil");
             writer.Indent--;
             writer.WriteLine("}");
@@ -2191,9 +2192,9 @@ public class WitnessDispatchEmitter
             writer.WriteLine($"let result: ({swiftTypeName})? = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
             writer.WriteLine("if let unwrapped = result {");
             writer.Indent++;
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: unwrapped)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
             writer.Indent--;
             writer.WriteLine("}");
             writer.WriteLine("return nil");
@@ -2202,9 +2203,9 @@ public class WitnessDispatchEmitter
         {
             // Non-throwing, non-optional pattern: direct allocation
             writer.WriteLine($"let result: {swiftTypeName} = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
         }
 
         writer.Indent--;
@@ -2221,7 +2222,7 @@ public class WitnessDispatchEmitter
 
         writer.WriteLines($$"""
             {{avail}}@_cdecl("{{freeSymbol}}")
-            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+            public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                 ptr.assumingMemoryBound(to: {{freeTypeSelf}}).deinitialize(count: 1)
                 ptr.deallocate()
             }
@@ -2274,20 +2275,20 @@ public class WitnessDispatchEmitter
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
+        var swiftParams = new List<string> { "_ containerPtr: Swift.UnsafeRawPointer" };
         for (int i = 0; i < method.CSSignature.Count - 1; i++)
         {
-            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+            swiftParams.Add($"_ arg{i}Ptr: Swift.UnsafeRawPointer");
         }
         if (method.Throws)
         {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+            swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>");
         }
         var swiftParamsString = string.Join(", ", swiftParams);
 
         var swiftReturnDecl = method.Throws
-            ? " -> UnsafeMutableRawPointer?"
-            : " -> UnsafeMutableRawPointer";
+            ? " -> Swift.UnsafeMutableRawPointer?"
+            : " -> Swift.UnsafeMutableRawPointer";
 
         EmitAvailabilityAttributes(writer, method, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
@@ -2318,11 +2319,11 @@ public class WitnessDispatchEmitter
             writer.Indent++;
             writer.WriteLine($"let result = {tryPrefix}{ExistentialMethodCall(method, protocolDecl, callArgsString)}");
 
-            writer.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            writer.WriteLine("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             writer.Indent--;
             writer.WriteLine("} catch {");
             writer.Indent++;
-            writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
+            writer.WriteLine("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())");
             writer.WriteLine("return nil");
             writer.Indent--;
             writer.WriteLine("}");
@@ -2330,7 +2331,7 @@ public class WitnessDispatchEmitter
         else
         {
             writer.WriteLine($"let result = {ExistentialMethodCall(method, protocolDecl, callArgsString)}");
-            writer.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            writer.WriteLine("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
         }
 
         writer.Indent--;
@@ -2358,14 +2359,14 @@ public class WitnessDispatchEmitter
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + resultBuf + per-param + errorOut
-        var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer", "_ resultBuf: UnsafeMutableRawPointer" };
+        var swiftParams = new List<string> { "_ containerPtr: Swift.UnsafeRawPointer", "_ resultBuf: Swift.UnsafeMutableRawPointer" };
         for (int i = 0; i < method.CSSignature.Count - 1; i++)
         {
-            swiftParams.Add($"_ arg{i}Ptr: UnsafeRawPointer");
+            swiftParams.Add($"_ arg{i}Ptr: Swift.UnsafeRawPointer");
         }
         if (method.Throws)
         {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeRawPointer?>");
+            swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>");
         }
         var swiftParamsString = string.Join(", ", swiftParams);
 
@@ -2403,7 +2404,7 @@ public class WitnessDispatchEmitter
             writer.Indent--;
             writer.WriteLine("} catch {");
             writer.Indent++;
-            writer.WriteLine("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())");
+            writer.WriteLine("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())");
             writer.Indent--;
             writer.WriteLine("}");
         }
@@ -2437,10 +2438,10 @@ public class WitnessDispatchEmitter
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+            public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = {{bindName}}.{{swiftMemberName}}
-                return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()
             }
 
             """);
@@ -2467,10 +2468,10 @@ public class WitnessDispatchEmitter
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
+            public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer? {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 if let result = {{bindName}}.{{swiftMemberName}} {
-                    return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                    return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()
                 }
                 return nil
             }
@@ -2511,12 +2512,12 @@ public class WitnessDispatchEmitter
         var swiftMemberName = NameProvider.ParserNameToSwift(property);
 
         var swiftReturnDecl = isOptionalReturn
-            ? " -> UnsafeMutableRawPointer?"
-            : " -> UnsafeMutableRawPointer";
+            ? " -> Swift.UnsafeMutableRawPointer?"
+            : " -> Swift.UnsafeMutableRawPointer";
 
         EmitAvailabilityAttributes(writer, property, protocolDecl);
         writer.WriteLine($"{mainActorAttr}@_cdecl(\"{accessorSymbol}\")");
-        writer.WriteLine($"public func {accessorSymbol}(_ containerPtr: UnsafeRawPointer){swiftReturnDecl} {{");
+        writer.WriteLine($"public func {accessorSymbol}(_ containerPtr: Swift.UnsafeRawPointer){swiftReturnDecl} {{");
         writer.Indent++;
         writer.WriteLine($"{bindKw} {bindName} = containerPtr.load(as: (any {moduleQualifiedName}).self)");
         if (isOptionalReturn)
@@ -2524,9 +2525,9 @@ public class WitnessDispatchEmitter
             writer.WriteLine($"let result: ({swiftTypeName})? = {bindName}.{swiftMemberName}");
             writer.WriteLine("if let unwrapped = result {");
             writer.Indent++;
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: unwrapped)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
             writer.Indent--;
             writer.WriteLine("}");
             writer.WriteLine("return nil");
@@ -2534,9 +2535,9 @@ public class WitnessDispatchEmitter
         else
         {
             writer.WriteLine($"let result: {swiftTypeName} = {bindName}.{swiftMemberName}");
-            writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+            writer.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
             writer.WriteLine("ptr.initialize(to: result)");
-            writer.WriteLine("return UnsafeMutableRawPointer(ptr)");
+            writer.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
         }
         writer.Indent--;
         writer.WriteLine("}");
@@ -2546,7 +2547,7 @@ public class WitnessDispatchEmitter
         var freeTypeSelf = $"({swiftTypeName}).self";
         writer.WriteLines($$"""
             {{avail}}@_cdecl("{{freeSymbol}}")
-            public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
+            public func {{freeSymbol}}(_ ptr: Swift.UnsafeMutableRawPointer) {
                 ptr.assumingMemoryBound(to: {{freeTypeSelf}}).deinitialize(count: 1)
                 ptr.deallocate()
             }
@@ -2576,7 +2577,7 @@ public class WitnessDispatchEmitter
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
-            public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
+            public func {{accessorSymbol}}(_ containerPtr: Swift.UnsafeRawPointer, _ resultBuf: Swift.UnsafeMutableRawPointer) {
                 {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = {{bindName}}.{{swiftMemberName}}
                 resultBuf.assumingMemoryBound(to: {{swiftConcreteType}}.self).initialize(to: result)
@@ -2660,13 +2661,13 @@ public class WitnessDispatchEmitter
             // or an indirect struct is reached through the storage pointer the slot holds.
             string slot;
             if (IsStringType(param.SwiftTypeSpec))
-                slot = $"arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self).assumingMemoryBound(to: Swift.String.self)";
+                slot = $"arg{argIdx}Ptr.load(as: Swift.UnsafeMutableRawPointer.self).assumingMemoryBound(to: Swift.String.self)";
             else if (IsIndirectStructType(param.SwiftTypeSpec))
-                slot = $"arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self).assumingMemoryBound(to: {GetSwiftConcreteTypeName(param.SwiftTypeSpec)}.self)";
+                slot = $"arg{argIdx}Ptr.load(as: Swift.UnsafeMutableRawPointer.self).assumingMemoryBound(to: {GetSwiftConcreteTypeName(param.SwiftTypeSpec)}.self)";
             else if (IsSwiftClassType(param.SwiftTypeSpec))
-                slot = $"UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {GetSwiftConcreteTypeName(param.SwiftTypeSpec)}.self)";
+                slot = $"Swift.UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {GetSwiftConcreteTypeName(param.SwiftTypeSpec)}.self)";
             else
-                slot = $"UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {GetSwiftBlittableTypeName(param.SwiftTypeSpec)}.self)";
+                slot = $"Swift.UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {GetSwiftBlittableTypeName(param.SwiftTypeSpec)}.self)";
             writer.WriteLine($"let arg{argIdx}Slot = {slot}");
             return $"arg{argIdx}Slot.pointee";
         }
@@ -2675,12 +2676,12 @@ public class WitnessDispatchEmitter
         {
             // String parameter: decode SBW_Utf8Slice → Swift String
             writer.WriteLine($"let arg{argIdx}Slice = arg{argIdx}Ptr.load(as: SBW_Utf8Slice.self)");
-            writer.WriteLine($"let arg{argIdx}: String");
+            writer.WriteLine($"let arg{argIdx}: Swift.String");
             writer.WriteLine($"if arg{argIdx}Slice.len > 0 {{");
             writer.Indent++;
-            writer.WriteLine($"arg{argIdx} = String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
+            writer.WriteLine($"arg{argIdx} = Swift.String(unsafeUninitializedCapacity: arg{argIdx}Slice.len) {{ buf in");
             writer.Indent++;
-            writer.WriteLine($"UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
+            writer.WriteLine($"Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg{argIdx}Slice.ptr, byteCount: arg{argIdx}Slice.len)");
             writer.WriteLine($"return arg{argIdx}Slice.len");
             writer.Indent--;
             writer.WriteLine("}");
@@ -2697,21 +2698,21 @@ public class WitnessDispatchEmitter
             // object pointer. Reconstruct through AnyObject so value bridges such as
             // Foundation.URLRequest do not get mistaken for indirect Swift struct storage.
             var swiftTypeName = GetSwiftConcreteTypeName(param.SwiftTypeSpec);
-            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self)");
-            writer.WriteLine($"let arg{argIdx}: {swiftTypeName} = Unmanaged<AnyObject>.fromOpaque(rawPtr{argIdx}).takeUnretainedValue() as! {swiftTypeName}");
+            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: Swift.UnsafeMutableRawPointer.self)");
+            writer.WriteLine($"let arg{argIdx}: {swiftTypeName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(rawPtr{argIdx}).takeUnretainedValue() as! {swiftTypeName}");
         }
         else if (IsSwiftClassType(param.SwiftTypeSpec))
         {
             // Class parameter: load raw pointer, then Unmanaged<T>.fromOpaque().takeUnretainedValue()
             var swiftTypeName = GetSwiftConcreteTypeName(param.SwiftTypeSpec);
-            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self)");
-            writer.WriteLine($"let arg{argIdx} = Unmanaged<{swiftTypeName}>.fromOpaque(rawPtr{argIdx}).takeUnretainedValue()");
+            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: Swift.UnsafeMutableRawPointer.self)");
+            writer.WriteLine($"let arg{argIdx} = Swift.Unmanaged<{swiftTypeName}>.fromOpaque(rawPtr{argIdx}).takeUnretainedValue()");
         }
         else if (IsIndirectStructType(param.SwiftTypeSpec))
         {
             // Struct parameter: load raw pointer, then assumingMemoryBound(to:).pointee
             var swiftTypeName = GetSwiftConcreteTypeName(param.SwiftTypeSpec);
-            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: UnsafeMutableRawPointer.self)");
+            writer.WriteLine($"let rawPtr{argIdx} = arg{argIdx}Ptr.load(as: Swift.UnsafeMutableRawPointer.self)");
             writer.WriteLine($"let arg{argIdx} = rawPtr{argIdx}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
         }
         else
@@ -2741,7 +2742,7 @@ public class WitnessDispatchEmitter
         if (!protocolDecl.Methods.Any(other => MethodWrapperEmitter.IsReturnTypeOnlyOverloadPair(method, other)))
             return call;
         var returnType = method.CSSignature.First().SwiftTypeSpec;
-        var resultType = returnType.IsEmptyTuple ? "Void" : SwiftTypeNameHelper.GetSwiftTypeName(returnType);
+        var resultType = returnType.IsEmptyTuple ? "Swift.Void" : SwiftTypeNameHelper.GetSwiftTypeName(returnType);
         return $"({call} as {resultType})";
     }
 

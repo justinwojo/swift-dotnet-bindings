@@ -870,6 +870,36 @@ public class ArtifactParityGateTests
 
     private static readonly string[] NoSyms = System.Array.Empty<string>();
 
+    /// <summary>
+    /// The generator spells every external type from <c>global::</c>, so a field-type pattern that
+    /// stops at <c>:</c> reads an empty mirror and reports every protocol and struct as divergent.
+    /// </summary>
+    [Fact]
+    public void Parsers_ReadFieldsWhoseTypesAreSpelledFromGlobal()
+    {
+        const string cs = """
+            private struct VariadicItemSwiftVTable
+            {
+                public global::System.IntPtr csVTHandle;
+                public global::System.IntPtr func_itemName_get;
+            }
+            public partial class ReadOnlyProps : global::Swift.Runtime.ISwiftObject, global::Swift.Runtime.ISwiftStruct
+            {
+                public struct Buffer {
+                    private int storedInt_;  // Note: Do not access this field directly - use the property accessors
+                    private global::System.IntPtr storedString_0_;  // Note: Do not access this field directly - use the property accessors
+                }
+            }
+            public unsafe partial struct SummableInt32 : global::Swift.Runtime.ISwiftObject
+            {
+                private global::System.IntPtr value_;  // Note: Do not access this field directly - use the property accessors
+            }
+            """;
+        Assert.Equal(new[] { "csVTHandle", "func_itemName_get" }, ArtifactParityGate.ParseCsVtables(cs)["VariadicItem"]);
+        Assert.Equal(new[] { "storedInt", "storedString" }, ArtifactParityGate.ParseCsBufferStems(cs)["ReadOnlyProps"]);
+        Assert.Equal(new[] { "value" }, ArtifactParityGate.ParseCsDirectStructStems(cs)["SummableInt32"]);
+    }
+
     private static IReadOnlySet<string> Set(params string[] s)
         => new HashSet<string>(s, System.StringComparer.Ordinal);
 }

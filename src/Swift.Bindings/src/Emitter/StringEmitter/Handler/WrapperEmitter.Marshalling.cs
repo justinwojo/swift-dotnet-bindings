@@ -75,7 +75,7 @@ namespace BindingsGeneration
                     if (OptionalPointerWrapperEmitter.ShouldWidenParam(p, _env.BoundGenericsHandler))
                     {
                         opaqueDerefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(p, p.Name, p.Name, _env.TypeDatabase));
-                        return $"{p.Name}: UnsafeRawPointer";
+                        return $"{p.Name}: Swift.UnsafeRawPointer";
                     }
                     return $"{p.Name}: {(p.IsGeneric ? _env.MethodDecl.GenericParameters.Find(g => g.TypeName == p.SwiftTypeSpec.ToString())!.SugaredTypeName : p.SwiftTypeSpec)}";
                 });

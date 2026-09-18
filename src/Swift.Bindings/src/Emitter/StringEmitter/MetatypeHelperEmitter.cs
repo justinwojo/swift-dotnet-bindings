@@ -83,21 +83,21 @@ public static class MetatypeHelperEmitter
         var pwtCallArgs = new List<string>();
         for (int i = 0; i < pwtCount; i++)
         {
-            pwtParams.Add($"_ pwt{i}: UnsafeRawPointer");
-            pwtFnTypes.Add("UnsafeRawPointer");
+            pwtParams.Add($"_ pwt{i}: Swift.UnsafeRawPointer");
+            pwtFnTypes.Add("Swift.UnsafeRawPointer");
             pwtCallArgs.Add($"pwt{i}");
         }
 
         // Build parameter list: type metadata + PWT
-        var allParams = Enumerable.Range(0, genericCount).Select(i => $"_ t{i}: UnsafeRawPointer")
+        var allParams = Enumerable.Range(0, genericCount).Select(i => $"_ t{i}: Swift.UnsafeRawPointer")
             .Concat(pwtParams);
         var paramList = string.Join(", ", allParams);
 
         // Build function type: (Int, T_metadata..., PWT...) -> (UnsafeRawPointer, Int)
-        var allFnTypes = Enumerable.Range(0, genericCount).Select(_ => "UnsafeRawPointer")
+        var allFnTypes = Enumerable.Range(0, genericCount).Select(_ => "Swift.UnsafeRawPointer")
             .Concat(pwtFnTypes);
         var fnParamTypes = string.Join(", ",
-            new[] { "Int" }.Concat(allFnTypes));
+            new[] { "Swift.Int" }.Concat(allFnTypes));
 
         // Build call arguments: (0, t0, t1, ..., pwt0, pwt1, ...)
         var allCallArgs = Enumerable.Range(0, genericCount).Select(i => $"t{i}")
@@ -114,12 +114,12 @@ public static class MetatypeHelperEmitter
             // internal Ma seam, which is the sole call whose ABI changes at this threshold.
             var bufferValues = string.Join(", ", allCallArgs);
             swiftWriter.WriteLines($$"""
-                private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
-                    let arguments: [UnsafeRawPointer] = [{{bufferValues}}]
+                private func {{helperName}}({{paramList}}) -> Swift.UnsafeRawPointer {
+                    let arguments: [Swift.UnsafeRawPointer] = [{{bufferValues}}]
                     return arguments.withUnsafeBufferPointer { buffer in
-                        typealias _Fn = @convention(thin) (Int, UnsafeRawPointer) -> (UnsafeRawPointer, Int)
-                        let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
-                        return fn(0, UnsafeRawPointer(buffer.baseAddress!)).0
+                        typealias _Fn = @convention(thin) (Swift.Int, Swift.UnsafeRawPointer) -> (Swift.UnsafeRawPointer, Swift.Int)
+                        let fn = Swift.unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
+                        return fn(0, Swift.UnsafeRawPointer(buffer.baseAddress!)).0
                     }
                 }
                 """);
@@ -127,9 +127,9 @@ public static class MetatypeHelperEmitter
         else
         {
             swiftWriter.WriteLines($$"""
-                private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
-                    typealias _Fn = @convention(thin) ({{fnParamTypes}}) -> (UnsafeRawPointer, Int)
-                    let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
+                private func {{helperName}}({{paramList}}) -> Swift.UnsafeRawPointer {
+                    typealias _Fn = @convention(thin) ({{fnParamTypes}}) -> (Swift.UnsafeRawPointer, Swift.Int)
+                    let fn = Swift.unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
                     return fn({{callArgs}}).0
                 }
                 """);

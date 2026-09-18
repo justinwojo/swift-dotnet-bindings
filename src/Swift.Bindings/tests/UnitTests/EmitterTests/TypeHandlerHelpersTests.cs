@@ -1765,7 +1765,7 @@ public class TypeHandlerHelpersTests
         Assert.Contains("PInvoke_eq(IntPtr lhs, IntPtr rhs)", csResult);
         // Swift should emit the @_cdecl wrapper with Unmanaged<AnyObject> (not assumingMemoryBound)
         Assert.Contains("@_cdecl(", swiftResult);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue()", swiftResult);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(lhs).takeUnretainedValue()", swiftResult);
         Assert.Contains("as! ImagePipeline.ImageCache", swiftResult);
         Assert.Contains("(l == r) ? 1 : 0", swiftResult);
         // Must NOT use assumingMemoryBound (that's for structs, not classes)

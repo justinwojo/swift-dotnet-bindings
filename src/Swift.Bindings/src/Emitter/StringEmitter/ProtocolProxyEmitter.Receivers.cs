@@ -1660,7 +1660,7 @@ public partial class ProtocolProxyEmitter
             }
             else
             {
-                return ReceiverDegradation.Unsatisfiable(returnType?.ToString() ?? "Void");
+                return ReceiverDegradation.Unsatisfiable(returnType?.ToString() ?? "Swift.Void");
             }
 
             return ReceiverDegradation.Degrade(() =>
@@ -1904,7 +1904,7 @@ public partial class ProtocolProxyEmitter
         // even though RowAdapterProxy : IRowAdapter, because Dictionary is invariant.
         var valPubType = dict.ValueProjection.PublicType;
         var keyPubType = dict.KeyProjection.PublicType;
-        return $"{rawArgName}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+        return $"global::System.Linq.Enumerable.ToDictionary({rawArgName}, kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
     }
 
     /// <summary>
@@ -1941,7 +1941,7 @@ public partial class ProtocolProxyEmitter
         // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value into each slot.
         // Mirrors the SetProjection.BuildContainerSetup skip-conversion rule.
         if (elemConv != null && rawElem != set.ElementProjection.PublicType)
-            return $"SwiftSet<{rawElem}>.FromEnumerable({varName}.Select(e => {elemConv}))";
+            return $"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
         return $"SwiftSet<{rawElem}>.FromEnumerable({varName})";
     }
 
@@ -1955,7 +1955,7 @@ public partial class ProtocolProxyEmitter
         var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
         // Same skip-conversion rule as ArrayProjection.BuildContainerSetup.
         if (elemConv != null && rawElem != arr.ElementProjection.PublicType)
-            return $"SwiftArray<{rawElem}>.FromEnumerable({varName}.Select(e => {elemConv}))";
+            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
         return $"SwiftArray<{rawElem}>.FromEnumerable({varName})";
     }
 
@@ -1982,7 +1982,7 @@ public partial class ProtocolProxyEmitter
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({varName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName})";
     }
@@ -2313,7 +2313,7 @@ public partial class ProtocolProxyEmitter
         // falls back to the non-owning form for the Hashable scalar leaves a Set can actually hold.)
         var elemConv = set.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
-            return $"{varName}.Select(e => {elemConv}).ToHashSet()";
+            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
         return null;  // SwiftSet<T> IS IReadOnlySet<T> — no conversion needed
     }
 
@@ -2428,7 +2428,7 @@ public partial class ProtocolProxyEmitter
         {
             var containerType = arrExist.ArrayElementCarrierType;
             var elemConv = arrExist.GetArrayElementCarrierConversion("i");
-            return $"SwiftArray<{containerType}>.FromEnumerable({varName}.Select(i => {elemConv}))";
+            return $"SwiftArray<{containerType}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, i => {elemConv}))";
         }
 
         // Set<existential>. Same owned-carrier + stride agreement as the array path above. This arm is
@@ -2439,7 +2439,7 @@ public partial class ProtocolProxyEmitter
         {
             var containerType = setExist.ArrayElementCarrierType;
             var elemConv = setExist.GetArrayElementCarrierConversion("i");
-            return $"SwiftSet<{containerType}>.FromEnumerable({varName}.Select(i => {elemConv}))";
+            return $"SwiftSet<{containerType}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, i => {elemConv}))";
         }
 
         // Dictionary<K, existential>. Carrier + per-value conversion must agree on stride, exactly like
@@ -2463,7 +2463,7 @@ public partial class ProtocolProxyEmitter
             var skipKeyConv = keyConv != null && abiKeyType == dictProj.KeyProjection.PublicType;
             var keyExpr = skipKeyConv ? "kvp.Key" : (keyConv ?? "kvp.Key");
             var valConv = dictExist.GetArrayElementCarrierConversion("kvp.Value");
-            return $"SwiftDictionary<{abiKeyType}, {containerType}>.FromDictionary({varName}.ToDictionary(kvp => {keyExpr}, kvp => {valConv}))";
+            return $"SwiftDictionary<{abiKeyType}, {containerType}>.FromDictionary(global::System.Linq.Enumerable.ToDictionary({varName}, kvp => {keyExpr}, kvp => {valConv}))";
         }
 
         return null;
@@ -2515,7 +2515,7 @@ public partial class ProtocolProxyEmitter
             var valConv = dictExist.GetOwnedReturnElementConversion("kvp.Value");
             var keyConv = dictProj.KeyProjection.GetOwnedReturnElementConversion("kvp.Key");
             var keyExpr = keyConv ?? "kvp.Key";
-            return $"{varName}.ToDictionary(kvp => {keyExpr}, kvp => ({publicType}){valConv})";
+            return $"global::System.Linq.Enumerable.ToDictionary({varName}, kvp => {keyExpr}, kvp => ({publicType}){valConv})";
         }
 
         return null;
@@ -3023,7 +3023,7 @@ public partial class ProtocolProxyEmitter
         Func<string, string?> buildConversion, bool isStringReturn)
     {
         if (!TryGetDegradedDefaultExpression(returnSpec, out var defaultExpr))
-            return ReceiverDegradation.Unsatisfiable(returnSpec?.ToString() ?? "Void");
+            return ReceiverDegradation.Unsatisfiable(returnSpec?.ToString() ?? "Swift.Void");
 
         return ReceiverDegradation.Degrade(() =>
         {

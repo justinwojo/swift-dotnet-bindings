@@ -536,15 +536,15 @@ namespace BindingsGeneration
                     {
                         // Inline retain-and-bridge: produces a +1 retained ObjC pointer that C#
                         // takes ownership of (GetNSObject + DangerousRelease balances the +1).
-                        elementTypes.Add("UnsafeMutableRawPointer");
-                        callbackArgParts.Add($"Unmanaged.passRetained({resultVar}.{i} as AnyObject).toOpaque()");
+                        elementTypes.Add("Swift.UnsafeMutableRawPointer");
+                        callbackArgParts.Add($"Swift.Unmanaged.passRetained({resultVar}.{i} as Swift.AnyObject).toOpaque()");
                         continue;
                     }
                     if (isElementOptionalObjCBridgeableValue)
                     {
                         // Optional<ObjCBridgeable>: nil → null pointer, .some → +1 retained ObjC pointer.
-                        elementTypes.Add("UnsafeMutableRawPointer?");
-                        callbackArgParts.Add($"{resultVar}.{i}.map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
+                        elementTypes.Add("Swift.UnsafeMutableRawPointer?");
+                        callbackArgParts.Add($"{resultVar}.{i}.map {{ Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }}");
                         continue;
                     }
 
@@ -557,13 +557,13 @@ namespace BindingsGeneration
                         var swiftTypeName = swiftGenericParamLookup.TryGetValue(rawName, out var sugared)
                             ? sugared : rawName;
                         var ptrVar = $"_tupleBuf{i}";
-                        elementTypes.Add("UnsafeMutableRawPointer");
+                        elementTypes.Add("Swift.UnsafeMutableRawPointer");
                         callbackArgParts.Add(ptrVar);
                         // Protocol existential tuple elements need `(any P).self`, not `any P.self`.
                         var elementMetatype = swiftTypeName.StartsWith("any ")
                             ? $"({swiftTypeName}).self" : $"{swiftTypeName}.self";
                         heapAllocLines.Add(
-                            $"let {ptrVar} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftTypeName}>.size, alignment: MemoryLayout<{swiftTypeName}>.alignment)\n" +
+                            $"let {ptrVar} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftTypeName}>.size, alignment: Swift.MemoryLayout<{swiftTypeName}>.alignment)\n" +
                             $"                        {ptrVar}.initializeMemory(as: {elementMetatype}, repeating: {resultVar}.{i}, count: 1)");
                         heapCleanupLines.Add(
                             $"{ptrVar}.assumingMemoryBound(to: {elementMetatype}).deinitialize(count: 1)\n" +
@@ -627,12 +627,12 @@ namespace BindingsGeneration
                         if (isOptional)
                         {
                             retainLines.Add(
-                                $"if let _tupleObj{i} = {resultAccess} {{ _ = Unmanaged<AnyObject>.passRetained(_tupleObj{i} as AnyObject) }}");
+                                $"if let _tupleObj{i} = {resultAccess} {{ _ = Swift.Unmanaged<Swift.AnyObject>.passRetained(_tupleObj{i} as Swift.AnyObject) }}");
                         }
                         else
                         {
                             retainLines.Add(
-                                $"_ = Unmanaged<AnyObject>.passRetained({resultAccess} as AnyObject)");
+                                $"_ = Swift.Unmanaged<Swift.AnyObject>.passRetained({resultAccess} as Swift.AnyObject)");
                         }
                     }
                 }
@@ -667,16 +667,16 @@ namespace BindingsGeneration
                 // String return: pass UTF-8 (ptr, len) directly for @convention(c) compatibility
                 // Custom structs aren't allowed in @convention(c) params, only primitives and pointers
                 // Swift allocates UTF-8 buffer, C# copies and frees via SBW_Free
-                callbackParams = "UnsafeMutablePointer<UInt8>, Int, ";
+                callbackParams = "Swift.UnsafeMutablePointer<Swift.UInt8>, Swift.Int, ";
                 callbackResultArgs = "_slicePtr, _sliceLen, ";
                 var resultVar = $"result{_env.MethodDecl.Name}";
                 // Always allocate (even empty strings get 1 byte) for simplicity.
                 // C# always frees via SBW_Free - even 1-byte empty allocations are harmless.
                 stringMarshalCode =
                     $"// Marshal String to UTF-8 (C# will free via SBW_Free)\n" +
-                    $"                        var _utf8 = Array({resultVar}.utf8)\n" +
+                    $"                        var _utf8 = Swift.Array({resultVar}.utf8)\n" +
                     $"                        let _sliceLen = _utf8.count\n" +
-                    $"                        let _slicePtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(_sliceLen, 1))\n" +
+                    $"                        let _slicePtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(_sliceLen, 1))\n" +
                     $"                        if _sliceLen > 0 {{\n" +
                     $"                            _slicePtr.initialize(from: &_utf8, count: _sliceLen)\n" +
                     $"                        }}";
@@ -685,35 +685,35 @@ namespace BindingsGeneration
             {
                 // Array<String> return: serialize to flat buffer [count][lengths...][data...]
                 // Same callback signature as String - just (ptr, len)
-                callbackParams = "UnsafeMutablePointer<UInt8>, Int, ";
+                callbackParams = "Swift.UnsafeMutablePointer<Swift.UInt8>, Swift.Int, ";
                 callbackResultArgs = "_bufferPtr, _bufferLen, ";
                 var resultVar = $"result{_env.MethodDecl.Name}";
                 // Serialize array to flat buffer using explicit Int64 for wire format consistency
                 // (avoids platform-sized Int ambiguity between Swift and C#)
                 stringMarshalCode =
-                    $"// Marshal Array<String> to flat buffer (C# will free via SBW_Free)\n" +
-                    $"                        let _count = Int64({resultVar}.count)\n" +
-                    $"                        var _lengths = [Int64]()\n" +
+                    $"// Marshal Swift.Array<Swift.String> to flat buffer (C# will free via SBW_Free)\n" +
+                    $"                        let _count = Swift.Int64({resultVar}.count)\n" +
+                    $"                        var _lengths = [Swift.Int64]()\n" +
                     $"                        var _totalDataLen = 0\n" +
                     $"                        for _s in {resultVar} {{\n" +
-                    $"                            let _utf8 = Array(_s.utf8)\n" +
-                    $"                            _lengths.append(Int64(_utf8.count))\n" +
+                    $"                            let _utf8 = Swift.Array(_s.utf8)\n" +
+                    $"                            _lengths.append(Swift.Int64(_utf8.count))\n" +
                     $"                            _totalDataLen += _utf8.count\n" +
                     $"                        }}\n" +
-                    $"                        let _headerSize = MemoryLayout<Int64>.size * (1 + Int(_count))\n" +
+                    $"                        let _headerSize = Swift.MemoryLayout<Swift.Int64>.size * (1 + Swift.Int(_count))\n" +
                     $"                        let _bufferLen = _headerSize + _totalDataLen\n" +
-                    $"                        let _bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(_bufferLen, 1))\n" +
-                    $"                        // Write header: count followed by lengths (all Int64)\n" +
-                    $"                        _bufferPtr.withMemoryRebound(to: Int64.self, capacity: 1 + Int(_count)) {{ _intPtr in\n" +
+                    $"                        let _bufferPtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(_bufferLen, 1))\n" +
+                    $"                        // Write header: count followed by lengths (all Swift.Int64)\n" +
+                    $"                        _bufferPtr.withMemoryRebound(to: Swift.Int64.self, capacity: 1 + Swift.Int(_count)) {{ _intPtr in\n" +
                     $"                            _intPtr[0] = _count\n" +
-                    $"                            for _i in 0..<Int(_count) {{\n" +
+                    $"                            for _i in 0..<Swift.Int(_count) {{\n" +
                     $"                                _intPtr[1 + _i] = _lengths[_i]\n" +
                     $"                            }}\n" +
                     $"                        }}\n" +
                     $"                        // Write string data after header\n" +
                     $"                        var _dataOffset = _headerSize\n" +
                     $"                        for _s in {resultVar} {{\n" +
-                    $"                            var _utf8 = Array(_s.utf8)\n" +
+                    $"                            var _utf8 = Swift.Array(_s.utf8)\n" +
                     $"                            if !_utf8.isEmpty {{\n" +
                     $"                                (_bufferPtr + _dataOffset).initialize(from: &_utf8, count: _utf8.count)\n" +
                     $"                            }}\n" +
@@ -735,7 +735,7 @@ namespace BindingsGeneration
                 if (isComplexType)
                 {
                     // Complex types: allocate memory, store result, pass pointer
-                    callbackParams = "OpaquePointer, ";
+                    callbackParams = "Swift.OpaquePointer, ";
                     callbackResultArgs = "_resultPtr, ";
                     var resultVar = $"result{_env.MethodDecl.Name}";
                     var swiftReturnType = returnTypeSpec.ToString();
@@ -817,17 +817,17 @@ namespace BindingsGeneration
                         returnTypeSpec, _env.TypeDatabase, _env.MethodDecl.ModuleDecl);
 
                     string structEnumCopyCode = returnIsNonCopyable
-                        ? $"                            let _typedPtr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)\n" +
+                        ? $"                            let _typedPtr = Swift.UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)\n" +
                           $"                            _typedPtr.initialize(to: {resultVar})\n" +
-                          $"                            let _rawPtr = UnsafeMutableRawPointer(_typedPtr)\n"
-                        : $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                          $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
-                          $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
+                          $"                            let _rawPtr = Swift.UnsafeMutableRawPointer(_typedPtr)\n"
+                        : $"                            let _rawPtr = Swift.UnsafeMutableRawPointer.allocate(\n" +
+                          $"                                byteCount: Swift.MemoryLayout<{swiftReturnType}>.size,\n" +
+                          $"                                alignment: Swift.MemoryLayout<{swiftReturnType}>.alignment)\n" +
                           $"                            _rawPtr.initializeMemory(as: {structEnumMetatype}, repeating: {resultVar}, count: 1)\n";
 
                     stringMarshalCode =
                         $"// Marshal complex type to pointer for C# callback\n" +
-                        $"                        let _resultPtr: OpaquePointer\n" +
+                        $"                        let _resultPtr: Swift.OpaquePointer\n" +
                         $"                        do {{\n" +
                         ((isClassType || isObjCBridgeableValue || isTopLevelObjCContainer)
                             ? // Classes and top-level ObjC-bridge containers: retain and store the
@@ -840,10 +840,10 @@ namespace BindingsGeneration
                               // avoiding the storeBytes restriction. C# reads the IntPtr from the 8-byte
                               // carrier and either MarshalFromSwift (class) or ArrayFromHandle/GetINativeObject
                               // (container) takes ownership of the +1 retain.
-                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                              $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
-                              $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
-                              $"                            _rawPtr.storeBytes(of: Unmanaged.passRetained({resultVar} as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n"
+                              $"                            let _rawPtr = Swift.UnsafeMutableRawPointer.allocate(\n" +
+                              $"                                byteCount: Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.size,\n" +
+                              $"                                alignment: Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.alignment)\n" +
+                              $"                            _rawPtr.storeBytes(of: Swift.Unmanaged.passRetained({resultVar} as Swift.AnyObject).toOpaque(), as: Swift.UnsafeMutableRawPointer.self)\n"
                             : (isOptionalClassType || isOptionalObjCContainer)
                               ? // Optional<ClassType> and Optional<Container<ObjCBridgeable>> share this shape:
                                 // unwrap, retain if .some, store zero (nil) if .none. The `as AnyObject` cast
@@ -852,16 +852,16 @@ namespace BindingsGeneration
                                 // a real NSArray/NSDictionary/NSSet with +1 retain (NOT the raw Swift storage
                                 // class). C# reads pointer from buffer, checks for IntPtr.Zero (nil), then
                                 // either MarshalFromSwift (class inner) or ArrayFromHandle (container inner).
-                                $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                                $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
-                                $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
+                                $"                            let _rawPtr = Swift.UnsafeMutableRawPointer.allocate(\n" +
+                                $"                                byteCount: Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.size,\n" +
+                                $"                                alignment: Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.alignment)\n" +
                                 $"                            if let _unwrapped = {resultVar} {{\n" +
-                                $"                                _rawPtr.storeBytes(of: Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n" +
+                                $"                                _rawPtr.storeBytes(of: Swift.Unmanaged.passRetained(_unwrapped as Swift.AnyObject).toOpaque(), as: Swift.UnsafeMutableRawPointer.self)\n" +
                                 $"                            }} else {{\n" +
-                                $"                                _rawPtr.storeBytes(of: 0, as: Int.self)\n" +
+                                $"                                _rawPtr.storeBytes(of: 0, as: Swift.Int.self)\n" +
                                 $"                            }}\n"
                               : structEnumCopyCode) +
-                        $"                            _resultPtr = OpaquePointer(_rawPtr)\n" +
+                        $"                            _resultPtr = Swift.OpaquePointer(_rawPtr)\n" +
                         $"                        }}";
                 }
                 else
@@ -882,7 +882,7 @@ namespace BindingsGeneration
             // errorTypeId / errorSize on the C# side; it still emits the unified shape so the
             // generated delegate type is identical across the three branches.
             const string UnifiedSwiftCallbackSignature =
-                "(UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32) -> Void";
+                "(Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32) -> Swift.Void";
             string errorCallbackSwiftParam =
                 $"errorCallback: @escaping @convention(c) {UnifiedSwiftCallbackSignature}";
 
@@ -900,17 +900,17 @@ namespace BindingsGeneration
             var baseParams = usesCdecl
                 ? new[]
                 {
-                    $"_ callback: @convention(c) ({callbackParams}Int64) -> Void",
+                    $"_ callback: @convention(c) ({callbackParams}Swift.Int64) -> Swift.Void",
                     cdeclErrorCallback,
-                    "_ _sbwTask: Int64",
-                    "_ _sbwCancelKey: Int64"
+                    "_ _sbwTask: Swift.Int64",
+                    "_ _sbwCancelKey: Swift.Int64"
                 }
                 : new[]
                 {
-                    $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
+                    $"callback: @escaping @convention(c) ({callbackParams}Swift.Int64) -> Swift.Void",
                     errorCallbackSwiftParam,
-                    "_sbwTask: Int64",
-                    "_sbwCancelKey: Int64"
+                    "_sbwTask: Swift.Int64",
+                    "_sbwCancelKey: Swift.Int64"
                 };
 
             // Reconstruction code for @_cdecl converted params (emitted before Task {})
@@ -974,7 +974,7 @@ namespace BindingsGeneration
                     // Check if this is a non-frozen parameter that needs UnsafeRawPointer
                     if (nonFrozenParams.Any(nfp => ReferenceEquals(nfp, p)))
                     {
-                        return usesCdecl ? $"_ {p.Name}: UnsafeRawPointer" : $"{p.Name}: UnsafeRawPointer";
+                        return usesCdecl ? $"_ {p.Name}: Swift.UnsafeRawPointer" : $"{p.Name}: Swift.UnsafeRawPointer";
                     }
                     if (p.IsGeneric)
                     {
@@ -991,25 +991,25 @@ namespace BindingsGeneration
                         // Per-arity @convention(c) startFunc: args widen the middle of the signature
                         // (ctx, box, A0_abi, A1_abi, …, successFP, errorFP).
                         var bpClosureSpec = (ClosureTypeSpec)p.SwiftTypeSpec;
-                        var sigParts = new List<string> { "UnsafeMutableRawPointer", "UnsafeMutableRawPointer" };
+                        var sigParts = new List<string> { "Swift.UnsafeMutableRawPointer", "Swift.UnsafeMutableRawPointer" };
                         foreach (var arg in bpClosureSpec.EachArgument())
                         {
                             var cat = _env.ClosureHandler.GetAsyncThrowingArgCategory(arg);
                             sigParts.Add(cat switch
                             {
                                 ClosureHandler.AsyncThrowingArgCategory.Primitive => SwiftTypeNameHelper.GetSwiftTypeName(arg),
-                                ClosureHandler.AsyncThrowingArgCategory.SwiftString => "UnsafeMutableRawPointer",
-                                ClosureHandler.AsyncThrowingArgCategory.SwiftClass => "UnsafeMutableRawPointer",
+                                ClosureHandler.AsyncThrowingArgCategory.SwiftString => "Swift.UnsafeMutableRawPointer",
+                                ClosureHandler.AsyncThrowingArgCategory.SwiftClass => "Swift.UnsafeMutableRawPointer",
                                 _ => throw new InvalidOperationException(
                                     $"Unsupported async-throwing closure arg category {cat} for '{arg}'")
                             });
                         }
-                        sigParts.Add("UnsafeMutableRawPointer");
-                        sigParts.Add("UnsafeMutableRawPointer");
+                        sigParts.Add("Swift.UnsafeMutableRawPointer");
+                        sigParts.Add("Swift.UnsafeMutableRawPointer");
                         var sig = string.Join(", ", sigParts);
-                        return $"_ {p.Name}ContextPtr: UnsafeMutableRawPointer, "
+                        return $"_ {p.Name}ContextPtr: Swift.UnsafeMutableRawPointer, "
                              + $"_ {p.Name}StartFunc: @convention(c) "
-                             + $"({sig}) -> Void";
+                             + $"({sig}) -> Swift.Void";
                     }
                     // Non-async closure param on a @_cdecl async wrapper — bare @escaping or
                     // Optional<Closure>. Widen to the same (funcPtr, context) pointer pair the
@@ -1036,8 +1036,8 @@ namespace BindingsGeneration
                             syncClosureIsOptional, syncClosureIsEscaping,
                             swiftWriter, _emissionContext,
                             _env.MethodDecl.ModuleDecl?.Name ?? "SwiftBindings"));
-                        return $"_ {syncClosureName}FuncPtr: UnsafeMutableRawPointer?, "
-                             + $"_ {syncClosureName}Context: UnsafeMutableRawPointer?";
+                        return $"_ {syncClosureName}FuncPtr: Swift.UnsafeMutableRawPointer?, "
+                             + $"_ {syncClosureName}Context: Swift.UnsafeMutableRawPointer?";
                     }
                     // For closure parameters in async wrappers, closures are captured by Task {}
                     // which requires @escaping (outlives function) and @Sendable (concurrency safety).
@@ -1059,7 +1059,7 @@ namespace BindingsGeneration
                     // Large Optional params: accept UnsafeRawPointer, dereference before Task {}
                     if (largeOptionalParams.Any(lop => ReferenceEquals(lop, p)))
                     {
-                        return usesCdecl ? $"_ {p.Name}: UnsafeRawPointer" : $"{p.Name}: UnsafeRawPointer";
+                        return usesCdecl ? $"_ {p.Name}: Swift.UnsafeRawPointer" : $"{p.Name}: Swift.UnsafeRawPointer";
                     }
                     // @_cdecl catchall: convert to C-compatible types via GetCdeclParamMapping
                     if (usesCdecl)
@@ -1087,7 +1087,7 @@ namespace BindingsGeneration
                 && _env.MethodDecl.MethodType != MethodType.Static
                 && !useExtensionForGenericAsync;
             var selfParam = needsSelfParam
-                ? (usesCdecl ? new[] { "_ _self: UnsafeMutableRawPointer" } : new[] { "_self: OpaquePointer" })
+                ? (usesCdecl ? new[] { "_ _self: Swift.UnsafeMutableRawPointer" } : new[] { "_self: Swift.OpaquePointer" })
                 : Array.Empty<string>();
 
             string parameters = string.Join(", ", baseParams.Concat(methodParams).Concat(selfParam));
@@ -1266,8 +1266,8 @@ namespace BindingsGeneration
                 {
                     // For classes: @_cdecl uses UnsafeMutableRawPointer, @_silgen_name uses OpaquePointer
                     selfConversion = usesCdecl
-                        ? $"let __self = Unmanaged<{parentTypeName!.ModuleQualifiedName}>.fromOpaque(_self).takeUnretainedValue()"
-                        : $"let __self = unsafeBitCast(_self, to: {parentTypeName!.ModuleQualifiedName}.self)";
+                        ? $"let __self = Swift.Unmanaged<{parentTypeName!.ModuleQualifiedName}>.fromOpaque(_self).takeUnretainedValue()"
+                        : $"let __self = Swift.unsafeBitCast(_self, to: {parentTypeName!.ModuleQualifiedName}.self)";
                 }
                 else if (_env.MethodDecl.IsMutating)
                 {
@@ -1280,14 +1280,14 @@ namespace BindingsGeneration
                     // call expression does not hold an exclusive borrow across the await boundary.
                     selfConversion = usesCdecl
                         ? $"let __self = _self.assumingMemoryBound(to: {parentTypeName!.ModuleQualifiedName}.self)"
-                        : $"let __self = UnsafeMutablePointer<{parentTypeName!.ModuleQualifiedName}>(_self)";
+                        : $"let __self = Swift.UnsafeMutablePointer<{parentTypeName!.ModuleQualifiedName}>(_self)";
                 }
                 else
                 {
                     // For structs: the pointer points TO the struct data, dereference it
                     selfConversion = usesCdecl
                         ? $"let __self = _self.assumingMemoryBound(to: {parentTypeName!.ModuleQualifiedName}.self).pointee"
-                        : $"let __self = UnsafePointer<{parentTypeName!.ModuleQualifiedName}>(_self).pointee";
+                        : $"let __self = Swift.UnsafePointer<{parentTypeName!.ModuleQualifiedName}>(_self).pointee";
                 }
                 methodCallPrefix = (!isSwiftClass && _env.MethodDecl.IsMutating) ? "__self.pointee." : "__self.";
             }
@@ -1363,8 +1363,8 @@ namespace BindingsGeneration
                         var abiType = category switch
                         {
                             ClosureHandler.AsyncThrowingArgCategory.Primitive => swiftSignatureType,
-                            ClosureHandler.AsyncThrowingArgCategory.SwiftString => "UnsafeMutableRawPointer",
-                            ClosureHandler.AsyncThrowingArgCategory.SwiftClass => "UnsafeMutableRawPointer",
+                            ClosureHandler.AsyncThrowingArgCategory.SwiftString => "Swift.UnsafeMutableRawPointer",
+                            ClosureHandler.AsyncThrowingArgCategory.SwiftClass => "Swift.UnsafeMutableRawPointer",
                             _ => throw new InvalidOperationException(
                                 $"Unsupported async-throwing closure arg category {category} for '{arg}'")
                         };
@@ -1483,20 +1483,20 @@ namespace BindingsGeneration
                 // Check the dynamic type before allocating/retaining any payload; the
                 // managed receiver uses the message for a noncancellation nil payload.
                 var payload = typedErrorIsClassDirectAsync
-                    ? $"let _ptr = Unmanaged.passRetained(_typedError as AnyObject).toOpaque()\n" +
+                    ? $"let _ptr = Swift.Unmanaged.passRetained(_typedError as Swift.AnyObject).toOpaque()\n" +
                       $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
-                      $"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, 0)\n" +
+                      $"{indent}        errorCallback(Swift.UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, 0)\n" +
                       $"{indent}    }}"
-                    : $"let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
-                      $"{indent}    let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
-                      $"{indent}        byteCount: max(_errSize, 1), alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
+                    : $"let _errSize = Swift.MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
+                      $"{indent}    let _errPtr = Swift.UnsafeMutableRawPointer.allocate(\n" +
+                      $"{indent}        byteCount: Swift.max(_errSize, 1), alignment: Swift.MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
                       $"{indent}    _errPtr.initializeMemory(as: {typedThrowsSwiftErrorType}.self, repeating: _typedError, count: 1)\n" +
                       $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
-                      $"{indent}        errorCallback(UnsafeRawPointer(_errPtr), _errSize, _msgPtr, 0, _sbwTask, 0)\n" +
+                      $"{indent}        errorCallback(Swift.UnsafeRawPointer(_errPtr), _errSize, _msgPtr, 0, _sbwTask, 0)\n" +
                       $"{indent}    }}";
                 return
-                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"{indent}let errorMessage = String(describing: error)\n" +
+                    $"let _isCancelled: Swift.Int32 = (error is _Concurrency.CancellationError) ? 1 : 0\n" +
+                    $"{indent}let errorMessage = Swift.String(describing: error)\n" +
                     $"{indent}if _isCancelled == 0, let _typedError = error as? {typedThrowsSwiftErrorType} {{\n" +
                     $"{indent}    {payload}\n" +
                     $"{indent}}} else {{\n" +
@@ -1525,8 +1525,8 @@ namespace BindingsGeneration
                 // nil payload pointer, zero size, and errorTypeId 0 — the C# body reads only
                 // the message field, but the wire matches the typed/cascade delegate type.
                 return
-                    $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
-                    $"{indent}let errorMessage = String(describing: error)\n" +
+                    $"let _isCancelled: Swift.Int32 = (error is _Concurrency.CancellationError) ? 1 : 0\n" +
+                    $"{indent}let errorMessage = Swift.String(describing: error)\n" +
                     $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
                     $"{indent}    errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)\n" +
                     $"{indent}}}";

@@ -121,7 +121,7 @@ public class ProtocolExtensionThrowingTests
         Assert.True(conformingType.Methods[0].Throws);
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
-        Assert.Contains(" throws -> Int", wrapperLines);
+        Assert.Contains(" throws -> Swift.Int", wrapperLines);
         Assert.Contains("return try instance.load()", wrapperLines);
     }
 

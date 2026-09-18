@@ -41,18 +41,18 @@ public static class SubclassClosedParentTrampolineEmitter
     private static readonly Dictionary<string, (string Swift, string CSharp)> BlittableScalarReturns =
         new(System.StringComparer.Ordinal)
         {
-            ["Int8"] = ("Int8", "sbyte"),
-            ["Int16"] = ("Int16", "short"),
-            ["Int32"] = ("Int32", "int"),
-            ["Int64"] = ("Int64", "long"),
-            ["Int"] = ("Int", "nint"),
-            ["UInt8"] = ("UInt8", "byte"),
-            ["UInt16"] = ("UInt16", "ushort"),
-            ["UInt32"] = ("UInt32", "uint"),
-            ["UInt64"] = ("UInt64", "ulong"),
-            ["UInt"] = ("UInt", "nuint"),
-            ["Float"] = ("Float", "float"),
-            ["Double"] = ("Double", "double"),
+            ["Int8"] = ("Swift.Int8", "sbyte"),
+            ["Int16"] = ("Swift.Int16", "short"),
+            ["Int32"] = ("Swift.Int32", "int"),
+            ["Int64"] = ("Swift.Int64", "long"),
+            ["Int"] = ("Swift.Int", "nint"),
+            ["UInt8"] = ("Swift.UInt8", "byte"),
+            ["UInt16"] = ("Swift.UInt16", "ushort"),
+            ["UInt32"] = ("Swift.UInt32", "uint"),
+            ["UInt64"] = ("Swift.UInt64", "ulong"),
+            ["UInt"] = ("Swift.UInt", "nuint"),
+            ["Float"] = ("Swift.Float", "float"),
+            ["Double"] = ("Swift.Double", "double"),
         };
 
     /// <summary>
@@ -243,8 +243,8 @@ public static class SubclassClosedParentTrampolineEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Subclass-closed base trampoline: {leafSwiftName}.{method.Name} (inherited from {baseDecl.Name})");
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, cdeclSymbol, needsMainActor, mergedAvailability);
-        swiftWriter.WriteLine($"public func {cdeclSymbol}(_ self_: UnsafeMutableRawPointer){swiftReturn} {{");
-        swiftWriter.WriteLine($"    let __self = unsafeBitCast(OpaquePointer(self_), to: {leafSwiftName}.self)");
+        swiftWriter.WriteLine($"public func {cdeclSymbol}(_ self_: Swift.UnsafeMutableRawPointer){swiftReturn} {{");
+        swiftWriter.WriteLine($"    let __self = Swift.unsafeBitCast(Swift.OpaquePointer(self_), to: {leafSwiftName}.self)");
         swiftWriter.WriteLine($"    {(isVoid ? "" : "return ")}__self.{swiftMethodName}()");
         swiftWriter.WriteLine("}");
 

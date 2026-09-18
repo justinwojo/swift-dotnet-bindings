@@ -649,7 +649,7 @@ public class NestedClosureBridgeTests
         // C# should use Func<...> instead of Action<...> for the inner delegate
         Assert.Contains("Func<", cs);
         // Swift inner trampoline should return non-void
-        Assert.Contains("-> UInt8", swift);
+        Assert.Contains("-> Swift.UInt8", swift);
     }
 
     [Fact]
@@ -948,8 +948,8 @@ public class NestedClosureBridgeTests
         NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var swift = swiftOutput.ToString();
-        Assert.Contains("Unmanaged.passRetained", swift);
-        Assert.Contains("as AnyObject", swift);
+        Assert.Contains("Swift.Unmanaged.passRetained", swift);
+        Assert.Contains("as Swift.AnyObject", swift);
     }
 
     [Fact]
@@ -994,7 +994,7 @@ public class NestedClosureBridgeTests
         NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var swift = swiftOutput.ToString();
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(__innerBox", swift);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(__innerBox", swift);
         Assert.Contains(".release()", swift);
     }
 
@@ -1016,8 +1016,8 @@ public class NestedClosureBridgeTests
 
         var swift = swiftOutput.ToString();
         // Box is still minted (passRetained), but never synchronously released on this path.
-        Assert.Contains("Unmanaged.passRetained", swift);
-        Assert.DoesNotContain("Unmanaged<AnyObject>.fromOpaque(__innerBox", swift);
+        Assert.Contains("Swift.Unmanaged.passRetained", swift);
+        Assert.DoesNotContain("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(__innerBox", swift);
     }
 
     [Fact]
@@ -1049,7 +1049,7 @@ public class NestedClosureBridgeTests
 
         var swift = swiftOutput.ToString();
         Assert.Contains("@_cdecl(\"SBW_NCB_ReleaseInnerBox_TestModule\")", swift);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(box).release()", swift);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(box).release()", swift);
     }
 
     [Fact]

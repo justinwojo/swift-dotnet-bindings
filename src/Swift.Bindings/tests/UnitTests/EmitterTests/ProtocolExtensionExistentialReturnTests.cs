@@ -509,7 +509,7 @@ public class ProtocolExtensionExistentialReturnTests
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
         Assert.Contains("_sbWrapClosureContext", wrapperLines);
-        Assert.Contains("let _box: AnyObject = _sbWrapClosureContext", wrapperLines);
+        Assert.Contains("let _box: Swift.AnyObject = _sbWrapClosureContext", wrapperLines);
         Assert.Contains("[_box]", wrapperLines);
         // Body observes the captured box so the optimizer cannot release it before the closure runs.
         Assert.Contains("_ = _box", wrapperLines);

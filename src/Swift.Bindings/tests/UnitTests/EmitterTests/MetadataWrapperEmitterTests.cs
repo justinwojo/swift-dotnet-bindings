@@ -48,8 +48,8 @@ public class MetadataWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains($"@_cdecl(\"{symbol}\")", output);
-        Assert.Contains("unsafeBitCast(ImagePipeline.ImageService.self as Any.Type, to: UnsafeMutableRawPointer.self)", output);
-        Assert.Contains("-> UnsafeMutableRawPointer", output);
+        Assert.Contains("Swift.unsafeBitCast(ImagePipeline.ImageService.self as Any.Type, to: Swift.UnsafeMutableRawPointer.self)", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", output);
     }
 
     [Fact]
@@ -217,9 +217,9 @@ public class MetadataWrapperEmitterTests
         Assert.Contains("iOS 26.2", output);
         Assert.Contains("return nil", output);
         // Return type widened to optional so nil is representable.
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         // The gated reference is still emitted, but only inside the guarded branch.
-        Assert.Contains("unsafeBitCast(StoreKit.Product.PriceIncreaseInfo.self as Any.Type, to: UnsafeMutableRawPointer.self)", output);
+        Assert.Contains("Swift.unsafeBitCast(StoreKit.Product.PriceIncreaseInfo.self as Any.Type, to: Swift.UnsafeMutableRawPointer.self)", output);
         // No declaration-level @available — it would make the #available always-true.
         Assert.DoesNotContain("@available(", output);
     }
@@ -243,8 +243,8 @@ public class MetadataWrapperEmitterTests
         MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "ImagePipeline", "ImagePipeline.ImageService", symbol, ctx, plainStruct);
 
         var output = sw.ToString();
-        Assert.Contains("-> UnsafeMutableRawPointer", output);
-        Assert.DoesNotContain("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", output);
+        Assert.DoesNotContain("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.DoesNotContain("#available", output);
         Assert.DoesNotContain("@available(", output);
         Assert.DoesNotContain("return nil", output);

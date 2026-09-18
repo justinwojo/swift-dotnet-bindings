@@ -177,8 +177,8 @@ public class MethodWrapperClosureTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("callbackFuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("callbackContext: UnsafeMutableRawPointer?", output);
+        Assert.Contains("callbackFuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("callbackContext: Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("_adapted_callback", output);
         Assert.Contains("@convention(c)", output);
     }
@@ -268,7 +268,7 @@ public class MethodWrapperClosureTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("callbackFuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("callbackFuncPtr: Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("var _adapted_callback", output);
         Assert.Contains("nil", output);
         Assert.Contains("if let callbackFuncPtr", output);
@@ -301,7 +301,7 @@ public class MethodWrapperClosureTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("callbackFuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("callbackFuncPtr: Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("_adapted_callback", output);
         Assert.Contains("throws", output);
         Assert.Contains("errorPtr", output);
@@ -333,10 +333,10 @@ public class MethodWrapperClosureTests
 
         var output = sw.ToString();
         // Primitive param
-        Assert.Contains("_ count: Int", output);
+        Assert.Contains("_ count: Swift.Int", output);
         // Closure params
-        Assert.Contains("callbackFuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("callbackContext: UnsafeMutableRawPointer?", output);
+        Assert.Contains("callbackFuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("callbackContext: Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("_adapted_callback", output);
     }
 
@@ -427,8 +427,8 @@ public class MethodWrapperClosureTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("handlerFuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("handlerContext: UnsafeMutableRawPointer?", output);
+        Assert.Contains("handlerFuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("handlerContext: Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("_adapted_handler", output);
         Assert.Contains("@convention(c)", output);
     }

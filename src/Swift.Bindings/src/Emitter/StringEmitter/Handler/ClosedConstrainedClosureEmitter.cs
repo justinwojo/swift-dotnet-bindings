@@ -48,18 +48,18 @@ public static class ClosedConstrainedClosureEmitter
     private static readonly Dictionary<string, (string Swift, string CSharp)> PrimitiveScalars =
         new(System.StringComparer.Ordinal)
         {
-            ["Int8"] = ("Int8", "sbyte"),
-            ["Int16"] = ("Int16", "short"),
-            ["Int32"] = ("Int32", "int"),
-            ["Int64"] = ("Int64", "long"),
-            ["Int"] = ("Int", "nint"),
-            ["UInt8"] = ("UInt8", "byte"),
-            ["UInt16"] = ("UInt16", "ushort"),
-            ["UInt32"] = ("UInt32", "uint"),
-            ["UInt64"] = ("UInt64", "ulong"),
-            ["UInt"] = ("UInt", "nuint"),
-            ["Float"] = ("Float", "float"),
-            ["Double"] = ("Double", "double"),
+            ["Int8"] = ("Swift.Int8", "sbyte"),
+            ["Int16"] = ("Swift.Int16", "short"),
+            ["Int32"] = ("Swift.Int32", "int"),
+            ["Int64"] = ("Swift.Int64", "long"),
+            ["Int"] = ("Swift.Int", "nint"),
+            ["UInt8"] = ("Swift.UInt8", "byte"),
+            ["UInt16"] = ("Swift.UInt16", "ushort"),
+            ["UInt32"] = ("Swift.UInt32", "uint"),
+            ["UInt64"] = ("Swift.UInt64", "ulong"),
+            ["UInt"] = ("Swift.UInt", "nuint"),
+            ["Float"] = ("Swift.Float", "float"),
+            ["Double"] = ("Swift.Double", "double"),
         };
 
     // ─────────────────────────────── Plan (single source of truth) ───────────────────────────────
@@ -373,15 +373,15 @@ public static class ClosedConstrainedClosureEmitter
         {
             if (p.IsClosure)
             {
-                swiftParams.Add($"_ {p.Identifier}FuncPtr: UnsafeMutableRawPointer?");
-                swiftParams.Add($"_ {p.Identifier}Context: UnsafeMutableRawPointer?");
+                swiftParams.Add($"_ {p.Identifier}FuncPtr: Swift.UnsafeMutableRawPointer?");
+                swiftParams.Add($"_ {p.Identifier}Context: Swift.UnsafeMutableRawPointer?");
             }
             else
             {
                 swiftParams.Add($"_ {p.Identifier}: {p.SwiftScalar}");
             }
         }
-        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Closed constrained-extension closure wrapper: {plan.ClosedSwiftType}.{plan.Method.Name}");
@@ -398,7 +398,7 @@ public static class ClosedConstrainedClosureEmitter
                 swiftWriter.WriteLine($"    {line}");
         }
 
-        swiftWriter.WriteLine($"    let obj = Unmanaged<{plan.ClosedSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
+        swiftWriter.WriteLine($"    let obj = Swift.Unmanaged<{plan.ClosedSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
 
         var callArgs = new List<string>();
         foreach (var p in plan.Params)

@@ -55,7 +55,7 @@ public static partial class ClosureEmitter
         // Build parameter list: funcPtr (Int), context (Int), then closure args, then
         // (for throwing closures) an explicit error-out pointer. Cdecl exits via
         // explicit error-out, not the SwiftCC SwiftError register.
-        var swiftParams = new List<string> { "_ _funcPtr: Int", "_ _context: Int" };
+        var swiftParams = new List<string> { "_ _funcPtr: Swift.Int", "_ _context: Swift.Int" };
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
@@ -65,7 +65,7 @@ public static partial class ClosureEmitter
         }
         if (isThrowing)
         {
-            swiftParams.Add("_ _errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            swiftParams.Add("_ _errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
         }
 
         // Determine Swift return type
@@ -73,12 +73,12 @@ public static partial class ClosureEmitter
         string swiftReturnType;
         if (returnsVoid)
         {
-            swiftReturnType = "Void";
+            swiftReturnType = "Swift.Void";
         }
         else if (MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType))
         {
             // Bool: @_cdecl maps Swift Bool to C _Bool automatically
-            swiftReturnType = "Bool";
+            swiftReturnType = "Swift.Bool";
         }
         else
         {
@@ -108,10 +108,10 @@ public static partial class ClosureEmitter
         var renderedSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec)
             .Replace("@escaping ", "").Replace("@Sendable ", "");
         swiftWriter.WriteLines($$"""
-            let _buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<(Int, Int)>.size, alignment: MemoryLayout<(Int, Int)>.alignment)
+            let _buf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<(Swift.Int, Swift.Int)>.size, alignment: Swift.MemoryLayout<(Swift.Int, Swift.Int)>.alignment)
             defer { _buf.deallocate() }
-            _buf.storeBytes(of: _funcPtr, as: Int.self)
-            _buf.storeBytes(of: _context, toByteOffset: MemoryLayout<Int>.size, as: Int.self)
+            _buf.storeBytes(of: _funcPtr, as: Swift.Int.self)
+            _buf.storeBytes(of: _context, toByteOffset: Swift.MemoryLayout<Swift.Int>.size, as: Swift.Int.self)
             let _closure = _buf.assumingMemoryBound(to: ({{renderedSwiftType}}).self).pointee
             """);
 
@@ -170,7 +170,7 @@ public static partial class ClosureEmitter
                 // Class/ObjC pointer: UnsafeMutableRawPointer can't be `nil` because the
                 // Swift return type is non-optional. Construct a bitPattern-0 pointer; C#
                 // ignores the return when _errorOut is non-zero.
-                defaultReturnExpr = "return UnsafeMutableRawPointer(bitPattern: -1)!";
+                defaultReturnExpr = "return Swift.UnsafeMutableRawPointer(bitPattern: -1)!";
             else
                 // Primitive or simple enum: zero of the type the thunk actually declares. Reading
                 // that off `swiftReturnType` rather than re-deriving a scalar here is what keeps
@@ -192,7 +192,7 @@ public static partial class ClosureEmitter
                     do {
                         try _closure({{callArgsString}})
                     } catch {
-                        _errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        _errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                         {{defaultReturnExpr}}
                     }
                     """);
@@ -204,7 +204,7 @@ public static partial class ClosureEmitter
                         let _result = try _closure({{callArgsString}})
                         {{successReturn}}
                     } catch {
-                        _errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        _errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                         {{defaultReturnExpr}}
                     }
                     """);
@@ -260,7 +260,7 @@ public static partial class ClosureEmitter
 
         // Class/ObjC: hand back a +1 retained opaque pointer; C# wraps it in a SwiftHandle.
         if (closureHandler.IsClassType(returnType) || closureHandler.IsObjCBridgedClass(returnType))
-            return $"Unmanaged.passRetained({resultExpr}).toOpaque()";
+            return $"Swift.Unmanaged.passRetained({resultExpr}).toOpaque()";
 
         // Simple enum: the thunk declares the underlying integer scalar (e.g. Int64), but the
         // closure yields an enum case. Numeric-raw enums convert via .rawValue, cast to the
@@ -278,9 +278,9 @@ public static partial class ClosureEmitter
             // copy MemoryLayout<Enum>.size tag bytes into a zero-initialised scalar.
             var enumSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnType);
             return $"{{ var __scalar: {swiftReturnType} = 0; var __e = {resultExpr}; "
-                 + $"withUnsafeMutablePointer(to: &__scalar) {{ __dst in "
-                 + $"withUnsafePointer(to: &__e) {{ __src in "
-                 + $"UnsafeMutableRawPointer(__dst).copyMemory(from: UnsafeRawPointer(__src), byteCount: MemoryLayout<{enumSwiftType}>.size) }} }}; "
+                 + $"Swift.withUnsafeMutablePointer(to: &__scalar) {{ __dst in "
+                 + $"Swift.withUnsafePointer(to: &__e) {{ __src in "
+                 + $"Swift.UnsafeMutableRawPointer(__dst).copyMemory(from: Swift.UnsafeRawPointer(__src), byteCount: Swift.MemoryLayout<{enumSwiftType}>.size) }} }}; "
                  + $"return __scalar }}()";
         }
 

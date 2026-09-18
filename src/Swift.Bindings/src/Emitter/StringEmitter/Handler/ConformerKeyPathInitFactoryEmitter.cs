@@ -484,29 +484,29 @@ internal static class ConformerKeyPathInitFactoryEmitter
             var trampolineParams = new List<string>();
             foreach (var scalar in shape.Scalars)
             {
-                trampolineParams.Add($"_ _sW0_{scalar.Label}: Int");
-                trampolineParams.Add($"_ _sW1_{scalar.Label}: Int");
+                trampolineParams.Add($"_ _sW0_{scalar.Label}: Swift.Int");
+                trampolineParams.Add($"_ _sW1_{scalar.Label}: Swift.Int");
             }
-            trampolineParams.Add($"_ {shape.KeyPathArgLabel}: UnsafeMutableRawPointer");
+            trampolineParams.Add($"_ {shape.KeyPathArgLabel}: Swift.UnsafeMutableRawPointer");
 
             swiftWriter.WriteLine();
             swiftWriter.WriteLine($"// KeyPath-init factory trampoline: {shape.DepClassSwiftQualified}({shape.KeyPathArgLabel}: \\{conformerSwiftForWrapper}.*) as {keyPathFlavor}<{conformerSwiftForWrapper}, {swiftValueTypeForWrapper}>");
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"@_cdecl(\"{symbol}\")");
-            swiftWriter.WriteLine($"public func {symbol}({string.Join(", ", trampolineParams)}) -> UnsafeMutableRawPointer {{");
+            swiftWriter.WriteLine($"public func {symbol}({string.Join(", ", trampolineParams)}) -> Swift.UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
 
             var ctorArgs = new List<string>();
             foreach (var scalar in shape.Scalars)
             {
-                swiftWriter.WriteLine($"let {scalar.Label}Val = unsafeBitCast((_sW0_{scalar.Label}, _sW1_{scalar.Label}), to: String.self)");
+                swiftWriter.WriteLine($"let {scalar.Label}Val = Swift.unsafeBitCast((_sW0_{scalar.Label}, _sW1_{scalar.Label}), to: Swift.String.self)");
                 ctorArgs.Add($"{scalar.Label}: {scalar.Label}Val");
             }
-            swiftWriter.WriteLine($"let {shape.KeyPathArgLabel}Val = Unmanaged<{keyPathFlavor}<{conformerSwiftForWrapper}, {swiftValueTypeForWrapper}>>.fromOpaque({shape.KeyPathArgLabel}).takeUnretainedValue()");
+            swiftWriter.WriteLine($"let {shape.KeyPathArgLabel}Val = Swift.Unmanaged<Swift.{keyPathFlavor}<{conformerSwiftForWrapper}, {swiftValueTypeForWrapper}>>.fromOpaque({shape.KeyPathArgLabel}).takeUnretainedValue()");
             ctorArgs.Add($"{shape.KeyPathArgLabel}: {shape.KeyPathArgLabel}Val");
 
             swiftWriter.WriteLine($"let obj = {shape.DepClassSwiftQualifiedForWrapper}<{swiftValueTypeForWrapper}>({string.Join(", ", ctorArgs)})");
-            swiftWriter.WriteLine("return Unmanaged.passRetained(obj).toOpaque()");
+            swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(obj).toOpaque()");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }

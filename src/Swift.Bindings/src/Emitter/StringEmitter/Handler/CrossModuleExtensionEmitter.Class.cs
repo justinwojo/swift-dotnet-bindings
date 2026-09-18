@@ -496,14 +496,14 @@ public static partial class CrossModuleExtensionEmitter
             // The result pointer leads the signature so the C# side can prepend one argument
             // without reordering the rest. A user parameter spelling it is escaped aside by
             // ResolveSwiftBinding — the name is one of the reserved wrapper bindings.
-            swiftParams.Add($"_ {SwiftResultPointerBinding}: UnsafeMutableRawPointer");
+            swiftParams.Add($"_ {SwiftResultPointerBinding}: Swift.UnsafeMutableRawPointer");
         }
         foreach (var p in parameters)
         {
             if (p.Kind == ClassTrampolineParamKind.Closure)
             {
                 swiftParams.Add($"_ {p.SwiftBindingName}Fn: {p.ClosureSwiftCdeclSig}");
-                swiftParams.Add($"_ {p.SwiftBindingName}Ctx: UnsafeRawPointer");
+                swiftParams.Add($"_ {p.SwiftBindingName}Ctx: Swift.UnsafeRawPointer");
             }
             else if (p.Kind == ClassTrampolineParamKind.String)
             {
@@ -511,8 +511,8 @@ public static partial class CrossModuleExtensionEmitter
                 // The C# side pins a byte[] via `fixed` for the duration of the
                 // native call; the Swift body re-materializes a Swift.String
                 // from the buffer before calling the user method.
-                swiftParams.Add($"_ {p.SwiftBindingName}Ptr: UnsafePointer<UInt8>?");
-                swiftParams.Add($"_ {p.SwiftBindingName}Len: Int");
+                swiftParams.Add($"_ {p.SwiftBindingName}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                swiftParams.Add($"_ {p.SwiftBindingName}Len: Swift.Int");
             }
             else
             {
@@ -520,13 +520,13 @@ public static partial class CrossModuleExtensionEmitter
             }
         }
         if (!isStatic)
-            swiftParams.Add("_ self_: UnsafeRawPointer");
+            swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
 
         string swiftReturn = returnCategory switch
         {
             ReturnKind.Void => "",
             ReturnKind.Primitive => " -> " + ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec!),
-            ReturnKind.ObjCClass or ReturnKind.SwiftClass => " -> UnsafeMutableRawPointer",
+            ReturnKind.ObjCClass or ReturnKind.SwiftClass => " -> Swift.UnsafeMutableRawPointer",
             _ => "",
         };
 
@@ -553,11 +553,11 @@ public static partial class CrossModuleExtensionEmitter
         {
             if (classDecl.IsObjCRooted)
             {
-                swiftWriter.WriteLine($"let __self = (Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! {origSwiftTypeQualified})");
+                swiftWriter.WriteLine($"let __self = (Swift.Unmanaged<Swift.AnyObject>.fromOpaque(self_).takeUnretainedValue() as! {origSwiftTypeQualified})");
             }
             else
             {
-                swiftWriter.WriteLine($"let __self = Unmanaged<{origSwiftTypeQualified}>.fromOpaque(self_).takeUnretainedValue()");
+                swiftWriter.WriteLine($"let __self = Swift.Unmanaged<{origSwiftTypeQualified}>.fromOpaque(self_).takeUnretainedValue()");
             }
         }
 
@@ -579,7 +579,7 @@ public static partial class CrossModuleExtensionEmitter
             var sigArgs = string.Join(", ",
                 cp.ClosureArgInfos.Select((info, i) => $"arg{i}: {info.SwiftType}"));
             var boxName = $"_box_{cp.SwiftBindingName}";
-            swiftWriter.WriteLine($"let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}(UnsafeMutableRawPointer(mutating: {cp.SwiftBindingName}Ctx))");
+            swiftWriter.WriteLine($"let {boxName}: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}(Swift.UnsafeMutableRawPointer(mutating: {cp.SwiftBindingName}Ctx))");
             swiftWriter.WriteLine($"let {cp.SwiftBindingName}: {cp.ClosureSwiftSig} = {{ [{boxName}] ({sigArgs}) in");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"_ = {boxName}");
@@ -629,7 +629,7 @@ public static partial class CrossModuleExtensionEmitter
             case ReturnKind.ObjCClass:
             case ReturnKind.SwiftClass:
                 swiftWriter.WriteLine($"let __r = {callExpr}");
-                swiftWriter.WriteLine("return Unmanaged.passRetained(__r).toOpaque()");
+                swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(__r).toOpaque()");
                 break;
             case ReturnKind.NonFrozenStruct:
                 // initializeMemory VWT-copies the value into the caller's buffer, retaining any
@@ -732,10 +732,10 @@ public static partial class CrossModuleExtensionEmitter
         var cdeclCSharpArgTypes = argInfos.Select(a => a.CSharpCdeclType).ToList();
 
         var swiftClosureSig = swiftArgTypes.Count == 0
-            ? "() -> Void"
-            : $"({string.Join(", ", swiftArgTypes)}) -> Void";
+            ? "() -> Swift.Void"
+            : $"({string.Join(", ", swiftArgTypes)}) -> Swift.Void";
         // Per-call ctx is appended as the last cdecl arg of the function pointer.
-        var swiftCdeclSig = $"@convention(c) ({string.Join(", ", cdeclSwiftArgTypes.Concat(new[] { "UnsafeRawPointer" }))}) -> Void";
+        var swiftCdeclSig = $"@convention(c) ({string.Join(", ", cdeclSwiftArgTypes.Concat(new[] { "Swift.UnsafeRawPointer" }))}) -> Swift.Void";
 
         var csharpDelegateType = csharpArgTypes.Count == 0
             ? "global::System.Action"
@@ -784,7 +784,7 @@ public static partial class CrossModuleExtensionEmitter
                     Kind = ClosureArgKind.OptionalError,
                     SwiftType = "(any Swift.Error)?",
                     CSharpType = "global::Foundation.NSError?",
-                    SwiftCdeclType = "UnsafeMutableRawPointer?",
+                    SwiftCdeclType = "Swift.UnsafeMutableRawPointer?",
                     CSharpCdeclType = "IntPtr",
                     InnerSwiftType = "any Swift.Error",
                     InnerCSharpType = "global::Foundation.NSError",
@@ -803,7 +803,7 @@ public static partial class CrossModuleExtensionEmitter
                         : ClosureArgKind.OptionalSwiftClass,
                     SwiftType = $"{innerSw}?",
                     CSharpType = $"{innerCs}?",
-                    SwiftCdeclType = "UnsafeMutableRawPointer?",
+                    SwiftCdeclType = "Swift.UnsafeMutableRawPointer?",
                     CSharpCdeclType = "IntPtr",
                     InnerSwiftType = innerSw,
                     InnerCSharpType = innerCs,
@@ -838,7 +838,7 @@ public static partial class CrossModuleExtensionEmitter
                 Kind = ClosureArgKind.ObjCClass,
                 SwiftType = swiftType,
                 CSharpType = csharpType,
-                SwiftCdeclType = "UnsafeMutableRawPointer",
+                SwiftCdeclType = "Swift.UnsafeMutableRawPointer",
                 CSharpCdeclType = "IntPtr",
                 InnerSwiftType = swiftType,
                 InnerCSharpType = csharpType,
@@ -848,7 +848,7 @@ public static partial class CrossModuleExtensionEmitter
                 Kind = ClosureArgKind.SwiftClass,
                 SwiftType = swiftType,
                 CSharpType = csharpType,
-                SwiftCdeclType = "UnsafeMutableRawPointer",
+                SwiftCdeclType = "Swift.UnsafeMutableRawPointer",
                 CSharpCdeclType = "IntPtr",
                 InnerSwiftType = swiftType,
                 InnerCSharpType = csharpType,
@@ -896,13 +896,13 @@ public static partial class CrossModuleExtensionEmitter
     private static string BuildSwiftClosureCdeclArg(ClosureArgInfo info, string sourceExpr) => info.Kind switch
     {
         ClosureArgKind.Primitive => sourceExpr,
-        ClosureArgKind.ObjCClass => $"Unmanaged.passRetained({sourceExpr}).toOpaque()",
-        ClosureArgKind.SwiftClass => $"Unmanaged.passRetained({sourceExpr}).toOpaque()",
-        ClosureArgKind.OptionalObjCClass => $"{sourceExpr}.map {{ Unmanaged.passRetained($0).toOpaque() }}",
-        ClosureArgKind.OptionalSwiftClass => $"{sourceExpr}.map {{ Unmanaged.passRetained($0).toOpaque() }}",
+        ClosureArgKind.ObjCClass => $"Swift.Unmanaged.passRetained({sourceExpr}).toOpaque()",
+        ClosureArgKind.SwiftClass => $"Swift.Unmanaged.passRetained({sourceExpr}).toOpaque()",
+        ClosureArgKind.OptionalObjCClass => $"{sourceExpr}.map {{ Swift.Unmanaged.passRetained($0).toOpaque() }}",
+        ClosureArgKind.OptionalSwiftClass => $"{sourceExpr}.map {{ Swift.Unmanaged.passRetained($0).toOpaque() }}",
         // any Error is bridged through the AnyObject coercion which preserves
         // the underlying NSError pointer on Apple platforms.
-        ClosureArgKind.OptionalError => $"({sourceExpr} as AnyObject?).map {{ Unmanaged.passRetained($0).toOpaque() }}",
+        ClosureArgKind.OptionalError => $"({sourceExpr} as Swift.AnyObject?).map {{ Swift.Unmanaged.passRetained($0).toOpaque() }}",
         _ => sourceExpr,
     };
 
@@ -976,11 +976,11 @@ public static partial class CrossModuleExtensionEmitter
     private static string RenderClosureTrampolineSwiftParamType(ClassTrampolineParamInfo p) => p.Kind switch
     {
         ClassTrampolineParamKind.Primitive => p.SwiftTypeRendering,
-        ClassTrampolineParamKind.ObjCClass => "UnsafeMutableRawPointer",
-        ClassTrampolineParamKind.SwiftClass => "UnsafeMutableRawPointer",
+        ClassTrampolineParamKind.ObjCClass => "Swift.UnsafeMutableRawPointer",
+        ClassTrampolineParamKind.SwiftClass => "Swift.UnsafeMutableRawPointer",
         // String emits its own pair of Swift params directly in
         // EmitSwiftClosureTrampoline; this helper isn't consulted for it.
-        _ => "UnsafeMutableRawPointer",
+        _ => "Swift.UnsafeMutableRawPointer",
     };
 
     // References the Swift @_cdecl binding (SwiftBindingName), not the C# param name (Name):
@@ -988,14 +988,14 @@ public static partial class CrossModuleExtensionEmitter
     private static string ConvertClosureTrampolineCdeclArg(ClassTrampolineParamInfo p) => p.Kind switch
     {
         ClassTrampolineParamKind.Primitive => p.SwiftBindingName,
-        ClassTrampolineParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {p.SwiftTypeRendering})",
-        ClassTrampolineParamKind.SwiftClass => $"Unmanaged<{p.SwiftTypeRendering}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
+        ClassTrampolineParamKind.ObjCClass => $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {p.SwiftTypeRendering})",
+        ClassTrampolineParamKind.SwiftClass => $"Swift.Unmanaged<{p.SwiftTypeRendering}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
         // String: reconstitute a Swift.String from the pinned UTF-8 buffer.
         // The C# side guarantees a non-nil pointer for non-empty inputs (the
         // CLR returns a non-null pinned address even for zero-length arrays),
         // so the force-unwrap on Ptr is safe when Len > 0; empty buffers fall
         // through to an empty String literal.
-        ClassTrampolineParamKind.String => $"({p.SwiftBindingName}Len > 0 ? String(decoding: UnsafeBufferPointer(start: {p.SwiftBindingName}Ptr!, count: {p.SwiftBindingName}Len), as: UTF8.self) : \"\")",
+        ClassTrampolineParamKind.String => $"({p.SwiftBindingName}Len > 0 ? Swift.String(decoding: Swift.UnsafeBufferPointer(start: {p.SwiftBindingName}Ptr!, count: {p.SwiftBindingName}Len), as: Swift.UTF8.self) : \"\")",
         _ => p.SwiftBindingName,
     };
 
@@ -1526,17 +1526,17 @@ public static partial class CrossModuleExtensionEmitter
             swiftParams.Add($"_ {p.SwiftBindingName}: {RenderAsyncTrampolineSwiftParam(p)}");
         var completionResultType = returnCategory switch
         {
-            ReturnKind.Void => "UInt8", // unused
+            ReturnKind.Void => "Swift.UInt8", // unused
             ReturnKind.Primitive => MapResolvedToSwiftScalar(returnTypeSpec!),
-            ReturnKind.ObjCClass => "UnsafeMutableRawPointer",
-            ReturnKind.SwiftClass => "UnsafeMutableRawPointer",
-            _ => "UInt8",
+            ReturnKind.ObjCClass => "Swift.UnsafeMutableRawPointer",
+            ReturnKind.SwiftClass => "Swift.UnsafeMutableRawPointer",
+            _ => "Swift.UInt8",
         };
-        swiftParams.Add($"_ completionFn: @convention(c) ({completionResultType}, UnsafeMutableRawPointer?, Int32, UnsafeRawPointer) -> Void");
-        swiftParams.Add("_ completionCtx: UnsafeRawPointer");
-        swiftParams.Add("_ self_: UnsafeRawPointer");
+        swiftParams.Add($"_ completionFn: @convention(c) ({completionResultType}, Swift.UnsafeMutableRawPointer?, Swift.Int32, Swift.UnsafeRawPointer) -> Swift.Void");
+        swiftParams.Add("_ completionCtx: Swift.UnsafeRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
         if (isAsync)
-            swiftParams.Add("_ cancelKey: Int64");
+            swiftParams.Add("_ cancelKey: Swift.Int64");
 
         var swiftFuncName = $"_sbw_clsextAT_{symbolName.Substring("SBW_".Length)}";
         swiftWriter.WriteLine($"public func {swiftFuncName}({string.Join(", ", swiftParams)}) {{");
@@ -1545,11 +1545,11 @@ public static partial class CrossModuleExtensionEmitter
         // Resurrect receiver
         if (classDecl.IsObjCRooted)
         {
-            swiftWriter.WriteLine($"let __self = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! {origSwiftTypeQualified}");
+            swiftWriter.WriteLine($"let __self = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(self_).takeUnretainedValue() as! {origSwiftTypeQualified}");
         }
         else
         {
-            swiftWriter.WriteLine($"let __self = Unmanaged<{origSwiftTypeQualified}>.fromOpaque(self_).takeUnretainedValue()");
+            swiftWriter.WriteLine($"let __self = Swift.Unmanaged<{origSwiftTypeQualified}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
         // Build call arg list (in-Swift call to method)
@@ -1577,8 +1577,8 @@ public static partial class CrossModuleExtensionEmitter
         {
             ReturnKind.Void => "completionFn(0, nil, 0, completionCtx)",
             ReturnKind.Primitive => $"completionFn({primitiveSuccessArg}, nil, 0, completionCtx)",
-            ReturnKind.ObjCClass => "completionFn(Unmanaged.passRetained(__r as AnyObject).toOpaque(), nil, 0, completionCtx)",
-            ReturnKind.SwiftClass => "completionFn(Unmanaged.passRetained(__r).toOpaque(), nil, 0, completionCtx)",
+            ReturnKind.ObjCClass => "completionFn(Swift.Unmanaged.passRetained(__r as Swift.AnyObject).toOpaque(), nil, 0, completionCtx)",
+            ReturnKind.SwiftClass => "completionFn(Swift.Unmanaged.passRetained(__r).toOpaque(), nil, 0, completionCtx)",
             _ => "completionFn(0, nil, 0, completionCtx)",
         };
         // Failure default for the value slot — we want a benign value, the C# side ignores it when errorPtr != nil.
@@ -1586,8 +1586,8 @@ public static partial class CrossModuleExtensionEmitter
         {
             ReturnKind.Void => "0",
             ReturnKind.Primitive => $"{completionResultType}(0)",
-            ReturnKind.ObjCClass => "UnsafeMutableRawPointer(bitPattern: -1)!",
-            ReturnKind.SwiftClass => "UnsafeMutableRawPointer(bitPattern: -1)!",
+            ReturnKind.ObjCClass => "Swift.UnsafeMutableRawPointer(bitPattern: -1)!",
+            ReturnKind.SwiftClass => "Swift.UnsafeMutableRawPointer(bitPattern: -1)!",
             _ => "0",
         };
 
@@ -1620,13 +1620,13 @@ public static partial class CrossModuleExtensionEmitter
             // A cancelled Swift task throws CancellationError; surface it as a cancelled Task on
             // the C# side (isCancellation = 1), not a faulted one. Every other error boxes and
             // flows through the normal fault path.
-            swiftWriter.WriteLine("} catch is CancellationError {");
+            swiftWriter.WriteLine("} catch is _Concurrency.CancellationError {");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"completionFn({failureDefaultArg}, nil, 1, completionCtx)");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("} catch {");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Unmanaged.passRetained(error as AnyObject).toOpaque(), 0, completionCtx)");
+            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque(), 0, completionCtx)");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
             swiftWriter.Indent--;
@@ -1665,7 +1665,7 @@ public static partial class CrossModuleExtensionEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLine("} catch {");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Unmanaged.passRetained(error as AnyObject).toOpaque(), 0, completionCtx)");
+            swiftWriter.WriteLine($"completionFn({failureDefaultArg}, Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque(), 0, completionCtx)");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }
@@ -1677,9 +1677,9 @@ public static partial class CrossModuleExtensionEmitter
     private static string RenderAsyncTrampolineSwiftParam(AsyncTrampolineParamInfo p) => p.Kind switch
     {
         ParamKind.Primitive => RenderPrimitiveSwiftType(p.TypeSpec),
-        ParamKind.ObjCClass => "UnsafeMutableRawPointer",
-        ParamKind.SwiftClass => "UnsafeMutableRawPointer",
-        _ => "UnsafeMutableRawPointer",
+        ParamKind.ObjCClass => "Swift.UnsafeMutableRawPointer",
+        ParamKind.SwiftClass => "Swift.UnsafeMutableRawPointer",
+        _ => "Swift.UnsafeMutableRawPointer",
     };
 
     // References the Swift @_cdecl binding (SwiftBindingName), not the C# param name (Name):
@@ -1687,35 +1687,31 @@ public static partial class CrossModuleExtensionEmitter
     private static string ConvertAsyncTrampolineCdeclArg(AsyncTrampolineParamInfo p) => p.Kind switch
     {
         ParamKind.Primitive => p.SwiftBindingName,
-        ParamKind.ObjCClass => $"(Unmanaged<AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {RenderSwiftTypeName(p.TypeSpec)})",
-        ParamKind.SwiftClass => $"Unmanaged<{RenderSwiftTypeName(p.TypeSpec)}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
+        ParamKind.ObjCClass => $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue() as! {RenderSwiftTypeName(p.TypeSpec)})",
+        ParamKind.SwiftClass => $"Swift.Unmanaged<{RenderSwiftTypeName(p.TypeSpec)}>.fromOpaque({p.SwiftBindingName}).takeUnretainedValue()",
         _ => p.SwiftBindingName,
     };
 
     private static string RenderPrimitiveSwiftType(TypeSpec spec)
     {
+        // Keep the module: a bare stdlib scalar name in the wrapper can be captured by a
+        // same-named declaration of the bound module.
         if (spec is NamedTypeSpec n)
-        {
-            // Strip the leading "Swift." for the wrapper rendering — Swift module
-            // is implicitly imported and bare names are idiomatic in the wrapper.
-            return n.Name.StartsWith("Swift.", StringComparison.Ordinal)
-                ? n.Name.Substring("Swift.".Length)
-                : n.Name;
-        }
-        return "Int";
+            return n.Name;
+        return "Swift.Int";
     }
 
     private static string RenderSwiftTypeName(TypeSpec spec)
     {
         if (spec is NamedTypeSpec n)
             return n.Name;
-        return "AnyObject";
+        return "Swift.AnyObject";
     }
 
     private static string MapResolvedToSwiftScalar(TypeSpec spec)
     {
         if (spec is NamedTypeSpec n && n.Name == "Swift.Bool")
-            return "UInt8";
+            return "Swift.UInt8";
         return RenderPrimitiveSwiftType(spec);
     }
 

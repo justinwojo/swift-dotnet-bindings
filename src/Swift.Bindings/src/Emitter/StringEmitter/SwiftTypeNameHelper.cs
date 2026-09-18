@@ -72,7 +72,7 @@ public static class SwiftTypeNameHelper
         if (typeSpec is TupleTypeSpec tupleType)
         {
             if (tupleType.IsEmptyTuple)
-                return "Void";
+                return "Swift.Void";
             var elements = string.Join(", ", tupleType.Elements.Select(e =>
             {
                 var name = GetSwiftTypeName(e);
@@ -102,7 +102,7 @@ public static class SwiftTypeNameHelper
             var returnString = GetSwiftTypeName(closureType.ReturnType);
             if (closureType.ReturnType.IsEmptyTuple)
             {
-                returnString = "Void";
+                returnString = "Swift.Void";
             }
 
             var throwsKeyword = closureType.Throws ? " throws" : "";
@@ -251,7 +251,7 @@ public static class SwiftTypeNameHelper
             && namedType.GenericParameters[0] is ClosureTypeSpec)
         {
             var innerTypeName = GetSwiftTypeName(namedType.GenericParameters[0]);
-            return $"Optional<{innerTypeName}>";
+            return $"Swift.Optional<{innerTypeName}>";
         }
 
         // If the type starts with "any ", it needs to be wrapped in parentheses for .self access

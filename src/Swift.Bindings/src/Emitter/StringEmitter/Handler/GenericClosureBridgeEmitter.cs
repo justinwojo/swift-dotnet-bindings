@@ -231,7 +231,7 @@ public static class GenericClosureBridgeEmitter
             if (arg == closureArg) continue;
             var name = NameProvider.EscapeSwiftKeyword(NameProvider.GetCSharpParameterName(arg));
             var type = IsGenericNonClosureParam(arg)
-                ? "UnsafeMutableRawPointer"
+                ? "Swift.UnsafeMutableRawPointer"
                 : ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
             var label = GetSwiftArgLabel(arg);
             nonClosureParams.Add((arg, name, type, label));
@@ -267,7 +267,7 @@ public static class GenericClosureBridgeEmitter
         if (isInstance)
         {
             selfConversion = isClass
-                ? $"let {selfLocalName} = unsafeBitCast(OpaquePointer({selfParamName}), to: {typeName}.self)"
+                ? $"let {selfLocalName} = Swift.unsafeBitCast(Swift.OpaquePointer({selfParamName}), to: {typeName}.self)"
                 : $"let {selfLocalName} = {selfParamName}.assumingMemoryBound(to: {typeName}.self).pointee";
         }
 
@@ -285,7 +285,7 @@ public static class GenericClosureBridgeEmitter
             if (arg is NamedTypeSpec named && TypeSpecHelpers.IsGenericTypeParameter(named.Name))
             {
                 // Generic param — specialized to UnsafeMutableRawPointer
-                closureParamDecls.Add($"{paramName}: UnsafeMutableRawPointer");
+                closureParamDecls.Add($"{paramName}: Swift.UnsafeMutableRawPointer");
                 cdeclPassArgs.Add(paramName);
             }
             else
@@ -294,7 +294,7 @@ public static class GenericClosureBridgeEmitter
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
                 closureParamDecls.Add($"{paramName}: {renderedType}");
                 // Convert to UnsafeMutableRawPointer for cdecl
-                cdeclPassArgs.Add($"Unmanaged.passUnretained({paramName} as AnyObject).toOpaque()");
+                cdeclPassArgs.Add($"Swift.Unmanaged.passUnretained({paramName} as Swift.AnyObject).toOpaque()");
             }
             argIdx++;
         }
@@ -313,22 +313,22 @@ public static class GenericClosureBridgeEmitter
         // --- Returning variant (T = UnsafeMutableRawPointer) ---
         {
             var swiftParams = new List<string>();
-            swiftParams.Add($"_ {csClosureName}FuncPtr: UnsafeMutableRawPointer?");
-            swiftParams.Add($"_ {csClosureName}Context: UnsafeMutableRawPointer?");
-            swiftParams.Add($"_ {resultBufName}: UnsafeMutableRawPointer");
+            swiftParams.Add($"_ {csClosureName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+            swiftParams.Add($"_ {csClosureName}Context: Swift.UnsafeMutableRawPointer?");
+            swiftParams.Add($"_ {resultBufName}: Swift.UnsafeMutableRawPointer");
             foreach (var p in nonClosureParams)
                 swiftParams.Add($"_ {p.swiftName}: {p.swiftType}");
             if (isInstance)
-                swiftParams.Add($"_ {selfParamName}: UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {selfParamName}: Swift.UnsafeMutableRawPointer");
 
             // Build cdecl callback type: (closureArgs..., resultBuf, errorOut, context) -> Void
             var cdeclTypeArgs = new List<string>();
             for (int i = 0; i < closureTypeSpec.EachArgument().Count(); i++)
-                cdeclTypeArgs.Add("UnsafeMutableRawPointer");
-            cdeclTypeArgs.Add("UnsafeMutableRawPointer"); // resultBuf
-            cdeclTypeArgs.Add("UnsafeMutablePointer<UnsafeMutableRawPointer?>?"); // errorOut
-            cdeclTypeArgs.Add("UnsafeMutableRawPointer?"); // context
-            var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclTypeArgs)}) -> Void).self";
+                cdeclTypeArgs.Add("Swift.UnsafeMutableRawPointer");
+            cdeclTypeArgs.Add("Swift.UnsafeMutableRawPointer"); // resultBuf
+            cdeclTypeArgs.Add("Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>?"); // errorOut
+            cdeclTypeArgs.Add("Swift.UnsafeMutableRawPointer?"); // context
+            var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclTypeArgs)}) -> Swift.Void).self";
 
             var fullCallArgs = BuildFullCallArgs(methodDecl, closureArg, closureLabel, nonClosureParams);
 
@@ -348,18 +348,18 @@ public static class GenericClosureBridgeEmitter
             if (!string.IsNullOrEmpty(selfConversion))
                 swiftWriter.WriteLine($"    {selfConversion}");
 
-            swiftWriter.WriteLine($"    let {cdeclName} = unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
+            swiftWriter.WriteLine($"    let {cdeclName} = Swift.unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
 
             // Emit the call with inline closure.
             // Replace __CLOSURE__ with the closure opening — the closure body spans multiple lines,
             // ending with }) which closes both the closure brace and the method call paren.
-            var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> UnsafeMutableRawPointer in";
+            var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Swift.UnsafeMutableRawPointer in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
-            swiftWriter.WriteLine($"    let _: UnsafeMutableRawPointer = {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
-            swiftWriter.WriteLine($"        var {innerErrorName}: UnsafeMutableRawPointer? = nil");
+            swiftWriter.WriteLine($"    let _: Swift.UnsafeMutableRawPointer = {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
+            swiftWriter.WriteLine($"        var {innerErrorName}: Swift.UnsafeMutableRawPointer? = nil");
             swiftWriter.WriteLine($"        {cdeclName}({string.Join(", ", cdeclCallArgsFull)})");
             swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
-            swiftWriter.WriteLine($"            throw unsafeBitCast({errName}, to: Swift.Error.self)");
+            swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"        return {resultBufName}");
             swiftWriter.WriteLine($"    }})");
@@ -372,20 +372,20 @@ public static class GenericClosureBridgeEmitter
         if (emitVoidVariant)
         {
             var swiftParams = new List<string>();
-            swiftParams.Add($"_ {csClosureName}FuncPtr: UnsafeMutableRawPointer?");
-            swiftParams.Add($"_ {csClosureName}Context: UnsafeMutableRawPointer?");
+            swiftParams.Add($"_ {csClosureName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+            swiftParams.Add($"_ {csClosureName}Context: Swift.UnsafeMutableRawPointer?");
             foreach (var p in nonClosureParams)
                 swiftParams.Add($"_ {p.swiftName}: {p.swiftType}");
             if (isInstance)
-                swiftParams.Add($"_ {selfParamName}: UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {selfParamName}: Swift.UnsafeMutableRawPointer");
 
             // Build cdecl callback type (no resultBuf for void)
             var cdeclTypeArgs = new List<string>();
             for (int i = 0; i < closureTypeSpec.EachArgument().Count(); i++)
-                cdeclTypeArgs.Add("UnsafeMutableRawPointer");
-            cdeclTypeArgs.Add("UnsafeMutablePointer<UnsafeMutableRawPointer?>?"); // errorOut
-            cdeclTypeArgs.Add("UnsafeMutableRawPointer?"); // context
-            var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclTypeArgs)}) -> Void).self";
+                cdeclTypeArgs.Add("Swift.UnsafeMutableRawPointer");
+            cdeclTypeArgs.Add("Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>?"); // errorOut
+            cdeclTypeArgs.Add("Swift.UnsafeMutableRawPointer?"); // context
+            var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclTypeArgs)}) -> Swift.Void).self";
 
             var fullCallArgs = BuildFullCallArgs(methodDecl, closureArg, closureLabel, nonClosureParams);
 
@@ -404,15 +404,15 @@ public static class GenericClosureBridgeEmitter
             if (!string.IsNullOrEmpty(selfConversion))
                 swiftWriter.WriteLine($"    {selfConversion}");
 
-            swiftWriter.WriteLine($"    let {cdeclName} = unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
+            swiftWriter.WriteLine($"    let {cdeclName} = Swift.unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
 
-            var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Void in";
+            var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Swift.Void in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
             swiftWriter.WriteLine($"    {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
-            swiftWriter.WriteLine($"        var {innerErrorName}: UnsafeMutableRawPointer? = nil");
+            swiftWriter.WriteLine($"        var {innerErrorName}: Swift.UnsafeMutableRawPointer? = nil");
             swiftWriter.WriteLine($"        {cdeclName}({string.Join(", ", cdeclCallArgsFull)})");
             swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
-            swiftWriter.WriteLine($"            throw unsafeBitCast({errName}, to: Swift.Error.self)");
+            swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"    }})");
 

@@ -834,14 +834,14 @@ public static class ConstrainedExtensionEmitter
             || shape == CEReturnShape.FoundationUUID
             || shape == CEReturnShape.FoundationData;
         if (usesIndirectResult)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
         if (!property.IsStatic)
-            swiftParams.Add("_ self_: UnsafeRawPointer");
+            swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
 
         var returnClause = shape switch
         {
             CEReturnShape.Primitive => $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(effectiveReturnTypeSpec)}",
-            CEReturnShape.FoundationDate => " -> Double",
+            CEReturnShape.FoundationDate => " -> Swift.Double",
             _ => "",
         };
         var swiftParamString = string.Join(", ", swiftParams);
@@ -1192,7 +1192,7 @@ public static class ConstrainedExtensionEmitter
         switch (access)
         {
             case CESelfAccess.ClassReference:
-                swiftWriter.WriteLine($"let obj = Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
+                swiftWriter.WriteLine($"let obj = Swift.Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
                 return "obj";
             case CESelfAccess.StructCopy:
                 swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).pointee");
@@ -1749,17 +1749,17 @@ public static class ConstrainedExtensionEmitter
             || shape == CEReturnShape.FoundationData;
         var selfAccess = ClassifySelfAccess(parentTypeDecl, method.IsMutating, method.IsConsuming);
         if (usesIndirectResult)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
         if (!isStatic)
             swiftParams.Add(selfAccess is CESelfAccess.StructInPlaceMutating or CESelfAccess.StructMove
-                ? "_ self_: UnsafeMutableRawPointer"
-                : "_ self_: UnsafeRawPointer");
+                ? "_ self_: Swift.UnsafeMutableRawPointer"
+                : "_ self_: Swift.UnsafeRawPointer");
 
         var returnClause = (shape, isVoidReturn) switch
         {
             (_, true) => "",
             (CEReturnShape.Primitive, _) => $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(effectiveReturnTypeSpec!)}",
-            (CEReturnShape.FoundationDate, _) => " -> Double",
+            (CEReturnShape.FoundationDate, _) => " -> Swift.Double",
             _ => "",
         };
         var swiftParamString = string.Join(", ", swiftParams);

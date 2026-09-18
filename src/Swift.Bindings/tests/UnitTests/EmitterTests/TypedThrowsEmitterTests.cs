@@ -143,7 +143,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
         Assert.Contains("initializeMemory(as: TestModule.ParseError.self", swiftOutput);
         // Unified Swift signature uses Optional pointers + trailing Int32 errorTypeId.
-        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32", swiftOutput);
         // Typed-throws catch passes errorTypeId 0 (C# uses static error type for dispatch).
         Assert.Contains("_isCancelled, _sbwTask, 0)", swiftOutput);
     }
@@ -165,7 +165,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
 
         // Swift side: untyped catch passes nil/0 fillers for the payload fields.
-        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32", swiftOutput);
         Assert.Contains("errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)", swiftOutput);
         Assert.DoesNotContain("MemoryLayout<", swiftOutput);
     }
@@ -183,7 +183,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32", swiftOutput);
         Assert.Contains("errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)", swiftOutput);
     }
 
@@ -206,7 +206,7 @@ public class TypedThrowsEmitterTests
         // Swift side: typed error callback with MemoryLayout + initializeMemory.
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
         Assert.Contains("initializeMemory(as: TestModule.ParseError.self", swiftOutput);
-        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32", swiftOutput);
         Assert.Contains("_isCancelled, _sbwTask, 0)", swiftOutput);
     }
 
@@ -221,7 +221,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)", swift);
         if (classError)
         {
-            Assert.Contains("Unmanaged.passRetained(_typedError as AnyObject)", swift);
+            Assert.Contains("Swift.Unmanaged.passRetained(_typedError as Swift.AnyObject)", swift);
             Assert.DoesNotContain("MemoryLayout<TestModule.ParseError>", swift);
         }
         else

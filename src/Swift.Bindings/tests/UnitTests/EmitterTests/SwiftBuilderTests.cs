@@ -33,15 +33,15 @@ public class SwiftBuilderTests
     }
 
     [Theory]
-    [InlineData("bool", "Bool")]
-    [InlineData("System.Boolean", "Bool")]
-    [InlineData("nint", "Int")]
-    [InlineData("System.IntPtr", "Int")]
-    [InlineData("nuint", "UInt")]
-    [InlineData("float", "Float")]
-    [InlineData("double", "Double")]
-    [InlineData("int", "Int32")]
-    [InlineData("long", "Int64")]
+    [InlineData("bool", "Swift.Bool")]
+    [InlineData("System.Boolean", "Swift.Bool")]
+    [InlineData("nint", "Swift.Int")]
+    [InlineData("System.IntPtr", "Swift.Int")]
+    [InlineData("nuint", "Swift.UInt")]
+    [InlineData("float", "Swift.Float")]
+    [InlineData("double", "Swift.Double")]
+    [InlineData("int", "Swift.Int32")]
+    [InlineData("long", "Swift.Int64")]
     public void CSharpToSwiftType_MapsCorrectly(string csharpType, string expectedSwift)
     {
         Assert.True(SwiftBuilder.CSharpToSwiftType.TryGetValue(csharpType, out var result));
@@ -65,16 +65,16 @@ public class SwiftBuilderTests
     #region GetSwiftCdeclParamType Tests
 
     [Theory]
-    [InlineData("Swift.Bool", "UInt8")]
-    [InlineData("Swift.Int", "Int")]
-    [InlineData("Swift.UInt", "UInt")]
-    [InlineData("Swift.Float", "Float")]
-    [InlineData("Swift.Double", "Double")]
-    [InlineData("Swift.Int32", "Int32")]
-    [InlineData("Swift.UnsafeRawPointer", "UnsafeRawPointer")]
-    [InlineData("Swift.UnsafeMutableRawPointer", "UnsafeMutableRawPointer")]
-    [InlineData("Swift.OpaquePointer", "OpaquePointer")]
-    [InlineData("MyModule.MyStruct", "UnsafeMutableRawPointer")]
+    [InlineData("Swift.Bool", "Swift.UInt8")]
+    [InlineData("Swift.Int", "Swift.Int")]
+    [InlineData("Swift.UInt", "Swift.UInt")]
+    [InlineData("Swift.Float", "Swift.Float")]
+    [InlineData("Swift.Double", "Swift.Double")]
+    [InlineData("Swift.Int32", "Swift.Int32")]
+    [InlineData("Swift.UnsafeRawPointer", "Swift.UnsafeRawPointer")]
+    [InlineData("Swift.UnsafeMutableRawPointer", "Swift.UnsafeMutableRawPointer")]
+    [InlineData("Swift.OpaquePointer", "Swift.OpaquePointer")]
+    [InlineData("MyModule.MyStruct", "Swift.UnsafeMutableRawPointer")]
     public void GetSwiftCdeclParamType_MapsCorrectly(string swiftTypeName, string expectedCdecl)
     {
         var named = new NamedTypeSpec(swiftTypeName);
@@ -82,10 +82,10 @@ public class SwiftBuilderTests
     }
 
     [Theory]
-    [InlineData("Swift.Int", "Int")]
-    [InlineData("Swift.Bool", "UInt8")]
-    [InlineData("Swift.Double", "Double")]
-    [InlineData("MyModule.MyClass", "UnsafeMutableRawPointer")]
+    [InlineData("Swift.Int", "Swift.Int")]
+    [InlineData("Swift.Bool", "Swift.UInt8")]
+    [InlineData("Swift.Double", "Swift.Double")]
+    [InlineData("MyModule.MyClass", "Swift.UnsafeMutableRawPointer")]
     public void GetSwiftCdeclParamType_TypeSpec_NamedDelegatesToOverload(string name, string expected)
     {
         TypeSpec spec = new NamedTypeSpec(name);
@@ -95,7 +95,7 @@ public class SwiftBuilderTests
     [Fact]
     public void GetSwiftCdeclParamType_TypeSpec_EmptyTuple_ReturnsVoid()
     {
-        Assert.Equal("Void", SwiftBuilder.GetSwiftCdeclParamType(TupleTypeSpec.Empty));
+        Assert.Equal("Swift.Void", SwiftBuilder.GetSwiftCdeclParamType(TupleTypeSpec.Empty));
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class SwiftBuilderTests
         var closureSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             new NamedTypeSpec("Swift.Int"));
-        Assert.Equal("UnsafeMutableRawPointer", SwiftBuilder.GetSwiftCdeclParamType(closureSpec));
+        Assert.Equal("Swift.UnsafeMutableRawPointer", SwiftBuilder.GetSwiftCdeclParamType(closureSpec));
     }
 
     #endregion

@@ -120,9 +120,6 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine("// </auto-generated>");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
-        sb.AppendLine("using System.Runtime.CompilerServices;");
-        sb.AppendLine("using Swift.Runtime;");
-        sb.AppendLine();
         sb.AppendLine("namespace Swift;");
         sb.AppendLine();
         sb.AppendLine("internal static class AppleSupplementRegistration");
@@ -157,9 +154,16 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine("}");
 
         var outputPath = Path.Combine(outputDir, "_AppleSupplementRegistration.cs");
-        File.WriteAllText(outputPath, sb.ToString());
+        File.WriteAllText(outputPath, QualifyGenerated(sb.ToString()));
         _emittedFiles.Add(outputPath);
     }
+
+    /// <summary>
+    /// Spells every namespace-rooted name from <c>global::</c>. The files carry no usings, so a
+    /// member of a projected type can never capture a name the file relies on.
+    /// </summary>
+    private static string QualifyGenerated(string source)
+        => CSharpGlobalQualifier.Qualify(source, CSharpGlobalQualifier.BuildRoots(Array.Empty<string>()));
 
     private OpaqueTypeRegistration? EmitEntry(string moduleName, TypeEntry entry, string outputDir)
     {
@@ -205,7 +209,7 @@ public sealed class AppleTypesCsEmitter
         Directory.CreateDirectory(moduleDir);
         var outputPath = Path.Combine(moduleDir, fileName);
 
-        File.WriteAllText(outputPath, source);
+        File.WriteAllText(outputPath, QualifyGenerated(source));
         _emittedFiles.Add(outputPath);
 
         return useSequential
@@ -340,12 +344,6 @@ public sealed class AppleTypesCsEmitter
         AppendFileHeader(sb, entry);
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
-        sb.AppendLine("using System;");
-        sb.AppendLine("using System.Runtime.CompilerServices;");
-        sb.AppendLine("using System.Runtime.InteropServices;");
-        sb.AppendLine("using System.Runtime.Versioning;");
-        sb.AppendLine("using Swift.Runtime;");
-        sb.AppendLine();
         sb.AppendLine($"namespace {ns};");
         sb.AppendLine();
 
@@ -463,12 +461,6 @@ public sealed class AppleTypesCsEmitter
         var sb = new StringBuilder();
         AppendFileHeader(sb, entry);
         sb.AppendLine("#nullable enable");
-        sb.AppendLine();
-        sb.AppendLine("using System;");
-        sb.AppendLine("using System.Runtime.CompilerServices;");
-        sb.AppendLine("using System.Runtime.InteropServices;");
-        sb.AppendLine("using System.Runtime.Versioning;");
-        sb.AppendLine("using Swift.Runtime;");
         sb.AppendLine();
         sb.AppendLine($"namespace {ns};");
         sb.AppendLine();

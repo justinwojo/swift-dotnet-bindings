@@ -72,14 +72,14 @@ public class ProtocolExtensionEmitterTests
         Assert.Single(conformingType.Methods);
 
         // Param must render as nullable pointer, not bare Optional<…>.
-        Assert.Contains("UnsafeMutableRawPointer?", wrapperLines);
+        Assert.Contains("Swift.UnsafeMutableRawPointer?", wrapperLines);
         Assert.DoesNotContain("Swift.Optional<TestModule.OtherClass>", wrapperLines);
         Assert.DoesNotContain("Optional<TestModule.OtherClass>", wrapperLines);
 
         // Call site must reconstruct via Unmanaged<AnyObject>.fromOpaque mapped over
         // the nullable pointer (matches CdeclParamMapper's AnyObject-bridge path so
         // ObjC-bridged structs like IndexPath round-trip too).
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque", wrapperLines);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque", wrapperLines);
         Assert.Contains(".map", wrapperLines);
     }
 
@@ -107,12 +107,12 @@ public class ProtocolExtensionEmitterTests
 
         Assert.Single(conformingType.Methods);
         // Param must render as UnsafeRawPointer — @_cdecl rejects bare Optional<Double>.
-        Assert.Contains("stateDuration: UnsafeRawPointer", wrapperLines);
+        Assert.Contains("stateDuration: Swift.UnsafeRawPointer", wrapperLines);
         Assert.DoesNotContain("Swift.Optional<Swift.Double>", wrapperLines);
-        Assert.DoesNotContain("stateDuration: Swift.Double?", wrapperLines);
+        Assert.DoesNotContain("_ stateDuration: Swift.Double?", wrapperLines);
         // Call site decodes via tag-byte pattern (mirrors CdeclParamMapper.Map line ~201).
-        Assert.Contains("load(as: UInt8.self) == 0", wrapperLines);
-        Assert.Contains("load(as: Double.self)", wrapperLines);
+        Assert.Contains("load(as: Swift.UInt8.self) == 0", wrapperLines);
+        Assert.Contains("load(as: Swift.Double.self)", wrapperLines);
     }
 
     [Fact]
@@ -131,10 +131,10 @@ public class ProtocolExtensionEmitterTests
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
 
         Assert.Single(conformingType.Methods);
-        Assert.Contains("count: UnsafeRawPointer", wrapperLines);
+        Assert.Contains("count: Swift.UnsafeRawPointer", wrapperLines);
         Assert.DoesNotContain("Swift.Optional<Swift.Int32>", wrapperLines);
-        Assert.Contains("load(as: UInt8.self) == 0", wrapperLines);
-        Assert.Contains("load(as: Int32.self)", wrapperLines);
+        Assert.Contains("load(as: Swift.UInt8.self) == 0", wrapperLines);
+        Assert.Contains("load(as: Swift.Int32.self)", wrapperLines);
     }
 
     [Fact]
@@ -156,11 +156,11 @@ public class ProtocolExtensionEmitterTests
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
 
         Assert.Single(conformingType.Methods);
-        Assert.Contains("flag: UnsafeRawPointer", wrapperLines);
+        Assert.Contains("flag: Swift.UnsafeRawPointer", wrapperLines);
         Assert.DoesNotContain(": Swift.Bool?", wrapperLines);
         // Pointer-typed access fallback — no tag-byte read because Bool has no separate tag byte.
         Assert.Contains("assumingMemoryBound(to: Swift.Optional<Swift.Bool>.self).pointee", wrapperLines);
-        Assert.DoesNotContain("load(as: UInt8.self) == 0", wrapperLines);
+        Assert.DoesNotContain("load(as: Swift.UInt8.self) == 0", wrapperLines);
     }
 
     // ─── Cross-kind @_cdecl symbol dedup ────────────────────────────────
@@ -354,12 +354,12 @@ public class ProtocolExtensionEmitterTests
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
         Assert.Contains("@_cdecl(\"SBW_WelcomeTip_shouldDisplayTip\")", wrapperLines);
-        Assert.Contains("-> Bool", wrapperLines);
+        Assert.Contains("-> Swift.Bool", wrapperLines);
         // Property read, NOT an invocation.
         Assert.Contains("return instance.shouldDisplayTip", wrapperLines);
         Assert.DoesNotContain("instance.shouldDisplayTip(", wrapperLines);
         // Class conformer self-reconstruction.
-        Assert.Contains("Unmanaged<TestModule.WelcomeTip>.fromOpaque(self_).takeUnretainedValue()", wrapperLines);
+        Assert.Contains("Swift.Unmanaged<TestModule.WelcomeTip>.fromOpaque(self_).takeUnretainedValue()", wrapperLines);
     }
 
     [Fact]

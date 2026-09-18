@@ -1486,22 +1486,22 @@ public static class ProtocolExtensionEmitter
         if (IsFoundationData(typeSpec))
             return $"_ {paramName}: Foundation.Data";
         if (IsSwiftArrayType(typeSpec))
-            return $"_ {paramName}: UnsafeMutableRawPointer";
+            return $"_ {paramName}: Swift.UnsafeMutableRawPointer";
         // Optional<reference type>: nullable pointer ABI matching CdeclParamMapper. The C# side
         // passes IntPtr (0 for nil); without this branch the wrapper renders `Optional<Entity>`
         // and swiftc rejects with "type is not representable in Objective-C".
         if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
-            return $"_ {paramName}: UnsafeMutableRawPointer?";
+            return $"_ {paramName}: Swift.UnsafeMutableRawPointer?";
         // Optional<value-type> (Optional<Double>, Optional<Int32>, Optional<Bool>, …):
         // bare Optional<…> isn't C-representable, so @_cdecl rejects it. The C# side already
         // passes a SwiftOptional<T>.Payload IntPtr through DangerousGetHandle, so accept
         // UnsafeRawPointer here and let RenderCallArg decode (tag-byte for blittable primitives,
         // assumingMemoryBound pointee fallback for everything else — mirrors CdeclParamMapper.Map).
         if (WrapperValidation.IsOptionalType(typeSpec))
-            return $"_ {paramName}: UnsafeRawPointer";
+            return $"_ {paramName}: Swift.UnsafeRawPointer";
         if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
             !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
-            return $"_ {paramName}: UnsafeMutableRawPointer";
+            return $"_ {paramName}: Swift.UnsafeMutableRawPointer";
 
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
         // Noncopyable parameters require explicit ownership in Swift 6; we use `consuming`
@@ -1534,7 +1534,7 @@ public static class ProtocolExtensionEmitter
             var arrayTypeSpec = (NamedTypeSpec)typeSpec;
             var elementType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arrayTypeSpec.GenericParameters[0]);
             var localName = $"__{paramName}";
-            ctx.AddProtocolExtWrapperLine($"    let {localName} = unsafeBitCast({paramName}, to: [{elementType}].self)");
+            ctx.AddProtocolExtWrapperLine($"    let {localName} = Swift.unsafeBitCast({paramName}, to: [{elementType}].self)");
             return label == "_" ? localName : $"{label}: {localName}";
         }
 
@@ -1547,7 +1547,7 @@ public static class ProtocolExtensionEmitter
             var innerType = ((NamedTypeSpec)typeSpec).GenericParameters[0];
             var renderedInner = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
             var localName = $"__{paramName}";
-            ctx.AddProtocolExtWrapperLine($"    let {localName}: {renderedInner}? = {paramName}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {renderedInner} }}");
+            ctx.AddProtocolExtWrapperLine($"    let {localName}: {renderedInner}? = {paramName}.map {{ Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeUnretainedValue() as! {renderedInner} }}");
             return label == "_" ? localName : $"{label}: {localName}";
         }
 
@@ -1592,7 +1592,7 @@ public static class ProtocolExtensionEmitter
         {
             var renderedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
             var localName = $"__{paramName}";
-            ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
+            ctx.AddProtocolExtWrapperLine($"    let {localName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
             return label == "_" ? localName : $"{label}: {localName}";
         }
 
@@ -1649,7 +1649,7 @@ public static class ProtocolExtensionEmitter
         // Compute unique names up front so the wrapper signature and the call args agree
         // on suffixes (e.g. `expression, expression2`) when params share a leaf type.
         var swiftParams = new List<string>();
-        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
 
         var existentialHandler = new ExistentialHandler(typeDatabase);
         // Reserve the appended generic-metatype bindings (`__tType`) so a user param that sanitizes to
@@ -1683,7 +1683,7 @@ public static class ProtocolExtensionEmitter
         {
             if (extMethod.ReturnsSelf)
             {
-                swiftReturnType = "UnsafeMutableRawPointer";
+                swiftReturnType = "Swift.UnsafeMutableRawPointer";
                 returnIsClass = true;
             }
             else
@@ -1704,7 +1704,7 @@ public static class ProtocolExtensionEmitter
             }
             else if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
             {
-                swiftReturnType = "UnsafeMutableRawPointer";
+                swiftReturnType = "Swift.UnsafeMutableRawPointer";
                 returnIsClass = true;
             }
             else
@@ -1759,11 +1759,11 @@ public static class ProtocolExtensionEmitter
         {
             // Generic class types use unsafeBitCast to cast the opaque pointer to the
             // parameterized type. Unmanaged<T>.fromOpaque requires non-generic T.
-            ctx.AddProtocolExtWrapperLine($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
+            ctx.AddProtocolExtWrapperLine($"    let instance = Swift.unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
         }
         else
         {
-            ctx.AddProtocolExtWrapperLine($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+            ctx.AddProtocolExtWrapperLine($"    let instance = Swift.Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
         // Emit parameter conversions — use the same deduplicated names as the signature.
@@ -1799,7 +1799,7 @@ public static class ProtocolExtensionEmitter
                 {
                     ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
                 }
-                ctx.AddProtocolExtWrapperLine($"    let buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{qualifiedTypeName}>.size, alignment: MemoryLayout<{qualifiedTypeName}>.alignment)");
+                ctx.AddProtocolExtWrapperLine($"    let buf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{qualifiedTypeName}>.size, alignment: Swift.MemoryLayout<{qualifiedTypeName}>.alignment)");
                 ctx.AddProtocolExtWrapperLine($"    buf.initializeMemory(as: {qualifiedTypeName}.self, repeating: result, count: 1)");
                 ctx.AddProtocolExtWrapperLine($"    return buf");
             }
@@ -1815,7 +1815,7 @@ public static class ProtocolExtensionEmitter
                 {
                     ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
                 }
-                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                ctx.AddProtocolExtWrapperLine($"    return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             }
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
@@ -1913,7 +1913,7 @@ public static class ProtocolExtensionEmitter
             : null;
         var uniqueParamNames = ComputeUniqueParamNames(parameters, closureTypeSpec, closureParamIndex, metatypeBindings);
         var swiftParams = new List<string>();
-        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
 
         for (int i = 0; i < parameters.Count; i++)
         {
@@ -1922,8 +1922,8 @@ public static class ProtocolExtensionEmitter
             {
                 // Replace closure with funcPtr + context.
                 var paramName = uniqueParamNames[i];
-                swiftParams.Add($"_ {paramName}FuncPtr: UnsafeMutableRawPointer");
-                swiftParams.Add($"_ {paramName}Context: UnsafeMutableRawPointer?");
+                swiftParams.Add($"_ {paramName}FuncPtr: Swift.UnsafeMutableRawPointer");
+                swiftParams.Add($"_ {paramName}Context: Swift.UnsafeMutableRawPointer?");
             }
             else
             {
@@ -1942,7 +1942,7 @@ public static class ProtocolExtensionEmitter
         bool returnIsClass;
         if (extMethod.ReturnsSelf)
         {
-            swiftReturnType = "UnsafeMutableRawPointer";
+            swiftReturnType = "Swift.UnsafeMutableRawPointer";
             returnIsClass = true;
         }
         else if (returnTypeSpec == null || returnTypeSpec.IsEmptyTuple)
@@ -1961,7 +1961,7 @@ public static class ProtocolExtensionEmitter
             }
             else if (returnTypeSpec is NamedTypeSpec retNamedType && !MarshallingHelpers.IsSwiftPrimitive(retNamedType.Name))
             {
-                swiftReturnType = "UnsafeMutableRawPointer";
+                swiftReturnType = "Swift.UnsafeMutableRawPointer";
                 returnIsClass = true;
             }
             else
@@ -2009,11 +2009,11 @@ public static class ProtocolExtensionEmitter
         }
         else if (isGenericConforming)
         {
-            ctx.AddProtocolExtWrapperLine($"    let instance = unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
+            ctx.AddProtocolExtWrapperLine($"    let instance = Swift.unsafeBitCast(self_, to: {qualifiedTypeName}.self)");
         }
         else
         {
-            ctx.AddProtocolExtWrapperLine($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+            ctx.AddProtocolExtWrapperLine($"    let instance = Swift.Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
         // Build cdecl callback type. Reuse the already-deduped-and-reserved-escaped binding from
@@ -2025,18 +2025,18 @@ public static class ProtocolExtensionEmitter
         var cdeclArgTypes = new List<string>();
         foreach (var arg in closureArgs)
         {
-            cdeclArgTypes.Add("UnsafeMutableRawPointer"); // All args as raw pointers
+            cdeclArgTypes.Add("Swift.UnsafeMutableRawPointer"); // All args as raw pointers
         }
         if (closureReturnIsGeneric)
         {
-            cdeclArgTypes.Add("UnsafeMutableRawPointer"); // Result buffer for generic return
+            cdeclArgTypes.Add("Swift.UnsafeMutableRawPointer"); // Result buffer for generic return
         }
-        cdeclArgTypes.Add("UnsafeMutableRawPointer?"); // Context
+        cdeclArgTypes.Add("Swift.UnsafeMutableRawPointer?"); // Context
 
-        string cdeclReturnType = closureReturnIsBool ? "Bool" : "Void";
+        string cdeclReturnType = closureReturnIsBool ? "Swift.Bool" : "Swift.Void";
         var cdeclTypeStr = $"(@convention(c) ({string.Join(", ", cdeclArgTypes)}) -> {cdeclReturnType}).self";
 
-        ctx.AddProtocolExtWrapperLine($"    let cdecl = unsafeBitCast({closureParamName}FuncPtr, to: {cdeclTypeStr})");
+        ctx.AddProtocolExtWrapperLine($"    let cdecl = Swift.unsafeBitCast({closureParamName}FuncPtr, to: {cdeclTypeStr})");
 
         // Wrap the GCHandle context pointer in a Swift-ARC-owned `_SBClosureCtx` box for
         // escaping closures so the box's deinit upcalls C# and frees the handle exactly
@@ -2047,7 +2047,7 @@ public static class ProtocolExtensionEmitter
         bool isEscapingProtoExt = closureTypeSpec.IsEscaping;
         if (isEscapingProtoExt)
         {
-            ctx.AddProtocolExtWrapperLine($"    let _box: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureParamName}Context!)");
+            ctx.AddProtocolExtWrapperLine($"    let _box: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureParamName}Context!)");
             ctx.ProtocolExtUsesClosureContextHelper = true;
         }
 
@@ -2061,7 +2061,7 @@ public static class ProtocolExtensionEmitter
             argIdx++;
         }
 
-        var closureReturnStr = closureReturnIsVoid ? "Void" :
+        var closureReturnStr = closureReturnIsVoid ? "Swift.Void" :
             ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
         var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
 
@@ -2105,9 +2105,9 @@ public static class ProtocolExtensionEmitter
             {
                 // Generic or class type: allocate buffer, copy bytes, pass pointer
                 var argType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
-                ctx.AddProtocolExtWrapperLine($"        let __buf{i} = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{argType}>.size, 1), alignment: MemoryLayout<{argType}>.alignment)");
+                ctx.AddProtocolExtWrapperLine($"        let __buf{i} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.max(Swift.MemoryLayout<{argType}>.size, 1), alignment: Swift.MemoryLayout<{argType}>.alignment)");
                 ctx.AddProtocolExtWrapperLine($"        defer {{ __buf{i}.deallocate() }}");
-                ctx.AddProtocolExtWrapperLine($"        withUnsafePointer(to: __arg{i}) {{ __buf{i}.copyMemory(from: UnsafeRawPointer($0), byteCount: MemoryLayout<{argType}>.size) }}");
+                ctx.AddProtocolExtWrapperLine($"        Swift.withUnsafePointer(to: __arg{i}) {{ __buf{i}.copyMemory(from: Swift.UnsafeRawPointer($0), byteCount: Swift.MemoryLayout<{argType}>.size) }}");
             }
         }
 
@@ -2137,7 +2137,7 @@ public static class ProtocolExtensionEmitter
         {
             // Generic return: allocate result buffer, pass to cdecl, load from buffer
             var retType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
-            ctx.AddProtocolExtWrapperLine($"        let __resultBuf = UnsafeMutableRawPointer.allocate(byteCount: max(MemoryLayout<{retType}>.size, 1), alignment: MemoryLayout<{retType}>.alignment)");
+            ctx.AddProtocolExtWrapperLine($"        let __resultBuf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.max(Swift.MemoryLayout<{retType}>.size, 1), alignment: Swift.MemoryLayout<{retType}>.alignment)");
             ctx.AddProtocolExtWrapperLine($"        defer {{ __resultBuf.deallocate() }}");
             cdeclCallArgs.Add("__resultBuf");
             cdeclCallArgs.Add($"{closureParamName}Context");
@@ -2196,7 +2196,7 @@ public static class ProtocolExtensionEmitter
                 {
                     ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
                 }
-                ctx.AddProtocolExtWrapperLine($"    let buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{qualifiedTypeName}>.size, alignment: MemoryLayout<{qualifiedTypeName}>.alignment)");
+                ctx.AddProtocolExtWrapperLine($"    let buf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{qualifiedTypeName}>.size, alignment: Swift.MemoryLayout<{qualifiedTypeName}>.alignment)");
                 ctx.AddProtocolExtWrapperLine($"    buf.initializeMemory(as: {qualifiedTypeName}.self, repeating: result, count: 1)");
                 ctx.AddProtocolExtWrapperLine($"    return buf");
             }
@@ -2208,7 +2208,7 @@ public static class ProtocolExtensionEmitter
                 {
                     ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
                 }
-                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                ctx.AddProtocolExtWrapperLine($"    return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             }
         }
         else if (string.IsNullOrEmpty(swiftReturnType))

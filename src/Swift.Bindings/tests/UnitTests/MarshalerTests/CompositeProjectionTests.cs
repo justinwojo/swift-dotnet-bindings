@@ -27,7 +27,7 @@ public class CompositeProjectionTests
 
         // Should have Select conversion
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Select(kvp =>", firstLine.Code);
+        Assert.Contains("global::System.Linq.Enumerable.Select(dict, kvp =>", firstLine.Code);
 
         // Should have try/finally with disposal for both key and value
         Assert.Contains(plan.SetupStatements, s => s is MarshalStatement.Block b && b.Header == "finally");

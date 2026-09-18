@@ -69,6 +69,23 @@ public static class TypeSpecHelpers
     }
 
     /// <summary>
+    /// The spelling of a bare scalar type name (a normalized enum raw-value type, a hand-authored
+    /// ABI type) for splicing into emitted Swift: standard-library names get their <c>Swift.</c>
+    /// prefix, because the wrapper writes into extension bodies of the bound types, where a bound
+    /// member named <c>Int</c> or <c>String</c> outranks the bare stdlib name. Anything else
+    /// (<c>CGFloat</c>, an already-qualified name) is returned unchanged.
+    /// </summary>
+    public static string? QualifyStdlibScalarName(string? typeName)
+        => typeName switch
+        {
+            "Int" or "Int8" or "Int16" or "Int32" or "Int64" or
+            "UInt" or "UInt8" or "UInt16" or "UInt32" or "UInt64" or
+            "Float" or "Float16" or "Float80" or "Double" or
+            "String" or "Character" or "Bool" => "Swift." + typeName,
+            _ => typeName,
+        };
+
+    /// <summary>
     /// Checks if a TypeSpec represents a generic type parameter.
     /// </summary>
     /// <param name="typeSpec">The type specification to check.</param>

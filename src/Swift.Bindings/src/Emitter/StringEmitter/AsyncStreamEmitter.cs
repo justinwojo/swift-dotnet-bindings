@@ -244,16 +244,16 @@ public static class AsyncStreamEmitter
         lines.Add($"@_cdecl(\"{swiftWrapperName}\")");
         lines.Add($"public func {swiftWrapperName}(");
         if (!isStatic)
-            lines.Add("    _ self_: UnsafeMutableRawPointer,");
-        lines.Add("    _ elementCallback: @convention(c) (UnsafeRawPointer, Int64) -> Bool,");
-        lines.Add("    _ completionCallback: @convention(c) (Int64) -> Void,");
+            lines.Add("    _ self_: Swift.UnsafeMutableRawPointer,");
+        lines.Add("    _ elementCallback: @convention(c) (Swift.UnsafeRawPointer, Swift.Int64) -> Swift.Bool,");
+        lines.Add("    _ completionCallback: @convention(c) (Swift.Int64) -> Swift.Void,");
         if (isThrowing)
-            lines.Add("    _ errorCallback: @convention(c) (Int64, UnsafePointer<CChar>) -> Void,");
-        lines.Add("    _ cancelKey: Int64,");
-        lines.Add("    _ context: Int64");
+            lines.Add("    _ errorCallback: @convention(c) (Swift.Int64, Swift.UnsafePointer<Swift.CChar>) -> Swift.Void,");
+        lines.Add("    _ cancelKey: Swift.Int64,");
+        lines.Add("    _ context: Swift.Int64");
         lines.Add(") {");
         if (!isStatic)
-            lines.Add($"    let __self = Unmanaged<{parentTypeName}>.fromOpaque(self_).takeUnretainedValue()");
+            lines.Add($"    let __self = Swift.Unmanaged<{parentTypeName}>.fromOpaque(self_).takeUnretainedValue()");
         // Register the producer Task so a C# Cancel()/Dispose() can task-cancel a suspended producer.
         lines.Add("    let _sbwEntry = _SBWTaskEntry()");
         lines.Add("    _sbwRegisterTask(cancelKey, _sbwEntry)");
@@ -264,14 +264,14 @@ public static class AsyncStreamEmitter
             lines.Add("        do {");
         var tryKeyword = isThrowing ? "try " : "";
         lines.Add($"{bodyIndent}for {tryKeyword}await element in {awaitPrefix}{selfAccess}.{propAccess} {{");
-        lines.Add($"{bodyIndent}    let shouldContinue = withUnsafePointer(to: element) {{ ptr in");
-        lines.Add($"{bodyIndent}        elementCallback(UnsafeRawPointer(ptr), context)");
+        lines.Add($"{bodyIndent}    let shouldContinue = Swift.withUnsafePointer(to: element) {{ ptr in");
+        lines.Add($"{bodyIndent}        elementCallback(Swift.UnsafeRawPointer(ptr), context)");
         lines.Add($"{bodyIndent}    }}");
         lines.Add($"{bodyIndent}    if !shouldContinue {{ break }}");
         lines.Add($"{bodyIndent}}}");
         if (isThrowing)
         {
-            lines.Add("        } catch is CancellationError {");
+            lines.Add("        } catch is _Concurrency.CancellationError {");
             lines.Add("            // Consumer task-cancel (Cancel/Dispose) — not a producer fault; fall through to completion.");
             lines.Add("        } catch {");
             lines.Add("            let _sbwErr = \"\\(error)\"");

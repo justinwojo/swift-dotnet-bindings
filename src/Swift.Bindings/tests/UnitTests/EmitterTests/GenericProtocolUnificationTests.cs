@@ -223,7 +223,7 @@ public class GenericProtocolUnificationTests
         var decl = GenericProtocolEmitter.BuildPropertyGetterMemberDeclaration(
             "name", new NamedTypeSpec("Swift.String"));
         // ExistentialBypassEmitter.RenderSwiftTypeSpec strips module prefix for known types
-        Assert.Equal("var name: String { get }", decl);
+        Assert.Equal("var name: Swift.String { get }", decl);
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public class GenericProtocolUnificationTests
         var decl = GenericProtocolEmitter.BuildPropertyGetterMemberDeclaration(
             "count", new NamedTypeSpec("Swift.Int"));
         // ExistentialBypassEmitter.RenderSwiftTypeSpec strips module prefix for known types
-        Assert.Equal("var count: Int { get }", decl);
+        Assert.Equal("var count: Swift.Int { get }", decl);
     }
 
     #endregion
@@ -289,7 +289,7 @@ public class GenericProtocolUnificationTests
         var decl = GenericProtocolEmitter.BuildConstructorMemberDeclaration(
             method, moduleDecl, isFailable: false, throws: false);
         // ExistentialBypassEmitter.RenderSwiftTypeSpec strips module prefix for known types
-        Assert.Equal("init(value: Int, name: String)", decl);
+        Assert.Equal("init(value: Swift.Int, name: Swift.String)", decl);
     }
 
     [Fact]
@@ -301,7 +301,7 @@ public class GenericProtocolUnificationTests
         var decl = GenericProtocolEmitter.BuildConstructorMemberDeclaration(
             method, moduleDecl, isFailable: false, throws: false);
         // ExistentialBypassEmitter.RenderSwiftTypeSpec strips module prefix for known types
-        Assert.Equal("init(_: Int)", decl);
+        Assert.Equal("init(_: Swift.Int)", decl);
     }
 
     #endregion

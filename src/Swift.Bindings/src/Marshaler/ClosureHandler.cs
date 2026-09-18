@@ -1517,17 +1517,17 @@ public partial class ClosureHandler
         if (returnType.IsEmptyTuple)
         {
             // Void return: just boxPtr
-            return "@convention(c) (UnsafeMutableRawPointer) -> Void";
+            return "@convention(c) (Swift.UnsafeMutableRawPointer) -> Swift.Void";
         }
 
         // For Data return type (most common case for async data loaders)
         if (returnType is NamedTypeSpec namedType && namedType.Name == "Foundation.Data")
         {
-            return "@convention(c) (UnsafeMutableRawPointer, UnsafePointer<UInt8>, Int) -> Void";
+            return "@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafePointer<Swift.UInt8>, Swift.Int) -> Swift.Void";
         }
 
         // Generic case - use opaque pointer for result
-        return "@convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer) -> Void";
+        return "@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeRawPointer) -> Swift.Void";
     }
 
     /// <summary>
@@ -1538,7 +1538,7 @@ public partial class ClosureHandler
     public string GetAsyncThrowingErrorCallbackSwiftSignature()
     {
         // Error callback: (boxPtr, errorMessage) -> Void
-        return "@convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void";
+        return "@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafePointer<Swift.CChar>) -> Swift.Void";
     }
 
     /// <summary>
@@ -2504,7 +2504,9 @@ public partial class ClosureHandler
         // swiftRawType: the actual Swift raw value type (e.g., "Int") which may differ
         // from swiftScalar (e.g., "Int64"). Needed for init(rawValue:) casts where
         // Swift treats Int and Int64 as distinct types.
-        var swiftRawType = typeRecord.RawValueTypeName;
+        // The record stores the stdlib raw type with its module dropped; it is spliced into
+        // emitted Swift, where a bound member named `Int` would capture the bare spelling.
+        var swiftRawType = TypeSpecHelpers.QualifyStdlibScalarName(typeRecord.RawValueTypeName);
         return (csUnderlying, swiftScalar, hasRawValue, swiftRawType);
     }
 

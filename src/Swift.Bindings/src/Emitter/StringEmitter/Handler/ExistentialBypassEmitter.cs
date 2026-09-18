@@ -687,13 +687,13 @@ public static class ExistentialBypassEmitter
         var swiftParams = new List<string>();
 
         if (isExistentialReturn)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         // Self parameter
         if (isClass)
             swiftParams.Add($"_ __self: {swiftTypeName}");
         else
-            swiftParams.Add("_ __self: UnsafeMutableRawPointer");
+            swiftParams.Add("_ __self: Swift.UnsafeMutableRawPointer");
 
         // Sibling bindings (the params that get a binding are passthroughArgs) so a reserved-name
         // escape also dodges a sibling user binding. The call loop reuses the same set.
@@ -1130,12 +1130,12 @@ public static class ExistentialBypassEmitter
         // types that swiftc rejects under @_cdecl. Symbol uses the SBSW_ prefix so
         // PInvokeEmitHelper.SelectCallingConvention routes the P/Invoke to CallConvSwift.
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> UnsafeMutableRawPointer {{");
+        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> Swift.UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
         swiftWriter.WriteLine($"let result = {swiftTypeName}({callArgString})");
-        swiftWriter.WriteLine($"let ptr = UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
+        swiftWriter.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
         swiftWriter.WriteLine("ptr.initialize(to: result)");
-        swiftWriter.WriteLine("return UnsafeMutableRawPointer(ptr)");
+        swiftWriter.WriteLine("return Swift.UnsafeMutableRawPointer(ptr)");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
@@ -1143,7 +1143,7 @@ public static class ExistentialBypassEmitter
         // Free wrapper takes UnsafeMutableRawPointer — kept on @_silgen_name to share the
         // SBSW_ Swift-CC convention with the init wrapper above.
         swiftWriter.WriteLine($"@_silgen_name(\"{freeSymbol}\")");
-        swiftWriter.WriteLine($"public func {freeSymbol}(_ ptr: UnsafeMutableRawPointer) {{");
+        swiftWriter.WriteLine($"public func {freeSymbol}(_ ptr: Swift.UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;
         swiftWriter.WriteLine($"let typedPtr = ptr.assumingMemoryBound(to: {swiftTypeName}.self)");
         swiftWriter.WriteLine("typedPtr.deinitialize(count: 1)");
@@ -1475,7 +1475,8 @@ public static class ExistentialBypassEmitter
 
     /// <summary>
     /// Renders a TypeSpec as its Swift source representation, including generic arguments.
-    /// Strips module prefixes (e.g. "Swift.Array&lt;Swift.Int&gt;" → "Array&lt;Int&gt;").
+    /// Strips module prefixes except the standard library's, which every render keeps (see
+    /// <see cref="QualificationPolicy.Qualifies"/>): "Foo.Box&lt;Swift.Int&gt;" → "Box&lt;Swift.Int&gt;".
     /// </summary>
     public static string RenderSwiftTypeSpec(TypeSpec typeSpec)
         => RenderSwiftTypeSpecCore(typeSpec, QualificationPolicy.None);
@@ -1508,7 +1509,8 @@ public static class ExistentialBypassEmitter
 
     /// <summary>
     /// Renders a TypeSpec for a generated wrapper function's own signature, qualifying references
-    /// to <paramref name="boundModuleName"/>'s types and leaving every other name bare.
+    /// to <paramref name="boundModuleName"/>'s types (and, as every render does, the standard
+    /// library's) and leaving every other name bare.
     ///
     /// A bare name in a wrapper signature resolves against everything the wrapper imports, so a
     /// type whose name is also declared by an imported module (the bound module's own `Logger`
@@ -1516,16 +1518,15 @@ public static class ExistentialBypassEmitter
     /// as ambiguous. Qualifying the bound module's types resolves that: the wrapper always imports
     /// the module it binds, so the prefix is guaranteed to name something.
     ///
-    /// The narrow scope is the point — qualifying everything is not a spelling change and breaks
-    /// three ways. Dependency and Apple imports are filtered down to what the interface gives
+    /// The narrow scope is the point — qualifying every other module is not a spelling change and
+    /// breaks two ways. Dependency and Apple imports are filtered down to what the interface gives
     /// evidence for, so `Dep.T` can name a module that was never imported even where bare `T`
-    /// resolved through a re-export. Downstream `@_cdecl` lowering classifies primitives by
-    /// comparing this rendered string to a bare name, so qualifying `Bool` silently drops it out
-    /// of its Int8 ABI arm while still compiling. And a dotted spec is not always module-qualified
-    /// (an associated-type reference like `S.Element` splits the same way), so a blanket prefix
-    /// changes meaning rather than adding precision. Restricting to the bound module keeps all
-    /// three out of reach: its import always exists, its name never matches a stdlib primitive's
-    /// module, and a generic parameter is never the module being bound.
+    /// resolved through a re-export. And a dotted spec is not always module-qualified (an
+    /// associated-type reference like `S.Element` splits the same way), so a blanket prefix
+    /// changes meaning rather than adding precision. The bound module and the standard library
+    /// are out of reach of both: their imports always exist, and neither is a generic parameter.
+    /// Downstream `@_cdecl` lowering that classifies a primitive from this string must accept the
+    /// qualified spelling (`Swift.Bool` stays in its Int8 ABI arm only because it does).
     /// </summary>
     public static string RenderSwiftTypeSpecForWrapperSignature(TypeSpec typeSpec, string? boundModuleName)
         => RenderSwiftTypeSpecCore(typeSpec, QualificationPolicy.ForBoundModule(boundModuleName));
@@ -1564,9 +1565,15 @@ public static class ExistentialBypassEmitter
         internal static QualificationPolicy ForBoundModule(string? moduleName)
             => string.IsNullOrEmpty(moduleName) ? None : new(false, moduleName);
 
-        /// <summary>True when this reference is rendered with its module prefix.</summary>
+        /// <summary>
+        /// True when this reference is rendered with its module prefix. Standard-library types keep
+        /// theirs under every policy: the wrapper splices renders into extension bodies of the bound
+        /// types, where a bound member named <c>Int32</c> or a protocol-extension typealias named
+        /// <c>UnsafeRawPointer</c> outranks the bare stdlib name.
+        /// </summary>
         internal bool Qualifies(NamedTypeSpec spec)
-            => _qualifyAll || (_onlyModule is not null && spec.Module == _onlyModule);
+            => _qualifyAll || spec.Module is "Swift" or "_Concurrency"
+               || (_onlyModule is not null && spec.Module == _onlyModule);
     }
 
     private static string RenderSwiftTypeSpecCore(TypeSpec typeSpec, QualificationPolicy policy)
@@ -1602,7 +1609,7 @@ public static class ExistentialBypassEmitter
 
             case TupleTypeSpec tupleTypeSpec:
                 if (tupleTypeSpec.IsEmptyTuple)
-                    return "Void";
+                    return "Swift.Void";
                 var elements = string.Join(", ", tupleTypeSpec.Elements.Select(e =>
                 {
                     var rendered = RenderSwiftTypeSpecCore(e, policy);

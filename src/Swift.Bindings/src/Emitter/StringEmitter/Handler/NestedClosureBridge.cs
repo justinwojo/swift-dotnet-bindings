@@ -460,15 +460,15 @@ public static class NestedClosureBridge
         foreach (var nc in nestedClosures)
         {
             var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
-            swiftParams.Add($"    _ {closureCsName}FuncPtr: UnsafeMutableRawPointer?");
-            swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
+            swiftParams.Add($"    _ {closureCsName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+            swiftParams.Add($"    _ {closureCsName}Context: Swift.UnsafeMutableRawPointer?");
         }
 
         // SwiftSelf last — instance methods only. Matches the C# P/Invoke signature
         // (which appends SwiftSelf self_) and the CallConvCdecl convention on both sides.
         if (isInstance)
         {
-            swiftParams.Add($"    _ {synth.SelfParam}: UnsafeMutableRawPointer");
+            swiftParams.Add($"    _ {synth.SelfParam}: Swift.UnsafeMutableRawPointer");
         }
 
         // Method return type. `@_cdecl` requires ObjC-representable result types, so class
@@ -487,7 +487,7 @@ public static class NestedClosureBridge
         }
         else if (returnsReference)
         {
-            swiftReturnType = " -> UnsafeMutableRawPointer";
+            swiftReturnType = " -> Swift.UnsafeMutableRawPointer";
         }
         else
         {
@@ -507,7 +507,7 @@ public static class NestedClosureBridge
         if (isInstance)
         {
             if (parentIsClass)
-                swiftWriter.WriteLine($"    let {synth.SelfLocal} = Unmanaged<{typeName}>.fromOpaque({synth.SelfParam}).takeUnretainedValue()");
+                swiftWriter.WriteLine($"    let {synth.SelfLocal} = Swift.Unmanaged<{typeName}>.fromOpaque({synth.SelfParam}).takeUnretainedValue()");
             else
                 swiftWriter.WriteLine($"    let {synth.SelfLocal} = {synth.SelfParam}.assumingMemoryBound(to: {typeName}.self).pointee");
         }
@@ -530,11 +530,11 @@ public static class NestedClosureBridge
             var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
             var cdeclType = BuildOuterCdeclType(nc, env);
             var cdeclVar = synth.Cdecl[nc.Index];
-            swiftWriter.WriteLine($"    let {cdeclVar} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
+            swiftWriter.WriteLine($"    let {cdeclVar} = Swift.unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
 
             if (nc.IsEffectivelyEscaping)
             {
-                swiftWriter.WriteLine($"    let {synth.Box[nc.Index]}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                swiftWriter.WriteLine($"    let {synth.Box[nc.Index]}: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
             }
         }
         swiftWriter.WriteLine();
@@ -545,7 +545,7 @@ public static class NestedClosureBridge
         // Reference returns are wrapped with Unmanaged.passRetained(...).toOpaque() so the @_cdecl
         // result type (UnsafeMutableRawPointer) matches the C# P/Invoke's IntPtr return.
         var returnPrefix = returnsValue
-            ? (returnsReference ? "return Unmanaged.passRetained(" : "return ")
+            ? (returnsReference ? "return Swift.Unmanaged.passRetained(" : "return ")
             : "";
         var returnSuffix = returnsReference ? ").toOpaque()" : "";
         // An initializer is called on the type itself with no member name — `Type(label: arg)`.
@@ -597,12 +597,12 @@ public static class NestedClosureBridge
             {
                 innerCdeclParamTypes.Add(GetSwiftCdeclParamType(innerArgs[i], env));
             }
-            innerCdeclParamTypes.Add("UnsafeMutableRawPointer"); // closure box (non-optional)
+            innerCdeclParamTypes.Add("Swift.UnsafeMutableRawPointer"); // closure box (non-optional)
 
             bool innerReturnsValue = !innerClosureSpec.ReturnType.IsEmptyTuple;
             var innerReturnCdeclType = innerReturnsValue
                 ? GetSwiftCdeclParamType(innerClosureSpec.ReturnType, env)
-                : "Void";
+                : "Swift.Void";
             var innerTrampolineType = $"@convention(c) ({string.Join(", ", innerCdeclParamTypes)}) -> {innerReturnCdeclType}";
 
             var innerClosureSwiftArgTypes = new List<string>();
@@ -612,7 +612,7 @@ public static class NestedClosureBridge
             }
             var innerReturnSwiftType = innerReturnsValue
                 ? ExistentialBypassEmitter.RenderSwiftTypeSpec(innerClosureSpec.ReturnType)
-                : "Void";
+                : "Swift.Void";
             var innerClosureSwiftType = innerClosureSwiftArgTypes.Count switch
             {
                 0 => $"() -> {innerReturnSwiftType}",
@@ -628,7 +628,7 @@ public static class NestedClosureBridge
             {
                 innerTrampolineParams.Add($"_ __ip{i}: {GetSwiftCdeclParamType(innerArgs[i], env)}");
             }
-            innerTrampolineParams.Add($"_ __closureBox{boxSuffix}: UnsafeMutableRawPointer");
+            innerTrampolineParams.Add($"_ __closureBox{boxSuffix}: Swift.UnsafeMutableRawPointer");
 
             swiftWriter.WriteLine($"    let {trampolineName}: {innerTrampolineType} = {{ {string.Join(", ", innerTrampolineParams.Select(p => p.Split(' ')[1].TrimEnd(':')))} in");
 
@@ -637,7 +637,7 @@ public static class NestedClosureBridge
             // calls during the outer invocation. The adapter balances that +1 with a release after
             // cdecl() returns for non-escaping inner closures; escaping inner closures keep
             // the box leaked because the borrow may outlive the outer call.
-            swiftWriter.WriteLine($"        let innerClosure = Unmanaged<AnyObject>.fromOpaque(__closureBox{boxSuffix}).takeUnretainedValue() as! {innerClosureSwiftType}");
+            swiftWriter.WriteLine($"        let innerClosure = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(__closureBox{boxSuffix}).takeUnretainedValue() as! {innerClosureSwiftType}");
 
             var innerInvocationArgs = new List<string>();
             for (int i = 0; i < innerArgs.Count; i++)
@@ -672,16 +672,16 @@ public static class NestedClosureBridge
         {
             if (innerIndices.Contains(i))
             {
-                cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // innerFuncPtr
-                cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // innerContext
+                cdeclParamTypes.Add("Swift.UnsafeMutableRawPointer?"); // innerFuncPtr
+                cdeclParamTypes.Add("Swift.UnsafeMutableRawPointer?"); // innerContext
             }
             else
             {
                 cdeclParamTypes.Add(GetSwiftCdeclParamType(nc.OuterArgs[i], env));
             }
         }
-        cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // outer context
-        return $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> Void).self";
+        cdeclParamTypes.Add("Swift.UnsafeMutableRawPointer?"); // outer context
+        return $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> Swift.Void).self";
     }
 
     /// <summary>
@@ -837,8 +837,8 @@ public static class NestedClosureBridge
             {
                 var trampolineName = InnerTrampolineName(multiOuter, multiInner, nc.Index, innerMatch);
                 var suffix = InnerBoxSuffix(multiOuter, multiInner, nc.Index, innerMatch);
-                swiftWriter.WriteLine($"{indent}let __innerBox{suffix} = Unmanaged.passRetained(__op{i} as AnyObject).toOpaque()");
-                swiftWriter.WriteLine($"{indent}let __innerFuncPtr{suffix} = unsafeBitCast({trampolineName}, to: UnsafeMutableRawPointer?.self)");
+                swiftWriter.WriteLine($"{indent}let __innerBox{suffix} = Swift.Unmanaged.passRetained(__op{i} as Swift.AnyObject).toOpaque()");
+                swiftWriter.WriteLine($"{indent}let __innerFuncPtr{suffix} = Swift.unsafeBitCast({trampolineName}, to: Swift.UnsafeMutableRawPointer?.self)");
                 cdeclCallArgs.Add($"__innerFuncPtr{suffix}");
                 cdeclCallArgs.Add($"__innerBox{suffix}");
                 // A non-escaping inner closure is valid only for the duration of this outer-closure
@@ -862,7 +862,7 @@ public static class NestedClosureBridge
 
         swiftWriter.WriteLine($"{indent}{cdeclVar}({string.Join(", ", cdeclCallArgs)})");
         foreach (var box in innerBoxesToRelease)
-            swiftWriter.WriteLine($"{indent}Unmanaged<AnyObject>.fromOpaque({box}).release()");
+            swiftWriter.WriteLine($"{indent}Swift.Unmanaged<Swift.AnyObject>.fromOpaque({box}).release()");
     }
 
     private static string InnerTrampolineName(bool multiOuter, bool multiInner, int outerIndex, int innerIndex)
@@ -913,15 +913,15 @@ public static class NestedClosureBridge
         // The Swift function name reuses the symbol so two helpers in one wrapper file
         // (distinct parent modules) don't collide as same-named Swift declarations.
         swiftWriter.WriteLines($$"""
-            // Balances the +1 retain (Unmanaged.passRetained) an outer-closure adapter mints on
+            // Balances the +1 retain (Swift.Unmanaged.passRetained) an outer-closure adapter mints on
             // an escaping inner closure's AnyObject box. Ownership of that retain transfers to a
             // generated C# owner captured by the managed inner delegate; the owner's finalizer
             // calls this once the delegate is unreachable. Keeping the release inside the wrapper
             // gives the GC finalizer thread a single Cdecl boundary into our own dylib instead of
             // a direct libswiftCore call, which is unsafe on that thread under Mono.
             @_cdecl("{{symbol}}")
-            public func {{symbol}}(_ box: UnsafeMutableRawPointer) {
-                Unmanaged<AnyObject>.fromOpaque(box).release()
+            public func {{symbol}}(_ box: Swift.UnsafeMutableRawPointer) {
+                Swift.Unmanaged<Swift.AnyObject>.fromOpaque(box).release()
             }
 
             """);
@@ -1768,9 +1768,9 @@ public static class NestedClosureBridge
                     !env.ClosureHandler.IsClassType(innerNamed) &&
                     env.ClosureHandler.IsObjCBridgedClass(innerNamed))
                 {
-                    return $"{paramName} != nil ? (Unmanaged<AnyObject>.fromOpaque({paramName}!).takeUnretainedValue() as! {innerTypeStr}) : nil";
+                    return $"{paramName} != nil ? (Swift.Unmanaged<Swift.AnyObject>.fromOpaque({paramName}!).takeUnretainedValue() as! {innerTypeStr}) : nil";
                 }
-                return $"{paramName} != nil ? Unmanaged<{innerTypeStr}>.fromOpaque({paramName}!).takeUnretainedValue() : nil";
+                return $"{paramName} != nil ? Swift.Unmanaged<{innerTypeStr}>.fromOpaque({paramName}!).takeUnretainedValue() : nil";
             }
 
             if (named.Name == "Swift.Bool")
@@ -1794,7 +1794,7 @@ public static class NestedClosureBridge
                         : paramName;
                     return $"{swiftType}(rawValue: {rawCast})!";
                 }
-                return $"{{ var __raw = {paramName}; return withUnsafeMutablePointer(to: &__raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
+                return $"{{ var __raw = {paramName}; return Swift.withUnsafeMutablePointer(to: &__raw) {{ Swift.UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
             }
 
             // ObjC / classes: Unmanaged.fromOpaque().takeUnretainedValue()
@@ -1803,9 +1803,9 @@ public static class NestedClosureBridge
             if (!env.ClosureHandler.IsClassType(named) &&
                 env.ClosureHandler.IsObjCBridgedClass(named))
             {
-                return $"(Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {typeStr})";
+                return $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {typeStr})";
             }
-            return $"Unmanaged<{typeStr}>.fromOpaque({paramName}).takeUnretainedValue()";
+            return $"Swift.Unmanaged<{typeStr}>.fromOpaque({paramName}).takeUnretainedValue()";
         }
 
         return paramName;
@@ -1820,7 +1820,7 @@ public static class NestedClosureBridge
         {
             // Optional<ref> → nil check + passUnretained
             if (IsOptionalReferenceType(named, env.ClosureHandler))
-                return $"{paramName} != nil ? Unmanaged.passUnretained({paramName}!).toOpaque() : nil";
+                return $"{paramName} != nil ? Swift.Unmanaged.passUnretained({paramName}!).toOpaque() : nil";
 
             if (named.Name == "Swift.Bool")
                 return $"({paramName} ? 1 : 0)";
@@ -1838,11 +1838,11 @@ public static class NestedClosureBridge
                     // type (e.g., Int64). Swift treats Int and Int64 as distinct types.
                     return $"{enumInfo.Value.swiftScalar}({paramName}.rawValue)";
                 var enumSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(argType);
-                return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {paramName}; withUnsafeMutablePointer(to: &__s) {{ dst in withUnsafePointer(to: &__e) {{ src in UnsafeMutableRawPointer(dst).copyMemory(from: UnsafeRawPointer(src), byteCount: MemoryLayout<{enumSwiftType}>.size) }} }}; return __s }}()";
+                return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {paramName}; Swift.withUnsafeMutablePointer(to: &__s) {{ dst in Swift.withUnsafePointer(to: &__e) {{ src in Swift.UnsafeMutableRawPointer(dst).copyMemory(from: Swift.UnsafeRawPointer(src), byteCount: Swift.MemoryLayout<{enumSwiftType}>.size) }} }}; return __s }}()";
             }
 
             // ObjC / classes: Unmanaged.passUnretained().toOpaque()
-            return $"Unmanaged.passUnretained({paramName}).toOpaque()";
+            return $"Swift.Unmanaged.passUnretained({paramName}).toOpaque()";
         }
 
         return paramName;

@@ -46,15 +46,15 @@ namespace BindingsGeneration
         {
             return csUnderlyingType switch
             {
-                "sbyte" => "Int8",
-                "byte" => "UInt8",
-                "short" => "Int16",
-                "ushort" => "UInt16",
-                "int" => "Int32",
-                "uint" => "UInt32",
-                "long" => "Int64",
-                "ulong" => "UInt64",
-                _ => "Int32"
+                "sbyte" => "Swift.Int8",
+                "byte" => "Swift.UInt8",
+                "short" => "Swift.Int16",
+                "ushort" => "Swift.UInt16",
+                "int" => "Swift.Int32",
+                "uint" => "Swift.UInt32",
+                "long" => "Swift.Int64",
+                "ulong" => "Swift.UInt64",
+                _ => "Swift.Int32"
             };
         }
 
@@ -676,7 +676,7 @@ namespace BindingsGeneration
             string moduleName, bool returnsEnum, bool returnsString = false)
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
-            var returnTypeStr = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl));
+            var returnTypeStr = returnsString ? "Swift.UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl));
 
             // Build parameter list: tag + method params
             // Enum-typed params are declared as scalar (matching C# P/Invoke) and converted before the call.
@@ -1267,8 +1267,8 @@ namespace BindingsGeneration
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
             string swiftReturnType;
-            if (returnsOptionalString) swiftReturnType = "UnsafeMutableRawPointer?";
-            else if (returnsString) swiftReturnType = "UnsafeMutableRawPointer";
+            if (returnsOptionalString) swiftReturnType = "Swift.UnsafeMutableRawPointer?";
+            else if (returnsString) swiftReturnType = "Swift.UnsafeMutableRawPointer";
             else if (returnsEnum) swiftReturnType = swiftScalarType;
             else swiftReturnType = GetSwiftPropertyReturnType(propertyDecl);
 
@@ -1317,8 +1317,8 @@ namespace BindingsGeneration
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
             string swiftReturnType;
-            if (returnsOptionalString) swiftReturnType = "UnsafeMutableRawPointer?";
-            else if (returnsString) swiftReturnType = "UnsafeMutableRawPointer";
+            if (returnsOptionalString) swiftReturnType = "Swift.UnsafeMutableRawPointer?";
+            else if (returnsString) swiftReturnType = "Swift.UnsafeMutableRawPointer";
             else if (returnsEnum) swiftReturnType = swiftScalarType;
             else swiftReturnType = GetSwiftPropertyReturnType(propertyDecl);
 
@@ -1362,7 +1362,7 @@ namespace BindingsGeneration
             string moduleName, bool returnsEnum, bool returnsString)
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
-            var returnTypeStr = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl));
+            var returnTypeStr = returnsString ? "Swift.UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftReturnType(methodDecl));
 
             // Build parameter list (no tag/self for static methods)
             var swiftParams = new List<string>();
@@ -1440,17 +1440,17 @@ namespace BindingsGeneration
         /// </summary>
         private static void EmitStringReturnSwiftBody(SwiftWriter swiftWriter, string expression)
         {
-            swiftWriter.WriteLine($"let result: String = {expression}");
-            swiftWriter.WriteLine("let utf8 = Array(result.utf8)");
-            swiftWriter.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+            swiftWriter.WriteLine($"let result: Swift.String = {expression}");
+            swiftWriter.WriteLine("let utf8 = Swift.Array(result.utf8)");
+            swiftWriter.WriteLine("let bufferPtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(utf8.count, 1))");
             swiftWriter.WriteLine("utf8.withUnsafeBufferPointer { src in");
             swiftWriter.Indent++;
             swiftWriter.WriteLine("if utf8.count > 0 { bufferPtr.initialize(from: src.baseAddress!, count: src.count) }");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
-            swiftWriter.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+            swiftWriter.WriteLine("let slicePtr = Swift.UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
             swiftWriter.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
-            swiftWriter.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+            swiftWriter.WriteLine("return Swift.UnsafeMutableRawPointer(slicePtr)");
         }
 
         /// <summary>
@@ -1459,17 +1459,17 @@ namespace BindingsGeneration
         /// </summary>
         private static void EmitOptionalStringReturnSwiftBody(SwiftWriter swiftWriter, string expression)
         {
-            swiftWriter.WriteLine($"guard let result: String = {expression} else {{ return nil }}");
-            swiftWriter.WriteLine("let utf8 = Array(result.utf8)");
-            swiftWriter.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+            swiftWriter.WriteLine($"guard let result: Swift.String = {expression} else {{ return nil }}");
+            swiftWriter.WriteLine("let utf8 = Swift.Array(result.utf8)");
+            swiftWriter.WriteLine("let bufferPtr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: Swift.max(utf8.count, 1))");
             swiftWriter.WriteLine("utf8.withUnsafeBufferPointer { src in");
             swiftWriter.Indent++;
             swiftWriter.WriteLine("if utf8.count > 0 { bufferPtr.initialize(from: src.baseAddress!, count: src.count) }");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
-            swiftWriter.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+            swiftWriter.WriteLine("let slicePtr = Swift.UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
             swiftWriter.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
-            swiftWriter.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+            swiftWriter.WriteLine("return Swift.UnsafeMutableRawPointer(slicePtr)");
         }
 
         // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).
@@ -1673,15 +1673,15 @@ namespace BindingsGeneration
             var typeSpec = propertyDecl.SwiftTypeSpec;
             if (typeSpec is NamedTypeSpec named)
             {
-                if (named.Name == "Swift.String") return "String";
-                if (named.Name == "Swift.Bool") return "Bool";
-                if (named.Name == "Swift.Int") return "Int";
-                if (named.Name == "Swift.Int32") return "Int32";
-                if (named.Name == "Swift.Double") return "Double";
-                if (named.Name == "Swift.Float") return "Float";
+                if (named.Name == "Swift.String") return "Swift.String";
+                if (named.Name == "Swift.Bool") return "Swift.Bool";
+                if (named.Name == "Swift.Int") return "Swift.Int";
+                if (named.Name == "Swift.Int32") return "Swift.Int32";
+                if (named.Name == "Swift.Double") return "Swift.Double";
+                if (named.Name == "Swift.Float") return "Swift.Float";
                 return named.NameWithoutModule;
             }
-            return "Void";
+            return "Swift.Void";
         }
 
         // === Helper Methods for Simple Enum Emission ===
@@ -1747,23 +1747,23 @@ namespace BindingsGeneration
         private static string GetSwiftReturnType(MethodDecl methodDecl)
         {
             var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-            if (returnTypeSpec == null) return "Void";
+            if (returnTypeSpec == null) return "Swift.Void";
 
             if (returnTypeSpec is TupleTypeSpec tuple && tuple.Elements.Count == 0)
-                return "Void";
+                return "Swift.Void";
 
             if (returnTypeSpec is NamedTypeSpec named)
             {
-                if (named.Name == "Swift.String") return "String";
-                if (named.Name == "Swift.Bool") return "Bool";
-                if (named.Name == "Swift.Int") return "Int";
-                if (named.Name == "Swift.Int32") return "Int32";
-                if (named.Name == "Swift.Double") return "Double";
-                if (named.Name == "Swift.Float") return "Float";
+                if (named.Name == "Swift.String") return "Swift.String";
+                if (named.Name == "Swift.Bool") return "Swift.Bool";
+                if (named.Name == "Swift.Int") return "Swift.Int";
+                if (named.Name == "Swift.Int32") return "Swift.Int32";
+                if (named.Name == "Swift.Double") return "Swift.Double";
+                if (named.Name == "Swift.Float") return "Swift.Float";
                 return named.NameWithoutModule;
             }
 
-            return "Void";
+            return "Swift.Void";
         }
 
         /// <summary>
@@ -1774,7 +1774,8 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec named)
             {
                 var name = named.Name;
-                if (name.StartsWith("Swift.")) return named.NameWithoutModule;
+                // Stdlib names keep their module: a member of the bound enum can capture the bare spelling.
+                if (name.StartsWith("Swift.")) return name;
                 if (name.StartsWith(moduleName + ".")) return named.NameWithoutModule;
                 return named.NameWithoutModule;
             }

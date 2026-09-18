@@ -618,7 +618,7 @@ internal static class GenericDispatchEmitter
         TypeSpec spec, string pointerName, string renderedSwiftType, ITypeDatabase typeDatabase)
         => spec is NamedTypeSpec { GenericParameters.Count: > 0 }
            && MarshallingHelpers.IsBoundGenericClassReturn(spec, typeDatabase)
-            ? $"Unmanaged<{renderedSwiftType}>.fromOpaque({pointerName}).takeUnretainedValue()"
+            ? $"Swift.Unmanaged<{renderedSwiftType}>.fromOpaque({pointerName}).takeUnretainedValue()"
             : $"{pointerName}.assumingMemoryBound(to: {renderedSwiftType}.self).pointee";
 
     /// <summary>

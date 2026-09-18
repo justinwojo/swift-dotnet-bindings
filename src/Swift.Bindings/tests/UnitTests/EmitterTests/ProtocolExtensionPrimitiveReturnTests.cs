@@ -65,10 +65,10 @@ public class ProtocolExtensionPrimitiveReturnTests
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
         // Primitive return: should NOT use UnsafeMutableRawPointer or Unmanaged
-        Assert.DoesNotContain("-> UnsafeMutableRawPointer", wrapperLines);
+        Assert.DoesNotContain("-> Swift.UnsafeMutableRawPointer", wrapperLines);
         Assert.DoesNotContain("Unmanaged.passRetained", wrapperLines);
         // Should use direct return with Int type
-        Assert.Contains("-> Int", wrapperLines);
+        Assert.Contains("-> Swift.Int", wrapperLines);
         Assert.Contains("return instance.count()", wrapperLines);
     }
 }

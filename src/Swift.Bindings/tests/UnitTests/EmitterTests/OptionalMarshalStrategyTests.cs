@@ -393,13 +393,13 @@ public class OptionalMarshalStrategyTests
     // the integration suite will catch the drift via the unit/runtime gates above.
 
     [Theory]
-    [InlineData("Swift.Int32", "Int32?", "4", "Int32")]
-    [InlineData("Swift.Int64", "Int64?", "8", "Int64")]
-    [InlineData("Swift.Int", "Int?", "8", "Int")]
-    [InlineData("Swift.UInt32", "UInt32?", "4", "UInt32")]
-    [InlineData("Swift.Double", "Double?", "8", "Double")]
-    [InlineData("Swift.Float", "Float?", "4", "Float")]
-    [InlineData("Swift.Int8", "Int8?", "1", "Int8")]
+    [InlineData("Swift.Int32", "Swift.Int32?", "4", "Swift.Int32")]
+    [InlineData("Swift.Int64", "Swift.Int64?", "8", "Swift.Int64")]
+    [InlineData("Swift.Int", "Swift.Int?", "8", "Swift.Int")]
+    [InlineData("Swift.UInt32", "Swift.UInt32?", "4", "Swift.UInt32")]
+    [InlineData("Swift.Double", "Swift.Double?", "8", "Swift.Double")]
+    [InlineData("Swift.Float", "Swift.Float?", "4", "Swift.Float")]
+    [InlineData("Swift.Int8", "Swift.Int8?", "1", "Swift.Int8")]
     public void TryGetBlittablePrimitiveOptionalDecode_BlittablePrimitive_ReturnsTagByteShape(
         string innerSwiftName, string expectedLocalType, string expectedTagOffset, string expectedRawType)
     {
@@ -411,7 +411,7 @@ public class OptionalMarshalStrategyTests
         var (localType, rhs) = decode.Value;
         Assert.Equal(expectedLocalType, localType);
         Assert.Equal(
-            $"stateDuration.advanced(by: {expectedTagOffset}).load(as: UInt8.self) == 0 ? stateDuration.load(as: {expectedRawType}.self) : nil",
+            $"stateDuration.advanced(by: {expectedTagOffset}).load(as: Swift.UInt8.self) == 0 ? stateDuration.load(as: {expectedRawType}.self) : nil",
             rhs);
     }
 
@@ -610,7 +610,7 @@ public class OptionalMarshalStrategyTests
     {
         var result = OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", true);
 
-        Assert.Equal("hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)", result);
+        Assert.Equal("hasValuePtr.storeBytes(of: Swift.Int8(1), as: Swift.Int8.self)", result);
     }
 
     [Fact]
@@ -618,7 +618,7 @@ public class OptionalMarshalStrategyTests
     {
         var result = OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", false);
 
-        Assert.Equal("hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)", result);
+        Assert.Equal("hasValuePtr.storeBytes(of: Swift.Int8(0), as: Swift.Int8.self)", result);
     }
 
     [Fact]
@@ -660,7 +660,7 @@ public class OptionalMarshalStrategyTests
     public void Constants_AreConsistent()
     {
         // The Swift hasValue type in code should match the parameter declarations
-        Assert.Equal("Int8", OptionalMarshalClassifier.SwiftHasValueType);
+        Assert.Equal("Swift.Int8", OptionalMarshalClassifier.SwiftHasValueType);
         Assert.Equal("hasValue", OptionalMarshalClassifier.SwiftHasValueParam);
         Assert.Equal("hasValuePtr", OptionalMarshalClassifier.SwiftHasValuePtrParam);
         Assert.Equal("_hasValue", OptionalMarshalClassifier.CSharpHasValueLocal);

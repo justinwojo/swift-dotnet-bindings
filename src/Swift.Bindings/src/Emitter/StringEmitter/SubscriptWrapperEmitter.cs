@@ -223,7 +223,7 @@ public static class SubscriptWrapperEmitter
         bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
 
         if (needsResultPtr)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env, overrideNeedsResultPtr: needsResultPtr);
         foreach (var phase in order.Phases)
@@ -256,7 +256,7 @@ public static class SubscriptWrapperEmitter
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
-                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
                         }
                         // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
                         // protocol constraints on the parent's generic parameters. The wrapper
@@ -265,16 +265,16 @@ public static class SubscriptWrapperEmitter
                         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int i = 0; i < pwtCount; i++)
                         {
-                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _pwt{i}: Swift.UnsafeRawPointer");
                         }
                     }
                     break;
 
                 case CdeclPhase.Self:
                     if (isClass)
-                        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
                     else
-                        swiftParams.Add("_ self_: UnsafeRawPointer");
+                        swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
                     break;
             }
         }
@@ -419,9 +419,9 @@ public static class SubscriptWrapperEmitter
                     // NewValue parameter(s)
                     if (isString)
                     {
-                        swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
-                        swiftParams.Add("_ utf8Len: Int");
-                        reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+                        swiftParams.Add("_ utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+                        swiftParams.Add("_ utf8Len: Swift.Int");
+                        reconstructionLines.Add("let newValue = Swift.String(bytes: Swift.UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
                     }
                     else
                     {
@@ -474,7 +474,7 @@ public static class SubscriptWrapperEmitter
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
-                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
                         }
                         // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
                         // protocol constraints on the parent's generic parameters. Mirror the
@@ -482,14 +482,14 @@ public static class SubscriptWrapperEmitter
                         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int i = 0; i < pwtCount; i++)
                         {
-                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _pwt{i}: Swift.UnsafeRawPointer");
                         }
                     }
                     break;
 
                 case CdeclPhase.Self:
                     // Always mutable for setters
-                    swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                    swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
                     break;
             }
         }
@@ -557,7 +557,7 @@ public static class SubscriptWrapperEmitter
         }
         else if (isClass)
         {
-            swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+            swiftWriter.WriteLine($"let obj = Swift.Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
             swiftWriter.WriteLine($"obj[{setterIndexArgs}] = {valueExpr}");
         }
         else

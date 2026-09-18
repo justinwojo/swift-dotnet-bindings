@@ -31,12 +31,12 @@ public static class StringReturnEmitter
     {
         swiftWriter.WriteLines($$"""
             let result = {{accessExpression}}
-            let utf8 = Array(result.utf8)
+            let utf8 = Swift.Array(result.utf8)
             if utf8.isEmpty {
                 resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
                 return
             }
-            let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+            let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)
             ptr.initialize(from: utf8, count: utf8.count)
             resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
             """);
@@ -53,13 +53,13 @@ public static class StringReturnEmitter
     {
         // Explicit `: String` annotation disambiguates overloaded methods with different return types
         swiftWriter.WriteLines($$"""
-            let result: String = {{callExpression}}
-            let utf8 = Array(result.utf8)
+            let result: Swift.String = {{callExpression}}
+            let utf8 = Swift.Array(result.utf8)
             if utf8.isEmpty {
                 resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
                 return
             }
-            let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+            let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)
             ptr.initialize(from: utf8, count: utf8.count)
             resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
             """);

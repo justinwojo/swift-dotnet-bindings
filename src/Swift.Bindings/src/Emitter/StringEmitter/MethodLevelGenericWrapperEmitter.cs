@@ -57,7 +57,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
         bool isString = !isVoidReturn && (WitnessDispatchEmitter.IsStringType(returnTypeSpec) || isLsrReturn);
 
         var (returnMapping, needsResultPtr) = isVoidReturn
-            ? (new CdeclReturnMapping("Void", CdeclReturnKind.Direct), false)
+            ? (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.Direct), false)
             : CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
         if (isString)
             needsResultPtr = true;
@@ -103,7 +103,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
             Body: Enumerable.Range(0, opened.Count).ToDictionary(d => d, d => names.Reserve($"_mlgBody{d}")));
 
         if (needsResultPtr)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env, overrideNeedsResultPtr: needsResultPtr);
         foreach (var phase in order.Phases)
@@ -114,17 +114,17 @@ internal static partial class MethodLevelGenericWrapperEmitter
                     break;
 
                 case CdeclPhase.ErrorOut:
-                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                     break;
 
                 case CdeclPhase.OpenRefusal:
-                    swiftParams.Add($"_ {refusalParam}: UnsafeMutablePointer<UInt8>");
+                    swiftParams.Add($"_ {refusalParam}: Swift.UnsafeMutablePointer<Swift.UInt8>");
                     break;
 
                 case CdeclPhase.Self:
                     var selfParam = isClass || isMutating
-                        ? "_ self_: UnsafeMutableRawPointer"
-                        : "_ self_: UnsafeRawPointer";
+                        ? "_ self_: Swift.UnsafeMutableRawPointer"
+                        : "_ self_: Swift.UnsafeRawPointer";
                     swiftParams.Add(selfParam);
                     carrierParams.Add(selfParam);
                     carrierCallArgs.Add("self_");
@@ -136,7 +136,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
                     // suppressed on this route on BOTH sides (the opened cast is the conformance
                     // check), so no _pwt slots appear here.
                     foreach (var og in opened)
-                        swiftParams.Add($"_ {localNames.Metadata[og.Ordinal]}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {localNames.Metadata[og.Ordinal]}: Swift.UnsafeRawPointer");
                     break;
 
                 case CdeclPhase.Arguments:
@@ -169,7 +169,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
                         {
                             var binding = CdeclParamMapper.BuildSwiftBindingName(label, siblings);
                             var payloadParam = names.Reserve($"{binding}Payload");
-                            var rawParam = $"_ {payloadParam}: UnsafeRawPointer";
+                            var rawParam = $"_ {payloadParam}: Swift.UnsafeRawPointer";
                             swiftParams.Add(rawParam);
                             carrierParams.Add(rawParam);
                             carrierCallArgs.Add(payloadParam);
@@ -211,7 +211,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
             ? $"{swiftMethodName}({callArgString})"
             : $"{selfRef}.{swiftMethodName}({callArgString})";
         if (isLsrReturn)
-            innerCallExpr = $"String(localized: {innerCallExpr})";
+            innerCallExpr = $"Swift.String(localized: {innerCallExpr})";
 
         if (opened.Count == 1
             && opened[0].Strategy is MlgOpeningStrategy.AssociatedTypeCarrier
@@ -268,7 +268,7 @@ internal static partial class MethodLevelGenericWrapperEmitter
         foreach (var og in opened)
         {
             swiftWriter.WriteLine(
-                $"let {localNames.AnyType[og.Ordinal]} = unsafeBitCast({localNames.Metadata[og.Ordinal]}, to: Any.Type.self)");
+                $"let {localNames.AnyType[og.Ordinal]} = Swift.unsafeBitCast({localNames.Metadata[og.Ordinal]}, to: Any.Type.self)");
             if (og.ConstraintTargets.Count == 0)
                 continue;
 

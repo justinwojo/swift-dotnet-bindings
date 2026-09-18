@@ -491,15 +491,15 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.Contains("@_cdecl(\"SBW_TestModule_Processor_process_", swiftResult);
         Assert.Contains("_XMA\")", swiftResult);
         Assert.Contains("UnsafeRawPointer", swiftResult);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(", swiftResult);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(", swiftResult);
         Assert.Contains("as! any TestModule.Describable)", swiftResult);
         // Async harness shape
         Assert.Contains("_SBWTaskEntry()", swiftResult);
         Assert.Contains("_sbwRegisterTask", swiftResult);
-        Assert.Contains("Task {", swiftResult);
+        Assert.Contains("_Concurrency.Task {", swiftResult);
         Assert.Contains("await", swiftResult);
         // Void return → callback takes only taskId (Int64)
-        Assert.Contains("@convention(c) (Int64) -> Void", swiftResult);
+        Assert.Contains("@convention(c) (Swift.Int64) -> Swift.Void", swiftResult);
         Assert.Contains("callback(_sbwTask)", swiftResult);
     }
 
@@ -579,8 +579,8 @@ public class AsyncMethodGenericBridgeEmitterTests
 
         var swiftResult = swiftOutput.ToString();
         // Both the GCHandle context and the monotonic cancel key are declared as @_cdecl params.
-        Assert.Contains("_ _sbwTask: Int64", swiftResult);
-        Assert.Contains("_ _sbwCancelKey: Int64", swiftResult);
+        Assert.Contains("_ _sbwTask: Swift.Int64", swiftResult);
+        Assert.Contains("_ _sbwCancelKey: Swift.Int64", swiftResult);
     }
 
     [Fact]
@@ -662,7 +662,7 @@ public class AsyncMethodGenericBridgeEmitterTests
         var swiftResult = swiftOutput.ToString();
         // Swift wrapper must accept the cascade error callback.
         Assert.Contains(
-            "errorCallback: @convention(c) (UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32) -> Void",
+            "errorCallback: @convention(c) (Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32) -> Swift.Void",
             swiftResult);
         // Try/catch around the awaited call.
         Assert.Contains("try await", swiftResult);
@@ -772,7 +772,7 @@ public class AsyncMethodGenericBridgeEmitterTests
         Assert.True(handled);
         var swiftResult = swiftOutput.ToString();
         // Two-arg success callback: (Int, Int64).
-        Assert.Contains("@convention(c) (Int, Int64) -> Void", swiftResult);
+        Assert.Contains("@convention(c) (Swift.Int, Swift.Int64) -> Swift.Void", swiftResult);
         Assert.Contains("let _result = await", swiftResult);
         Assert.Contains("callback(_result, _sbwTask)", swiftResult);
 

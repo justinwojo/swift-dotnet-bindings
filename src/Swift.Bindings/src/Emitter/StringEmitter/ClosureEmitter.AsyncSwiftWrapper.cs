@@ -30,14 +30,14 @@ public static partial class ClosureEmitter
             // Error type bridged back into Swift when a C# async closure throws.
             // `LocalizedError` makes `error.localizedDescription` surface the C#
             // exception message cleanly at Swift call sites.
-            public struct SwiftBindingsBridgeError: LocalizedError, CustomStringConvertible {
-                public let description: String
-                public var errorDescription: String? { description }
-                public init(_ description: String) { self.description = description }
+            public struct SwiftBindingsBridgeError: LocalizedError, Swift.CustomStringConvertible {
+                public let description: Swift.String
+                public var errorDescription: Swift.String? { description }
+                public init(_ description: Swift.String) { self.description = description }
             }
 
             // Sendable shim for the (contextPtr, startFuncPtr) pair that C# passes in
-            // place of an async closure. UnsafeMutableRawPointer is non-Sendable in
+            // place of an async closure. Swift.UnsafeMutableRawPointer is non-Sendable in
             // Swift 6, so we ferry the pair across Task {} via this @unchecked
             // Sendable struct. Safe because: (a) the context pointer's lifetime is
             // owned by the `ctxOwner` box below (Swift ARC), held as long as any
@@ -55,10 +55,10 @@ public static partial class ClosureEmitter
             // no-deinit fallback (the prior per-call leak) when
             // libSwiftBindingsRuntime is absent. Fixes the per-call async-closure
             // GCHandle leak; mirrors the sync escaping path.
-            private struct _SBW_AsyncClosureHandoff: @unchecked Sendable {
-                let contextPtr: UnsafeMutableRawPointer
-                let startFuncPtr: UnsafeMutableRawPointer
-                let ctxOwner: AnyObject
+            private struct _SBW_AsyncClosureHandoff: @unchecked Swift.Sendable {
+                let contextPtr: Swift.UnsafeMutableRawPointer
+                let startFuncPtr: Swift.UnsafeMutableRawPointer
+                let ctxOwner: Swift.AnyObject
             }
 
             """);
@@ -112,28 +112,28 @@ public static partial class ClosureEmitter
                 // The C# helper pins a byte[] and invokes the success callback with
                 // (boxPtr, bytesPtr, length); Swift copies the bytes into a new Data.
                 private final class {{boxClassName}} {
-                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Foundation.Data, Error>
-                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Foundation.Data, Error>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Foundation.Data, Swift.Error>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Foundation.Data, Swift.Error>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
                 internal func {{symbolRoot}}_success(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ bytesPtr: UnsafePointer<UInt8>,
-                    _ length: Int
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ bytesPtr: Swift.UnsafePointer<Swift.UInt8>,
+                    _ length: Swift.Int
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
                     let value = Foundation.Data(bytes: bytesPtr, count: length)
                     box.cont.resume(returning: value)
                 }
 
                 @_cdecl("{{symbolRoot}}_error")
                 internal func {{symbolRoot}}_error(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ msgPtr: UnsafePointer<CChar>
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ msgPtr: Swift.UnsafePointer<Swift.CChar>
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
-                    box.cont.resume(throwing: SwiftBindingsBridgeError(String(cString: msgPtr)))
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    box.cont.resume(throwing: SwiftBindingsBridgeError(Swift.String(cString: msgPtr)))
                 }
 
                 """);
@@ -149,29 +149,29 @@ public static partial class ClosureEmitter
                 // The C# helper pins a UTF-8 byte array and invokes the success callback
                 // with (boxPtr, bytesPtr, length); Swift decodes to String before resuming.
                 private final class {{boxClassName}} {
-                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Swift.String, Error>
-                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Swift.String, Error>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Swift.String, Swift.Error>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<Swift.String, Swift.Error>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
                 internal func {{symbolRoot}}_success(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ bytesPtr: UnsafePointer<UInt8>,
-                    _ length: Int
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ bytesPtr: Swift.UnsafePointer<Swift.UInt8>,
+                    _ length: Swift.Int
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
-                    let buffer = UnsafeBufferPointer(start: bytesPtr, count: length)
-                    let value = Swift.String(decoding: buffer, as: UTF8.self)
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let buffer = Swift.UnsafeBufferPointer(start: bytesPtr, count: length)
+                    let value = Swift.String(decoding: buffer, as: Swift.UTF8.self)
                     box.cont.resume(returning: value)
                 }
 
                 @_cdecl("{{symbolRoot}}_error")
                 internal func {{symbolRoot}}_error(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ msgPtr: UnsafePointer<CChar>
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ msgPtr: Swift.UnsafePointer<Swift.CChar>
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
-                    box.cont.resume(throwing: SwiftBindingsBridgeError(String(cString: msgPtr)))
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    box.cont.resume(throwing: SwiftBindingsBridgeError(Swift.String(cString: msgPtr)))
                 }
 
                 """);
@@ -182,27 +182,27 @@ public static partial class ClosureEmitter
                 // Continuation box retained across the C# start-thunk call. The C#
                 // helper resumes exactly once via the paired success/error symbols.
                 private final class {{boxClassName}} {
-                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Error>
-                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Error>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Swift.Error>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Swift.Error>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
                 internal func {{symbolRoot}}_success(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ resultPtr: UnsafeMutableRawPointer
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ resultPtr: Swift.UnsafeMutableRawPointer
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
                     let value = resultPtr.load(as: {{swiftReturnType}}.self)
                     box.cont.resume(returning: value)
                 }
 
                 @_cdecl("{{symbolRoot}}_error")
                 internal func {{symbolRoot}}_error(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ msgPtr: UnsafePointer<CChar>
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ msgPtr: Swift.UnsafePointer<Swift.CChar>
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
-                    box.cont.resume(throwing: SwiftBindingsBridgeError(String(cString: msgPtr)))
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    box.cont.resume(throwing: SwiftBindingsBridgeError(Swift.String(cString: msgPtr)))
                 }
 
                 """);
@@ -214,19 +214,19 @@ public static partial class ClosureEmitter
             // so there is no path that ever produces a Swift error to resume with.
             swiftWriter.WriteLines($$"""
                 // Continuation box retained across the C# start-thunk call. Non-throwing
-                // closures use CheckedContinuation<T, Never> — the C# helper
+                // closures use _Concurrency.CheckedContinuation<T, Swift.Never> — the C# helper
                 // Environment.FailFasts on exceptions, so no error resume symbol exists.
                 private final class {{boxClassName}} {
-                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Never>
-                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Never>) { self.cont = cont }
+                    let cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Swift.Never>
+                    init(_ cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Swift.Never>) { self.cont = cont }
                 }
 
                 @_cdecl("{{symbolRoot}}_success")
                 internal func {{symbolRoot}}_success(
-                    _ boxPtr: UnsafeMutableRawPointer,
-                    _ resultPtr: UnsafeMutableRawPointer
+                    _ boxPtr: Swift.UnsafeMutableRawPointer,
+                    _ resultPtr: Swift.UnsafeMutableRawPointer
                 ) {
-                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let box = Swift.Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
                     let value = resultPtr.load(as: {{swiftReturnType}}.self)
                     box.cont.resume(returning: value)
                 }
@@ -256,7 +256,7 @@ public static partial class ClosureEmitter
         // free, so C#-side recovery (GCHandle.FromIntPtr) is unchanged.
         return $"let {handoffVar} = _SBW_AsyncClosureHandoff("
              + $"contextPtr: {paramName}ContextPtr, "
-             + $"startFuncPtr: unsafeBitCast({paramName}StartFunc, to: UnsafeMutableRawPointer.self), "
+             + $"startFuncPtr: Swift.unsafeBitCast({paramName}StartFunc, to: Swift.UnsafeMutableRawPointer.self), "
              + $"ctxOwner: {ClosureContextHelperEmitter.WrapFunctionName}({paramName}ContextPtr))";
     }
 
@@ -332,10 +332,10 @@ public static partial class ClosureEmitter
 
         // Per-arity @convention(c) startFunc ABI type. Args appear BETWEEN (ctx, box)
         // and (successFP, errorFP) to match the C# Start thunk layout.
-        var startAbiParams = "UnsafeMutableRawPointer, UnsafeMutableRawPointer";
+        var startAbiParams = "Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer";
         foreach (var a in args)
             startAbiParams += ", " + a.AbiType;
-        startAbiParams += ", UnsafeMutableRawPointer, UnsafeMutableRawPointer";
+        startAbiParams += ", Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer";
 
         // Each arg's call-site expression and the set of `withUnsafePointer` nests we
         // need to wrap the final startFunc call in (only Strings need one).
@@ -350,10 +350,10 @@ public static partial class ClosureEmitter
                     break;
                 case ClosureHandler.AsyncThrowingArgCategory.SwiftString:
                     stringNests.Add(a);
-                    argCallExprs.Add($"UnsafeMutableRawPointer(mutating: {a.ParamName}Ptr)");
+                    argCallExprs.Add($"Swift.UnsafeMutableRawPointer(mutating: {a.ParamName}Ptr)");
                     break;
                 case ClosureHandler.AsyncThrowingArgCategory.SwiftClass:
-                    argCallExprs.Add($"Unmanaged.passUnretained({a.ParamName}).toOpaque()");
+                    argCallExprs.Add($"Swift.Unmanaged.passUnretained({a.ParamName}).toOpaque()");
                     break;
                 default:
                     throw new InvalidOperationException(
@@ -384,7 +384,7 @@ public static partial class ClosureEmitter
             for (int i = 0; i < stringNests.Count; i++)
             {
                 var openIndent = innerIndent + new string(' ', 4 * i);
-                sb.AppendLine($"{openIndent}withUnsafePointer(to: {stringNests[i].ParamName}) {{ ({stringNests[i].ParamName}Ptr: UnsafePointer<{stringNests[i].SwiftSignatureType}>) in");
+                sb.AppendLine($"{openIndent}Swift.withUnsafePointer(to: {stringNests[i].ParamName}) {{ ({stringNests[i].ParamName}Ptr: Swift.UnsafePointer<{stringNests[i].SwiftSignatureType}>) in");
             }
             var deepestIndent = innerIndent + new string(' ', 4 * stringNests.Count);
             sb.AppendLine(args.Count == 0
@@ -403,8 +403,8 @@ public static partial class ClosureEmitter
         // (boxPtr, resultPtr). The typedStart ABI keeps successFP erased as
         // UnsafeMutableRawPointer — only the `as @convention(c) (...)` cast differs.
         var successCastType = (isDataReturn || isStringReturn)
-            ? "@convention(c) (UnsafeMutableRawPointer, UnsafePointer<UInt8>, Int) -> Void"
-            : "@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void";
+            ? "@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafePointer<Swift.UInt8>, Swift.Int) -> Swift.Void"
+            : "@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer) -> Swift.Void";
 
         if (isThrowing)
         {
@@ -413,19 +413,19 @@ public static partial class ClosureEmitter
                 {{indent}}// Bridges Swift's `{{closureParamList}} async throws -> {{swiftReturnType}}` back into
                 {{indent}}// the C# start thunk via a CheckedContinuation owned by the per-T box class.
                 {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async throws -> {{swiftReturnType}} = { {{closureParamBindings}}
-                {{indent}}    return try await withCheckedThrowingContinuation { (cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Error>) in
+                {{indent}}    return try await {{SwiftConcurrencyNames.WithCheckedThrowingContinuation}} { (cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Swift.Error>) in
                 {{indent}}        let box = {{boxClassName}}(cont)
-                {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
-                {{indent}}        let successFP = unsafeBitCast(
+                {{indent}}        let boxPtr = Swift.Unmanaged.passRetained(box).toOpaque()
+                {{indent}}        let successFP = Swift.unsafeBitCast(
                 {{indent}}            {{symbolRoot}}_success as
                 {{indent}}                {{successCastType}},
-                {{indent}}            to: UnsafeMutableRawPointer.self)
-                {{indent}}        let errorFP = unsafeBitCast(
+                {{indent}}            to: Swift.UnsafeMutableRawPointer.self)
+                {{indent}}        let errorFP = Swift.unsafeBitCast(
                 {{indent}}            {{symbolRoot}}_error as
-                {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void,
-                {{indent}}            to: UnsafeMutableRawPointer.self)
-                {{indent}}        let typedStart = unsafeBitCast({{handoffVar}}.startFuncPtr,
-                {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Void).self)
+                {{indent}}                @convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafePointer<Swift.CChar>) -> Swift.Void,
+                {{indent}}            to: Swift.UnsafeMutableRawPointer.self)
+                {{indent}}        let typedStart = Swift.unsafeBitCast({{handoffVar}}.startFuncPtr,
+                {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Swift.Void).self)
                 {{innerBlock}}
                 {{indent}}    }
                 {{indent}}}
@@ -438,19 +438,19 @@ public static partial class ClosureEmitter
         return $$"""
             {{indent}}// Adapter closure for non-throwing async closure parameter '{{paramName}}'.
             {{indent}}// Bridges Swift's `{{closureParamList}} async -> {{swiftReturnType}}` back into the C#
-            {{indent}}// start thunk via a CheckedContinuation<_, Never>. No error channel — the C#
+            {{indent}}// start thunk via a _Concurrency.CheckedContinuation<_, Swift.Never>. No error channel — the C#
             {{indent}}// helper Environment.FailFasts if the user delegate throws.
             {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async -> {{swiftReturnType}} = { {{closureParamBindings}}
-            {{indent}}    return await withCheckedContinuation { (cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Never>) in
+            {{indent}}    return await {{SwiftConcurrencyNames.WithCheckedContinuation}} { (cont: {{SwiftConcurrencyNames.CheckedContinuation}}<{{swiftReturnType}}, Swift.Never>) in
             {{indent}}        let box = {{boxClassName}}(cont)
-            {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
-            {{indent}}        let successFP = unsafeBitCast(
+            {{indent}}        let boxPtr = Swift.Unmanaged.passRetained(box).toOpaque()
+            {{indent}}        let successFP = Swift.unsafeBitCast(
             {{indent}}            {{symbolRoot}}_success as
-            {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void,
-            {{indent}}            to: UnsafeMutableRawPointer.self)
-            {{indent}}        let errorFP = UnsafeMutableRawPointer(bitPattern: 1)!
-            {{indent}}        let typedStart = unsafeBitCast({{handoffVar}}.startFuncPtr,
-            {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Void).self)
+            {{indent}}                @convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer) -> Swift.Void,
+            {{indent}}            to: Swift.UnsafeMutableRawPointer.self)
+            {{indent}}        let errorFP = Swift.UnsafeMutableRawPointer(bitPattern: 1)!
+            {{indent}}        let typedStart = Swift.unsafeBitCast({{handoffVar}}.startFuncPtr,
+            {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Swift.Void).self)
             {{innerBlock}}
             {{indent}}    }
             {{indent}}}

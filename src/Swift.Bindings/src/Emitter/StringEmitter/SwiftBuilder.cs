@@ -34,19 +34,19 @@ public static class SwiftBuilder
     /// </summary>
     public static readonly Dictionary<string, string> CSharpToSwiftType = new()
     {
-        ["bool"] = "Bool", ["System.Boolean"] = "Bool",
-        ["sbyte"] = "Int8", ["System.SByte"] = "Int8",
-        ["byte"] = "UInt8", ["System.Byte"] = "UInt8",
-        ["short"] = "Int16", ["System.Int16"] = "Int16",
-        ["ushort"] = "UInt16", ["System.UInt16"] = "UInt16",
-        ["int"] = "Int32", ["System.Int32"] = "Int32",
-        ["uint"] = "UInt32", ["System.UInt32"] = "UInt32",
-        ["long"] = "Int64", ["System.Int64"] = "Int64",
-        ["ulong"] = "UInt64", ["System.UInt64"] = "UInt64",
-        ["nint"] = "Int", ["System.IntPtr"] = "Int",
-        ["nuint"] = "UInt", ["System.UIntPtr"] = "UInt",
-        ["float"] = "Float", ["System.Single"] = "Float",
-        ["double"] = "Double", ["System.Double"] = "Double",
+        ["bool"] = "Swift.Bool", ["System.Boolean"] = "Swift.Bool",
+        ["sbyte"] = "Swift.Int8", ["System.SByte"] = "Swift.Int8",
+        ["byte"] = "Swift.UInt8", ["System.Byte"] = "Swift.UInt8",
+        ["short"] = "Swift.Int16", ["System.Int16"] = "Swift.Int16",
+        ["ushort"] = "Swift.UInt16", ["System.UInt16"] = "Swift.UInt16",
+        ["int"] = "Swift.Int32", ["System.Int32"] = "Swift.Int32",
+        ["uint"] = "Swift.UInt32", ["System.UInt32"] = "Swift.UInt32",
+        ["long"] = "Swift.Int64", ["System.Int64"] = "Swift.Int64",
+        ["ulong"] = "Swift.UInt64", ["System.UInt64"] = "Swift.UInt64",
+        ["nint"] = "Swift.Int", ["System.IntPtr"] = "Swift.Int",
+        ["nuint"] = "Swift.UInt", ["System.UIntPtr"] = "Swift.UInt",
+        ["float"] = "Swift.Float", ["System.Single"] = "Swift.Float",
+        ["double"] = "Swift.Double", ["System.Double"] = "Swift.Double",
     };
 
     /// <summary>
@@ -60,24 +60,24 @@ public static class SwiftBuilder
     {
         return named.Name switch
         {
-            "Swift.Bool" => "UInt8",
-            "Swift.Int" => "Int",
-            "Swift.UInt" => "UInt",
-            "Swift.Int8" => "Int8",
-            "Swift.UInt8" => "UInt8",
-            "Swift.Int16" => "Int16",
-            "Swift.UInt16" => "UInt16",
-            "Swift.Int32" => "Int32",
-            "Swift.UInt32" => "UInt32",
-            "Swift.Int64" => "Int64",
-            "Swift.UInt64" => "UInt64",
-            "Swift.Float" => "Float",
-            "Swift.Double" => "Double",
+            "Swift.Bool" => "Swift.UInt8",
+            "Swift.Int" => "Swift.Int",
+            "Swift.UInt" => "Swift.UInt",
+            "Swift.Int8" => "Swift.Int8",
+            "Swift.UInt8" => "Swift.UInt8",
+            "Swift.Int16" => "Swift.Int16",
+            "Swift.UInt16" => "Swift.UInt16",
+            "Swift.Int32" => "Swift.Int32",
+            "Swift.UInt32" => "Swift.UInt32",
+            "Swift.Int64" => "Swift.Int64",
+            "Swift.UInt64" => "Swift.UInt64",
+            "Swift.Float" => "Swift.Float",
+            "Swift.Double" => "Swift.Double",
             // Pointer types pass through
-            "Swift.UnsafeRawPointer" => "UnsafeRawPointer",
-            "Swift.UnsafeMutableRawPointer" => "UnsafeMutableRawPointer",
-            "Swift.OpaquePointer" => "OpaquePointer",
-            _ => "UnsafeMutableRawPointer" // Structs, classes, etc.
+            "Swift.UnsafeRawPointer" => "Swift.UnsafeRawPointer",
+            "Swift.UnsafeMutableRawPointer" => "Swift.UnsafeMutableRawPointer",
+            "Swift.OpaquePointer" => "Swift.OpaquePointer",
+            _ => "Swift.UnsafeMutableRawPointer" // Structs, classes, etc.
         };
     }
 
@@ -102,7 +102,7 @@ public static class SwiftBuilder
             // Optional<class> uses single-nullable-pointer ABI: UnsafeMutableRawPointer?
             if (closureHandler != null && closureHandler.IsOptionalReferenceArg(named))
             {
-                return "UnsafeMutableRawPointer?";
+                return "Swift.UnsafeMutableRawPointer?";
             }
 
             // Optional<any Error> — existential uses pointer-to-container ABI; nil-pointer is none.
@@ -111,7 +111,7 @@ public static class SwiftBuilder
                 named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
                 MethodClosureBridge.IsAnyErrorExistential(named.GenericParameters[0]))
             {
-                return "UnsafeMutableRawPointer?";
+                return "Swift.UnsafeMutableRawPointer?";
             }
 
             // Optional<Bool/SimpleEnum/FrozenStruct (non-primitive)> uses nil-for-none pointer ABI: UnsafeMutableRawPointer?
@@ -127,7 +127,7 @@ public static class SwiftBuilder
                   !optInner.Name.Contains("Pointer") && optInner.Name != "Swift.OpaquePointer" &&
                   !closureHandler.IsClassType(optInner) && !closureHandler.IsObjCBridgedClass(optInner))))
             {
-                return "UnsafeMutableRawPointer?";
+                return "Swift.UnsafeMutableRawPointer?";
             }
 
             // Optional<Array/Dictionary> callback arguments use nil for .none and otherwise
@@ -136,16 +136,16 @@ public static class SwiftBuilder
                 named.GenericParameters.Count == 1 &&
                 named.GenericParameters[0] is NamedTypeSpec { Name: "Swift.Array" or "Swift.Dictionary" })
             {
-                return "UnsafeMutableRawPointer?";
+                return "Swift.UnsafeMutableRawPointer?";
             }
 
             return GetSwiftCdeclParamType(named);
         }
 
         if (typeSpec.IsEmptyTuple)
-            return "Void";
+            return "Swift.Void";
 
-        return "UnsafeMutableRawPointer";
+        return "Swift.UnsafeMutableRawPointer";
     }
 
     /// <summary>

@@ -74,14 +74,14 @@ internal static class CdeclReturnRenderer
                 return new List<string>
                 {
                     $"let result = {callExpr}",
-                    "return Unmanaged.passRetained(result as AnyObject).toOpaque()",
+                    "return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()",
                 };
 
             case CdeclReturnKind.OptionalClassPointer:
                 return new List<string>
                 {
                     $"let result = {callExpr}",
-                    "return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }",
+                    "return result.map { Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }",
                 };
 
             case CdeclReturnKind.OptionalErrorPointer:
@@ -114,7 +114,7 @@ internal static class CdeclReturnRenderer
         switch (mapping.Kind)
         {
             case CdeclReturnKind.ClassPointer:
-                return new List<string> { "return UnsafeMutableRawPointer(bitPattern: 1)!" };
+                return new List<string> { "return Swift.UnsafeMutableRawPointer(bitPattern: 1)!" };
             case CdeclReturnKind.OptionalClassPointer:
             case CdeclReturnKind.OptionalErrorPointer:
                 return new List<string> { "return nil" };
@@ -160,12 +160,12 @@ internal static class CdeclReturnRenderer
                 // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
                 // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
                 // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
-                return new List<string> { $"return Unmanaged.passRetained({valueExpr} as AnyObject).toOpaque()" };
+                return new List<string> { $"return Swift.Unmanaged.passRetained({valueExpr} as Swift.AnyObject).toOpaque()" };
 
             case CdeclReturnKind.OptionalClassPointer:
                 // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
                 // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
-                return new List<string> { $"return ({valueExpr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}" };
+                return new List<string> { $"return ({valueExpr}).map {{ Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }}" };
 
             case CdeclReturnKind.OptionalErrorPointer:
                 return BuildOptionalErrorPointerLines(valueExpr, bindResult: false);
@@ -193,9 +193,9 @@ internal static class CdeclReturnRenderer
         }
 
         lines.Add($"guard let _sbwError = {optionalExpr} else {{ return nil }}");
-        lines.Add("let _sbwErrorStorage = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<any Error>.size, alignment: MemoryLayout<any Error>.alignment)");
-        lines.Add("_sbwErrorStorage.initializeMemory(as: (any Error).self, repeating: _sbwError, count: 1)");
-        lines.Add("let _sbwErrorBox = _sbwErrorStorage.load(as: UnsafeMutableRawPointer.self)");
+        lines.Add("let _sbwErrorStorage = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<any Swift.Error>.size, alignment: Swift.MemoryLayout<any Swift.Error>.alignment)");
+        lines.Add("_sbwErrorStorage.initializeMemory(as: (any Swift.Error).self, repeating: _sbwError, count: 1)");
+        lines.Add("let _sbwErrorBox = _sbwErrorStorage.load(as: Swift.UnsafeMutableRawPointer.self)");
         lines.Add("_sbwErrorStorage.deallocate()");
         lines.Add("return _sbwErrorBox");
         return lines;

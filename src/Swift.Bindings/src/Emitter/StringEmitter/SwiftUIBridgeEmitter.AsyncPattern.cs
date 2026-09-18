@@ -33,15 +33,15 @@ public static partial class SwiftUIBridgeEmitter
                 // Each Bool default mirrors the scanning-UX settings type this chain feeds:
                 // the three presentation toggles are on by default, and the camera preference
                 // is off — a document scan points at the rear camera.
-                new AsyncFlatParam("licenseKey", AsyncFlatParamKind.String, "String",
+                new AsyncFlatParam("licenseKey", AsyncFlatParamKind.String, "Swift.String",
                     "IntPtr", null, null),
-                new AsyncFlatParam("showIntroductionAlert", AsyncFlatParamKind.Bool, "Int32",
+                new AsyncFlatParam("showIntroductionAlert", AsyncFlatParamKind.Bool, "Swift.Int32",
                     "int", "!= 0", "? 1 : 0", DefaultValue: true),
-                new AsyncFlatParam("showHelpButton", AsyncFlatParamKind.Bool, "Int32",
+                new AsyncFlatParam("showHelpButton", AsyncFlatParamKind.Bool, "Swift.Int32",
                     "int", "!= 0", "? 1 : 0", DefaultValue: true),
-                new AsyncFlatParam("allowHapticFeedback", AsyncFlatParamKind.Bool, "Int32",
+                new AsyncFlatParam("allowHapticFeedback", AsyncFlatParamKind.Bool, "Swift.Int32",
                     "int", "!= 0", "? 1 : 0", DefaultValue: true),
-                new AsyncFlatParam("preferFrontCamera", AsyncFlatParamKind.Bool, "Int32",
+                new AsyncFlatParam("preferFrontCamera", AsyncFlatParamKind.Bool, "Swift.Int32",
                     "int", "!= 0", "? 1 : 0", DefaultValue: false),
             },
             ConstructionChain: new List<AsyncConstructionStep>
@@ -420,17 +420,17 @@ public static partial class SwiftUIBridgeEmitter
         return bp.Kind switch
         {
             BridgeParameterKind.String => new AsyncFlatParam(
-                bp.Name, AsyncFlatParamKind.String, "String", "IntPtr", null, null),
+                bp.Name, AsyncFlatParamKind.String, "Swift.String", "IntPtr", null, null),
             BridgeParameterKind.Primitive when bp.SwiftConversion == "!= 0" => new AsyncFlatParam(
-                bp.Name, AsyncFlatParamKind.Bool, "Int32", "int", "!= 0", "? 1 : 0"),
+                bp.Name, AsyncFlatParamKind.Bool, "Swift.Int32", "int", "!= 0", "? 1 : 0"),
             BridgeParameterKind.Primitive => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.Primitive, bp.SwiftAbiType, bp.CSharpPInvokeType, null, null),
             BridgeParameterKind.BoundType => new AsyncFlatParam(
-                bp.Name, AsyncFlatParamKind.BoundType, "UnsafeMutableRawPointer", "IntPtr",
+                bp.Name, AsyncFlatParamKind.BoundType, "Swift.UnsafeMutableRawPointer", "IntPtr",
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
                 IsObjCBridgeable: bp.IsObjCBridgeable),
             BridgeParameterKind.BoundStruct => new AsyncFlatParam(
-                bp.Name, AsyncFlatParamKind.BoundStruct, "UnsafeMutableRawPointer", "IntPtr",
+                bp.Name, AsyncFlatParamKind.BoundStruct, "Swift.UnsafeMutableRawPointer", "IntPtr",
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
                 IsObjCBridgeable: bp.IsObjCBridgeable),
             BridgeParameterKind.BoundEnum => new AsyncFlatParam(
@@ -482,23 +482,23 @@ public static partial class SwiftUIBridgeEmitter
 
         // Callback typedefs
         sb.AppendLine($"/// C function pointer: (handle, userData) → called on success.");
-        sb.AppendLine($"public typealias {prefix}_ReadyFn = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer?) -> Void");
+        sb.AppendLine($"public typealias {prefix}_ReadyFn = @convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer?) -> Swift.Void");
         sb.AppendLine($"/// C function pointer: (msgPtr, msgLen, userData) → called on error.");
-        sb.AppendLine($"public typealias {prefix}_ErrorFn = @convention(c) (UnsafePointer<UInt8>, Int, UnsafeMutableRawPointer?) -> Void");
+        sb.AppendLine($"public typealias {prefix}_ErrorFn = @convention(c) (Swift.UnsafePointer<Swift.UInt8>, Swift.Int, Swift.UnsafeMutableRawPointer?) -> Swift.Void");
         if (pattern.ResultCallback != null)
         {
             // The payload slot is part of the ABI whether or not this pattern carries one:
             // a payload-less pattern always passes nil there, so the shape of the Swift
             // typedef and of the C# trampoline stay in lockstep across every pattern.
             sb.AppendLine($"/// C function pointer: (resultCode, payload, userData) → called when operation completes.");
-            sb.AppendLine($"public typealias {prefix}_ResultFn = @convention(c) (Int32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void");
+            sb.AppendLine($"public typealias {prefix}_ResultFn = @convention(c) (Swift.Int32, Swift.UnsafeMutableRawPointer?, Swift.UnsafeMutableRawPointer?) -> Swift.Void");
         }
         sb.AppendLine();
 
         EmitDataDrivenSessionClass(sb, prefix, sessionClass, handlesVar, info, pattern);
 
         // Handle tracking
-        sb.AppendLine($"var {handlesVar} = Set<UnsafeMutableRawPointer>()");
+        sb.AppendLine($"var {handlesVar} = Swift.Set<Swift.UnsafeMutableRawPointer>()");
         sb.AppendLine();
 
         // Create function (async factory)
@@ -509,14 +509,14 @@ public static partial class SwiftUIBridgeEmitter
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
         sb.AppendLine($"public func {prefix}_GetViewController(");
-        sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?");
-        sb.AppendLine(") -> UnsafeMutableRawPointer? {");
+        sb.AppendLine($"    _ handle: Swift.UnsafeMutableRawPointer?");
+        sb.AppendLine(") -> Swift.UnsafeMutableRawPointer? {");
         sb.AppendLine("    return SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle,");
         sb.AppendLine($"              {handlesVar}.contains(handle) else {{ return nil }}");
-        sb.AppendLine($"        let session = Unmanaged<{sessionClass}>");
+        sb.AppendLine($"        let session = Swift.Unmanaged<{sessionClass}>");
         sb.AppendLine($"            .fromOpaque(handle).takeUnretainedValue()");
-        sb.AppendLine($"        return Unmanaged.passUnretained(session.hostingController).toOpaque()");
+        sb.AppendLine($"        return Swift.Unmanaged.passUnretained(session.hostingController).toOpaque()");
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -533,23 +533,23 @@ public static partial class SwiftUIBridgeEmitter
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(");
-        sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?,");
-        sb.AppendLine($"    _ handleBuffer: UnsafeMutableRawPointer?,");
-        sb.AppendLine($"    _ handleCount: Int32,");
-        sb.AppendLine($"    _ postReleaseFreeFn: UnsafeMutableRawPointer?");
+        sb.AppendLine($"    _ handle: Swift.UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ handleBuffer: Swift.UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ handleCount: Swift.Int32,");
+        sb.AppendLine($"    _ postReleaseFreeFn: Swift.UnsafeMutableRawPointer?");
         sb.AppendLine($") {{");
-        sb.AppendLine($"    let release: () -> Void = {{");
+        sb.AppendLine($"    let release: () -> Swift.Void = {{");
         sb.AppendLine($"        if let handle = handle, {handlesVar}.remove(handle) != nil {{");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine($"            let session = Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
+            sb.AppendLine($"            let session = Swift.Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
             sb.AppendLine($"            session.cancelResultMonitor()");
         }
-        sb.AppendLine($"            Unmanaged<{sessionClass}>.fromOpaque(handle).release()");
+        sb.AppendLine($"            Swift.Unmanaged<{sessionClass}>.fromOpaque(handle).release()");
         sb.AppendLine($"        }}");
         sb.AppendLine($"        if let fnPtr = postReleaseFreeFn {{");
-        sb.AppendLine($"            typealias FreeFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void");
-        sb.AppendLine($"            let fn = unsafeBitCast(fnPtr, to: FreeFn.self)");
+        sb.AppendLine($"            typealias FreeFn = @convention(c) (Swift.UnsafeMutableRawPointer?, Swift.Int32) -> Swift.Void");
+        sb.AppendLine($"            let fn = Swift.unsafeBitCast(fnPtr, to: FreeFn.self)");
         sb.AppendLine($"            fn(handleBuffer, handleCount)");
         sb.AppendLine($"        }}");
         sb.AppendLine($"    }}");
@@ -579,7 +579,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"    let hostingController: UIHostingController<{info.SwiftTypeReference}>");
         if (pattern.ResultCallback != null)
         {
-            sb.AppendLine($"    private var resultTask: {SwiftConcurrencyNames.Task}<Void, Never>?");
+            sb.AppendLine($"    private var resultTask: {SwiftConcurrencyNames.Task}<Swift.Void, Swift.Never>?");
         }
         sb.AppendLine();
 
@@ -672,9 +672,9 @@ public static partial class SwiftUIBridgeEmitter
         AsyncResultCallbackConfig config)
     {
         sb.AppendLine($"    @MainActor");
-        sb.AppendLine($"    func startResultMonitor(handle: UnsafeMutableRawPointer,");
+        sb.AppendLine($"    func startResultMonitor(handle: Swift.UnsafeMutableRawPointer,");
         sb.AppendLine($"                            resultCallback: {prefix}_ResultFn?,");
-        sb.AppendLine($"                            userData: UnsafeMutableRawPointer?) {{");
+        sb.AppendLine($"                            userData: Swift.UnsafeMutableRawPointer?) {{");
         sb.AppendLine($"        let monitorSourceRef = {config.SourceFieldName}");
         sb.AppendLine($"        let cb = resultCallback");
         sb.AppendLine($"        let ud = userData");
@@ -687,10 +687,10 @@ public static partial class SwiftUIBridgeEmitter
         // a transfer of ownership that only the managed side can balance, so building one for
         // a nil callback would strand a retain or an allocation with no owner.
         sb.AppendLine($"            guard let cb = cb else {{ return }}");
-        sb.AppendLine($"            let code: Int32");
+        sb.AppendLine($"            let code: Swift.Int32");
         var payload = config.Payload;
         if (payload != null)
-            sb.AppendLine($"            var payloadPtr: UnsafeMutableRawPointer? = nil");
+            sb.AppendLine($"            var payloadPtr: Swift.UnsafeMutableRawPointer? = nil");
         sb.AppendLine($"            switch result {{");
         foreach (var resultCase in config.ResultCases)
         {
@@ -740,16 +740,16 @@ public static partial class SwiftUIBridgeEmitter
         switch (payload.Kind)
         {
             case AsyncResultPayloadKind.Class:
-                sb.AppendLine($"{indent}payloadPtr = Unmanaged.passRetained(payloadValue).toOpaque()");
+                sb.AppendLine($"{indent}payloadPtr = Swift.Unmanaged.passRetained(payloadValue).toOpaque()");
                 break;
 
             case AsyncResultPayloadKind.Struct:
                 // A struct payload may be non-frozen, so its size and layout are only knowable
                 // through its metadata. initializeMemory performs the ARC-aware copy a bitwise
                 // store cannot (a raw store would also require BitwiseCopyable under Swift 6).
-                sb.AppendLine($"{indent}let payloadBuf = UnsafeMutableRawPointer.allocate(");
-                sb.AppendLine($"{indent}    byteCount: MemoryLayout<{payload.SwiftTypeName}>.size,");
-                sb.AppendLine($"{indent}    alignment: MemoryLayout<{payload.SwiftTypeName}>.alignment)");
+                sb.AppendLine($"{indent}let payloadBuf = Swift.UnsafeMutableRawPointer.allocate(");
+                sb.AppendLine($"{indent}    byteCount: Swift.MemoryLayout<{payload.SwiftTypeName}>.size,");
+                sb.AppendLine($"{indent}    alignment: Swift.MemoryLayout<{payload.SwiftTypeName}>.alignment)");
                 sb.AppendLine($"{indent}payloadBuf.initializeMemory(");
                 sb.AppendLine($"{indent}    as: {payload.SwiftTypeName}.self, repeating: payloadValue, count: 1)");
                 sb.AppendLine($"{indent}payloadPtr = payloadBuf");
@@ -791,12 +791,12 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.String)
             {
-                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
-                createParams.Add($"_ {param.Name}Len: Int");
+                createParams.Add($"_ {param.Name}Ptr: Swift.UnsafePointer<Swift.UInt8>?");
+                createParams.Add($"_ {param.Name}Len: Swift.Int");
             }
             else if (param.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct)
             {
-                createParams.Add($"_ {param.Name}Ptr: UnsafeMutableRawPointer");
+                createParams.Add($"_ {param.Name}Ptr: Swift.UnsafeMutableRawPointer");
             }
             else
             {
@@ -809,7 +809,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             createParams.Add($"_ {resultName}: {prefix}_ResultFn?");
         }
-        createParams.Add($"_ {udName}: UnsafeMutableRawPointer?");
+        createParams.Add($"_ {udName}: Swift.UnsafeMutableRawPointer?");
 
         sb.AppendLine(string.Join(",\n    ", createParams));
         sb.AppendLine(") {");
@@ -823,10 +823,10 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.String)
             {
-                sb.AppendLine($"    let {param.SwiftName}: String");
+                sb.AppendLine($"    let {param.SwiftName}: Swift.String");
                 sb.AppendLine($"    if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
-                sb.AppendLine($"        {param.SwiftName} = String(");
-                sb.AppendLine($"            bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len),");
+                sb.AppendLine($"        {param.SwiftName} = Swift.String(");
+                sb.AppendLine($"            bytes: Swift.UnsafeBufferPointer(start: ptr, count: {param.Name}Len),");
                 sb.AppendLine($"            encoding: .utf8");
                 sb.AppendLine($"        ) ?? \"\"");
                 sb.AppendLine($"    }} else {{");
@@ -841,11 +841,11 @@ public static partial class SwiftUIBridgeEmitter
         var boundTypeParams = pattern.FlattenedParams.Where(p => p.Kind is AsyncFlatParamKind.BoundType or AsyncFlatParamKind.BoundStruct).ToList();
         if (boundTypeParams.Count > 0)
         {
-            var ptrNames = string.Join(" || ", boundTypeParams.Select(p => $"{p.Name}Ptr == UnsafeMutableRawPointer(bitPattern: 0)"));
+            var ptrNames = string.Join(" || ", boundTypeParams.Select(p => $"{p.Name}Ptr == Swift.UnsafeMutableRawPointer(bitPattern: 0)"));
             sb.AppendLine($"    if {ptrNames} {{");
             sb.AppendLine($"        if let {errorName} = {errorName} {{");
             sb.AppendLine($"            let msg = \"Null pointer passed for required object parameter\"");
-            sb.AppendLine($"            let utf8 = Array(msg.utf8)");
+            sb.AppendLine($"            let utf8 = Swift.Array(msg.utf8)");
             sb.AppendLine($"            utf8.withUnsafeBufferPointer {{ buf in");
             sb.AppendLine($"                guard let base = buf.baseAddress else {{ return }}");
             sb.AppendLine($"                {errorName}(base, buf.count, {udName})");
@@ -856,10 +856,10 @@ public static partial class SwiftUIBridgeEmitter
             foreach (var param in boundTypeParams)
             {
                 if (param.Kind == AsyncFlatParamKind.BoundType)
-                    sb.AppendLine($"    let {param.SwiftName} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
+                    sb.AppendLine($"    let {param.SwiftName} = Swift.Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
                 else if (param.IsObjCBridgeable) // BoundStruct, ObjC-bridgeable
                     // ObjC-bridgeable struct crosses the ABI as an ObjC object pointer.
-                    sb.AppendLine($"    let {param.SwiftName} = Unmanaged<AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
+                    sb.AppendLine($"    let {param.SwiftName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({param.Name}Ptr).takeUnretainedValue() as! {param.BridgeTypeName}");
                 else // BoundStruct
                     sb.AppendLine($"    let {param.SwiftName} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
             }
@@ -875,7 +875,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"    guard let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.SwiftName}) else {{");
                 sb.AppendLine($"        if let {errorName} = {errorName} {{");
                 sb.AppendLine($"            let msg = \"Invalid raw value for {param.BridgeTypeName}\"");
-                sb.AppendLine($"            let utf8 = Array(msg.utf8)");
+                sb.AppendLine($"            let utf8 = Swift.Array(msg.utf8)");
                 sb.AppendLine($"            utf8.withUnsafeBufferPointer {{ buf in");
                 sb.AppendLine($"                guard let base = buf.baseAddress else {{ return }}");
                 sb.AppendLine($"                {errorName}(base, buf.count, {udName})");
@@ -893,7 +893,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (param.Kind == AsyncFlatParamKind.Bool)
             {
-                sb.AppendLine($"    let {param.Name}Val: Bool = {param.SwiftName} != 0");
+                sb.AppendLine($"    let {param.Name}Val: Swift.Bool = {param.SwiftName} != 0");
             }
         }
         if (pattern.FlattenedParams.Any(p => p.Kind == AsyncFlatParamKind.Bool))
@@ -958,7 +958,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine(string.Join(",\n", sessionArgs));
         sb.AppendLine($"{indent})");
 
-        sb.AppendLine($"{indent}let handle = Unmanaged.passRetained(session).toOpaque()");
+        sb.AppendLine($"{indent}let handle = Swift.Unmanaged.passRetained(session).toOpaque()");
         sb.AppendLine($"{indent}{handlesVar}.insert(handle)");
 
         if (pattern.ResultCallback != null)
@@ -978,7 +978,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("        } catch {");
             sb.AppendLine($"            if let {errorName} = {errorName} {{");
             sb.AppendLine("                let msg = \"\\(error)\"");
-            sb.AppendLine("                let utf8 = Array(msg.utf8)");
+            sb.AppendLine("                let utf8 = Swift.Array(msg.utf8)");
             sb.AppendLine("                utf8.withUnsafeBufferPointer { buf in");
             sb.AppendLine("                    guard let base = buf.baseAddress else { return }");
             sb.AppendLine($"                    {errorName}(base, buf.count, {udName})");

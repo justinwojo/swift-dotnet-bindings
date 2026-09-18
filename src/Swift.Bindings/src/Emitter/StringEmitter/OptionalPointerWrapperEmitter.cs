@@ -116,14 +116,14 @@ public static class OptionalPointerWrapperEmitter
         // 1. Result ptr parameter (first, for indirect returns — matches C# HandleReturnType)
         if (cdeclNeedsResultPtr)
         {
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
         }
         // 1b. @_cdecl large Optional return buffer at position 0.
         // C# PInvokeEmitter.HandleReturnType routes this through MethodRequiresIndirectResult,
         // adding resultPtr at position 0 (not _optRetPtr at end of HandleArguments).
         else if (useCdecl && hasLargeOptionalReturn)
         {
-            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+            swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
         }
 
         // 2. Method arguments
@@ -158,7 +158,7 @@ public static class OptionalPointerWrapperEmitter
                 // path's treatment. Regression: without this, a non-DBW full wrapper for
                 // Optional<NonFrozenStruct> read the native Optional<T> layout while C# passed
                 // an 8-byte pointer buffer, causing layout mismatch.
-                swiftParams.Add($"_ {swiftName}: UnsafeRawPointer");
+                swiftParams.Add($"_ {swiftName}: Swift.UnsafeRawPointer");
                 derefCode.Add(GetDerefCode(arg, csName, swiftName, env.TypeDatabase));
 
                 var label = GetSwiftArgLabel(arg);
@@ -214,20 +214,20 @@ public static class OptionalPointerWrapperEmitter
         // Skip for @_cdecl: already added at position 0 (step 1b) to match C# HandleReturnType.
         if (hasLargeOptionalReturn && !useCdecl)
         {
-            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+            swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
         }
 
         // 4. Self parameter (instance methods only)
         bool isInstance = methodDecl.MethodType != MethodType.Static && parentDecl != null && !methodDecl.IsConstructor;
         if (isInstance)
         {
-            swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+            swiftParams.Add("_ _self: Swift.UnsafeMutableRawPointer");
         }
 
         // 5. Error out-pointer (after self — matches C# HandleSwiftError for non-constructor methods)
         if (useCdecl && methodDecl.Throws)
         {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
         }
 
         var callArgsStr = string.Join(", ", callArgs);
@@ -289,7 +289,7 @@ public static class OptionalPointerWrapperEmitter
             // Subscript setter: __self[index] = value
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {typeName}.self)";
                 callLine = $"__self[{subscriptArgsStr}] = {subscriptSetterValue}";
             }
             else
@@ -302,7 +302,7 @@ public static class OptionalPointerWrapperEmitter
             // Subscript getter: __self[index]
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {typeName}.self)";
                 callLine = $"__self[{subscriptArgsStr}]";
             }
             else
@@ -317,7 +317,7 @@ public static class OptionalPointerWrapperEmitter
             var propertyName = GetPropertyNameFromAccessor(methodDecl.Name);
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {typeName}.self)";
                 callLine = $"__self.{propertyName} = {setterValueStr}";
             }
             else
@@ -338,7 +338,7 @@ public static class OptionalPointerWrapperEmitter
             var propertyName = GetPropertyNameFromAccessor(methodDecl.Name);
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {typeName}.self)";
                 callLine = $"__self.{propertyName}";
             }
             else
@@ -358,7 +358,7 @@ public static class OptionalPointerWrapperEmitter
             var escapedName = NameProvider.ParserNameToSwift(methodDecl);
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {typeName}.self)";
                 callLine = $"__self.{escapedName}({callArgsStr})";
             }
             else if (needsThroughPointer)
@@ -459,7 +459,7 @@ public static class OptionalPointerWrapperEmitter
             }
             swiftWriter.WriteLines("""
                     } catch {
-                        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                     """);
             // Sentinel return for non-void direct returns on error path
             if (hasReturn && !cdeclNeedsResultPtr && !hasLargeOptionalReturn)
@@ -526,7 +526,7 @@ public static class OptionalPointerWrapperEmitter
         if (typeDatabase != null && TryGetOptionalOpaqueInnerType(arg.SwiftTypeSpec, typeDatabase, out var innerSpec))
         {
             var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec!);
-            return $"let {csName}Val: {innerSwiftType}? = {swiftName}.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
+            return $"let {csName}Val: {innerSwiftType}? = {swiftName}.assumingMemoryBound(to: Swift.UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
         }
         var swiftType = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(arg.SwiftTypeSpec);
         return $"let {csName}Val = {swiftName}.assumingMemoryBound(to: {swiftType}.self).pointee";
@@ -639,12 +639,12 @@ public static class OptionalPointerWrapperEmitter
         swiftWriter.WriteLine($"{indent}let result = {callExpr}");
         if (!string.IsNullOrEmpty(postCallStatement))
             swiftWriter.WriteLine($"{indent}{postCallStatement}");
-        swiftWriter.WriteLine($"{indent}let utf8 = Array(result.utf8)");
+        swiftWriter.WriteLine($"{indent}let utf8 = Swift.Array(result.utf8)");
         swiftWriter.WriteLine($"{indent}if utf8.isEmpty {{");
         swiftWriter.WriteLine($"{indent}    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)");
         swiftWriter.WriteLine($"{indent}    return");
         swiftWriter.WriteLine($"{indent}}}");
-        swiftWriter.WriteLine($"{indent}let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)");
+        swiftWriter.WriteLine($"{indent}let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)");
         swiftWriter.WriteLine($"{indent}ptr.initialize(from: utf8, count: utf8.count)");
         swiftWriter.WriteLine($"{indent}resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)");
     }

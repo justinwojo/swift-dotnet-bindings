@@ -2783,7 +2783,7 @@ public class ClosureHandlerTests
         var info = handler.GetSimpleEnumInfo(new NamedTypeSpec("TestModule.ColorMode"));
         Assert.NotNull(info);
         Assert.Equal("int", info!.Value.csUnderlying);
-        Assert.Equal("Int32", info!.Value.swiftScalar);
+        Assert.Equal("Swift.Int32", info!.Value.swiftScalar);
     }
 
     [Fact]

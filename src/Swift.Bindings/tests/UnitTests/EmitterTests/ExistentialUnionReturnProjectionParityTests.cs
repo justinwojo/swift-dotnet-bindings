@@ -36,7 +36,8 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ExistentialUnionReturnProjectionParityTests
 {
-    private const string Union = "Swift.Runtime.ExistentialUnion";
+    // Spelled as emitted: the generator writes every runtime type from global::.
+    private const string Union = "global::Swift.Runtime.ExistentialUnion";
 
     [SkippableFact]
     [Trait("Category", GeneratedBindingsOutputRequirement.TraitCategory)]

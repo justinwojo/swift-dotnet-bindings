@@ -121,12 +121,12 @@ public static class ErrorRegistryHelperEmitter
             // with a buffer + matched typeId (or a retained class pointer for class
             // -shaped errors), or falls through with id 0 (untyped).
             internal func {{dispatchSymbol}}(
-                _ error: any Error,
-                _ _sbwTask: Int64,
-                _ errorCallback: @convention(c) (UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32) -> Void
+                _ error: any Swift.Error,
+                _ _sbwTask: Swift.Int64,
+                _ errorCallback: @convention(c) (Swift.UnsafeRawPointer?, Swift.Int, Swift.UnsafePointer<Swift.CChar>?, Swift.Int32, Swift.Int64, Swift.Int32) -> Swift.Void
             ) {
-                let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0
-                let errorMessage = String(describing: error)
+                let _isCancelled: Swift.Int32 = (error is _Concurrency.CancellationError) ? 1 : 0
+                let errorMessage = Swift.String(describing: error)
                 if _isCancelled != 0 {
                     errorMessage.withCString { _msgPtr in
                         errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)
@@ -160,11 +160,11 @@ public static class ErrorRegistryHelperEmitter
             // is only READ here (takeUnretainedValue) — its reference is still owned by the caller.
             @_cdecl("{{classifySymbol}}")
             public func {{classifySymbol}}(
-                _ errorBox: UnsafeRawPointer,
-                _ outPayload: UnsafeMutablePointer<UnsafeMutableRawPointer?>
-            ) -> Int32 {
+                _ errorBox: Swift.UnsafeRawPointer,
+                _ outPayload: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>
+            ) -> Swift.Int32 {
                 outPayload.pointee = nil
-                guard let error = Unmanaged<AnyObject>.fromOpaque(errorBox).takeUnretainedValue() as? Error else {
+                guard let error = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(errorBox).takeUnretainedValue() as? Swift.Error else {
                     return 0
                 }
             {{syncCascadeBody}}
@@ -531,7 +531,7 @@ public static class ErrorRegistryHelperEmitter
                 // pointer. C# `MarshalFromSwift<T>` then routes through `NewFromPayload`,
                 // which constructs the SwiftObject taking ownership of the +1 retain.
                 // Wire `errorSize` is unused in this shape — pass 0.
-                sb.AppendLine($"{indent}    let _ptr = Unmanaged.passRetained(_typed as AnyObject).toOpaque()");
+                sb.AppendLine($"{indent}    let _ptr = Swift.Unmanaged.passRetained(_typed as Swift.AnyObject).toOpaque()");
                 if (syncTail)
                 {
                     sb.AppendLine($"{indent}    outPayload.pointee = _ptr");
@@ -540,7 +540,7 @@ public static class ErrorRegistryHelperEmitter
                 else
                 {
                     sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
-                    sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, {idx})");
+                    sb.AppendLine($"{indent}        errorCallback(Swift.UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, {idx})");
                     sb.AppendLine($"{indent}    }}");
                     sb.AppendLine($"{indent}    return");
                 }
@@ -551,9 +551,9 @@ public static class ErrorRegistryHelperEmitter
                 // value-witness-table-aware copy the matched value into it. C# marshals
                 // by value (free in finally) or wraps into a SafeHandle (free only on
                 // exception) per the per-case dispatch shape on the C# side.
-                sb.AppendLine($"{indent}    let _size = MemoryLayout<{swiftTypeName}>.size");
-                sb.AppendLine($"{indent}    let _align = MemoryLayout<{swiftTypeName}>.alignment");
-                sb.AppendLine($"{indent}    let _buf = UnsafeMutableRawPointer.allocate(byteCount: max(_size, 1), alignment: _align)");
+                sb.AppendLine($"{indent}    let _size = Swift.MemoryLayout<{swiftTypeName}>.size");
+                sb.AppendLine($"{indent}    let _align = Swift.MemoryLayout<{swiftTypeName}>.alignment");
+                sb.AppendLine($"{indent}    let _buf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.max(_size, 1), alignment: _align)");
                 sb.AppendLine($"{indent}    _buf.initializeMemory(as: {swiftTypeName}.self, repeating: _typed, count: 1)");
                 if (syncTail)
                 {
@@ -563,7 +563,7 @@ public static class ErrorRegistryHelperEmitter
                 else
                 {
                     sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
-                    sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_buf), Int(Int64(_size)), _msgPtr, 0, _sbwTask, {idx})");
+                    sb.AppendLine($"{indent}        errorCallback(Swift.UnsafeRawPointer(_buf), Swift.Int(Swift.Int64(_size)), _msgPtr, 0, _sbwTask, {idx})");
                     sb.AppendLine($"{indent}    }}");
                     sb.AppendLine($"{indent}    return");
                 }

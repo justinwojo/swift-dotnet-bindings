@@ -372,29 +372,29 @@ public class EveryProtocolEmitter
             // Protocol method implementations call back to C# via vtable function pointers.
             // This class is used by generated proxy classes to implement Swift protocols from C#.
             //
-            // @unchecked Sendable: transitive Sendable conformance flows in from framework
-            // protocols (e.g. TipKit.Tip inherits Sendable). onDeinit/onDeinitCtx must stay
+            // @unchecked Swift.Sendable: transitive Sendable conformance flows in from framework
+            // protocols (e.g. TipKit.Tip inherits Swift.Sendable). onDeinit/onDeinitCtx must stay
             // mutable because SBW_SetEveryProtocolDeinitCallback writes them after init,
             // so strict Sendable checking can't verify them. Safety is enforced by the
             // SwiftObjectRegistry lifetime contract, not by the compiler.
-            public final class EveryProtocol: @unchecked Sendable {
+            public final class EveryProtocol: @unchecked Swift.Sendable {
                 // Store a handle back to the C# proxy object
                 // This is used by vtable functions to find the C# implementation
-                public let handle: UnsafeRawPointer?
+                public let handle: Swift.UnsafeRawPointer?
 
                 // Deinit callback fired when Swift's last retain drops. The C# proxy
                 // registers this so the SwiftObjectRegistry strong root and the
                 // ProxyLifetimeTracker entry can be torn down when Swift is finished
                 // with the existential container. Storage is fileprivate to prevent
                 // accidental access from outside this module.
-                fileprivate var onDeinit: (@convention(c) (UnsafeRawPointer) -> Void)?
-                fileprivate var onDeinitCtx: UnsafeRawPointer?
+                fileprivate var onDeinit: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
+                fileprivate var onDeinitCtx: Swift.UnsafeRawPointer?
 
                 public init() {
                     self.handle = nil
                 }
 
-                public init(handle: UnsafeRawPointer) {
+                public init(handle: Swift.UnsafeRawPointer) {
                     self.handle = handle
                 }
 
@@ -411,22 +411,22 @@ public class EveryProtocolEmitter
             // C# proxy code calls this instead of raw NativeMemory.Alloc to ensure the
             // existential container payload is a valid ARC-managed Swift object.
             @_cdecl("SBW_CreateEveryProtocol")
-            public func _sbw_createEveryProtocol() -> UnsafeMutableRawPointer {
+            public func _sbw_createEveryProtocol() -> Swift.UnsafeMutableRawPointer {
                 let instance = EveryProtocol()
-                return Unmanaged.passRetained(instance).toOpaque()
+                return Swift.Unmanaged.passRetained(instance).toOpaque()
             }
 
             // Releases an EveryProtocol instance created by SBW_CreateEveryProtocol.
             @_cdecl("SBW_ReleaseEveryProtocol")
-            public func _sbw_releaseEveryProtocol(_ ptr: UnsafeMutableRawPointer) {
-                Unmanaged<EveryProtocol>.fromOpaque(ptr).release()
+            public func _sbw_releaseEveryProtocol(_ ptr: Swift.UnsafeMutableRawPointer) {
+                Swift.Unmanaged<EveryProtocol>.fromOpaque(ptr).release()
             }
 
             // Returns the Swift type metadata pointer for EveryProtocol.
             // Used by C# proxy classes to populate existential container metadata.
             @_cdecl("SBW_GetMetadata_EveryProtocol")
-            public func _sbw_getEveryProtocolMetadata() -> UnsafeRawPointer {
-                return unsafeBitCast(EveryProtocol.self, to: UnsafeRawPointer.self)
+            public func _sbw_getEveryProtocolMetadata() -> Swift.UnsafeRawPointer {
+                return Swift.unsafeBitCast(EveryProtocol.self, to: Swift.UnsafeRawPointer.self)
             }
 
             // Registers a C# deinit callback on an EveryProtocol instance. The callback
@@ -436,11 +436,11 @@ public class EveryProtocolEmitter
             // SBW_CreateEveryProtocol; takeRetainedValue would incorrectly consume it.
             @_cdecl("SBW_SetEveryProtocolDeinitCallback")
             public func _sbw_setEveryProtocolDeinitCallback(
-                _ instance: UnsafeMutableRawPointer,
-                _ callback: @convention(c) (UnsafeRawPointer) -> Void,
-                _ context: UnsafeRawPointer
+                _ instance: Swift.UnsafeMutableRawPointer,
+                _ callback: @convention(c) (Swift.UnsafeRawPointer) -> Swift.Void,
+                _ context: Swift.UnsafeRawPointer
             ) {
-                let ep = Unmanaged<EveryProtocol>.fromOpaque(instance).takeUnretainedValue()
+                let ep = Swift.Unmanaged<EveryProtocol>.fromOpaque(instance).takeUnretainedValue()
                 ep.onDeinit = callback
                 ep.onDeinitCtx = context
             }
@@ -451,17 +451,17 @@ public class EveryProtocolEmitter
             // NSObjectProtocol requirement via NSObject's built-in implementations
             // of isEqual:/hash/description, leaving the protocol's own requirements
             // to the same vtable-callback pattern used for EveryProtocol.
-            @objc public final class EveryObjCProtocol: NSObject, @unchecked Sendable {
-                public let handle: UnsafeRawPointer?
-                fileprivate var onDeinit: (@convention(c) (UnsafeRawPointer) -> Void)?
-                fileprivate var onDeinitCtx: UnsafeRawPointer?
+            @objc public final class EveryObjCProtocol: NSObject, @unchecked Swift.Sendable {
+                public let handle: Swift.UnsafeRawPointer?
+                fileprivate var onDeinit: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
+                fileprivate var onDeinitCtx: Swift.UnsafeRawPointer?
 
                 public override init() {
                     self.handle = nil
                     super.init()
                 }
 
-                public init(handle: UnsafeRawPointer) {
+                public init(handle: Swift.UnsafeRawPointer) {
                     self.handle = handle
                     super.init()
                 }
@@ -474,28 +474,28 @@ public class EveryProtocolEmitter
             }
 
             @_cdecl("SBW_CreateEveryObjCProtocol")
-            public func _sbw_createEveryObjCProtocol() -> UnsafeMutableRawPointer {
+            public func _sbw_createEveryObjCProtocol() -> Swift.UnsafeMutableRawPointer {
                 let instance = EveryObjCProtocol()
-                return Unmanaged.passRetained(instance).toOpaque()
+                return Swift.Unmanaged.passRetained(instance).toOpaque()
             }
 
             @_cdecl("SBW_ReleaseEveryObjCProtocol")
-            public func _sbw_releaseEveryObjCProtocol(_ ptr: UnsafeMutableRawPointer) {
-                Unmanaged<EveryObjCProtocol>.fromOpaque(ptr).release()
+            public func _sbw_releaseEveryObjCProtocol(_ ptr: Swift.UnsafeMutableRawPointer) {
+                Swift.Unmanaged<EveryObjCProtocol>.fromOpaque(ptr).release()
             }
 
             @_cdecl("SBW_GetMetadata_EveryObjCProtocol")
-            public func _sbw_getEveryObjCProtocolMetadata() -> UnsafeRawPointer {
-                return unsafeBitCast(EveryObjCProtocol.self, to: UnsafeRawPointer.self)
+            public func _sbw_getEveryObjCProtocolMetadata() -> Swift.UnsafeRawPointer {
+                return Swift.unsafeBitCast(EveryObjCProtocol.self, to: Swift.UnsafeRawPointer.self)
             }
 
             @_cdecl("SBW_SetEveryObjCProtocolDeinitCallback")
             public func _sbw_setEveryObjCProtocolDeinitCallback(
-                _ instance: UnsafeMutableRawPointer,
-                _ callback: @convention(c) (UnsafeRawPointer) -> Void,
-                _ context: UnsafeRawPointer
+                _ instance: Swift.UnsafeMutableRawPointer,
+                _ callback: @convention(c) (Swift.UnsafeRawPointer) -> Swift.Void,
+                _ context: Swift.UnsafeRawPointer
             ) {
-                let ep = Unmanaged<EveryObjCProtocol>.fromOpaque(instance).takeUnretainedValue()
+                let ep = Swift.Unmanaged<EveryObjCProtocol>.fromOpaque(instance).takeUnretainedValue()
                 ep.onDeinit = callback
                 ep.onDeinitCtx = context
             }
@@ -522,17 +522,17 @@ public class EveryProtocolEmitter
                 // EveryProtocol. Generated only when at least one protocol in this
                 // module's binding is rooted at Entity (Failure B); a wrapper that
                 // does not import RealityFoundation must not reference Entity.
-                public final class EveryEntityProtocol: Entity, @unchecked Sendable {
-                    public let handle: UnsafeRawPointer?
-                    fileprivate var onDeinit: (@convention(c) (UnsafeRawPointer) -> Void)?
-                    fileprivate var onDeinitCtx: UnsafeRawPointer?
+                public final class EveryEntityProtocol: Entity, @unchecked Swift.Sendable {
+                    public let handle: Swift.UnsafeRawPointer?
+                    fileprivate var onDeinit: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
+                    fileprivate var onDeinitCtx: Swift.UnsafeRawPointer?
 
                     public required init() {
                         self.handle = nil
                         super.init()
                     }
 
-                    public init(handle: UnsafeRawPointer) {
+                    public init(handle: Swift.UnsafeRawPointer) {
                         self.handle = handle
                         super.init()
                     }
@@ -545,28 +545,28 @@ public class EveryProtocolEmitter
                 }
 
                 @_cdecl("SBW_CreateEveryEntityProtocol")
-                public func _sbw_createEveryEntityProtocol() -> UnsafeMutableRawPointer {
+                public func _sbw_createEveryEntityProtocol() -> Swift.UnsafeMutableRawPointer {
                     let instance = EveryEntityProtocol()
-                    return Unmanaged.passRetained(instance).toOpaque()
+                    return Swift.Unmanaged.passRetained(instance).toOpaque()
                 }
 
                 @_cdecl("SBW_ReleaseEveryEntityProtocol")
-                public func _sbw_releaseEveryEntityProtocol(_ ptr: UnsafeMutableRawPointer) {
-                    Unmanaged<EveryEntityProtocol>.fromOpaque(ptr).release()
+                public func _sbw_releaseEveryEntityProtocol(_ ptr: Swift.UnsafeMutableRawPointer) {
+                    Swift.Unmanaged<EveryEntityProtocol>.fromOpaque(ptr).release()
                 }
 
                 @_cdecl("SBW_GetMetadata_EveryEntityProtocol")
-                public func _sbw_getEveryEntityProtocolMetadata() -> UnsafeRawPointer {
-                    return unsafeBitCast(EveryEntityProtocol.self, to: UnsafeRawPointer.self)
+                public func _sbw_getEveryEntityProtocolMetadata() -> Swift.UnsafeRawPointer {
+                    return Swift.unsafeBitCast(EveryEntityProtocol.self, to: Swift.UnsafeRawPointer.self)
                 }
 
                 @_cdecl("SBW_SetEveryEntityProtocolDeinitCallback")
                 public func _sbw_setEveryEntityProtocolDeinitCallback(
-                    _ instance: UnsafeMutableRawPointer,
-                    _ callback: @convention(c) (UnsafeRawPointer) -> Void,
-                    _ context: UnsafeRawPointer
+                    _ instance: Swift.UnsafeMutableRawPointer,
+                    _ callback: @convention(c) (Swift.UnsafeRawPointer) -> Swift.Void,
+                    _ context: Swift.UnsafeRawPointer
                 ) {
-                    let ep = Unmanaged<EveryEntityProtocol>.fromOpaque(instance).takeUnretainedValue()
+                    let ep = Swift.Unmanaged<EveryEntityProtocol>.fromOpaque(instance).takeUnretainedValue()
                     ep.onDeinit = callback
                     ep.onDeinitCtx = context
                 }
@@ -769,7 +769,7 @@ public class EveryProtocolEmitter
         writer.Indent++;
 
         // First field: handle to C# vtable (used to pass context back to C#)
-        writer.WriteLine("var csVTHandle: OpaquePointer? = nil");
+        writer.WriteLine("var csVTHandle: Swift.OpaquePointer? = nil");
 
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
@@ -1511,7 +1511,7 @@ public class EveryProtocolEmitter
     {
         var parts = method.CSSignature.Skip(1).Select(p =>
             (p.GetSwiftName() ?? p.Name ?? "_") + ":" + (p.SwiftTypeSpec?.ToString() ?? ""));
-        var ret = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec?.ToString() ?? "Void";
+        var ret = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec?.ToString() ?? "Swift.Void";
         var effects = method.IsAsync ? " async" : "";
         return $"{method.Name}(" + string.Join(",", parts) + ")" + effects + "->" + ret;
     }
@@ -2071,7 +2071,7 @@ public class EveryProtocolEmitter
             parts.Add($"{label}:{typeName}");
         }
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-        var returnStr = returnType != null && !returnType.IsEmptyTuple ? GetSwiftTypeName(returnType) : "Void";
+        var returnStr = returnType != null && !returnType.IsEmptyTuple ? GetSwiftTypeName(returnType) : "Swift.Void";
         // `async` is included ONLY when includeAsyncEffect is set (the C# receiver
         // sibling-fallback grouping). For the default — Swift owner/peer dedup and non-throwing
         // override tracking — it is OMITTED, because the EveryProtocol witness emitted for a
@@ -2118,19 +2118,19 @@ public class EveryProtocolEmitter
             // root that survives dead-stripping on NativeAOT/device builds — nothing in the Swift
             // wrapper references it, so an unreferenced free function would otherwise be dropped.
             {{availPrefix}}@_cdecl("{{mangledGetterName}}")
-            public func {{getterFunctionName}}() -> UnsafeRawPointer {
+            public func {{getterFunctionName}}() -> Swift.UnsafeRawPointer {
                 let instance = {{baseClass}}()
-                return withExtendedLifetime(instance) {
+                return Swift.withExtendedLifetime(instance) {
                     var proto: any {{protocolName}} = instance
-                    return withUnsafeBytes(of: &proto) { buffer in
+                    return Swift.withUnsafeBytes(of: &proto) { buffer in
                         // Witness table is the last pointer-sized word in the existential container.
                         // Layout depends on class-bound vs opaque:
                         //   Opaque:      [payload0] [payload1] [payload2] [metadata] [WT] (5 words)
                         //   Class-bound: [classRef] [WT] (2 words)
-                        // Using MemoryLayout<any Protocol>.size - pointer size handles both.
-                        let witnessTableOffset = MemoryLayout<any {{protocolName}}>.size - MemoryLayout<Int>.size
+                        // Using Swift.MemoryLayout<any Protocol>.size - pointer size handles both.
+                        let witnessTableOffset = Swift.MemoryLayout<any {{protocolName}}>.size - Swift.MemoryLayout<Swift.Int>.size
                         return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                            .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
+                            .assumingMemoryBound(to: Swift.UnsafeRawPointer.self).pointee
                     }
                 }
             }
@@ -2147,8 +2147,8 @@ public class EveryProtocolEmitter
             // dead-strip-survival reason, and emitted in lockstep with it so a proxy that declares the
             // witness getter can always reach the size too.
             {{availPrefix}}@_cdecl("{{mangledSizeName}}")
-            public func {{sizeFunctionName}}() -> Int {
-                return MemoryLayout<any {{protocolName}}>.size
+            public func {{sizeFunctionName}}() -> Swift.Int {
+                return Swift.MemoryLayout<any {{protocolName}}>.size
             }
 
             """);
@@ -2165,8 +2165,8 @@ public class EveryProtocolEmitter
             // Exported as a C entry point (@_cdecl) for the same dead-strip-survival reason as the
             // witness-table getters above.
             @_cdecl("SBW_Get_EveryProtocol_TypeMetadata")
-            public func getEveryProtocolTypeMetadata() -> UnsafeRawPointer {
-                return unsafeBitCast(EveryProtocol.self as Any.Type, to: UnsafeRawPointer.self)
+            public func getEveryProtocolTypeMetadata() -> Swift.UnsafeRawPointer {
+                return Swift.unsafeBitCast(EveryProtocol.self as Any.Type, to: Swift.UnsafeRawPointer.self)
             }
 
             """);
@@ -2190,8 +2190,8 @@ public class EveryProtocolEmitter
             // point (@_cdecl) so the symbol is a linker root that survives dead-stripping on
             // NativeAOT/device builds, matching the witness-table getters.
             {{availPrefix}}@_cdecl("{{mangledSetFunctionName}}")
-            public func {{setFunctionName}}(uvt: UnsafeRawPointer) {
-                let vt: UnsafePointer<{{vtableName}}> = uvt.assumingMemoryBound(to: {{vtableName}}.self)
+            public func {{setFunctionName}}(uvt: Swift.UnsafeRawPointer) {
+                let vt: Swift.UnsafePointer<{{vtableName}}> = uvt.assumingMemoryBound(to: {{vtableName}}.self)
                 {{vtableInstanceName}} = vt.pointee
             }
 
@@ -2926,7 +2926,7 @@ public class EveryProtocolEmitter
             var fieldName = $"func_{property.Name}_get";
             if (emittedFields.Add(fieldName))
             {
-                var funcType = $"(@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?";
+                var funcType = $"(@convention(c)(Swift.OpaquePointer?, Swift.UnsafeRawPointer) -> Swift.UnsafeRawPointer)?";
                 writer.WriteLine($"var {fieldName}: {funcType}");
             }
         }
@@ -2936,7 +2936,7 @@ public class EveryProtocolEmitter
             var fieldName = $"func_{property.Name}_set";
             if (emittedFields.Add(fieldName))
             {
-                var funcType = $"(@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer) -> Void)?";
+                var funcType = $"(@convention(c)(Swift.OpaquePointer?, Swift.UnsafeRawPointer, Swift.UnsafeRawPointer) -> Swift.Void)?";
                 writer.WriteLine($"var {fieldName}: {funcType}");
             }
         }
@@ -2951,8 +2951,8 @@ public class EveryProtocolEmitter
             if (emittedFields.Add(fieldName))
             {
                 var paramCount = subscript.IndexParameters.Count;
-                var paramList = "OpaquePointer?, UnsafeRawPointer" + string.Concat(Enumerable.Repeat(", UnsafeRawPointer", paramCount));
-                var funcType = $"(@convention(c)({paramList}) -> UnsafeRawPointer)?";
+                var paramList = "Swift.OpaquePointer?, Swift.UnsafeRawPointer" + string.Concat(Enumerable.Repeat(", Swift.UnsafeRawPointer", paramCount));
+                var funcType = $"(@convention(c)({paramList}) -> Swift.UnsafeRawPointer)?";
                 writer.WriteLine($"var {fieldName}: {funcType}");
             }
         }
@@ -2964,8 +2964,8 @@ public class EveryProtocolEmitter
             {
                 var paramCount = subscript.IndexParameters.Count;
                 // For setter: vtable handle, self, newValue, then index params
-                var paramList = "OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer" + string.Concat(Enumerable.Repeat(", UnsafeRawPointer", paramCount));
-                var funcType = $"(@convention(c)({paramList}) -> Void)?";
+                var paramList = "Swift.OpaquePointer?, Swift.UnsafeRawPointer, Swift.UnsafeRawPointer" + string.Concat(Enumerable.Repeat(", Swift.UnsafeRawPointer", paramCount));
+                var funcType = $"(@convention(c)({paramList}) -> Swift.Void)?";
                 writer.WriteLine($"var {fieldName}: {funcType}");
             }
         }
@@ -2990,7 +2990,7 @@ public class EveryProtocolEmitter
         // for a dispatchable/async closure). The trailing parity check pins this field's slot count to
         // the layout oracle's width, so a hand-count drift here can never silently shrink the Swift
         // struct below its C# mirror (the slot-corruption that only SIGSEGVs on the NativeAOT device).
-        var slotTypes = new List<string> { "OpaquePointer?", "UnsafeRawPointer" };
+        var slotTypes = new List<string> { "Swift.OpaquePointer?", "Swift.UnsafeRawPointer" };
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             if (DefaultParameterOverloadEmitter.IsDebugParameter(method.CSSignature[i]) || method.CSSignature[i].SwiftTypeSpec.IsEmptyTuple)
@@ -2998,18 +2998,18 @@ public class EveryProtocolEmitter
             var p = method.CSSignature[i].SwiftTypeSpec;
             if (TryGetDispatchableClosureParam(p, closureHandler, out _, out var isOpt))
             {
-                var slotType = isOpt ? "UnsafeRawPointer?" : "UnsafeRawPointer";
+                var slotType = isOpt ? "Swift.UnsafeRawPointer?" : "Swift.UnsafeRawPointer";
                 slotTypes.Add(slotType);
                 slotTypes.Add(slotType);
             }
             else if (IsDispatchableAsyncClosureParam(p, closureHandler, out _))
             {
-                slotTypes.Add("UnsafeRawPointer");
-                slotTypes.Add("UnsafeRawPointer");
+                slotTypes.Add("Swift.UnsafeRawPointer");
+                slotTypes.Add("Swift.UnsafeRawPointer");
             }
             else
             {
-                slotTypes.Add("UnsafeRawPointer");
+                slotTypes.Add("Swift.UnsafeRawPointer");
             }
         }
 
@@ -3025,9 +3025,9 @@ public class EveryProtocolEmitter
         bool realAsync = EmitsRealAsyncWitness(method);
         if (realAsync)
         {
-            slotTypes.Add("UnsafeRawPointer"); // continuation box
-            slotTypes.Add("UnsafeRawPointer"); // success FP
-            slotTypes.Add("UnsafeRawPointer"); // error FP
+            slotTypes.Add("Swift.UnsafeRawPointer"); // continuation box
+            slotTypes.Add("Swift.UnsafeRawPointer"); // success FP
+            slotTypes.Add("Swift.UnsafeRawPointer"); // error FP
         }
 
         // Fail closed on any drift from the layout oracle: the two fixed leading slots (vtable handle +
@@ -3041,7 +3041,7 @@ public class EveryProtocolEmitter
 
         var paramList = string.Join(", ", slotTypes);
 
-        var returnTypeStr = (hasReturn && !realAsync) ? "UnsafeRawPointer" : "Void";
+        var returnTypeStr = (hasReturn && !realAsync) ? "Swift.UnsafeRawPointer" : "Swift.Void";
         var funcType = $"(@convention(c)({paramList}) -> {returnTypeStr})?";
 
         writer.WriteLine($"var {fieldName}: {funcType}");
@@ -3207,7 +3207,7 @@ public class EveryProtocolEmitter
         }
         else
         {
-            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            writer.WriteLine("let resultPtr: Swift.UnsafeRawPointer");
             // Box `self` as the OWNER's type for every branch. For PROPERTIES branches[0] IS the
             // owner (ComputePropertyEmissionPlans Prepends(owner)), unlike the method fan-out whose
             // Siblings list is sync-first. The box type is behaviorally IMMATERIAL either way: the
@@ -3242,8 +3242,8 @@ public class EveryProtocolEmitter
                 let slice = resultPtr.load(as: SBW_Utf8Slice.self)
                 var str: Swift.String = ""
                 if slice.len > 0 {
-                    let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
-                    str = String(decoding: buffer, as: UTF8.self)
+                    let buffer = Swift.UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                    str = Swift.String(decoding: buffer, as: Swift.UTF8.self)
                 }
                 slice.ptr.deallocate()
                 resultPtr.deallocate()
@@ -3262,9 +3262,9 @@ public class EveryProtocolEmitter
             // in reverse, the forward accessor's Unmanaged.passRetained(+1) / C# owns:true adoption.
             const string take = "takeRetainedValue";
             writer.WriteLines($$"""
-                let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                let resultObjPtr = resultPtr.load(as: Swift.UnsafeRawPointer.self)
                 resultPtr.deallocate()
-                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{swiftTypeNameForMetatype}}
+                return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{swiftTypeNameForMetatype}}
                 """);
         }
         else if (GetOptionalObjCBridgeableValueInnerName(property.SwiftTypeSpec) is string optBridgeableInner)
@@ -3278,7 +3278,7 @@ public class EveryProtocolEmitter
             // retain), then deallocate frees the raw memory. The String / ObjC siblings above
             // both deallocate; the value path used to return `.pointee` and leak the buffer every
             // call.
-            writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {swiftTypeNameForMetatype}.self).move()");
+            writer.WriteLine($"let __result = Swift.UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {swiftTypeNameForMetatype}.self).move()");
             writer.WriteLine("resultPtr.deallocate()");
             writer.WriteLine("return __result");
         }
@@ -3357,8 +3357,8 @@ public class EveryProtocolEmitter
         {
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValueNS = newValue as AnyObject
-                var newValueRef = Unmanaged.passUnretained(newValueNS).toOpaque()
+                let newValueNS = newValue as Swift.AnyObject
+                var newValueRef = Swift.Unmanaged.passUnretained(newValueNS).toOpaque()
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
         }
@@ -3372,8 +3372,8 @@ public class EveryProtocolEmitter
             // multi-word Optional<URL> bytes, which the receiver then misreads as one word → layout mismatch.
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValueNS = newValue.map { $0 as AnyObject }
-                var newValueRef = newValueNS.map { Unmanaged.passUnretained($0).toOpaque() }
+                let newValueNS = newValue.map { $0 as Swift.AnyObject }
+                var newValueRef = newValueNS.map { Swift.Unmanaged.passUnretained($0).toOpaque() }
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
         }
@@ -3385,10 +3385,10 @@ public class EveryProtocolEmitter
             var swiftType = GetSwiftTypeName(property.SwiftTypeSpec);
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValuePtr = UnsafeMutablePointer<{{swiftType}}>.allocate(capacity: 1)
+                let newValuePtr = Swift.UnsafeMutablePointer<{{swiftType}}>.allocate(capacity: 1)
                 newValuePtr.initialize(to: newValue)
                 defer { newValuePtr.deinitialize(count: 1); newValuePtr.deallocate() }
-                {{fnExpr}}({{branchVtableExpr}}, &selfProto, UnsafeRawPointer(newValuePtr))
+                {{fnExpr}}({{branchVtableExpr}}, &selfProto, Swift.UnsafeRawPointer(newValuePtr))
                 """);
         }
         else
@@ -3501,7 +3501,7 @@ public class EveryProtocolEmitter
         else
         {
             EmitSubscriptArgCopies(writer, subscript.IndexParameters);
-            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            writer.WriteLine("let resultPtr: Swift.UnsafeRawPointer");
             // Owner-typed box for every branch (branches[0] IS the owner — ComputeSubscriptEmissionPlans
             // Prepends(owner)). Box type is behaviorally immaterial; see EmitMethodFanOutBody.
             var ownerProtoName = branches[0].Proto.SwiftTypeName.ModuleQualifiedName;
@@ -3531,8 +3531,8 @@ public class EveryProtocolEmitter
                 let slice = resultPtr.load(as: SBW_Utf8Slice.self)
                 var str: Swift.String = ""
                 if slice.len > 0 {
-                    let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
-                    str = String(decoding: buffer, as: UTF8.self)
+                    let buffer = Swift.UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                    str = Swift.String(decoding: buffer, as: Swift.UTF8.self)
                 }
                 slice.ptr.deallocate()
                 resultPtr.deallocate()
@@ -3545,9 +3545,9 @@ public class EveryProtocolEmitter
             // see EmitPropertyGetterBody for the ownership rationale.
             const string take = "takeRetainedValue";
             writer.WriteLines($$"""
-                let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                let resultObjPtr = resultPtr.load(as: Swift.UnsafeRawPointer.self)
                 resultPtr.deallocate()
-                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
+                return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
         }
         else if (GetOptionalObjCBridgeableValueInnerName(subscript.ReturnTypeSpec) is string optBridgeableInner)
@@ -3559,7 +3559,7 @@ public class EveryProtocolEmitter
             // Consume the C#-allocated result buffer (move() = value + deinitialize), then
             // deallocate — the String / ObjC siblings deallocate; the value path leaked it
             // every call.
-            writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {returnTypeNameForMetatype}.self).move()");
+            writer.WriteLine($"let __result = Swift.UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {returnTypeNameForMetatype}.self).move()");
             writer.WriteLine("resultPtr.deallocate()");
             writer.WriteLine("return __result");
         }
@@ -3680,7 +3680,7 @@ public class EveryProtocolEmitter
     /// </summary>
     private static string[] BuildValueStorageSetup(string ptrName, string swiftType, string sourceExpr) => new[]
     {
-        $"let {ptrName} = UnsafeMutablePointer<{swiftType}>.allocate(capacity: 1)",
+        $"let {ptrName} = Swift.UnsafeMutablePointer<{swiftType}>.allocate(capacity: 1)",
         $"{ptrName}.initialize(to: {sourceExpr})",
         $"defer {{ {ptrName}.deinitialize(count: 1); {ptrName}.deallocate() }}",
     };
@@ -3697,7 +3697,7 @@ public class EveryProtocolEmitter
         {
             foreach (var line in BuildValueStorageSetup("newValuePtr", GetSwiftTypeName(valueType), "newValue"))
                 writer.WriteLine(line);
-            return "UnsafeRawPointer(newValuePtr)";
+            return "Swift.UnsafeRawPointer(newValuePtr)";
         }
         writer.WriteLine("var newValueCopy = newValue");
         return "&newValueCopy";
@@ -3957,7 +3957,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4101,7 +4101,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4162,7 +4162,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4234,7 +4234,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4370,7 +4370,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
@@ -4455,7 +4455,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Void";
+        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
@@ -4575,8 +4575,8 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? GetSwiftTypeNameForDeclaration(returnType!) : "Void";
-        var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
+        var returnTypeName = hasReturn ? GetSwiftTypeNameForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Swift.Void";
         // `async` must be propagated to the conformance declaration for an @objc protocol, whatever
         // carrier the conformance lands on: @objc async requirements bridge to ObjC
         // `:completion:`-suffixed selectors, and swiftc rejects sync candidates with "candidate is
@@ -4618,8 +4618,8 @@ public class EveryProtocolEmitter
             {
                 // Bridge Swift value type → ObjC object, pass pointer to the opaque reference.
                 // C# MarshalFromSwift<IntPtr> reads the 8-byte pointer, then GetNSObject<T> resolves it.
-                argPassList.Add($"let {paramName}NS = {escapedParam} as AnyObject");
-                argPassList.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                argPassList.Add($"let {paramName}NS = {escapedParam} as Swift.AnyObject");
+                argPassList.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained({paramName}NS).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Copy");
             }
@@ -4632,8 +4632,8 @@ public class EveryProtocolEmitter
                 // across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized word.
                 // The plain `&{p}Copy` else arm would pass the multi-word Optional<URL> bytes → receiver
                 // misreads one word → layout mismatch.
-                argPassList.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as AnyObject }}");
-                argPassList.Add($"var {paramName}Ref = {paramName}NS.map {{ Unmanaged.passUnretained($0).toOpaque() }}");
+                argPassList.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
+                argPassList.Add($"var {paramName}Ref = {paramName}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Ref");
             }
@@ -4646,7 +4646,7 @@ public class EveryProtocolEmitter
                 // RequiresExplicitValuePointer.
                 var ptrName = $"{paramName}CopyPtr";
                 argPassList.AddRange(BuildValueStorageSetup(ptrName, GetSwiftTypeName(param.SwiftTypeSpec), escapedParam));
-                argRefList.Add($"UnsafeRawPointer({ptrName})");
+                argRefList.Add($"Swift.UnsafeRawPointer({ptrName})");
                 argWritebackSources.Add($"{ptrName}.pointee");
             }
             else
@@ -4704,8 +4704,8 @@ public class EveryProtocolEmitter
                             let slice = resultPtr.load(as: SBW_Utf8Slice.self)
                             var str: Swift.String = ""
                             if slice.len > 0 {
-                                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
-                                str = String(decoding: buffer, as: UTF8.self)
+                                let buffer = Swift.UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                                str = Swift.String(decoding: buffer, as: Swift.UTF8.self)
                             }
                             slice.ptr.deallocate()
                             resultPtr.deallocate()
@@ -4721,9 +4721,9 @@ public class EveryProtocolEmitter
                             var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                             {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
                                 {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
-                            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                            let resultObjPtr = resultPtr.load(as: Swift.UnsafeRawPointer.self)
                             resultPtr.deallocate()
-                            return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
+                            return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                         """);
                 }
                 else if (GetOptionalObjCBridgeableValueInnerName(returnType) is string optBridgeableInner)
@@ -4735,9 +4735,9 @@ public class EveryProtocolEmitter
                             var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                             {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
                                 {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
-                            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer?.self)
+                            let resultObjPtr = resultPtr.load(as: Swift.UnsafeRawPointer?.self)
                             resultPtr.deallocate()
-                            return resultObjPtr.map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() as! {{optBridgeableInner}} }
+                            return resultObjPtr.map { Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeRetainedValue() as! {{optBridgeableInner}} }
                         """);
                 }
                 else
@@ -4746,7 +4746,7 @@ public class EveryProtocolEmitter
                             var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
                             {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
                                 {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
-                            let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).move()
+                            let __result = Swift.UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).move()
                             resultPtr.deallocate()
                             return __result
                         """);
@@ -4797,7 +4797,7 @@ public class EveryProtocolEmitter
             writer.WriteLine(line);
 
         if (hasReturn)
-            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            writer.WriteLine("let resultPtr: Swift.UnsafeRawPointer");
 
         // Box `self` as the OWNER's protocol type for EVERY branch — the protocol whose extension this
         // body is emitted in (`ownerProtoName`, the caller's `protocolDecl`), NOT branches[0]. The
@@ -4850,8 +4850,8 @@ public class EveryProtocolEmitter
                 let slice = resultPtr.load(as: SBW_Utf8Slice.self)
                 var str: Swift.String = ""
                 if slice.len > 0 {
-                    let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
-                    str = String(decoding: buffer, as: UTF8.self)
+                    let buffer = Swift.UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                    str = Swift.String(decoding: buffer, as: Swift.UTF8.self)
                 }
                 slice.ptr.deallocate()
                 resultPtr.deallocate()
@@ -4864,9 +4864,9 @@ public class EveryProtocolEmitter
             // see EmitPropertyGetterBody for the ownership rationale.
             const string take = "takeRetainedValue";
             writer.WriteLines($$"""
-                let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                let resultObjPtr = resultPtr.load(as: Swift.UnsafeRawPointer.self)
                 resultPtr.deallocate()
-                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
+                return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
         }
         else if (optBridgeableValueInner != null)
@@ -4875,7 +4875,7 @@ public class EveryProtocolEmitter
         }
         else
         {
-            writer.WriteLine($"let __result = UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {returnTypeNameForMetatype}.self).move()");
+            writer.WriteLine($"let __result = Swift.UnsafeMutableRawPointer(mutating: resultPtr).assumingMemoryBound(to: {returnTypeNameForMetatype}.self).move()");
             writer.WriteLine("resultPtr.deallocate()");
             writer.WriteLine("return __result");
         }
@@ -4956,8 +4956,8 @@ public class EveryProtocolEmitter
         // is throwing-agnostic, +3) — the non-throwing witness fills it with a never-dereferenced
         // sentinel, since its box emits no _error symbol.
         var effectClause = isThrowing ? "async throws" : "async";
-        var continuationFn = isThrowing ? "withCheckedThrowingContinuation" : "withCheckedContinuation";
-        var continuationErr = isThrowing ? "Swift.Error" : "Never";
+        var continuationFn = isThrowing ? SwiftConcurrencyNames.WithCheckedThrowingContinuation : SwiftConcurrencyNames.WithCheckedContinuation;
+        var continuationErr = isThrowing ? "Swift.Error" : "Swift.Never";
         var awaitExpr = isThrowing ? "return try await" : "return await";
 
         // Resolve dispatch branches — mirror EmitMethodImplementation / EmitMethodFanOutBody. A solo
@@ -4992,15 +4992,15 @@ public class EveryProtocolEmitter
         foreach (var line in argCopyLines)
             writer.WriteLine(line);
         writer.WriteLine($"let __box = {boxClassName}(__cont)");
-        writer.WriteLine("let __boxPtr = Unmanaged.passRetained(__box).toOpaque()");
-        writer.WriteLine($"let __successFP = unsafeBitCast({symbolRoot}_success as @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void, to: UnsafeRawPointer.self)");
+        writer.WriteLine("let __boxPtr = Swift.Unmanaged.passRetained(__box).toOpaque()");
+        writer.WriteLine($"let __successFP = Swift.unsafeBitCast({symbolRoot}_success as @convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer) -> Swift.Void, to: Swift.UnsafeRawPointer.self)");
         if (isThrowing)
-            writer.WriteLine($"let __errorFP = unsafeBitCast({symbolRoot}_error as @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void, to: UnsafeRawPointer.self)");
+            writer.WriteLine($"let __errorFP = Swift.unsafeBitCast({symbolRoot}_error as @convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafePointer<Swift.CChar>) -> Swift.Void, to: Swift.UnsafeRawPointer.self)");
         else
             // Non-throwing box has no _error symbol; the slot's error-FP is never invoked (the C#
             // receiver FailFasts on a fault instead of resuming-with-error), so a non-null sentinel
             // keeps the ABI uniform without referencing a missing symbol.
-            writer.WriteLine("let __errorFP = UnsafeRawPointer(bitPattern: 1)!");
+            writer.WriteLine("let __errorFP = Swift.UnsafeRawPointer(bitPattern: 1)!");
 
         // The box + resume FPs + arg copies above are handle-INDEPENDENT (built once); only the vtable
         // instance/field differ per branch, so the dispatch is the sole per-branch fragment.
@@ -5171,10 +5171,10 @@ public class EveryProtocolEmitter
                     // fnPtr round-trips as `IntPtr.Zero` on the C# trampoline.
                     passLines.Add($"var {localVar} = {escapedParam}");
                     passLines.Add(
-                        $"let ({fnVar}, {ctxVar}): (UnsafeRawPointer?, UnsafeRawPointer?) = withUnsafeBytes(of: &{localVar}) {{ _bytes in" +
+                        $"let ({fnVar}, {ctxVar}): (Swift.UnsafeRawPointer?, Swift.UnsafeRawPointer?) = Swift.withUnsafeBytes(of: &{localVar}) {{ _bytes in" +
                         " return (" +
-                        "_bytes.load(as: UnsafeRawPointer?.self), " +
-                        "_bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer?.self)" +
+                        "_bytes.load(as: Swift.UnsafeRawPointer?.self), " +
+                        "_bytes.load(fromByteOffset: Swift.MemoryLayout<Swift.UnsafeRawPointer>.size, as: Swift.UnsafeRawPointer?.self)" +
                         ") }");
                     argRefList.Add(fnVar);
                     argRefList.Add(ctxVar);
@@ -5183,10 +5183,10 @@ public class EveryProtocolEmitter
                 {
                     passLines.Add($"var {localVar} = {escapedParam}");
                     passLines.Add(
-                        $"let ({fnVar}, {ctxVar}) = withUnsafeBytes(of: &{localVar}) {{ _bytes -> (UnsafeRawPointer, UnsafeRawPointer) in" +
+                        $"let ({fnVar}, {ctxVar}) = Swift.withUnsafeBytes(of: &{localVar}) {{ _bytes -> (Swift.UnsafeRawPointer, Swift.UnsafeRawPointer) in" +
                         " return (" +
-                        "_bytes.load(as: UnsafeRawPointer.self), " +
-                        "_bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer.self)" +
+                        "_bytes.load(as: Swift.UnsafeRawPointer.self), " +
+                        "_bytes.load(fromByteOffset: Swift.MemoryLayout<Swift.UnsafeRawPointer>.size, as: Swift.UnsafeRawPointer.self)" +
                         ") }");
                     argRefList.Add(fnVar);
                     argRefList.Add(ctxVar);
@@ -5209,8 +5209,8 @@ public class EveryProtocolEmitter
                 // URL): URL is NSURL-backed, so its first word IS the bridged pointer and the buggy
                 // `&urlCopy` path accidentally survives; Decimal's first word is mantissa data, so
                 // the buggy path reads it as an ObjC pointer and crashes — a genuine guard.
-                passLines.Add($"let {paramName}NS = {escapedParam} as AnyObject");
-                passLines.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                passLines.Add($"let {paramName}NS = {escapedParam} as Swift.AnyObject");
+                passLines.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained({paramName}NS).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
@@ -5222,8 +5222,8 @@ public class EveryProtocolEmitter
                 // word the receiver reads as a bare IntPtr. No writeback entry (this path rejects inout).
                 // The plain `&{p}Copy` else would pass the multi-word Optional<URL> bytes → receiver misreads
                 // one word → layout mismatch.
-                passLines.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as AnyObject }}");
-                passLines.Add($"var {paramName}Ref = {paramName}NS.map {{ Unmanaged.passUnretained($0).toOpaque() }}");
+                passLines.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
+                passLines.Add($"var {paramName}Ref = {paramName}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (RequiresExplicitValuePointer(param.SwiftTypeSpec))
@@ -5239,7 +5239,7 @@ public class EveryProtocolEmitter
                 // crashes without this; pinned by TestTagBatchProcessorProxy_ArrayParamRoundTrips.)
                 var ptrName = $"{paramName}CopyPtr";
                 passLines.AddRange(BuildValueStorageSetup(ptrName, GetSwiftTypeName(param.SwiftTypeSpec), escapedParam));
-                argRefList.Add($"UnsafeRawPointer({ptrName})");
+                argRefList.Add($"Swift.UnsafeRawPointer({ptrName})");
             }
             else
             {
@@ -5337,7 +5337,7 @@ public class EveryProtocolEmitter
             var fieldName = $"func_{property.Name}_get";
             if (emittedFields.Add(fieldName))
             {
-                var funcType = "(@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?";
+                var funcType = "(@convention(c)(Swift.OpaquePointer?, Swift.UnsafeRawPointer) -> Swift.UnsafeRawPointer)?";
                 writer.WriteLine($"var {fieldName}: {funcType}");
             }
         }
@@ -5346,7 +5346,7 @@ public class EveryProtocolEmitter
             var fieldName = $"func_{property.Name}_set";
             if (emittedFields.Add(fieldName))
             {
-                var funcType = "(@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer?, UnsafeRawPointer?) -> Void)?";
+                var funcType = "(@convention(c)(Swift.OpaquePointer?, Swift.UnsafeRawPointer, Swift.UnsafeRawPointer?, Swift.UnsafeRawPointer?) -> Swift.Void)?";
                 writer.WriteLine($"var {fieldName}: {funcType}");
             }
         }
@@ -5411,7 +5411,7 @@ public class EveryProtocolEmitter
             }
             else
             {
-                writer.WriteLine("let resultPtr: UnsafeRawPointer");
+                writer.WriteLine("let resultPtr: Swift.UnsafeRawPointer");
                 // Owner-typed box for every branch — see EmitMethodFanOutBody for the rationale.
                 var ownerProto = getterBranches[0].SwiftTypeName.ModuleQualifiedName;
                 for (int i = 0; i < getterBranches.Count; i++)
@@ -5434,17 +5434,17 @@ public class EveryProtocolEmitter
                 writer.WriteLine("}");
             }
             writer.WriteLines("""
-                let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
-                let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
+                let fnPtrSlot = resultPtr.load(as: Swift.UnsafeRawPointer?.self)
+                let ctxPtrSlot = resultPtr.load(fromByteOffset: Swift.MemoryLayout<Swift.UnsafeRawPointer>.size, as: Swift.UnsafeMutableRawPointer?.self)
                 resultPtr.deallocate()
                 """);
             if (isOptional)
                 writer.WriteLine("guard let _fnPtr = fnPtrSlot else { return nil }");
             else
                 writer.WriteLine("guard let _fnPtr = fnPtrSlot else { Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
-            writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
-            writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
-            writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
+            writer.WriteLine($"let _ctxPtr: Swift.UnsafeMutableRawPointer? = ctxPtrSlot");
+            writer.WriteLine($"let _box: Swift.AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
+            writer.WriteLine($"let _cdecl = Swift.unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
             EmitDispatchableClosureGetterAdapter(writer, closure, closureHandler);
             writer.Indent--;
             writer.WriteLine("}");
@@ -5457,10 +5457,10 @@ public class EveryProtocolEmitter
             WrapperEmitterHelpers.EmitRuntimeSupportFloorGuard(writer, extensionAvailability, $"{property.ParentDecl?.Name}.{property.Name}");
             writer.WriteLines("""
                 var newValueLocal = newValue
-                let (_fnPtr, _ctxPtr): (UnsafeRawPointer?, UnsafeRawPointer?) = withUnsafeBytes(of: &newValueLocal) { _bytes in
+                let (_fnPtr, _ctxPtr): (Swift.UnsafeRawPointer?, Swift.UnsafeRawPointer?) = Swift.withUnsafeBytes(of: &newValueLocal) { _bytes in
                     return (
-                        _bytes.load(as: UnsafeRawPointer?.self),
-                        _bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer?.self)
+                        _bytes.load(as: Swift.UnsafeRawPointer?.self),
+                        _bytes.load(fromByteOffset: Swift.MemoryLayout<Swift.UnsafeRawPointer>.size, as: Swift.UnsafeRawPointer?.self)
                     )
                 }
                 """);
@@ -5541,7 +5541,7 @@ public class EveryProtocolEmitter
         }
         else
         {
-            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            writer.WriteLine("let resultPtr: Swift.UnsafeRawPointer");
             for (int i = 0; i < branches.Count; i++)
             {
                 var (branchProto, branchIndex) = branches[i];
@@ -5563,14 +5563,14 @@ public class EveryProtocolEmitter
             writer.WriteLine("}");
         }
         writer.WriteLines($$"""
-            let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
-            let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
+            let fnPtrSlot = resultPtr.load(as: Swift.UnsafeRawPointer?.self)
+            let ctxPtrSlot = resultPtr.load(fromByteOffset: Swift.MemoryLayout<Swift.UnsafeRawPointer>.size, as: Swift.UnsafeMutableRawPointer?.self)
             resultPtr.deallocate()
             """);
         writer.WriteLine("guard let _fnPtr = fnPtrSlot else { Swift.fatalError(\"[SwiftBindings] EveryProtocol: closure-returning method '" + method.Name + "' returned nil function pointer\") }");
-        writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
-        writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
-        writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
+        writer.WriteLine($"let _ctxPtr: Swift.UnsafeMutableRawPointer? = ctxPtrSlot");
+        writer.WriteLine($"let _box: Swift.AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
+        writer.WriteLine($"let _cdecl = Swift.unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
         EmitDispatchableClosureGetterAdapter(writer, retClosure, closureHandler);
         writer.Indent--;
         writer.WriteLine("}");
@@ -5593,7 +5593,7 @@ public class EveryProtocolEmitter
         // Shape 3 restricts to () -> Void closure values: the materialised Swift closure
         // takes no arguments and returns Void, calling the cdecl thunk with the captured
         // context pointer.
-        writer.WriteLine("let _adapted: () -> Void = { [_box] in");
+        writer.WriteLine("let _adapted: () -> Swift.Void = { [_box] in");
         writer.Indent++;
         writer.WriteLine("_ = _box");
         writer.WriteLine("_cdecl(_ctxPtr)");
@@ -6193,15 +6193,15 @@ public class EveryProtocolEmitter
         writer.WriteLine($"// `await closure()` and signals completion to C# via the function-pointer callback.");
         writer.WriteLine($"@_cdecl(\"{entryPoint}\")");
         writer.WriteLine($"public func {swiftFuncName}(");
-        writer.WriteLine("    _ _funcPtr: Int,");
-        writer.WriteLine("    _ _context: Int,");
-        writer.WriteLine("    _ _tcsHandle: Int,");
-        writer.WriteLine("    _ _completion: @convention(c) (Int, Int32) -> Void) {");
+        writer.WriteLine("    _ _funcPtr: Swift.Int,");
+        writer.WriteLine("    _ _context: Swift.Int,");
+        writer.WriteLine("    _ _tcsHandle: Swift.Int,");
+        writer.WriteLine("    _ _completion: @convention(c) (Swift.Int, Swift.Int32) -> Swift.Void) {");
         writer.Indent++;
-        writer.WriteLine("let _buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<(Int, Int)>.size, alignment: MemoryLayout<(Int, Int)>.alignment)");
-        writer.WriteLine("_buf.storeBytes(of: _funcPtr, as: Int.self)");
-        writer.WriteLine("_buf.storeBytes(of: _context, toByteOffset: MemoryLayout<Int>.size, as: Int.self)");
-        writer.WriteLine("let _closure = _buf.assumingMemoryBound(to: (() async -> Int32).self).pointee");
+        writer.WriteLine("let _buf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<(Swift.Int, Swift.Int)>.size, alignment: Swift.MemoryLayout<(Swift.Int, Swift.Int)>.alignment)");
+        writer.WriteLine("_buf.storeBytes(of: _funcPtr, as: Swift.Int.self)");
+        writer.WriteLine("_buf.storeBytes(of: _context, toByteOffset: Swift.MemoryLayout<Swift.Int>.size, as: Swift.Int.self)");
+        writer.WriteLine("let _closure = _buf.assumingMemoryBound(to: (() async -> Swift.Int32).self).pointee");
         writer.WriteLine("_buf.deallocate()");
         writer.WriteLine($"{SwiftConcurrencyNames.Task} {{");
         writer.Indent++;
@@ -6518,9 +6518,9 @@ public class EveryProtocolEmitter
     private static void EmitOptionalObjCBridgeableValueReturn(SwiftWriter writer, string innerTypeName)
     {
         writer.WriteLines($$"""
-            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer?.self)
+            let resultObjPtr = resultPtr.load(as: Swift.UnsafeRawPointer?.self)
             resultPtr.deallocate()
-            return resultObjPtr.map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() as! {{innerTypeName}} }
+            return resultObjPtr.map { Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeRetainedValue() as! {{innerTypeName}} }
             """);
     }
 
@@ -6681,7 +6681,7 @@ public class EveryProtocolEmitter
             // Mirror EmitSubscriptArgCopies' predicate exactly so the setup and the call-site ref
             // stay aligned for Array/String index params. See RequiresExplicitValuePointer.
             refs.Add(RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec)
-                ? $"UnsafeRawPointer(arg{i}CopyPtr)"
+                ? $"Swift.UnsafeRawPointer(arg{i}CopyPtr)"
                 : $"&arg{i}Copy");
         }
         return refs.Count > 0 ? ", " + string.Join(", ", refs) : "";

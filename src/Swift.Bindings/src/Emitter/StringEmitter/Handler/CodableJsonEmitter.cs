@@ -136,16 +136,16 @@ internal static class CodableJsonEmitter
 
             // Codable JSON encode @_cdecl wrapper for {{swiftQualifiedName}}.
             {{availabilityPrefix}}@_cdecl("{{encodeSymbol}}")
-            public func _sbw_encodeJson_{{SanitizeSymbol(swiftQualifiedName)}}(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) -> Int32 {
+            public func _sbw_encodeJson_{{SanitizeSymbol(swiftQualifiedName)}}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ self_: Swift.UnsafeRawPointer) -> Swift.Int32 {
                 let value = self_.assumingMemoryBound(to: {{swiftQualifiedName}}.self).pointee
                 do {
                     let data = try JSONEncoder().encode(value)
-                    let bytes = [UInt8](data)
+                    let bytes = [Swift.UInt8](data)
                     if bytes.isEmpty {
                         resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
                         return 0
                     }
-                    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: bytes.count)
+                    let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: bytes.count)
                     ptr.initialize(from: bytes, count: bytes.count)
                     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: bytes.count), as: SBW_Utf8Slice.self)
                     return 0
@@ -158,8 +158,8 @@ internal static class CodableJsonEmitter
             // Codable JSON decode @_cdecl wrapper for {{swiftQualifiedName}}.
             // Returns 0 on success, 1 on decoder failure (resultPtr is left untouched on failure).
             {{availabilityPrefix}}@_cdecl("{{decodeSymbol}}")
-            public func _sbw_decodeJson_{{SanitizeSymbol(swiftQualifiedName)}}(_ resultPtr: UnsafeMutableRawPointer, _ bytesPtr: UnsafePointer<UInt8>, _ byteCount: Int) -> Int32 {
-                let buffer = UnsafeBufferPointer(start: bytesPtr, count: byteCount)
+            public func _sbw_decodeJson_{{SanitizeSymbol(swiftQualifiedName)}}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ bytesPtr: Swift.UnsafePointer<Swift.UInt8>, _ byteCount: Swift.Int) -> Swift.Int32 {
+                let buffer = Swift.UnsafeBufferPointer(start: bytesPtr, count: byteCount)
                 let data = Data(buffer: buffer)
                 do {
                     let result = try JSONDecoder().decode({{swiftQualifiedName}}.self, from: data)

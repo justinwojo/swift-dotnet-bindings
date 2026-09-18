@@ -1137,7 +1137,7 @@ namespace BindingsGeneration
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""
-            public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
+            public func {{symbolName}}(_ lhs: Swift.UnsafeRawPointer, _ rhs: Swift.UnsafeRawPointer) -> Swift.UInt8 {
                 let l = lhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
                 let r = rhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
                 return (l == r) ? 1 : 0

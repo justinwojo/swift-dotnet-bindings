@@ -115,7 +115,7 @@ public class AppleTypesCsEmitterTests
             "$s10Foundation6LocaleV8LanguageVMa");
         var (_, _, contents) = Emit(entry, "Foundation");
 
-        Assert.Contains("public sealed partial class Language : ISwiftObject, ISwiftStruct, IDisposable", contents);
+        Assert.Contains("public sealed partial class Language : global::Swift.Runtime.ISwiftObject, global::Swift.Runtime.ISwiftStruct, global::System.IDisposable", contents);
         Assert.Contains("public readonly partial struct Locale", contents);
         Assert.Contains("namespace Swift.Foundation;", contents);
     }
@@ -141,7 +141,7 @@ public class AppleTypesCsEmitterTests
             "[global::System.Runtime.InteropServices.DllImport(\"Foundation\", EntryPoint = \"$s10Foundation6LocaleV8LanguageVMa\")]",
             contents);
         Assert.DoesNotContain("/System/Library/Frameworks/Foundation.framework/Foundation", contents);
-        Assert.Contains("private static extern TypeMetadata PInvoke_GetMetadata();", contents);
+        Assert.Contains("private static extern global::Swift.Runtime.TypeMetadata PInvoke_GetMetadata();", contents);
     }
 
     [Fact]
@@ -171,10 +171,10 @@ public class AppleTypesCsEmitterTests
             availability: new Availability { Ios = "15.0", Maccatalyst = null, Tvos = null, Macos = null });
         var (_, _, contents) = Emit(entry, "ManagedSettings");
 
-        Assert.Contains("[SupportedOSPlatform(\"ios15.0\")]", contents);
-        Assert.Contains("[UnsupportedOSPlatform(\"maccatalyst\")]", contents);
-        Assert.Contains("[UnsupportedOSPlatform(\"tvos\")]", contents);
-        Assert.Contains("[UnsupportedOSPlatform(\"macos\")]", contents);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios15.0\")]", contents);
+        Assert.Contains("[global::System.Runtime.Versioning.UnsupportedOSPlatform(\"maccatalyst\")]", contents);
+        Assert.Contains("[global::System.Runtime.Versioning.UnsupportedOSPlatform(\"tvos\")]", contents);
+        Assert.Contains("[global::System.Runtime.Versioning.UnsupportedOSPlatform(\"macos\")]", contents);
     }
 
     [Fact]
@@ -190,8 +190,8 @@ public class AppleTypesCsEmitterTests
             availability: new Availability { Ios = "16", Macos = "13" });
         var (_, _, contents) = Emit(entry, "Foundation");
 
-        Assert.Contains("[SupportedOSPlatform(\"ios16.0\")]", contents);
-        Assert.Contains("[SupportedOSPlatform(\"macos13.0\")]", contents);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios16.0\")]", contents);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"macos13.0\")]", contents);
         Assert.DoesNotContain("ios16\"", contents);
         Assert.DoesNotContain("macos13\"", contents);
     }

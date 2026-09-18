@@ -15,7 +15,7 @@ public static class WrapperEmitterHelpers
     /// only conform to one that suppresses it; the clause is empty for every other type.
     /// </summary>
     public static string DispatchProtocolCopyability(BaseDecl? conformingTypeDecl)
-        => WrapperValidation.IsNonCopyableStructParent(conformingTypeDecl) ? ": ~Copyable" : "";
+        => WrapperValidation.IsNonCopyableStructParent(conformingTypeDecl) ? ": ~Swift.Copyable" : "";
 
     /// <summary>
     /// Emits the @MainActor (if needed) and @_cdecl annotations for a Swift wrapper function.
@@ -530,9 +530,9 @@ public static class WrapperEmitterHelpers
         return new List<string>
         {
             $"var result = {callExpr}",
-            "let resultSize = MemoryLayout.size(ofValue: result)",
+            "let resultSize = Swift.MemoryLayout.size(ofValue: result)",
             $"var tag: {cdeclReturnType} = 0",
-            "withUnsafeMutablePointer(to: &tag) { tagPtr in withUnsafePointer(to: &result) { resultPtr in UnsafeMutableRawPointer(tagPtr).copyMemory(from: UnsafeRawPointer(resultPtr), byteCount: resultSize) } }",
+            "Swift.withUnsafeMutablePointer(to: &tag) { tagPtr in Swift.withUnsafePointer(to: &result) { resultPtr in Swift.UnsafeMutableRawPointer(tagPtr).copyMemory(from: Swift.UnsafeRawPointer(resultPtr), byteCount: resultSize) } }",
             "return tag"
         };
     }

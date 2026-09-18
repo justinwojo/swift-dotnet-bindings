@@ -465,15 +465,15 @@ internal static class KeyPathSingletonEmitter
             // property — same failure mode CSM mitigates with the identical merge.
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"@_cdecl(\"{symbol}\")");
-            swiftWriter.WriteLine($"public func {symbol}() -> UnsafeMutableRawPointer {{");
+            swiftWriter.WriteLine($"public func {symbol}() -> Swift.UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
             // Type-annotate the literal so the Swift compiler picks the correct
             // flavour for a `var` (WritableKeyPath) without us depending on type
             // inference; the upcast to KeyPath in the read-only case is explicit.
             // The literal itself emits the `keypath` SIL instruction; without it,
             // there is no way for C# to obtain a KeyPath at runtime.
-            swiftWriter.WriteLine($"let kp: {keyPathFlavor}<{bagSwiftQualifiedForWrapper}, {swiftValueType}> = \\{bagSwiftQualifiedForWrapper}.{swiftPropName}");
-            swiftWriter.WriteLine("return Unmanaged.passRetained(kp).toOpaque()");
+            swiftWriter.WriteLine($"let kp: Swift.{keyPathFlavor}<{bagSwiftQualifiedForWrapper}, {swiftValueType}> = \\{bagSwiftQualifiedForWrapper}.{swiftPropName}");
+            swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(kp).toOpaque()");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }

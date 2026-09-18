@@ -93,8 +93,8 @@ public class CdeclEnumTransportTests
         var transport = CdeclParamMapper.GetCdeclEnumTransportType(rawValueTypeName);
         Assert.Contains(transport, new[]
         {
-            "Int", "UInt", "Int8", "UInt8", "Int16", "UInt16",
-            "Int32", "UInt32", "Int64", "UInt64"
+            "Swift.Int", "Swift.UInt", "Swift.Int8", "Swift.UInt8", "Swift.Int16", "Swift.UInt16",
+            "Swift.Int32", "Swift.UInt32", "Swift.Int64", "Swift.UInt64"
         });
     }
 }

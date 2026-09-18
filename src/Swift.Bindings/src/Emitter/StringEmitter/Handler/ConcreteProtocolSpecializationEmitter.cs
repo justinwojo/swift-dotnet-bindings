@@ -777,7 +777,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             needsResultPtr = true;
 
         if (needsResultPtr || isStringReturn)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         // Regular parameters. Every param's internal binding is hand-emitted as `_<label>` (NOT
         // routed through Map), so escape that form here: a param internally named `_self` yields
@@ -808,8 +808,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 switch (category)
                 {
                     case ConformerCategory.Class:
-                        swiftParams.Add($"_ {b}: UnsafeMutableRawPointer");
-                        callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer({b}), to: {concreteSwiftType}.self)");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeMutableRawPointer");
+                        callArgs.Add($"{argLabel}Swift.unsafeBitCast(Swift.OpaquePointer({b}), to: {concreteSwiftType}.self)");
                         break;
                     case ConformerCategory.RawBuffer:
                         // byte[] / [UInt8]: receive (ptr, length), reconstruct as Foundation.Data
@@ -818,22 +818,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // pin — this is a synchronous call). Swift infers D = Foundation.Data
                         // at the call site regardless of the conformer's nominal [UInt8] identity,
                         // which is fine: both [UInt8] and Data conform to DataProtocol.
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
-                        swiftParams.Add($"_ {b}Len: Int");
-                        callArgs.Add($"{argLabel}Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: {b}), count: {b}Len, deallocator: .none)");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}Len: Swift.Int");
+                        callArgs.Add($"{argLabel}Data(bytesNoCopy: Swift.UnsafeMutableRawPointer(mutating: {b}), count: {b}Len, deallocator: .none)");
                         break;
                     case ConformerCategory.InlineSwiftStruct:
                         // Foundation.Data (and future allowlisted value structs): the C# side
                         // pins &data via fixed(Data*) and passes (IntPtr)p. Swift loads via
                         // assumingMemoryBound+pointee, same shape as NonFrozenStruct.
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
                         callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
                         break;
                     default:
                         // Frozen and non-frozen structs: pass as pointer, load value.
                         // Even frozen structs use pointer indirection because their C# binding
                         // is a class with SafeHandle, not a blittable C# struct.
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
                         callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
                         break;
                 }
@@ -854,7 +854,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         break;
                     case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
                         var swiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                         // PayloadHandle covers both Swift classes and non-frozen structs.
                         // Discriminate: Swift classes (and ObjC-bridged) — the IntPtr IS the
@@ -871,7 +871,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                             && (abiCategory == MethodClosureBridge.ParamAbiCategory.ObjCHandle
                                 || MethodClosureBridge.IsClassTypeForSwift(namedArg, typeDatabase));
                         if (argIsClass)
-                            callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer({b}), to: {swiftTypeName}.self)");
+                            callArgs.Add($"{argLabel}Swift.unsafeBitCast(Swift.OpaquePointer({b}), to: {swiftTypeName}.self)");
                         else
                             callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
                         break;
@@ -881,9 +881,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // expression is a single Swift literal so we inline it directly into
                         // the call site rather than threading a prelude `let {name}Val` line
                         // (the param is consumed exactly once in CSM wrapper bodies).
-                        swiftParams.Add($"_ {b}Utf8Ptr: UnsafePointer<UInt8>");
-                        swiftParams.Add($"_ {b}Utf8Len: Int");
-                        callArgs.Add($"{argLabel}String(bytes: UnsafeBufferPointer(start: {b}Utf8Ptr, count: {b}Utf8Len), encoding: .utf8)!");
+                        swiftParams.Add($"_ {b}Utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+                        swiftParams.Add($"_ {b}Utf8Len: Swift.Int");
+                        callArgs.Add($"{argLabel}Swift.String(bytes: Swift.UnsafeBufferPointer(start: {b}Utf8Ptr, count: {b}Utf8Len), encoding: .utf8)!");
                         break;
                     case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
                     {
@@ -892,8 +892,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // takeUnretainedValue (no retain consumed): C# passes @guaranteed
                         // with the SafeHandle kept alive by DangerousGetHandle across the call.
                         var swiftKpType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
-                        callArgs.Add($"{argLabel}Unmanaged<{swiftKpType}>.fromOpaque({b}).takeUnretainedValue()");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}Swift.Unmanaged<{swiftKpType}>.fromOpaque({b}).takeUnretainedValue()");
                         break;
                     }
                     case MethodClosureBridge.ParamAbiCategory.NativeRemapped
@@ -906,9 +906,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // FromByteArray created into Swift (which releases it at end of call):
                         // ownership-balanced, no leak. The word tokens carry the escaped binding
                         // (`b` already starts with `_`) so they never collide with a sibling param.
-                        swiftParams.Add($"_ _dW0{b}: Int");
-                        swiftParams.Add($"_ _dW1{b}: Int");
-                        callArgs.Add($"{argLabel}unsafeBitCast((_dW0{b}, _dW1{b}), to: Foundation.Data.self)");
+                        swiftParams.Add($"_ _dW0{b}: Swift.Int");
+                        swiftParams.Add($"_ _dW1{b}: Swift.Int");
+                        callArgs.Add($"{argLabel}Swift.unsafeBitCast((_dW0{b}, _dW1{b}), to: Foundation.Data.self)");
                         break;
                     case MethodClosureBridge.ParamAbiCategory.FrozenStruct
                         when arg.SwiftTypeSpec is NamedTypeSpec frozenParamNamed
@@ -917,11 +917,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // Frozen, trivially-copyable struct: the C# side pins &v and passes
                         // (IntPtr)p. Swift loads via assumingMemoryBound+pointee, the same shape as
                         // the InlineSwiftStruct (Data) and non-frozen-struct PayloadHandle arms.
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
                         callArgs.Add($"{argLabel}{b}.assumingMemoryBound(to: {ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec)}.self).pointee");
                         break;
                     default:
-                        swiftParams.Add($"_ {b}: UnsafeRawPointer");
+                        swiftParams.Add($"_ {b}: Swift.UnsafeRawPointer");
                         callArgs.Add($"{argLabel}{b}");
                         break;
                 }
@@ -938,16 +938,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (isInstance)
         {
             if (isClass || needsMutatingSelf || consumesSelf)
-                swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
             else
-                swiftParams.Add("_ self_: UnsafeRawPointer");
+                swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
         }
 
         // errorOut parameter for throwing methods. Goes last, after self_, matching the
         // non-CSM @_cdecl wrapper layout in OptionalPointerWrapperEmitter.EmitCdeclWrapper.
         if (method.Throws)
         {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
             // Ensure SBW_GetErrorDescription / SBW_ReleaseError are emitted once per module.
             ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, moduleName, emissionContext);
         }
@@ -961,7 +961,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(self_), to: {parentSwiftName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(self_), to: {parentSwiftName}.self)";
             }
             else if (nonCopyableSelf)
             {
@@ -1016,7 +1016,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         bool throws = method.Throws;
         string swiftReturnType;
         if (isConstructor)
-            swiftReturnType = isClass ? " -> UnsafeMutableRawPointer" : "";
+            swiftReturnType = isClass ? " -> Swift.UnsafeMutableRawPointer" : "";
         else if (isVoidReturn || isStringReturn || needsResultPtr)
             swiftReturnType = "";
         else if (returnsGenericParam)
@@ -1062,7 +1062,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (isClass)
             {
                 swiftWriter.WriteLine($"{bodyIndent}let _result = {callExprWithTry}");
-                swiftWriter.WriteLine($"{bodyIndent}return Unmanaged.passRetained(_result as AnyObject).toOpaque()");
+                swiftWriter.WriteLine($"{bodyIndent}return Swift.Unmanaged.passRetained(_result as Swift.AnyObject).toOpaque()");
             }
             else
             {
@@ -1168,7 +1168,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (throws)
         {
             swiftWriter.WriteLine("    } catch {");
-            swiftWriter.WriteLine("        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+            swiftWriter.WriteLine("        errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()");
 
             // Sentinel return on the error path, sized to the declared @_cdecl return type.
             // Indirect-result / string / void shapes return `Void`, so no sentinel is needed.
@@ -1181,7 +1181,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 {
                     // Constructor returns UnsafeMutableRawPointer (ClassPointer). Mirror
                     // EmitCdeclSentinelReturn's ClassPointer branch.
-                    swiftWriter.WriteLine("        return UnsafeMutableRawPointer(bitPattern: 1)!");
+                    swiftWriter.WriteLine("        return Swift.UnsafeMutableRawPointer(bitPattern: 1)!");
                 }
                 else
                 {

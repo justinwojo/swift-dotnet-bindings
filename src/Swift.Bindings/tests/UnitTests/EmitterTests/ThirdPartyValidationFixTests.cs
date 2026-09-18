@@ -14,42 +14,52 @@ public class ThirdPartyValidationFixTests
 {
     #region B1+B2 — Missing using statements
 
+    // These libraries failed because emitted code named Dictionary, IReadOnlyList, IEnumerable and
+    // Task without importing their namespaces. Emitted C# now imports no external namespace at all:
+    // every such name is spelled from global:: at the file boundary, so a bound member of the same
+    // name cannot capture it and no using directive is needed for it to resolve.
+
     [Fact]
-    public void ModuleHandler_EmitsCollectionsGenericUsing()
+    public void ModuleHandler_ImportsNoExternalNamespace()
     {
-        // Generated C# must include using System.Collections.Generic
-        // for Dictionary, IReadOnlyList, IEnumerable
         var (csOutput, _) = EmitModule("TestModule");
-        Assert.Contains("using System.Collections.Generic;", csOutput);
+        var usingLines = csOutput.Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith("using ")).ToList();
+
+        Assert.DoesNotContain(usingLines, l => l.StartsWith("using System", StringComparison.Ordinal));
+        Assert.DoesNotContain(usingLines, l => l.StartsWith("using Swift", StringComparison.Ordinal));
+        Assert.DoesNotContain(usingLines, l => l.StartsWith("using static ", StringComparison.Ordinal));
+        Assert.DoesNotContain(usingLines, l => l.Contains(" = ", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void ModuleHandler_EmitsThreadingTasksUsing()
+    public void ModuleHandler_OnlyUsingIsTheModulesOwnInteropNamespace()
     {
-        // Generated C# must include using System.Threading.Tasks
-        // for Task and Task<T>
         var (csOutput, _) = EmitModule("TestModule");
-        Assert.Contains("using System.Threading.Tasks;", csOutput);
+        var usingLines = csOutput.Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith("using ")).ToList();
+
+        Assert.All(usingLines, l => Assert.Equal("using TestModule.SwiftInterop;", l));
     }
 
     [Fact]
-    public void ModuleHandler_UsingsAreAlphabetical()
+    public void CollectionAndTaskNames_ResolveFromGlobalWithoutUsings()
     {
-        // Verify using statements are in alphabetical order
-        var (csOutput, _) = EmitModule("TestModule");
-        var lines = csOutput.Split('\n');
-        var usingLines = lines.Where(l => l.TrimStart().StartsWith("using System")).ToList();
-        Assert.True(usingLines.Count >= 8, "Expected at least 8 System using statements");
+        var qualified = CSharpGlobalQualifier.Qualify("""
+            namespace TestModule;
+            public class Host
+            {
+                public Dictionary<string, int> D => new();
+                public IReadOnlyList<int> L => new List<int>();
+                public IEnumerable<int> E => L;
+                public Task T() => Task.CompletedTask;
+                public Task<int> U() => Task.FromResult(1);
+            }
+            """, CSharpGlobalQualifier.BuildRoots(new[] { "TestModule" }));
 
-        // Collections.Generic should come before Diagnostics
-        int collectionsIdx = usingLines.FindIndex(l => l.Contains("Collections.Generic"));
-        int diagnosticsIdx = usingLines.FindIndex(l => l.Contains("Diagnostics;"));
-        Assert.True(collectionsIdx < diagnosticsIdx, "Collections.Generic should precede Diagnostics");
-
-        // Threading.Tasks should come after Runtime.InteropServices.Swift
-        int swiftIdx = usingLines.FindIndex(l => l.Contains("InteropServices.Swift"));
-        int tasksIdx = usingLines.FindIndex(l => l.Contains("Threading.Tasks"));
-        Assert.True(swiftIdx < tasksIdx, "Threading.Tasks should come after InteropServices.Swift");
+        Assert.Contains("public global::System.Collections.Generic.Dictionary<string, int> D", qualified);
+        Assert.Contains("public global::System.Collections.Generic.IReadOnlyList<int> L => new global::System.Collections.Generic.List<int>();", qualified);
+        Assert.Contains("public global::System.Collections.Generic.IEnumerable<int> E", qualified);
+        Assert.Contains("public global::System.Threading.Tasks.Task T() => global::System.Threading.Tasks.Task.CompletedTask;", qualified);
+        Assert.Contains("public global::System.Threading.Tasks.Task<int> U() => global::System.Threading.Tasks.Task.FromResult(1);", qualified);
     }
 
     #endregion

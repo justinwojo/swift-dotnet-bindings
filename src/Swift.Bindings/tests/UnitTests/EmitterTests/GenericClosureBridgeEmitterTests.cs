@@ -1188,10 +1188,10 @@ public class GenericClosureBridgeEmitterTests
 
         var swift = swiftOutput.ToString();
         // The synthetic func-ptr rebind escaped to `__cdecl`; the user param `cdecl` survives as-is.
-        Assert.Contains("let __cdecl = unsafeBitCast", swift);
+        Assert.Contains("let __cdecl = Swift.unsafeBitCast", swift);
         Assert.Contains("__cdecl(", swift); // invoked under the renamed identifier
         // No bare-`cdecl` redeclaration (the "invalid redeclaration" the guard exists to prevent).
-        Assert.DoesNotContain("let cdecl = unsafeBitCast", swift);
+        Assert.DoesNotContain("let cdecl = Swift.unsafeBitCast", swift);
     }
 
     [Fact]
@@ -1241,8 +1241,8 @@ public class GenericClosureBridgeEmitterTests
 
         var swift = swiftOutput.ToString();
         // The self-pointer param escaped to `___self`; the reconstruction local reads from it.
-        Assert.Contains("___self: UnsafeMutableRawPointer", swift);
-        Assert.Contains("unsafeBitCast(OpaquePointer(___self)", swift);
+        Assert.Contains("___self: Swift.UnsafeMutableRawPointer", swift);
+        Assert.Contains("Swift.unsafeBitCast(Swift.OpaquePointer(___self)", swift);
         // The user param `_self` survives as a distinct, label-less wrapper parameter (`_ _self:`),
         // so the synthetic (`___self`) and the user identifier never collide into an "invalid
         // redeclaration". `_ _self:` is not a substring of `_ ___self:`, so this uniquely matches

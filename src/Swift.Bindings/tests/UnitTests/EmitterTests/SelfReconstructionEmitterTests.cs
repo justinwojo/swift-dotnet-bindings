@@ -20,7 +20,7 @@ public class SelfReconstructionEmitterTests
         SelfReconstructionEmitter.Emit(swiftWriter, isClass: true, isMutating: false, "TestModule.MyClass");
 
         var result = output.ToString();
-        Assert.Contains("let obj = Unmanaged<TestModule.MyClass>.fromOpaque(self_).takeUnretainedValue()", result);
+        Assert.Contains("let obj = Swift.Unmanaged<TestModule.MyClass>.fromOpaque(self_).takeUnretainedValue()", result);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class SelfReconstructionEmitterTests
         SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, "_SBW_MyProtocol", isMutable: false);
 
         var result = output.ToString();
-        Assert.Contains("let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_MyProtocol", result);
+        Assert.Contains("let obj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_MyProtocol", result);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public class SelfReconstructionEmitterTests
         SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, "_SBW_SetterProtocol", isMutable: true);
 
         var result = output.ToString();
-        Assert.Contains("var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_SetterProtocol", result);
+        Assert.Contains("var obj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_SetterProtocol", result);
     }
 
     [Fact]

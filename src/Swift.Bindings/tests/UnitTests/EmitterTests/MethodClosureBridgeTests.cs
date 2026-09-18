@@ -773,9 +773,9 @@ public class MethodClosureBridgeTests
         var cs = csOutput.ToString();
 
         // Swift wrapper splits the string into (pointer, length) and rebuilds via String(bytes:encoding:)
-        Assert.Contains("cardNumberUtf8Ptr: UnsafePointer<UInt8>", swift);
-        Assert.Contains("cardNumberUtf8Len: Int", swift);
-        Assert.Contains("String(bytes: UnsafeBufferPointer(start: cardNumberUtf8Ptr, count: cardNumberUtf8Len), encoding: .utf8)!", swift);
+        Assert.Contains("cardNumberUtf8Ptr: Swift.UnsafePointer<Swift.UInt8>", swift);
+        Assert.Contains("cardNumberUtf8Len: Swift.Int", swift);
+        Assert.Contains("Swift.String(bytes: Swift.UnsafeBufferPointer(start: cardNumberUtf8Ptr, count: cardNumberUtf8Len), encoding: .utf8)!", swift);
         // And invokes the original Swift method with the reconstructed Val.
         Assert.Contains("cardNumberVal", swift);
 

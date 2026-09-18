@@ -497,8 +497,8 @@ public static class MethodClosureBridge
             var paramName = NameProvider.EscapeSwiftKeyword(csName);
             if (category == ParamAbiCategory.PayloadHandle)
             {
-                swiftParams.Add($"    _ {paramName}: UnsafeRawPointer");
-                swiftParamPairs.Add((paramName, "UnsafeRawPointer"));
+                swiftParams.Add($"    _ {paramName}: Swift.UnsafeRawPointer");
+                swiftParamPairs.Add((paramName, "Swift.UnsafeRawPointer"));
                 // Classes need Unmanaged unwrap; non-frozen structs need .pointee load
                 bool isClass = arg.SwiftTypeSpec is NamedTypeSpec named &&
                     IsClassTypeForSwift(named, env.TypeDatabase);
@@ -506,9 +506,9 @@ public static class MethodClosureBridge
             }
             else if (category == ParamAbiCategory.Utf8Slice)
             {
-                swiftParams.Add($"    _ {paramName}Utf8Ptr: UnsafePointer<UInt8>");
-                swiftParamPairs.Add(($"{paramName}Utf8Ptr", "UnsafePointer<UInt8>"));
-                swiftParams.Add($"    _ {paramName}Utf8Len: Int");
+                swiftParams.Add($"    _ {paramName}Utf8Ptr: Swift.UnsafePointer<Swift.UInt8>");
+                swiftParamPairs.Add(($"{paramName}Utf8Ptr", "Swift.UnsafePointer<Swift.UInt8>"));
+                swiftParams.Add($"    _ {paramName}Utf8Len: Swift.Int");
                 swiftParamPairs.Add(($"{paramName}Utf8Len", "Int"));
                 utf8SliceParams.Add(paramName);
             }
@@ -523,10 +523,10 @@ public static class MethodClosureBridge
         foreach (var ci in closures)
         {
             var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
-            swiftParams.Add($"    _ {closureCsName}FuncPtr: UnsafeMutableRawPointer?");
-            swiftParamPairs.Add(($"{closureCsName}FuncPtr", "UnsafeMutableRawPointer?"));
-            swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
-            swiftParamPairs.Add(($"{closureCsName}Context", "UnsafeMutableRawPointer?"));
+            swiftParams.Add($"    _ {closureCsName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+            swiftParamPairs.Add(($"{closureCsName}FuncPtr", "Swift.UnsafeMutableRawPointer?"));
+            swiftParams.Add($"    _ {closureCsName}Context: Swift.UnsafeMutableRawPointer?");
+            swiftParamPairs.Add(($"{closureCsName}Context", "Swift.UnsafeMutableRawPointer?"));
         }
 
         // The @_cdecl wrapper hardcodes synthetic Swift identifiers
@@ -551,7 +551,7 @@ public static class MethodClosureBridge
         bool returnsClass = returnsValue && returnSpec is NamedTypeSpec rts &&
             !MarshallingHelpers.IsSwiftPrimitive(rts.Name);
         var swiftReturnType = !returnsValue ? ""
-            : returnsClass ? " -> UnsafeMutableRawPointer"
+            : returnsClass ? " -> Swift.UnsafeMutableRawPointer"
             : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}";
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
@@ -575,8 +575,8 @@ public static class MethodClosureBridge
         // static-dispatch route can re-spell it as a labelled protocol parameter.
         if (isInstance && !usesSilgenExtension)
         {
-            swiftParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
-            swiftParamPairs.Add((selfParamName, "UnsafeMutableRawPointer"));
+            swiftParams.Add($"    _ {selfParamName}: Swift.UnsafeMutableRawPointer");
+            swiftParamPairs.Add((selfParamName, "Swift.UnsafeMutableRawPointer"));
         }
 
         if (usesSilgenExtension)
@@ -646,7 +646,7 @@ public static class MethodClosureBridge
         foreach (var (paramName, swiftType, isClass) in pointerLoadParams)
         {
             if (isClass)
-                swiftWriter.WriteLine($"    let {paramName}Val = Unmanaged<{swiftType}>.fromOpaque({paramName}).takeUnretainedValue()");
+                swiftWriter.WriteLine($"    let {paramName}Val = Swift.Unmanaged<{swiftType}>.fromOpaque({paramName}).takeUnretainedValue()");
             else
                 swiftWriter.WriteLine($"    let {paramName}Val = {paramName}.assumingMemoryBound(to: {swiftType}.self).pointee");
         }
@@ -655,7 +655,7 @@ public static class MethodClosureBridge
         foreach (var paramName in utf8SliceParams)
         {
             swiftWriter.WriteLine(
-                $"    let {paramName}Val = String(bytes: UnsafeBufferPointer(start: {paramName}Utf8Ptr, count: {paramName}Utf8Len), encoding: .utf8)!");
+                $"    let {paramName}Val = Swift.String(bytes: Swift.UnsafeBufferPointer(start: {paramName}Utf8Ptr, count: {paramName}Utf8Len), encoding: .utf8)!");
         }
 
         // Reconstruct cdecl functions from pointers — one per non-Optional closure.
@@ -675,15 +675,15 @@ public static class MethodClosureBridge
             {
                 cdeclParamTypes.Add(GetSwiftCdeclParamType(ci.ClosureArgs[i], env));
             }
-            cdeclParamTypes.Add("UnsafeMutableRawPointer?"); // context
-            var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "UInt8";
+            cdeclParamTypes.Add("Swift.UnsafeMutableRawPointer?"); // context
+            var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Swift.Void" : "Swift.UInt8";
             var cdeclType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
             var cdeclVarName = cdeclNames[ci.Index];
-            swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
+            swiftWriter.WriteLine($"    let {cdeclVarName} = Swift.unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
 
             if (ci.IsEffectivelyEscaping)
             {
-                swiftWriter.WriteLine($"    let {boxNames[ci.Index]}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                swiftWriter.WriteLine($"    let {boxNames[ci.Index]}: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
             }
         }
 
@@ -699,16 +699,16 @@ public static class MethodClosureBridge
         {
             bool isClassParent = parentDecl is ClassDecl;
             if (isClassParent && reroutesToCdecl)
-                swiftWriter.WriteLine($"    let {selfObjName} = Unmanaged<AnyObject>.fromOpaque({selfParamName}).takeUnretainedValue() as! Self");
+                swiftWriter.WriteLine($"    let {selfObjName} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({selfParamName}).takeUnretainedValue() as! Self");
             else if (isClassParent)
-                swiftWriter.WriteLine($"    let {selfObjName} = Unmanaged<{typeName}>.fromOpaque({selfParamName}).takeUnretainedValue()");
+                swiftWriter.WriteLine($"    let {selfObjName} = Swift.Unmanaged<{typeName}>.fromOpaque({selfParamName}).takeUnretainedValue()");
             else
                 swiftWriter.WriteLine($"    let {selfObjName} = {selfParamName}.assumingMemoryBound(to: {selfSwiftTypeName}.self).pointee");
         }
 
         // Build original method call arguments in parameter order
         // Class returns need Unmanaged.passRetained().toOpaque() to return as UnsafeMutableRawPointer
-        var returnPrefix = returnsClass ? "return Unmanaged.passRetained("
+        var returnPrefix = returnsClass ? "return Swift.Unmanaged.passRetained("
             : returnsValue ? "return "
             : "";
         var returnSuffix = returnsClass ? ").toOpaque()" : "";
@@ -771,13 +771,13 @@ public static class MethodClosureBridge
                     }
                     else if (IsClassTypeForSwift(named, env.TypeDatabase))
                     {
-                        directArgs.Add((i, $"Unmanaged.passUnretained({paramName}).toOpaque()"));
+                        directArgs.Add((i, $"Swift.Unmanaged.passUnretained({paramName}).toOpaque()"));
                     }
                     else if (env.ClosureHandler.IsOptionalReferenceArg(argType))
                     {
                         // Optional<Class/ObjC>: nil-propagate via `?.map`. nil stays nil (IntPtr.Zero
                         // on the C# side); non-nil becomes a borrowed opaque pointer.
-                        directArgs.Add((i, $"{paramName}.map {{ Unmanaged.passUnretained($0).toOpaque() }}"));
+                        directArgs.Add((i, $"{paramName}.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}"));
                     }
                     else if (env.ClosureHandler.IsComplexEnum(argType))
                     {
@@ -929,11 +929,11 @@ public static class MethodClosureBridge
 
         var cdeclParams = bridgeParams.Select(p => $"    _ {p.Name}: {p.Type}").ToList();
         for (int i = 0; i < parentDecl.GenericParameters.Count; i++)
-            cdeclParams.Add($"    _ _metadata{i}: UnsafeRawPointer");
+            cdeclParams.Add($"    _ _metadata{i}: Swift.UnsafeRawPointer");
         for (int i = 0; i < pwtCount; i++)
-            cdeclParams.Add($"    _ _pwt{i}: UnsafeRawPointer");
+            cdeclParams.Add($"    _ _pwt{i}: Swift.UnsafeRawPointer");
         if (selfParamName != null)
-            cdeclParams.Add($"    _ {selfParamName}: UnsafeMutableRawPointer");
+            cdeclParams.Add($"    _ {selfParamName}: Swift.UnsafeMutableRawPointer");
 
         var helperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(
             swiftWriter, parentDecl, ctx, pwtCount);
@@ -950,7 +950,7 @@ public static class MethodClosureBridge
             .Concat(Enumerable.Range(0, pwtCount).Select(i => $"_pwt{i}"));
         swiftWriter.WriteLine($"    let parentMeta = {helperName}({string.Join(", ", metaArgs)})");
         swiftWriter.WriteLine(
-            $"    let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {dispatchProtocolName}.Type");
+            $"    let metatype = Swift.unsafeBitCast(parentMeta, to: Any.Type.self) as! any {dispatchProtocolName}.Type");
 
         var forwarded = string.Join(", ", swiftParamPairs.Select(p => $"{p.Name}: {p.Name}"));
         var returnKeyword = returnsValue ? "return " : "";
@@ -1001,7 +1001,7 @@ public static class MethodClosureBridge
             // render with the `any` keyword so Swift 6 accepts the closure signature —
             // RenderSwiftTypeSpec alone just emits "Error", which is rejected.
             var swiftParamTypes = ci.ClosureArgs.Select(RenderSwiftClosureArgType).ToList();
-            var swiftRetType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "Swift.Bool";
+            var swiftRetType = ci.Spec.ReturnType.IsEmptyTuple ? "Swift.Void" : "Swift.Bool";
             var closureType = $"({string.Join(", ", swiftParamTypes)}) -> {swiftRetType}";
             // Optional closures: wrap the adapter body in `.map` so nil funcPtr stays nil
             // (no force-unwrap, no synthetic empty closure) and reconstruct cdecl inside the
@@ -1025,16 +1025,16 @@ public static class MethodClosureBridge
                 var cdeclParamTypes = new List<string>();
                 for (int i = 0; i < ci.ClosureArgs.Count; i++)
                     cdeclParamTypes.Add(GetSwiftCdeclParamType(ci.ClosureArgs[i], env));
-                cdeclParamTypes.Add("UnsafeMutableRawPointer?");
-                var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "UInt8";
+                cdeclParamTypes.Add("Swift.UnsafeMutableRawPointer?");
+                var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Swift.Void" : "Swift.UInt8";
                 var cdeclRebindType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
                 swiftWriter.WriteLine($"{indent}let {adapterName}: {adapterType} = {closureCsName}FuncPtr.map {{ __fp in");
-                swiftWriter.WriteLine($"{indent}{indent}let {cdeclVarName} = unsafeBitCast(__fp, to: {cdeclRebindType})");
+                swiftWriter.WriteLine($"{indent}{indent}let {cdeclVarName} = Swift.unsafeBitCast(__fp, to: {cdeclRebindType})");
                 if (ci.IsEffectivelyEscaping)
                 {
                     // Pair invariant: when funcPtr is non-nil, context is non-nil (set together
                     // by the C# wrapper). Force-unwrap is safe here.
-                    swiftWriter.WriteLine($"{indent}{indent}let {synth.Box[ci.Index]}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                    swiftWriter.WriteLine($"{indent}{indent}let {synth.Box[ci.Index]}: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
                 }
                 string returnPrefixInner;
                 if (analysis.paramDecls.Count > 0)
@@ -1075,7 +1075,7 @@ public static class MethodClosureBridge
             // ClosureEmitter.SwiftWrapper.cs handles the owning-vs-borrowing split for the non-MCB case.
             foreach (var (idx, swiftType) in analysis.heapAllocArgs)
             {
-                swiftWriter.WriteLine($"{bodyBaseIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+                swiftWriter.WriteLine($"{bodyBaseIndent}let __heap{ci.Index}_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
                 swiftWriter.WriteLine($"{bodyBaseIndent}__heap{ci.Index}_{idx}.initializeMemory(as: {swiftType}.self, repeating: __p{ci.Index}_{idx}, count: 1)");
             }
 
@@ -1097,7 +1097,7 @@ public static class MethodClosureBridge
                 {
                     var (pwIdx, _) = analysis.pointerWrapArgs[w];
                     var linePrefix = (w == 0) ? firstLinePrefix : "";
-                    swiftWriter.WriteLine($"{currentIndent}{linePrefix}withUnsafePointer(to: __p{ci.Index}_{pwIdx}) {{ __ptr{ci.Index}_{pwIdx} in");
+                    swiftWriter.WriteLine($"{currentIndent}{linePrefix}Swift.withUnsafePointer(to: __p{ci.Index}_{pwIdx}) {{ __ptr{ci.Index}_{pwIdx} in");
                     currentIndent += indent;
                 }
 
@@ -1120,7 +1120,7 @@ public static class MethodClosureBridge
                     var ptrArg = analysis.pointerWrapArgs.FirstOrDefault(p => p.index == i);
                     if (ptrArg != default)
                     {
-                        cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
+                        cdeclCallArgs.Add($"Swift.UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
                         continue;
                     }
 
@@ -1187,10 +1187,10 @@ public static class MethodClosureBridge
                 var ptrName = $"__ptr{ci.Index}_{optIdx}";
                 swiftWriter.WriteLine($"{bodyBaseIndent}if let {valName} = __p{ci.Index}_{optIdx} {{");
                 var ifBodyIndent = bodyBaseIndent + indent;
-                swiftWriter.WriteLine($"{ifBodyIndent}{closureReturnPrefix}withUnsafePointer(to: {valName}) {{ {ptrName} in");
+                swiftWriter.WriteLine($"{ifBodyIndent}{closureReturnPrefix}Swift.withUnsafePointer(to: {valName}) {{ {ptrName} in");
                 EmitCdeclInvocation(
                     ifBodyIndent + indent,
-                    new Dictionary<int, string> { [optIdx] = $"UnsafeMutableRawPointer(mutating: {ptrName})" },
+                    new Dictionary<int, string> { [optIdx] = $"Swift.UnsafeMutableRawPointer(mutating: {ptrName})" },
                     firstLinePrefix: "");
                 swiftWriter.WriteLine($"{ifBodyIndent}}}");
                 swiftWriter.WriteLine($"{bodyBaseIndent}}} else {{");
@@ -1203,7 +1203,7 @@ public static class MethodClosureBridge
             else
             {
                 throw new InvalidOperationException(
-                    $"MethodClosureBridge: closures with more than one Optional<any Error> parameter " +
+                    $"MethodClosureBridge: closures with more than one Swift.Optional<any Swift.Error> parameter " +
                     $"are not yet supported (method: {method.Name}, count: {analysis.optionalExistentialArgs.Count}).");
             }
 

@@ -523,8 +523,8 @@ public class ConstrainedExtensionEmitterTests
 
         // Swift wrapper hands back via Utf8Slice; @_cdecl + indirect-buffer shape.
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_jwsRepresentation_instance\")", swiftOutput);
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
-        Assert.Contains("_ self_: UnsafeRawPointer", swiftOutput);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("_ self_: Swift.UnsafeRawPointer", swiftOutput);
         Assert.Contains("obj.jwsRepresentation", swiftOutput);
     }
 
@@ -563,7 +563,7 @@ public class ConstrainedExtensionEmitterTests
         // Swift wrapper writes the value into the caller-provided buffer via
         // initializeMemory(as:repeating:count:) — the resilient-struct shape.
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signature_instance\")", swiftOutput);
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", swiftOutput);
         // Module-qualified Swift type spec — `.initializeMemory(as:)`
         // needs the source module prefix because the wrapper file may
         // not import the type's defining module (e.g. CryptoKit's
@@ -594,7 +594,7 @@ public class ConstrainedExtensionEmitterTests
 
         // Swift wrapper returns Double directly via timeIntervalSinceReferenceDate.
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signedDate_instance\")", swiftOutput);
-        Assert.Contains("-> Double", swiftOutput);
+        Assert.Contains("-> Swift.Double", swiftOutput);
         Assert.Contains("return obj.signedDate.timeIntervalSinceReferenceDate", swiftOutput);
     }
 
@@ -621,7 +621,7 @@ public class ConstrainedExtensionEmitterTests
 
         // Swift wrapper writes the UUID into the caller buffer.
         Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_deviceVerificationNonce_instance\")", swiftOutput);
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", swiftOutput);
         Assert.Contains("resultPtr.initializeMemory(as: Foundation.UUID.self, repeating: result, count: 1)", swiftOutput);
     }
 
@@ -1279,7 +1279,7 @@ public class ConstrainedExtensionEmitterTests
 
         // Swift wrapper materializes `obj` from `self_` and invokes the no-arg method.
         Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_ping_instance\")", swiftOutput);
-        Assert.Contains("_ self_: UnsafeRawPointer", swiftOutput);
+        Assert.Contains("_ self_: Swift.UnsafeRawPointer", swiftOutput);
         Assert.Contains("obj.ping()", swiftOutput);
     }
 

@@ -38,7 +38,7 @@ public class EveryProtocolEmitterTests
     {
         var output = EmitEveryProtocolClass();
 
-        Assert.Contains("let handle: UnsafeRawPointer?", output);
+        Assert.Contains("let handle: Swift.UnsafeRawPointer?", output);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class EveryProtocolEmitterTests
     {
         var output = EmitEveryProtocolClass();
 
-        Assert.Contains("public init(handle: UnsafeRawPointer)", output);
+        Assert.Contains("public init(handle: Swift.UnsafeRawPointer)", output);
     }
 
     #endregion
@@ -76,7 +76,7 @@ public class EveryProtocolEmitterTests
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         var output = EmitVtableStruct(protocolDecl);
 
-        Assert.Contains("var csVTHandle: OpaquePointer?", output);
+        Assert.Contains("var csVTHandle: Swift.OpaquePointer?", output);
     }
 
     [Fact]
@@ -346,7 +346,7 @@ public class EveryProtocolEmitterTests
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
         var output = EmitSetVtableFunction(protocolDecl);
 
-        Assert.Contains("public func setTestProtocol_vtable(uvt: UnsafeRawPointer)", output);
+        Assert.Contains("public func setTestProtocol_vtable(uvt: Swift.UnsafeRawPointer)", output);
     }
 
     [Fact]
@@ -1069,7 +1069,7 @@ public class EveryProtocolEmitterTests
         Assert.Contains("public func compute(", output);
         Assert.Contains("async -> Swift.Int32", output);                  // non-throwing effect clause
         Assert.Contains("withCheckedContinuation", output);
-        Assert.Contains("CheckedContinuation<Swift.Int32, Never>", output);
+        Assert.Contains("_Concurrency.CheckedContinuation<Swift.Int32, Swift.Never>", output);
         // Widened slot: the trailing continuation box + success/error FPs handed to the C# vtable thunk (+3).
         Assert.Contains("__boxPtr", output);
         Assert.Contains("__successFP", output);
@@ -1300,7 +1300,7 @@ public class EveryProtocolEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitWitnessTableGetter(protocolDecl);
 
-        Assert.Contains("public func getEveryProtocolTestProtocolWitnessTable() -> UnsafeRawPointer", output);
+        Assert.Contains("public func getEveryProtocolTestProtocolWitnessTable() -> Swift.UnsafeRawPointer", output);
     }
 
     [Fact]
@@ -1323,7 +1323,7 @@ public class EveryProtocolEmitterTests
         var output = EmitWitnessTableGetter(protocolDecl);
 
         Assert.Contains("@_cdecl(\"SBW_Get_EveryProtocol_TestProtocol_ExistentialSize\")", output);
-        Assert.Contains("public func getEveryProtocolTestProtocolExistentialSize() -> Int", output);
+        Assert.Contains("public func getEveryProtocolTestProtocolExistentialSize() -> Swift.Int", output);
         Assert.Contains("MemoryLayout<any TestModule.TestProtocol>.size", output);
     }
 
@@ -1347,7 +1347,7 @@ public class EveryProtocolEmitterTests
         _emitter.EmitTypeMetadataGetter(writer);
         var output = stringWriter.ToString();
 
-        Assert.Contains("public func getEveryProtocolTypeMetadata() -> UnsafeRawPointer", output);
+        Assert.Contains("public func getEveryProtocolTypeMetadata() -> Swift.UnsafeRawPointer", output);
     }
 
     #endregion
@@ -1461,7 +1461,7 @@ public class EveryProtocolEmitterTests
 
         // Build the non-throwing overrides set (simulates what ModuleHandler.ComputeNonThrowingOverrides does)
         // Uses full signature format: name(params)->ReturnType
-        var nonThrowingOverrides = new HashSet<string> { "process()->Void" };
+        var nonThrowingOverrides = new HashSet<string> { "process()->Swift.Void" };
         var globalSignatures = new HashSet<string>();
 
         // Throwing protocol emitted first — but the override forces non-throwing
@@ -2747,7 +2747,7 @@ public class EveryProtocolEmitterTests
         var output = EmitWitnessTableGetter(protocol);
 
         Assert.Contains("MemoryLayout<any", output);
-        Assert.Contains(">.size - MemoryLayout<Int>.size", output);
+        Assert.Contains(">.size - Swift.MemoryLayout<Swift.Int>.size", output);
         // Should NOT use hardcoded 4 * MemoryLayout<Int>.size
         Assert.DoesNotContain("4 * MemoryLayout<Int>.size", output);
     }
@@ -2761,7 +2761,7 @@ public class EveryProtocolEmitterTests
         var output = EmitWitnessTableGetter(protocol);
 
         Assert.Contains("MemoryLayout<any", output);
-        Assert.Contains(">.size - MemoryLayout<Int>.size", output);
+        Assert.Contains(">.size - Swift.MemoryLayout<Swift.Int>.size", output);
     }
 
     [Fact]
@@ -4022,7 +4022,7 @@ public class EveryProtocolEmitterTests
 
         var output = EmitProtocolExtension(protocol);
 
-        Assert.Contains("public func onComplete(handler: @escaping () -> Void)", output);
+        Assert.Contains("public func onComplete(handler: @escaping () -> Swift.Void)", output);
         Assert.DoesNotContain("@escaping @escaping", output);
         // Real dispatch, not the fatalError stub.
         Assert.DoesNotContain("closure method 'onComplete' cannot be dispatched", output);
@@ -4040,7 +4040,7 @@ public class EveryProtocolEmitterTests
 
         var output = EmitProtocolExtension(protocol);
 
-        Assert.Contains("public func onValue(handler: @escaping (Swift.Int) -> Void)", output);
+        Assert.Contains("public func onValue(handler: @escaping (Swift.Int) -> Swift.Void)", output);
         Assert.DoesNotContain("@escaping @escaping", output);
         Assert.DoesNotContain("closure method 'onValue' cannot be dispatched", output);
         Assert.Contains("func_onValue_0", output);
@@ -4188,7 +4188,7 @@ public class EveryProtocolEmitterTests
 
         // Dispatched (not rejected) and bridged through the ObjC arm, not the raw-bytes path.
         Assert.DoesNotContain("closure method 'process' cannot be dispatched", output);
-        Assert.Contains("let amountNS = amount as AnyObject", output);
+        Assert.Contains("let amountNS = amount as Swift.AnyObject", output);
         Assert.Contains("Unmanaged.passUnretained(amountNS).toOpaque()", output);
         Assert.DoesNotContain("var amountCopy = amount", output);
     }

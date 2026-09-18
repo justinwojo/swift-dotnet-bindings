@@ -105,7 +105,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatch(protocolDecl);
 
         Assert.Contains("@_cdecl(\"SBW_HasValue_free_get_value_0\")", output);
-        Assert.Contains("ptr.assumingMemoryBound(to: Int32.self).deinitialize(count: 1)", output);
+        Assert.Contains("ptr.assumingMemoryBound(to: Swift.Int32.self).deinitialize(count: 1)", output);
         Assert.Contains("ptr.deallocate()", output);
     }
 
@@ -229,9 +229,9 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("UnsafeMutablePointer<Int32>.allocate(capacity: 1)", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Int32>.allocate(capacity: 1)", output);
         Assert.Contains("ptr.initialize(to: result)", output);
-        Assert.Contains("return UnsafeMutableRawPointer(ptr)", output);
+        Assert.Contains("return Swift.UnsafeMutableRawPointer(ptr)", output);
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatch(protocolDecl);
 
         Assert.Contains("@_cdecl(\"SBW_HasFlag_get_isActive_0\")", output);
-        Assert.Contains("UnsafeMutablePointer<Bool>.allocate(capacity: 1)", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Bool>.allocate(capacity: 1)", output);
     }
 
     [Fact]
@@ -250,7 +250,7 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasScore", "score", new NamedTypeSpec("Swift.Float"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("UnsafeMutablePointer<Float>.allocate(capacity: 1)", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Float>.allocate(capacity: 1)", output);
     }
 
     #endregion
@@ -287,7 +287,7 @@ public class WitnessDispatchEmitterTests
             paramTypes: new[] { ("amount", new NamedTypeSpec("Swift.Int32") as TypeSpec) });
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("arg0Ptr.load(as: Int32.self)", output);
+        Assert.Contains("arg0Ptr.load(as: Swift.Int32.self)", output);
     }
 
     [Fact]
@@ -302,8 +302,8 @@ public class WitnessDispatchEmitterTests
             });
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("arg0Ptr.load(as: Int32.self)", output);
-        Assert.Contains("arg1Ptr.load(as: Int32.self)", output);
+        Assert.Contains("arg0Ptr.load(as: Swift.Int32.self)", output);
+        Assert.Contains("arg1Ptr.load(as: Swift.Int32.self)", output);
     }
 
     [Fact]
@@ -327,15 +327,15 @@ public class WitnessDispatchEmitterTests
         Assert.Equal(MethodDispatchKind.ClosureParameters,
             _emitter.ClassifyMethodDispatch(protocolDecl.Methods[0]));
         Assert.Contains("@_cdecl(\"SBW_VendedClosureLoader_method_load_0\")", output);
-        Assert.Contains("_ arg0FuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ arg0Context: UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ arg1FuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ arg1Context: UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ arg2FuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ arg2Context: UnsafeMutableRawPointer?", output);
-        Assert.Contains("let _box_arg0: AnyObject = _sbWrapClosureContext(arg0Context!)", output);
-        Assert.Contains("let _box_arg1: AnyObject = _sbWrapClosureContext(arg1Context!)", output);
-        Assert.Contains("let _box_arg2: AnyObject = _sbWrapClosureContext(arg2Context!)", output);
+        Assert.Contains("_ arg0FuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg0Context: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg1FuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg1Context: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg2FuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg2Context: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("let _box_arg0: Swift.AnyObject = _sbWrapClosureContext(arg0Context!)", output);
+        Assert.Contains("let _box_arg1: Swift.AnyObject = _sbWrapClosureContext(arg1Context!)", output);
+        Assert.Contains("let _box_arg2: Swift.AnyObject = _sbWrapClosureContext(arg2Context!)", output);
         Assert.Contains("existential.load(onSuccess: _adapted_arg0, onProgress: _adapted_arg1, onError: _adapted_arg2)", output);
     }
 
@@ -372,16 +372,16 @@ public class WitnessDispatchEmitterTests
 
         Assert.Equal(MethodDispatchKind.ClosureParameters,
             emitter.ClassifyMethodDispatch(protocolDecl.Methods[0]));
-        Assert.Contains("_ arg0Ptr: UnsafeRawPointer", output);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(rawPtr0).takeUnretainedValue() as! Foundation.URLRequest", output);
-        Assert.Contains("_ arg1FuncPtr: UnsafeMutableRawPointer?", output);
-        Assert.Contains("_ arg2Context: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg0Ptr: Swift.UnsafeRawPointer", output);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(rawPtr0).takeUnretainedValue() as! Foundation.URLRequest", output);
+        Assert.Contains("_ arg1FuncPtr: Swift.UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ arg2Context: Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("p0: Swift.Optional<(any Swift.Error)>", output);
-        Assert.Contains("var __optionalError_0: UnsafeMutablePointer<any Swift.Error>? = nil", output);
+        Assert.Contains("var __optionalError_0: Swift.UnsafeMutablePointer<any Swift.Error>? = nil", output);
         Assert.Contains("__typed_0.initialize(to: __value_0)", output);
-        Assert.Contains("__optionalError_0.map { UnsafeMutableRawPointer($0) }", output);
+        Assert.Contains("__optionalError_0.map { Swift.UnsafeMutableRawPointer($0) }", output);
         Assert.Contains("let result: any TestModule.Cancellable = existential.load(request: arg0, onData: _adapted_arg1, completion: _adapted_arg2)", output);
-        Assert.Contains("UnsafeMutablePointer<any TestModule.Cancellable>.allocate(capacity: 1)", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<any TestModule.Cancellable>.allocate(capacity: 1)", output);
         Assert.Contains("@_cdecl(\"SBW_MixedLoader_free_method_load_0\")", output);
         Assert.Contains("assumingMemoryBound(to: (any TestModule.Cancellable).self).deinitialize(count: 1)", output);
     }
@@ -576,7 +576,7 @@ public class WitnessDispatchEmitterTests
         // local copy and assign it back afterwards.
         var output = EmitDispatch(CreateInOutProtocol("Hashable", "hash", new NamedTypeSpec("Swift.Int64")));
 
-        Assert.Contains("let arg0Slot = UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: Int64.self)", output);
+        Assert.Contains("let arg0Slot = Swift.UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: Swift.Int64.self)", output);
         Assert.Contains("&arg0Slot.pointee", output);
         Assert.DoesNotContain("pointee = arg0", output);
         Assert.DoesNotContain("var arg0", output);
@@ -589,7 +589,7 @@ public class WitnessDispatchEmitterTests
         // UTF-8 slice a by-value String uses — the witness must reach the String through it.
         var output = EmitDispatch(CreateInOutProtocol("Suffixing", "append", new NamedTypeSpec("Swift.String")));
 
-        Assert.Contains("let arg0Slot = arg0Ptr.load(as: UnsafeMutableRawPointer.self).assumingMemoryBound(to: Swift.String.self)", output);
+        Assert.Contains("let arg0Slot = arg0Ptr.load(as: Swift.UnsafeMutableRawPointer.self).assumingMemoryBound(to: Swift.String.self)", output);
         Assert.Contains("&arg0Slot.pointee", output);
         Assert.DoesNotContain("arg0Ptr.load(as: SBW_Utf8Slice.self)", output);
     }
@@ -609,7 +609,7 @@ public class WitnessDispatchEmitterTests
 
         var output = EmitDispatch(CreateInOutProtocol("Swapping", "swap", new NamedTypeSpec("TestModule.InOutToken")));
 
-        Assert.Contains("let arg0Slot = UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: ", output);
+        Assert.Contains("let arg0Slot = Swift.UnsafeMutableRawPointer(mutating: arg0Ptr).assumingMemoryBound(to: ", output);
         Assert.Contains("InOutToken.self)", output);
         Assert.Contains("&arg0Slot.pointee", output);
         Assert.DoesNotContain("pointee = arg0", output);
@@ -940,7 +940,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatch(protocolDecl);
 
         Assert.Contains("@_cdecl(\"SBW_HasName_method_getName_0\")", output);
-        Assert.Contains("let result: String = existential.getName()", output);
+        Assert.Contains("let result: Swift.String = existential.getName()", output);
         Assert.Contains("SBW_Utf8Slice", output);
     }
 
@@ -1067,7 +1067,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatch(protocolDecl);
 
         Assert.Contains("SBW_HasValue_set_value_0", output);
-        Assert.Contains("containerPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("containerPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("typedPtr.pointee = existential", output);
     }
 
@@ -1149,7 +1149,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatch(protocolDecl);
 
         // Blittable param loads directly
-        Assert.Contains("arg0Ptr.load(as: Int32.self)", output);
+        Assert.Contains("arg0Ptr.load(as: Swift.Int32.self)", output);
         // String param uses Utf8Slice
         Assert.Contains("arg1Slice = arg1Ptr.load(as: SBW_Utf8Slice.self)", output);
     }
@@ -1312,7 +1312,7 @@ public class WitnessDispatchEmitterTests
         protocolDecl.Methods.Add(method);
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
-        Assert.Contains("errorOut: UnsafeMutablePointer<UnsafeRawPointer?>", output);
+        Assert.Contains("errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>", output);
     }
 
     [Fact]
@@ -1337,7 +1337,7 @@ public class WitnessDispatchEmitterTests
         protocolDecl.Methods.Add(method);
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
-        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
     }
 
     [Fact]
@@ -1351,7 +1351,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
         // Throwing pattern returns optional raw pointer (nil = error)
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("return nil", output);
     }
 
@@ -1364,8 +1364,8 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
         // Non-throwing: the return line should be non-optional
-        Assert.Contains("-> UnsafeMutableRawPointer {", output);
-        Assert.DoesNotContain("-> UnsafeMutableRawPointer? {", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer {", output);
+        Assert.DoesNotContain("-> Swift.UnsafeMutableRawPointer? {", output);
     }
 
     [Fact]
@@ -1494,7 +1494,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatch(protocolDecl);
 
         Assert.DoesNotContain("-> UnsafeMutableRawPointer", output);
-        Assert.Contains("errorOut: UnsafeMutablePointer<UnsafeRawPointer?>", output);
+        Assert.Contains("errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>", output);
     }
 
     [Fact]
@@ -1545,7 +1545,7 @@ public class WitnessDispatchEmitterTests
         protocolDecl.Methods.Add(method);
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("errorOut: UnsafeMutablePointer<UnsafeRawPointer?>", output);
+        Assert.Contains("errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeRawPointer?>", output);
     }
 
     [Fact]
@@ -1557,7 +1557,7 @@ public class WitnessDispatchEmitterTests
         protocolDecl.Methods.Add(method);
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", output);
     }
 
     [Fact]
@@ -1569,7 +1569,7 @@ public class WitnessDispatchEmitterTests
         protocolDecl.Methods.Add(method);
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("return nil", output);
     }
 
@@ -1745,7 +1745,7 @@ public class WitnessDispatchEmitterTests
             returnType: new NamedTypeSpec("TestModule.ResponseAPDU"));
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
     }
 
     [Fact]
@@ -1811,7 +1811,7 @@ public class WitnessDispatchEmitterTests
             returnType: new NamedTypeSpec("TestModule.CardStatus"));
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
-        Assert.Contains("_ resultBuf: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultBuf: Swift.UnsafeMutableRawPointer", output);
     }
 
     [Fact]
@@ -1831,9 +1831,9 @@ public class WitnessDispatchEmitterTests
 
         Assert.Contains("do {", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
+        Assert.Contains("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())", output);
         Assert.Contains("return nil", output);
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
         Assert.True(clearAt >= 0 && clearAt < output.IndexOf("do {", StringComparison.Ordinal),
             $"The class-return witness helper must clear errorOut before executing Swift code.\n{output}");
@@ -1856,7 +1856,7 @@ public class WitnessDispatchEmitterTests
 
         Assert.Contains("do {", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
+        Assert.Contains("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())", output);
         // Struct return is always void (result written to buffer)
         Assert.DoesNotContain("-> UnsafeMutableRawPointer", output);
         var clearAt = output.IndexOf("errorOut.pointee = nil", StringComparison.Ordinal);
@@ -1877,7 +1877,7 @@ public class WitnessDispatchEmitterTests
             new NamedTypeSpec("TestModule.ResponseAPDU"));
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
         Assert.DoesNotContain("free", output.ToLowerInvariant());
     }
 
@@ -1894,7 +1894,7 @@ public class WitnessDispatchEmitterTests
             new NamedTypeSpec("TestModule.CardStatus"));
         var output = EmitDispatchWithEmitter(emitter, protocolDecl, ctx);
 
-        Assert.Contains("_ resultBuf: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultBuf: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("resultBuf.assumingMemoryBound(to: TestModule.CardStatus.self).initialize(to: result)", output);
     }
 
@@ -2682,9 +2682,9 @@ public class WitnessDispatchEmitterTests
         // String param: Utf8Slice decode
         Assert.Contains("arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)", output);
         // Class param: Unmanaged pattern
-        Assert.Contains("Unmanaged<TestModule.Config>.fromOpaque(rawPtr1).takeUnretainedValue()", output);
+        Assert.Contains("Swift.Unmanaged<TestModule.Config>.fromOpaque(rawPtr1).takeUnretainedValue()", output);
         // Blittable param: direct load
-        Assert.Contains("arg2 = arg2Ptr.load(as: Int32.self)", output);
+        Assert.Contains("arg2 = arg2Ptr.load(as: Swift.Int32.self)", output);
     }
 
     #endregion
@@ -2785,7 +2785,7 @@ public class WitnessDispatchEmitterTests
         var arrayType = new NamedTypeSpec("Swift.Array");
         arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
 
-        Assert.Equal("[String]", emitter.GetSwiftCollectionTypeString(arrayType));
+        Assert.Equal("[Swift.String]", emitter.GetSwiftCollectionTypeString(arrayType));
     }
 
     [Fact]
@@ -2799,7 +2799,7 @@ public class WitnessDispatchEmitterTests
         dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
 
-        Assert.Equal("[String: Int]", emitter.GetSwiftCollectionTypeString(dictType));
+        Assert.Equal("[Swift.String: Swift.Int]", emitter.GetSwiftCollectionTypeString(dictType));
     }
 
     [Fact]
@@ -2812,7 +2812,7 @@ public class WitnessDispatchEmitterTests
         var setType = new NamedTypeSpec("Swift.Set");
         setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
 
-        Assert.Equal("Set<Int>", emitter.GetSwiftCollectionTypeString(setType));
+        Assert.Equal("Swift.Set<Swift.Int>", emitter.GetSwiftCollectionTypeString(setType));
     }
 
     #endregion
@@ -2832,13 +2832,13 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_get_items_0\")", output);
-        Assert.Contains("UnsafeMutablePointer<[String]>.allocate(capacity: 1)", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<[Swift.String]>.allocate(capacity: 1)", output);
         Assert.Contains("ptr.initialize(to: result)", output);
-        Assert.Contains("return UnsafeMutableRawPointer(ptr)", output);
+        Assert.Contains("return Swift.UnsafeMutableRawPointer(ptr)", output);
 
         // Free function
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_free_get_items_0\")", output);
-        Assert.Contains("assumingMemoryBound(to: [String].self).deinitialize(count: 1)", output);
+        Assert.Contains("assumingMemoryBound(to: [Swift.String].self).deinitialize(count: 1)", output);
         Assert.Contains("ptr.deallocate()", output);
     }
 
@@ -2856,9 +2856,9 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_method_getMap_0\")", output);
-        Assert.Contains("UnsafeMutablePointer<[String: Int]>.allocate(capacity: 1)", output);
+        Assert.Contains("Swift.UnsafeMutablePointer<[Swift.String: Swift.Int]>.allocate(capacity: 1)", output);
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_free_method_getMap_0\")", output);
-        Assert.Contains("assumingMemoryBound(to: [String: Int].self).deinitialize(count: 1)", output);
+        Assert.Contains("assumingMemoryBound(to: [Swift.String: Swift.Int].self).deinitialize(count: 1)", output);
     }
 
     [Fact]
@@ -2874,11 +2874,11 @@ public class WitnessDispatchEmitterTests
         protocol.Methods[0].Throws = true;
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("do {", output);
         Assert.Contains("try existential.fetchIds()", output);
         Assert.Contains("} catch {", output);
-        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
+        Assert.Contains("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())", output);
         Assert.Contains("return nil", output);
     }
 
@@ -2899,7 +2899,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_get_urls_0\")", output);
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
         // Whole-container bridge — no native Swift container box, so no allocate + no free function.
         Assert.DoesNotContain("allocate(capacity: 1)", output);
         Assert.DoesNotContain("SBW_MyProtocol_free_get_urls_0", output);
@@ -2918,7 +2918,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_method_provideUrls_0\")", output);
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
         Assert.DoesNotContain("allocate(capacity: 1)", output);
         Assert.DoesNotContain("SBW_MyProtocol_free_method_provideUrls_0", output);
     }
@@ -2938,7 +2938,7 @@ public class WitnessDispatchEmitterTests
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
         Assert.Contains("@_cdecl(\"SBW_MyProtocol_method_provideMap_0\")", output);
-        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
+        Assert.Contains("Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
         Assert.DoesNotContain("allocate(capacity: 1)", output);
         Assert.DoesNotContain("SBW_MyProtocol_free_method_provideMap_0", output);
     }
@@ -2958,10 +2958,10 @@ public class WitnessDispatchEmitterTests
         protocol.Methods[0].Throws = true;
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("try existential.fetchUrls()", output);
-        Assert.Contains("return Unmanaged.passRetained(result as AnyObject).toOpaque()", output);
-        Assert.Contains("errorOut.pointee = UnsafeRawPointer(Unmanaged.passRetained(error as AnyObject).toOpaque())", output);
+        Assert.Contains("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()", output);
+        Assert.Contains("errorOut.pointee = Swift.UnsafeRawPointer(Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque())", output);
         Assert.DoesNotContain("allocate(capacity: 1)", output);
         Assert.DoesNotContain("SBW_MyProtocol_free_method_fetchUrls_0", output);
     }
@@ -3012,7 +3012,7 @@ public class WitnessDispatchEmitterTests
         var protocol = CreateProtocolWithMethod("MyProtocol", "findCard", optionalExistentialType);
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
-        Assert.Contains("-> UnsafeMutableRawPointer?", output);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", output);
         Assert.Contains("(any TestModule.Card)?", output);
         Assert.Contains("if let unwrapped = result", output);
         Assert.Contains("return nil", output);

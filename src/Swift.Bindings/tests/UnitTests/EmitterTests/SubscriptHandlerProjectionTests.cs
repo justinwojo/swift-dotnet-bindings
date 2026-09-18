@@ -23,7 +23,7 @@ public class SubscriptHandlerProjectionTests
 
         Assert.NotNull(conversion);
         Assert.Contains(".Select(", conversion!);
-        Assert.Contains(".ToHashSet()", conversion!);
+        Assert.Contains("global::System.Linq.Enumerable.ToHashSet(", conversion!);
         Assert.True(requiresDisposal);
     }
 
@@ -179,7 +179,7 @@ public class SubscriptHandlerProjectionTests
 
         Assert.NotNull(conversion);
         Assert.Contains(".Select(", conversion!);
-        Assert.Contains(".ToHashSet()", conversion!);
+        Assert.Contains("global::System.Linq.Enumerable.ToHashSet(", conversion!);
     }
 
     [Fact]

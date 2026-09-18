@@ -57,7 +57,7 @@ public class MetatypeHelperEmitterTests
         var result = output.ToString();
         Assert.StartsWith("_sbw_meta_", helperName);
         Assert.Contains("private func", result);
-        Assert.Contains("-> UnsafeRawPointer", result);
+        Assert.Contains("-> Swift.UnsafeRawPointer", result);
         Assert.Contains("dlsym", result);
         Assert.Contains("$s10TestModule12GenericClassCNMa", result);
     }
@@ -92,10 +92,10 @@ public class MetatypeHelperEmitterTests
         MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, typeDecl, ctx);
 
         var result = output.ToString();
-        Assert.Contains("_ t0: UnsafeRawPointer", result);
+        Assert.Contains("_ t0: Swift.UnsafeRawPointer", result);
         Assert.DoesNotContain("_ t1:", result);
         // Function type should have (Int, UnsafeRawPointer)
-        Assert.Contains("(Int, UnsafeRawPointer)", result);
+        Assert.Contains("(Swift.Int, Swift.UnsafeRawPointer)", result);
         // Call should be (0, t0)
         Assert.Contains("(0, t0)", result);
     }
@@ -111,8 +111,8 @@ public class MetatypeHelperEmitterTests
         MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, typeDecl, ctx);
 
         var result = output.ToString();
-        Assert.Contains("_ t0: UnsafeRawPointer, _ t1: UnsafeRawPointer", result);
-        Assert.Contains("(Int, UnsafeRawPointer, UnsafeRawPointer)", result);
+        Assert.Contains("_ t0: Swift.UnsafeRawPointer, _ t1: Swift.UnsafeRawPointer", result);
+        Assert.Contains("(Swift.Int, Swift.UnsafeRawPointer, Swift.UnsafeRawPointer)", result);
         Assert.Contains("(0, t0, t1)", result);
     }
 
@@ -127,10 +127,10 @@ public class MetatypeHelperEmitterTests
             new SwiftWriter(output), typeDecl, ctx, pwtCount: 0);
 
         var result = output.ToString();
-        Assert.Contains("let arguments: [UnsafeRawPointer] = [t0, t1, t2, t3]", result);
+        Assert.Contains("let arguments: [Swift.UnsafeRawPointer] = [t0, t1, t2, t3]", result);
         Assert.Contains("arguments.withUnsafeBufferPointer", result);
-        Assert.Contains("@convention(thin) (Int, UnsafeRawPointer)", result);
-        Assert.Contains("fn(0, UnsafeRawPointer(buffer.baseAddress!)).0", result);
+        Assert.Contains("@convention(thin) (Swift.Int, Swift.UnsafeRawPointer)", result);
+        Assert.Contains("fn(0, Swift.UnsafeRawPointer(buffer.baseAddress!)).0", result);
         Assert.DoesNotContain("fn(0, t0, t1, t2, t3)", result);
     }
 
@@ -145,9 +145,9 @@ public class MetatypeHelperEmitterTests
             new SwiftWriter(output), typeDecl, ctx, pwtCount: 2);
 
         var result = output.ToString();
-        Assert.Contains("_ t0: UnsafeRawPointer, _ t1: UnsafeRawPointer, _ pwt0: UnsafeRawPointer, _ pwt1: UnsafeRawPointer", result);
-        Assert.Contains("let arguments: [UnsafeRawPointer] = [t0, t1, pwt0, pwt1]", result);
-        Assert.Contains("@convention(thin) (Int, UnsafeRawPointer)", result);
+        Assert.Contains("_ t0: Swift.UnsafeRawPointer, _ t1: Swift.UnsafeRawPointer, _ pwt0: Swift.UnsafeRawPointer, _ pwt1: Swift.UnsafeRawPointer", result);
+        Assert.Contains("let arguments: [Swift.UnsafeRawPointer] = [t0, t1, pwt0, pwt1]", result);
+        Assert.Contains("@convention(thin) (Swift.Int, Swift.UnsafeRawPointer)", result);
     }
 
     [Fact]

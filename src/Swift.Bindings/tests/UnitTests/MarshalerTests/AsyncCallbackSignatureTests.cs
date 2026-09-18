@@ -40,7 +40,7 @@ public class AsyncCallbackSignatureTests
         Assert.Single(csharpTypes);
         // Task param: C# IntPtr ↔ Swift Int64 (both 8 bytes on 64-bit iOS)
         Assert.Equal("IntPtr", csharpTypes[0]);
-        Assert.Equal("Int64", swiftParams[0]);
+        Assert.Equal("Swift.Int64", swiftParams[0]);
     }
 
     [Fact]
@@ -77,40 +77,40 @@ public class AsyncCallbackSignatureTests
 
         // Task param: always IntPtr ↔ Int64
         Assert.Equal("IntPtr", csharpTypes[1]);
-        Assert.Equal("Int64", swiftParams[1]);
+        Assert.Equal("Swift.Int64", swiftParams[1]);
     }
 
     public static IEnumerable<object[]> SuccessCallbackTestCases()
     {
         // Blittable integer types
-        yield return new object[] { "Int64", new BlittableProjection("Int64"), "Int64" };
-        yield return new object[] { "Int32", new BlittableProjection("Int32"), "Int32" };
-        yield return new object[] { "UInt32", new BlittableProjection("UInt32"), "UInt32" };
-        yield return new object[] { "UInt64", new BlittableProjection("UInt64"), "UInt64" };
-        yield return new object[] { "byte", new BlittableProjection("byte"), "UInt8" };
+        yield return new object[] { "Int64", new BlittableProjection("Int64"), "Swift.Int64" };
+        yield return new object[] { "Int32", new BlittableProjection("Int32"), "Swift.Int32" };
+        yield return new object[] { "UInt32", new BlittableProjection("UInt32"), "Swift.UInt32" };
+        yield return new object[] { "UInt64", new BlittableProjection("UInt64"), "Swift.UInt64" };
+        yield return new object[] { "byte", new BlittableProjection("byte"), "Swift.UInt8" };
 
         // Blittable floating-point types
-        yield return new object[] { "double", new BlittableProjection("double"), "Double" };
-        yield return new object[] { "Float", new BlittableProjection("Float"), "Float" };
+        yield return new object[] { "double", new BlittableProjection("double"), "Swift.Double" };
+        yield return new object[] { "Float", new BlittableProjection("Float"), "Swift.Float" };
 
         // String — SwiftString passes as UnsafeRawPointer in callbacks
-        yield return new object[] { "String", new StringProjection(), "UnsafeRawPointer" };
+        yield return new object[] { "String", new StringProjection(), "Swift.UnsafeRawPointer" };
 
         // Pointer-based types — IntPtr maps to UnsafeRawPointer
-        yield return new object[] { "ObjCBridged", new ObjCBridgedProjection("UIImage"), "UnsafeRawPointer" };
-        yield return new object[] { "NonFrozenStruct", new NonFrozenStructProjection("Pipeline"), "UnsafeRawPointer" };
-        yield return new object[] { "Class", new ClassProjection("MyObj"), "UnsafeRawPointer" };
-        yield return new object[] { "Array", new ArrayProjection(new BlittableProjection("Int64"), false), "UnsafeRawPointer" };
-        yield return new object[] { "Dictionary", new DictionaryProjection(new BlittableProjection("Int64"), new BlittableProjection("Int64"), false), "UnsafeRawPointer" };
-        yield return new object[] { "Optional", new OptionalProjection(new BlittableProjection("Int64")), "UnsafeRawPointer" };
+        yield return new object[] { "ObjCBridged", new ObjCBridgedProjection("UIImage"), "Swift.UnsafeRawPointer" };
+        yield return new object[] { "NonFrozenStruct", new NonFrozenStructProjection("Pipeline"), "Swift.UnsafeRawPointer" };
+        yield return new object[] { "Class", new ClassProjection("MyObj"), "Swift.UnsafeRawPointer" };
+        yield return new object[] { "Array", new ArrayProjection(new BlittableProjection("Int64"), false), "Swift.UnsafeRawPointer" };
+        yield return new object[] { "Dictionary", new DictionaryProjection(new BlittableProjection("Int64"), new BlittableProjection("Int64"), false), "Swift.UnsafeRawPointer" };
+        yield return new object[] { "Optional", new OptionalProjection(new BlittableProjection("Int64")), "Swift.UnsafeRawPointer" };
 
         // Enum — underlying type maps through
-        yield return new object[] { "SimpleEnum(int)", new SimpleEnumProjection("Direction", "int"), "Int32" };
-        yield return new object[] { "SimpleEnum(Int64)", new SimpleEnumProjection("Size", "Int64"), "Int64" };
+        yield return new object[] { "SimpleEnum(int)", new SimpleEnumProjection("Direction", "int"), "Swift.Int32" };
+        yield return new object[] { "SimpleEnum(Int64)", new SimpleEnumProjection("Size", "Int64"), "Swift.Int64" };
 
         // nint/nuint (native-sized integers)
-        yield return new object[] { "nint", new BlittableProjection("nint"), "Int" };
-        yield return new object[] { "nuint", new BlittableProjection("nuint"), "UInt" };
+        yield return new object[] { "nint", new BlittableProjection("nint"), "Swift.Int" };
+        yield return new object[] { "nuint", new BlittableProjection("nuint"), "Swift.UInt" };
     }
 
     #endregion
@@ -212,7 +212,7 @@ public class AsyncCallbackSignatureTests
         var swiftCode = proj.GetSwiftWrapperCode(context)!;
 
         // The override tuple type should appear in the callback signature
-        Assert.Contains("(String, Int), Int64) -> Void", swiftCode);
+        Assert.Contains("(String, Int), Swift.Int64) -> Swift.Void", swiftCode);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class AsyncCallbackSignatureTests
         var swiftCode = proj.GetSwiftWrapperCode(DefaultContext)!;
 
         // StringProjection.PInvokeType is "SwiftString" → MapPInvokeTypeToSwift → "UnsafeRawPointer"
-        Assert.Contains("UnsafeRawPointer, Int64) -> Void", swiftCode);
+        Assert.Contains("Swift.UnsafeRawPointer, Swift.Int64) -> Swift.Void", swiftCode);
     }
 
     #endregion
@@ -320,24 +320,24 @@ public class AsyncCallbackSignatureTests
 
     /// <summary>
     /// Extracts parameter types from the success callback's @convention(c) signature in Swift wrapper code.
-    /// e.g., "_ callback: @convention(c) (Int64, Int64) -> Void" → ["Int64", "Int64"]
+    /// e.g., "_ callback: @convention(c) (Swift.Int64, Swift.Int64) -> Swift.Void" → ["Swift.Int64", "Swift.Int64"]
     /// </summary>
     private static List<string> ExtractSwiftSuccessCallbackParams(string swiftCode)
     {
-        var match = Regex.Match(swiftCode, @"_ callback: @convention\(c\) \(([^)]+)\) -> Void");
+        var match = Regex.Match(swiftCode, @"_ callback: @convention\(c\) \(([^)]+)\) -> Swift\.Void");
         Assert.True(match.Success, "Could not find success callback @convention(c) signature in Swift wrapper code");
         return match.Groups[1].Value.Split(',').Select(s => s.Trim()).ToList();
     }
 
     /// <summary>
     /// Extracts parameter types from the error callback's @convention(c) signature in Swift wrapper code.
-    /// Handles UnsafePointer&lt;CChar&gt; (angle brackets don't interfere with the regex).
+    /// Handles Swift.UnsafePointer&lt;Swift.CChar&gt; (angle brackets don't interfere with the regex).
     /// </summary>
     private static List<string> ExtractSwiftErrorCallbackParams(string swiftCode)
     {
-        var match = Regex.Match(swiftCode, @"_ errorCallback: @convention\(c\) \(([^)]+)\) -> Void");
+        var match = Regex.Match(swiftCode, @"_ errorCallback: @convention\(c\) \(([^)]+)\) -> Swift\.Void");
         Assert.True(match.Success, "Could not find error callback @convention(c) signature in Swift wrapper code");
-        // Split on ", " to avoid splitting inside angle brackets like UnsafePointer<CChar>
+        // Split on ", " to avoid splitting inside angle brackets like Swift.UnsafePointer<Swift.CChar>
         return match.Groups[1].Value.Split(", ").Select(s => s.Trim()).ToList();
     }
 
@@ -358,20 +358,20 @@ public class AsyncCallbackSignatureTests
     /// </summary>
     private static readonly Dictionary<string, HashSet<string>> AbiCompatibleSwiftTypes = new()
     {
-        ["IntPtr"] = new() { "UnsafeRawPointer", "UnsafePointer<CChar>", "Int64" },
-        ["nint"] = new() { "Int" },
-        ["nuint"] = new() { "UInt" },
-        ["int"] = new() { "Int32" },
-        ["Int32"] = new() { "Int32" },
-        ["Int64"] = new() { "Int64" },
-        ["UInt32"] = new() { "UInt32" },
-        ["UInt64"] = new() { "UInt64" },
-        ["Double"] = new() { "Double" },
-        ["double"] = new() { "Double" },
-        ["Float"] = new() { "Float" },
-        ["float"] = new() { "Float" },
-        ["byte"] = new() { "UInt8" },
-        ["SwiftString"] = new() { "UnsafeRawPointer" },
+        ["IntPtr"] = new() { "Swift.UnsafeRawPointer", "Swift.UnsafePointer<Swift.CChar>", "Swift.Int64" },
+        ["nint"] = new() { "Swift.Int" },
+        ["nuint"] = new() { "Swift.UInt" },
+        ["int"] = new() { "Swift.Int32" },
+        ["Int32"] = new() { "Swift.Int32" },
+        ["Int64"] = new() { "Swift.Int64" },
+        ["UInt32"] = new() { "Swift.UInt32" },
+        ["UInt64"] = new() { "Swift.UInt64" },
+        ["Double"] = new() { "Swift.Double" },
+        ["double"] = new() { "Swift.Double" },
+        ["Float"] = new() { "Swift.Float" },
+        ["float"] = new() { "Swift.Float" },
+        ["byte"] = new() { "Swift.UInt8" },
+        ["SwiftString"] = new() { "Swift.UnsafeRawPointer" },
     };
 
     private static void AssertAbiCompatible(string csharpType, string swiftType, string paramDescription)

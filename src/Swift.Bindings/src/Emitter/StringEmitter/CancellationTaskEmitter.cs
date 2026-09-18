@@ -39,19 +39,19 @@ public static class CancellationTaskEmitter
         swiftWriter.WriteLines($$"""
             // Task cancellation infrastructure for async method cancellation support
             private final class _SBWTaskEntry {
-                var task: {{SwiftConcurrencyNames.Task}}<Void, Never>?
+                var task: {{SwiftConcurrencyNames.Task}}<Swift.Void, Swift.Never>?
                 // Replay flag: a cancel that arrives before the launching site assigns `task`
                 // would otherwise be lost (nil?.cancel()). The cancel path records the intent
                 // here under the lock; the launching site replays it via _sbwAssignTask.
                 var wasCancelled = false
             }
-            private var _sbwActiveTasks: [Int64: _SBWTaskEntry] = [:]
+            private var _sbwActiveTasks: [Swift.Int64: _SBWTaskEntry] = [:]
             private let _sbwTaskLock = NSLock()
 
             // Synchronous helpers — safe to call from async contexts (Swift 6).
             // NSLock.lock()/unlock() are @available(*, noasync) so direct calls
             // inside Task {} are errors in the Swift 6 language mode.
-            private func _sbwRegisterTask(_ taskId: Int64, _ entry: _SBWTaskEntry) {
+            private func _sbwRegisterTask(_ taskId: Swift.Int64, _ entry: _SBWTaskEntry) {
                 _sbwTaskLock.lock()
                 // WINDOW A carry-forward: _sbw_cancelTask may have run before this wrapper
                 // reached registration (cancel landed between the C# token registration and
@@ -65,7 +65,7 @@ public static class CancellationTaskEmitter
                 _sbwTaskLock.unlock()
             }
 
-            private func _sbwUnregisterTask(_ taskId: Int64) {
+            private func _sbwUnregisterTask(_ taskId: Swift.Int64) {
                 _sbwTaskLock.lock()
                 _sbwActiveTasks.removeValue(forKey: taskId)
                 _sbwTaskLock.unlock()
@@ -75,7 +75,7 @@ public static class CancellationTaskEmitter
             // whether a cancel already arrived in the register→assign window. The single lock
             // gives a happens-before with _sbw_cancelTask in both directions, closing the
             // lost-cancel race that a bare unlocked `_entry.task =` would leave open.
-            private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: {{SwiftConcurrencyNames.Task}}<Void, Never>) -> Bool {
+            private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: {{SwiftConcurrencyNames.Task}}<Swift.Void, Swift.Never>) -> Swift.Bool {
                 _sbwTaskLock.lock()
                 entry.task = task
                 let cancelledEarly = entry.wasCancelled
@@ -84,7 +84,7 @@ public static class CancellationTaskEmitter
             }
 
             @_cdecl("{{symbolName}}")
-            public func _sbw_cancelTask(_ taskId: Int64) {
+            public func _sbw_cancelTask(_ taskId: Swift.Int64) {
                 _sbwTaskLock.lock()
                 let entry = _sbwActiveTasks[taskId]
                 let task = entry?.task
@@ -109,7 +109,7 @@ public static class CancellationTaskEmitter
             // tombstone whose wrapper never launched (so the task's `defer { _sbwUnregisterTask }`
             // never runs); a no-op for any id with no entry.
             @_cdecl("{{unregisterSymbolName}}")
-            public func _sbw_unregisterTask(_ taskId: Int64) {
+            public func _sbw_unregisterTask(_ taskId: Swift.Int64) {
                 _sbwUnregisterTask(taskId)
             }
 

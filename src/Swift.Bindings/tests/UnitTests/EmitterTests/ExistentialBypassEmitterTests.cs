@@ -585,7 +585,7 @@ public class ExistentialBypassEmitterTests
 
         var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
 
-        Assert.Equal("Array<Int>", result);
+        Assert.Equal("Swift.Array<Swift.Int>", result);
     }
 
     [Fact]
@@ -596,7 +596,7 @@ public class ExistentialBypassEmitterTests
 
         var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(outer);
 
-        Assert.Equal("Array<Optional<String>>", result);
+        Assert.Equal("Swift.Array<Swift.Optional<Swift.String>>", result);
     }
 
     [Fact]
@@ -606,7 +606,7 @@ public class ExistentialBypassEmitterTests
 
         var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
 
-        Assert.Equal("Int", result);
+        Assert.Equal("Swift.Int", result);
     }
 
     [Fact]
@@ -614,7 +614,7 @@ public class ExistentialBypassEmitterTests
     {
         var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(TupleTypeSpec.Empty);
 
-        Assert.Equal("Void", result);
+        Assert.Equal("Swift.Void", result);
     }
 
     [Fact]
@@ -1263,8 +1263,8 @@ public class ExistentialBypassEmitterRenderWrapperSignatureTests
         // it to "Swift.Bool" silently breaks the Bool ABI (wrong Int8 arm / layout).
         var spec = new NamedTypeSpec("Swift.Bool");
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "MyMod");
-        Assert.Equal("Bool", rendered);
-        Assert.DoesNotContain("Swift.Bool", rendered);
+        Assert.Equal("Swift.Bool", rendered);
+        Assert.DoesNotContain("Swift.Swift.Bool", rendered);
     }
 
     [Fact]
@@ -1272,7 +1272,7 @@ public class ExistentialBypassEmitterRenderWrapperSignatureTests
     {
         var spec = new NamedTypeSpec("Swift.Int");
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "MyMod");
-        Assert.Equal("Int", rendered);
+        Assert.Equal("Swift.Int", rendered);
     }
 
     [Theory]
@@ -1291,7 +1291,7 @@ public class ExistentialBypassEmitterRenderWrapperSignatureTests
             ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(swiftBool, boundModuleName));
 
         Assert.Equal("Thing", ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(boundType, boundModuleName));
-        Assert.Equal("Bool", ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(swiftBool, boundModuleName));
+        Assert.Equal("Swift.Bool", ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(swiftBool, boundModuleName));
     }
 
     [Fact]
@@ -1303,10 +1303,10 @@ public class ExistentialBypassEmitterRenderWrapperSignatureTests
 
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(array, "MyMod");
 
-        Assert.Equal("Array<MyMod.Thing>", rendered);
-        Assert.StartsWith("Array<", rendered);
+        Assert.Equal("Swift.Array<MyMod.Thing>", rendered);
+        Assert.StartsWith("Swift.Array<", rendered);
         Assert.Contains("MyMod.Thing", rendered);
-        Assert.DoesNotContain("Swift.Array", rendered);
+        Assert.DoesNotContain("Swift.Swift.Array", rendered);
     }
 
     [Fact]

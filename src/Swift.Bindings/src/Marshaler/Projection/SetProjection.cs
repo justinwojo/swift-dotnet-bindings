@@ -76,7 +76,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         if (needsConversion && _elementProjection.ElementRequiresDisposal)
         {
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Converted = {paramName}.Select(e => {elemConversion}).ToList();"));
+                $"var {paramName}Converted = global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({paramName}, e => {elemConversion}));"));
             setup.Add(new MarshalStatement.Line(
                 $"SwiftSet<{rawElem}> {paramName}SwiftInner;"));
 
@@ -98,7 +98,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         else if (needsConversion)
         {
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Containers = {paramName}.Select(e => {elemConversion});"));
+                $"var {paramName}Containers = global::System.Linq.Enumerable.Select({paramName}, e => {elemConversion});"));
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}SwiftDirect = SwiftSet<{rawElem}>.FromEnumerable({paramName}Containers);"));
             return (setup, $"{paramName}SwiftDirect");
@@ -169,7 +169,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
-            return $"{containerVar}.Select(e => {elemConversion}).ToHashSet()";
+            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({containerVar}, e => {elemConversion}))";
         // SwiftSet<T> already implements IReadOnlySet<T>, no conversion needed
         return null;
     }
@@ -201,9 +201,9 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         var elemConversion = OwnedReturnElementConversion("e");
 
         // If element conversion is needed (e.g., SwiftString→string), materialize via ToHashSet
-        var conversion = elemConversion != null
-            ? $".Select(e => {elemConversion}).ToHashSet()"
-            : "";
+        string Converted(string marshalExpr) => elemConversion != null
+            ? $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({marshalExpr}, e => {elemConversion}))"
+            : marshalExpr;
 
         return strategy switch
         {
@@ -213,16 +213,16 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             // storage — use the consuming marshal (copy then destroy the source).
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftSet<{rawElem}>>(&{resultName}){conversion}",
+                PInvokeExpression = Converted($"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftSet<{rawElem}>>(&{resultName})"),
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>({resultName}){conversion}"
+                PInvokeExpression = Converted($"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>({resultName})")
             },
             ReturnStrategy.OutBuffer => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>({resultName}){conversion}"
+                PInvokeExpression = Converted($"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>({resultName})")
             },
             ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
             _ => MarshalPlan.PassThrough(resultName)
@@ -240,7 +240,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             {
                 var innerConv = _elementProjection.GetParameterElementConversion("e");
                 if (innerConv != null)
-                    return $"new Foundation.NSSet({elementVar}.Select(e => (Foundation.NSObject){innerConv}).ToArray())";
+                    return $"new Foundation.NSSet(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, e => (Foundation.NSObject){innerConv})))";
             }
             return $"new Foundation.NSSet({ObjCLeafElementArrayExpr(elementVar)})";
         }
@@ -250,7 +250,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
         // matches the C# public type, FromEnumerable wants the typed wrapper directly.
         if (elemConversion != null && rawElem != _elementProjection.PublicType)
-            return $"SwiftSet<{rawElem}>.FromEnumerable({elementVar}.Select(e => {elemConversion}))";
+            return $"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
         return $"SwiftSet<{rawElem}>.FromEnumerable({elementVar})";
     }
 
@@ -269,7 +269,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         if (elemConversion != null)
-            return $"{elementVar}.Select(e => {elemConversion}).ToHashSet()";
+            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
         return null;
     }
 
@@ -286,7 +286,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
-            return $"{elementVar}.Select(e => {elemConversion}).ToHashSet()";
+            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
         return null;
     }
 
@@ -307,8 +307,8 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// </remarks>
     internal string ObjCLeafElementArrayExpr(string varName)
         => _elementProjection.TypedEnumAdapter is { } adapter
-            ? $"{varName}.Select(e => {adapter.ToCarrier("e")}).ToArray()"
-            : $"{varName}.ToArray()";
+            ? $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, e => {adapter.ToCarrier("e")}))"
+            : $"global::System.Linq.Enumerable.ToArray({varName})";
 
     /// <summary>
     /// Reads one ObjC element out of a bridged set and projects it to the public element type.
@@ -333,8 +333,8 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             var innerConv = _elementProjection.GetParameterElementConversion("e");
             arrayExpr = innerConv != null
-                ? $"{paramName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
-                : $"{paramName}.ToArray()";
+                ? $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({paramName}, e => (Foundation.NSObject){innerConv}))"
+                : $"global::System.Linq.Enumerable.ToArray({paramName})";
         }
         else
         {
@@ -388,8 +388,8 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             var innerConv = _elementProjection.GetParameterElementConversion("e");
             arrayExpr = innerConv != null
-                ? $"{varName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
-                : $"{varName}.ToArray()";
+                ? $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, e => (Foundation.NSObject){innerConv}))"
+                : $"global::System.Linq.Enumerable.ToArray({varName})";
         }
         else
         {

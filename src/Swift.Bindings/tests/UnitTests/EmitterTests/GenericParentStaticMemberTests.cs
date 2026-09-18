@@ -70,7 +70,7 @@ public class GenericParentStaticMemberTests
         Assert.Contains("Self.make(", output);
         Assert.DoesNotContain("resultPtr", output);
         Assert.Contains("passRetained", output);
-        Assert.Contains("-> UnsafeMutableRawPointer", CdeclSignatureLine(output));
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer", CdeclSignatureLine(output));
     }
 
     // ── Static-dispatch property wrapper ────────────────────────────────

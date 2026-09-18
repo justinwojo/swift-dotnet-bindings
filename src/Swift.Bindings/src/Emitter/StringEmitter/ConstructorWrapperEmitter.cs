@@ -365,11 +365,11 @@ public static class ConstructorWrapperEmitter
             switch (phase)
             {
                 case CdeclPhase.ResultPtr:
-                    swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                    swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
                     break;
 
                 case CdeclPhase.ErrorOut:
-                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                     break;
 
                 case CdeclPhase.Arguments:
@@ -402,8 +402,8 @@ public static class ConstructorWrapperEmitter
                         {
                             var csName = NameProvider.StripVerbatimPrefix(
                                 NameProvider.GetCSharpParameterName(arg));
-                            swiftParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
-                            swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
+                            swiftParams.Add($"_ {csName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+                            swiftParams.Add($"_ {csName}Context: Swift.UnsafeMutableRawPointer?");
 
                             bool isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
                             bool isEscaping = WrapperValidation.IsEffectivelyEscaping(
@@ -449,7 +449,7 @@ public static class ConstructorWrapperEmitter
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
-                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
                         }
                         // Add PWT parameters for constrained generic types.
                         // Includes resolvable conformances AND PAT/Self-requirement conformances
@@ -460,7 +460,7 @@ public static class ConstructorWrapperEmitter
                         int ctorPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int pi = 0; pi < ctorPwtCount; pi++)
                         {
-                            swiftParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _pwt{pi}: Swift.UnsafeRawPointer");
                         }
                     }
                     break;
@@ -472,9 +472,9 @@ public static class ConstructorWrapperEmitter
         // Build return type
         string returnClause;
         if (isClass && !isFailable)
-            returnClause = " -> UnsafeMutableRawPointer";
+            returnClause = " -> Swift.UnsafeMutableRawPointer";
         else if (isFailableClass)
-            returnClause = " -> UnsafeMutableRawPointer?";
+            returnClause = " -> Swift.UnsafeMutableRawPointer?";
         else
             returnClause = ""; // void (writes to resultPtr)
 
@@ -602,7 +602,7 @@ public static class ConstructorWrapperEmitter
             var pwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase)).Select(i => $"_pwt{i}");
             var metaArgs = string.Join(", ", metaArgsList.Concat(pwtArgsList));
             swiftWriter.WriteLine($"let parentMeta = {metaHelperName}({metaArgs})");
-            swiftWriter.WriteLine($"let initType = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
+            swiftWriter.WriteLine($"let initType = Swift.unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
         }
 
         // Emit the body based on constructor type
@@ -630,13 +630,13 @@ public static class ConstructorWrapperEmitter
         {
             // Failable class constructor (non-throwing)
             swiftWriter.WriteLine($"guard let result = {callExpr} else {{ return nil }}");
-            swiftWriter.WriteLine("return Unmanaged.passRetained(result).toOpaque()");
+            swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(result).toOpaque()");
         }
         else if (isClass)
         {
             // Non-failable, non-throwing class constructor
             swiftWriter.WriteLine($"let result = {callExpr}");
-            swiftWriter.WriteLine("return Unmanaged.passRetained(result).toOpaque()");
+            swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(result).toOpaque()");
         }
         else if (isFailableStruct)
         {
@@ -647,7 +647,7 @@ public static class ConstructorWrapperEmitter
             // Optional<BlittablePrimitive> fields that get corrupted, this path needs
             // a fixup variant that accounts for the Optional<T> payload offset.
             swiftWriter.WriteLine($"let result: {moduleQualifiedSwiftName}? = {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: Optional<{moduleQualifiedSwiftName}>.self).initialize(to: result)");
+            swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: Swift.Optional<{moduleQualifiedSwiftName}>.self).initialize(to: result)");
         }
         else
         {
@@ -748,7 +748,7 @@ public static class ConstructorWrapperEmitter
             return GenericProtocolEmitter.EmitProtocolAndConformance(
                 swiftWriter, "CI", symbolName, memberDecl, moduleQualifiedName,
                 originAnchor: originAnchor,
-                protocolConstraint: "AnyObject",
+                protocolConstraint: "Swift.AnyObject",
                 extensionAvailability: extensionAvailability);
         }
 
@@ -757,7 +757,7 @@ public static class ConstructorWrapperEmitter
         var signature = string.Join(", ", parameters.Select(p => $"{p.Label} {p.Binding}: {p.SwiftType}"));
         var arguments = string.Join(", ", parameters.Select(p => p.Label == "_" ? p.Binding : $"{p.Label}: {p.Binding}"));
         var factorySignature =
-            $"static func {forwardingFactoryName}({signature}){(throws ? " throws" : "")} -> AnyObject{(isFailable ? "?" : "")}";
+            $"static func {forwardingFactoryName}({signature}){(throws ? " throws" : "")} -> Swift.AnyObject{(isFailable ? "?" : "")}";
         // `Self.init` rather than the module-qualified type name: inside the extension the
         // qualified generic name does not pick up the extended type's generic arguments. Only
         // final classes reach this path, so `Self` needs no `required` init.
@@ -770,7 +770,7 @@ public static class ConstructorWrapperEmitter
         return GenericProtocolEmitter.EmitProtocolAndConformance(
             swiftWriter, "CI", symbolName, factorySignature, moduleQualifiedName,
             originAnchor: originAnchor,
-            protocolConstraint: "AnyObject",
+            protocolConstraint: "Swift.AnyObject",
             extensionAvailability: extensionAvailability,
             conformanceBody: conformanceBody);
     }
@@ -791,9 +791,9 @@ public static class ConstructorWrapperEmitter
             sw.WriteLines($$"""
                 do {
                     guard let result = try {{callExpr}} else { return nil }
-                    return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                    return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                     return nil
                 }
                 """);
@@ -803,10 +803,10 @@ public static class ConstructorWrapperEmitter
             sw.WriteLines($$"""
                 do {
                     let result = try {{callExpr}}
-                    return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                    return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
-                    return UnsafeMutableRawPointer(bitPattern: 1)!
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
+                    return Swift.UnsafeMutableRawPointer(bitPattern: 1)!
                 }
                 """);
         }
@@ -814,14 +814,14 @@ public static class ConstructorWrapperEmitter
         {
             sw.WriteLines($$"""
                 guard let result = {{callExpr}} else { return nil }
-                return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()
                 """);
         }
         else
         {
             sw.WriteLines($$"""
                 let result = {{callExpr}}
-                return Unmanaged.passRetained(result as AnyObject).toOpaque()
+                return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()
                 """);
         }
     }
@@ -835,10 +835,10 @@ public static class ConstructorWrapperEmitter
         sw.WriteLines($$"""
             do {
                 let result = try {{callExpr}}
-                return Unmanaged.passRetained(result).toOpaque()
+                return Swift.Unmanaged.passRetained(result).toOpaque()
             } catch {
-                errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
-                return UnsafeMutableRawPointer(bitPattern: 1)!
+                errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
+                return Swift.UnsafeMutableRawPointer(bitPattern: 1)!
             }
             """);
     }
@@ -852,9 +852,9 @@ public static class ConstructorWrapperEmitter
         sw.WriteLines($$"""
             do {
                 guard let result = try {{callExpr}} else { return nil }
-                return Unmanaged.passRetained(result).toOpaque()
+                return Swift.Unmanaged.passRetained(result).toOpaque()
             } catch {
-                errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                 return nil
             }
             """);
@@ -871,9 +871,9 @@ public static class ConstructorWrapperEmitter
             sw.WriteLines($$"""
                 do {
                     let result: {{swiftTypeName}}? = try {{callExpr}}
-                    resultPtr.assumingMemoryBound(to: Optional<{{swiftTypeName}}>.self).initialize(to: result)
+                    resultPtr.assumingMemoryBound(to: Swift.Optional<{{swiftTypeName}}>.self).initialize(to: result)
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                 }
                 """);
         }
@@ -888,7 +888,7 @@ public static class ConstructorWrapperEmitter
             sw.Indent--;
             sw.WriteLines($$"""
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                 }
                 """);
         }
@@ -941,12 +941,12 @@ public static class ConstructorWrapperEmitter
         // Class constructors return UnsafeMutableRawPointer.
         if (!isClass)
         {
-            cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            cdeclParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
         }
         if (throws)
         {
-            cdeclParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
-            protocolParams.Add("errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            cdeclParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
+            protocolParams.Add("errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
             cdeclCallArgs.Add("errorOut: errorOut");
         }
 
@@ -984,8 +984,8 @@ public static class ConstructorWrapperEmitter
             if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
             {
                 // T-typed param → UnsafeRawPointer in protocol, reconstructed in extension body
-                protocolParams.Add($"{paramPrefix}: UnsafeRawPointer");
-                cdeclParams.Add($"_ {label}: UnsafeRawPointer");
+                protocolParams.Add($"{paramPrefix}: Swift.UnsafeRawPointer");
+                cdeclParams.Add($"_ {label}: Swift.UnsafeRawPointer");
                 cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
 
                 // In the extension body, reconstruct T from UnsafeRawPointer
@@ -998,14 +998,14 @@ public static class ConstructorWrapperEmitter
                     // not a pointer-to-class-ref. assumingMemoryBound(to:).pointee would
                     // re-load through the address (returning the class metadata pointer);
                     // Unmanaged.fromOpaque interprets the value as the class reference directly.
-                    extensionBodyLines.Add($"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()");
+                    extensionBodyLines.Add($"let {label}Val = Swift.Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()");
                 }
                 else if (arg.IsInOut)
                 {
                     // The C# side passes the caller's slot by reference: bind it mutably and write
                     // the initializer's mutation back through the same address.
                     extensionBodyLines.Add($"var {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
-                    extensionBodyLines.Add($"defer {{ UnsafeMutableRawPointer(mutating: {label}).assumingMemoryBound(to: {swiftType}.self).pointee = {label}Val }}");
+                    extensionBodyLines.Add($"defer {{ Swift.UnsafeMutableRawPointer(mutating: {label}).assumingMemoryBound(to: {swiftType}.self).pointee = {label}Val }}");
                 }
                 else
                 {
@@ -1054,7 +1054,7 @@ public static class ConstructorWrapperEmitter
         // Add metadata parameter(s) to @_cdecl
         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
         {
-            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+            cdeclParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
         }
 
         // Add PWT parameter(s) for constrained generic types.
@@ -1066,7 +1066,7 @@ public static class ConstructorWrapperEmitter
         int gsfPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
         for (int pi = 0; pi < gsfPwtCount; pi++)
         {
-            cdeclParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
+            cdeclParams.Add($"_ _pwt{pi}: Swift.UnsafeRawPointer");
         }
 
         // Build protocol factory method signature
@@ -1074,14 +1074,14 @@ public static class ConstructorWrapperEmitter
         var factoryMethodName = $"_sbw_create_{ctorHash}";
         string protocolReturnType;
         if (isClass)
-            protocolReturnType = throws ? "UnsafeMutableRawPointer" : "UnsafeMutableRawPointer";
+            protocolReturnType = throws ? "Swift.UnsafeMutableRawPointer" : "Swift.UnsafeMutableRawPointer";
         else
             protocolReturnType = "";  // Writes to resultPtr
 
         // For struct types, the factory also needs resultPtr
         if (!isClass)
         {
-            protocolParams.Insert(throws ? 1 : 0, "resultPtr: UnsafeMutableRawPointer");
+            protocolParams.Insert(throws ? 1 : 0, "resultPtr: Swift.UnsafeMutableRawPointer");
             cdeclCallArgs.Insert(throws ? 1 : 0, "resultPtr: resultPtr");
         }
 
@@ -1110,7 +1110,7 @@ public static class ConstructorWrapperEmitter
         string protocolMethodDecl;
         if (isClass)
         {
-            protocolMethodDecl = $"static func {factoryMethodName}({protocolParamString}){throwsClause} -> UnsafeMutableRawPointer{(isFailable ? "?" : "")}";
+            protocolMethodDecl = $"static func {factoryMethodName}({protocolParamString}){throwsClause} -> Swift.UnsafeMutableRawPointer{(isFailable ? "?" : "")}";
         }
         else
         {
@@ -1156,22 +1156,22 @@ public static class ConstructorWrapperEmitter
             if (throws && isFailable)
             {
                 extensionLines.Add($"guard let result = try {ctorType}({initCallArgString}) else {{ return nil }}");
-                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                extensionLines.Add("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             }
             else if (throws)
             {
                 extensionLines.Add($"let result = try {ctorType}({initCallArgString})");
-                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                extensionLines.Add("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             }
             else if (isFailable)
             {
                 extensionLines.Add($"guard let result = {ctorType}({initCallArgString}) else {{ return nil }}");
-                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                extensionLines.Add("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             }
             else
             {
                 extensionLines.Add($"let result = {ctorType}({initCallArgString})");
-                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                extensionLines.Add("return Swift.Unmanaged.passRetained(result as Swift.AnyObject).toOpaque()");
             }
         }
         else
@@ -1182,7 +1182,7 @@ public static class ConstructorWrapperEmitter
             // retain/release on unbound NativeMemory.Alloc'd buffers. The cross-host fault
             // (doc 14 hypothesis 3) is in metadata-resolution, not reconstruction shape, so
             // we keep this ARC-safe form here.
-            var resultType = isFailable ? "Optional<Self>" : "Self";
+            var resultType = isFailable ? "Swift.Optional<Self>" : "Self";
             var tryPrefix = throws ? "try " : "";
             extensionLines.Add(isFailable
                 ? $"let result: Self? = {tryPrefix}Self({initCallArgString})"
@@ -1207,7 +1207,7 @@ public static class ConstructorWrapperEmitter
         swiftWriter.WriteLines($$"""
             {{originAnchor}}
             {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}}{{extensionWhereClause}} {
-                static func {{factoryMethodName}}({{protocolParamString}}){{throwsClause}}{{(isClass ? $" -> UnsafeMutableRawPointer{(isFailable ? "?" : "")}" : "")}} {
+                static func {{factoryMethodName}}({{protocolParamString}}){{throwsClause}}{{(isClass ? $" -> Swift.UnsafeMutableRawPointer{(isFailable ? "?" : "")}" : "")}} {
                     {{extensionBody}}
                 }
             }
@@ -1225,9 +1225,9 @@ public static class ConstructorWrapperEmitter
 
         string cdeclReturnClause;
         if (isClass && !isFailable)
-            cdeclReturnClause = " -> UnsafeMutableRawPointer";
+            cdeclReturnClause = " -> Swift.UnsafeMutableRawPointer";
         else if (isClass && isFailable)
-            cdeclReturnClause = " -> UnsafeMutableRawPointer?";
+            cdeclReturnClause = " -> Swift.UnsafeMutableRawPointer?";
         else
             cdeclReturnClause = "";
 
@@ -1282,7 +1282,7 @@ public static class ConstructorWrapperEmitter
         var gsfPwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase)).Select(i => $"_pwt{i}");
         var gsfMetaArgs = string.Join(", ", gsfMetaArgsList.Concat(gsfPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {gsfHelperName}({gsfMetaArgs})");
-        swiftWriter.WriteLine("let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any _SBW_GSF_" +
+        swiftWriter.WriteLine("let metatype = Swift.unsafeBitCast(parentMeta, to: Any.Type.self) as! any _SBW_GSF_" +
             EmitterUtility.DeterministicHash8(symbolName) + ".Type");
 
         // Call the protocol static factory
@@ -1313,11 +1313,11 @@ public static class ConstructorWrapperEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLines("""
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                 """);
             if (isClass)
             {
-                swiftWriter.WriteLine(isFailable ? "    return nil" : "    return UnsafeMutableRawPointer(bitPattern: 1)!");
+                swiftWriter.WriteLine(isFailable ? "    return nil" : "    return Swift.UnsafeMutableRawPointer(bitPattern: 1)!");
             }
             swiftWriter.WriteLine("}");
         }
@@ -1383,9 +1383,9 @@ public static class ConstructorWrapperEmitter
             // Use MemoryLayout<T>.offset(of:) to find the field's byte offset within the struct,
             // then advance by the inner type's size to reach the tag byte.
             // Tag byte: 0 = Some, 1 = None (matches Swift Optional enum layout).
-            sw.WriteLine($"if let _fo = MemoryLayout<{moduleQualifiedSwiftName}>.offset(of: \\{moduleQualifiedSwiftName}.{propertyName}) {{");
+            sw.WriteLine($"if let _fo = Swift.MemoryLayout<{moduleQualifiedSwiftName}>.offset(of: \\{moduleQualifiedSwiftName}.{propertyName}) {{");
             sw.Indent++;
-            sw.WriteLine($"resultPtr.advanced(by: _fo + {tagOffset}).assumingMemoryBound(to: UInt8.self).pointee = result.{propertyName} == nil ? 1 : 0");
+            sw.WriteLine($"resultPtr.advanced(by: _fo + {tagOffset}).assumingMemoryBound(to: Swift.UInt8.self).pointee = result.{propertyName} == nil ? 1 : 0");
             sw.Indent--;
             sw.WriteLine("}");
         }
@@ -1436,9 +1436,9 @@ public static class ConstructorWrapperEmitter
             // Avoids VWT->GetEnumTag function pointer call which crashes on Mono.
             @_cdecl("{{symbolName}}")
             """);
-        swiftWriter.WriteLine($"public func _sbw_getOptionalTag_{funcHash}(_ ptr: UnsafeRawPointer) -> UInt32 {{");
+        swiftWriter.WriteLine($"public func _sbw_getOptionalTag_{funcHash}(_ ptr: Swift.UnsafeRawPointer) -> Swift.UInt32 {{");
         swiftWriter.Indent++;
-        swiftWriter.WriteLine($"let optional = ptr.load(as: Optional<{moduleQualifiedSwiftName}>.self)");
+        swiftWriter.WriteLine($"let optional = ptr.load(as: Swift.Optional<{moduleQualifiedSwiftName}>.self)");
         swiftWriter.WriteLine("return optional == nil ? 1 : 0");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");

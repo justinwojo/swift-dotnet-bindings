@@ -616,7 +616,7 @@ public class ConcreteSpecializationEngineTests
         var byteArrayConformer = dataProtocol.FirstOrDefault(c => c.CSharpType == "byte[]");
 
         Assert.NotNull(byteArrayConformer);
-        Assert.Equal("[UInt8]", byteArrayConformer!.SwiftLiteral);
+        Assert.Equal("[Swift.UInt8]", byteArrayConformer!.SwiftLiteral);
     }
 
     [Fact]
@@ -626,7 +626,7 @@ public class ConcreteSpecializationEngineTests
         Assert.True(hints.ContainsKey("Swift.Collection"), "Should have Swift.Collection hints");
 
         var stringArrayConformer = hints["Swift.Collection"]
-            .FirstOrDefault(c => c.SwiftLiteral == "[String]");
+            .FirstOrDefault(c => c.SwiftLiteral == "[Swift.String]");
         Assert.NotNull(stringArrayConformer);
         Assert.Equal("Swift.SwiftArray<Swift.SwiftString>", stringArrayConformer!.CSharpType);
         Assert.NotNull(stringArrayConformer.AssociatedTypes);
@@ -1531,7 +1531,7 @@ public class ConcreteSpecializationEngineTests
         Assert.Contains("SBW_UnregisterTask(", cs);
 
         // Swift: the @_cdecl wrapper takes the cancelKey and registers/assigns the launched Task.
-        Assert.Contains("_ cancelKey: Int64", swift);
+        Assert.Contains("_ cancelKey: Swift.Int64", swift);
         Assert.Contains("_sbwRegisterTask(cancelKey, _entry)", swift);
         Assert.Contains("if _sbwAssignTask(_entry, _sbwLaunchedTask) { _sbwLaunchedTask.cancel() }", swift);
     }
@@ -1705,7 +1705,7 @@ public class ConcreteSpecializationEngineTests
         Assert.DoesNotContain("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>", cs);
 
         // Swift completion is context-only (1 arg), and is invoked with just the context.
-        Assert.Contains("_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void", swift);
+        Assert.Contains("_ completion: @convention(c) (Swift.UnsafeMutableRawPointer) -> Swift.Void", swift);
         Assert.Contains("completion(context)", swift);
         // No result pointer is threaded into the wrapper, and no 2-arg success completion exists.
         Assert.DoesNotContain("_ resultPtr:", swift);
@@ -1744,13 +1744,13 @@ public class ConcreteSpecializationEngineTests
         var swift = swiftOutput.ToString();
 
         // Swift: both callbacks present, do/catch routing, context-only success completion.
-        Assert.Contains("_ completion: @convention(c) (UnsafeMutableRawPointer) -> Void", swift);
+        Assert.Contains("_ completion: @convention(c) (Swift.UnsafeMutableRawPointer) -> Swift.Void", swift);
         // The error pointer is optional so cancellation can travel as a nil sentinel.
-        Assert.Contains("_ errorCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer) -> Void", swift);
+        Assert.Contains("_ errorCallback: @convention(c) (Swift.UnsafeMutableRawPointer?, Swift.UnsafeMutableRawPointer) -> Swift.Void", swift);
         Assert.Contains("try await __self.donate(", swift);
         Assert.Contains("completion(context)", swift);
         // Cancellation reported as a nil sentinel; every other error boxes and flows normally.
-        Assert.Contains("} catch is CancellationError {", swift);
+        Assert.Contains("} catch is _Concurrency.CancellationError {", swift);
         Assert.Contains("errorCallback(nil, context)", swift);
         Assert.Contains("errorCallback(errorPtr, context)", swift);
         // No result buffer on the throwing void path either.

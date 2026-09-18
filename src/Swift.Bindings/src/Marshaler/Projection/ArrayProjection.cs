@@ -107,7 +107,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             // Materialize to list for disposal: .ToList() + try/finally + SwiftInner intermediate
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Converted = {paramName}.Select(e => {elemConversion}).ToList();"));
+                $"var {paramName}Converted = global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({paramName}, e => {elemConversion}));"));
             setup.Add(new MarshalStatement.Line(
                 $"SwiftArray<{rawElem}> {paramName}SwiftInner;"));
 
@@ -130,7 +130,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             // Conversion needed but no disposal — lazy Select without materialization
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Containers = {paramName}.Select(e => {elemConversion});"));
+                $"var {paramName}Containers = global::System.Linq.Enumerable.Select({paramName}, e => {elemConversion});"));
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}SwiftDirect = SwiftArray<{rawElem}>.FromEnumerable({paramName}Containers);"));
             return (setup, $"{paramName}SwiftDirect");
@@ -291,7 +291,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             {
                 var innerConv = _elementProjection.GetParameterElementConversion("e");
                 if (innerConv != null)
-                    return $"Foundation.NSArray.FromNSObjects({elementVar}.Select(e => (Foundation.NSObject){innerConv}).ToArray())";
+                    return $"Foundation.NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, e => (Foundation.NSObject){innerConv})))";
             }
             return $"Foundation.NSArray.FromNSObjects({ObjCLeafElementArrayExpr(elementVar)})";
         }
@@ -301,7 +301,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
         // matches the C# public type, FromEnumerable wants the typed wrapper directly.
         if (elemConversion != null && rawElem != _elementProjection.PublicType)
-            return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar}.Select(e => {elemConversion}))";
+            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
         return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar})";
     }
 
@@ -360,8 +360,8 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// </remarks>
     internal string ObjCLeafElementArrayExpr(string varName)
         => _elementProjection.TypedEnumAdapter is { } adapter
-            ? $"{varName}.Select(e => {adapter.ToCarrier("e")}).ToArray()"
-            : $"{varName}.ToArray()";
+            ? $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, e => {adapter.ToCarrier("e")}))"
+            : $"global::System.Linq.Enumerable.ToArray({varName})";
 
     /// <summary>
     /// Projects the ObjC elements read back out of a bridged collection to the public element type.
@@ -369,7 +369,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// </summary>
     private string ProjectObjCLeafElements(string collectionExpr)
         => _elementProjection.TypedEnumAdapter is { } adapter
-            ? $"{collectionExpr}.Select(e => {adapter.FromCarrier("e")}).ToList()"
+            ? $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({collectionExpr}, e => {adapter.FromCarrier("e")}))"
             : collectionExpr;
 
     /// <summary>
@@ -418,8 +418,8 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             var innerConv = _elementProjection.GetParameterElementConversion("e");
             arrayExpr = innerConv != null
-                ? $"{varName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
-                : $"{varName}.ToArray()";
+                ? $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, e => (Foundation.NSObject){innerConv}))"
+                : $"global::System.Linq.Enumerable.ToArray({varName})";
         }
         else
         {
@@ -438,7 +438,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             && _elementProjection.UsesObjCContainerBridge;
         var innerConv = isNestedContainer ? _elementProjection.GetParameterElementConversion("e") : null;
         var arrayExpr = innerConv != null
-            ? $"{paramName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
+            ? $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({paramName}, e => (Foundation.NSObject){innerConv}))"
             : ObjCLeafElementArrayExpr(paramName);
 
         var ownerName = $"{paramName}NSArray";
@@ -496,7 +496,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             var innerConv = _elementProjection.GetReturnElementConversion("e");
             if (innerConv != null)
-                arrayFromHandle = $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true).Select(e => {innerConv}).ToList()";
+                arrayFromHandle = $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true), e => {innerConv}))";
         }
 
         // ObjC bridge returns as ClassPointer (direct IntPtr), not IndirectResult

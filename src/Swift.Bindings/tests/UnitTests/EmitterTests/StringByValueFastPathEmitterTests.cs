@@ -155,7 +155,7 @@ public class StringByValueFastPathEmitterTests
         Assert.Contains("new SwiftString.EphemeralSwiftString(after)", managed);
         Assert.Contains("nint before_w0", managed);
         Assert.Contains("nint after_w1", managed);
-        Assert.Contains("_ text: UnsafeMutableRawPointer", native);
+        Assert.Contains("_ text: Swift.UnsafeMutableRawPointer", native);
         Assert.Contains("var textVal = text.assumingMemoryBound(to: Swift.String.self).pointee", native);
         Assert.Contains("text.assumingMemoryBound(to: Swift.String.self).pointee = textVal", native);
         Assert.Contains("defer {", native);
@@ -164,7 +164,7 @@ public class StringByValueFastPathEmitterTests
         if (throws)
         {
             Assert.Contains("out IntPtr errorPtr", managed);
-            Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", native);
+            Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", native);
             int copyback = managed.IndexOf("text = textSwift.ToString();", System.StringComparison.Ordinal);
             Assert.True(copyback > managed.IndexOf("SwiftMarshal.ThrowSwiftError", System.StringComparison.Ordinal));
         }

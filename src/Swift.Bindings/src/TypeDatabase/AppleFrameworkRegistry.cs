@@ -780,6 +780,28 @@ internal static class AppleFrameworkRegistry
         && _objcSystemStructs.Count > 0
         && _objcSystemEnums.Count > 0;
 
+    /// <summary>
+    /// The first segment of the .NET namespace of every registered framework: the namespace roots a
+    /// binding can reference when it names an Apple type.
+    /// </summary>
+    // Built on first use: the tables it reads are filled by the static constructor, which runs after
+    // static initializers.
+    public static IReadOnlyCollection<string> CSharpNamespaceRoots => s_cSharpNamespaceRoots ??= BuildCSharpNamespaceRoots();
+
+    private static HashSet<string>? s_cSharpNamespaceRoots;
+
+    private static HashSet<string> BuildCSharpNamespaceRoots()
+    {
+        var roots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var module in _allKnownModules)
+        {
+            var ns = MapModuleToNetNamespace(module);
+            var dot = ns.IndexOf('.');
+            roots.Add(dot < 0 ? ns : ns.Substring(0, dot));
+        }
+        return roots;
+    }
+
     /// <summary>Module-level only remapping (ObjectiveC→Foundation, QuartzCore→CoreAnimation, etc.)</summary>
     public static string MapModuleToNetNamespace(string swiftModule)
     {

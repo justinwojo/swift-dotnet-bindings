@@ -305,7 +305,7 @@ public class ComplexProjectionTests
         var proj = new SetProjection(DescribableExistential(), isParameter: false);
         var owned = proj.GetOwnedReturnElementConversion("e");
 
-        Assert.Contains("ToHashSet()", owned);
+        Assert.Contains("global::System.Linq.Enumerable.ToHashSet(", owned);
         Assert.Contains("new DescribableProxy(e, ownsContainer: true)", owned);
     }
 
@@ -318,7 +318,7 @@ public class ComplexProjectionTests
         var outer = new ArrayProjection(innerSet, isParameter: false);
         var owned = outer.GetOwnedReturnElementConversion("e");
 
-        Assert.Contains("ToHashSet()", owned);
+        Assert.Contains("global::System.Linq.Enumerable.ToHashSet(", owned);
         Assert.Contains("new DescribableProxy(e, ownsContainer: true)", owned);
     }
 
@@ -346,7 +346,7 @@ public class ComplexProjectionTests
         var conv = innerDict.GetReturnElementConversion("e");
 
         Assert.NotNull(conv);
-        Assert.StartsWith("e.ToDictionary(", conv);
+        Assert.StartsWith("global::System.Linq.Enumerable.ToDictionary(", conv);
         // No leading interface cast on the dictionary itself — it must remain the concrete donor.
         Assert.False(conv!.StartsWith("(", System.StringComparison.Ordinal));
         // The existential value is still cast to its public interface inside the selector.
@@ -363,7 +363,7 @@ public class ComplexProjectionTests
         var conv = innerDict.GetOwnedReturnElementConversion("e");
 
         Assert.NotNull(conv);
-        Assert.StartsWith("e.ToDictionary(", conv);
+        Assert.StartsWith("global::System.Linq.Enumerable.ToDictionary(", conv);
         Assert.False(conv!.StartsWith("(", System.StringComparison.Ordinal));
         Assert.Contains("new DescribableProxy(kvp.Value, ownsContainer: true)", conv);
     }
@@ -636,7 +636,7 @@ public class ComplexProjectionTests
 
         Assert.Equal("urlsBuffer", plan.PInvokeExpression);
         var owner = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
-        Assert.Contains("NSArray.FromNSObjects(urls.ToArray())", owner.InitExpression);
+        Assert.Contains("NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(urls))", owner.InitExpression);
     }
 
     [Fact]
@@ -652,7 +652,7 @@ public class ComplexProjectionTests
         Assert.Equal("nestedBuffer", plan.PInvokeExpression);
         var owner = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
         // Must apply inner conversion: Select + FromNSObjects for inner arrays
-        Assert.Contains(".Select(e =>", owner.InitExpression);
+        Assert.Contains("global::System.Linq.Enumerable.Select(nested, e =>", owner.InitExpression);
         Assert.Contains("NSArray.FromNSObjects", owner.InitExpression);
     }
 
@@ -667,7 +667,7 @@ public class ComplexProjectionTests
 
         Assert.Equal("itemsBuffer", plan.PInvokeExpression);
         var owner = Assert.IsType<MarshalStatement.Using>(plan.SetupStatements[0]);
-        Assert.Contains(".Select(e =>", owner.InitExpression);
+        Assert.Contains("global::System.Linq.Enumerable.Select(items, e =>", owner.InitExpression);
         Assert.Contains("NSArray.FromNSObjects", owner.InitExpression);
     }
 
@@ -1592,7 +1592,7 @@ public class ComplexProjectionTests
             OriginalCallExpression = "fetch()"
         });
         Assert.NotNull(code);
-        Assert.Contains("Int64, Int64", code); // return param + task param in callback
+        Assert.Contains("Swift.Int64, Swift.Int64", code); // return param + task param in callback
     }
 
     [Fact]
@@ -1609,7 +1609,7 @@ public class ComplexProjectionTests
             SwiftCallbackReturnType = "String"
         });
         Assert.NotNull(code);
-        Assert.Contains("String, Int64", code); // String from context, Int64 for task
+        Assert.Contains("String, Swift.Int64", code); // String from context, Int64 for task
     }
 
     [Fact]

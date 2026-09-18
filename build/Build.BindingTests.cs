@@ -1195,6 +1195,9 @@ partial class Build
                 }
 
                 RunBuildBridge();
+                // Fail-closed regardless of --permissive: a bare stdlib name in emitted Swift is a
+                // capture a consumer's library can trigger, not a local-exploration nuisance.
+                RunStdlibShadowTrapGate();
                 ReportBindingTestResults();
 
                 // Cross-artifact parity gate: diff the generated C# against the built

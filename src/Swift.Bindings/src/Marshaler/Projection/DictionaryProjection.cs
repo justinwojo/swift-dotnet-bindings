@@ -120,7 +120,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             var valExpr = effectiveValConv ?? "kvp.Value";
 
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Converted = {paramName}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})).ToList();"));
+                $"var {paramName}Converted = global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({paramName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})));"));
             setup.Add(new MarshalStatement.Line(
                 $"SwiftDictionary<{rawK}, {rawV}> {paramName}SwiftInner;"));
 
@@ -355,7 +355,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         {
             var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
             var valToNS = ToNSObject(_valueProjection, "kvp.Value");
-            return $"Foundation.NSDictionary.FromObjectsAndKeys({elementVar}.Select(kvp => {valToNS}).ToArray(), {elementVar}.Select(kvp => {keyToNS}).ToArray())";
+            return $"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, kvp => {keyToNS})))";
         }
 
         var rawK = _keyProjection.SwiftContainerGenericType;
@@ -373,7 +373,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({elementVar}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({elementVar}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({elementVar})";
     }
@@ -403,7 +403,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;
         var valPubType = _valueProjection.PublicType;
-        return $"{elementVar}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+        return $"global::System.Linq.Enumerable.ToDictionary({elementVar}, kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
     }
 
     /// <summary>
@@ -422,7 +422,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;
         var valPubType = _valueProjection.PublicType;
-        return $"{elementVar}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+        return $"global::System.Linq.Enumerable.ToDictionary({elementVar}, kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
     }
 
     public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
@@ -571,7 +571,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     {
         var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
         var valToNS = ToNSObject(_valueProjection, "kvp.Value");
-        var nsDict = $"Foundation.NSDictionary.FromObjectsAndKeys({varName}.Select(kvp => {valToNS}).ToArray(), {varName}.Select(kvp => {keyToNS}).ToArray())";
+        var nsDict = $"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, kvp => {keyToNS})))";
         return $"global::Swift.Runtime.Arc.UnknownObjectRetain({nsDict}.Handle)";
     }
 
@@ -589,10 +589,10 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             return new ObjCContainerBridgeOwner(
                 new List<MarshalStatement>
                 {
-                    new MarshalStatement.Line($"var {paramName}Pairs = {paramName}?.ToArray();"),
+                    new MarshalStatement.Line($"var {paramName}Pairs = {paramName} is null ? null : global::System.Linq.Enumerable.ToArray({paramName});"),
                     ObjCContainerBridgeOwner.Declare(
                         "Foundation.NSDictionary", ownerName,
-                        $"Foundation.NSDictionary.FromObjectsAndKeys({paramName}Pairs.Select(kvp => {valToNS}).ToArray(), {paramName}Pairs.Select(kvp => {keyToNS}).ToArray())",
+                        $"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({paramName}Pairs, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({paramName}Pairs, kvp => {keyToNS})))",
                         $"{paramName}Pairs", sourceIsNullable: true)
                 },
                 ownerName);
@@ -602,11 +602,11 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             new List<MarshalStatement>
             {
                 new MarshalStatement.Line(
-                    $"var {paramName}Pairs = {paramName}.ToArray();"),
+                    $"var {paramName}Pairs = global::System.Linq.Enumerable.ToArray({paramName});"),
                 new MarshalStatement.Line(
-                    $"var {paramName}Keys = {paramName}Pairs.Select(kvp => {keyToNS}).ToArray();"),
+                    $"var {paramName}Keys = global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({paramName}Pairs, kvp => {keyToNS}));"),
                 new MarshalStatement.Line(
-                    $"var {paramName}Values = {paramName}Pairs.Select(kvp => {valToNS}).ToArray();"),
+                    $"var {paramName}Values = global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({paramName}Pairs, kvp => {valToNS}));"),
                 ObjCContainerBridgeOwner.Declare(
                     "Foundation.NSDictionary", ownerName,
                     $"Foundation.NSDictionary.FromObjectsAndKeys({paramName}Values, {paramName}Keys)",

@@ -541,11 +541,11 @@ public class SubscriptWrapperEmitterTests
             swiftWriter, subscriptDecl, "SBW_SubGet_TestModule_MyType_error001", env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains(") -> UnsafeMutableRawPointer? {", output);
+        Assert.Contains(") -> Swift.UnsafeMutableRawPointer? {", output);
         Assert.DoesNotContain("_ resultPtr:", output);
         Assert.Contains("guard let _sbwError = obj[", output);
         Assert.Contains("else { return nil }", output);
-        Assert.Contains("initializeMemory(as: (any Error).self", output);
+        Assert.Contains("initializeMemory(as: (any Swift.Error).self", output);
         Assert.Contains("return _sbwErrorBox", output);
     }
 
@@ -858,7 +858,7 @@ public class SubscriptWrapperEmitterTests
         SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(swiftWriter, subscriptDecl, "SBW_SubGet_tuple", env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("initializeMemory(as: (Swift.Int, Swift.Int).self", output);
     }
 
@@ -1004,8 +1004,8 @@ public class SubscriptWrapperEmitterTests
         SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(swiftWriter, subscriptDecl, symbol, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
-        Assert.Contains("_ _pwt0: UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata0: Swift.UnsafeRawPointer", output);
+        Assert.Contains("_ _pwt0: Swift.UnsafeRawPointer", output);
         var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_subget_"));
         var metaIdx = cdeclLine.IndexOf("_metadata0");
         var pwtIdx = cdeclLine.IndexOf("_pwt0");
@@ -1054,8 +1054,8 @@ public class SubscriptWrapperEmitterTests
         SubscriptWrapperEmitter.EmitSwiftSubscriptSetterWrapper(swiftWriter, subscriptDecl, symbol, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
-        Assert.Contains("_ _pwt0: UnsafeRawPointer", output);
+        Assert.Contains("_ _metadata0: Swift.UnsafeRawPointer", output);
+        Assert.Contains("_ _pwt0: Swift.UnsafeRawPointer", output);
         var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_subset_"));
         var metaIdx = cdeclLine.IndexOf("_metadata0");
         var pwtIdx = cdeclLine.IndexOf("_pwt0");

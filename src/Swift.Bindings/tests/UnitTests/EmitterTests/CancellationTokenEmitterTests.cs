@@ -56,7 +56,7 @@ public class CancellationTokenEmitterTests
         var output = sw.ToString();
 
         Assert.Contains("private final class _SBWTaskEntry", output);
-        Assert.Contains($"var task: {SwiftConcurrencyNames.Task}<Void, Never>?", output);
+        Assert.Contains($"var task: {SwiftConcurrencyNames.Task}<Swift.Void, Swift.Never>?", output);
     }
 
     [Fact]
@@ -88,8 +88,8 @@ public class CancellationTokenEmitterTests
 
         // Helper functions wrap NSLock operations so they can be safely called
         // from async contexts (Swift 6 marks NSLock.lock/unlock as @available(*, noasync))
-        Assert.Contains("private func _sbwRegisterTask(_ taskId: Int64, _ entry: _SBWTaskEntry)", output);
-        Assert.Contains("private func _sbwUnregisterTask(_ taskId: Int64)", output);
+        Assert.Contains("private func _sbwRegisterTask(_ taskId: Swift.Int64, _ entry: _SBWTaskEntry)", output);
+        Assert.Contains("private func _sbwUnregisterTask(_ taskId: Swift.Int64)", output);
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class CancellationTokenEmitterTests
         var output = sw.ToString();
 
         Assert.Contains(
-            $"private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: {SwiftConcurrencyNames.Task}<Void, Never>) -> Bool",
+            $"private func _sbwAssignTask(_ entry: _SBWTaskEntry, _ task: {SwiftConcurrencyNames.Task}<Swift.Void, Swift.Never>) -> Swift.Bool",
             output);
     }
 
@@ -219,7 +219,7 @@ public class CancellationTokenEmitterTests
         var output = sw.ToString();
 
         Assert.Contains("@_cdecl(\"SBW_UnregisterTask_TestModule\")", output);
-        Assert.Contains("public func _sbw_unregisterTask(_ taskId: Int64)", output);
+        Assert.Contains("public func _sbw_unregisterTask(_ taskId: Swift.Int64)", output);
     }
 
     [Fact]
@@ -427,7 +427,7 @@ public class CancellationTokenEmitterTests
     public void AsyncWrapper_SwiftCatchEmitsIsCancelled()
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
-        Assert.Contains("let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0", swiftOutput);
+        Assert.Contains("let _isCancelled: Swift.Int32 = (error is _Concurrency.CancellationError) ? 1 : 0", swiftOutput);
     }
 
     [Fact]
@@ -673,8 +673,8 @@ public class CancellationTokenEmitterTests
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
         // Both values cross the boundary: _sbwTask (context) and _sbwCancelKey (registry key).
-        Assert.Contains("_sbwCancelKey: Int64", swiftOutput);
-        Assert.Contains("_sbwTask: Int64", swiftOutput);
+        Assert.Contains("_sbwCancelKey: Swift.Int64", swiftOutput);
+        Assert.Contains("_sbwTask: Swift.Int64", swiftOutput);
     }
 
     [Fact]

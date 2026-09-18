@@ -544,7 +544,7 @@ public static class ArraySliceNormalizationEmitter
             // Large Optional params: accept UnsafeRawPointer, dereference in body
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, normalizedEnv.BoundGenericsHandler))
             {
-                argParams.Add($"_ {label}: UnsafeRawPointer");
+                argParams.Add($"_ {label}: Swift.UnsafeRawPointer");
                 derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, normalizedEnv.TypeDatabase));
             }
             else if (useCdecl)
@@ -676,22 +676,22 @@ public static class ArraySliceNormalizationEmitter
                 switch (phase)
                 {
                     case CdeclPhase.ResultPtr:
-                        swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                        swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
                         break;
                     case CdeclPhase.Arguments:
                         swiftParams.AddRange(argParams);
                         if (hasLargeOptionalReturn)
-                            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+                            swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
                         break;
                     case CdeclPhase.Metadata:
                         break;
                     case CdeclPhase.Self:
                         swiftParams.Add(parentTypeDecl is ClassDecl
-                            ? "_ self_: UnsafeMutableRawPointer"
-                            : "_ self_: UnsafeRawPointer");
+                            ? "_ self_: Swift.UnsafeMutableRawPointer"
+                            : "_ self_: Swift.UnsafeRawPointer");
                         break;
                     case CdeclPhase.ErrorOut:
-                        swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                        swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                         break;
                 }
             }
@@ -700,7 +700,7 @@ public static class ArraySliceNormalizationEmitter
         {
             swiftParams.AddRange(argParams);
             if (hasLargeOptionalReturn)
-                swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+                swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
         }
 
         swiftParamString = string.Join(", ", swiftParams);
@@ -748,7 +748,7 @@ public static class ArraySliceNormalizationEmitter
                 {
                     bool isClass = parentTypeDecl is ClassDecl;
                     if (isClass)
-                        derefLines.Insert(0, $"let obj = Unmanaged<{swiftModuleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
+                        derefLines.Insert(0, $"let obj = Swift.Unmanaged<{swiftModuleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
                     else
                         derefLines.Insert(0, $"let obj = self_.load(as: {swiftModuleQualifiedName}.self)");
                     callExprBase = $"obj.{originalMethodName}({callArgString})";
@@ -783,7 +783,7 @@ public static class ArraySliceNormalizationEmitter
                 swiftWriter.Indent--;
                 swiftWriter.WriteLines("""
                     } catch {
-                        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                     """);
                 if (!isVoid && !cdeclNeedsResultPtr && !hasLargeOptionalReturn)
                     OptionalPointerWrapperEmitter.EmitCdeclSentinelReturn(swiftWriter, cdeclReturnMapping, indent: "    ");

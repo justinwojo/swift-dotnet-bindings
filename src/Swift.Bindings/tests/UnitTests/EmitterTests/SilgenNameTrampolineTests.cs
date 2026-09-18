@@ -411,7 +411,7 @@ public class SilgenNameTrampolineTests
         // @_cdecl with errorOut for throwing method
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.Contains("errorOut", swiftOutput);
-        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", swiftOutput);
+        Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", swiftOutput);
         Assert.Contains("CallConvCdecl", csOutput);
     }
 
@@ -517,7 +517,7 @@ public class SilgenNameTrampolineTests
         // @_cdecl with retained error object pattern
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.Contains("errorOut", swiftOutput);
-        Assert.Contains("Unmanaged.passRetained(error as AnyObject).toOpaque()", swiftOutput);
+        Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", swiftOutput);
         Assert.Contains("CallConvCdecl", csOutput);
     }
 
@@ -1123,11 +1123,11 @@ public class SilgenNameTrampolineTests
         // The transport scalar is 32-bit Int32 (matching the C# `int` P/Invoke side —
         // the int↔Int width contract pinned by EnumAbiWidthConsistencyTests), zero-init'd
         // and copyMemory-widened from the enum's actual (usually 1-byte) allocation.
-        Assert.Contains("let resultSize = MemoryLayout.size(ofValue: result)", swiftOutput);
-        Assert.Contains("var tag: Int32 = 0", swiftOutput);
+        Assert.Contains("let resultSize = Swift.MemoryLayout.size(ofValue: result)", swiftOutput);
+        Assert.Contains("var tag: Swift.Int32 = 0", swiftOutput);
         Assert.Contains("copyMemory", swiftOutput);
         Assert.Contains("byteCount: resultSize", swiftOutput);
-        Assert.DoesNotContain("load(as: Int.self)", swiftOutput);
+        Assert.DoesNotContain("load(as: Swift.Int.self)", swiftOutput);
     }
 
     #endregion

@@ -405,7 +405,7 @@ public class EnumCaseWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("@_cdecl(\"SBW_TestModule_Status_active_12345678\")", output);
-        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ resultPtr: Swift.UnsafeMutableRawPointer", output);
         Assert.Contains("TestModule.Status.active(", output);
         Assert.Contains("resultPtr.initializeMemory(as: TestModule.Status.self", output);
     }
@@ -431,9 +431,9 @@ public class EnumCaseWrapperEmitterTests
 
         var output = sw.ToString();
         // String params use UTF-8 pointer + length reconstruction (NativeAOT-safe)
-        Assert.Contains("Utf8Ptr: UnsafePointer<UInt8>", output);
-        Assert.Contains("Utf8Len: Int", output);
-        Assert.Contains("UnsafeBufferPointer", output);
+        Assert.Contains("Utf8Ptr: Swift.UnsafePointer<Swift.UInt8>", output);
+        Assert.Contains("Utf8Len: Swift.Int", output);
+        Assert.Contains("Swift.UnsafeBufferPointer", output);
     }
 
     [Fact]

@@ -50,15 +50,15 @@ internal static class KvoExtensionEmitter
     private static readonly Dictionary<string, (string SwiftAbi, string CSharpAbi)> s_supportedTypes =
         new(StringComparer.Ordinal)
         {
-            { "Swift.Int",    ("Int",     "nint")   },
-            { "Swift.Int32",  ("Int32",   "int")    },
-            { "Swift.Int64",  ("Int64",   "long")   },
-            { "Swift.UInt",   ("UInt",    "nuint")  },
-            { "Swift.UInt32", ("UInt32",  "uint")   },
-            { "Swift.UInt64", ("UInt64",  "ulong")  },
-            { "Swift.Bool",   ("Bool",    "bool")   },
-            { "Swift.Double", ("Double",  "double") },
-            { "Swift.Float",  ("Float",   "float")  },
+            { "Swift.Int",    ("Swift.Int",     "nint")   },
+            { "Swift.Int32",  ("Swift.Int32",   "int")    },
+            { "Swift.Int64",  ("Swift.Int64",   "long")   },
+            { "Swift.UInt",   ("Swift.UInt",    "nuint")  },
+            { "Swift.UInt32", ("Swift.UInt32",  "uint")   },
+            { "Swift.UInt64", ("Swift.UInt64",  "ulong")  },
+            { "Swift.Bool",   ("Swift.Bool",    "bool")   },
+            { "Swift.Double", ("Swift.Double",  "double") },
+            { "Swift.Float",  ("Swift.Float",   "float")  },
         };
 
     public static void EmitKvoExtensionsForClass(
@@ -268,20 +268,20 @@ internal static class KvoExtensionEmitter
                 swiftWriter,
                 WrapperEmitterHelpers.MergeAvailability(prop.AvailabilityAnnotations, classDecl));
             swiftWriter.WriteLine($"@_cdecl(\"{observeSym}\")");
-            swiftWriter.WriteLine($"public func {observeSym}(_ selfPtr: UnsafeRawPointer, _ options: UInt, _ fnPtr: UnsafeRawPointer, _ ctx: UnsafeRawPointer) -> UnsafeMutableRawPointer {{");
+            swiftWriter.WriteLine($"public func {observeSym}(_ selfPtr: Swift.UnsafeRawPointer, _ options: Swift.UInt, _ fnPtr: Swift.UnsafeRawPointer, _ ctx: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"let obj = Unmanaged<{swiftQualified}>.fromOpaque(selfPtr).takeUnretainedValue()");
+            swiftWriter.WriteLine($"let obj = Swift.Unmanaged<{swiftQualified}>.fromOpaque(selfPtr).takeUnretainedValue()");
             swiftWriter.WriteLine("let opts = Foundation.NSKeyValueObservingOptions(rawValue: options)");
-            swiftWriter.WriteLine($"typealias Callback = @convention(c) (UnsafeRawPointer, {swiftAbi}, UnsafeRawPointer) -> Void");
-            swiftWriter.WriteLine("let cb = unsafeBitCast(fnPtr, to: Callback.self)");
+            swiftWriter.WriteLine($"typealias Callback = @convention(c) (Swift.UnsafeRawPointer, {swiftAbi}, Swift.UnsafeRawPointer) -> Swift.Void");
+            swiftWriter.WriteLine("let cb = Swift.unsafeBitCast(fnPtr, to: Callback.self)");
             swiftWriter.WriteLine($"let token = obj.observe(\\.{prop.Name}, options: opts) {{ observed, change in");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"let value = change.newValue ?? observed.{prop.Name}");
-            swiftWriter.WriteLine("let observedPtr = Unmanaged.passUnretained(observed).toOpaque()");
+            swiftWriter.WriteLine("let observedPtr = Swift.Unmanaged.passUnretained(observed).toOpaque()");
             swiftWriter.WriteLine("cb(observedPtr, value, ctx)");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
-            swiftWriter.WriteLine("return Unmanaged.passRetained(token).toOpaque()");
+            swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(token).toOpaque()");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
             swiftWriter.WriteLine();
@@ -289,9 +289,9 @@ internal static class KvoExtensionEmitter
 
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, classDecl.AvailabilityAnnotations);
         swiftWriter.WriteLine($"@_cdecl(\"{invalidateSym}\")");
-        swiftWriter.WriteLine($"public func {invalidateSym}(_ tokenPtr: UnsafeRawPointer) {{");
+        swiftWriter.WriteLine($"public func {invalidateSym}(_ tokenPtr: Swift.UnsafeRawPointer) {{");
         swiftWriter.Indent++;
-        swiftWriter.WriteLine("let token = Unmanaged<Foundation.NSKeyValueObservation>.fromOpaque(tokenPtr).takeRetainedValue()");
+        swiftWriter.WriteLine("let token = Swift.Unmanaged<Foundation.NSKeyValueObservation>.fromOpaque(tokenPtr).takeRetainedValue()");
         swiftWriter.WriteLine("token.invalidate()");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");

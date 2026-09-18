@@ -446,7 +446,7 @@ public class PropertyHandlerTests
         Assert.Contains("public func SBW_Feed_updates_AsyncStream", swiftOutput);
         Assert.Contains("for await element in __self.updates", swiftOutput);
         Assert.Contains("@_cdecl(", swiftOutput);
-        Assert.Contains("_ self_: UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", swiftOutput);
     }
 
     [Fact]
@@ -865,8 +865,8 @@ public class PropertyHandlerTests
         Assert.Contains("Foundation.NSArray.ArrayFromHandleFunc<Foundation.NSUrl>", csOutput);
         Assert.DoesNotContain("_optRetPtr", csOutput);
         Assert.DoesNotContain("SwiftOptional<SwiftArray<IntPtr>>", csOutput);
-        Assert.Contains("-> UnsafeMutableRawPointer?", swiftOutput);
-        Assert.Contains("Unmanaged.passRetained", swiftOutput);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", swiftOutput);
+        Assert.Contains("Swift.Unmanaged.passRetained", swiftOutput);
     }
 
     [Fact]
@@ -2214,7 +2214,7 @@ public class PropertyHandlerTests
         Assert.Contains("result == IntPtr.Zero ? null : new Swift.Foundation.AnyError", csOutput);
         Assert.Contains("ownsContainer: true", csOutput);
         Assert.DoesNotContain("SwiftOptional<Swift.Runtime.ExistentialContainer1>", csOutput);
-        Assert.Contains(") -> UnsafeMutableRawPointer? {", swiftOutput);
+        Assert.Contains(") -> Swift.UnsafeMutableRawPointer? {", swiftOutput);
         Assert.Contains("guard let _sbwError", swiftOutput);
         Assert.DoesNotContain("_ hasValuePtr:", swiftOutput);
     }

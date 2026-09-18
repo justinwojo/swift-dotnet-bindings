@@ -216,25 +216,25 @@ public class CdeclLoweringDescriptorTests
     [Fact]
     public void Primitive_PassesThrough()
         => AssertDescriptor(Describe(Named("Swift.Int")),
-            CdeclParamCategory.Primitive, "_ value: Int", null, "value");
+            CdeclParamCategory.Primitive, "_ value: Swift.Int", null, "value");
 
     [Fact]
     public void Bool_LowersToInt8()
         => AssertDescriptor(Describe(Named("Swift.Bool")),
-            CdeclParamCategory.Bool, "_ value: Int8", "let valueVal = value != 0", "valueVal");
+            CdeclParamCategory.Bool, "_ value: Swift.Int8", "let valueVal = value != 0", "valueVal");
 
     [Fact]
     public void AnyObject_UsesUnmanagedAnyObject()
         => AssertDescriptor(Describe(Named("Swift.AnyObject")),
-            CdeclParamCategory.AnyObject, "_ value: UnsafeMutableRawPointer",
-            "let valueVal: AnyObject = Unmanaged<AnyObject>.fromOpaque(value).takeUnretainedValue()", "valueVal");
+            CdeclParamCategory.AnyObject, "_ value: Swift.UnsafeMutableRawPointer",
+            "let valueVal: Swift.AnyObject = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue()", "valueVal");
 
     [Fact]
     public void OptionalAny_LoadsOptionalAny()
     {
         var spec = Optional(new ProtocolListTypeSpec());
-        AssertDescriptor(Describe(spec), CdeclParamCategory.OptionalAny, "_ value: UnsafeRawPointer",
-            "let valueVal: Any? = value.load(as: Optional<Any>.self)", "valueVal");
+        AssertDescriptor(Describe(spec), CdeclParamCategory.OptionalAny, "_ value: Swift.UnsafeRawPointer",
+            "let valueVal: Any? = value.load(as: Swift.Optional<Any>.self)", "valueVal");
     }
 
     [Fact]
@@ -248,7 +248,7 @@ public class CdeclLoweringDescriptorTests
         var loadType = swiftType.StartsWith("any ") ? $"({swiftType})" : swiftType;
         AssertDescriptor(
             CdeclParamMapper.Describe(Arg(spec, module, ParameterOwnership.Default), Label, Env(db, module)),
-            CdeclParamCategory.ProtocolExistential, "_ value: UnsafeRawPointer",
+            CdeclParamCategory.ProtocolExistential, "_ value: Swift.UnsafeRawPointer",
             $"let valueVal: {loadType} = value.load(as: {loadType}.self)", "valueVal");
     }
 
@@ -257,8 +257,8 @@ public class CdeclLoweringDescriptorTests
     {
         var spec = Optional(Named("TestModule.MyClass"));
         AssertDescriptor(Describe(spec), CdeclParamCategory.OptionalReference,
-            "_ value: UnsafeMutableRawPointer?",
-            "let valueVal: TestModule.MyClass? = value.map { Unmanaged<TestModule.MyClass>.fromOpaque($0).takeUnretainedValue() }",
+            "_ value: Swift.UnsafeMutableRawPointer?",
+            "let valueVal: TestModule.MyClass? = value.map { Swift.Unmanaged<TestModule.MyClass>.fromOpaque($0).takeUnretainedValue() }",
             "valueVal");
     }
 
@@ -272,7 +272,7 @@ public class CdeclLoweringDescriptorTests
         Assert.NotNull(decode);
         var (localType, rhs) = decode!.Value;
         AssertDescriptor(Describe(spec), CdeclParamCategory.OptionalBlittablePrimitive,
-            "_ value: UnsafeRawPointer", $"let valueOpt: {localType} = {rhs}", "valueOpt");
+            "_ value: Swift.UnsafeRawPointer", $"let valueOpt: {localType} = {rhs}", "valueOpt");
     }
 
     /// <summary>
@@ -314,7 +314,7 @@ public class CdeclLoweringDescriptorTests
         var toShim = CdeclParamMapper.Describe(arg, Label, env, omitLabels: true);
         if (expectWidened)
         {
-            AssertDescriptor(toShim, CdeclParamCategory.ShimAddress, "_ value: UnsafeRawPointer", null, "value");
+            AssertDescriptor(toShim, CdeclParamCategory.ShimAddress, "_ value: Swift.UnsafeRawPointer", null, "value");
         }
         else
         {
@@ -332,9 +332,9 @@ public class CdeclLoweringDescriptorTests
         var inner = Named("TestModule.MyComplexEnum");
         var d = Describe(Optional(inner));
         Assert.Equal(CdeclParamCategory.OptionalOpaque, d.Category);
-        Assert.Equal("_ value: UnsafeRawPointer", d.CdeclParam);
+        Assert.Equal("_ value: Swift.UnsafeRawPointer", d.CdeclParam);
         Assert.Equal("valueVal", d.CallArg);
-        Assert.Contains("assumingMemoryBound(to: UnsafeMutableRawPointer?.self)", d.Reconstruction);
+        Assert.Contains("assumingMemoryBound(to: Swift.UnsafeMutableRawPointer?.self)", d.Reconstruction);
     }
 
     [Fact]
@@ -343,8 +343,8 @@ public class CdeclLoweringDescriptorTests
         var spec = Named("Swift.Array", Named("TestModule.MyBridgeableValue"));
         var expected = RenderMQ(spec);
         AssertDescriptor(Describe(spec), CdeclParamCategory.ObjCBridgeableContainer,
-            "_ value: UnsafeMutableRawPointer",
-            $"let valueVal: {expected} = Unmanaged<AnyObject>.fromOpaque(value).takeUnretainedValue() as! {expected}",
+            "_ value: Swift.UnsafeMutableRawPointer",
+            $"let valueVal: {expected} = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue() as! {expected}",
             "valueVal");
     }
 
@@ -354,8 +354,8 @@ public class CdeclLoweringDescriptorTests
         var inner = Named("Swift.Array", Named("TestModule.MyBridgeableValue"));
         var expected = RenderMQ(inner);
         AssertDescriptor(Describe(Optional(inner)), CdeclParamCategory.OptionalObjCBridgeableContainer,
-            "_ value: UnsafeMutableRawPointer?",
-            $"let valueVal: {expected}? = value.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {expected} }}",
+            "_ value: Swift.UnsafeMutableRawPointer?",
+            $"let valueVal: {expected}? = value.map {{ Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeUnretainedValue() as! {expected} }}",
             "valueVal");
     }
 
@@ -365,21 +365,21 @@ public class CdeclLoweringDescriptorTests
         var spec = Named("Swift.Array", Named("Swift.Int"));
         var expected = RenderMQ(spec);
         AssertDescriptor(Describe(spec), CdeclParamCategory.GenericContainer,
-            "_ value: UnsafeRawPointer",
+            "_ value: Swift.UnsafeRawPointer",
             $"let valueVal = value.assumingMemoryBound(to: {expected}.self).pointee", "valueVal");
     }
 
     [Fact]
     public void Date_LowersToDouble()
         => AssertDescriptor(Describe(Named("Foundation.Date")), CdeclParamCategory.Date,
-            "_ value: Double",
+            "_ value: Swift.Double",
             "let valueVal = Foundation.Date(timeIntervalSinceReferenceDate: value)", "valueVal");
 
     [Fact]
     public void Data_DecomposesIntoTwoWords()
         => AssertDescriptor(Describe(Named("Foundation.Data")), CdeclParamCategory.Data,
-            "_ _dW0_value: Int, _ _dW1_value: Int",
-            "let valueVal = unsafeBitCast((_dW0_value, _dW1_value), to: Foundation.Data.self)", "valueVal");
+            "_ _dW0_value: Swift.Int, _ _dW1_value: Swift.Int",
+            "let valueVal = Swift.unsafeBitCast((_dW0_value, _dW1_value), to: Foundation.Data.self)", "valueVal");
 
     /// <summary>
     /// A frozen Foundation value struct that also bridges to an ObjC class must NOT reach the
@@ -393,7 +393,7 @@ public class CdeclLoweringDescriptorTests
     {
         var spec = Named("Foundation.UUID");
         AssertDescriptor(Describe(spec), CdeclParamCategory.ObjCBridgedValueStruct,
-            "_ value: UnsafeRawPointer",
+            "_ value: Swift.UnsafeRawPointer",
             $"let valueVal = value.assumingMemoryBound(to: {RenderMQ(spec)}.self).pointee", "valueVal");
     }
 
@@ -410,7 +410,7 @@ public class CdeclLoweringDescriptorTests
     {
         var d = Describe(Named("Foundation.UUID"), ownership: ownership);
         Assert.Equal(CdeclParamCategory.ObjCBridgedValueStruct, d.Category);
-        Assert.Equal("_ value: UnsafeRawPointer", d.CdeclParam);
+        Assert.Equal("_ value: Swift.UnsafeRawPointer", d.CdeclParam);
         Assert.DoesNotContain("UUID", d.CdeclParam);
         Assert.Equal("valueVal", d.CallArg);
     }
@@ -427,40 +427,40 @@ public class CdeclLoweringDescriptorTests
     [Fact]
     public void String_TwoWord_DecomposesIntoTwoWords()
         => AssertDescriptor(Describe(Named("Swift.String")), CdeclParamCategory.String,
-            "_ _sW0_value: Int, _ _sW1_value: Int",
-            "let valueVal = unsafeBitCast((_sW0_value, _sW1_value), to: String.self)", "valueVal");
+            "_ _sW0_value: Swift.Int, _ _sW1_value: Swift.Int",
+            "let valueVal = Swift.unsafeBitCast((_sW0_value, _sW1_value), to: Swift.String.self)", "valueVal");
 
     [Fact]
     public void String_Utf8_DecomposesIntoPtrAndLen()
         => AssertDescriptor(Describe(Named("Swift.String"), useUtf8: true), CdeclParamCategory.String,
-            "_ valueUtf8Ptr: UnsafePointer<UInt8>, _ valueUtf8Len: Int",
-            "let valueVal = String(bytes: UnsafeBufferPointer(start: valueUtf8Ptr, count: valueUtf8Len), encoding: .utf8)!",
+            "_ valueUtf8Ptr: Swift.UnsafePointer<Swift.UInt8>, _ valueUtf8Len: Swift.Int",
+            "let valueVal = Swift.String(bytes: Swift.UnsafeBufferPointer(start: valueUtf8Ptr, count: valueUtf8Len), encoding: .utf8)!",
             "valueVal");
 
     [Fact]
     public void ClassPointer_ReconstructsViaUnmanaged()
         => AssertDescriptor(Describe(Named("TestModule.MyClass")), CdeclParamCategory.ClassPointer,
-            "_ value: UnsafeMutableRawPointer",
-            "let valueVal = Unmanaged<TestModule.MyClass>.fromOpaque(value).takeUnretainedValue()", "valueVal");
+            "_ value: Swift.UnsafeMutableRawPointer",
+            "let valueVal = Swift.Unmanaged<TestModule.MyClass>.fromOpaque(value).takeUnretainedValue()", "valueVal");
 
     [Fact]
     public void ObjCBridgedClassPointer_CastsAnyObject()
         => AssertDescriptor(Describe(Named("TestModule.MyObjCClass")), CdeclParamCategory.ObjCBridgedClassPointer,
-            "_ value: UnsafeMutableRawPointer",
-            "let valueVal = Unmanaged<AnyObject>.fromOpaque(value).takeUnretainedValue() as! TestModule.MyObjCClass",
+            "_ value: Swift.UnsafeMutableRawPointer",
+            "let valueVal = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue() as! TestModule.MyObjCClass",
             "valueVal");
 
     [Fact]
     public void ObjCBridgeableValue_CastsAnyObject()
         => AssertDescriptor(Describe(Named("TestModule.MyBridgeableValue")), CdeclParamCategory.ObjCBridgeableValue,
-            "_ value: UnsafeMutableRawPointer",
-            "let valueVal = Unmanaged<AnyObject>.fromOpaque(value).takeUnretainedValue() as! TestModule.MyBridgeableValue",
+            "_ value: Swift.UnsafeMutableRawPointer",
+            "let valueVal = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue() as! TestModule.MyBridgeableValue",
             "valueVal");
 
     [Fact]
     public void SimpleEnum_ReconstructsViaRawValue()
         => AssertDescriptor(Describe(Named("TestModule.MyEnum")), CdeclParamCategory.SimpleEnum,
-            "_ value: Int",
+            "_ value: Swift.Int",
             "guard let valueVal = TestModule.MyEnum(rawValue: value) else { Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\(value) for TestModule.MyEnum\") }",
             "valueVal");
 
@@ -471,7 +471,7 @@ public class CdeclLoweringDescriptorTests
         // direct `let` bind — NOT the failable `guard let … else { preconditionFailure }` form the
         // plain RawRepresentable enum (MyEnum) uses. Same SimpleEnum category and cdecl param shape.
         => AssertDescriptor(Describe(Named("TestModule.MyOptionSet")), CdeclParamCategory.SimpleEnum,
-            "_ value: Int",
+            "_ value: Swift.Int",
             "let valueVal = TestModule.MyOptionSet(rawValue: value)",
             "valueVal");
 
@@ -481,20 +481,20 @@ public class CdeclLoweringDescriptorTests
         // The cdecl scalar is UInt and the reconstruction stays the non-failable OptionSet form —
         // the C# [Flags] companion's ulong underlying transports the raw bits across the boundary.
         => AssertDescriptor(Describe(Named("TestModule.MyOptionSetU")), CdeclParamCategory.SimpleEnum,
-            "_ value: UInt",
+            "_ value: Swift.UInt",
             "let valueVal = TestModule.MyOptionSetU(rawValue: value)",
             "valueVal");
 
     [Fact]
     public void ComplexEnum_ReadsThroughPointer()
         => AssertDescriptor(Describe(Named("TestModule.MyComplexEnum")), CdeclParamCategory.ComplexEnum,
-            "_ value: UnsafeRawPointer",
+            "_ value: Swift.UnsafeRawPointer",
             "let valueVal = value.assumingMemoryBound(to: TestModule.MyComplexEnum.self).pointee", "valueVal");
 
     [Fact]
     public void NonFrozenStruct_ReadsThroughPointer()
         => AssertDescriptor(Describe(Named("TestModule.MyNonFrozenStruct")), CdeclParamCategory.NonFrozenStruct,
-            "_ value: UnsafeRawPointer",
+            "_ value: Swift.UnsafeRawPointer",
             "let valueVal = value.assumingMemoryBound(to: TestModule.MyNonFrozenStruct.self).pointee", "valueVal");
 
     [Fact]
@@ -505,25 +505,25 @@ public class CdeclLoweringDescriptorTests
     [Fact]
     public void CustomFrozenStruct_ReadsThroughPointer()
         => AssertDescriptor(Describe(Named("TestModule.MyStruct")), CdeclParamCategory.CustomFrozenStruct,
-            "_ value: UnsafeRawPointer",
+            "_ value: Swift.UnsafeRawPointer",
             "let valueVal = value.assumingMemoryBound(to: TestModule.MyStruct.self).pointee", "valueVal");
 
     [Fact]
     public void RawBufferPointer_SplitsIntoPtrAndLen()
         => AssertDescriptor(Describe(Named("Swift.UnsafeRawBufferPointer")), CdeclParamCategory.RawBufferPointer,
-            "_ valuePtr: UnsafeRawPointer?, _ valueLen: Int",
-            "let valueVal = UnsafeRawBufferPointer(start: valuePtr, count: valueLen)", "valueVal");
+            "_ valuePtr: Swift.UnsafeRawPointer?, _ valueLen: Swift.Int",
+            "let valueVal = Swift.UnsafeRawBufferPointer(start: valuePtr, count: valueLen)", "valueVal");
 
     [Fact]
     public void RawBufferPointer_Mutable_SplitsIntoPtrAndLen()
         => AssertDescriptor(Describe(Named("Swift.UnsafeMutableRawBufferPointer")), CdeclParamCategory.RawBufferPointer,
-            "_ valuePtr: UnsafeMutableRawPointer?, _ valueLen: Int",
-            "let valueVal = UnsafeMutableRawBufferPointer(start: valuePtr, count: valueLen)", "valueVal");
+            "_ valuePtr: Swift.UnsafeMutableRawPointer?, _ valueLen: Swift.Int",
+            "let valueVal = Swift.UnsafeMutableRawBufferPointer(start: valuePtr, count: valueLen)", "valueVal");
 
     [Fact]
     public void NonCopyableBorrow_InlineBorrowNoCopy()
         => AssertDescriptor(Describe(Named("TestModule.MyNonCopyable"), ownership: ParameterOwnership.Shared),
-            CdeclParamCategory.NonCopyableBorrow, "_ value: UnsafeRawPointer", null,
+            CdeclParamCategory.NonCopyableBorrow, "_ value: Swift.UnsafeRawPointer", null,
             "value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).pointee");
 
     /// <summary>
@@ -542,7 +542,7 @@ public class CdeclLoweringDescriptorTests
             Arg(Named("TestModule.MyNonCopyable"), module, ParameterOwnership.Default), Label, env);
 
         AssertDescriptor(descriptor,
-            CdeclParamCategory.NonCopyableConsume, "_ value: UnsafeMutableRawPointer",
+            CdeclParamCategory.NonCopyableConsume, "_ value: Swift.UnsafeMutableRawPointer",
             "let valueVal = value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).move()", "valueVal");
     }
 
@@ -553,13 +553,13 @@ public class CdeclLoweringDescriptorTests
     [Fact]
     public void NonCopyableOrdinaryParameter_StillBorrows_WithoutAnExplicitSpecifier()
         => AssertDescriptor(Describe(Named("TestModule.MyNonCopyable")),
-            CdeclParamCategory.NonCopyableBorrow, "_ value: UnsafeRawPointer", null,
+            CdeclParamCategory.NonCopyableBorrow, "_ value: Swift.UnsafeRawPointer", null,
             "value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).pointee");
 
     [Fact]
     public void NonCopyableConsume_MovesOutOfBuffer()
         => AssertDescriptor(Describe(Named("TestModule.MyNonCopyable"), ownership: ParameterOwnership.Owned),
-            CdeclParamCategory.NonCopyableConsume, "_ value: UnsafeMutableRawPointer",
+            CdeclParamCategory.NonCopyableConsume, "_ value: Swift.UnsafeMutableRawPointer",
             "let valueVal = value.assumingMemoryBound(to: TestModule.MyNonCopyable.self).move()", "valueVal");
 
     [Fact]
@@ -568,7 +568,7 @@ public class CdeclLoweringDescriptorTests
         // A named type with no TypeRecord, not a container/optional/primitive — the last-resort arm.
         var spec = Named("TestModule.Unknown");
         AssertDescriptor(Describe(spec), CdeclParamCategory.Fallback,
-            "_ value: UnsafeRawPointer",
+            "_ value: Swift.UnsafeRawPointer",
             $"let valueVal = value.assumingMemoryBound(to: {RenderMQ(spec)}.self).pointee", "valueVal");
     }
 
@@ -581,10 +581,10 @@ public class CdeclLoweringDescriptorTests
         var d = CdeclParamMapper.Describe(Arg(Named("Swift.Bool"), module, ParameterOwnership.InOut), Label,
             Env(db, module), isInout: true);
         Assert.Equal(CdeclParamCategory.Inout, d.Category);
-        Assert.Equal("_ value: UnsafeMutableRawPointer", d.CdeclParam);
-        Assert.Equal("var valueVal: Bool = value.assumingMemoryBound(to: Int8.self).pointee != 0", d.Reconstruction);
+        Assert.Equal("_ value: Swift.UnsafeMutableRawPointer", d.CdeclParam);
+        Assert.Equal("var valueVal: Swift.Bool = value.assumingMemoryBound(to: Swift.Int8.self).pointee != 0", d.Reconstruction);
         Assert.Equal("&valueVal", d.CallArg);
-        Assert.Equal("value.assumingMemoryBound(to: Int8.self).pointee = valueVal ? 1 : 0", d.WriteBack);
+        Assert.Equal("value.assumingMemoryBound(to: Swift.Int8.self).pointee = valueVal ? 1 : 0", d.WriteBack);
     }
 
     [Fact]
@@ -594,7 +594,7 @@ public class CdeclLoweringDescriptorTests
         var d = CdeclParamMapper.Describe(Arg(Named("TestModule.MyStruct"), module, ParameterOwnership.InOut), Label,
             Env(db, module), isInout: true);
         Assert.Equal(CdeclParamCategory.Inout, d.Category);
-        Assert.Equal("_ value: UnsafeMutableRawPointer", d.CdeclParam);
+        Assert.Equal("_ value: Swift.UnsafeMutableRawPointer", d.CdeclParam);
         Assert.Equal("var valueVal = value.assumingMemoryBound(to: TestModule.MyStruct.self).pointee", d.Reconstruction);
         Assert.Equal("&valueVal", d.CallArg);
         Assert.Equal("value.assumingMemoryBound(to: TestModule.MyStruct.self).pointee = valueVal", d.WriteBack);
@@ -610,7 +610,7 @@ public class CdeclLoweringDescriptorTests
         var d = CdeclParamMapper.Describe(Arg(spec, module, ParameterOwnership.InOut), Label,
             Env(db, module), isInout: true);
         Assert.Equal(CdeclParamCategory.Inout, d.Category);
-        Assert.Equal("_ value: UnsafeMutableRawPointer", d.CdeclParam);
+        Assert.Equal("_ value: Swift.UnsafeMutableRawPointer", d.CdeclParam);
         Assert.Equal($"var valueVal = value.assumingMemoryBound(to: {t}.self).pointee", d.Reconstruction);
         Assert.Equal("&valueVal", d.CallArg);
         Assert.Equal($"value.assumingMemoryBound(to: {t}.self).pointee = valueVal", d.WriteBack);

@@ -275,7 +275,7 @@ public static class ArtifactParityGate
     // pick layout fields out of a direct struct's body (which also holds methods,
     // properties, and P/Invoke decls) without misreading a non-layout private field.
     private static readonly Regex MarkedLayoutField = new(
-        @"\bprivate\s+[\w<>.\[\]?]+\s+(?<field>\w+)\s*;\s*//\s*Note: Do not access this field directly",
+        @"\bprivate\s+[\w<>.:\[\]?]+\s+(?<field>\w+)\s*;\s*//\s*Note: Do not access this field directly",
         RegexOptions.Compiled);
 
     /// <summary>
@@ -398,7 +398,7 @@ public static class ArtifactParityGate
     }
 
     private static readonly Regex BufferStruct = new(@"\bstruct\s+Buffer\b\s*\{", RegexOptions.Compiled);
-    private static readonly Regex PrivateField = new(@"\bprivate\s+[\w<>.\[\]?]+\s+(?<field>\w+)\s*;", RegexOptions.Compiled);
+    private static readonly Regex PrivateField = new(@"\bprivate\s+[\w<>.:\[\]?]+\s+(?<field>\w+)\s*;", RegexOptions.Compiled);
     private static readonly Regex FieldStemTail = new(@"_\d+_$", RegexOptions.Compiled);
 
     /// <summary>Reduces a Buffer field name to its Swift-property stem
@@ -523,7 +523,7 @@ public static class ArtifactParityGate
     private static readonly Regex CsVtableStruct = new(
         @"\bstruct\s+(?<proto>\w+)SwiftVTable\b", RegexOptions.Compiled);
     private static readonly Regex CsVtableField = new(
-        @"\bpublic\s+[\w<>.\[\]?*]+\s+(?<field>\w+)\s*;", RegexOptions.Compiled);
+        @"\bpublic\s+[\w<>.:\[\]?*]+\s+(?<field>\w+)\s*;", RegexOptions.Compiled);
 
     /// <summary>Returns, per protocol, the ordered field-name list of its C#
     /// <c>{P}SwiftVTable</c> <c>[StructLayout]</c> mirror.</summary>

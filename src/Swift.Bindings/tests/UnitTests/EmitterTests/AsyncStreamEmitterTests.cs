@@ -338,9 +338,9 @@ public class AsyncStreamEmitterTests
             "Feed_events_AsyncStream", "TestModule.Feed", isThrowing: true);
 
         var swift = swiftOutput.ToString();
-        Assert.Contains("errorCallback: @convention(c) (Int64, UnsafePointer<CChar>) -> Void", swift);
+        Assert.Contains("errorCallback: @convention(c) (Swift.Int64, Swift.UnsafePointer<Swift.CChar>) -> Swift.Void", swift);
         Assert.Contains("for try await element in", swift);
-        Assert.Contains("catch is CancellationError {", swift);
+        Assert.Contains("catch is _Concurrency.CancellationError {", swift);
         Assert.Contains("errorCallback(context, $0)", swift);
         Assert.Contains("completionCallback(context)", swift);
     }
@@ -363,7 +363,7 @@ public class AsyncStreamEmitterTests
 
         var swift = swiftOutput.ToString();
         Assert.DoesNotContain("errorCallback", swift);
-        Assert.DoesNotContain("catch is CancellationError", swift);
+        Assert.DoesNotContain("catch is _Concurrency.CancellationError", swift);
         Assert.Contains("for await element in", swift);
     }
 
@@ -385,7 +385,7 @@ public class AsyncStreamEmitterTests
             "Sensor_readings_AsyncStream", "TestModule.Sensor", isThrowing: false);
 
         var swift = swiftOutput.ToString();
-        Assert.Contains("_ cancelKey: Int64", swift);
+        Assert.Contains("_ cancelKey: Swift.Int64", swift);
         Assert.Contains("_sbwRegisterTask(cancelKey, _sbwEntry)", swift);
         Assert.Contains("defer { _sbwUnregisterTask(cancelKey) }", swift);
         Assert.Contains("if _sbwAssignTask(_sbwEntry, _sbwTask) { _sbwTask.cancel() }", swift);

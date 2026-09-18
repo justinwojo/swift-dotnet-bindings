@@ -129,7 +129,7 @@ public class SwiftTypeNameHelperTests
     public void GetSwiftTypeName_EmptyTuple_ReturnsVoid()
     {
         var result = SwiftTypeNameHelper.GetSwiftTypeName(TupleTypeSpec.Empty);
-        Assert.Equal("Void", result);
+        Assert.Equal("Swift.Void", result);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class SwiftTypeNameHelperTests
         var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
 
         Assert.Contains("()", result);
-        Assert.Contains("-> Void", result);
+        Assert.Contains("-> Swift.Void", result);
         // Must NOT start with "Void ->" (the old broken pattern)
         Assert.DoesNotMatch(result, @"^Void\s*->");
     }
@@ -288,7 +288,7 @@ public class SwiftTypeNameHelperTests
         var result = SwiftTypeNameHelper.GetSwiftTypeName(optionalType);
 
         Assert.Contains("TestModule.SomeClass", result);
-        Assert.Contains("-> Void", result);
+        Assert.Contains("-> Swift.Void", result);
         Assert.EndsWith(")?", result);
         Assert.DoesNotContain("@escaping", result);
     }
@@ -306,7 +306,7 @@ public class SwiftTypeNameHelperTests
 
         Assert.Contains("@MainActor", result);
         Assert.StartsWith("@MainActor", result);
-        Assert.Contains("-> Void", result);
+        Assert.Contains("-> Swift.Void", result);
     }
 
     [Fact]
@@ -374,7 +374,7 @@ public class SwiftTypeNameHelperTests
 
         Assert.Contains("@MainActor", result);
         Assert.Contains("TestModule.SomeClass", result);
-        Assert.Contains("-> Void", result);
+        Assert.Contains("-> Swift.Void", result);
         Assert.EndsWith(")?", result);
     }
 
@@ -393,7 +393,7 @@ public class SwiftTypeNameHelperTests
         var result = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(optionalType);
 
         // Should use Optional<...> syntax, not (...)? syntax
-        Assert.StartsWith("Optional<", result);
+        Assert.StartsWith("Swift.Optional<", result);
         Assert.EndsWith(">", result);
         Assert.DoesNotContain("?", result);
     }
@@ -413,7 +413,7 @@ public class SwiftTypeNameHelperTests
 
         var result = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(optionalType);
 
-        Assert.StartsWith("Optional<", result);
+        Assert.StartsWith("Swift.Optional<", result);
         Assert.Contains("@MainActor", result);
         Assert.DoesNotContain("?", result);
     }

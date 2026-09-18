@@ -515,11 +515,11 @@ public class MethodLevelGenericOpeningTests
         Assert.Equal(
             new[]
             {
-                "_ resultPtr: UnsafeMutableRawPointer",
-                "_ itemPayload: UnsafeRawPointer",
-                "_ _metadata0: UnsafeRawPointer",
-                "_ self_: UnsafeMutableRawPointer",
-                "_ _openRefused: UnsafeMutablePointer<UInt8>",
+                "_ resultPtr: Swift.UnsafeMutableRawPointer",
+                "_ itemPayload: Swift.UnsafeRawPointer",
+                "_ _metadata0: Swift.UnsafeRawPointer",
+                "_ self_: Swift.UnsafeMutableRawPointer",
+                "_ _openRefused: Swift.UnsafeMutablePointer<Swift.UInt8>",
             },
             swiftParameters);
         Assert.Equal(
@@ -689,7 +689,7 @@ public class MethodLevelGenericOpeningTests
             new SignatureHandler(env).GetPInvokeSignature().Parameters,
             p => ClassifySlot(p.Name) == "self");
 
-        Assert.Contains("_ self_: UnsafeMutableRawPointer", swift);
+        Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", swift);
         Assert.Equal("IntPtr", receiver.TypeString());
         Assert.True(pInvoke.Contains("CallConvCdecl", StringComparison.Ordinal), pInvoke);
         Assert.Contains($"IntPtr {receiver.Name}", pInvoke);
@@ -888,7 +888,7 @@ public class MethodLevelGenericOpeningTests
         Assert.Contains("do {", swift);
         Assert.Contains("switch try _mlgBody0", swift);
         Assert.Contains("case .refused:", swift);
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained", swift);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained", swift);
         Assert.Contains("τ_0_0 : Swift.Sequence", refusal);
         Assert.Contains("τ_0_0.Element : TestModule.Identifiable", refusal);
 
@@ -904,7 +904,7 @@ public class MethodLevelGenericOpeningTests
         Assert.True(catchStart > successStart);
         Assert.True(clearStart >= 0 && clearStart < doStart,
             $"The throwing wrapper must clear errorOut before entering the Swift do block.\n{swift}");
-        Assert.Contains("errorOut.pointee = Unmanaged.passRetained", swift[catchStart..]);
+        Assert.Contains("errorOut.pointee = Swift.Unmanaged.passRetained", swift[catchStart..]);
         Assert.Equal(2, CountOccurrences(swift, "errorOut.pointee"));
     }
 
@@ -956,7 +956,7 @@ public class MethodLevelGenericOpeningTests
         var swift = EmitOpeningSwift(env);
 
         Assert.Contains("func _mlgBody0<_MLG0: TestModule.Describable>(_: _MLG0.Type) -> Swift.String", swift);
-        Assert.Contains("return String(localized: obj.describe(item: item))", swift);
+        Assert.Contains("return Swift.String(localized: obj.describe(item: item))", swift);
         Assert.DoesNotContain("_MLG0.Type) -> Foundation.LocalizedStringResource", swift);
     }
 

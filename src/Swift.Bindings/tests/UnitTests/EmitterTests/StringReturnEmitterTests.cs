@@ -24,7 +24,7 @@ public class StringReturnEmitterTests
         Assert.Contains("SBW_Utf8Slice", result);
         Assert.Contains("utf8.isEmpty", result);
         Assert.Contains("_sbw_emptyBuffer", result);
-        Assert.Contains("UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)", result);
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)", result);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class StringReturnEmitterTests
         StringReturnEmitter.EmitReturnBody(swiftWriter, "obj.encode(value)");
 
         var result = output.ToString();
-        Assert.Contains("let result: String = obj.encode(value)", result);
+        Assert.Contains("let result: Swift.String = obj.encode(value)", result);
         Assert.Contains("SBW_Utf8Slice", result);
         Assert.Contains("utf8.isEmpty", result);
         Assert.Contains("_sbw_emptyBuffer", result);
@@ -66,7 +66,7 @@ public class StringReturnEmitterTests
         StringReturnEmitter.EmitReturnBody(swiftWriter, "obj.describe()");
 
         var result = output.ToString();
-        Assert.Contains("let result: String = obj.describe()", result);
+        Assert.Contains("let result: Swift.String = obj.describe()", result);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class StringReturnEmitterTests
         StringReturnEmitter.EmitReturnBody(swiftWriter, "obj.toString()");
 
         var result = output.ToString();
-        Assert.Contains("let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)", result);
+        Assert.Contains("let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)", result);
         Assert.Contains("ptr.initialize(from: utf8, count: utf8.count)", result);
         Assert.Contains("resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)", result);
     }
@@ -120,6 +120,6 @@ public class StringReturnEmitterTests
         StringReturnEmitter.EmitReturnBody(swiftWriter, "try obj.throwingMethod()");
 
         var result = output.ToString();
-        Assert.Contains("let result: String = try obj.throwingMethod()", result);
+        Assert.Contains("let result: Swift.String = try obj.throwingMethod()", result);
     }
 }

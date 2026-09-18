@@ -29,17 +29,17 @@ public static partial class ClosureEmitter
         // For throwing closures: add error out parameter
         if (closureTypeSpec.Throws)
         {
-            paramTypes.Add("UnsafeMutablePointer<UnsafeMutableRawPointer?>?");
+            paramTypes.Add("Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>?");
         }
 
         // For indirect return closures: prepend result buffer as first param
         if (closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !closureTypeSpec.Throws)
         {
-            paramTypes.Insert(0, "UnsafeMutableRawPointer");
+            paramTypes.Insert(0, "Swift.UnsafeMutableRawPointer");
         }
 
         // Context param is always last before return
-        paramTypes.Add("UnsafeMutableRawPointer?");
+        paramTypes.Add("Swift.UnsafeMutableRawPointer?");
 
         var returnType = GetSwiftCdeclReturnType(closureTypeSpec, closureHandler);
         return $"@convention(c) ({string.Join(", ", paramTypes)}) -> {returnType}";
@@ -64,10 +64,10 @@ public static partial class ClosureEmitter
         if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg) && arg is NamedTypeSpec named)
         {
             var ptrType = named.Name == "Swift.UnsafeMutableRawBufferPointer"
-                ? "UnsafeMutableRawPointer?"
-                : "UnsafeRawPointer?";
+                ? "Swift.UnsafeMutableRawPointer?"
+                : "Swift.UnsafeRawPointer?";
             yield return ptrType;
-            yield return "Int";
+            yield return "Swift.Int";
             yield break;
         }
 
@@ -75,8 +75,8 @@ public static partial class ClosureEmitter
         {
             // (in, out): the address of the adapter's copy of the seeded value, then the address of
             // the empty cell the managed block's result is written into.
-            yield return "UnsafeMutableRawPointer";
-            yield return "UnsafeMutableRawPointer";
+            yield return "Swift.UnsafeMutableRawPointer";
+            yield return "Swift.UnsafeMutableRawPointer";
             yield break;
         }
 
@@ -92,10 +92,10 @@ public static partial class ClosureEmitter
     {
         // Indirect return uses void (result written to buffer)
         if (closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !closureTypeSpec.Throws)
-            return "Void";
+            return "Swift.Void";
 
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
-            return "Void";
+            return "Swift.Void";
 
         // CanUseDirectCallbackReturn is now primitives-only (frozen structs go through
         // indirect return because @convention(c) can't return Swift struct types).
@@ -188,17 +188,17 @@ public static partial class ClosureEmitter
             // Wrap in parens to get Optional<Closure> not Closure-returning-Optional<Void>
             lines.Add($"var {adapterName}: ({closureSwiftType})? = nil");
             lines.Add($"if let {paramName}FuncPtr = {paramName}FuncPtr {{");
-            lines.Add($"    let {cdeclVarName} = unsafeBitCast({paramName}FuncPtr, to: ({conventionCType}).self)");
+            lines.Add($"    let {cdeclVarName} = Swift.unsafeBitCast({paramName}FuncPtr, to: ({conventionCType}).self)");
             if (isEscaping)
-                lines.Add($"    let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({paramName}Context!)");
+                lines.Add($"    let {boxName}: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({paramName}Context!)");
             lines.AddRange(BuildAdapterClosureBody(paramName, cdeclVarName, closureTypeSpec, closureHandler, adapterName, isThrowing, isIndirectReturn, indent: "    ", useLet: false, isEscaping: isEscaping));
             lines.Add("}");
         }
         else
         {
-            lines.Add($"let {cdeclVarName} = unsafeBitCast({paramName}FuncPtr!, to: ({conventionCType}).self)");
+            lines.Add($"let {cdeclVarName} = Swift.unsafeBitCast({paramName}FuncPtr!, to: ({conventionCType}).self)");
             if (isEscaping)
-                lines.Add($"let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({paramName}Context!)");
+                lines.Add($"let {boxName}: Swift.AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({paramName}Context!)");
             lines.AddRange(BuildAdapterClosureBody(paramName, cdeclVarName, closureTypeSpec, closureHandler, adapterName, isThrowing, isIndirectReturn, indent: "", useLet: true, isEscaping: isEscaping));
         }
 
@@ -479,15 +479,15 @@ public static partial class ClosureEmitter
             }
             else if (typedAddressArg != default)
             {
-                cdeclArgs.Add($"UnsafeMutableRawPointer(__collection_{argIndex})");
+                cdeclArgs.Add($"Swift.UnsafeMutableRawPointer(__collection_{argIndex})");
             }
             else if (optionalCollectionArg != default)
             {
-                cdeclArgs.Add($"__collection_{argIndex}.map {{ UnsafeMutableRawPointer($0) }}");
+                cdeclArgs.Add($"__collection_{argIndex}.map {{ Swift.UnsafeMutableRawPointer($0) }}");
             }
             else if (optionalAnyErrorArg)
             {
-                cdeclArgs.Add($"__optionalError_{argIndex}.map {{ UnsafeMutableRawPointer($0) }}");
+                cdeclArgs.Add($"__optionalError_{argIndex}.map {{ Swift.UnsafeMutableRawPointer($0) }}");
             }
             else if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
             {
@@ -542,33 +542,33 @@ public static partial class ClosureEmitter
         var heapAllocLines = new List<string>();
         foreach (var (idx, swiftType) in heapAllocArgs)
         {
-            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
         }
         foreach (var (idx, swiftType) in heapAllocCopiedArgs)
         {
-            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         foreach (var (idx, swiftType) in blittableFrozenHeapArgs)
         {
-            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         foreach (var (idx, swiftType) in primitiveOptHeapArgs)
         {
-            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         // Nil-for-none allocation: unwrap Optional, pass inner value pointer or nil
         foreach (var (idx, innerType) in nilForNoneArgs)
         {
-            heapAllocLines.Add($"{indent}    var __heap_{idx}: UnsafeMutableRawPointer? = nil");
+            heapAllocLines.Add($"{indent}    var __heap_{idx}: Swift.UnsafeMutableRawPointer? = nil");
             heapAllocLines.Add($"{indent}    if let __unwrapped_{idx} = p{idx} {{");
-            heapAllocLines.Add($"{indent}        __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{innerType}>.size, alignment: MemoryLayout<{innerType}>.alignment)");
+            heapAllocLines.Add($"{indent}        __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{innerType}>.size, alignment: Swift.MemoryLayout<{innerType}>.alignment)");
             heapAllocLines.Add($"{indent}        __heap_{idx}!.initializeMemory(as: {innerType}.self, repeating: __unwrapped_{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    }}");
             heapAllocLines.Add($"{indent}    defer {{ if let ptr = __heap_{idx} {{ ptr.assumingMemoryBound(to: {innerType}.self).deinitialize(count: 1); ptr.deallocate() }} }}");
@@ -579,21 +579,21 @@ public static partial class ClosureEmitter
         // the defer reclaims the buffer after the cdecl call returns.
         foreach (var (idx, swiftType) in existentialArgs)
         {
-            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: ({swiftType}).self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: ({swiftType}).self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         foreach (var (idx, swiftType) in typedAddressArgs)
         {
-            heapAllocLines.Add($"{indent}    let __collection_{idx} = UnsafeMutablePointer<{swiftType}>.allocate(capacity: 1)");
+            heapAllocLines.Add($"{indent}    let __collection_{idx} = Swift.UnsafeMutablePointer<{swiftType}>.allocate(capacity: 1)");
             heapAllocLines.Add($"{indent}    __collection_{idx}.initialize(to: p{idx})");
             heapAllocLines.Add($"{indent}    defer {{ __collection_{idx}.deinitialize(count: 1); __collection_{idx}.deallocate() }}");
         }
         foreach (var (idx, innerSwiftType) in optionalCollectionArgs)
         {
-            heapAllocLines.Add($"{indent}    var __collection_{idx}: UnsafeMutablePointer<{innerSwiftType}>? = nil");
+            heapAllocLines.Add($"{indent}    var __collection_{idx}: Swift.UnsafeMutablePointer<{innerSwiftType}>? = nil");
             heapAllocLines.Add($"{indent}    if let __value_{idx} = p{idx} {{");
-            heapAllocLines.Add($"{indent}        let __typed_{idx} = UnsafeMutablePointer<{innerSwiftType}>.allocate(capacity: 1)");
+            heapAllocLines.Add($"{indent}        let __typed_{idx} = Swift.UnsafeMutablePointer<{innerSwiftType}>.allocate(capacity: 1)");
             heapAllocLines.Add($"{indent}        __typed_{idx}.initialize(to: __value_{idx})");
             heapAllocLines.Add($"{indent}        __collection_{idx} = __typed_{idx}");
             heapAllocLines.Add($"{indent}    }}");
@@ -604,9 +604,9 @@ public static partial class ClosureEmitter
         // temporary is destroyed.
         foreach (var idx in optionalAnyErrorArgs)
         {
-            heapAllocLines.Add($"{indent}    var __optionalError_{idx}: UnsafeMutablePointer<any Swift.Error>? = nil");
+            heapAllocLines.Add($"{indent}    var __optionalError_{idx}: Swift.UnsafeMutablePointer<any Swift.Error>? = nil");
             heapAllocLines.Add($"{indent}    if let __value_{idx} = p{idx} {{");
-            heapAllocLines.Add($"{indent}        let __typed_{idx} = UnsafeMutablePointer<any Swift.Error>.allocate(capacity: 1)");
+            heapAllocLines.Add($"{indent}        let __typed_{idx} = Swift.UnsafeMutablePointer<any Swift.Error>.allocate(capacity: 1)");
             heapAllocLines.Add($"{indent}        __typed_{idx}.initialize(to: __value_{idx})");
             heapAllocLines.Add($"{indent}        __optionalError_{idx} = __typed_{idx}");
             heapAllocLines.Add($"{indent}    }}");
@@ -621,7 +621,7 @@ public static partial class ClosureEmitter
         // (malloc on Darwin), so NativeMemory.Free is a safe paired deallocator.
         foreach (var (idx, swiftType) in nonFrozenHeapArgs)
         {
-            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{swiftType}>.size, alignment: Swift.MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
         }
 
@@ -636,10 +636,10 @@ public static partial class ClosureEmitter
         // job rather than marshalling code's.
         foreach (var (idx, cellType, seedExpr, _) in inOutArgs)
         {
-            heapAllocLines.Add($"{indent}    let __in_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{cellType}>.size, alignment: MemoryLayout<{cellType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __in_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{cellType}>.size, alignment: Swift.MemoryLayout<{cellType}>.alignment)");
             heapAllocLines.Add($"{indent}    __in_{idx}.initializeMemory(as: {cellType}.self, repeating: {seedExpr}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __in_{idx}.assumingMemoryBound(to: {cellType}.self).deinitialize(count: 1); __in_{idx}.deallocate() }}");
-            heapAllocLines.Add($"{indent}    let __out_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{cellType}>.size, alignment: MemoryLayout<{cellType}>.alignment)");
+            heapAllocLines.Add($"{indent}    let __out_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{cellType}>.size, alignment: Swift.MemoryLayout<{cellType}>.alignment)");
         }
 
         var inOutWriteBackLines = new List<string>();
@@ -657,7 +657,7 @@ public static partial class ClosureEmitter
             if (!string.IsNullOrEmpty(observability))
                 lines.Add(observability.TrimEnd('\n'));
             lines.AddRange(heapAllocLines);
-            lines.Add($"{indent}    let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{returnSwiftType}>.size, alignment: MemoryLayout<{returnSwiftType}>.alignment)");
+            lines.Add($"{indent}    let resultBuf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{returnSwiftType}>.size, alignment: Swift.MemoryLayout<{returnSwiftType}>.alignment)");
             lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
             lines.AddRange(inOutWriteBackLines);
             lines.Add($"{indent}    let result = resultBuf.assumingMemoryBound(to: {returnSwiftType}.self).move()");
@@ -671,7 +671,7 @@ public static partial class ClosureEmitter
             if (!string.IsNullOrEmpty(observability))
                 lines.Add(observability.TrimEnd('\n'));
             lines.AddRange(heapAllocLines);
-            lines.Add($"{indent}    var errorPtr: UnsafeMutableRawPointer? = nil");
+            lines.Add($"{indent}    var errorPtr: Swift.UnsafeMutableRawPointer? = nil");
 
             if (hasReturn)
             {
@@ -683,7 +683,7 @@ public static partial class ClosureEmitter
                 // is nothing to free on the error path.
                 lines.Add($"{indent}    let __rawCdeclResult = {cdeclVarName}({cdeclArgsStr})");
                 lines.Add($"{indent}    if let error = errorPtr {{");
-                lines.Add($"{indent}        throw unsafeBitCast(error, to: Swift.Error.self)");
+                lines.Add($"{indent}        throw Swift.unsafeBitCast(error, to: Swift.Error.self)");
                 lines.Add($"{indent}    }}");
                 var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__rawCdeclResult", closureHandler);
                 lines.Add($"{indent}    return {returnConversion}");
@@ -692,7 +692,7 @@ public static partial class ClosureEmitter
             {
                 lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
                 lines.Add($"{indent}    if let error = errorPtr {{");
-                lines.Add($"{indent}        throw unsafeBitCast(error, to: Swift.Error.self)");
+                lines.Add($"{indent}        throw Swift.unsafeBitCast(error, to: Swift.Error.self)");
                 lines.Add($"{indent}    }}");
             }
 
@@ -781,12 +781,12 @@ public static partial class ClosureEmitter
             {
                 // Native Swift classes: convert to raw pointer via Unmanaged
                 if (closureHandler.IsClassType(named))
-                    return $"Unmanaged.passUnretained({argExpr}).toOpaque()";
+                    return $"Swift.Unmanaged.passUnretained({argExpr}).toOpaque()";
 
                 // ObjC-bridged struct types (e.g., IndexPath → NSIndexPath):
                 // Bridge to AnyObject first since Unmanaged requires a class type
                 if (closureHandler.IsObjCBridgedClass(named))
-                    return $"Unmanaged.passUnretained({argExpr} as AnyObject).toOpaque()";
+                    return $"Swift.Unmanaged.passUnretained({argExpr} as Swift.AnyObject).toOpaque()";
 
                 // Simple enums: convert to underlying integer. unsafeBitCast is unsafe
                 // because Swift enums may have different MemoryLayout.size than their
@@ -800,7 +800,7 @@ public static partial class ClosureEmitter
                         // type (e.g., Int64). Swift treats Int and Int64 as distinct types.
                         return $"{enumInfo.Value.swiftScalar}({argExpr}.rawValue)";
                     // Tag-only enum: extract tag via safe memory load
-                    return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {argExpr}; withUnsafeMutablePointer(to: &__s) {{ dst in withUnsafePointer(to: &__e) {{ src in UnsafeMutableRawPointer(dst).copyMemory(from: UnsafeRawPointer(src), byteCount: MemoryLayout<{ExistentialBypassEmitter.RenderSwiftTypeSpec(named)}>.size) }} }}; return __s }}()";
+                    return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {argExpr}; Swift.withUnsafeMutablePointer(to: &__s) {{ dst in Swift.withUnsafePointer(to: &__e) {{ src in Swift.UnsafeMutableRawPointer(dst).copyMemory(from: Swift.UnsafeRawPointer(src), byteCount: Swift.MemoryLayout<{ExistentialBypassEmitter.RenderSwiftTypeSpec(named)}>.size) }} }}; return __s }}()";
                 }
 
                 // Optional<Class/ObjC>: map to Optional raw pointer, nil maps to nil
@@ -811,8 +811,8 @@ public static partial class ClosureEmitter
                     var bridgeSuffix = (innerSpec is NamedTypeSpec innerNamed &&
                                        !closureHandler.IsClassType(innerNamed) &&
                                        closureHandler.IsObjCBridgedClass(innerNamed))
-                        ? " as AnyObject" : "";
-                    return $"{argExpr}.map {{ Unmanaged.passUnretained($0{bridgeSuffix}).toOpaque() }}";
+                        ? " as Swift.AnyObject" : "";
+                    return $"{argExpr}.map {{ Swift.Unmanaged.passUnretained($0{bridgeSuffix}).toOpaque() }}";
                 }
             }
         }
@@ -837,14 +837,14 @@ public static partial class ClosureEmitter
                 if (closureHandler.IsClassType(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
-                    return $"Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
+                    return $"Swift.Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
                 }
 
                 // ObjC-bridged struct types: use AnyObject bridge for Unmanaged, then cast back
                 if (closureHandler.IsObjCBridgedClass(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
-                    return $"(Unmanaged<AnyObject>.fromOpaque({expr}).takeUnretainedValue() as! {swiftType})";
+                    return $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({expr}).takeUnretainedValue() as! {swiftType})";
                 }
 
                 // Simple enums: construct from underlying integer. unsafeBitCast is unsafe
@@ -866,7 +866,7 @@ public static partial class ClosureEmitter
                         return $"{swiftType}(rawValue: {rawCast})!";
                     }
                     // Tag-only enum: load from low bytes via safe memory load
-                    return $"{{ var __raw = {expr}; return withUnsafeMutablePointer(to: &__raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
+                    return $"{{ var __raw = {expr}; return Swift.withUnsafeMutablePointer(to: &__raw) {{ Swift.UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
                 }
 
                 // Optional<Class/ObjC>: map raw pointer back to typed optional
@@ -879,9 +879,9 @@ public static partial class ClosureEmitter
                         !closureHandler.IsClassType(innerNamed) &&
                         closureHandler.IsObjCBridgedClass(innerNamed))
                     {
-                        return $"({expr}).map {{ (Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {innerType}) }}";
+                        return $"({expr}).map {{ (Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeUnretainedValue() as! {innerType}) }}";
                     }
-                    return $"({expr}).map {{ Unmanaged<{innerType}>.fromOpaque($0).takeUnretainedValue() }}";
+                    return $"({expr}).map {{ Swift.Unmanaged<{innerType}>.fromOpaque($0).takeUnretainedValue() }}";
                 }
 
                 // Non-primitive struct types (including String): the cdecl returns
@@ -1228,8 +1228,8 @@ public static partial class ClosureEmitter
             {
                 // Replace closure param with (funcPtr, context) pair
                 // Closure-derived names (FuncPtr, Context, _adapted_) use csName suffix which is safe
-                argParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
-                argParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
+                argParams.Add($"_ {csName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+                argParams.Add($"_ {csName}Context: Swift.UnsafeMutableRawPointer?");
 
                 bool isOptional = closureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
                 bool isEscaping = WrapperValidation.IsEffectivelyEscaping(
@@ -1255,7 +1255,7 @@ public static partial class ClosureEmitter
             else if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
                 // Large Optional param: accept UnsafeRawPointer, dereference in body
-                argParams.Add($"_ {swiftName}: UnsafeRawPointer");
+                argParams.Add($"_ {swiftName}: Swift.UnsafeRawPointer");
                 adapterCode.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, csName, swiftName, env.TypeDatabase));
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{csName}Val");
@@ -1357,20 +1357,20 @@ public static partial class ClosureEmitter
                 switch (phase)
                 {
                     case CdeclPhase.ResultPtr:
-                        swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                        swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
                         break;
                     case CdeclPhase.Arguments:
                         swiftParams.AddRange(argParams);
                         if (hasLargeOptionalReturn)
-                            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+                            swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
                         break;
                     case CdeclPhase.Metadata:
                         break;
                     case CdeclPhase.Self:
-                        swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+                        swiftParams.Add("_ _self: Swift.UnsafeMutableRawPointer");
                         break;
                     case CdeclPhase.ErrorOut:
-                        swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                        swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                         break;
                 }
             }
@@ -1379,9 +1379,9 @@ public static partial class ClosureEmitter
         {
             swiftParams.AddRange(argParams);
             if (hasLargeOptionalReturn)
-                swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
+                swiftParams.Add("_ _resultBuf: Swift.UnsafeMutableRawPointer");
             if (isInstance)
-                swiftParams.Add("_ _self: UnsafeMutableRawPointer");
+                swiftParams.Add("_ _self: Swift.UnsafeMutableRawPointer");
         }
 
         var paramsStr = string.Join(",\n    ", swiftParams);
@@ -1402,7 +1402,7 @@ public static partial class ClosureEmitter
             bool isClass = parentDecl is ClassDecl;
             if (isClass)
             {
-                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(_self), to: {typeName}.self)";
+                selfConversion = $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(_self), to: {typeName}.self)";
             }
             else
             {
@@ -1507,7 +1507,7 @@ public static partial class ClosureEmitter
             }
             swiftWriter.WriteLines("""
                     } catch {
-                        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                     """);
             if (hasReturn && !cdeclNeedsResultPtr && !hasLargeOptionalReturn)
                 OptionalPointerWrapperEmitter.EmitCdeclSentinelReturn(swiftWriter, cdeclReturnMapping, indent: "        ");

@@ -37,7 +37,7 @@ public class TypedErrorMismatchOracleTests
         Skip.IfNot(OperatingSystem.IsMacOS(), "Native Swift oracle requires macOS and Xcode.");
         var (cs, swift) = TypedThrowsEmitterTests.GenerateThrowingMethod(true, true, classError: classError);
         var catchMatch = Regex.Match(swift,
-            @"let _isCancelled: Int32 = .*?errorCallback\(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0\)\s*\}\s*\}",
+            @"let _isCancelled: Swift\.Int32 = .*?errorCallback\(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0\)\s*\}\s*\}",
             RegexOptions.Singleline);
         Assert.True(catchMatch.Success, "Generated Swift catch must include the nil fallback.");
         var callback = CSharpSyntaxTree.ParseText("class Generated {" + cs + "}").GetRoot()

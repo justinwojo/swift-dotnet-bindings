@@ -304,10 +304,10 @@ internal static class AppEntityKeyPathSingletonEmitter
             swiftWriter.WriteLine($"// AppEntity KeyPath singleton trampoline: \\{rootSwiftFullNameForComment}.{swiftPropName}");
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"@_cdecl(\"{symbol}\")");
-            swiftWriter.WriteLine($"public func {symbol}() -> UnsafeMutableRawPointer {{");
+            swiftWriter.WriteLine($"public func {symbol}() -> Swift.UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"let kp: {keyPathFlavor}<{rootSwiftQualifiedForWrapper}, {swiftValueType}> = \\{rootSwiftQualifiedForWrapper}.{swiftPropName}");
-            swiftWriter.WriteLine("return Unmanaged.passRetained(kp).toOpaque()");
+            swiftWriter.WriteLine($"let kp: Swift.{keyPathFlavor}<{rootSwiftQualifiedForWrapper}, {swiftValueType}> = \\{rootSwiftQualifiedForWrapper}.{swiftPropName}");
+            swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(kp).toOpaque()");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }

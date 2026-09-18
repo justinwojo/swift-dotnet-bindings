@@ -43,10 +43,10 @@ public class SubclassClosedParentTrampolineEmitterTests
 
         // Swift @_cdecl shim that unsafeBitCasts opaque self to the CONCRETE leaf and calls through.
         Assert.Contains("@_cdecl(", swiftOut);
-        Assert.Contains($"unsafeBitCast(OpaquePointer(self_), to: {Module}.Leaf.self)", swiftOut);
+        Assert.Contains($"Swift.unsafeBitCast(Swift.OpaquePointer(self_), to: {Module}.Leaf.self)", swiftOut);
         Assert.Contains("__self.pause()", swiftOut);
         // No metadata/PWT parameter crosses the boundary — the only Swift param is the opaque self.
-        Assert.Contains("_ self_: UnsafeMutableRawPointer", swiftOut);
+        Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", swiftOut);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public class SubclassClosedParentTrampolineEmitterTests
         var (csOut, swiftOut) = Emit(leaf, moduleDecl, typeDb);
 
         Assert.Contains("public static int CurrentPhase(this Leaf self)", csOut);
-        Assert.Contains("-> Int32", swiftOut);
+        Assert.Contains("-> Swift.Int32", swiftOut);
         Assert.Contains("return __self.currentPhase()", swiftOut);
     }
 

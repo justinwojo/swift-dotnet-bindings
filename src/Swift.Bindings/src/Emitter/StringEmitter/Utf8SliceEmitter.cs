@@ -32,12 +32,12 @@ public static class Utf8SliceEmitter
         swiftWriter.WriteLines("""
             @frozen
             public struct SBW_Utf8Slice {
-                public var ptr: UnsafeMutablePointer<UInt8>
-                public var len: Int
+                public var ptr: Swift.UnsafeMutablePointer<Swift.UInt8>
+                public var len: Swift.Int
             }
 
             // Static empty buffer for empty string slices (required for @convention(c) compatibility)
-            fileprivate var _sbw_emptyBuffer: UInt8 = 0
+            fileprivate var _sbw_emptyBuffer: Swift.UInt8 = 0
 
             """);
         ctx.Utf8SliceStructEmitted = true;
@@ -66,7 +66,7 @@ public static class Utf8SliceEmitter
 
         swiftWriter.WriteLines(
             $"@_cdecl(\"{symbolName}\")\n" +
-            "public func SBW_Free(_ ptr: UnsafeMutableRawPointer?) {\n" +
+            "public func SBW_Free(_ ptr: Swift.UnsafeMutableRawPointer?) {\n" +
             "    ptr?.deallocate()\n" +
             "}\n");
         ctx.Utf8SliceFreeEmitted = true;

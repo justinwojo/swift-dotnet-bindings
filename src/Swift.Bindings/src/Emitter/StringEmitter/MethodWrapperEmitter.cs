@@ -366,7 +366,7 @@ public static class MethodWrapperEmitter
             (WitnessDispatchEmitter.IsStringType(returnTypeSpec) || isLsrReturn);
 
         var (returnMapping, needsResultPtr) = isVoidReturn
-            ? (new CdeclReturnMapping("Void", CdeclReturnKind.Direct), false)
+            ? (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.Direct), false)
             : CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
 
         // String returns always need result ptr (SBW_Utf8Slice)
@@ -394,7 +394,7 @@ public static class MethodWrapperEmitter
         // Result buffer parameter (first, for indirect results and string returns)
         if (needsResultPtr)
         {
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
         }
 
         // When calling a silgen target, all parameters use _ (no external labels).
@@ -426,16 +426,16 @@ public static class MethodWrapperEmitter
                     break; // Already handled above
 
                 case CdeclPhase.ErrorOut:
-                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    swiftParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                     break;
 
                 case CdeclPhase.Self:
                     // consuming self needs a mutable pointer so the wrapper can move() the value
                     // out of the buffer; mutating self needs it to write mutations back.
                     if (isClass || isMutating || consumesSelf)
-                        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                        swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
                     else
-                        swiftParams.Add("_ self_: UnsafeRawPointer");
+                        swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
                     break;
 
                 case CdeclPhase.Arguments:
@@ -469,8 +469,8 @@ public static class MethodWrapperEmitter
                         {
                             var csName = NameProvider.StripVerbatimPrefix(
                                 NameProvider.GetCSharpParameterName(arg));
-                            swiftParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
-                            swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
+                            swiftParams.Add($"_ {csName}FuncPtr: Swift.UnsafeMutableRawPointer?");
+                            swiftParams.Add($"_ {csName}Context: Swift.UnsafeMutableRawPointer?");
 
                             bool isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
                             bool isEscaping = WrapperValidation.IsEffectivelyEscaping(
@@ -528,7 +528,7 @@ public static class MethodWrapperEmitter
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
-                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _metadata{i}: Swift.UnsafeRawPointer");
                         }
                         // Add PWT parameters for constrained generic types.
                         // Only include PWT for resolvable conformances (no associated types
@@ -540,7 +540,7 @@ public static class MethodWrapperEmitter
                         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int pi = 0; pi < pwtCount; pi++)
                         {
-                            swiftParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
+                            swiftParams.Add($"_ _pwt{pi}: Swift.UnsafeRawPointer");
                         }
                     }
                     break;
@@ -612,7 +612,7 @@ public static class MethodWrapperEmitter
             var variadicSig = BuildVariadicCastSignature(methodDecl, useArrayForm: false);
             var arraySig = BuildVariadicCastSignature(methodDecl, useArrayForm: true);
             var positionalCallArgs = string.Join(", ", callArgs.Select(StripArgLabel));
-            callExpr = $"unsafeBitCast({prefix}{swiftMethodName} as {variadicSig}, to: ({arraySig}).self)({positionalCallArgs})";
+            callExpr = $"Swift.unsafeBitCast({prefix}{swiftMethodName} as {variadicSig}, to: ({arraySig}).self)({positionalCallArgs})";
         }
         else
         {
@@ -648,7 +648,7 @@ public static class MethodWrapperEmitter
         // current locale (iOS 16+). Wrapping the fully-built call expression covers every branch
         // above, plus the throwing path (the `try` prefix is added downstream around this expr).
         if (isLsrReturn)
-            callExpr = $"String(localized: {callExpr})";
+            callExpr = $"Swift.String(localized: {callExpr})";
 
         // For generic parent class types, emit protocol + conformance for type erasure
         string? protocolName = null;
@@ -1048,8 +1048,8 @@ public static class MethodWrapperEmitter
             switch (phase)
             {
                 case CdeclPhase.ResultPtr:
-                    cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
-                    protocolParams.Add("resultPtr: UnsafeMutableRawPointer");
+                    cdeclParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
+                    protocolParams.Add("resultPtr: Swift.UnsafeMutableRawPointer");
                     cdeclCallArgs.Add("resultPtr: resultPtr");
                     break;
 
@@ -1095,8 +1095,8 @@ public static class MethodWrapperEmitter
 
                         if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
                         {
-                            protocolParams.Add($"{paramPrefix}: UnsafeRawPointer");
-                            cdeclParams.Add($"_ {label}: UnsafeRawPointer");
+                            protocolParams.Add($"{paramPrefix}: Swift.UnsafeRawPointer");
+                            cdeclParams.Add($"_ {label}: Swift.UnsafeRawPointer");
                             cdeclCallArgs.Add($"{protocolArgLabel}{label}");
 
                             var swiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(arg.SwiftTypeSpec, abiToSugaredName);
@@ -1119,8 +1119,8 @@ public static class MethodWrapperEmitter
                             // string early-returns (the `return` in the empty-utf8 branch is not the
                             // last line of the body).
                             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
-                            protocolParams.Add($"{paramPrefix}: UnsafeMutableRawPointer");
-                            cdeclParams.Add($"_ {label}: UnsafeMutableRawPointer");
+                            protocolParams.Add($"{paramPrefix}: Swift.UnsafeMutableRawPointer");
+                            cdeclParams.Add($"_ {label}: Swift.UnsafeMutableRawPointer");
                             cdeclCallArgs.Add($"{protocolArgLabel}{label}");
 
                             extensionBodyLines.Add($"var {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
@@ -1152,27 +1152,27 @@ public static class MethodWrapperEmitter
 
                 case CdeclPhase.Metadata:
                     for (int mi = 0; mi < parentTypeDecl.GenericParameters.Count; mi++)
-                        cdeclParams.Add($"_ _metadata{mi}: UnsafeRawPointer");
+                        cdeclParams.Add($"_ _metadata{mi}: Swift.UnsafeRawPointer");
                     // The metadata accessor requires a PWT pointer per resolvable protocol
                     // conformance — must match what the C# P/Invoke side passes.
                     for (int pi = 0; pi < methodPwtCount; pi++)
-                        cdeclParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
+                        cdeclParams.Add($"_ _pwt{pi}: Swift.UnsafeRawPointer");
                     break;
 
                 case CdeclPhase.Self:
                     if (isClass)
-                        cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+                        cdeclParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
                     else if (mutableSelfPtr)
-                        cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+                        cdeclParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
                     else
-                        cdeclParams.Add("_ self_: UnsafeRawPointer");
-                    protocolParams.Add(mutableSelfPtr ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
+                        cdeclParams.Add("_ self_: Swift.UnsafeRawPointer");
+                    protocolParams.Add(mutableSelfPtr ? "selfPtr: Swift.UnsafeMutableRawPointer" : "selfPtr: Swift.UnsafeRawPointer");
                     cdeclCallArgs.Add("selfPtr: self_");
                     break;
 
                 case CdeclPhase.ErrorOut:
-                    cdeclParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
-                    protocolParams.Add("errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    cdeclParams.Add("_ errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
+                    protocolParams.Add("errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>");
                     cdeclCallArgs.Add("errorOut: errorOut");
                     break;
             }
@@ -1207,7 +1207,7 @@ public static class MethodWrapperEmitter
         }
         else if (isClass)
         {
-            extensionBodyLines.Insert(0, "let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
+            extensionBodyLines.Insert(0, "let obj = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
         }
         else if (nonCopyableSelf)
         {
@@ -1231,18 +1231,18 @@ public static class MethodWrapperEmitter
         else if (isString)
         {
             // String returns: write SBW_Utf8Slice to resultPtr
-            extensionBodyLines.Add($"let result: String = {tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"let result: Swift.String = {tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
             // For mutating methods, write back BEFORE any early return (empty string branch)
             if (writesSelfBack)
             {
                 extensionBodyLines.Add("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
             }
-            extensionBodyLines.Add("let utf8 = Array(result.utf8)");
+            extensionBodyLines.Add("let utf8 = Swift.Array(result.utf8)");
             extensionBodyLines.Add("if utf8.isEmpty {");
             extensionBodyLines.Add("    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)");
             extensionBodyLines.Add("    return");
             extensionBodyLines.Add("}");
-            extensionBodyLines.Add("let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)");
+            extensionBodyLines.Add("let ptr = Swift.UnsafeMutablePointer<Swift.UInt8>.allocate(capacity: utf8.count)");
             extensionBodyLines.Add("ptr.initialize(from: utf8, count: utf8.count)");
             extensionBodyLines.Add("resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)");
         }
@@ -1383,7 +1383,7 @@ public static class MethodWrapperEmitter
         var methodPwtArgsList = Enumerable.Range(0, methodPwtCount).Select(i => $"_pwt{i}");
         var methodMetaArgs = string.Join(", ", methodMetaArgsList.Concat(methodPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {methodHelperName}({methodMetaArgs})");
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"let metatype = Swift.unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
 
         // Call the protocol static method
         var cdeclCallArgString = string.Join(", ", cdeclCallArgs);
@@ -1400,7 +1400,7 @@ public static class MethodWrapperEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLines("""
                 } catch {
-                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                    errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
                 """);
             if (!isVoidReturn && !cdeclNeedsResultPtr)
             {
@@ -1493,7 +1493,7 @@ public static class MethodWrapperEmitter
         swiftWriter.Indent--;
         swiftWriter.WriteLines("""
             } catch {
-                errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
             """);
 
         // For non-void direct returns (not via resultPtr), we need a dummy return value.

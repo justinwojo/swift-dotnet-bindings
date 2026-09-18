@@ -74,7 +74,7 @@ public class AsyncSwiftWrapperTests
 
         // Should use Unmanaged.passRetained pattern
         Assert.Contains("Unmanaged.passRetained(", swiftOutput);
-        Assert.Contains("as: UnsafeMutableRawPointer.self)", swiftOutput);
+        Assert.Contains("as: Swift.UnsafeMutableRawPointer.self)", swiftOutput);
 
         // Should NOT use storeBytes with the class type directly (BitwiseCopyable crash)
         Assert.DoesNotContain("as: TestModule.ImageResult.self)", swiftOutput);
@@ -361,8 +361,8 @@ public class AsyncSwiftWrapperTests
             returnKind: TypeRecordKind.Class);
 
         // Should allocate using UnsafeMutableRawPointer size (pointer-sized)
-        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
-        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.alignment", swiftOutput);
+        Assert.Contains("Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.size", swiftOutput);
+        Assert.Contains("Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.alignment", swiftOutput);
 
         // Should NOT allocate using the class type's size
         Assert.DoesNotContain("MemoryLayout<TestModule.ImageResult>.size", swiftOutput);
@@ -396,13 +396,13 @@ public class AsyncSwiftWrapperTests
 
         // Should use if-let unwrap + Unmanaged.passRetained (retain .some value)
         Assert.Contains("if let _unwrapped =", swiftOutput);
-        Assert.Contains("Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()", swiftOutput);
+        Assert.Contains("Swift.Unmanaged.passRetained(_unwrapped as Swift.AnyObject).toOpaque()", swiftOutput);
 
         // Should store zero for .none case
-        Assert.Contains("storeBytes(of: 0, as: Int.self)", swiftOutput);
+        Assert.Contains("storeBytes(of: 0, as: Swift.Int.self)", swiftOutput);
 
         // Should allocate pointer-sized buffer (not Optional<Class>.size)
-        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
+        Assert.Contains("Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.size", swiftOutput);
 
         // Should NOT use copyMemory (that's for struct/enum, no ARC retain)
         Assert.DoesNotContain("copyMemory", swiftOutput);
@@ -437,7 +437,7 @@ public class AsyncSwiftWrapperTests
             innerTypeName: "TestModule.ImageResult");
 
         // Should use pointer-sized allocation
-        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
+        Assert.Contains("Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.size", swiftOutput);
 
         // Should NOT use Optional<T>.size (that's the wrong layout for nullable pointer ABI)
         Assert.DoesNotContain("MemoryLayout<Swift.Optional<TestModule.ImageResult>>.size", swiftOutput);
@@ -533,7 +533,7 @@ public class AsyncSwiftWrapperTests
 
         // Swift side: passRetained-pointer pattern (already correct pre-fix).
         Assert.Contains("Unmanaged.passRetained", swiftOutput);
-        Assert.Contains("as AnyObject", swiftOutput);
+        Assert.Contains("as Swift.AnyObject", swiftOutput);
     }
 
     [Fact]
@@ -577,7 +577,7 @@ public class AsyncSwiftWrapperTests
 
         // Class-style storeBytes-of-pointer ABI, not value-copy ABI.
         Assert.Contains("Unmanaged.passRetained(", swiftOutput);
-        Assert.Contains("as AnyObject", swiftOutput);
+        Assert.Contains("as Swift.AnyObject", swiftOutput);
 
         // Must not fall back to value-copy marshalling (would crash — value layout differs
         // from class pointer in the carrier).
@@ -603,9 +603,9 @@ public class AsyncSwiftWrapperTests
             });
 
         // Swift wrapper should contain Unmanaged.passRetained for the ObjC class element
-        Assert.Contains("Unmanaged<AnyObject>.passRetained(", swiftOutput);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.passRetained(", swiftOutput);
         // Should reference the correct tuple element (.1 for URLResponse)
-        Assert.Contains(".1 as AnyObject)", swiftOutput);
+        Assert.Contains(".1 as Swift.AnyObject)", swiftOutput);
 
         // C#: GetNSObject adds its own +1 retain on top of Swift's passRetained — the
         // tuple-element bridge must balance with DangerousRelease so the consumer holds
@@ -642,7 +642,7 @@ public class AsyncSwiftWrapperTests
 
         // Should use conditional retain: if let ... { passRetained }
         Assert.Contains("if let _tupleObj", swiftOutput);
-        Assert.Contains("Unmanaged<AnyObject>.passRetained(", swiftOutput);
+        Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.passRetained(", swiftOutput);
 
         // C#: Optional bridge must balance Swift's conditional passRetained with a
         // null-conditional DangerousRelease. (Same +1/+1/-1 pattern as scalar ObjC.)
@@ -662,8 +662,8 @@ public class AsyncSwiftWrapperTests
             });
 
         // Should have two passRetained calls
-        Assert.Contains(".0 as AnyObject)", swiftOutput);
-        Assert.Contains(".1 as AnyObject)", swiftOutput);
+        Assert.Contains(".0 as Swift.AnyObject)", swiftOutput);
+        Assert.Contains(".1 as Swift.AnyObject)", swiftOutput);
     }
 
     [Fact]
@@ -732,7 +732,7 @@ public class AsyncSwiftWrapperTests
 
         // Swift: emits inline class-style passRetained for the bridgeable element.
         Assert.Contains("Unmanaged.passRetained(", swiftOutput);
-        Assert.Contains("as AnyObject", swiftOutput);
+        Assert.Contains("as Swift.AnyObject", swiftOutput);
         // Must NOT heap-allocate the bridgeable value (would be wrong ABI shape).
         Assert.DoesNotContain("MemoryLayout<Foundation.URL>", swiftOutput);
 
@@ -760,7 +760,7 @@ public class AsyncSwiftWrapperTests
 
         // Swift: Optional path uses .map { passRetained(... as AnyObject).toOpaque() }
         Assert.Contains("passRetained(", swiftOutput);
-        Assert.Contains("as AnyObject", swiftOutput);
+        Assert.Contains("as Swift.AnyObject", swiftOutput);
         Assert.DoesNotContain("MemoryLayout<Foundation.URL>", swiftOutput);
 
         // C#: nullable bridge call + DangerousRelease.
@@ -786,7 +786,7 @@ public class AsyncSwiftWrapperTests
 
         // Should use Unmanaged.passRetained (class type path, not struct copyMemory path)
         Assert.Contains("Unmanaged.passRetained(", swiftOutput);
-        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
+        Assert.Contains("Swift.MemoryLayout<Swift.UnsafeMutableRawPointer>.size", swiftOutput);
     }
 
     [Fact]
@@ -880,7 +880,7 @@ public class AsyncSwiftWrapperTests
             returnKind: TypeRecordKind.Class,
             isObjCBridged: true);
 
-        Assert.Contains("_self: OpaquePointer", swiftOutput);
+        Assert.Contains("_self: Swift.OpaquePointer", swiftOutput);
     }
 
     [Fact]

@@ -1204,9 +1204,9 @@ namespace BindingsGeneration
             if (isUnary)
             {
                 var paramList = needsResultPtr
-                    ? "_ resultPtr: UnsafeMutableRawPointer, _ operand: UnsafeRawPointer"
-                    : "_ operand: UnsafeRawPointer";
-                var returnClause = needsResultPtr ? "" : " -> Bool";
+                    ? "_ resultPtr: Swift.UnsafeMutableRawPointer, _ operand: Swift.UnsafeRawPointer"
+                    : "_ operand: Swift.UnsafeRawPointer";
+                var returnClause = needsResultPtr ? "" : " -> Swift.Bool";
                 swiftWriter.WriteLine($"public func _sbw_op_{funcHash}({paramList}){returnClause} {{");
                 swiftWriter.Indent++;
                 swiftWriter.WriteLine($"let op = operand.load(as: {moduleQualifiedSwiftName}.self)");
@@ -1224,9 +1224,9 @@ namespace BindingsGeneration
             else
             {
                 var paramList = needsResultPtr
-                    ? "_ resultPtr: UnsafeMutableRawPointer, _ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer"
-                    : "_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer";
-                var returnClause = needsResultPtr ? "" : " -> Bool";
+                    ? "_ resultPtr: Swift.UnsafeMutableRawPointer, _ lhs: Swift.UnsafeRawPointer, _ rhs: Swift.UnsafeRawPointer"
+                    : "_ lhs: Swift.UnsafeRawPointer, _ rhs: Swift.UnsafeRawPointer";
+                var returnClause = needsResultPtr ? "" : " -> Swift.Bool";
                 swiftWriter.WriteLine($"public func _sbw_op_{funcHash}({paramList}){returnClause} {{");
                 swiftWriter.Indent++;
                 swiftWriter.WriteLine($"let l = lhs.load(as: {moduleQualifiedSwiftName}.self)");

@@ -434,7 +434,7 @@ public static class MethodGenericBridgeEmitter
         bool needsResultPtr = !isVoidReturn && !isStringReturn &&
             CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase).needsResultPtr;
         if (needsResultPtr || isStringReturn)
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            swiftParams.Add("_ resultPtr: Swift.UnsafeMutableRawPointer");
 
         // Regular parameters (with existential loading for generic params)
         // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
@@ -457,9 +457,9 @@ public static class MethodGenericBridgeEmitter
                 // wrapper. `__self`/`_self` are reserved, so the escape resolves the clash;
                 // siblings cover a generic binding that collides with another user param.
                 var genericBinding = NameProvider.EscapeReservedSwiftWrapperLabel($"_{label}", siblings);
-                swiftParams.Add($"_ {genericBinding}: UnsafeRawPointer");
+                swiftParams.Add($"_ {genericBinding}: Swift.UnsafeRawPointer");
                 var argLabel = GetSwiftArgLabel(arg);
-                callArgs.Add($"{argLabel}(Unmanaged<AnyObject>.fromOpaque({genericBinding}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
+                callArgs.Add($"{argLabel}(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({genericBinding}).takeUnretainedValue() as! any {genericInfo.ConstraintProtocolSwiftName})");
             }
             else if (arg.HasDefaultArg)
             {
@@ -485,9 +485,9 @@ public static class MethodGenericBridgeEmitter
         if (isInstance)
         {
             if (isClass)
-                swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
             else
-                swiftParams.Add("_ self_: UnsafeRawPointer");
+                swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
         }
 
         // Build self conversion
@@ -495,7 +495,7 @@ public static class MethodGenericBridgeEmitter
         if (isInstance)
         {
             selfConversion = isClass
-                ? $"let __self = unsafeBitCast(OpaquePointer(self_), to: {moduleQualifiedName}.self)"
+                ? $"let __self = Swift.unsafeBitCast(Swift.OpaquePointer(self_), to: {moduleQualifiedName}.self)"
                 : $"let __self = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee";
         }
 

@@ -268,7 +268,7 @@ public static partial class SwiftUIBridgeEmitter
             return new BridgeParameter(
                 paramName,
                 BridgeParameterKind.VoidClosure,
-                SwiftAbiType: "(@convention(c) (UnsafeMutableRawPointer?) -> Void)?",
+                SwiftAbiType: "(@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.Void)?",
                 CSharpPInvokeType: "IntPtr",
                 HasUserData: true);
         }
@@ -347,13 +347,13 @@ public static partial class SwiftUIBridgeEmitter
         {
             abiArgTypes.Add(a.SwiftAbiType);
             if (a.Kind == BridgeParameterKind.String)
-                abiArgTypes.Add("Int"); // length companion
+                abiArgTypes.Add("Swift.Int"); // length companion
         }
         // String-returning closures need a return-length out-parameter
         if (closureReturn?.Kind == BridgeParameterKind.String)
-            abiArgTypes.Add("UnsafeMutablePointer<Int>");
-        abiArgTypes.Add("UnsafeMutableRawPointer?");
-        var abiReturnType = closureReturn?.SwiftAbiType ?? "Void";
+            abiArgTypes.Add("Swift.UnsafeMutablePointer<Swift.Int>");
+        abiArgTypes.Add("Swift.UnsafeMutableRawPointer?");
+        var abiReturnType = closureReturn?.SwiftAbiType ?? "Swift.Void";
         // Class return from closure needs nullable pointer to handle nil returns
         if (closureReturn?.Kind == BridgeParameterKind.BoundType)
             abiReturnType += "?";
@@ -474,19 +474,19 @@ public static partial class SwiftUIBridgeEmitter
         return fullName switch
         {
             "Swift.Int" => new BridgeParameter(paramName, BridgeParameterKind.Primitive,
-                "Int", "nint"),
+                "Swift.Int", "nint"),
             "Swift.Int32" => new BridgeParameter(paramName, BridgeParameterKind.Primitive,
-                "Int32", "int"),
+                "Swift.Int32", "int"),
             "Swift.Int64" => new BridgeParameter(paramName, BridgeParameterKind.Primitive,
-                "Int64", "long"),
+                "Swift.Int64", "long"),
             "Swift.Bool" => new BridgeParameter(paramName, BridgeParameterKind.Primitive,
-                "Int32", "int", SwiftConversion: "!= 0", CSharpConversion: "? 1 : 0"),
+                "Swift.Int32", "int", SwiftConversion: "!= 0", CSharpConversion: "? 1 : 0"),
             "Swift.Double" => new BridgeParameter(paramName, BridgeParameterKind.Primitive,
-                "Double", "double"),
+                "Swift.Double", "double"),
             "Swift.Float" => new BridgeParameter(paramName, BridgeParameterKind.Primitive,
-                "Float", "float"),
+                "Swift.Float", "float"),
             "Swift.String" => new BridgeParameter(paramName, BridgeParameterKind.String,
-                "UnsafePointer<UInt8>?", "IntPtr",
+                "Swift.UnsafePointer<Swift.UInt8>?", "IntPtr",
                 HasLength: true),
             _ => null,
         };
@@ -554,7 +554,7 @@ public static partial class SwiftUIBridgeEmitter
 
                 return new BridgeParameter(
                     paramName, BridgeParameterKind.BoundStruct,
-                    SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
+                    SwiftAbiType: "Swift.UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
                     BridgeTypeName: swiftSimpleName, CSharpTypeName: csharpName,
                     StructProjection: StructProjectionKind.NonFrozen);
             }
@@ -583,7 +583,7 @@ public static partial class SwiftUIBridgeEmitter
             return new BridgeParameter(
                 paramName,
                 BridgeParameterKind.BoundType,
-                SwiftAbiType: "UnsafeMutableRawPointer",
+                SwiftAbiType: "Swift.UnsafeMutableRawPointer",
                 CSharpPInvokeType: "IntPtr",
                 BridgeTypeName: swiftSimpleName,
                 CSharpTypeName: csharpName,
@@ -609,7 +609,7 @@ public static partial class SwiftUIBridgeEmitter
 
             return new BridgeParameter(
                 paramName, BridgeParameterKind.BoundStruct,
-                SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
+                SwiftAbiType: "Swift.UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
                 BridgeTypeName: swiftSimpleName, CSharpTypeName: csharpName,
                 StructProjection: projection,
                 IsObjCBridgeable: isObjCBridgeable);
@@ -652,16 +652,16 @@ public static partial class SwiftUIBridgeEmitter
     {
         return rawValueTypeName switch
         {
-            "Int" => ("Int", "nint"),
-            "Int8" => ("Int8", "sbyte"),
-            "Int16" => ("Int16", "short"),
-            "Int32" => ("Int32", "int"),
-            "Int64" => ("Int64", "long"),
-            "UInt" => ("UInt", "nuint"),
-            "UInt8" => ("UInt8", "byte"),
-            "UInt16" => ("UInt16", "ushort"),
-            "UInt32" => ("UInt32", "uint"),
-            "UInt64" => ("UInt64", "ulong"),
+            "Int" => ("Swift.Int", "nint"),
+            "Int8" => ("Swift.Int8", "sbyte"),
+            "Int16" => ("Swift.Int16", "short"),
+            "Int32" => ("Swift.Int32", "int"),
+            "Int64" => ("Swift.Int64", "long"),
+            "UInt" => ("Swift.UInt", "nuint"),
+            "UInt8" => ("Swift.UInt8", "byte"),
+            "UInt16" => ("Swift.UInt16", "ushort"),
+            "UInt32" => ("Swift.UInt32", "uint"),
+            "UInt64" => ("Swift.UInt64", "ulong"),
             _ => null, // String, non-RawRepresentable, or unknown → template fallback
         };
     }
@@ -770,7 +770,7 @@ public static partial class SwiftUIBridgeEmitter
             return new BridgeParameter(
                 paramName,
                 BridgeParameterKind.OptionalWrapped,
-                SwiftAbiType: "UnsafeMutableRawPointer?",   // nullable pointer
+                SwiftAbiType: "Swift.UnsafeMutableRawPointer?",   // nullable pointer
                 CSharpPInvokeType: "IntPtr",                // IntPtr.Zero = nil
                 InnerParameter: innerParam);
         }
@@ -781,7 +781,7 @@ public static partial class SwiftUIBridgeEmitter
             return new BridgeParameter(
                 paramName,
                 BridgeParameterKind.OptionalWrapped,
-                SwiftAbiType: "UnsafeMutableRawPointer?",
+                SwiftAbiType: "Swift.UnsafeMutableRawPointer?",
                 CSharpPInvokeType: "IntPtr",
                 InnerParameter: innerParam);
         }
@@ -792,7 +792,7 @@ public static partial class SwiftUIBridgeEmitter
             return new BridgeParameter(
                 paramName,
                 BridgeParameterKind.OptionalWrapped,
-                SwiftAbiType: "UnsafePointer<UInt8>?",
+                SwiftAbiType: "Swift.UnsafePointer<Swift.UInt8>?",
                 CSharpPInvokeType: "IntPtr",
                 HasLength: true,
                 InnerParameter: innerParam);
@@ -805,7 +805,7 @@ public static partial class SwiftUIBridgeEmitter
         return new BridgeParameter(
             paramName,
             BridgeParameterKind.OptionalWrapped,
-            SwiftAbiType: "Int32",          // hasValue flag ABI type
+            SwiftAbiType: "Swift.Int32",    // hasValue flag ABI type
             CSharpPInvokeType: "int",       // hasValue flag P/Invoke type
             InnerParameter: innerParam);
     }
@@ -935,7 +935,7 @@ public static partial class SwiftUIBridgeEmitter
 
         return new BridgeParameter(
             paramName, BridgeParameterKind.BridgeArray,
-            SwiftAbiType: $"UnsafePointer<{elementParam.SwiftAbiType}>?",
+            SwiftAbiType: $"Swift.UnsafePointer<{elementParam.SwiftAbiType}>?",
             CSharpPInvokeType: "IntPtr",
             HasLength: true,
             InnerParameter: elementParam);
@@ -949,7 +949,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         return new BridgeParameter(
             paramName, BridgeParameterKind.String,
-            SwiftAbiType: "UnsafePointer<UInt8>?",
+            SwiftAbiType: "Swift.UnsafePointer<Swift.UInt8>?",
             CSharpPInvokeType: "IntPtr",
             HasLength: true,
             IsSwiftUIImage: true);

@@ -904,7 +904,7 @@ public class ClosureEmitterDirectTests
             "callback", closureTypeSpec, closureHandler, isOptional: false);
 
         var result = string.Join("\n", lines);
-        Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
+        Assert.Contains("__heap_0 = Swift.UnsafeMutableRawPointer.allocate", result);
         Assert.Contains("__heap_0.initializeMemory", result);
         Assert.DoesNotContain("defer", result);
         Assert.DoesNotContain("deallocate()", result);
@@ -1139,10 +1139,10 @@ public class ClosureEmitterDirectTests
         var result = string.Join("\n", lines);
 
         // SwipeAction (native class) should use Unmanaged directly
-        Assert.Contains("Unmanaged.passUnretained(p0).toOpaque()", result);
+        Assert.Contains("Swift.Unmanaged.passUnretained(p0).toOpaque()", result);
 
         // IndexPath (ObjC-bridged struct) should use `as AnyObject` before Unmanaged
-        Assert.Contains("Unmanaged.passUnretained(p1 as AnyObject).toOpaque()", result);
+        Assert.Contains("Swift.Unmanaged.passUnretained(p1 as Swift.AnyObject).toOpaque()", result);
     }
 
     [Fact]
@@ -1236,7 +1236,7 @@ public class ClosureEmitterDirectTests
         var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureTypeSpec, closureHandler);
 
         // Return type should be Void (indirect return via buffer param)
-        Assert.Contains("-> Void", conventionCType);
+        Assert.Contains("-> Swift.Void", conventionCType);
         // First param should be the result buffer
         Assert.Contains("UnsafeMutableRawPointer", conventionCType);
     }
@@ -1285,7 +1285,7 @@ public class ClosureEmitterDirectTests
 
         Assert.Contains("Int32", conventionCType);
         // Frozen struct return uses indirect path (Void return, not CGPoint)
-        Assert.Contains("-> Void", conventionCType);
+        Assert.Contains("-> Swift.Void", conventionCType);
     }
 
     [Fact]
@@ -1558,18 +1558,18 @@ public class ClosureEmitterDirectTests
         var result = output.ToString();
         // Must use storeBytes + assumingMemoryBound, NOT unsafeBitCast
         Assert.Contains("UnsafeMutableRawPointer.allocate", result);
-        Assert.Contains("MemoryLayout<(Int, Int)>.size", result);
+        Assert.Contains("Swift.MemoryLayout<(Swift.Int, Swift.Int)>.size", result);
         Assert.Contains("storeBytes(of: _funcPtr", result);
         Assert.Contains("storeBytes(of: _context", result);
-        Assert.Contains("MemoryLayout<Int>.size", result);
+        Assert.Contains("Swift.MemoryLayout<Swift.Int>.size", result);
         Assert.Contains("assumingMemoryBound", result);
         Assert.Contains(".pointee", result);
         Assert.DoesNotContain("unsafeBitCast", result);
         Assert.DoesNotContain("Unmanaged<AnyObject>", result);
         // Verify @_cdecl and parameter structure
         Assert.Contains("@_cdecl(\"SBW_Test_InvCR\")", result);
-        Assert.Contains("_funcPtr: Int", result);
-        Assert.Contains("_context: Int", result);
+        Assert.Contains("_funcPtr: Swift.Int", result);
+        Assert.Contains("_context: Swift.Int", result);
         Assert.Contains("return _closure(", result);
     }
 
@@ -1637,7 +1637,7 @@ public class ClosureEmitterDirectTests
             "SBW_Test_InvCR", "_sbw_inv_test");
 
         var result = output.ToString();
-        Assert.Contains("-> Bool", result);
+        Assert.Contains("-> Swift.Bool", result);
     }
 
     [Fact]
@@ -1663,12 +1663,12 @@ public class ClosureEmitterDirectTests
 
         var result = output.ToString();
         // Scalar declared on both arg and return.
-        Assert.Contains("arg0: Int64", result);
-        Assert.Contains("-> Int64", result);
+        Assert.Contains("arg0: Swift.Int64", result);
+        Assert.Contains("-> Swift.Int64", result);
         // Arg reconstructed via init(rawValue:) (scalar cast bridges Int vs Int64).
-        Assert.Contains("ActionStatus(rawValue: Int(arg0))!", result);
+        Assert.Contains("ActionStatus(rawValue: Swift.Int(arg0))!", result);
         // Result lowered to the scalar via .rawValue — NOT returned as the bare enum.
-        Assert.Contains("return Int64(_result.rawValue)", result);
+        Assert.Contains("return Swift.Int64(_result.rawValue)", result);
         Assert.DoesNotContain("return _result", result);
     }
 
@@ -1697,7 +1697,7 @@ public class ClosureEmitterDirectTests
         // Arg side: load the enum from the incoming scalar's bytes.
         Assert.Contains("load(as: PlainMode.self)", result);
         // Return side: byte-copy the enum into a zero-initialised scalar.
-        Assert.Contains("var __scalar: Int32 = 0", result);
+        Assert.Contains("var __scalar: Swift.Int32 = 0", result);
         Assert.Contains("MemoryLayout<TestModule.PlainMode>.size", result);
     }
 
@@ -1721,8 +1721,8 @@ public class ClosureEmitterDirectTests
         // Buffer must be deallocated via defer
         Assert.Contains("defer { _buf.deallocate() }", result);
         // Must use MemoryLayout for buffer sizing (not hardcoded 16)
-        Assert.Contains("MemoryLayout<(Int, Int)>.size", result);
-        Assert.Contains("MemoryLayout<(Int, Int)>.alignment", result);
+        Assert.Contains("Swift.MemoryLayout<(Swift.Int, Swift.Int)>.size", result);
+        Assert.Contains("Swift.MemoryLayout<(Swift.Int, Swift.Int)>.alignment", result);
     }
 
     [Fact]
@@ -1857,11 +1857,11 @@ public class ClosureEmitterDirectTests
             "SBW_Throws_InvCR", "_sbw_inv_throws");
 
         var result = output.ToString();
-        Assert.Contains("_errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", result);
+        Assert.Contains("_errorOut: Swift.UnsafeMutablePointer<Swift.UnsafeMutableRawPointer?>", result);
         Assert.Contains("do {", result);
         Assert.Contains("try _closure(", result);
         Assert.Contains("} catch {", result);
-        Assert.Contains("_errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", result);
+        Assert.Contains("_errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", result);
         var clearAt = result.IndexOf("_errorOut.pointee = nil", StringComparison.Ordinal);
         Assert.True(clearAt >= 0 && clearAt < result.IndexOf("do {", StringComparison.Ordinal),
             $"The throwing closure invoke thunk must clear errorOut before executing Swift code.\n{result}");
@@ -1888,7 +1888,7 @@ public class ClosureEmitterDirectTests
 
         var result = output.ToString();
         Assert.Contains("try _closure(arg0)", result);
-        Assert.Contains("_errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", result);
+        Assert.Contains("_errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", result);
         Assert.DoesNotContain("let _result =", result);
     }
 
@@ -2149,7 +2149,7 @@ public class ClosureEmitterDirectTests
 
         var result = output.ToString();
         // Struct arg arrives as a raw pointer …
-        Assert.Contains("arg0: UnsafeMutableRawPointer", result);
+        Assert.Contains("arg0: Swift.UnsafeMutableRawPointer", result);
         // … and is reloaded as the module-qualified Swift value type before the call.
         Assert.Contains("arg0.assumingMemoryBound(to: CoreGraphics.CGSize.self).pointee", result);
         Assert.Contains("return _closure(arg0.assumingMemoryBound(to: CoreGraphics.CGSize.self).pointee)", result);
@@ -2764,7 +2764,7 @@ public class ClosureEmitterDirectTests
             "callback", closureTypeSpec, closureHandler, isOptional: false);
 
         var result = string.Join("\n", lines);
-        Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
+        Assert.Contains("__heap_0 = Swift.UnsafeMutableRawPointer.allocate", result);
         Assert.Contains("__heap_0.initializeMemory(as: TestModule.FrozenStructWithRef.self", result);
         // The defer-deallocate fix — without it the buffer leaks
         // on every closure invocation because C# does NOT take ownership of
@@ -2820,7 +2820,7 @@ public class ClosureEmitterDirectTests
             "callback", closureTypeSpec, closureHandler, isOptional: false);
 
         var result = string.Join("\n", lines);
-        Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
+        Assert.Contains("__heap_0 = Swift.UnsafeMutableRawPointer.allocate", result);
         Assert.DoesNotContain("defer", result);
         Assert.DoesNotContain("deallocate()", result);
     }
