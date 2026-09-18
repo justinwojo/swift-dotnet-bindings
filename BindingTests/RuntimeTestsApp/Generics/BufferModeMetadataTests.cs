@@ -70,4 +70,68 @@ public class BufferModeMetadataTests : TestBase
         AssertEqual("first-id", actualFirst.Id, "BufferModeDescribablePair.first through cdecl wrapper");
         AssertEqual("second-id", actualSecond.Id, "BufferModeDescribablePair.second through cdecl wrapper");
     }
+
+    // The open-generic initializer is the only member of this type still on the direct
+    // CallConvSwift arm: indirect result, two indirect generic arguments, then both metadata,
+    // both Describable witness tables and the metatype. Its SB0001 marker says that shape is
+    // unverified there, so these call it directly on distinct (K, V) pairs and read every field
+    // back through both sides — C# getters and a Swift method that uses the witness tables.
+
+    public void TestBufferModeDescribablePair_OpenGenericInit_StructPair_RoundTrips()
+    {
+        using var first = new SimpleItem("s1", "struct-first");
+        using var second = new SimpleItem("s2", "struct-second");
+#pragma warning disable SB0001 // The direct-arm initializer is what this test probes.
+        using var pair = new BufferModeDescribablePair<SimpleItem, SimpleItem>(first, second);
+#pragma warning restore SB0001
+        using var actualFirst = pair.First;
+        using var actualSecond = pair.Second;
+
+        AssertEqual("s1", actualFirst.Id, "open-generic init: first.id");
+        AssertEqual("struct-first", actualFirst.Label, "open-generic init: first.label");
+        AssertEqual("s2", actualSecond.Id, "open-generic init: second.id");
+        AssertEqual("struct-second", actualSecond.Label, "open-generic init: second.label");
+        AssertEqual("[s1] struct-first | [s2] struct-second", pair.CombinedDescription(),
+            "open-generic init: Swift reads both fields through the Describable witness tables");
+    }
+
+    public void TestBufferModeDescribablePair_OpenGenericInit_ClassPair_RetainsArgumentsPastTheirHandles()
+    {
+        BufferModeDescribablePair<SimpleDescribable, MultiProtocolEntity> pair;
+        using (var first = new SimpleDescribable("class-first"))
+        using (var second = new MultiProtocolEntity("c2", "class-second"))
+        {
+#pragma warning disable SB0001 // The direct-arm initializer is what this test probes.
+            pair = new BufferModeDescribablePair<SimpleDescribable, MultiProtocolEntity>(first, second);
+#pragma warning restore SB0001
+        }
+
+        // The caller's handles are released; the pair must hold its own references.
+        using (pair)
+        {
+            using var actualFirst = pair.First;
+            using var actualSecond = pair.Second;
+            AssertEqual("class-first", actualFirst.Description, "open-generic init: first.description");
+            AssertEqual("c2", actualSecond.Id, "open-generic init: second.id");
+            AssertEqual("class-second", actualSecond.Name, "open-generic init: second.name");
+            AssertEqual("class-first | [c2] class-second", pair.CombinedDescription(),
+                "open-generic init: Swift reads both class fields through the Describable witness tables");
+        }
+    }
+
+    public void TestBufferModeDescribablePair_OpenGenericInit_MixedPair_RoundTrips()
+    {
+        using var first = new MultiProtocolEntity("m1", "mixed-first");
+        using var second = new SimpleItem("m2", "mixed-second");
+#pragma warning disable SB0001 // The direct-arm initializer is what this test probes.
+        using var pair = new BufferModeDescribablePair<MultiProtocolEntity, SimpleItem>(first, second);
+#pragma warning restore SB0001
+        using var actualFirst = pair.First;
+        using var actualSecond = pair.Second;
+
+        AssertEqual("m1", actualFirst.Id, "open-generic init: first.id");
+        AssertEqual("mixed-second", actualSecond.Label, "open-generic init: second.label");
+        AssertEqual("[m1] mixed-first | [m2] mixed-second", pair.CombinedDescription(),
+            "open-generic init: Swift reads a class and a struct field through their witness tables");
+    }
 }

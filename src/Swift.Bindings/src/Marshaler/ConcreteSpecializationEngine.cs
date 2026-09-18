@@ -1222,36 +1222,6 @@ public class ConcreteSpecializationEngine
         return name.Substring(name.LastIndexOf('.') + 1);
     }
 
-    /// <summary>
-    /// Checks if a method can be concretely specialized. Lightweight check for validation pipeline.
-    /// </summary>
-    public bool CanSpecialize(MethodDecl method)
-    {
-        if (!method.IsGeneric) return false;
-        if (method.ParentDecl is not TypeDecl parentType) return false;
-
-        var parentParamNames = parentType.IsGeneric
-            ? new HashSet<string>(parentType.GenericParameters.Select(p => p.TypeName))
-            : new HashSet<string>();
-
-        var ownParams = method.GenericParameters
-            .Where(p => !parentParamNames.Contains(p.TypeName))
-            .ToList();
-
-        if (ownParams.Count == 0) return false;
-
-        foreach (var param in ownParams)
-        {
-            var protocol = FindSpecializableProtocolConstraint(param);
-            if (protocol == null) continue;
-
-            var conformers = GetConformers(protocol);
-            if (conformers.Count == 0) return false;
-        }
-
-        return true;
-    }
-
     // --- Private helpers ---
 
     /// <summary>
