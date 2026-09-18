@@ -878,7 +878,8 @@ namespace BindingsGeneration
                 _emissionContext.RecordBoundGenericSwiftObjectType(fallbackType);
                 {
                     var rln = ReturnLocalName;
-                    // Same ClassPointer-vs-buffer split as the projection branch above.
+                    // A class comes back as its retained reference (ClassPointer), as in the
+                    // projection branch above.
                     if (MarshallingHelpers.IsBoundGenericClassReturn(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         csWriter.WriteLines($$"""
@@ -886,14 +887,21 @@ namespace BindingsGeneration
                             return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>({{rln}});
                             """);
                     }
+                    else if (WrapperValidation.IsAbiFloorTombstoned(_env))
+                    {
+                        // The ABI floor rolls this body back and replaces it with a throw under the
+                        // member's own marker, so there is no result to marshal.
+                    }
                     else
                     {
-                        csWriter.WriteLines($$"""
-                            // Bound-generic fallback: factory cannot project {{fallbackType}}
-                            unsafe {
-                                return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>(new IntPtr(&{{rln}}));
-                            }
-                            """);
+                        // A value result has no by-value spelling here: the direct P/Invoke hands
+                        // back one word, which is not the value's storage for a layout that depends
+                        // on a generic argument or spans more than a word. Refuse rather than read
+                        // the value out of the return local.
+                        throw new InvalidOperationException(
+                            $"Cannot marshal the by-value result {fallbackType} of {_env.MethodDecl.Name}: "
+                            + "a bound-generic value type the projection factory cannot represent has no "
+                            + "direct return path.");
                     }
                 }
                 return;

@@ -175,7 +175,13 @@ internal static class GenericDispatchEmitter
         // `Module.Outer.Inner<T, U>(...)`, but Swift wants `Module.Outer<T>.Inner<U>(...)`.
         // Until the renderer can place generic args on the correct path segment, refuse
         // these parents from both Constructor and Method/Property/Subscript dispatch.
-        if (HasGenericOuterAncestor(parentTypeDecl))
+        // A method or property accessor is the exception when the nested type declares no
+        // generic parameters of its own: its dispatch is an extension on the nested type reached
+        // through `Self`, and its metadata comes from the nested type's own accessor, which takes
+        // exactly the enclosing type's arguments — neither step spells a generic argument list.
+        if (HasGenericOuterAncestor(parentTypeDecl)
+            && !(kind is GenericDispatchKind.PropertyGetter or GenericDispatchKind.PropertySetter or GenericDispatchKind.Method
+                 && WrapperValidation.IsInheritedGenericContext(parentTypeDecl)))
             return true;
 
         bool supportsDescriptorPwt = kind == GenericDispatchKind.Constructor ||
@@ -439,19 +445,22 @@ internal static class GenericDispatchEmitter
                     {
                         if (arg.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
                             continue;
+                        if (!arg.IsInOut && IsModuleBoundGenericOfParentGeneric(arg.SwiftTypeSpec, genericParamNames, env.TypeDatabase))
+                            continue;
                         return false;
                     }
                 }
 
                 // Check return: T-typed returns are OK (routed through resultPtr).
-                // Allow either bare T (e.g. `T`) or a NamedTypeSpec whose T-referencing
+                // Allow either bare T (e.g. `T`), a NamedTypeSpec whose T-referencing
                 // generic arguments are themselves bare parent generics (e.g.
-                // `AliasGenericPayload<T>`). Wrapper emission already supports both
-                // shapes via RenderSwiftTypeSpecWithSugaredNames + initializeMemory.
+                // `AliasGenericPayload<T>`), or a type nested in the parent itself
+                // (`Outer<T>.Leaf`). Wrapper emission supports all three via
+                // RenderSwiftTypeSpecWithSugaredNames + initializeMemory.
                 var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
                 if (WrapperValidation.TypeSpecReferencesGenericParam(returnSpec, genericParamNames)
                     && !IsBareOrSimplyParameterizedNamedTypeSpec(returnSpec, genericParamNames)
-                    && !IsStaticReturningOwnNestedType(env.MethodDecl, returnSpec, genericParamNames, parentTypeDecl))
+                    && !IsNestedTypeOfParentGeneric(returnSpec, genericParamNames, parentTypeDecl))
                 {
                     return false;
                 }
@@ -566,20 +575,51 @@ internal static class GenericDispatchEmitter
     }
 
     /// <summary>
-    /// True when a static returns a type nested directly in its own generic parent
-    /// (<c>static func makeLeaf() -&gt; Outer&lt;T&gt;.Leaf</c>). The static has no other correct
-    /// route: Swift returns a nested struct whose layout comes from the outer's metadata through
-    /// the indirect-result register, which the direct P/Invoke does not pass, so without the
-    /// wrapper the managed side would adopt its own stack slot as the value. Inside the conformance
-    /// extension <c>Self</c> is the outer, so the wrapper names the result as <c>Outer&lt;T&gt;.Leaf</c>
-    /// and hands it back through the result buffer (a nested class comes back as a retained
-    /// pointer). Instance members keep the conservative gate in
-    /// <see cref="IsBareOrSimplyParameterizedNamedTypeSpec"/>.
+    /// True when <paramref name="spec"/> is a top-level nominal the type database knows, declared
+    /// outside the Swift standard library, whose generic arguments are each either a bare parent
+    /// generic or free of parent generics (<c>Aggregate&lt;T&gt;</c>, <c>Alias&lt;T&gt;</c>). The
+    /// managed side of a static-dispatch call passes such an argument as one pointer: the payload
+    /// buffer for a value type, the object reference for a class. The wrapper binds it back
+    /// through <see cref="RenderStaticDispatchParamReconstruction"/>. Standard-library generics
+    /// (<c>[T]</c>, <c>T?</c>, <c>[K: T]</c>) are excluded: each has its own bridged managed
+    /// form, and only proven shapes take this route.
     /// </summary>
-    internal static bool IsStaticReturningOwnNestedType(
-        MethodDecl methodDecl, TypeSpec returnSpec, HashSet<string> genericParamNames, TypeDecl parentTypeDecl)
-        => methodDecl.MethodType == MethodType.Static
-           && IsNestedTypeOfParentGeneric(returnSpec, genericParamNames, parentTypeDecl);
+    internal static bool IsModuleBoundGenericOfParentGeneric(
+        TypeSpec spec, HashSet<string> genericParamNames, ITypeDatabase typeDatabase)
+    {
+        if (spec is not NamedTypeSpec named || named.InnerType is not null || named.GenericParameters.Count == 0)
+            return false;
+        if (genericParamNames.Contains(named.Name))
+            return false;
+        var typeName = SwiftTypeName.FromTypeSpec(named);
+        if (typeName.Module == "Swift")
+            return false;
+        if (!typeDatabase.TryGetTypeRecord(typeName, out var record)
+            || record.Kind is not (TypeRecordKind.Struct or TypeRecordKind.Enum or TypeRecordKind.Class))
+            return false;
+        foreach (var gp in named.GenericParameters)
+        {
+            if (!WrapperValidation.TypeSpecReferencesGenericParam(gp, genericParamNames))
+                continue;
+            if (gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name))
+                continue;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The Swift expression that binds a parent-generic-referencing static-dispatch argument back
+    /// from the raw pointer the managed side passed. A class argument arrives as the object
+    /// reference itself, so it is taken unretained; loading <c>.pointee</c> through it would read
+    /// the object's isa word as the reference. Every other shape arrives as a pointer to its value.
+    /// </summary>
+    internal static string RenderStaticDispatchParamReconstruction(
+        TypeSpec spec, string pointerName, string renderedSwiftType, ITypeDatabase typeDatabase)
+        => spec is NamedTypeSpec { GenericParameters.Count: > 0 }
+           && MarshallingHelpers.IsBoundGenericClassReturn(spec, typeDatabase)
+            ? $"Unmanaged<{renderedSwiftType}>.fromOpaque({pointerName}).takeUnretainedValue()"
+            : $"{pointerName}.assumingMemoryBound(to: {renderedSwiftType}.self).pointee";
 
     /// <summary>
     /// Returns true when <paramref name="spec"/> is either a bare parent generic param

@@ -288,11 +288,11 @@ public static partial class ClosureEmitter
 
         // A generic parent adds two more refusals the closure shape cannot express — the wrapper takes
         // a concrete-typed property on a generic CLASS but defers one on a generic struct that is not
-        // a Collection conformer, and it declines any parent that inherits its generic context from an
-        // enclosing type, which cannot be extended to carry the adapter — after which the accessor
-        // falls back to the direct P/Invoke. Both decisions are read from the wrapper's own predicates
-        // rather than restated here, so the two cannot drift into over-skipping a member the wrapper
-        // would have carried.
+        // a Collection conformer, after which the accessor falls back to the direct P/Invoke. That
+        // decision is read from the wrapper's own predicate rather than restated here. A parent that
+        // inherits its generic context from an enclosing type is also refused here, which is
+        // conservative: the property wrapper now carries plain accessors on such a parent through
+        // the nested type's own metadata, but the closure adapter has not been taught that route.
         if (WrapperValidation.IsXCFrameworkMode(typeDatabase) &&
             !declVisibleRefusal &&
             (property.ParentDecl is not TypeDecl { IsGeneric: true } genericParent ||

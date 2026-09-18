@@ -1100,7 +1100,9 @@ public static class MethodWrapperEmitter
                             cdeclCallArgs.Add($"{protocolArgLabel}{label}");
 
                             var swiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(arg.SwiftTypeSpec, abiToSugaredName);
-                            extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                            var reconstruction = GenericDispatchEmitter.RenderStaticDispatchParamReconstruction(
+                                arg.SwiftTypeSpec, label, swiftType, env.TypeDatabase);
+                            extensionBodyLines.Add($"let {label}Val = {reconstruction}");
                             methodCallArgs.Add($"{methodArgLabel}{label}Val");
                         }
                         else if (arg.IsInOut)

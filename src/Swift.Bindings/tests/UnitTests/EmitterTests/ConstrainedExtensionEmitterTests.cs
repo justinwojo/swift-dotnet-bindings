@@ -702,36 +702,63 @@ public class ConstrainedExtensionEmitterTests
     }
 
     [Fact]
-    public void EmitConstrainedExtensions_GenericEnum_StaticConstrainedProperty_EmitsSkipDiagnostic()
+    public void EmitConstrainedExtensions_GenericEnum_StaticConstrainedProperty_EmitsStaticPropertyWithoutReceiver()
     {
-        // The property emit shape always reconstructs `obj` from `_self` and
-        // accesses `obj.{name}` — no static branch mirroring the method path.
-        // A constrained `static var` must therefore be skipped with an explicit
-        // diagnostic rather than silently emitting an instance-shaped wrapper
-        // that the Swift wrapper-build script strips, leaving a missing-symbol
-        // C# extern.
+        // A constrained `static var` has no receiver: the Swift wrapper reads it through the
+        // closed specialization and the C# side is a static property taking no self handle.
+        var (csOutput, swiftOutput) = EmitStaticRankFor("TestModule.ConcreteA");
+
+        Assert.DoesNotContain("constrained static property emission not yet supported", csOutput);
+        Assert.Contains("public static int Rank", csOutput);
+        Assert.DoesNotContain("this Wrapper<", csOutput);
+        Assert.Matches(@"int SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_rank_static\(\)", csOutput);
+        Assert.Contains("TestModule.Wrapper<TestModule.ConcreteA>.rank", swiftOutput);
+        Assert.DoesNotContain("self_", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_PrimitivePin_StaticPropertyStillEmits()
+    {
+        // `extension Wrapper where T == Int32 { static var rank }`: a primitive concrete has no
+        // `this Wrapper<int> self` receiver, but a static member never spells one, so dropping
+        // the whole specialization silently lost the member.
+        var (csOutput, swiftOutput) = EmitStaticRankFor("Swift.Int32");
+
+        Assert.Contains("public static int Rank", csOutput);
+        Assert.Contains("TestModule.Wrapper<Swift.Int32>.rank", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_PrimitivePin_InstancePropertyStaysOut()
+    {
+        var tdb = BuildEmissionTypeDatabase(extraTypes: null);
+        var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
+        enumDecl.Properties.Add(CreatePropertyWithConstraint(
+            "rank", "Swift.Int32", returnTypeSpec: new NamedTypeSpec("Swift.Int32")));
+
+        var (csOutput, swiftOutput) = Emit(enumDecl, tdb);
+
+        Assert.DoesNotContain("GetRank", csOutput);
+        Assert.DoesNotContain("SBW_CEGet_", swiftOutput);
+    }
+
+    private static (string csOutput, string swiftOutput) EmitStaticRankFor(string concreteType)
+    {
         var tdb = BuildEmissionTypeDatabase(extraTypes: null);
         var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
         enumDecl.Properties.Add(CreateStaticPropertyWithConstraint(
-            "rank", "TestModule.ConcreteA", new NamedTypeSpec("Swift.Int32")));
+            "rank", concreteType, new NamedTypeSpec("Swift.Int32")));
+        return Emit(enumDecl, tdb);
+    }
 
+    private static (string csOutput, string swiftOutput) Emit(TypeDecl typeDecl, TypeDatabase tdb)
+    {
         var csSw = new StringWriter();
-        var csWriter = new CSharpWriter(csSw);
         var swiftSw = new StringWriter();
-        var swiftWriter = new SwiftWriter(swiftSw);
-        var emissionContext = new ModuleEmissionContext();
-        ILogger logger = NullLogger<ConstrainedExtensionEmitterTests>.Instance;
-
         ConstrainedExtensionEmitter.EmitConstrainedExtensions(
-            csWriter, swiftWriter, enumDecl, tdb, emissionContext, logger);
-
-        var csOutput = csSw.ToString();
-        var swiftOutput = swiftSw.ToString();
-
-        Assert.Contains("constrained static property emission not yet supported", csOutput);
-        // The Swift wrapper must NOT be emitted — no SBW_CEGet symbol on the
-        // wire for a skipped declaration.
-        Assert.DoesNotContain("SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_rank", swiftOutput);
+            new CSharpWriter(csSw), new SwiftWriter(swiftSw), typeDecl, tdb, new ModuleEmissionContext(),
+            NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+        return (csSw.ToString(), swiftSw.ToString());
     }
 
     private static PropertyDecl CreateStaticPropertyWithConstraint(string name, string concreteType, TypeSpec returnTypeSpec)
@@ -815,6 +842,15 @@ public class ConstrainedExtensionEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "String"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
                 MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            });
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromKeyword("int"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct,
             });

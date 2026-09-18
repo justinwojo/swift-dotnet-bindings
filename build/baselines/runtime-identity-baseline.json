@@ -1,8 +1,8 @@
 {
-  "git_sha": "284f6e621",
+  "git_sha": "f5fce85e0",
   "platforms": {
     "simulator": {
-      "pass_count": 4251,
+      "pass_count": 4262,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -163,7 +163,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4254,
+      "pass_count": 4265,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -309,7 +309,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4118,
+      "pass_count": 4262,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -345,11 +345,6 @@
           "class": "FoundationKvoTests",
           "method": "TestObserveCounter_HandlerThrows_FailsFast",
           "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
-        },
-        {
-          "class": "InoutStructDispatchTests",
-          "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",

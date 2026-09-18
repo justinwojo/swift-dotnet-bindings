@@ -180,6 +180,28 @@ public class GenericParentStaticMemberTests
     }
 
     [Theory]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.Sequence, τ_0_0.Element == Swift.Int>")]
+    [InlineData("<T where T : Swift.Sequence, T.Element == Swift.Int>")]
+    [InlineData("<T where T.Element == Swift.Int>")]
+    public void DependentMemberSameType_IsNotAParentPin(string genericSig)
+    {
+        // `extension Holder where T.Element == Int` constrains an associated type of the
+        // parameter, not the parameter itself, so the member is still generic over T and is not
+        // a pin. Counting it would take a static off the wrapper route it can use.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateGenericParent("Holder", moduleDecl, classParent: false);
+        var method = CreateMethod("elementSize", parent, moduleDecl, new NamedTypeSpec("Swift.Int"));
+        method.MethodType = MethodType.Static;
+        method.IsExtensionMethod = true;
+        method.RawGenericSig = genericSig;
+        parent.Methods.Add(method);
+
+        Assert.Contains(method.ParsedGenericSignature.Requirements,
+            r => r.Kind == GenericRequirementKind.SameType && !r.IsDirect);
+        Assert.False(GenericDispatchEmitter.HasSameTypeConstraintOnParentGenericParam(method, parent));
+    }
+
+    [Theory]
     [InlineData(DesugaredPin)]
     [InlineData(SugaredPin)]
     public void PinnedExtensionStaticProperty_TakesNoStaticDispatchWrapper(string genericSig)
@@ -270,15 +292,23 @@ public class GenericParentStaticMemberTests
     }
 
     [Fact]
-    public void InstanceReturningOwnNestedType_KeepsConservativeGate()
+    public void InstanceReturningOwnNestedType_TakesWrapper()
     {
+        // An instance member returning `Holder<T>.Leaf` has the same indirect result as the static
+        // and no better direct route, so it takes the wrapper too, called on the rebuilt receiver.
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateGenericParent("Holder", moduleDecl, classParent: false);
         var method = CreateMethod("leaf", parent, moduleDecl, NestedLeafSpec());
         parent.Methods.Add(method);
+        var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(GenericDispatchEmitter.CanEmitStaticDispatch(
-            new MethodEnvironment(method, typeDb), parent, GenericDispatchKind.Method));
+        Assert.True(GenericDispatchEmitter.CanEmitStaticDispatch(env, parent, GenericDispatchKind.Method));
+        var sw = new StringWriter();
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(new SwiftWriter(sw), env, new ModuleEmissionContext());
+        var output = sw.ToString();
+
+        Assert.Contains("obj.leaf(", output);
+        Assert.Contains("initializeMemory(as: Holder<T>.Leaf.self", output);
     }
 
     [Fact]

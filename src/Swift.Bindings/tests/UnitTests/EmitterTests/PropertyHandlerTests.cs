@@ -537,6 +537,10 @@ public class PropertyHandlerTests
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
         Assert.Contains("public virtual TestModule.Box<object> Handler", csOutput);
+        // The getter has only a one-word return slot to read the unprojected value from, so its
+        // body is the floor's throw.
+        Assert.Contains("throw new NotSupportedException(", csOutput);
+        Assert.DoesNotContain("&result", csOutput);
     }
 
     [Fact]

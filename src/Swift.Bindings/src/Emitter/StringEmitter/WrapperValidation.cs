@@ -303,11 +303,15 @@ public static class WrapperValidation
             return "custom_actor_constructor";
         }
 
-        // 7. Inherited generic context on parent (Method, Property, Constructor)
+        // 7. Inherited generic context on parent (Constructor)
         // Nested types that inherit generic context from an outer parent
-        // (e.g., AuthenticationInterceptor<A>.RefreshWindow) can't have @_cdecl wrappers
-        // because "extension Outer.Inner: Protocol {}" won't compile.
-        if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Constructor)
+        // (e.g., AuthenticationInterceptor<A>.RefreshWindow) keep their constructors off the
+        // wrapper: the constructor dispatch renders the parent with a generic argument list,
+        // which lands on the nested name rather than the parent that declares the parameters.
+        // Methods and properties are not refused here — `extension Outer.Inner: P {}` compiles,
+        // and their dispatch reaches the nested type through `Self` without spelling the
+        // argument list; the generic-parent helper gates decide them.
+        if (kind is MemberKind.Constructor)
         {
             if (env.ParentDecl is TypeDecl td && td.IsGeneric && IsInheritedGenericContext(td))
                 return "inherited_generic_context";
@@ -2204,9 +2208,9 @@ public static class WrapperValidation
         // C# calls the mangled allocating init symbol directly via CallConvSwift, which
         // crashes on both Mono (no CallConvSwift) and NativeAOT (missing metatype).
         // Exclude nested types that only inherit their parent's generic context
-        // (e.g., AuthenticationInterceptor<A>.RefreshWindow) — the @_cdecl extension can't
-        // bind the parent's unresolved generic context. Detect this by checking whether the
-        // outer parent type is also generic with the same parameter names.
+        // (e.g., AuthenticationInterceptor<A>.RefreshWindow): the constructor wrapper spells
+        // the type with a generic argument list, which lands on the nested name rather than
+        // the parent that declares the parameters.
         if (env.MethodDecl.IsConstructor && env.ParentDecl is TypeDecl genericParent && genericParent.IsGeneric
             && !IsInheritedGenericContext(genericParent))
             return true;
@@ -2741,7 +2745,118 @@ public static class WrapperValidation
            || HasForeignObjectRenderedDirectDispatch(env)
            || IsUncallableInternalDirectDispatch(env)
            || HasWitnessTableArityMismatch(env)
-           || HasMisconventionedGenericParentStaticDirectDispatch(env);
+           || HasMisconventionedGenericParentStaticDirectDispatch(env)
+           || HasResilientGenericResultDirectDispatch(env)
+           || HasUnprojectableBoundGenericValueDirectResult(env);
+
+    /// <summary>
+    /// True when a member left on the direct P/Invoke returns a non-frozen struct or enum that is
+    /// a bound generic (<c>Request&lt;T&gt;</c>, <c>Request&lt;U&gt;</c>, <c>Outer&lt;T&gt;.Cursor</c>).
+    ///
+    /// <para>A non-frozen value type is address-only across a library-evolution boundary, so
+    /// Swift returns it through the indirect-result register whatever its size, and for every
+    /// member kind: instance, static or free function. The direct P/Invoke declares a bound
+    /// generic's result by value and passes no result buffer, so the callee writes through an
+    /// unset register and the managed side adopts its own stack slot as the value. The
+    /// static-dispatch wrapper, the method-level generic wrapper and the ordinary wrappers all
+    /// return such a value through a buffer they allocate, so nothing here fires once any
+    /// Swift-side carrier took the member. What remains is a member none of them could take (a
+    /// generic parameter of the member's own on a generic parent, for example) and it has no
+    /// sound call route.</para>
+    ///
+    /// <para>A frozen result has a layout the client can see and is not covered here, and neither
+    /// is a class, which comes back as one retained reference.</para>
+    /// </summary>
+    internal static bool HasResilientGenericResultDirectDispatch(MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+        if (methodDecl.IsConstructor)
+            return false;
+        if (DirectOptionalAbi.UsesSwiftSideCarrier(methodDecl))
+            return false;
+        if (HasMisconventionedGenericParentStaticDirectDispatch(env))
+            return false;
+        return ReturnsResilientGenericValueByValue(env, requireParentGenericReference: null);
+    }
+
+    private static readonly TypeProjectionFactory s_resultProjectionFactory = new();
+
+    /// <summary>
+    /// True when a member returns a bound-generic value type (a struct or enum such as
+    /// <c>Box&lt;(T) -&gt; ()&gt;</c>) by value on a path with no result buffer, and the projection
+    /// factory cannot represent that type.
+    ///
+    /// <para>With no projection, the only spelling left for the result is a single register-sized
+    /// return local. Reading the value out of that local's address takes one word of whatever came
+    /// back as the whole value, which is wrong for any layout wider than a word or shaped by its
+    /// generic arguments, and no marshal on this path can tell which case it has. A class comes back
+    /// as one retained reference and is excluded, and so is anything that already goes through an
+    /// indirect result. Optional results are left to the Optional arms that handle them first.</para>
+    ///
+    /// <para>Both sides compile, which is why this is an emission floor. The resilient case is
+    /// <see cref="HasResilientGenericResultDirectDispatch"/>'s and is excluded here, so each member
+    /// has exactly one reason.</para>
+    /// </summary>
+    internal static bool HasUnprojectableBoundGenericValueDirectResult(MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+        if (methodDecl.IsConstructor || methodDecl.IsAsync)
+            return false;
+        if (methodDecl.CSSignature.Count == 0)
+            return false;
+        if (MarshallingHelpers.MethodRequiresIndirectResult(env))
+            return false;
+        if (HasMisconventionedGenericParentStaticDirectDispatch(env)
+            || HasResilientGenericResultDirectDispatch(env))
+            return false;
+
+        var returnArg = methodDecl.CSSignature[0];
+        if (IsOptionalType(returnArg.SwiftTypeSpec)
+            || env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl))
+            return false;
+        if (!env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
+            return false;
+        if (MarshallingHelpers.IsBoundGenericClassReturn(returnArg.SwiftTypeSpec, env.TypeDatabase))
+            return false;
+
+        var parent = env.ParentDecl as TypeDecl;
+        var genericContext = parent is not null
+            ? GenericContext.FromMethodInType(methodDecl, parent)
+            : GenericContext.FromMethod(methodDecl);
+        try
+        {
+            return s_resultProjectionFactory.Project(
+                returnArg.SwiftTypeSpec,
+                env.NewProjectionContext(isParameter: false, genericContext: genericContext, parentTypeDecl: parent)) is null;
+        }
+        catch (SuppressedProxyReferenceException)
+        {
+            // The emitter stubs a member that references a suppressed proxy before it reaches
+            // any return arm, so this floor has nothing to decide for it.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The sentence for <see cref="HasUnprojectableBoundGenericValueDirectResult"/>, shared by the
+    /// declaration marker and the tombstone body.
+    /// </summary>
+    internal const string UnprojectableBoundGenericValueResultMessage =
+        "This member returns a bound-generic value type the binding has no projection for, and the "
+        + "call path available to it would read that value out of one register-sized slot, which "
+        + "is not where the value lives for a layout wider than a word or shaped by its generic "
+        + "arguments. It is declared for source and conformance compatibility only and throws "
+        + "NotSupportedException when called";
+
+    /// <summary>
+    /// The sentence for <see cref="HasResilientGenericResultDirectDispatch"/>, shared by the
+    /// declaration marker and the tombstone body.
+    /// </summary>
+    internal const string ResilientGenericResultMessage =
+        "This member returns a generic value type whose layout is not visible outside its Swift "
+        + "module, which Swift hands back through a result buffer the direct P/Invoke does not pass, "
+        + "and no Swift wrapper could be generated to call it from Swift instead. It is declared for "
+        + "source and conformance compatibility only and throws NotSupportedException when called";
 
     /// <summary>
     /// True when a static member of a generic type is left on the direct P/Invoke with a call
@@ -2785,7 +2900,7 @@ public static class WrapperValidation
         if (parent is ClassDecl)
             return true;
 
-        return ReturnsResilientParentGenericValueByValue(env, parent);
+        return ReturnsResilientGenericValueByValue(env, requireParentGenericReference: parent);
     }
 
     /// <summary>
@@ -2805,12 +2920,13 @@ public static class WrapperValidation
            + "NotSupportedException when called";
 
     /// <summary>
-    /// True when <paramref name="env"/>'s result is a non-frozen struct or enum bound over one of
-    /// <paramref name="parent"/>'s generic parameters and the direct P/Invoke declares it as a
-    /// by-value return. A non-frozen value type is address-only across a library-evolution
-    /// boundary, so Swift always returns it through the indirect-result register.
+    /// True when <paramref name="env"/>'s result is a non-frozen bound-generic struct or enum and
+    /// the direct P/Invoke declares it as a by-value return. A non-frozen value type is
+    /// address-only across a library-evolution boundary, so Swift always returns it through the
+    /// indirect-result register. With <paramref name="requireParentGenericReference"/> set, only a
+    /// result bound over one of that parent's generic parameters counts.
     /// </summary>
-    private static bool ReturnsResilientParentGenericValueByValue(MethodEnvironment env, TypeDecl parent)
+    private static bool ReturnsResilientGenericValueByValue(MethodEnvironment env, TypeDecl? requireParentGenericReference)
     {
         var signature = env.MethodDecl.CSSignature;
         if (signature.Count == 0)
@@ -2820,9 +2936,12 @@ public static class WrapperValidation
         if (MarshallingHelpers.MethodRequiresIndirectResult(env))
             return false;
 
-        var parentGenericNames = parent.GenericParameters.Select(p => p.TypeName).ToHashSet();
-        if (!TypeSpecReferencesGenericParam(returned, parentGenericNames))
-            return false;
+        if (requireParentGenericReference is { } parent)
+        {
+            var parentGenericNames = parent.GenericParameters.Select(p => p.TypeName).ToHashSet();
+            if (!TypeSpecReferencesGenericParam(returned, parentGenericNames))
+                return false;
+        }
 
         // A nested result (`Outer<T>.Node`) carries its own name in the InnerType chain; the
         // outer's record would describe the wrong type, so resolve the innermost segment.
@@ -2983,6 +3102,16 @@ public static class WrapperValidation
             return (UncallableAbiDiagnosticId, GenericParentStaticMisconventionMessage(env.MethodDecl));
         }
 
+        if (!env.MethodDecl.IsAccessor && HasResilientGenericResultDirectDispatch(env))
+        {
+            return (UncallableAbiDiagnosticId, ResilientGenericResultMessage);
+        }
+
+        if (!env.MethodDecl.IsAccessor && HasUnprojectableBoundGenericValueDirectResult(env))
+        {
+            return (UncallableAbiDiagnosticId, UnprojectableBoundGenericValueResultMessage);
+        }
+
         if (!HasUnmitigatedNonBlittableCallConvSwift(env))
             return null;
 
@@ -3116,13 +3245,14 @@ public static class WrapperValidation
     /// <summary>
     /// Returns true if a generic type's generic parameters are inherited from an outer generic
     /// parent rather than declared on the type itself. For example, AuthenticationInterceptor&lt;A&gt;.RefreshWindow
-    /// inherits A from its parent — the @_cdecl extension can't bind the parent's unresolved context.
-    /// A truly generic nested type like Outer.Inner&lt;T&gt; declares its own T independent of Outer.
+    /// inherits A from its parent. A truly generic nested type like Outer.Inner&lt;T&gt; declares
+    /// its own T independent of Outer.
     ///
-    /// Used by constructor, method, and property wrapper emission to skip @_cdecl wrappers for
-    /// nested types with inherited generic context. The protocol conformance extension
-    /// (e.g., "extension Outer.Inner: Protocol {}") won't compile when the outer type has
-    /// unresolved generic parameters.
+    /// This is a shape test, not a compile prediction: an unconditional conformance extension on
+    /// such a type (<c>extension Outer.Inner: P {}</c>) compiles, and the generic-parent property
+    /// wrapper opens the nested type's own metadata through one. Callers use it where a dispatch
+    /// path would spell a generic argument list on the nested type's name, which is the wrong
+    /// path segment when the parameters belong to the parent.
     /// </summary>
     internal static bool IsInheritedGenericContext(TypeDecl typeDecl)
     {

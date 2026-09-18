@@ -487,6 +487,8 @@ public class ConsumerSafetyAttributeTests
 
         Assert.Contains("[return: global::Swift.OriginalSwiftType(", csOutput);
         Assert.Contains("(T) -> ()", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0009\"", csOutput);
+        Assert.Contains("throw new NotSupportedException(", csOutput);
     }
 
     [Fact]

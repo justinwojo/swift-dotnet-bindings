@@ -180,3 +180,43 @@ extension StaticNarrowHolder where Base: StaticNarrowBase {
     public static func scaled(_ value: Int32) -> Int32 { value * 3 }
     public static func makeBase(tag: Int32) -> StaticNarrowBase? { tag < 0 ? nil : StaticNarrowBase(tag: tag) }
 }
+
+/// Protocol whose static requirement a narrowed static reads, so the answer comes only from the
+/// witness table.
+public protocol StaticScaling {
+    static var factor: Int32 { get }
+}
+
+public struct StaticScaleByThree: StaticScaling {
+    public static var factor: Int32 { 3 }
+    public init() {}
+}
+
+public struct StaticScaleByFive: StaticScaling {
+    public static var factor: Int32 { 5 }
+    public init() {}
+}
+
+/// Generic struct whose statics live in an extension narrowing the parameter to a protocol
+/// (`where Scale: StaticScaling`). Swift passes the parameter's metadata and then its witness
+/// table; the results below depend on the witness table alone, so a missing or wrong table reads
+/// a different conformer's answer or faults.
+public struct StaticScaledHolder<Scale> {
+    public init() {}
+}
+
+extension StaticScaledHolder where Scale: StaticScaling {
+    public static func scaled(_ value: Int32) -> Int32 { value * Scale.factor }
+    public static var unit: Int32 { Scale.factor }
+}
+
+/// Generic struct with statics from an extension pinning the parameter to a plain nominal type
+/// (`where T == Int32`), the non-generic counterpart of `PinnedQuery`.
+public struct PlainPinnedQuery<T> {
+    public init() {}
+}
+
+extension PlainPinnedQuery where T == Int32 {
+    public static func tripled(_ value: Int) -> Int { value * 3 }
+    public static var plainLimit: Int { 23 }
+}

@@ -32,6 +32,8 @@ public class NestedOfParentTests : TestBase
     public void TestNestedHostStruct_ConstructorAcceptsNestedCaption()
     {
         var caption = new NestedHostStruct<BoxKP>.Caption("hello");
+        AssertEqual("hello", caption.Text, "the nested struct's own getter reads its field");
+        AssertEqual("hello", caption.Text, "and reads it again unchanged");
         using var host = new NestedHostStruct<BoxKP>(caption);
         var text = host.CaptionText.ToString();
         AssertEqual("hello", text, "Caption text round-trips through GSF nested ctor");
@@ -40,6 +42,8 @@ public class NestedOfParentTests : TestBase
     public void TestNestedHostClass_ConstructorAcceptsNestedTag()
     {
         var tag = new NestedHostClass<BoxKP>.Tag("label-A");
+        AssertEqual("label-A", tag.Label, "the nested struct's own getter reads its field");
+        AssertEqual("label-A", tag.Label, "and reads it again unchanged");
         using var host = new NestedHostClass<BoxKP>(tag);
         var label = host.TagLabel.ToString();
         AssertEqual("label-A", label, "Tag label round-trips through GSF nested ctor");

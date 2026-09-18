@@ -514,8 +514,11 @@ public class GenericProtocolUnificationTests
 
     #region IsInheritedGenericContext — Method ShouldEmitWrapper integration
 
+    // A method on a type that only inherits its generic context is wrapped for the same reason a
+    // property is: the direct route loads `self` into the register Mono's interop stub keeps its
+    // own state in, and the method dispatch reaches the nested type through `Self`.
     [Fact]
-    public void MethodShouldEmitWrapper_InheritedGenericContext_ReturnsFalse()
+    public void MethodShouldEmitWrapper_InheritedGenericContext_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -541,12 +544,12 @@ public class GenericProtocolUnificationTests
         method.MethodType = MethodType.Instance;
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env),
-            "Method on nested type with inherited generic context should not emit wrapper");
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env),
+            "Method on nested type with inherited generic context should emit a wrapper");
     }
 
     [Fact]
-    public void MethodRejectionReason_InheritedGenericContext_ReturnsCorrectReason()
+    public void MethodRejectionReason_InheritedGenericContext_IsNotRefused()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -570,15 +573,18 @@ public class GenericProtocolUnificationTests
 
         var env = new MethodEnvironment(method, typeDb);
         var reason = WrapperValidation.GetRejectionReason(env);
-        Assert.Equal("inherited_generic_context", reason);
+        Assert.Null(reason);
     }
 
     #endregion
 
     #region IsInheritedGenericContext — Property ShouldEmitWrapper integration
 
+    // A property on a type that only inherits its generic context is wrapped: the direct route
+    // would load `self` into the register Mono's interop stub also keeps its own state in, and
+    // `extension Outer.Inner: P {}` compiles, so there is nothing the wrapper cannot express.
     [Fact]
-    public void PropertyShouldEmitWrapper_InheritedGenericContext_ReturnsFalse()
+    public void PropertyShouldEmitWrapper_InheritedGenericContext_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -612,12 +618,12 @@ public class GenericProtocolUnificationTests
         };
 
         var env = new MethodEnvironment(getterMethod, typeDb);
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env),
-            "Property on nested type with inherited generic context should not emit wrapper");
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env),
+            "Property on nested type with inherited generic context should emit a wrapper");
     }
 
     [Fact]
-    public void PropertyRejectionReason_InheritedGenericContext_ReturnsCorrectReason()
+    public void PropertyRejectionReason_InheritedGenericContext_IsNotRefused()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -652,7 +658,32 @@ public class GenericProtocolUnificationTests
 
         var env = new MethodEnvironment(getterMethod, typeDb);
         var reason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env);
-        Assert.Equal("inherited_generic_context", reason);
+        Assert.Null(reason);
+    }
+
+    [Fact]
+    public void WrapperHelperGate_StructNestedInGenericStruct_AdmitsAccessorsAndMethods()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
+
+        var outer = CreateGenericStructDecl("RankedTable", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
+        var inner = CreateGenericStructDecl("Cursor", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
+        inner.ParentDecl = outer;
+        Assert.True(WrapperValidation.IsInheritedGenericContext(inner));
+
+        // Accessor and method dispatch name the nested type through `Self` and read its metadata
+        // from the nested type's own accessor, so neither needs the outer's argument list on a
+        // path segment.
+        Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.PropertyGetter));
+        Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.PropertySetter));
+        Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.Method));
+        // Constructors still render the parent with its arguments and stay refused.
+        Assert.True(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.Constructor));
+
+        // A nested type that declares a parameter of its own is not an inherited context.
+        var ownParams = CreateGenericStructDecl("Slot", moduleDecl, new[] { ("Base", "\u03C4_0_0"), ("Extra", "\u03C4_1_0") });
+        ownParams.ParentDecl = outer;
+        Assert.True(GenericDispatchEmitter.HasWrapperHelperGateBlocker(ownParams, typeDb, GenericDispatchKind.PropertyGetter));
     }
 
     #endregion
@@ -660,7 +691,7 @@ public class GenericProtocolUnificationTests
     #region IsInheritedGenericContext — Constructor guard for inherited generic context
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_Constructor_InheritedGenericContext_ReturnsFalse()
+    public void ConstructorRejectionReason_InheritedGenericContext_StaysRefused()
     {
         // Verify the existing constructor protection still works
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
@@ -679,20 +710,19 @@ public class GenericProtocolUnificationTests
         };
         inner.ParentDecl = outer;
 
-        // Use a regular method (not constructor) to test GetRejectionReason,
-        // which rejects constructors at guard 1 before reaching inherited_generic_context.
-        var method = CreateMethodDecl("doSomething", isConstructor: false, moduleDecl: moduleDecl);
-        method.ParentDecl = inner;
-        method.MethodType = MethodType.Instance;
+        var ctor = CreateMethodDecl("init", isConstructor: true, moduleDecl: moduleDecl);
+        ctor.ParentDecl = inner;
+        ctor.MethodType = MethodType.Instance;
 
-        var env = new MethodEnvironment(method, typeDb);
+        var env = new MethodEnvironment(ctor, typeDb);
 
         // IsInheritedGenericContext should detect the nested type's params come from outer
         Assert.True(WrapperValidation.IsInheritedGenericContext(inner),
             "Nested type with generic params from outer parent should be detected as inherited generic context");
 
-        // GetRejectionReason should block wrapper emission for inherited generic contexts
-        string? reason = WrapperValidation.GetRejectionReason(env);
+        // The constructor wrapper spells the type with a generic argument list, so constructors
+        // on an inherited generic context stay off it.
+        string? reason = WrapperValidation.GetWrapperRejectionReason(env);
         Assert.Equal("inherited_generic_context", reason);
     }
 

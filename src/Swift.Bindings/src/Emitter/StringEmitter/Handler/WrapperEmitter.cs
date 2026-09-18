@@ -1158,6 +1158,18 @@ namespace BindingsGeneration
             "result buffer the direct call does not pass, and no Swift wrapper could be generated to call " +
             "it instead. It is declared so that source and protocol conformances referencing it still compile.";
 
+        internal const string UnprojectableBoundGenericValueResultAbiMessage =
+            "This member has no ABI-correct call path: it returns a bound-generic value type the " +
+            "binding has no projection for, and the call available to it would read that value out " +
+            "of one register-sized slot. It is declared so that source and protocol conformances " +
+            "referencing it still compile.";
+
+        internal const string GenericValueIndirectResultAbiMessage =
+            "This member has no ABI-correct call path: it returns a generic value type whose layout is not " +
+            "visible outside its Swift module, which Swift returns through a result buffer the direct call " +
+            "does not pass, and no Swift wrapper could be generated to call it instead. It is declared so " +
+            "that source and protocol conformances referencing it still compile.";
+
         /// <summary>
         /// Body replacement for a member classified as having no ABI-correct call route. Emitting the call
         /// anyway does not produce a member that "might" misbehave — it faults the process on invocation —
@@ -1263,6 +1275,27 @@ namespace BindingsGeneration
                     + "resilient generic value through the indirect-result register. The member is "
                     + "emitted as a throwing tombstone (declaration retained so conformances referencing "
                     + $"it still compile) and carries the {WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.HasResilientGenericResultDirectDispatch(_env))
+            {
+                message = GenericValueIndirectResultAbiMessage;
+                skipDetail =
+                    "The member returns a non-frozen bound-generic value type, which Swift returns "
+                    + "through the indirect-result register, and no Swift wrapper took it; the direct "
+                    + "CallConvSwift P/Invoke it falls back to declares that result by value and passes "
+                    + "no result buffer. The member is emitted as a throwing tombstone (declaration "
+                    + "retained so conformances referencing it still compile) and carries the "
+                    + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.HasUnprojectableBoundGenericValueDirectResult(_env))
+            {
+                message = UnprojectableBoundGenericValueResultAbiMessage;
+                skipDetail =
+                    "The member returns a bound-generic value type the projection factory cannot "
+                    + "represent, on a path with no result buffer, so the only spelling left reads the "
+                    + "value out of one register-sized return slot. The member is emitted as a throwing "
+                    + "tombstone (declaration retained so conformances referencing it still compile) "
+                    + $"and carries the {WrapperValidation.UncallableAbiDiagnosticId} marker.";
             }
             else
             {

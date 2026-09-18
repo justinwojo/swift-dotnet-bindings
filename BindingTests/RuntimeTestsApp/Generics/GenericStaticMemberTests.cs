@@ -210,6 +210,29 @@ public class GenericStaticMemberTests : TestBase
         AssertNull(StaticNarrowHolder<StaticNarrowBase>.MakeBase(-1), "makeBase(tag:) returns nil for a negative tag");
     }
 
+    /// <summary>
+    /// A protocol-narrowed static reads its answer from the witness table alone, so two conformers
+    /// that differ only in their witness give different results. A call that dropped or misplaced
+    /// the table would read the wrong conformer or fault.
+    /// </summary>
+    public void TestProtocolNarrowedStaticReadsWitnessTable()
+    {
+        AssertEqual(21, StaticScaledHolder<StaticScaleByThree>.Scaled(7), "scaled(_:) multiplies by the first conformer's factor");
+        AssertEqual(35, StaticScaledHolder<StaticScaleByFive>.Scaled(7), "scaled(_:) multiplies by the second conformer's factor");
+    }
+
+    /// <summary>
+    /// A static property from an extension pinning the parameter to a plain nominal type
+    /// (<c>where T == Int32</c>) is read through that specialization. It used to be withheld from
+    /// the open-generic class and never emitted anywhere else, so it was simply absent.
+    /// </summary>
+    public void TestPlainPinnedStaticPropertyReadsThroughSpecialization()
+    {
+        AssertEqual((nint)23, SwiftBindingsTestLib_DPlainPinnedQuery_Swift_DInt32Extensions.PlainLimit,
+            "plainLimit reads through PlainPinnedQuery<Int32>");
+        AssertBoundCleanly(typeof(SwiftBindingsTestLib_DPlainPinnedQuery_Swift_DInt32Extensions), "PlainLimit");
+    }
+
     // ── Surface ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -225,6 +248,7 @@ public class GenericStaticMemberTests : TestBase
         AssertBoundCleanly(typeof(StaticGenSub<long>), "GetKind");
         AssertBoundCleanly(typeof(StaticNestOuter<long>), "MakeLeaf", "MakeNode");
         AssertBoundCleanly(typeof(StaticNarrowHolder<StaticNarrowBase>), "Scaled", "MakeBase");
+        AssertBoundCleanly(typeof(StaticScaledHolder<StaticScaleByThree>), "Scaled");
     }
 
     private void AssertBoundCleanly(

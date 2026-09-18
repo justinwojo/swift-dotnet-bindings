@@ -498,6 +498,11 @@ public class MethodHandlerOutputTests
 
         Assert.Contains("[global::Swift.UnsupportedSwiftType(\"Unsupported closure fallback\",", csOutput);
         Assert.Contains("public virtual TestModule.Box<object> GetBoxedHandler()", csOutput);
+        // No projection for the result leaves only a one-word return slot to read it from, so the
+        // member is declared, marked and throws rather than reading the value out of that slot.
+        Assert.Contains("DiagnosticId = \"SB0009\"", csOutput);
+        Assert.Contains("throw new NotSupportedException(", csOutput);
+        Assert.DoesNotContain("&result", csOutput);
     }
 
     [Fact]

@@ -346,13 +346,21 @@ public static class ConstrainedExtensionEmitter
         }
 
         // Primitive types (int, uint, float, etc.) cannot satisfy ISwiftObject constraints
-        // on generic parent types, so skip them.
+        // on generic parent types, so an instance member has no `this Parent<int> self`
+        // receiver to extend. A static member never spells the closed C# type — the concrete
+        // specialization lives only in its Swift wrapper body — so statics still emit.
         if (IsCSharpPrimitiveType(concreteCsName))
         {
-            logger.LogDebug(
-                "ConstrainedExtensionEmitter: Skipping primitive concrete type {Type} — cannot satisfy ISwiftObject.",
-                concreteCsName);
-            return;
+            properties = properties.Where(p => p.IsStatic).ToList();
+            openGenericReturnProperties = new List<PropertyDecl>();
+            methods = methods.Where(m => m.MethodType == MethodType.Static).ToList();
+            if (properties.Count == 0 && methods.Count == 0)
+            {
+                logger.LogDebug(
+                    "ConstrainedExtensionEmitter: Skipping primitive concrete type {Type} — cannot satisfy ISwiftObject.",
+                    concreteCsName);
+                return;
+            }
         }
 
         var closedGenericCsType = $"{parentCsName}<{concreteCsName}>";
@@ -499,25 +507,10 @@ public static class ConstrainedExtensionEmitter
         ILogger logger,
         TypeSpec? substitutedReturnTypeSpec)
     {
-        // The property emit shape always reconstructs `obj` from a `_self`
-        // pointer and accesses `obj.{property.Name}` — there is no static branch
-        // mirroring the method path's `if (isStatic)` (no `Container<C>.foo`
-        // call form, no dropped self_ param). A constrained `static var` would
-        // therefore generate Swift that is silently stripped at wrapper-build
-        // time, producing a missing-symbol C# extension. Skip with an explicit
-        // diagnostic so the unsupported shape is visible rather than absorbed.
-        if (property.IsStatic)
-        {
-            UnsupportedCommentEmitter.EmitMemberSkipped(
-                csWriter, property.Name, BindingItemKind.Property,
-                SkipReason.UnsupportedSignature,
-                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: constrained static property emission not yet supported",
-                containingDecl: property.ParentDecl);
-            logger.LogDebug(
-                "ConstrainedExtensionEmitter: Skipping static property {Name} on {Parent}<{Concrete}> — static-property emission not yet supported.",
-                property.Name, parentTypeDecl.Name, concreteTypeName.Name);
-            return false;
-        }
+        // A static property needs no receiver: the concrete specialization is spelled in the
+        // wrapper body (`Parent<Concrete>.name`), so the C# side is a plain static property on
+        // the extensions class and the wrapper takes no self pointer.
+        bool isStatic = property.IsStatic;
 
         // For open-generic-return properties (`payloadValue`-shape), substitute the
         // parent's open generic parameter with the concrete specialization before
@@ -570,13 +563,9 @@ public static class ConstrainedExtensionEmitter
         // strings. Without that, the structural-identity tuple distinguishes them
         // but `_registeredWrapperSymbols.Add(symbol)` would reject the second
         // claim on a colliding `SBW_CEGet_..._User_*` and silently drop the wrapper.
-        // The static/instance marker is forward-defense for Swift's allowance
-        // of `var rank` alongside `static var rank` on the same type. Static
-        // constrained properties are currently rejected at the top of this
-        // method (the property emit shape has no static branch), so all
-        // wrappers reaching this point use `_instance`; the marker keeps the
-        // dedup discipline correct if static-property emission is added later
-        // without revisiting the structural-identity keys.
+        // The static/instance marker keeps Swift's allowance of `var rank`
+        // alongside `static var rank` on the same type from rendering both
+        // getters to one SBW string.
         var safeParentName = SanitizeParent(parentTypeDecl);
         var safeConcreteName = SanitizeConcretization(concreteTypeName);
         var staticMarker = property.IsStatic ? "_static" : "_instance";
@@ -605,12 +594,34 @@ public static class ConstrainedExtensionEmitter
                 DeclIdFactory.ForProperty(property, AccessorKind.Getter)))
             return false;
 
-        // ----- C# extension method -----
+        // ----- C# extension method (instance) or static property (static) -----
         csWriter.WriteLine();
-        csWriter.WriteLine($"public static {csharpReturnType} Get{propertyName}(this {closedGenericCsType} self)");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        EmitConsumedSelfGuard(csWriter, parentTypeDecl);
+        if (isStatic)
+        {
+            csWriter.WriteLine($"public static {csharpReturnType} {propertyName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+        else
+        {
+            csWriter.WriteLine($"public static {csharpReturnType} Get{propertyName}(this {closedGenericCsType} self)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            EmitConsumedSelfGuard(csWriter, parentTypeDecl);
+        }
+
+        // Instance getters pass the receiver handle as the trailing argument; static
+        // getters pass nothing.
+        string CallArgs(string? leading)
+        {
+            var args = new List<string>();
+            if (leading != null) args.Add(leading);
+            if (!isStatic) args.Add("self.Payload.DangerousGetHandle()");
+            return string.Join(", ", args);
+        }
 
         switch (shape)
         {
@@ -626,7 +637,7 @@ public static class ConstrainedExtensionEmitter
                 csWriter.Indent++;
                 csWriter.WriteLine("byte* _cdeclBuf = stackalloc byte[nint.Size * 2];");
                 csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
-                csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr, self.Payload.DangerousGetHandle());");
+                csWriter.WriteLine($"NativeMethods.{symbolName}({CallArgs("resultPtr")});");
                 csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -634,7 +645,7 @@ public static class ConstrainedExtensionEmitter
 
             case CEReturnShape.Primitive:
                 // Primitive: direct P/Invoke call
-                csWriter.WriteLine($"return NativeMethods.{symbolName}(self.Payload.DangerousGetHandle());");
+                csWriter.WriteLine($"return NativeMethods.{symbolName}({CallArgs(null)});");
                 break;
 
             case CEReturnShape.NonFrozenStruct:
@@ -660,7 +671,7 @@ public static class ConstrainedExtensionEmitter
                         try
                         {
                             var indirectResult = new SwiftIndirectResult((void*)buffer);
-                            NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                            NativeMethods.{{symbolName}}({{CallArgs("indirectResult")}});
                             return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
                         }
                         catch
@@ -678,7 +689,7 @@ public static class ConstrainedExtensionEmitter
                 // 2001-01-01 UTC). Project to System.DateTimeOffset via the same Swift epoch
                 // constant used by DateProjection.GetReturnPlan(Direct).
                 csWriter.WriteLine(
-                    $"var seconds = NativeMethods.{symbolName}(self.Payload.DangerousGetHandle());");
+                    $"var seconds = NativeMethods.{symbolName}({CallArgs(null)});");
                 csWriter.WriteLine(
                     $"return {DateProjection.SwiftEpoch}.AddSeconds(seconds);");
                 break;
@@ -695,7 +706,7 @@ public static class ConstrainedExtensionEmitter
                     {
                         byte* buffer = stackalloc byte[16];
                         var indirectResult = new SwiftIndirectResult((void*)buffer);
-                        NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                        NativeMethods.{{symbolName}}({{CallArgs("indirectResult")}});
                         return *(System.Guid*)buffer;
                     }
                     """);
@@ -716,7 +727,7 @@ public static class ConstrainedExtensionEmitter
                     {
                         byte* buffer = stackalloc byte[16];
                         var indirectResult = new SwiftIndirectResult((void*)buffer);
-                        NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                        NativeMethods.{{symbolName}}({{CallArgs("indirectResult")}});
                         return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
                     }
                     """);
@@ -725,6 +736,11 @@ public static class ConstrainedExtensionEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
+        if (isStatic)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
 
         // ----- Swift @_cdecl wrapper -----
         EmitSwiftGetterWrapper(swiftWriter, property, parentTypeDecl, concreteTypeName,
@@ -734,6 +750,7 @@ public static class ConstrainedExtensionEmitter
         var capturedSymbol = symbolName;
         var capturedShape = shape;
         var capturedReturnType = csharpReturnType;
+        var capturedIsStatic = isStatic;
         pinvokeDeclarations.Add(() =>
         {
             var pinvokeParams = new List<string>();
@@ -743,23 +760,23 @@ public static class ConstrainedExtensionEmitter
             {
                 case CEReturnShape.String:
                     pinvokeParams.Add("IntPtr resultPtr");
-                    pinvokeParams.Add("IntPtr _self");
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = "void";
                     break;
                 case CEReturnShape.NonFrozenStruct:
                 case CEReturnShape.FoundationUUID:
                 case CEReturnShape.FoundationData:
                     pinvokeParams.Add("SwiftIndirectResult indirectResult");
-                    pinvokeParams.Add("IntPtr _self");
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = "void";
                     break;
                 case CEReturnShape.FoundationDate:
                     // Date returns timeIntervalSinceReferenceDate as a single Double in xmm0/d0.
-                    pinvokeParams.Add("IntPtr _self");
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = "double";
                     break;
                 default: // Primitive
-                    pinvokeParams.Add("IntPtr _self");
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = capturedReturnType;
                     break;
             }
@@ -818,7 +835,8 @@ public static class ConstrainedExtensionEmitter
             || shape == CEReturnShape.FoundationData;
         if (usesIndirectResult)
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
-        swiftParams.Add("_ self_: UnsafeRawPointer");
+        if (!property.IsStatic)
+            swiftParams.Add("_ self_: UnsafeRawPointer");
 
         var returnClause = shape switch
         {
@@ -841,9 +859,12 @@ public static class ConstrainedExtensionEmitter
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
-        // Reconstruct self from pointer — structs / enums use memory binding, classes use Unmanaged
-        var selfRef = EmitSwiftSelfAccess(swiftWriter, parentTypeDecl, closedGenericSwiftType,
-            ClassifySelfAccess(parentTypeDecl, isMutating: false, isConsuming: false));
+        // Reconstruct self from pointer — structs / enums use memory binding, classes use Unmanaged.
+        // A static getter reads through the closed specialization itself.
+        var selfRef = property.IsStatic
+            ? closedGenericSwiftType
+            : EmitSwiftSelfAccess(swiftWriter, parentTypeDecl, closedGenericSwiftType,
+                ClassifySelfAccess(parentTypeDecl, isMutating: false, isConsuming: false));
 
         // Emit getter body
         var propAccess = $"{selfRef}.{property.Name}";

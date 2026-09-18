@@ -39,7 +39,7 @@ public static class PropertyWrapperEmitter
     /// </param>
     public static WrapperEligibility EvaluateWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv, AccessorDecl? accessor = null)
     {
-        // Shared guards: xcframework, internal, SPI, non-copyable, actor, inherited generic context
+        // Shared guards: xcframework, internal, SPI, non-copyable, actor
         var memberReason = WrapperValidation.GetMemberRejectionReason(accessorEnv, MemberKind.Property,
             isModuleInternal: propertyDecl.IsModuleInternal,
             isSpiProtected: propertyDecl.IsSpiProtected,
@@ -50,7 +50,8 @@ public static class PropertyWrapperEmitter
             return WrapperEligibility.Reject(memberReason);
 
         // 2. Generic parent type — allow non-final class instance properties with concrete types
-        // (inherited generic context is already checked by CanEmitMember)
+        // A type nested in a generic parent and inheriting its parameters takes the same path; the
+        // helper gate below admits its accessors (see GenericDispatchEmitter.HasWrapperHelperGateBlocker).
         if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
         {
             if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td, accessorEnv.TypeDatabase))
