@@ -1890,6 +1890,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 return typeRecord.CSharpTypeName.FullyQualifiedName;
             }
 
+            // A type nested in a bound generic (`Outer<Int32>.Leaf`): the arguments go on the outer
+            // segment of the leaf's name, not after the leaf.
+            if (BoundGenericTranslation.TryTranslateNestedInBoundGeneric(typeDatabase, namedTypeSpec,
+                    p => TranslateTypeSpecWithGenerics(p, typeDatabase, genericContext), out var nestedTypeName))
+            {
+                return nestedTypeName;
+            }
+
             // Recursively translate generic parameters
             if (namedTypeSpec.GenericParameters.Count > 0)
             {

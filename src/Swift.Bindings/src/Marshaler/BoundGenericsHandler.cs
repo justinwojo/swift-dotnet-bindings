@@ -1133,12 +1133,25 @@ public class BoundGenericsHandler
         List<string> translatedOwnArgs,
         TypeDecl? parentTypeDecl)
     {
-        if (moduleDecl == null || !namedTypeSpec.HasModule())
+        if (!namedTypeSpec.HasModule())
             return (fullyQualifiedTypeName, false);
 
-        var typeDecl = FindTypeDecl(moduleDecl, SwiftTypeName.FromTypeSpec(namedTypeSpec));
+        var typeDecl = moduleDecl == null ? null : FindTypeDecl(moduleDecl, SwiftTypeName.FromTypeSpec(namedTypeSpec));
         if (typeDecl == null)
+        {
+            // No declaration chain to walk (a caller without module context, or an outer declared
+            // in another module). A nested reference still carries its own structure: the InnerType
+            // chain says which segment each argument list belongs to, and the type database gives
+            // each segment's C# name, so the arguments never land after the leaf.
+            if (namedTypeSpec.InnerType != null &&
+                BoundGenericTranslation.TryTranslateNestedInBoundGeneric(_typeDatabase, namedTypeSpec,
+                    arg => TranslateTypeSpecToCSharp(arg, genericContext, moduleDecl, parentTypeDecl),
+                    out var nestedName, translatedOwnArgs))
+            {
+                return (nestedName, true);
+            }
             return (fullyQualifiedTypeName, false);
+        }
 
         var typeChain = GetTypeDeclChain(typeDecl);
         if (typeChain.Count <= 1)

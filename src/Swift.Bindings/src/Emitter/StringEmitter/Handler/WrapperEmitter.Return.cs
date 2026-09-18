@@ -1286,6 +1286,7 @@ namespace BindingsGeneration
             // within the buffer and pass that to MarshalFromSwift, which reads the full size
             // via NewFromPayload's VWT copy.
             var rawNames = new List<string>();
+            var inlineSlots = new bool[elements.Count];
             for (int i = 0; i < elements.Count; i++)
             {
                 var element = elements[i];
@@ -1295,6 +1296,7 @@ namespace BindingsGeneration
 
                 if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
                 {
+                    inlineSlots[i] = true;
                     // Inline value type: compute address within buffer (data may be > 8 bytes).
                     // MarshalFromSwift/NewFromPayload reads the full value from this address.
                     csWriter.WriteLine($"IntPtr {rawName} = (IntPtr)((byte*){resultExpr} + {offsetExpr});");
@@ -1321,7 +1323,10 @@ namespace BindingsGeneration
                 var resultName = $"_te{i}";
                 var csharpType = GetCSharpTypeForTupleElement(element);
 
-                var marshalCode = GetTupleElementMarshalCode(element, rawName, resultName, csharpType);
+                // The buffer owns every inline element and is freed raw after this block, so an
+                // inline element is moved out of its slot rather than wrapped in place.
+                var marshalCode = GetTupleElementMarshalCode(element, rawName, resultName, csharpType,
+                    ownedInlineSlot: inlineSlots[i]);
                 if (marshalCode != null)
                 {
                     foreach (var subLine in marshalCode.Split('\n'))
@@ -1490,7 +1495,15 @@ namespace BindingsGeneration
                 if (projection != null)
                     return projection.PublicType;
 
-                // Factory returned null — fall back to raw type translation
+                // Factory returned null — fall back to raw type translation. A type nested in a
+                // bound generic (`Outer<Int32>.Leaf`) names the leaf, with the arguments on the outer.
+                if (BoundGenericTranslation.TryTranslateNestedInBoundGeneric(_env.TypeDatabase, namedType,
+                        param => GetCSharpTypeForTupleElement(param, applyIdiomaticConversion: false),
+                        out var nestedTypeName))
+                {
+                    return nestedTypeName;
+                }
+
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
                 if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord))
                 {
@@ -1538,8 +1551,15 @@ namespace BindingsGeneration
         /// <summary>
         /// Generates marshalling code for a single tuple element.
         /// </summary>
-        internal string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
+        internal string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType, bool ownedInlineSlot = false)
         {
+            // An element read in place from an owned tuple buffer that is freed raw afterwards must be
+            // moved out: a wrapper that adopts its payload pointer would otherwise keep an interior
+            // address of the freed buffer, and a copying wrapper would orphan the buffer's +1.
+            string ReadElement(string type) => ownedInlineSlot
+                ? $"SwiftMarshal.MarshalMovedValueFromSlot<{type}>((void*){itemName}, TypeMetadata.GetTypeMetadataOrThrow<{type}>())"
+                : $"SwiftMarshal.MarshalFromSwift<{type}>({itemName})";
+
             // Handle generic type parameters (τ_0_0 → T) — received as IntPtr from heap-allocated buffer.
             // Use SwiftMarshal.MarshalFromSwift<T> which resolves via type metadata at runtime.
             if (TypeSpecHelpers.IsGenericTypeParameter(element))
@@ -1595,15 +1615,15 @@ namespace BindingsGeneration
                         if (containerConv != null)
                         {
                             // Two-step: marshal from Swift container type, then convert to public type
-                            return $"var _swift{resultName} = SwiftMarshal.MarshalFromSwift<{containerType}>({itemName});\nvar {resultName} = {containerConv};";
+                            return $"var _swift{resultName} = {ReadElement(containerType)};\nvar {resultName} = {containerConv};";
                         }
                         var elemConv = projection.GetReturnElementConversion($"_swift{resultName}");
                         if (elemConv != null)
                         {
-                            return $"var _swift{resultName} = SwiftMarshal.MarshalFromSwift<{containerType}>({itemName});\nvar {resultName} = {elemConv};";
+                            return $"var _swift{resultName} = {ReadElement(containerType)};\nvar {resultName} = {elemConv};";
                         }
                         // No conversion needed — use container type for MarshalFromSwift
-                        return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{containerType}>({itemName});";
+                        return $"var {resultName} = {ReadElement(containerType)};";
                     }
                 }
 
@@ -1631,12 +1651,12 @@ namespace BindingsGeneration
                         }
                     }
                     // Non-ObjC optional: P/Invoke type is IntPtr, pass directly (no address-of)
-                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
+                    return $"var {resultName} = {ReadElement(csharpType)};";
                 }
 
                 // Non-optional bound generics (e.g., SwiftArray<byte>): P/Invoke type is IntPtr
                 // The IntPtr IS the pointer value, so pass it directly (no address-of)
-                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
+                return $"var {resultName} = {ReadElement(csharpType)};";
             }
 
             // Handle non-generic types — key off computed P/Invoke type to handle all IntPtr cases uniformly
@@ -1696,7 +1716,7 @@ namespace BindingsGeneration
                 // Use unconstrained MarshalFromSwift<T> here because csharpType may be an ObjC enum
                 // (not ISwiftObject). The constrained path is used in projection-layer code where
                 // the type is statically known to implement ISwiftObject.
-                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
+                return $"var {resultName} = {ReadElement(csharpType)};";
             }
             else if (pinvokeType.EndsWith(".Buffer"))
             {

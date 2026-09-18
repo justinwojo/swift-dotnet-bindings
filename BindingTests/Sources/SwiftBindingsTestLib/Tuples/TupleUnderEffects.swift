@@ -44,3 +44,20 @@ public func spanBounds(lo: Int32, hi: Int32) -> (lower: Int32, upper: Int32?) {
 public func makePointWithTag(x: Double, y: Double, tag: Int32) -> (point: FrozenPoint, tag: Int32) {
     return (point: FrozenPoint(x: x, y: y), tag: tag)
 }
+
+/// A non-frozen struct with a reference-counted field. Its C# wrapper owns a payload buffer,
+/// so as a tuple element it has to be moved out of the returned tuple buffer — which the
+/// binding frees — instead of wrapping an address inside it.
+public struct TupleResilientLabel {
+    public let text: String
+    public let weight: Int32
+    public init(text: String, weight: Int32) {
+        self.text = text
+        self.weight = weight
+    }
+}
+
+/// Returns a tuple whose first element is a non-frozen struct — `(TupleResilientLabel, Int32)`.
+public func makeLabelWithTag(text: String, weight: Int32, tag: Int32) -> (label: TupleResilientLabel, tag: Int32) {
+    return (label: TupleResilientLabel(text: text, weight: weight), tag: tag)
+}

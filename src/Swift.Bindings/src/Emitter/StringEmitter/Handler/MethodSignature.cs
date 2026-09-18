@@ -1116,6 +1116,14 @@ namespace BindingsGeneration
                     return typeRecord.CSharpTypeName.FullyQualifiedName;
                 }
 
+                // A type nested in a bound generic (`Outer<Int32>.Leaf`): the record above is the
+                // leaf's, and the arguments go on the outer segment rather than after the leaf.
+                if (BoundGenericTranslation.TryTranslateNestedInBoundGeneric(_env.TypeDatabase, namedTypeSpec,
+                        TranslateTypeSpecForConversion, out var nestedTypeName))
+                {
+                    return nestedTypeName;
+                }
+
                 if (namedTypeSpec.GenericParameters.Count > 0)
                 {
                     var translatedParams = namedTypeSpec.GenericParameters

@@ -193,9 +193,14 @@ public class TypeProjectionFactory
                     // existential inside it has to name the module owning the protocol.
                     var bgh = new BoundGenericsHandler(context.TypeDatabase, conformanceGraph: null,
                         currentModuleName: context.CurrentModuleName);
-                    var rawCSharpName = bgh.TranslateBoundGenericTypeToCSharp(inner, context.GenericContext ?? GenericContext.Empty);
+                    // The module context lets the translator walk the declaration chain, the same way
+                    // a plain return is spelled, when the inner type names a type nested in a bound
+                    // generic (`Outer<Int32>.Leaf`). That nested leaf, not its outer, is the type the
+                    // projection wraps, so its record is looked up through the full InnerType chain.
+                    var rawCSharpName = bgh.TranslateBoundGenericTypeToCSharp(inner,
+                        context.GenericContext ?? GenericContext.Empty, context.ParentTypeDecl?.ModuleDecl);
                     if (!rawCSharpName.Contains("AnyType") &&
-                        context.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(innerBoundGeneric.Name), out var baseRecord))
+                        context.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(innerBoundGeneric), out var baseRecord))
                     {
                         var baseProjection = CreateProjectionForTypeRecord(baseRecord, rawCSharpName);
                         if (baseProjection != null)

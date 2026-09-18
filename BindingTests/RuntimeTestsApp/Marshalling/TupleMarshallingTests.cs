@@ -224,6 +224,34 @@ public class TupleMarshallingTests : TestBase
         TestLogger.Info($"MakePointWithTag(3, 4, 7) = (({result.point.X}, {result.point.Y}), {result.tag})");
     }
 
+    public void TestMakeLabelWithTag_NonFrozenStructElement()
+    {
+        // A non-frozen struct element owns its payload, so it has to be moved out of the tuple
+        // buffer the binding frees. Scribbling over freshly reused native blocks between the call
+        // and the reads exposes a wrapper left pointing into that freed buffer; the
+        // reference-counted field checks the buffer's retain is handed over rather than dropped.
+        for (int round = 0; round < 8; round++)
+        {
+            var text = $"label-{round}";
+            var result = TestLibFunctions.MakeLabelWithTag(text, 40 + round, 90 + round);
+            unsafe
+            {
+                for (int i = 0; i < 64; i++)
+                {
+                    void* block = System.Runtime.InteropServices.NativeMemory.Alloc(64);
+                    System.Runtime.InteropServices.NativeMemory.Fill(block, 64, 0xA5);
+                    System.Runtime.InteropServices.NativeMemory.Free(block);
+                }
+            }
+            using (result.label)
+            {
+                AssertEqual(text, result.label.Text, "MakeLabelWithTag label.Text");
+                AssertEqual(40 + round, result.label.Weight, "MakeLabelWithTag label.Weight");
+                AssertEqual(90 + round, result.tag, "MakeLabelWithTag tag");
+            }
+        }
+    }
+
     #endregion
 
     #region Tuple-of-class-element parameters — @_cdecl buffer marshalling (borrowed handle + keep-alive)

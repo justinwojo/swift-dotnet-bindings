@@ -68,6 +68,78 @@ internal static class BoundGenericTranslation
     }
 
     /// <summary>
+    /// Spells a type nested inside a bound generic (<c>Outer&lt;Int32&gt;.Leaf</c>) from the type
+    /// database alone. The ABI parser encodes that reference as the outer <see cref="NamedTypeSpec"/>
+    /// carrying the generic arguments with an <see cref="NamedTypeSpec.InnerType"/> chain naming the
+    /// nested segments, so each link's arguments belong on that link's own segment of the leaf's
+    /// dotted C# name (<c>Outer&lt;int&gt;.Leaf</c>), never appended after the leaf. Each link's
+    /// segment is located by resolving the link's own Swift prefix (<c>Module.Outer</c>,
+    /// <c>Module.Outer.Leaf</c>) and requiring its C# name to be a dotted prefix of the leaf's.
+    /// Returns <c>false</c> when the spec has no inner chain, a prefix is unknown, or the C# names
+    /// don't nest that way, leaving the caller to its own spelling.
+    /// </summary>
+    /// <param name="typeDatabase">The type database used to resolve each prefix record.</param>
+    /// <param name="namedType">The outer spec whose <see cref="NamedTypeSpec.InnerType"/> chain
+    /// names the nested leaf.</param>
+    /// <param name="translateGenericArgument">The caller's element translator, applied to every
+    /// generic argument on the chain.</param>
+    /// <param name="outerArguments">Arguments for the outer link already translated by the caller
+    /// under its own rules; when <c>null</c>, the outer link's arguments go through
+    /// <paramref name="translateGenericArgument"/> like the inner links'.</param>
+    internal static bool TryTranslateNestedInBoundGeneric(
+        ITypeDatabase typeDatabase,
+        NamedTypeSpec namedType,
+        Func<TypeSpec, string> translateGenericArgument,
+        [NotNullWhen(true)] out string? csharp,
+        IReadOnlyList<string>? outerArguments = null)
+    {
+        csharp = null;
+        if (namedType.InnerType == null || !namedType.HasModule())
+            return false;
+
+        if (!typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(namedType), out var leafRecord))
+            return false;
+        var leafName = leafRecord.CSharpTypeName.FullyQualifiedName;
+        if (leafName.Contains('<'))
+            return false;
+
+        var builder = new System.Text.StringBuilder();
+        var swiftPrefix = string.Empty;
+        var consumed = 0;
+        for (NamedTypeSpec? link = namedType; link != null; link = link.InnerType)
+        {
+            swiftPrefix = swiftPrefix.Length == 0 ? link.Name : $"{swiftPrefix}.{link.Name}";
+            if (!typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(swiftPrefix), out var ownerRecord))
+                return false;
+
+            var ownerName = ownerRecord.CSharpTypeName.FullyQualifiedName;
+            if (ownerName.Length <= consumed ||
+                !leafName.StartsWith(ownerName, StringComparison.Ordinal) ||
+                (ownerName.Length < leafName.Length && leafName[ownerName.Length] != '.'))
+                return false;
+
+            builder.Append(leafName, consumed, ownerName.Length - consumed);
+            consumed = ownerName.Length;
+
+            if (link.GenericParameters.Count > 0)
+            {
+                var args = ReferenceEquals(link, namedType) && outerArguments != null
+                    ? outerArguments
+                    : link.GenericParameters.Select(translateGenericArgument).ToList();
+                if (args.Count != link.GenericParameters.Count)
+                    return false;
+                builder.Append('<').Append(string.Join(", ", args)).Append('>');
+            }
+        }
+
+        if (consumed != leafName.Length)
+            return false;
+
+        csharp = builder.ToString();
+        return true;
+    }
+
+    /// <summary>
     /// Translates a bound-generic <see cref="NamedTypeSpec"/> to its full C# type name with generic
     /// arguments — the tuple element translator's body. (The closure lane no longer calls this: a
     /// bound generic inside a closure signature is spelled by <see cref="BoundGenericsHandler"/>,
@@ -138,6 +210,14 @@ internal static class BoundGenericTranslation
             }
 
             translatedParams.Add(translateGenericArgument(genericParam));
+        }
+
+        // A type nested in this bound generic: the arguments belong on the outer segment of the
+        // leaf's name, and the leaf is the type being named, not the outer.
+        if (TryTranslateNestedInBoundGeneric(typeDatabase, namedType, translateGenericArgument,
+                out var nestedCSharp, translatedParams))
+        {
+            return nestedCSharp;
         }
 
         // Safety net: if no generic params were translated but the base type requires them,

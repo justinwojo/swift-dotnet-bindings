@@ -1742,6 +1742,14 @@ internal class MethodMarshalPlanBuilder
     {
         if (element is NamedTypeSpec namedType)
         {
+            // A type nested in a bound generic (`Outer<Int32>.Leaf`) is the leaf's metadata, with
+            // the arguments on the outer segment; resolving the outer name alone names the wrong type.
+            if (BoundGenericTranslation.TryTranslateNestedInBoundGeneric(_env.TypeDatabase, namedType,
+                    GetTupleElementMetadataTypeName, out var nestedTypeName))
+            {
+                return nestedTypeName;
+            }
+
             if (namedType.ContainsGenericParameters)
             {
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
