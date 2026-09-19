@@ -169,5 +169,56 @@ class PartitionDeclaredButDegradedTests(unittest.TestCase):
         self.assertEqual(degraded, [])
 
 
+class SkipAttributionTests(unittest.TestCase):
+    """A skip is charged to the source file of the top-level declaration that owns it.
+
+    Short names repeat across the fixture corpus (`Token`, `Status`, `AsyncIterator`), so a
+    nested type attributed by its innermost name borrows the file — and the features — of an
+    unrelated top-level type that shares it, turning one fixture's legitimate skip into another
+    feature's false degradation.
+    """
+
+    MODULE = "Lib"
+
+    def _decl_map(self, files):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            for rel, text in files.items():
+                path = Path(root) / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            return coverage_report.build_declaration_map(root, sorted(files))
+
+    def test_nested_member_resolves_to_outermost_type(self):
+        item = {"Kind": "Method", "Name": "init", "ContainingType": "Lib.Vault.Token"}
+        self.assertEqual(coverage_report.resolve_declaration(item, self.MODULE), "Vault")
+
+    def test_top_level_member_and_free_function_resolve_unchanged(self):
+        member = {"Kind": "Method", "Name": "init", "ContainingType": "Lib.Token"}
+        free = {"Kind": "Method", "Name": "makeToken", "ContainingType": "Lib"}
+        self.assertEqual(coverage_report.resolve_declaration(member, self.MODULE), "Token")
+        self.assertEqual(coverage_report.resolve_declaration(free, self.MODULE), "makeToken")
+
+    def test_top_level_declaration_owns_its_name_over_a_nested_namesake(self):
+        # The nested file sorts LAST, so a last-write-wins map would hand it the name.
+        decl_map = self._decl_map({
+            "A/Classes.swift": "public class Token {\n}\n",
+            "Z/Vault.swift": "public struct Vault {\n\n    public struct Token {\n    }\n}\n",
+        })
+        self.assertEqual(decl_map["Token"], "A/Classes.swift")
+        self.assertEqual(decl_map["Vault"], "Z/Vault.swift")
+
+    def test_top_level_declaration_after_a_blank_line_is_not_treated_as_nested(self):
+        decl_map = self._decl_map({
+            "A/Nested.swift": "public struct Outer {\n    public struct Token {}\n}\n",
+            "Z/Top.swift": "// header\n\n\npublic class Token {}\n",
+        })
+        self.assertEqual(decl_map["Token"], "Z/Top.swift")
+
+    def test_nested_name_with_no_top_level_owner_still_maps(self):
+        decl_map = self._decl_map({"Outer.swift": "public struct Outer {\n    enum Kind {}\n}\n"})
+        self.assertEqual(decl_map["Kind"], "Outer.swift")
+
+
 if __name__ == "__main__":
     unittest.main()

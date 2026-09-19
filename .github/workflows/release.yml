@@ -252,7 +252,7 @@ jobs:
         working-directory: BindingTests
         run: >
           python3 ../build/scripts/coverage-report.py
-          --abi-json "$(find .build -name '*.abi.json' 2>/dev/null | head -1)"
+          --abi-json "$(find .build -path '*/SwiftBindingsTestLib.swiftmodule/*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
       - name: Wait for simulator boot

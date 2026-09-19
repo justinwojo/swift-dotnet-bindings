@@ -14,6 +14,7 @@ import argparse
 import json
 import sys
 import os
+import re
 from datetime import datetime, timezone
 
 
@@ -75,6 +76,75 @@ def compare_coverage_baseline(summary, baseline):
         elif curr < base:
             improvements.append(f"{key}: {base} -> {curr} (-{base - curr})")
     return regressions, improvements
+
+
+def resolve_declaration(item, module_name):
+    """Extract the owning declaration name from a skipped binding item.
+
+    For free functions (ContainingType == module), the declaration is the
+    function name itself.  For type members, it is the OUTERMOST type name:
+    a member of `Module.Outer.Inner` belongs to `Outer`, the top-level
+    declaration that owns the source file. Resolving to the innermost name
+    would let a nested type (`DerivedVault.Token`) borrow the source file of
+    an unrelated top-level type that happens to share its short name (`Token`).
+    For skipped types (ContainingType == None, Kind == Type), the declaration
+    is the type name directly.
+    """
+    containing = item.get("ContainingType") or ""
+    name = item.get("Name", "")
+
+    if not containing and item.get("Kind") == "Type":
+        return name  # skipped type (e.g. SwiftUI View)
+    if containing == module_name:
+        return name  # free function
+    module_prefix = module_name + "."
+    if containing.startswith(module_prefix):
+        return containing[len(module_prefix):].split(".", 1)[0]  # outermost type name
+    elif "." in containing:
+        return containing.rsplit(".", 1)[-1]  # type name
+    return None
+
+
+def build_declaration_map(source_dir, source_files):
+    """Parse Swift source files to build declaration name -> file mapping.
+
+    Scans for type declarations (class, struct, enum, protocol, actor) and
+    top-level function declarations to map names back to source files.
+    A top-level declaration always owns its name: an indented (nested)
+    declaration only fills a name no top-level declaration claims, so a
+    nested `Token` in one file cannot displace a top-level `Token` in another.
+    """
+    decl_map = {}  # name -> relative file path
+    nested_map = {}  # name -> relative file path, for indented declarations
+    type_pattern = re.compile(
+        r'^\s*(?:public\s+)?(?:open\s+)?(?:@\w+[\s(][^)]*\)\s*)*'
+        r'(?:final\s+)?(?:class|struct|enum|protocol|actor)\s+(\w+)',
+        re.MULTILINE
+    )
+    func_pattern = re.compile(
+        r'^(?:public\s+)?(?:static\s+)?func\s+(\w+)',
+        re.MULTILINE
+    )
+
+    for rel_path in source_files:
+        full_path = os.path.join(source_dir, rel_path)
+        try:
+            with open(full_path) as f:
+                content = f.read()
+            for m in type_pattern.finditer(content):
+                # `^\s*` may start on a preceding blank line, so judge indentation
+                # by the whitespace on the declaration's own line only.
+                leading = m.group(0)[:len(m.group(0)) - len(m.group(0).lstrip())]
+                indented = leading.rsplit("\n", 1)[-1] != ""
+                target = nested_map if indented else decl_map
+                target[m.group(1)] = rel_path
+            for m in func_pattern.finditer(content):
+                decl_map[m.group(1)] = rel_path
+        except OSError:
+            pass
+    for name, rel_path in nested_map.items():
+        decl_map.setdefault(name, rel_path)
+    return decl_map
 
 
 def main():
@@ -686,39 +756,6 @@ def main():
         return sorted(files), disabled_map
     
     
-    import re
-    
-    def build_declaration_map(source_dir, source_files):
-        """Parse Swift source files to build declaration name -> file mapping.
-    
-        Scans for type declarations (class, struct, enum, protocol, actor) and
-        top-level function declarations to map names back to source files.
-        """
-        decl_map = {}  # name -> relative file path
-        type_pattern = re.compile(
-            r'^\s*(?:public\s+)?(?:open\s+)?(?:@\w+[\s(][^)]*\)\s*)*'
-            r'(?:final\s+)?(?:class|struct|enum|protocol|actor)\s+(\w+)',
-            re.MULTILINE
-        )
-        func_pattern = re.compile(
-            r'^(?:public\s+)?(?:static\s+)?func\s+(\w+)',
-            re.MULTILINE
-        )
-    
-        for rel_path in source_files:
-            full_path = os.path.join(source_dir, rel_path)
-            try:
-                with open(full_path) as f:
-                    content = f.read()
-                for m in type_pattern.finditer(content):
-                    decl_map[m.group(1)] = rel_path
-                for m in func_pattern.finditer(content):
-                    decl_map[m.group(1)] = rel_path
-            except OSError:
-                pass
-        return decl_map
-
-
     def get_runtime_tested_names():
         """Collect identifiers referenced by the RuntimeTestsApp C# test sources.
 
@@ -920,26 +957,6 @@ def main():
         # must not degrade the where_clause feature via file-level fallback.
         "where_clause": {"sumTwo", "describeConstrained", "ConstrainedBox", "AcceptsSummable"},
     }
-    
-    
-    def resolve_declaration(item, module_name):
-        """Extract the owning declaration name from a skipped binding item.
-    
-        For free functions (ContainingType == module), the declaration is the
-        function name itself.  For type members, it is the type name.
-        For skipped types (ContainingType == None, Kind == Type), the declaration
-        is the type name directly.
-        """
-        containing = item.get("ContainingType") or ""
-        name = item.get("Name", "")
-    
-        if not containing and item.get("Kind") == "Type":
-            return name  # skipped type (e.g. SwiftUI View)
-        if containing == module_name:
-            return name  # free function
-        elif "." in containing:
-            return containing.rsplit(".", 1)[-1]  # type name
-        return None
     
     
     def match_skipped_to_features(skipped_items, decl_map, module_name):
