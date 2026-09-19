@@ -1,5 +1,5 @@
 {
-  "git_sha": "559104063",
+  "git_sha": "0aa73af32",
   "platforms": {
     "simulator": {
       "pass_count": 4278,
@@ -309,7 +309,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4262,
+      "pass_count": 4278,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -470,7 +470,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3217,
+      "pass_count": 3371,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -486,11 +486,6 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
-        },
-        {
-          "class": "InoutStructDispatchTests",
-          "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
@@ -596,7 +591,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3220,
+      "pass_count": 3367,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -612,11 +607,6 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
-        },
-        {
-          "class": "InoutStructDispatchTests",
-          "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",
@@ -742,7 +732,7 @@
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3327,
+      "pass_count": 3474,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -758,11 +748,6 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
-        },
-        {
-          "class": "InoutStructDispatchTests",
-          "method": "TestReverseInoutNonFrozenStructDispatch",
-          "reason": "Pre-existing reverse-dispatch limitation: proxy receiver materializes a non-frozen-struct (opaque-payload) param via Unsafe.Read\u003CT\u003E, which reads a managed reference from raw Swift value bytes instead of using NewFromPayload. Separate from the inout-ref interface fix."
         },
         {
           "class": "LeakDetectionTests",

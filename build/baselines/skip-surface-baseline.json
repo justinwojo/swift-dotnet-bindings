@@ -1,12 +1,6 @@
 {
-  "git_sha": "f2923b03a",
+  "git_sha": "0aa73af32",
   "entries": [
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "ObsoleteSB0001",
-      "reason": "No @_cdecl wrapper or native thunk available (a closure parameter shape the C wrapper bridge cannot marshal). P/Invoke calling convention may not match Swift ABI",
-      "count": 1
-    },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
@@ -22,14 +16,20 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
+      "reason": "No @_cdecl wrapper or native thunk available (an inout parameter whose type is one of the declaring type\u0027s generic parameters). P/Invoke calling convention may not match Swift ABI",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the declaring type is generic in a way the wrapper cannot specialize). P/Invoke calling convention may not match Swift ABI",
-      "count": 5
+      "count": 11
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
-      "count": 37
+      "count": 8
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -172,6 +172,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027BclShadowProbe.roundTripType\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027BitwiseCtorBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
       "count": 1
     },
@@ -191,6 +197,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027CacheWriteOutcome.init\u0027 \u2014 generic constraint could not be satisfied (Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027CaptureMemberHost.kind\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
       "count": 1
     },
     {
@@ -502,6 +514,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027PlainPinnedQuery.tripled\u0027 \u2014 parameter or return type not yet supported (Constrained-extension method \u0027tripled\u0027 on generic type \u0027PlainPinnedQuery\u0027 is out of scope for ConstrainedExtensionEmitter (initial scope: zero-argument sync non-throwing public methods). Method has parameters, async/throws, or non-public visibility.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027ProcessedItem.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
@@ -598,6 +616,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027ShadowChoice.Something\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027ShortNameCollisionFixture.Data.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
       "count": 1
     },
@@ -634,7 +658,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027StringOwnershipReceiver.droppingClosureDefault\u0027 \u2014 EmitterFault (Withdrawn by wrapper verify-recover: withdrawn to recover the wrapper compile (SwiftBindingsTestLib.StringOwnershipReceiver.droppingClosureDefault (leaf-api)))",
+      "reason": "method \u0027StaticChoice.Something\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027StreamTasks.Watcher.counting\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
       "count": 1
     },
     {
@@ -701,6 +731,42 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027WitnessIndexConformer.consume\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeAnyProducer\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ZeroWitnessClosureHost.makePointAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeSendableProducer\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeStringProducer\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeTagAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.)",
       "count": 1
     },
     {
@@ -940,18 +1006,6 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027AppleShapedForecast.endIndex\u0027 \u2014 closure or async in generic type member (Concrete property \u0027endIndex\u0027 on generic struct \u0027AppleShapedForecast\u0027 requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
-      "reason": "property \u0027AppleShapedForecast.startIndex\u0027 \u2014 closure or async in generic type member (Concrete property \u0027startIndex\u0027 on generic struct \u0027AppleShapedForecast\u0027 requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
       "reason": "property \u0027AsyncClosurePropertySetterHolder.confirmHandler\u0027 \u2014 closure signature not yet supported (Closure type is not supported.)",
       "count": 1
     },
@@ -995,12 +1049,6 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027BoundGenericOfParentHost.box\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.BoxedGenericPayload\u003CSwift.AnyType\u003E).)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
-      "reason": "property \u0027BufferModeQuad.count\u0027 \u2014 closure or async in generic type member (Concrete property \u0027count\u0027 on generic struct \u0027BufferModeQuad\u0027 requires more than three parent metadata/PWT slots; property metadata-buffer dispatch is not implemented.)",
       "count": 1
     },
     {
@@ -1168,6 +1216,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "property \u0027NcPort.sendName\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027sendName\u0027 on generic type \u0027NcPort\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "property \u0027NestedHostClass.tag\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (SwiftBindingsTestLib.NestedHostClass\u003CSwift.AnyType\u003E.Tag).)",
       "count": 1
     },
@@ -1211,6 +1265,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027PinRange.coarseUnits\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027coarseUnits\u0027 on generic type \u0027PinRange\u0027 pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PlainPinnedQuery.plainLimit\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027plainLimit\u0027 on generic type \u0027PlainPinnedQuery\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
       "count": 1
     },
     {
@@ -1282,7 +1342,37 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "property \u0027StaticScaledHolder.unit\u0027 \u2014 ConstrainedExtensionWrapper (Property \u0027unit\u0027 on generic type \u0027StaticScaledHolder\u0027 declares a protocol/superclass generic constraint (e.g. \u0060where Base : X\u0060) narrower than its parent; the wrapper conformance extension is emitted unconditionally, so the accessor is invisible at the call site (conditional-conformance wrapper not yet supported).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027StreamTasks.Watcher.continuation\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (Swift.SwiftOptional\u003CSwift.AnyType\u003E).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "property \u0027TypeFactory.storedType\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (Swift.AnyType).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027UnderscoreParentHost.table\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ZeroWitnessPropertyHolder.optionalAny\u0027 \u2014 type could not be resolved to a concrete projection (Optional existential inner protocol not in TypeDatabase \u2014 falls back to object.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ZeroWitnessPropertyHolder.optionalSendable\u0027 \u2014 type could not be resolved to a concrete projection (Optional existential inner protocol not in TypeDatabase \u2014 falls back to object.)",
       "count": 1
     },
     {
@@ -1635,9 +1725,15 @@
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027_UnderscoreParentTable\u0027 \u2014 underscore-prefixed type treated as internal",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Existential type fallback",
-      "count": 15
+      "count": 21
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -1649,7 +1745,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Unsupported closure fallback",
-      "count": 16
+      "count": 19
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",

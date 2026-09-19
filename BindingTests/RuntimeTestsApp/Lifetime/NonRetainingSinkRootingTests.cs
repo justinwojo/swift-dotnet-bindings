@@ -252,22 +252,35 @@ public class NonRetainingSinkRootingTests : TestBase
 
     /// <summary>
     /// Builds the implementation/receiver cycle, assigns it into the weak sink, measures the
-    /// census while both are alive, and returns weak handles to both. Both strong references
-    /// fall out of scope on return, which is the condition under test.
+    /// census while both are alive, and returns weak handles to both — all inside a worker
+    /// thread that has exited before the caller collects, so no dead stack slot pins either
+    /// end of the cycle. Both strong references die with that thread, which is the condition
+    /// under test; this test reads the weak handles as well as the census, so a pinned slot
+    /// would fail it on <c>IsAlive</c> as readily as on residue.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static (WeakReference Impl, WeakReference Harness, int WhileAlive) AssignCyclicPairAndDrop()
     {
-        var harness = new ReverseWeakSinkHarness();
-        var impl = new ReceiverHoldingWeakSinkDelegateImpl(harness);
-        harness.WeakDelegate = impl;
+        WeakReference? implRef = null;
+        WeakReference? harnessRef = null;
+        var whileAlive = 0;
 
-        ForceGc();
-        var whileAlive = SwiftLeakCensus.Report().ProxyImplRoots;
+        RunOnRetiredThread(() =>
+        {
+            var harness = new ReverseWeakSinkHarness();
+            var impl = new ReceiverHoldingWeakSinkDelegateImpl(harness);
+            harness.WeakDelegate = impl;
 
-        GC.KeepAlive(impl);
-        GC.KeepAlive(harness);
-        return (new WeakReference(impl), new WeakReference(harness), whileAlive);
+            ForceGc();
+            whileAlive = SwiftLeakCensus.Report().ProxyImplRoots;
+
+            implRef = new WeakReference(impl);
+            harnessRef = new WeakReference(harness);
+            GC.KeepAlive(impl);
+            GC.KeepAlive(harness);
+        });
+
+        return (implRef!, harnessRef!, whileAlive);
     }
 
     /// <summary>
@@ -293,17 +306,28 @@ public class NonRetainingSinkRootingTests : TestBase
         TestLogger.Info($"[NonRetainingSink] unowned drop: baseline={baseline}, live={whileAlive}, after={after}");
     }
 
+    /// <summary>
+    /// Assigns a fresh implementation into the <c>unowned</c> sink and drops both it and the
+    /// receiver — all inside a worker thread that has exited before the caller collects, so no
+    /// dead stack slot pins the carrier the assertion is about. Returns the census reading
+    /// taken while the implementation was alive.
+    /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int AssignUnownedAndDropEverything()
     {
-        var harness = new ReverseWeakSinkHarness();
-        var impl = new WeakSinkDelegateImpl();
-        harness.UnownedDelegate = impl;
+        var whileAlive = 0;
+        RunOnRetiredThread(() =>
+        {
+            var harness = new ReverseWeakSinkHarness();
+            var impl = new WeakSinkDelegateImpl();
+            harness.UnownedDelegate = impl;
 
-        ForceGc();
-        var whileAlive = SwiftLeakCensus.Report().ProxyImplRoots;
-        GC.KeepAlive(impl);
-        GC.KeepAlive(harness);
+            ForceGc();
+            whileAlive = SwiftLeakCensus.Report().ProxyImplRoots;
+
+            GC.KeepAlive(impl);
+            GC.KeepAlive(harness);
+        });
         return whileAlive;
     }
 
