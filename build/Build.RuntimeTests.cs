@@ -40,6 +40,60 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 partial class Build
 {
+    [Parameter("Managed BindingTests target: net10.0 (default) or net11.0")]
+    readonly string? BindingTestFramework;
+    [Parameter(".NET 11 CoreCLR app configuration: Debug (default) or Release")]
+    readonly string? BindingTestConfiguration;
+    [Parameter("Run the .NET 11 physical-device app on CoreCLR instead of NativeAOT")]
+    readonly bool CoreClr;
+    [Parameter("Permit a .NET 11 functional run without a reviewed runtime baseline; reports UNQUALIFIED")]
+    readonly bool AllowUnqualifiedRuntime;
+
+    RuntimeTestLane? runtimeLane;
+    RuntimeTestLane RuntimeLane => runtimeLane ??= RuntimeTestLane.Create(BindingTestFramework,
+        Environment.GetEnvironmentVariable("SWIFT_BINDINGS_MANAGED_FRAMEWORK"), BindingTestConfiguration,
+        CoreClr, Device, MonoAot);
+    string BtFramework => RuntimeLane.Framework;
+    string BtConfiguration => RuntimeLane.Configuration;
+    AbsolutePath RuntimeAppBin(string project, bool device = false) =>
+        BindingTestsDir / project / RuntimeLane.AppBinDirectory(device);
+
+    void ValidateRuntimeLaneSelection()
+    {
+        _ = RuntimeLane;
+        if (RuntimeLane.IsNet11 && (CompileOnly || PartialSuccessKitchen || AbiGrid || GetActiveSmokeFlags().Count > 0 ||
+            ActivityKitPushToken || CatalystX64Jit || SeedRuntimeIdentityBaseline))
+            throw new InvalidOperationException("This auxiliary gate has not been migrated to .NET 11. " +
+                "Compile-only, kitchen/ABI-grid, baseline seeding, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.");
+        if (AllowUnqualifiedRuntime && !RuntimeLane.IsNet11)
+            throw new InvalidOperationException("--allow-unqualified-runtime applies only to .NET 11 bring-up lanes.");
+    }
+
+    void AssertLiveRuntimeLane(LaunchResult result, bool device = false)
+    {
+        if (!RuntimeLane.IsNet11 || LaunchDiagnostics.LauncherNeverStartedApp(result))
+            return;
+        var banner = DeviceRuntimeFlavorGate.ExtractBanner(result.Output);
+        if ((banner != null || result.Result == TestResult.Success) && !RuntimeLane.MatchesLiveIdentity(result.Output, device))
+            throw new InvalidOperationException($"Wrong or missing live .NET 11 {RuntimeLane.Engine(device)} identity: {banner ?? "<none>"}.");
+    }
+
+    string RuntimeEvidenceSuffix(bool device = false) => RuntimeLane.IsNet11
+        ? $"-{BtFramework}-{RuntimeLane.Engine(device)}-{RuntimeLane.BuildConfiguration(device, MonoAot)}" : "";
+
+    void StampOrCheckRuntimeApp(string appPath, bool device = false)
+    {
+        if (!RuntimeLane.IsNet11) return;
+        var path = appPath + ".bindingtests-lane";
+        var identity = $"{BtFramework}/{RuntimeLane.Engine(device)}/{RuntimeLane.BuildConfiguration(device, MonoAot)}/{ToolchainFingerprint}";
+        if (SkipBuild)
+        {
+            if (!File.Exists(path) || File.ReadAllText(path) != identity)
+                throw new InvalidOperationException("Cached test app does not match this framework, engine, configuration and toolchain; rerun without --skip-build.");
+        }
+        else File.WriteAllText(path, identity);
+    }
+
     [Parameter("Skip all builds, just install + run")] readonly bool SkipBuild;
     [Parameter("Pre-booted simulator or device UDID. With --device it identifies the physical device; simulator legs then resolve their own booted simulator.")]
     readonly string? DeviceUdid;
@@ -323,6 +377,8 @@ partial class Build
         var sidecar = outputDir / TargetPlatformSidecarName;
         outputDir.CreateDirectory();
         File.WriteAllText(sidecar, platform.Name);
+        File.WriteAllText(outputDir / ".target-framework", BtFramework);
+        StampToolchainEvidence(outputDir);
     }
 
     // --skip-build implies --skip-regen (matches run-runtime-tests.sh line 56-59).
@@ -987,7 +1043,9 @@ partial class Build
                 {
                     var built = s
                         .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
-                        .SetConfiguration("Debug")
+                        .SetConfiguration(BtConfiguration)
+                        .SetProperty("BtTargetFramework", BtFramework)
+                        .SetProperty("BtRuntimeEngine", "coreclr")
                         .SetVerbosity(DotNetVerbosity.quiet);
                     // Any smoke flag needs SwiftBindingsRepoRoot so the snapshot csproj
                     // resolves SwiftBindings.Runtime via the in-tree ProjectReference
@@ -1028,11 +1086,11 @@ partial class Build
                     return built;
                 });
 
-                var appFrameworks = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-                    $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app" / "Frameworks";
+                var appFrameworks = BindingTestsDir / "RuntimeTestsApp" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                    $"{BtFramework}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app" / "Frameworks";
 
-                if (!Directory.Exists(BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-                    $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app"))
+                if (!Directory.Exists(BindingTestsDir / "RuntimeTestsApp" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                    $"{BtFramework}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app"))
                     throw new Exception("Build failed - app bundle not found");
 
                 Log.Information("Build successful.");
@@ -1080,10 +1138,10 @@ partial class Build
     void RunDevicePlatform()
     {
             var monoAot = MonoAot;
-            var laneLabel = monoAot ? "Device/MonoAOT" : "Device/NativeAOT";
+            var laneLabel = CoreClr ? "Device/CoreCLR" : monoAot ? "Device/MonoAOT" : "Device/NativeAOT";
 
             Log.Information("=========================================");
-            Log.Information(" BindingTests Runtime Tests (Device — {Lane})", monoAot ? "Mono full-AOT" : "NativeAOT");
+            Log.Information(" BindingTests Runtime Tests (Device — {Lane})", CoreClr ? "CoreCLR" : monoAot ? "Mono full-AOT" : "NativeAOT");
             Log.Information("=========================================");
 
             // Step 0: Find connected device
@@ -1124,11 +1182,11 @@ partial class Build
 
             // Configuration is the lane separator: NativeAOT publishes Release, Mono full-AOT builds
             // Debug, so the two lanes never share a bin/ or obj/ tree for the same RID.
-            var configuration = monoAot ? "Debug" : "Release";
+            var configuration = RuntimeLane.BuildConfiguration(device: true, monoAot);
 
             if (!SkipBuild)
             {
-                if (monoAot)
+                if (monoAot || CoreClr)
                 {
                     // Mono full-AOT: a plain device BUILD with PublishAot suppressed. Property choice
                     // is taken from swift-dotnet-packages `BuildTestAppDevice` (build/Build.TestApp.cs)
@@ -1139,7 +1197,7 @@ partial class Build
                     // SwiftBindingsDeviceMonoAot is ours: it tells RuntimeTestsApp.csproj not to turn
                     // the ios-arm64 RID into a NativeAOT build, and it feeds the runtime-flavor
                     // AppContext switch the SDK injects for real consumers.
-                    Log.Information("--- Building RuntimeTestsApp (Mono full-AOT, ios-arm64) ---");
+                    Log.Information("--- Building RuntimeTestsApp ({Engine}, ios-arm64) ---", CoreClr ? "CoreCLR" : "Mono full-AOT");
                     Log.Information("This may take several minutes (Mono AOT + code signing)...");
                     DotNetBuild(s =>
                     {
@@ -1147,7 +1205,10 @@ partial class Build
                             .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
                             .SetConfiguration(configuration)
                             .SetProperty("RuntimeIdentifier", "ios-arm64")
-                            .SetProperty(DeviceMonoAotProperty, "true")
+                            .SetProperty(DeviceMonoAotProperty, monoAot ? "true" : "false")
+                            .SetProperty("BtDeviceCoreClr", CoreClr ? "true" : "false")
+                            .SetProperty("BtTargetFramework", BtFramework)
+                            .SetProperty("BtRuntimeEngine", "coreclr")
                             .SetVerbosity(DotNetVerbosity.quiet);
                         if (ActivityKitPushToken)
                             settings = settings.SetProperty("EnableActivityKitPushToken", "true");
@@ -1168,6 +1229,8 @@ partial class Build
                             .SetProject(BindingTestsDir / "RuntimeTestsApp")
                             .SetConfiguration(configuration)
                             .SetRuntime("ios-arm64")
+                            .SetProperty("BtTargetFramework", BtFramework)
+                            .SetProperty("BtRuntimeEngine", "nativeaot")
                             .SetVerbosity(DotNetVerbosity.quiet);
                         if (ActivityKitPushToken)
                             settings = settings.SetProperty("EnableActivityKitPushToken", "true");
@@ -1181,17 +1244,14 @@ partial class Build
             // Locate app bundle. Both lanes produce `RuntimeTestsApp.app` under an `ios-arm64` RID
             // directory; the configuration segment is what tells them apart, so it is part of the
             // filter rather than an afterthought.
-            var appSearchDir = BindingTestsDir / "RuntimeTestsApp" / "bin";
-            var appPath = Directory.GetDirectories(appSearchDir, "RuntimeTestsApp.app",
-                    SearchOption.AllDirectories)
-                .Where(d => d.Contains(configuration) && d.Contains("ios-arm64"))
-                .FirstOrDefault()
-                ?? throw new Exception(
-                    $"App bundle not found after {(monoAot ? "build" : "publish")} " +
-                    $"(expected a {configuration}/ios-arm64 RuntimeTestsApp.app under {appSearchDir})");
+            var appPath = RuntimeAppBin("RuntimeTestsApp", device: true) / configuration /
+                $"{BtFramework}-ios" / "ios-arm64" / "RuntimeTestsApp.app";
+            if (!Directory.Exists(appPath))
+                throw new Exception($"Expected device app bundle not found at {appPath}.");
             Log.Information("App bundle: {Path}", appPath);
 
-            AssertDeviceAppFlavor(appPath, monoAot);
+            AssertDeviceAppFlavor(appPath, monoAot || CoreClr, CoreClr);
+            StampOrCheckRuntimeApp(appPath, device: true);
             VerifyActivityKitPushTokenCapability(appPath, device.Udid);
 
             // Install + run on device
@@ -1206,18 +1266,18 @@ partial class Build
     /// suppression silently stopped working — would install, run, and be reported under the wrong
     /// runtime's name. Cheap, and it fails the run before the device is touched.
     /// </summary>
-    void AssertDeviceAppFlavor(string appPath, bool monoAot)
+    void AssertDeviceAppFlavor(string appPath, bool monoAot, bool coreClr = false)
     {
         var managedAssembly = Path.Combine(appPath, "RuntimeTestsApp.dll");
         var hasManagedAssemblies = File.Exists(managedAssembly);
-        var expectedFlavor = monoAot ? "Mono full-AOT" : "NativeAOT";
+        var expectedFlavor = coreClr ? "CoreCLR" : monoAot ? "Mono full-AOT" : "NativeAOT";
 
         if (monoAot && !hasManagedAssemblies)
             throw new Exception(
-                $"--mono-aot built {appPath} but the bundle carries no managed RuntimeTestsApp.dll — " +
+                $"The {expectedFlavor} lane built {appPath} but the bundle carries no managed RuntimeTestsApp.dll — " +
                 "that is a NativeAOT bundle shape. The PublishAot suppression " +
                 $"(-p:{DeviceMonoAotProperty}=true) did not take effect; refusing to report a " +
-                "NativeAOT run as Mono full-AOT.");
+                $"NativeAOT run as {expectedFlavor}.");
 
         if (!monoAot && hasManagedAssemblies)
             throw new Exception(
@@ -1332,8 +1392,8 @@ partial class Build
                 // errors from previously injected dylibs. The RID dir differs per
                 // arch (osx-arm64 vs osx-x64), so the x64 cell never clobbers the
                 // arm64 bundle and vice versa.
-                var macBuildDir = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
-                    $"{DotNetTfm}-macos" / platform.Rid!;
+                var macBuildDir = BindingTestsDir / "RuntimeTestsApp.Mac" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                    $"{BtFramework}-macos" / platform.Rid!;
                 var appBundle = macBuildDir / "RuntimeTestsApp.Mac.app";
                 if (Directory.Exists(appBundle))
                 {
@@ -1345,11 +1405,14 @@ partial class Build
                 {
                     var built = s
                         .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.Mac")
-                        .SetConfiguration("Debug")
+                        .SetConfiguration(BtConfiguration)
+                        .SetProperty("BtTargetFramework", BtFramework)
+                        .SetProperty("BtRuntimeEngine", "coreclr")
                         .SetVerbosity(DotNetVerbosity.quiet)
-                        // Build for this cell's RID and gate the wrapper NativeReference
+                        // Select an app-local RID so restore does not apply it to every TFM
+                        // of multi-targeted library references. Gate the wrapper NativeReference
                         // on this cell's wrapper slice id (macos-arm64 vs macos-x86_64).
-                        .SetProperty("RuntimeIdentifier", platform.Rid!)
+                        .SetProperty("BtRuntimeIdentifier", platform.Rid!)
                         .SetProperty("BtNativeWrapperSlice", platform.SimulatorSliceId);
                     if (EnableCryptoKitSmoke || EnableWeatherKitSmoke)
                         built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
@@ -1432,8 +1495,8 @@ partial class Build
                 // errors from previously injected dylibs. The RID dir differs per
                 // arch (maccatalyst-arm64 vs maccatalyst-x64), so the cells never
                 // clobber each other.
-                var catalystBuildDir = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / "bin" / "Debug" /
-                    $"{DotNetTfm}-maccatalyst" / platform.Rid!;
+                var catalystBuildDir = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                    $"{BtFramework}-maccatalyst" / platform.Rid!;
                 var appBundle = catalystBuildDir / "RuntimeTestsApp.MacCatalyst.app";
                 if (Directory.Exists(appBundle))
                 {
@@ -1449,27 +1512,30 @@ partial class Build
                 // is the iOS-workload knob (Catalyst inherits the iOS workload);
                 // UseInterpreter is the newer alias added in .NET 9+. Set both
                 // for resilience across workload versions.
-                var useInterp = platform == ApplePlatform.MacCatalystX64 && !CatalystX64Jit;
+                var useInterp = !RuntimeLane.IsNet11 && platform == ApplePlatform.MacCatalystX64 && !CatalystX64Jit;
                 if (useInterp)
                     Log.Information("--- Mono interpreter mode (MtouchInterpreter=all) — Catalyst-x64 default; bypasses upstream-issue-04 JIT crashes ---");
-                else if (platform == ApplePlatform.MacCatalystX64)
+                else if (!RuntimeLane.IsNet11 && platform == ApplePlatform.MacCatalystX64)
                     Log.Warning("--- Catalyst-x64 JIT path enabled (--catalyst-x64-jit) — expect crashes; see upstream-issue-04 ---");
 
                 DotNetBuild(s =>
                 {
                     var b = s
                         .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.MacCatalyst")
-                        .SetConfiguration("Debug")
+                        .SetConfiguration(BtConfiguration)
+                        .SetProperty("BtTargetFramework", BtFramework)
+                        .SetProperty("BtRuntimeEngine", "coreclr")
                         .SetVerbosity(DotNetVerbosity.quiet)
-                        // Build for this cell's RID and gate the wrapper NativeReference
+                        // Select an app-local RID so restore does not apply it to every TFM
+                        // of multi-targeted library references. Gate the wrapper NativeReference
                         // on this cell's wrapper slice id.
-                        .SetProperty("RuntimeIdentifier", platform.Rid!)
+                        .SetProperty("BtRuntimeIdentifier", platform.Rid!)
                         .SetProperty("BtNativeWrapperSlice", platform.SimulatorSliceId);
                     if (useInterp)
                         b = b
                             .SetProperty("MtouchInterpreter", "all")
                             .SetProperty("UseInterpreter", "true");
-                    else if (platform == ApplePlatform.MacCatalystX64)
+                    else if (!RuntimeLane.IsNet11 && platform == ApplePlatform.MacCatalystX64)
                         // --catalyst-x64-jit: override the SDK's auto-applied
                         // maccatalyst-x64 interpreter workaround so the JIT path
                         // is actually exercised (consumer .targets default to
@@ -1588,7 +1654,9 @@ partial class Build
                 {
                     var built = s
                     .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.tvOS")
-                    .SetConfiguration("Debug")
+                    .SetConfiguration(BtConfiguration)
+                    .SetProperty("BtTargetFramework", BtFramework)
+                    .SetProperty("BtRuntimeEngine", "coreclr")
                     .SetVerbosity(DotNetVerbosity.quiet);
                     if (EnableStoreKitSmoke)
                         built = built
@@ -1597,11 +1665,11 @@ partial class Build
                     return built;
                 });
 
-                var appFrameworks = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
-                    $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app" / "Frameworks";
+                var appFrameworks = BindingTestsDir / "RuntimeTestsApp.tvOS" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                    $"{BtFramework}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app" / "Frameworks";
 
-                if (!Directory.Exists(BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
-                    $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app"))
+                if (!Directory.Exists(BindingTestsDir / "RuntimeTestsApp.tvOS" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                    $"{BtFramework}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app"))
                     throw new Exception("Build failed - tvOS app bundle not found");
 
                 Log.Information("Build successful.");
@@ -1758,8 +1826,9 @@ partial class Build
         if (storeKitConfiguration is not null)
             RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
-        var appPath = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-            $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
+        var appPath = BindingTestsDir / "RuntimeTestsApp" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+            $"{BtFramework}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
+        StampOrCheckRuntimeApp(appPath);
 
         // Load test inventory for crash recovery
         var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
@@ -1786,7 +1855,7 @@ partial class Build
         // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
         // and the give-up points cannot disagree about how many attempts remain.
         var launchAbortCount = 0;
-        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts", Guid.NewGuid().ToString("N"));
+        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(), Guid.NewGuid().ToString("N"));
         var attempts = new RuntimeTestAttempts(attemptDirectory);
         Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
 
@@ -1827,6 +1896,7 @@ partial class Build
                     appName: "RuntimeTestsApp");
                 lastResult = result;
                 var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
+                AssertLiveRuntimeLane(result);
 
                 // Show output
                 Log.Information("");
@@ -1937,8 +2007,9 @@ partial class Build
         if (storeKitConfiguration is not null)
             RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
-        var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
-            $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
+        var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+            $"{BtFramework}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
+        StampOrCheckRuntimeApp(appPath);
 
         var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp.tvOS");
 
@@ -1985,7 +2056,9 @@ partial class Build
         {
             jsonlResults = JsonlTestResults.Parse(jsonlContent);
             Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
-            File.WriteAllText("/tmp/runtime-tests-tvos.jsonl", jsonlContent);
+            var evidencePath = Path.Combine(Path.GetTempPath(), $"runtime-tests-tvos{RuntimeEvidenceSuffix()}-{runToken}.jsonl");
+            File.WriteAllText(evidencePath, jsonlContent);
+            Log.Information("tvOS JSONL evidence: {Path}", evidencePath);
         }
         else
         {
@@ -2047,7 +2120,7 @@ partial class Build
         // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
         // and the give-up points cannot disagree about how many attempts remain.
         var launchAbortCount = 0;
-        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts", Guid.NewGuid().ToString("N"));
+        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(device: true), Guid.NewGuid().ToString("N"));
         var attempts = new RuntimeTestAttempts(attemptDirectory);
         Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
 
@@ -2070,7 +2143,7 @@ partial class Build
 
                 var args = new List<string>
                 {
-                    "--platform", monoAot ? "device-monoaot" : "device", "--run-token", runToken
+                    "--platform", CoreClr ? "device-coreclr" : monoAot ? "device-monoaot" : "device", "--run-token", runToken
                 };
                 if (FlakeDetect) args.AddRange(["--flake-detect"]);
                 if (Lifetime) args.AddRange(["--lifetime"]);
@@ -2084,6 +2157,7 @@ partial class Build
                     args.ToArray(), TimeSpan.FromSeconds(Timeout));
                 lastResult = result;
                 var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
+                AssertLiveRuntimeLane(result, device: true);
 
                 Log.Information("");
                 Log.Information("=== APP OUTPUT ===");
@@ -2103,7 +2177,7 @@ partial class Build
                 // resolved against the lane we asked for. The structural bundle check
                 // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
                 // with it on the phone, which is the claim the report ultimately makes.
-                AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
+                if (!CoreClr) AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
 
                 // Try to retrieve JSONL results from device sandbox
                 JsonlTestResults? runResults = null;
@@ -2155,10 +2229,10 @@ partial class Build
     {
         Log.Information("--- Running on {Label} ---", platform.RunUnderRosetta ? "macOS x64 (Rosetta)" : "macOS");
 
-        // macOS uses --platform simulator (Mono JIT mode, same as simulator).
+        // Desktop hosts use the simulator skip policy; the live banner identifies the engine.
         // Pass --results-path so JSONL is written outside the .app bundle
         // (writing inside would invalidate the code signature seal).
-        var macResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-macos-results-{platform.Rid}";
+        var macResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-macos-results-{platform.Rid}{RuntimeEvidenceSuffix()}";
         Directory.CreateDirectory(macResultsDir);
         // Remove stale JSONL so a crash doesn't report a previous run's results.
         var staleJsonl = macResultsDir / "test-results.jsonl";
@@ -2180,9 +2254,10 @@ partial class Build
         using var process = new Process();
         // net10.0-macos produces a .app bundle — launch the native executable
         // directly instead of `dotnet run`.
-        var macExe = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
-            $"{DotNetTfm}-macos" / platform.Rid! / "RuntimeTestsApp.Mac.app" /
+        var macExe = BindingTestsDir / "RuntimeTestsApp.Mac" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+            $"{BtFramework}-macos" / platform.Rid! / "RuntimeTestsApp.Mac.app" /
             "Contents" / "MacOS" / "RuntimeTestsApp.Mac";
+        StampOrCheckRuntimeApp(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(macExe)!, "../..")));
         process.StartInfo = BuildHostLaunchStartInfo(macExe, argList, platform.RunUnderRosetta);
 
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
@@ -2288,9 +2363,9 @@ partial class Build
     {
         Log.Information("--- Running on {Label} ---", platform.RunUnderRosetta ? "Mac Catalyst x64 (Rosetta)" : "Mac Catalyst");
 
-        // Catalyst uses --platform simulator (Mono JIT mode, same as macOS).
+        // Catalyst uses the simulator skip policy; the live banner identifies the engine.
         // Pass --results-path so JSONL is written outside the .app bundle.
-        var catalystResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-catalyst-results-{platform.Rid}";
+        var catalystResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-catalyst-results-{platform.Rid}{RuntimeEvidenceSuffix()}";
         Directory.CreateDirectory(catalystResultsDir);
         // Remove stale JSONL from previous runs so a crash doesn't report old results.
         var staleJsonl = catalystResultsDir / "test-results.jsonl";
@@ -2310,9 +2385,10 @@ partial class Build
         using var process = new Process();
         // net10.0-maccatalyst produces a .app bundle — launch the native executable
         // directly instead of `dotnet run`.
-        var catalystExe = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / "bin" / "Debug" /
-            $"{DotNetTfm}-maccatalyst" / platform.Rid! / "RuntimeTestsApp.MacCatalyst.app" /
+        var catalystExe = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+            $"{BtFramework}-maccatalyst" / platform.Rid! / "RuntimeTestsApp.MacCatalyst.app" /
             "Contents" / "MacOS" / "RuntimeTestsApp.MacCatalyst";
+        StampOrCheckRuntimeApp(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(catalystExe)!, "../..")));
         process.StartInfo = BuildHostLaunchStartInfo(catalystExe, argList, platform.RunUnderRosetta);
 
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
@@ -2479,6 +2555,11 @@ partial class Build
 
     void ReportRuntimeTestResult(LaunchResult result, string platform, JsonlTestResults? jsonlResults = null)
     {
+        AssertLiveRuntimeLane(result, device: platform.StartsWith("Device/", StringComparison.Ordinal));
+        if (RuntimeLane.IsNet11)
+            Log.Information("Runtime lane: {Framework}/{Engine}/{Configuration} ({Platform})", BtFramework,
+                RuntimeLane.Engine(platform.StartsWith("Device/", StringComparison.Ordinal)),
+                RuntimeLane.BuildConfiguration(platform.StartsWith("Device/", StringComparison.Ordinal), MonoAot), platform);
         // Log JSONL-derived counts if available
         if (jsonlResults != null)
         {
@@ -2538,10 +2619,10 @@ partial class Build
         // string alone — exactly the channel a teardown crash after the marker would still print.
         // Require the structured results to certify a green run, unless the operator explicitly
         // opted into --permissive (local exploration only).
-        if (effectiveResult == TestResult.Success && jsonlResults == null && !Permissive)
+        if (effectiveResult == TestResult.Success && jsonlResults == null && (!Permissive || RuntimeLane.IsNet11))
         {
             Log.Error("Runtime tests reported success for {Platform} but produced no JSONL results artifact; " +
-                "refusing to certify a green run on the console marker alone (pass --permissive to override).",
+                "refusing to certify a green run on the console marker alone (only legacy lanes allow --permissive to override).",
                 platform);
             effectiveResult = TestResult.Failure;
         }
@@ -2600,8 +2681,52 @@ partial class Build
     /// Skipped entirely for smoke-enabled runs (see the early return) — their pass count
     /// includes opt-in Apple-framework classes and is not comparable to the no-smoke baseline.
     /// </summary>
+    void CompareNet11RuntimeBaseline(string platform, JsonlTestResults results)
+    {
+        var (platformKey, rid, device) = platform switch
+        {
+            "Simulator" => ("simulator", "iossimulator-arm64", false),
+            "Device/NativeAOT" => ("device", "ios-arm64", true),
+            "Device/CoreCLR" => ("device", "ios-arm64", true),
+            "macOS" => ("macos", "osx-arm64", false),
+            "macOS x64" => ("macos", "osx-x64", false),
+            "Mac Catalyst" => ("maccatalyst", "maccatalyst-arm64", false),
+            "Mac Catalyst x64" => ("maccatalyst", "maccatalyst-x64", false),
+            "tvOS Simulator" => ("tvos_simulator", "tvossimulator-arm64", false),
+            _ => throw new InvalidOperationException($"Unknown .NET 11 runtime lane: {platform}.")
+        };
+        var key = RuntimeLane.BaselineKey(platformKey, rid, device);
+        if (SkipBuild || !string.IsNullOrEmpty(ClassFilter))
+        {
+            Log.Warning("UNQUALIFIED runtime lane {Key}: partial or reused-app run; no runtime baseline was graded.", key);
+            return;
+        }
+        var path = BaselinesDir / "runtime-identity-net11-baseline.json";
+        var baseline = RuntimeIdentityBaseline.Load(path);
+        if (!baseline.Platforms.ContainsKey(key))
+        {
+            var message = $"UNQUALIFIED runtime lane {key}: no reviewed .NET 11 identity baseline in {path}. " +
+                "The .NET 10/Mono baselines cannot qualify this lane.";
+            if (!AllowUnqualifiedRuntime)
+                throw new InvalidOperationException(message + " Use --allow-unqualified-runtime only for explicit functional bring-up.");
+            Log.Warning("{Message}", message);
+            return;
+        }
+        baseline.GetRequiredCounts(key);
+        var comparison = baseline.Compare(key, results.Tests.Select(t =>
+            new RuntimeIdentityBaseline.TestRecord(t.ClassName, t.TestName, t.Status, t.Error ?? "")).ToList());
+        if (comparison.Regressions.Count > 0)
+            throw new InvalidOperationException($".NET 11 runtime identity regression for {key}: {string.Join("; ", comparison.Regressions)}");
+        Log.Information("Qualified runtime baseline matched: {Key} (read-only).", key);
+    }
+
     void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
     {
+        if (RuntimeLane.IsNet11)
+        {
+            CompareNet11RuntimeBaseline(platform, jsonlResults);
+            return;
+        }
         // This opt-in arm compiles one additional device-only test into the otherwise
         // canonical suite. Its result is authoritative for ActivityKit, but its count
         // and identity set must never ratchet the default device baseline.
@@ -2712,6 +2837,7 @@ partial class Build
         // the normal regression gate even when the command-line seed flag is present.
         if (identityBacked && SeedRuntimeIdentityBaseline)
         {
+            ProfileContext.AssertBaselineWriteAllowed("--seed-runtime-identity-baseline");
             if (jsonlResults.CrashCount != 0 || jsonlResults.FailCount != 0)
                 throw new InvalidOperationException(
                     $"Cannot seed runtime identity baseline for {platform} from a failing run.");
@@ -2785,6 +2911,12 @@ partial class Build
             Log.Warning("IMPROVEMENT: {Platform} pass count increased by {Delta} (baseline={Baseline}, current={Current})",
                 platform, delta, baselinePass, currentPass);
 
+            if (!ProfileContext.CanWriteBaselines)
+            {
+                Log.Information("Runtime baseline auto-update suppressed for toolchain profile {Profile}.", ProfileContext.Profile);
+                return;
+            }
+
             // Auto-update the owning baseline only on unfiltered, fully-green runs. Otherwise a
             // partially-failing run with a net pass-count increase would persist
             // `fail > 0` into the committed baseline, silently masking a regression.
@@ -2845,6 +2977,11 @@ partial class Build
     void AssertBindingsNotStale(AbsolutePath? outputDirOverride = null, ApplePlatform? expectedPlatform = null)
     {
         var outputDir = outputDirOverride ?? BtOutputDir;
+        var toolchainSidecar = outputDir / ToolchainEvidenceSidecar;
+        ProfileContext.AssertEvidenceCompatible(File.Exists(toolchainSidecar) ? File.ReadAllText(toolchainSidecar).Trim() : null);
+        var frameworkSidecar = outputDir / ".target-framework";
+        RuntimeTestLane.AssertFrameworkStamp(BtFramework,
+            File.Exists(frameworkSidecar) ? File.ReadAllText(frameworkSidecar).Trim() : null);
         var bindingsFile = outputDir / $"{ModuleName}.cs";
 
         if (!File.Exists(bindingsFile))
@@ -3107,6 +3244,7 @@ partial class Build
             $"\"{GeneratorDll}\"",
             $"--xcframework \"{BtXcframeworkDir}\"",
             $"--platform {platform.Name}",
+            $"--target-framework {platform.GetTfm(BtFramework)}",
             $"-o \"{BtOutputDir}\"",
             // Name the wrapper library the same thing RunBuildAsyncWrapper actually compiles.
             // Omitting the flag lets the generator fall back to its "{Module}SwiftBindings"
@@ -3173,6 +3311,7 @@ partial class Build
                 $"\"{GeneratorDll}\"",
                 $"--xcframework \"{BtDepXcframeworkDir}\"",
                 $"--platform {platform.Name}",
+                $"--target-framework {platform.GetTfm(BtFramework)}",
                 $"-o \"{depOutputDir}\"",
             };
             if (strict)

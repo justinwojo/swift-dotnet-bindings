@@ -59,6 +59,11 @@ partial class Build
         .After(SurfaceAccounting)
         .Executes(() =>
         {
+            if (!ProfileContext.CanWriteBaselines)
+            {
+                Log.Information("Validation baseline promotion suppressed for toolchain profile {Profile}.", ProfileContext.Profile);
+                return;
+            }
             if (validationPromotion?.Promote() != true)
                 Log.Information("Validation baseline unchanged: candidate lacks complete qualification receipts.");
         });
@@ -568,7 +573,7 @@ partial class Build
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
             if (!baselineAtStart.SequenceEqual(File.ReadAllBytes(BaselinePath)))
                 throw new InvalidDataException("Baseline changed during Validate; candidate cannot be promoted");
-            validationPromotion = new ValidationPromotion(BaselinePath, isFullRun && !Quick, currentResults,
+            validationPromotion = new ValidationPromotion(BaselinePath, isFullRun && !Quick && ProfileContext.CanWriteBaselines, currentResults,
                 "Validate", "PackGate", "BehaviorTier", "WithdrawalEvidence", "SurfaceAccounting");
             var candidatePath = outputBase / ("validation-candidate-" + Guid.NewGuid().ToString("N") + ".json");
             validationPromotion.WriteInspection(candidatePath);
@@ -1904,6 +1909,8 @@ partial class Build
         files.Sort(StringComparer.Ordinal);
 
         using var sha = SHA256.Create();
+        var toolchainBytes = System.Text.Encoding.UTF8.GetBytes(ToolchainFingerprint + "\n" + ProfileContext.SourceFingerprint + "\n");
+        sha.TransformBlock(toolchainBytes, 0, toolchainBytes.Length, null, 0);
         foreach (var file in files)
         {
             // Include file path as separator to avoid collisions from different file sets

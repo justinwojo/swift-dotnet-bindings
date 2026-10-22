@@ -79,38 +79,13 @@
        imported after the project body, so $(TargetFramework) is set whether
        it came from <TargetFramework> or a multi-TFM inner build. -->
   <PropertyGroup>
-    <!-- Auto-detect platform from TFM (maccatalyst before macos to avoid substring overlap) -->
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('maccatalyst'))">maccatalyst</_SwiftBindingPlatform>
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('tvos'))">tvos</_SwiftBindingPlatform>
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('macos'))">macos</_SwiftBindingPlatform>
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('ios'))">ios</_SwiftBindingPlatform>
-    <!-- Fail fast for unsupported TFMs (e.g. net10.0, net10.0-android, typos).
-         No fallback assignment — _SwiftBindingPlatform stays empty so downstream
-         properties also stay empty, making the invalid state visible if SWIFTBIND010
-         is ever bypassed. -->
+    <!-- Match the complete supported TFM grammar, then derive the platform from that
+         validated input. Versioned TFMs and multi-target inner builds use the same gate. -->
+    <_SwiftBindingTargetFrameworkValid>$([System.Text.RegularExpressions.Regex]::IsMatch('$(TargetFramework)', '\Anet(10|11)\.0-(ios|macos|tvos|maccatalyst)([0-9]+\.[0-9]+)?\z', System.Text.RegularExpressions.RegexOptions.IgnoreCase))</_SwiftBindingTargetFrameworkValid>
+    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND '$(_SwiftBindingTargetFrameworkValid)' == 'true'">$([System.Text.RegularExpressions.Regex]::Replace('$(TargetFramework)', '(?i)\Anet(10|11)\.0-([a-z]+).*\z', '$2').ToLowerInvariant())</_SwiftBindingPlatform>
+    <_SwiftBindingManagedFramework Condition="'$(_SwiftBindingTargetFrameworkValid)' == 'true'">$([System.Text.RegularExpressions.Regex]::Replace('$(TargetFramework)', '(?i)\Anet(10|11)\.0-.*\z', 'net$1.0'))</_SwiftBindingManagedFramework>
     <_SwiftBindingPlatformUnsupported Condition="'$(_SwiftBindingPlatform)' == ''">true</_SwiftBindingPlatformUnsupported>
-
-    <!-- .NET version half of the same gate. The platform detection above is a substring
-         match, so it accepts an Apple platform on ANY .NET version — an older-.NET Apple
-         TFM would pass this first validation and only fail much later, inside generation,
-         on the net10.0-* output project the generator emits. Read from $(TargetFramework)
-         for the same reason the platform is: it is the one spelling the consumer wrote,
-         it is populated for both single-TFM projects and multi-TFM inner builds, and
-         keeping both halves on one input stops them drifting apart. An empty value (the
-         outer build of a multi-TFM project) is already rejected by the platform half.
-         Keep the version accepted here in step with the four TFMs the error text names —
-         they are the contract a declined consumer reads.
-
-         A PREFIX match, so a platform-versioned TFM (net10.0-ios26.0 — the spelling
-         SWIFTBIND016 tells Apple-framework consumers to use) is accepted, and
-         case-insensitive so this half turns a project away for its .NET version and
-         nothing else: any spelling the platform half above tolerates keeps building
-         exactly as it did before this check existed. -->
-    <_SwiftBindingDotNetVersionUnsupported Condition="!$(TargetFramework.StartsWith('net10.0', StringComparison.OrdinalIgnoreCase))">true</_SwiftBindingDotNetVersionUnsupported>
-
-    <!-- Single decision the SWIFTBIND010 error reads, so its condition covers exactly what
-         its message promises. -->
-    <_SwiftBindingTargetFrameworkUnsupported Condition="'$(_SwiftBindingPlatformUnsupported)' == 'true' OR '$(_SwiftBindingDotNetVersionUnsupported)' == 'true'">true</_SwiftBindingTargetFrameworkUnsupported>
+    <_SwiftBindingTargetFrameworkUnsupported Condition="'$(_SwiftBindingTargetFrameworkValid)' != 'true'">true</_SwiftBindingTargetFrameworkUnsupported>
 
     <!-- Whether platform has separate simulator + device slices -->
     <_SwiftBindingHasSimulatorSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'tvos'">true</_SwiftBindingHasSimulatorSlice>
@@ -135,7 +110,9 @@
     <SwiftPlatformTarget Condition="'$(SwiftPlatformTarget)' == '' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'">simulator</SwiftPlatformTarget>
 
     <!-- Apple-framework target mode: minimum deployment target for swift-api-digester.
-         Platform-specific floors match .NET 10 minimums. -->
+         Retain .NET 10 floors; apply the .NET 11 workload floors only to net11 targets. -->
+    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingManagedFramework)' == 'net11.0' AND '$(_SwiftBindingPlatform)' == 'maccatalyst'">17.0</SwiftAppleFrameworkMinDeploymentVersion>
+    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingManagedFramework)' == 'net11.0' AND '$(_SwiftBindingPlatform)' == 'macos'">14.0</SwiftAppleFrameworkMinDeploymentVersion>
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingPlatform)' == 'maccatalyst'">15.0</SwiftAppleFrameworkMinDeploymentVersion>
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingPlatform)' == 'macos'">12.0</SwiftAppleFrameworkMinDeploymentVersion>
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
@@ -163,7 +140,7 @@
   <Target Name="_ValidateSwiftPackageItems" BeforeTargets="_DiscoverSwiftFrameworks">
     <Error Condition="'$(_SwiftBindingTargetFrameworkUnsupported)' == 'true'"
            Code="SWIFTBIND010"
-           Text="Unsupported TargetFramework '$(TargetFramework)' for Swift bindings. Swift bindings require .NET 10 on an Apple platform: use net10.0-ios, net10.0-macos, net10.0-tvos, or net10.0-maccatalyst. An Apple TFM on any other .NET version (for example net9.0-ios) is not supported." />
+           Text="Unsupported TargetFramework '$(TargetFramework)' for Swift bindings. Swift bindings require .NET 10 or .NET 11 on an Apple platform: use net10.0-ios, net10.0-macos, net10.0-tvos, net10.0-maccatalyst, or the corresponding net11.0 targets. An Apple TFM on any other .NET version (for example net9.0-ios) is not supported." />
     <Error Condition="'@(SwiftPackage)' != ''"
            Code="SWIFTBIND100"
            Text="SwiftPackage items are not yet supported. Use SwiftFramework items with a pre-built xcframework." />
@@ -652,7 +629,25 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 2: Fingerprint-based incremental build                          -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <Target Name="_ComputeSwiftFingerprint">
+  <!-- Framework assets are available before ResolveProjectReferences. Resolving all references
+       here would recurse into our own generation hook. Pass the workload's exact targeting-pack
+       assets, including its BCL pin, instead of discovering packs in the generator process. -->
+  <Target Name="_ResolveSwiftManagedReferences" DependsOnTargets="ResolveTargetingPackAssets"
+          Condition="'$(TargetPlatformIdentifier)' != ''">
+    <PropertyGroup>
+      <_SwiftManagedReferencesFile>$(_SwiftBindingIntermediateDir)managed-references.txt</_SwiftManagedReferencesFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_SwiftManagedReferenceHeader Include="msbuild-target-framework=$(TargetFramework);msbuild-target-platform-version=$(TargetPlatformVersion)" />
+      <_SwiftManagedReference Include="@(Reference)"
+          Condition="$([System.IO.Path]::IsPathFullyQualified('%(Reference.Identity)')) AND Exists('%(Reference.Identity)')" />
+    </ItemGroup>
+    <MakeDir Directories="$(_SwiftBindingIntermediateDir)" />
+    <WriteLinesToFile File="$(_SwiftManagedReferencesFile)" Lines="@(_SwiftManagedReferenceHeader);@(_SwiftManagedReference->'%(FullPath)')"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="_ComputeSwiftFingerprint" DependsOnTargets="_ResolveSwiftManagedReferences">
     <PropertyGroup>
       <_SwiftStampFile>$(_SwiftBindingIntermediateDir)swift-binding.stamp</_SwiftStampFile>
     </PropertyGroup>
@@ -700,7 +695,8 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      if [ -f &quot;$(_SwiftManagedReferencesFile)&quot; ]; then shasum -a 256 &quot;$(_SwiftManagedReferencesFile)&quot;; fi ; \
+      echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -733,7 +729,8 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)&quot; \
+      if [ -f &quot;$(_SwiftManagedReferencesFile)&quot; ]; then shasum -a 256 &quot;$(_SwiftManagedReferencesFile)&quot;; fi ; \
+      echo &quot;$(TargetFramework) $(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -818,7 +815,7 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindingsAppleFramework"
           BeforeTargets="ResolveProjectReferences"
-          DependsOnTargets="_SynthesizeAppleFrameworkXcframework;_DumpAppleFrameworkAbi;_CollectSwiftModuleDatabases">
+          DependsOnTargets="_SynthesizeAppleFrameworkXcframework;_DumpAppleFrameworkAbi;_CollectSwiftModuleDatabases;_ResolveSwiftManagedReferences">
 
     <!-- F62 wiring tripwire: stamp that this unconditional Apple-framework generate hook
          fired. It shares the ResolveProjectReferences anchor with _GenerateSwiftBindings,
@@ -834,6 +831,7 @@ done; true"
          ObjC mode uses the second PropertyGroup below (xcframework + objc flags). -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'">
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --target-framework "$(TargetFramework)" --reference-assemblies-file "$(_SwiftManagedReferencesFile)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -a "$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -d "$(_SwiftAppleFrameworkTbd)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -t "$(_SwiftAppleFrameworkTbd)"</_SwiftGenCmd>
@@ -885,6 +883,7 @@ done; true"
          vs ObjC modes without re-probing. -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC' AND '$(_SwiftBindingUpToDate)' != 'true'">
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --target-framework "$(TargetFramework)" --reference-assemblies-file "$(_SwiftManagedReferencesFile)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "$(_SwiftAppleFrameworkSynthXcfw)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --objc</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
@@ -1857,6 +1856,7 @@ done; true"
 
     <PropertyGroup Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'">
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --target-framework "$(TargetFramework)" --reference-assemblies-file "$(_SwiftManagedReferencesFile)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
@@ -3977,7 +3977,7 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
        Defaults to Mono interpreter — JIT has four confirmed crash classes on this RID.
        Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
        Opt out: &lt;SwiftBindingsMacCatalystX64UseJit&gt;true&lt;/SwiftBindingsMacCatalystX64UseJit&gt; --&gt;
-  &lt;PropertyGroup Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64' AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true'&quot;&gt;
+  &lt;PropertyGroup Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64' AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true' AND \%24(TargetFramework.StartsWith('net10.0-', StringComparison.OrdinalIgnoreCase))&quot;&gt;
     &lt;MtouchInterpreter Condition=&quot;'\%24(MtouchInterpreter)' == ''&quot;&gt;all&lt;/MtouchInterpreter&gt;
     &lt;UseInterpreter Condition=&quot;'\%24(UseInterpreter)' == ''&quot;&gt;true&lt;/UseInterpreter&gt;
   &lt;/PropertyGroup&gt;
@@ -3985,6 +3985,7 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
           BeforeTargets=&quot;Build&quot;
           Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64'
                      AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true'
+                     AND \%24(TargetFramework.StartsWith('net10.0-', StringComparison.OrdinalIgnoreCase))
                      AND '\%24(_SwiftBindingsMacCatalystX64WorkaroundAnnounced)' != 'true'&quot;&gt;
     &lt;PropertyGroup&gt;
       &lt;_SwiftBindingsMacCatalystX64WorkaroundAnnounced&gt;true&lt;/_SwiftBindingsMacCatalystX64WorkaroundAnnounced&gt;

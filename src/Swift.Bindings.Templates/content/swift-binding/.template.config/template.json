@@ -1,7 +1,12 @@
 {
   "$schema": "http://json.schemastore.org/template",
   "author": "Justin Wojciechowski",
-  "classifications": [ "Apple", "Swift", "Bindings", "Library" ],
+  "classifications": [
+    "Apple",
+    "Swift",
+    "Bindings",
+    "Library"
+  ],
   "identity": "Swift.Bindings.ProjectTemplate",
   "name": "Swift Binding Project",
   "shortName": "swift-binding",
@@ -37,27 +42,41 @@
       "description": "The target Apple platform (ignored when --apple-framework is set).",
       "defaultValue": "ios",
       "choices": [
-        { "choice": "ios", "description": "iOS (net10.0-ios)" },
-        { "choice": "macos", "description": "macOS (net10.0-macos)" },
-        { "choice": "tvos", "description": "tvOS (net10.0-tvos)" },
-        { "choice": "maccatalyst", "description": "Mac Catalyst (net10.0-maccatalyst)" }
-      ]
+        {
+          "choice": "ios",
+          "description": "iOS"
+        },
+        {
+          "choice": "macos",
+          "description": "macOS"
+        },
+        {
+          "choice": "tvos",
+          "description": "tvOS"
+        },
+        {
+          "choice": "maccatalyst",
+          "description": "Mac Catalyst"
+        }
+      ],
+      "replaces": "BINDING_PLATFORM"
     },
-    "tfm": {
-      "type": "generated",
-      "generator": "switch",
-      "replaces": "net10.0-ios",
-      "parameters": {
-        "evaluator": "C++",
-        "datatype": "string",
-        "cases": [
-          { "condition": "(isAppleFramework)", "value": "net10.0-ios" },
-          { "condition": "(platform == 'ios')", "value": "net10.0-ios" },
-          { "condition": "(platform == 'macos')", "value": "net10.0-macos" },
-          { "condition": "(platform == 'tvos')", "value": "net10.0-tvos" },
-          { "condition": "(platform == 'maccatalyst')", "value": "net10.0-maccatalyst" }
-        ]
-      }
+    "framework": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "Managed target framework; .NET 11 requires its matching Apple workload and Xcode.",
+      "defaultValue": "net10.0",
+      "replaces": "BINDING_FRAMEWORK",
+      "choices": [
+        {
+          "choice": "net10.0",
+          "description": ".NET 10"
+        },
+        {
+          "choice": "net11.0",
+          "description": ".NET 11"
+        }
+      ]
     }
   },
   "postActions": [

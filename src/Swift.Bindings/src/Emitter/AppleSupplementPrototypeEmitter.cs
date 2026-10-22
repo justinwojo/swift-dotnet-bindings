@@ -189,7 +189,7 @@ public static class AppleSupplementPrototypeEmitter
     {
         var runtimeVersion = options.SwiftRuntimeVersion ?? BindingProjectEmitter.DefaultSwiftRuntimeVersion;
         var tfm = options.PlatformInfo.PackTfm;
-        var minOs = options.MinimumOSVersion ?? options.PlatformInfo.DefaultMinimumOS;
+        var minOs = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(options.MinimumOSVersion, options.PlatformInfo);
 
         // Runtime reference mirrors BindingProjectEmitter's dev-sentinel path so the prototype
         // behaves identically to the outer project: in-tree ProjectReference when

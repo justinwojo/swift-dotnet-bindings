@@ -49,7 +49,7 @@ struct ClosureTypeAliasIndex {
             var attrs: [String] = []
             for element in attributed.attributes {
                 guard let attribute = element.as(AttributeSyntax.self) else { continue }
-                let fullName = attribute.attributeName.trimmedDescription
+                let fullName = attribute.attributeName.dottedDescription
                 let name = fullName.split(separator: ".").last.map(String.init) ?? fullName
                 if Self.closureAttributeNames.contains(name), !attrs.contains(name) {
                     attrs.append(name)
@@ -92,6 +92,9 @@ struct ClosureTypeAliasIndex {
     private static func dottedName(_ type: TypeSyntax) -> [String]? {
         if let identifier = type.as(IdentifierTypeSyntax.self) {
             guard identifier.genericArgumentClause == nil else { return nil }
+            if let selector = identifier.moduleSelector {
+                return [selector.moduleName.text, identifier.name.text]
+            }
             return [identifier.name.text]
         }
         if let member = type.as(MemberTypeSyntax.self) {
@@ -134,7 +137,7 @@ struct ClosureTypeAliasIndex {
                 else if let d = decl.as(ExtensionDeclSyntax.self) {
                     // `extension Module.Outer.Inner` — the leading module name, if any, is
                     // tolerated by `refersTo` the same way a module-qualified reference is.
-                    names.append(contentsOf: d.extendedType.trimmedDescription
+                    names.append(contentsOf: d.extendedType.dottedDescription
                         .split(separator: ".").map(String.init).reversed())
                 }
                 current = decl.parent

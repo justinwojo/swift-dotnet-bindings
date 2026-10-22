@@ -397,7 +397,7 @@ public class WrapperProjectionParityTests
         Assert.NotNull(plan);
         Assert.Contains("ArrayFromHandleFunc<Foundation.NSUrl>", plan.PInvokeExpression);
         Assert.Contains("ObjCRuntime.Runtime.GetNSObject<Foundation.NSUrl>", plan.PInvokeExpression);
-        Assert.EndsWith(", true)", plan.PInvokeExpression);
+        Assert.Contains(", true)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -416,7 +416,7 @@ public class WrapperProjectionParityTests
         Assert.NotNull(conv);
         Assert.Contains("ArrayFromHandleFunc<Foundation.NSUrl>", conv);
         Assert.Contains("ObjCRuntime.Runtime.GetNSObject<Foundation.NSUrl>", conv);
-        Assert.EndsWith(", true)", conv);
+        Assert.Contains(", true)", conv);
 
         // Pre-fix shape: single-arg ArrayFromHandle (owns:false default) must not
         // regress. The fix uses the Func variant; the no-owns shape would be

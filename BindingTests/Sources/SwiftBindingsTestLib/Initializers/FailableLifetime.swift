@@ -25,6 +25,11 @@ public struct FailableLifetimeValue {
     // String inout retains the direct CallConvSwift route already qualified by P4.
     // A resilient argument supplies a real managed pre-entry SafeHandle failure.
     public init?(_ text: inout String, argument: borrowing FailableLifetimeArgument, mode: Int32) throws {
+        let diagnosticArgumentNumber = argument.number
+        Swift.withUnsafePointer(to: &text) { textPointer in
+            let words = Swift.UnsafeRawPointer(textPointer).assumingMemoryBound(to: Swift.UInt.self)
+            print("Failable ABI entry: text=\(Swift.UInt(bitPattern: textPointer)), word0=\(words[0]), word1=\(words[1]), argument=\(diagnosticArgumentNumber), mode=\(mode)")
+        }
         failableEntries += 1
         text = "failable initializer entered"
         if mode == 2 { throw FailableLifetimeError.rejected }

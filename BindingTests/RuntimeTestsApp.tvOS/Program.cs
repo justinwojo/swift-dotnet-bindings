@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.TvOS;
 
 // Minimal tvOS host. Unlike the iOS host, this runner has no interactive UI:
 // it launches UIApplication, enqueues the full test suite onto the main queue
-// from FinishedLaunching, and writes results/markers to Console.WriteLine. The
+// from scene connection, and writes results/markers to Console.WriteLine. The
 // Nuke-side harness captures stdout via `xcrun simctl launch --console`, looks
 // for "TEST SUCCESS"/"TEST FAILURE", and reaps the process. The tvOS simulator
 // still requires a proper UIApplication lifecycle — we just keep the view
@@ -82,13 +82,39 @@ public class Application
 
 public class AppDelegate : UIApplicationDelegate
 {
+    public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+    // UIKit consumes this protocol conformance natively after managed interface trimming.
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+    public override UISceneConfiguration GetConfiguration(UIApplication application,
+        UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+        new("Default Configuration", connectingSceneSession.Role)
+        {
+            DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+        };
+}
+
+[Register("SceneDelegate")]
+public class SceneDelegate : UIWindowSceneDelegate
+{
+    private static bool _suiteStarted;
+
     public override UIWindow? Window { get; set; }
 
-    public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+    public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
     {
-        Window = new UIWindow(UIScreen.MainScreen.Bounds);
+        if (scene is not UIWindowScene windowScene)
+            return;
+
+        Window = new UIWindow(windowScene);
         Window.RootViewController = new UIViewController();
         Window.MakeKeyAndVisible();
+
+        // Reconnecting a scene must not enqueue another run in this process.
+        if (_suiteStarted)
+            return;
+        _suiteStarted = true;
 
         // The suite MUST run on the main thread. Fixtures deliberately exercise
         // @MainActor-isolated Swift declarations (MainActorTests,
@@ -98,7 +124,7 @@ public class AppDelegate : UIApplicationDelegate
         // against the runner's threading model instead of the binding under test.
         // The iOS host gets this for free by kicking the run off inline from
         // ViewDidLoad; enqueueing onto the main queue here is the same thing
-        // without holding up FinishedLaunching, which must return promptly or the
+        // without holding up scene connection, which must return promptly or the
         // launch watchdog kills the app. The existing per-class
         // NSRunLoop.Current.RunUntil pump below only drains the main queue when the
         // suite is on the main thread, which is the arrangement it was written for.
@@ -115,8 +141,6 @@ public class AppDelegate : UIApplicationDelegate
                 Console.WriteLine($"TEST FAILURE: {ex.Message}");
             }
         });
-
-        return true;
     }
 
     static async Task RunTestsAsync()
@@ -127,6 +151,7 @@ public class AppDelegate : UIApplicationDelegate
 
         TestLogger.Info("=== RUNTIME TESTS (tvOS Simulator) ===");
         TestLogger.Info($"Platform: {platform}");
+        TestLogger.Info($"Runtime flavor: {TestBase.RuntimeFlavorDescription}");
         if (Application.ClassFilter != null)
             TestLogger.Info($"Class filter: {Application.ClassFilter}");
         if (Application.ExcludeClasses.Count > 0)

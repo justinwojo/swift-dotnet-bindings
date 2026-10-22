@@ -153,7 +153,7 @@ final class AsyncAccessorWalker: SyntaxVisitor {
     // MARK: - Extension scope (first-dot-strip: drop the module component)
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let components = node.extendedType.trimmedDescription
+        let components = node.extendedType.dottedDescription
             .split(separator: ".", omittingEmptySubsequences: false)
             .map { Self.unescape(String($0)) }
         guard components.allSatisfy({ RegexShape.isWordIdentifier($0) }) else {

@@ -488,7 +488,10 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         if (projection is ObjCBridgeableProjection bridgeable)
             return MarshallingHelpers.FormatObjCBridgeCall(bridgeable.PublicType, $"{nsObjectVar}.Handle", nonNull: true);
         if (projection is StringProjection)
-            return $"{nsObjectVar}.ToString()";
+            // This object is the NSString carrier of a non-optional Swift.String key/value.
+            // NSObject.ToString() is nullable in newer Apple bindings, but this carrier cannot
+            // represent nil; Optional<String> does not use this whole-container bridge.
+            return $"{nsObjectVar}.ToString()!";
         if (projection is DataProjection)
             return $"((Foundation.NSData){nsObjectVar}).ToArray()";
         // BoolProjection is its own class (not BlittableProjection), but Swift.Bool also

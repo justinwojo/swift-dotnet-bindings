@@ -23,18 +23,12 @@ public abstract class TestBase
         OperatingSystem.IsMacCatalyst() && RuntimeInformation.ProcessArchitecture == Architecture.X64;
 
     /// <summary>
-    /// True when the current process runs on the Mono runtime — iOS/tvOS Simulator or Mac
-    /// Catalyst (JIT or interpreter). These are the only configurations that can hit the upstream
-    /// Mono "Issue 1" <c>!ji-&gt;async</c> JIT assertion (jit-info.c:918). False on macOS (CoreCLR)
-    /// and physical device (NativeAOT), neither of which is Mono. Used to honor
-    /// <see cref="SkipOnMonoJitAttribute"/> independently of the <c>--platform</c> CLI flag: the
-    /// harness launches the macOS run with <c>--platform simulator</c> too, so keying a Mono-JIT
-    /// skip off that flag would wrongly suppress it on CoreCLR. <c>SwiftRuntimeInfo.IsMonoRuntime</c>
-    /// recognizes the Simulator (via its "simulator" RID check) but misses <c>maccatalyst-*</c>
-    /// RIDs, so Catalyst is added via <see cref="OperatingSystem.IsMacCatalyst"/>.
+    /// True when the current process runs on Mono, including its JIT, interpreter and full-AOT
+    /// modes. Used by <see cref="SkipOnMonoJitAttribute"/> independently of the platform or
+    /// <c>--platform</c> flag. Catalyst and simulator RIDs can also host CoreCLR, so platform
+    /// checks must not add Mono skips to the final app's authoritative engine identity.
     /// </summary>
-    internal static readonly bool IsMonoJitRuntime =
-        Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime || OperatingSystem.IsMacCatalyst();
+    internal static readonly bool IsMonoJitRuntime = Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime;
 
     /// <summary>
     /// True when the current process runs on <b>Mono full-AOT on a physical Apple device</b> — the
@@ -55,9 +49,9 @@ public abstract class TestBase
     /// <para>Detected at runtime rather than from the <c>--platform</c> flag, so it stays honest if
     /// the harness ever launches the wrong bundle: it requires the live runtime to report Mono AND
     /// a non-simulator, non-Catalyst Apple RID. <c>SwiftRuntimeInfo.IsMonoRuntime</c> can only
-    /// answer this correctly because the app injects the build-time
-    /// <c>Swift.Runtime.IsNativeAot</c> AppContext switch (see RuntimeTestsApp.csproj); without it
-    /// the heuristic cannot tell device Mono full-AOT from NativeAOT.</para>
+    /// answer this correctly because each app imports the production Runtime targets and injects
+    /// its resolved execution engine. The legacy .NET 10 fallback cannot reliably distinguish
+    /// device Mono full-AOT from NativeAOT without build-time configuration.</para>
     /// </summary>
     internal static readonly bool IsMonoAotRuntime =
         Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime
@@ -71,7 +65,8 @@ public abstract class TestBase
     internal static string RuntimeFlavorDescription =>
         $"IsMonoRuntime={Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime}, " +
         $"IsNativeAotRuntime={Swift.Runtime.SwiftRuntimeInfo.IsNativeAotRuntime}, " +
-        $"IsMonoAot={IsMonoAotRuntime}, Rid={RuntimeInformation.RuntimeIdentifier}";
+        $"IsMonoAot={IsMonoAotRuntime}, Rid={RuntimeInformation.RuntimeIdentifier}, " +
+        $"Framework={AppContext.TargetFrameworkName}, Runtime={RuntimeInformation.FrameworkDescription}";
 
     protected TestBase(TestResults results)
     {
@@ -111,11 +106,9 @@ public abstract class TestBase
                 continue;
             }
 
-            // Check method-level [SkipOnMonoJit] — skipped only when running on Mono (Simulator
-            // or Catalyst), where the upstream !ji->async JIT assertion (Issue 1) can fire. Runs
-            // on macOS (CoreCLR) and device (NativeAOT). Detected at runtime (IsMonoJitRuntime),
-            // NOT from the --platform flag, so it is not over-applied on the macOS run — which the
-            // harness also launches with --platform simulator. See SkipOnMonoJitAttribute.
+            // Check method-level [SkipOnMonoJit] against the actual engine, including device
+            // Mono full-AOT. CoreCLR/NativeAOT do not inherit Mono skips from a platform/RID
+            // or the --platform flag. See SkipOnMonoJitAttribute.
             if (method.SkipOnMonoJit != null && IsMonoJitRuntime)
             {
                 Results.Skip(testName, $"MonoJit: {method.SkipOnMonoJit}");
@@ -142,8 +135,8 @@ public abstract class TestBase
                 await RunTestMethodAsync(method);
             }
 
-            // On a physical device (either runtime), yield to the iOS run loop periodically.
-            if (platform is TestPlatform.Device or TestPlatform.DeviceMonoAot)
+            // On a physical device (any supported engine), yield to the iOS run loop periodically.
+            if (platform is TestPlatform.Device or TestPlatform.DeviceMonoAot or TestPlatform.DeviceCoreClr)
                 Foundation.NSRunLoop.Current.RunUntil(Foundation.NSDate.FromTimeIntervalSinceNow(0.001));
         }
     }

@@ -242,7 +242,7 @@ final class AvailabilityWalker: SyntaxVisitor {
         // Extension-scope annotations (from any enclosing `extension`).
         for scope in scopeStack where scope.isExtension {
             for attr in scope.extensionScopeAttributes {
-                if attr.attributeName.trimmedDescription == "available" {
+                if attr.attributeName.dottedDescription == "available" {
                     out.append(contentsOf: parseAvailableAttribute(attr))
                 }
             }
@@ -251,7 +251,7 @@ final class AvailabilityWalker: SyntaxVisitor {
         // Inline / decl-local annotations.
         for el in declAttrs {
             guard case .attribute(let attr) = el else { continue }
-            if attr.attributeName.trimmedDescription == "available" {
+            if attr.attributeName.dottedDescription == "available" {
                 out.append(contentsOf: parseAvailableAttribute(attr))
             }
         }
@@ -598,7 +598,7 @@ final class AvailabilityWalker: SyntaxVisitor {
             extensionScopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         // `ExtensionDeclRegex` captures only `[\w.]+` for the extended type —
         // backtick-escaped or otherwise non-word/dot extension targets fail the
         // capture and never push.
@@ -809,7 +809,7 @@ final class AvailabilityWalker: SyntaxVisitor {
         if paramList.isEmpty { return "" }
         var tails: [String] = []
         for param in paramList {
-            let raw = param.type.trimmedDescription
+            let raw = param.type.dottedDescription
             tails.append(normalizeParamType(raw))
         }
         return tails.joined(separator: ",")
@@ -1019,9 +1019,9 @@ final class AvailabilityWalker: SyntaxVisitor {
         // The argument list shape for `@available` varies (per-platform vs. shorthand
         // vs. unconditional). The arguments are formatted back to source text and
         // passed to the shared clause-splitting logic. SwiftSyntax's
-        // `arguments?.trimmedDescription` gives us the inside-the-parens content.
+        // `arguments?.dottedDescription` gives us the inside-the-parens content.
         guard let arguments = attr.arguments else { return [] }
-        let clauseText = arguments.trimmedDescription
+        let clauseText = arguments.dottedDescription
         return AvailabilityClauseParser.parse(clause: clauseText)
     }
 }

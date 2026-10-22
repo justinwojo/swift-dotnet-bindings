@@ -450,6 +450,7 @@ partial class Build
             $"--xcframework \"{BtXcframeworkDir}\"",
             $"-o \"{BtOutputDir}\"",
             $"--async-library {WrapperModule}",
+            $"--target-framework {(platformOverride ?? ApplePlatform.IOS).GetTfm(BtFramework)}",
         };
         if (platformOverride != null && platformOverride.Name != "ios")
             genArgs.Add($"--platform {platformOverride.Name}");
@@ -534,6 +535,7 @@ partial class Build
                 $"--xcframework \"{BtDepXcframeworkDir}\"",
                 $"-o \"{depOutputDir}\"",
             };
+            depArgs.Add($"--target-framework {(platformOverride ?? ApplePlatform.IOS).GetTfm(BtFramework)}");
             if (platformOverride != null && platformOverride.Name != "ios")
                 depArgs.Add($"--platform {platformOverride.Name}");
             if (strict)
@@ -777,6 +779,7 @@ partial class Build
         Log.Information("--- Compile-check generated bindings ---");
         DotNetBuild(s => s
             .SetProjectFile(BindingTestsDir / "CompileCheck" / "CompileCheck.csproj")
+            .SetProperty("BtTargetFramework", BtFramework)
             .SetConfiguration("Debug")
             .SetVerbosity(DotNetVerbosity.quiet));
         Log.Information("Compile-check passed (0 errors).");
@@ -1060,6 +1063,7 @@ partial class Build
         .After(Clean, Test, BuildBridge, BuildAsyncWrapper, CompileCheckBindings)
         .Executes(() =>
         {
+            ValidateRuntimeLaneSelection();
             RejectSkipBuildWithActiveSmokeFlags();
 
             if (EnableStoreKitSmoke)

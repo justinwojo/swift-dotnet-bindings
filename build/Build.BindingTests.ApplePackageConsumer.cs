@@ -27,14 +27,24 @@ partial class Build
 
     // Keep the generated app outside the repository tree so MSBuild cannot discover and inherit
     // the repo's Directory.Build.props/targets. The consumer must prove the package's own roots.
+    // NativeAOT always publishes Release. Keep this single lane's version as short as the
+    // legacy fixture: NuGet includes the package id/version in its NU5123 path-length check.
+    static string ApplePackageConsumerVersionFor(RuntimeTestLane lane, bool apple) => lane.IsNet11
+        ? (apple ? "26.2.0-n1" : "0.0.0-n1")
+        : (apple ? ApplePackageConsumerAppleVersion : ApplePackageConsumerVersion);
+    string ApplePackageConsumerLaneVersion => ApplePackageConsumerVersionFor(RuntimeLane, apple: false);
+    string ApplePackageConsumerLaneAppleVersion => ApplePackageConsumerVersionFor(RuntimeLane, apple: true);
     AbsolutePath ApplePackageConsumerScratch =>
-        (AbsolutePath)Path.Combine(Path.GetTempPath(), "swift-bindings-apple-package-consumer");
+        (AbsolutePath)Path.Combine(Path.GetTempPath(), "swift-bindings-apple-package-consumer" + MixedPackageLaneSuffix(RuntimeLane));
 
     void RunApplePackageConsumerLeg()
     {
         Log.Information("========================================================");
         Log.Information(" BindingTests — packaged Apple NativeAOT rooting consumer");
         Log.Information("========================================================");
+
+        if (RuntimeLane.DeviceCoreClr)
+            throw new InvalidOperationException("--apple-package-consumer proves NativeAOT package rooting and cannot be combined with --core-clr.");
 
         RunBuildAppleSupplementXcframework();
 
@@ -47,7 +57,7 @@ partial class Build
         appDir.CreateDirectory();
 
         using (var scope = new VersionScope(
-            ApplePackageConsumerVersion, RootDirectory, ApplePackageConsumerAppleVersion))
+            ApplePackageConsumerLaneVersion, RootDirectory, ApplePackageConsumerLaneAppleVersion))
         {
             foreach (var project in new[]
             {
@@ -73,8 +83,8 @@ partial class Build
                 ".nuget", "packages"));
         foreach (var (id, version) in new[]
         {
-            ("swiftbindings.runtime", ApplePackageConsumerVersion),
-            ("swiftbindings.apple", ApplePackageConsumerAppleVersion),
+            ("swiftbindings.runtime", ApplePackageConsumerLaneVersion),
+            ("swiftbindings.apple", ApplePackageConsumerLaneAppleVersion),
         })
         {
             var cached = globalPackages / id / version;
@@ -82,7 +92,7 @@ partial class Build
                 cached.DeleteDirectory();
         }
 
-        WriteApplePackageConsumer(appDir, packages);
+        WriteApplePackageConsumer(appDir, packages, RuntimeLane, ApplePackageConsumerLaneAppleVersion);
 
         var consumerProject = appDir / $"{ApplePackageConsumerAppName}.csproj";
         var consumerProjectText = File.ReadAllText(consumerProject);
@@ -138,6 +148,8 @@ partial class Build
         Log.Information("=== CONSUMER OUTPUT (Apple package, device NativeAOT) ===");
         Log.Information(result.Output);
 
+        AssertLiveRuntimeLane(result, device: true);
+
         if (LaunchDiagnostics.LauncherNeverStartedApp(result))
             throw new InvalidOperationException(
                 "--apple-package-consumer: the launcher never started the app; this is a " +
@@ -154,16 +166,16 @@ partial class Build
             "--apple-package-consumer PASS — packaged roots materialized two Locale.Language elements under NativeAOT.");
     }
 
-    static void WriteApplePackageConsumer(AbsolutePath appDir, AbsolutePath packages)
+    static void WriteApplePackageConsumer(AbsolutePath appDir, AbsolutePath packages,
+        RuntimeTestLane lane, string applePackageVersion)
     {
         File.WriteAllText(appDir / $"{ApplePackageConsumerAppName}.csproj", $$"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{{lane.Framework}}-ios</TargetFramework>
                 <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
-                <PublishAot>true</PublishAot>
-                <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+                {{MixedConsumerRuntimeProperties(lane, device: true)}}
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
                 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -172,14 +184,14 @@ partial class Build
                 <ApplicationVersion>1</ApplicationVersion>
                 <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
                 <NoWarn>$(NoWarn);CA1416;CA1422</NoWarn>
-                <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
-                <CodesignProvision>Wildcard Dev</CodesignProvision>
-                <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+                <CodesignKey>Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)</CodesignKey>
+                <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+                <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
               <ItemGroup>
                 <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
                 <None Include="Info.plist" />
-                <PackageReference Include="SwiftBindings.Apple" Version="{{ApplePackageConsumerAppleVersion}}" />
+                <PackageReference Include="SwiftBindings.Apple" Version="{{applePackageVersion}}" />
               </ItemGroup>
             </Project>
             """);
@@ -202,27 +214,52 @@ partial class Build
                 static void Main(string[] args) => UIApplication.Main(args, null, typeof(AppDelegate));
             }
 
-            public sealed class AppDelegate : UIApplicationDelegate
+            public class AppDelegate : UIApplicationDelegate
             {
+                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+                // UIKit consumes this protocol conformance natively after managed interface trimming.
+                [System.Diagnostics.CodeAnalysis.DynamicDependency(
+                    System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+                public override UISceneConfiguration GetConfiguration(UIApplication application,
+                    UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+                    new("Default Configuration", connectingSceneSession.Role)
+                    {
+                        DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+                    };
+            }
+
+            [Register("SceneDelegate")]
+            public class SceneDelegate : UIWindowSceneDelegate
+            {
+                private static bool _probeStarted;
+
                 public override UIWindow? Window { get; set; }
 
                 [DllImport("SBApple", CallingConvention = CallingConvention.Cdecl,
                     EntryPoint = "SBW_AppleSupplement_Probe_CreateLocaleLanguages")]
                 private static extern void CreateLocaleLanguages(IntPtr result);
 
-                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+                public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
                 {
-                    Window = new UIWindow(UIScreen.MainScreen.Bounds);
+                    if (scene is not UIWindowScene windowScene)
+                        return;
+
+                    Window = new UIWindow(windowScene);
                     Window.RootViewController = new UIViewController();
                     Window.MakeKeyAndVisible();
+
+                    if (_probeStarted)
+                        return;
+                    _probeStarted = true;
                     CoreFoundation.DispatchQueue.MainQueue.DispatchAsync(RunProbe);
-                    return true;
                 }
 
                 private static unsafe void RunProbe()
                 {
                     try
                     {
+                        {{MixedConsumerRuntimeBanner()}}
                         if (!OperatingSystem.IsIOSVersionAtLeast(16))
                             throw new PlatformNotSupportedException("Locale.Language requires iOS 16 or newer.");
 
@@ -285,6 +322,23 @@ partial class Build
             "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
             "<plist version=\"1.0\">\n<dict>\n" +
             "    <key>UILaunchScreen</key>\n    <dict/>\n" +
+            "    <key>UIApplicationSceneManifest</key>\n" +
+            "    <dict>\n" +
+            "        <key>UIApplicationSupportsMultipleScenes</key>\n" +
+            "        <false/>\n" +
+            "        <key>UISceneConfigurations</key>\n" +
+            "        <dict>\n" +
+            "            <key>UIWindowSceneSessionRoleApplication</key>\n" +
+            "            <array>\n" +
+            "                <dict>\n" +
+            "                    <key>UISceneConfigurationName</key>\n" +
+            "                    <string>Default Configuration</string>\n" +
+            "                    <key>UISceneDelegateClassName</key>\n" +
+            "                    <string>SceneDelegate</string>\n" +
+            "                </dict>\n" +
+            "            </array>\n" +
+            "        </dict>\n" +
+            "    </dict>\n" +
             "</dict>\n</plist>\n");
 
         File.WriteAllText(appDir / "NuGet.config", $$"""

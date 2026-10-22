@@ -119,7 +119,7 @@ final class ObjCRuntimeNamesWalker: SyntaxVisitor {
             scopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         guard RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)
             return .visitChildren
@@ -177,7 +177,7 @@ final class ObjCRuntimeNamesWalker: SyntaxVisitor {
     private func objcCustomName(_ attributes: AttributeListSyntax) -> String? {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
-            let text = attribute.trimmedDescription
+            let text = attribute.dottedDescription
             let ns = text as NSString
             guard let match = ObjCRuntimeNamesWalker.objcCustomNameRegex.firstMatch(
                 in: text, range: NSRange(location: 0, length: ns.length)) else { continue }

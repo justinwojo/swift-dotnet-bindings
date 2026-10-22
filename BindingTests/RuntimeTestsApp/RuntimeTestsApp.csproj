@@ -1,8 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-ios</TargetFramework>
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-ios</TargetFramework>
     <RuntimeIdentifier>iossimulator-arm64</RuntimeIdentifier>
+    <BtRuntimeEngine Condition="'$(BtRuntimeEngine)' == '' AND '$(RuntimeIdentifier)' == 'ios-arm64' AND '$(BtDeviceCoreClr)' != 'true' AND '$(SwiftBindingsDeviceMonoAot)' != 'true'">nativeaot</BtRuntimeEngine>
+    <BtRuntimeEngine Condition="'$(BtRuntimeEngine)' == ''">coreclr</BtRuntimeEngine>
+    <!-- Keep CoreCLR and NativeAOT output/intermediate products distinct even in Release. -->
+    <OutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">bin/$(BtRuntimeEngine)/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">obj/$(BtRuntimeEngine)/$(Configuration)/</IntermediateOutputPath>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -62,11 +68,11 @@
        opts into PublishAot, and it is a different runtime from both the simulator's Mono and
        NativeAOT. Same property choice as swift-dotnet-packages `BuildTestAppDevice`. -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
-    <PublishAot Condition="'$(SwiftBindingsDeviceMonoAot)' != 'true'">true</PublishAot>
-    <PublishAotUsingRuntimePack Condition="'$(SwiftBindingsDeviceMonoAot)' != 'true'">true</PublishAotUsingRuntimePack>
-    <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
-    <CodesignProvision>Wildcard Dev</CodesignProvision>
-    <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+    <PublishAot Condition="'$(SwiftBindingsDeviceMonoAot)' != 'true' AND '$(BtDeviceCoreClr)' != 'true'">true</PublishAot>
+    <PublishAotUsingRuntimePack Condition="'$(SwiftBindingsDeviceMonoAot)' != 'true' AND '$(BtDeviceCoreClr)' != 'true'">true</PublishAotUsingRuntimePack>
+    <CodesignKey>Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)</CodesignKey>
+    <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+    <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64' AND '$(EnableActivityKitPushToken)' == 'true'">
@@ -75,30 +81,9 @@
     <DefineConstants>$(DefineConstants);ACTIVITYKIT_PUSH_TOKEN</DefineConstants>
   </PropertyGroup>
 
-  <!-- Runtime-flavor AppContext switch — the SAME build-time truth the Runtime package injects for
-       every real consumer (src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets,
-       _SwiftBindingsInjectRuntimeFlavorSwitch). That file ships in buildTransitive/ and so flows
-       across PackageReference only; this app consumes Swift.Runtime by ProjectReference, so it must
-       inject the switch itself.
-
-       Without it, SwiftRuntimeInfo falls back to its heuristic, which cannot tell Mono full-AOT on a
-       DEVICE (rid ios-arm64, no Mono.Runtime type, IsDynamicCodeSupported=false) from NativeAOT and
-       defaults to NativeAOT. On the Mono full-AOT lane that misclassification would enable direct
-       static-virtual generic dispatch and abort Mono at jit-info.c:918 — i.e. the lane would crash
-       for a reason that has nothing to do with the bindings under test. Injected for BOTH device
-       flavors (and harmlessly for the simulator/mac legs, where it agrees with the heuristic) so
-       there is one resolution rule rather than two. -->
-  <Target Name="_RuntimeTestsAppInjectRuntimeFlavorSwitch"
-          BeforeTargets="GenerateBuildRuntimeConfigurationFiles;GenerateRuntimeConfigurationFiles">
-    <PropertyGroup>
-      <_RuntimeTestsAppIsNativeAot Condition="'$(PublishAot)' == 'true'">true</_RuntimeTestsAppIsNativeAot>
-      <_RuntimeTestsAppIsNativeAot Condition="'$(_RuntimeTestsAppIsNativeAot)' == ''">false</_RuntimeTestsAppIsNativeAot>
-    </PropertyGroup>
-    <ItemGroup>
-      <RuntimeHostConfigurationOption Include="Swift.Runtime.IsNativeAot"
-                                      Value="$(_RuntimeTestsAppIsNativeAot)" />
-    </ItemGroup>
-  </Target>
+  <!-- ProjectReference does not import buildTransitive assets. Use the production
+       final-app engine hook; Nuke owns native injection for these test apps. -->
+  <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
 
   <!-- TrimmerRoots: only needed for NativeAOT device builds.
        Source generator eliminates reflection for test discovery, but Swift.Runtime types
@@ -745,4 +730,10 @@
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
+  <Target Name="ValidateBindingTestsManagedTarget" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(BtTargetFramework)' != 'net10.0' AND '$(BtTargetFramework)' != 'net11.0'"
+           Text="BtTargetFramework must be net10.0 or net11.0." />
+    <Error Condition="'$(BtTargetFramework)' == 'net11.0' AND '$(SwiftBindingsDeviceMonoAot)' == 'true'"
+           Text=".NET 11 BindingTests does not support Mono; use the CoreCLR or NativeAOT lane." />
+  </Target>
 </Project>

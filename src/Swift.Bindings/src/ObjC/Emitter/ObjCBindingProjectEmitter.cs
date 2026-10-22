@@ -130,6 +130,7 @@ public static class ObjCBindingProjectEmitter
                      file ... doesn't have a target for 'net10.0-ios'"). Both fragments source
                      from PlatformInfo.PackTfm so they cannot drift. -->
                 <TargetFramework>{pi.PackTfm}</TargetFramework>
+                <SupportedOSPlatformVersion>{pi.DefaultMinimumOS}</SupportedOSPlatformVersion>
                 <Nullable>enable</Nullable>
                 <IsBindingProject>true</IsBindingProject>
                 <!-- The array-overload file pins its managed array with `fixed`, and bgen's own

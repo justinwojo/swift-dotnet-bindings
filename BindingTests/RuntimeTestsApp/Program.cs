@@ -61,6 +61,7 @@ public class Application
                 {
                     "device" => TestPlatform.Device,
                     "device-monoaot" => TestPlatform.DeviceMonoAot,
+                    "device-coreclr" => TestPlatform.DeviceCoreClr,
                     _ => TestPlatform.Simulator
                 };
                 i++;
@@ -133,21 +134,39 @@ public class Application
 
 #endregion
 
-#region App Delegate
+#region Application and Scene Delegates
 
 public class AppDelegate : UIApplicationDelegate
 {
+    public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+    // UIKit consumes this protocol conformance natively after managed interface trimming.
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+    public override UISceneConfiguration GetConfiguration(UIApplication application,
+        UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+        new("Default Configuration", connectingSceneSession.Role)
+        {
+            DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+        };
+}
+
+[Register("SceneDelegate")]
+public class SceneDelegate : UIWindowSceneDelegate
+{
     public override UIWindow? Window { get; set; }
 
-    public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+    public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
     {
-        Window = new UIWindow(UIScreen.MainScreen.Bounds);
+        if (scene is not UIWindowScene windowScene)
+            return;
+
+        Window = new UIWindow(windowScene);
         Window.BackgroundColor = UIColor.White;
         var vc = new MainViewController();
         vc.ModalPresentationStyle = UIModalPresentationStyle.FullScreen;
         Window.RootViewController = vc;
         Window.MakeKeyAndVisible();
-        return true;
     }
 }
 
@@ -158,6 +177,7 @@ public class AppDelegate : UIApplicationDelegate
 public class MainViewController : UIViewController
 {
     private UITextView? _resultTextView;
+    private static bool _automaticRunStarted;
 
     public override bool PrefersStatusBarHidden() => false;
 
@@ -189,9 +209,10 @@ public class MainViewController : UIViewController
         {
             Text = $"Runtime Tests ({Application.Platform})",
             TextAlignment = UITextAlignment.Center,
-            Font = UIFont.BoldSystemFontOfSize(18),
             Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, titleHeight)
         };
+        if (UIFont.BoldSystemFontOfSize(18) is { } titleFont)
+            label.Font = titleFont;
         View.AddSubview(label);
         currentY += titleHeight + spacing;
 
@@ -229,6 +250,12 @@ public class MainViewController : UIViewController
         // [UnsupportedOSPlatform("maccatalyst")]; gate the call with CanUseLiveActivities,
         // whose *Guard attributes tell CA1416 the call is statically safe when it is true.
         // On an unsupported OS the visual-proof mode falls back to the normal test run.
+        // UIKit may reconnect a scene; automatic execution belongs to the process.
+        // The Run Tests button remains available for intentional subsequent runs.
+        if (_automaticRunStarted)
+            return;
+        _automaticRunStarted = true;
+
         if (Application.PersistActivity && CanUseLiveActivities)
             _ = StartPersistentActivityAsync();
         else

@@ -63,11 +63,13 @@ partial class Build
     const string MacAnatomyAppName = "MacAnatomyApp";
     const string MacAnatomyBundleId = "com.swiftbindings.macanatomy";
 
-    // The second framework the fixture embeds, straight from the repo's own xcframework: the runtime
-    // framework is binary + Info.plist only, while SBApple also carries a Modules/ directory — the
-    // shape a consumer's Apple-framework binding embeds, and the entry a repeated workload copy
-    // trips over once the bundle has been rewritten.
+    // Stage the committed SBApple binaries with a deterministic directory-entry fixture.
+    // Git does not retain empty directories, and recent workloads strip Modules before signing.
+    // A resource directory survives those shipping defaults and still exercises ditto copying
+    // a real directory over the root directory link created by the anatomy step.
     const string MacAnatomyDirectoryEntryFramework = AppleSupplementModuleName;
+    const string MacAnatomyDirectoryEntry = "Resources";
+    const string MacAnatomyDirectoryEntryMarker = "swift-bindings-directory-fixture.txt";
 
     // The host's own architecture: these legs build and inspect on this Mac, never on a device.
     static string MacAnatomyHostArch =>
@@ -79,18 +81,20 @@ partial class Build
     void RunMacFrameworkAnatomyLegs(AbsolutePath scratch, AbsolutePath nupkgDir)
     {
         Log.Information("=== appstore-hygiene: Mac framework anatomy (macOS + Mac Catalyst) ===");
+        var directoryEntryContents = "Directory-entry positive control for framework deepening.\n";
+        var directoryEntryXcframework = PrepareMacAnatomyDirectoryEntryFramework(scratch, directoryEntryContents);
 
         foreach (var (platform, tfm, rid) in new[]
                  {
-                     ("macOS", "net10.0-macos", $"osx-{MacAnatomyHostArch}"),
-                     ("Mac Catalyst", "net10.0-maccatalyst", $"maccatalyst-{MacAnatomyHostArch}"),
+                     ("macOS", $"{BtFramework}-macos", $"osx-{MacAnatomyHostArch}"),
+                     ("Mac Catalyst", $"{BtFramework}-maccatalyst", $"maccatalyst-{MacAnatomyHostArch}"),
                      // A universal app is built as one bundle per RID and then merged; the step
                      // fires in each inner build and again on the merged bundle, and the reset
                      // target reads workload-private item metadata in both. That orchestration is
                      // its own code path, so it gets its own leg rather than being inferred from
                      // the single-RID ones. macOS only: Catalyst's universal merge is the same
                      // workload machinery, and the x64 Catalyst build would double this leg's cost.
-                     ("macOS universal", "net10.0-macos", MacAnatomyUniversalRids),
+                     ("macOS universal", $"{BtFramework}-macos", MacAnatomyUniversalRids),
                  })
         {
             var universal = rid == MacAnatomyUniversalRids;
@@ -98,13 +102,13 @@ partial class Build
             if (Directory.Exists(appDir)) appDir.DeleteDirectory();
             appDir.CreateDirectory();
 
-            WriteMacAnatomyConsumerApp(appDir, tfm, rid, AppleSupplementXcframeworkDir);
+            WriteMacAnatomyConsumerApp(appDir, tfm, rid, directoryEntryXcframework);
             File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
 
             // The universal leg is about the merge orchestration, which publish exercises in full;
             // the build flow adds a second compile of both slices for no new observation.
-            if (!universal) RunMacAnatomyFlow(platform, appDir, rid, publish: false);
-            RunMacAnatomyFlow(platform, appDir, rid, publish: true);
+            if (!universal) RunMacAnatomyFlow(platform, appDir, rid, directoryEntryContents, publish: false);
+            RunMacAnatomyFlow(platform, appDir, rid, directoryEntryContents, publish: true);
 
             // Next flow: the workload copies frameworks with ditto behind a per-framework stamp, so
             // the flows above never copy a second time — and ditto cannot copy a directory onto
@@ -112,8 +116,37 @@ partial class Build
             // obj/, or a publish whose inputs moved all make the stamp stale, and then the copy runs
             // into the rewritten bundle. Wiping the stamps reproduces that exactly, on top of the
             // deepened bundle the previous flows left in bin/.
+            // Change the source payload too: a marker merely surviving in bin/ would not prove
+            // that the forced workload copy actually refreshed the original resource directory.
+            directoryEntryContents = $"Directory-entry positive control after the {platform} framework re-copy.\n";
+            WriteMacAnatomyDirectoryEntryMarkers(directoryEntryXcframework, directoryEntryContents);
             ForceMacFrameworkRecopy(appDir);
-            RunMacAnatomyFlow(platform, appDir, rid, publish: true, recopy: true);
+            RunMacAnatomyFlow(platform, appDir, rid, directoryEntryContents, publish: true, recopy: true);
+        }
+    }
+
+    AbsolutePath PrepareMacAnatomyDirectoryEntryFramework(AbsolutePath scratch, string directoryEntryContents)
+    {
+        Assert.True(Directory.Exists(AppleSupplementXcframeworkDir),
+            $"{AppleSupplementXcframeworkDir} is missing — the Mac anatomy fixture requires its committed native binaries.");
+        var staged = scratch / "directory-entry" / (MacAnatomyDirectoryEntryFramework + ".xcframework");
+        ProcessTasks.StartProcess("/usr/bin/ditto", $"\"{AppleSupplementXcframeworkDir}\" \"{staged}\"")
+            .AssertWaitForExit().AssertZeroExitCode();
+        WriteMacAnatomyDirectoryEntryMarkers(staged, directoryEntryContents);
+        return staged;
+    }
+
+    static void WriteMacAnatomyDirectoryEntryMarkers(AbsolutePath staged, string directoryEntryContents)
+    {
+        var frameworks = Directory.GetDirectories(staged,
+            MacAnatomyDirectoryEntryFramework + ".framework", SearchOption.AllDirectories);
+        Assert.True(frameworks.Length > 0, "The staged Mac anatomy fixture contains no framework slices.");
+        foreach (var framework in frameworks)
+        {
+            var directoryEntry = Path.Combine(framework, MacAnatomyDirectoryEntry);
+            Directory.CreateDirectory(directoryEntry);
+            File.WriteAllText(Path.Combine(directoryEntry, MacAnatomyDirectoryEntryMarker),
+                directoryEntryContents);
         }
     }
 
@@ -133,7 +166,8 @@ partial class Build
 
     // One flow (build or publish) for one platform: produce the .app, then assert on every framework
     // it embedded.
-    void RunMacAnatomyFlow(string platform, AbsolutePath appDir, string rid, bool publish, bool recopy = false)
+    void RunMacAnatomyFlow(string platform, AbsolutePath appDir, string rid, string directoryEntryContents,
+        bool publish, bool recopy = false)
     {
         var flow = (publish ? "publish" : "build") + (recopy ? " after a forced framework re-copy" : "");
         Log.Information("--- {Platform} / dotnet {Flow} ({Rid}) ---", platform, flow, rid);
@@ -192,14 +226,14 @@ partial class Build
         var shipped = (AbsolutePath)appBundles[0];
         var asserted = universal ? new List<string> { shipped } : appBundles;
         foreach (var appBundle in asserted)
-            AssertMacAppFrameworkAnatomy((AbsolutePath)appBundle, platform, flow, failures);
+            AssertMacAppFrameworkAnatomy((AbsolutePath)appBundle, platform, flow, directoryEntryContents, failures);
 
         // What a Mac app is submitted as is an installer package, not the .app in bin/. Publish
         // builds one, and it is assembled from the app bundle after signing, so a step that
         // flattened links or dropped the version directory on the way in would leave the bundle in
         // bin/ correct and the submitted payload wrong.
         if (publish)
-            AssertMacInstallerPackage(appDir, platform, flow, failures);
+            AssertMacInstallerPackage(appDir, platform, flow, directoryEntryContents, failures);
 
         // Layout, load path, dependencies, and signature are all static facts. Launching the app
         // and having it dlopen every embedded framework through the rewritten layout is the one
@@ -265,7 +299,8 @@ partial class Build
     // and the app inside it put through the same layout assertions as the bundle in bin/. The
     // package is what carries the app to Apple; asserting the bundle alone would leave the archive
     // step — which has to preserve symbolic links and the version directory — unobserved.
-    void AssertMacInstallerPackage(AbsolutePath appDir, string platform, string flow, List<string> failures)
+    void AssertMacInstallerPackage(AbsolutePath appDir, string platform, string flow, string directoryEntryContents,
+        List<string> failures)
     {
         var packages = Directory
             .GetFiles(appDir / "bin", "*.pkg", SearchOption.AllDirectories)
@@ -305,7 +340,7 @@ partial class Build
             return;
         }
 
-        AssertMacAppFrameworkAnatomy((AbsolutePath)payloadApps[0], platform, flow + " installer package", failures);
+        AssertMacAppFrameworkAnatomy((AbsolutePath)payloadApps[0], platform, flow + " installer package", directoryEntryContents, failures);
     }
 
     // The version directory the step writes. Apple allows any name here, but pinning it is what
@@ -313,7 +348,8 @@ partial class Build
     const string ExpectedVersionDirectory = "A";
 
     // The layout assertions, per embedded framework, plus the app's own signature.
-    void AssertMacAppFrameworkAnatomy(AbsolutePath appBundle, string platform, string flow, List<string> failures)
+    void AssertMacAppFrameworkAnatomy(AbsolutePath appBundle, string platform, string flow, string directoryEntryContents,
+        List<string> failures)
     {
         var frameworksDir = appBundle / "Contents" / "Frameworks";
         if (!Directory.Exists(frameworksDir))
@@ -334,17 +370,25 @@ partial class Build
         }
 
         // Positive control for the directory-entry case: the fixture embeds SBApple, whose bundle
-        // carries a Modules/ directory. A rewritten bundle's root Modules is a link to a directory,
+        // carries a Resources/ directory. A rewritten bundle's root Resources is a link to a directory,
         // which is the entry a second workload copy cannot write onto; if SBApple stopped embedding,
         // the re-copy flow would pass without ever putting that entry in ditto's way.
+        var directoryEntry = Path.Combine(frameworksDir, MacAnatomyDirectoryEntryFramework + ".framework",
+            MacAnatomyDirectoryEntry);
+        var directoryEntryMarker = Path.Combine(directoryEntry, MacAnatomyDirectoryEntryMarker);
         if (!frameworks.Any(f => Path.GetFileName(f) == MacAnatomyDirectoryEntryFramework + ".framework"))
             failures.Add(
                 $"{platform} {flow}: {MacAnatomyDirectoryEntryFramework}.framework did not embed, so no embedded " +
-                "framework carries a directory entry (Modules/) and the re-copy flow observes nothing.");
-        else if (!Directory.Exists(Path.Combine(frameworksDir, MacAnatomyDirectoryEntryFramework + ".framework", "Modules")))
+                "framework carries a resource directory and the re-copy flow observes nothing.");
+        else if (!Directory.Exists(directoryEntry))
             failures.Add(
-                $"{platform} {flow}: {MacAnatomyDirectoryEntryFramework}.framework/Modules does not resolve to a " +
+                $"{platform} {flow}: {MacAnatomyDirectoryEntryFramework}.framework/{MacAnatomyDirectoryEntry} does not resolve to a " +
                 "directory — the fixture's directory-entry positive control is gone.");
+        else if (!File.Exists(directoryEntryMarker))
+            failures.Add($"{platform} {flow}: the directory-entry fixture marker was lost during embedding or re-copy.");
+        else if (File.ReadAllText(directoryEntryMarker) != directoryEntryContents)
+            failures.Add($"{platform} {flow}: the directory-entry fixture marker is stale — the workload did not " +
+                "copy the current source resource directory into the embedded framework.");
 
         foreach (var fw in frameworks)
         {
@@ -510,9 +554,9 @@ partial class Build
 
     // A minimal app whose only package reference is the runtime, so the anatomy step reaches it the
     // way a consumer's does: through the package's own buildTransitive targets. It also embeds the
-    // repo's SBApple xcframework directly, for a framework with a directory entry (see
+    // staged SBApple xcframework with an explicit directory entry (see
     // MacAnatomyDirectoryEntryFramework).
-    static void WriteMacAnatomyConsumerApp(AbsolutePath appDir, string tfm, string rid, AbsolutePath directoryEntryXcframework)
+    void WriteMacAnatomyConsumerApp(AbsolutePath appDir, string tfm, string rid, AbsolutePath directoryEntryXcframework)
     {
         Assert.True(Directory.Exists(directoryEntryXcframework),
             $"{directoryEntryXcframework} is missing — the Mac anatomy fixture embeds it as its directory-entry positive control.");
@@ -532,6 +576,9 @@ partial class Build
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
                 <TargetFramework>{tfm}</TargetFramework>
+                <!-- Stable deployment targets supported by both qualified workloads; SDK defaults
+                     otherwise advance to the latest OS and prevent smoke launches on older hosts. -->
+                <SupportedOSPlatformVersion>{(isCatalyst ? "17.0" : "14.0")}</SupportedOSPlatformVersion>
                 {runtimeIdentifiers}
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
@@ -544,7 +591,7 @@ partial class Build
                 <NoWarn>$(NoWarn);CA1416;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
               </PropertyGroup>
 
-              <!-- The package reference under test, plus a framework carrying a Modules/ directory. -->
+              <!-- The package reference under test, plus a framework carrying a resource directory. -->
               <ItemGroup>
                 <PackageReference Include="SwiftBindings.Runtime" Version="{AppStoreHygieneVersion}" />
                 <NativeReference Include="{directoryEntryXcframework}" Kind="Framework" />
@@ -611,14 +658,32 @@ partial class Build
 
               public class AppDelegate : UIApplicationDelegate
               {
+                  public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+                  // UIKit consumes this protocol conformance natively after managed interface trimming.
+                  [System.Diagnostics.CodeAnalysis.DynamicDependency(
+                      System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+                  public override UISceneConfiguration GetConfiguration(UIApplication application,
+                      UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+                      new("Default Configuration", connectingSceneSession.Role)
+                      {
+                          DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+                      };
+              }
+
+              [Register("SceneDelegate")]
+              public class SceneDelegate : UIWindowSceneDelegate
+              {
                   public override UIWindow? Window { get; set; }
 
-                  public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+                  public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
                   {
-                      Window = new UIWindow(UIScreen.MainScreen.Bounds);
+                      if (scene is not UIWindowScene windowScene)
+                          return;
+
+                      Window = new UIWindow(windowScene);
                       Window.RootViewController = new UIViewController();
                       Window.MakeKeyAndVisible();
-                      return true;
                   }
               }
               """
@@ -645,5 +710,34 @@ partial class Build
               }
               """;
         File.WriteAllText(appDir / "Program.cs", program);
+
+        if (isCatalyst)
+        {
+            File.WriteAllText(appDir / "Info.plist", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>UIApplicationSceneManifest</key>
+                    <dict>
+                        <key>UIApplicationSupportsMultipleScenes</key>
+                        <false/>
+                        <key>UISceneConfigurations</key>
+                        <dict>
+                            <key>UIWindowSceneSessionRoleApplication</key>
+                            <array>
+                                <dict>
+                                    <key>UISceneConfigurationName</key>
+                                    <string>Default Configuration</string>
+                                    <key>UISceneDelegateClassName</key>
+                                    <string>SceneDelegate</string>
+                                </dict>
+                            </array>
+                        </dict>
+                    </dict>
+                </dict>
+                </plist>
+                """);
+        }
     }
 }

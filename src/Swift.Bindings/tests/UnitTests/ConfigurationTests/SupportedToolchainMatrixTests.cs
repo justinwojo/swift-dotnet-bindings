@@ -84,7 +84,7 @@ namespace BindingsGeneration.Tests
         {
             var packageSwift = File.ReadAllText(
                 Path.Combine(RepoRoot(), "tools", "SwiftInterfaceParser", "Package.swift"));
-            // Package.swift pins the version tag exactly: let swiftSyntaxVersion: Version = "601.0.1"
+            // Package.swift pins the version tag exactly; it never follows the host toolchain.
             Assert.Contains($"\"{SupportedToolchain.PinnedSwiftSyntaxVersion}\"", packageSwift);
 
             var packageResolved = File.ReadAllText(
@@ -117,13 +117,15 @@ namespace BindingsGeneration.Tests
 
         // ---- AssertSupported tri-state ----
 
-        [Fact]
-        public void AssertSupported_InEnvelope_RecordsInfo_NoWarningNoDegradation()
+        [Theory]
+        [InlineData(26)]
+        [InlineData(27)]
+        public void AssertSupported_InEnvelope_RecordsInfo_NoWarningNoDegradation(int xcodeMajor)
         {
             InputResolutionReport.Reset();
             var logger = new CapturingLogger();
             var runner = new MockCommandRunner();
-            runner.SetResponse("xcodebuild -version", 0, $"Xcode {SupportedToolchain.MinXcodeMajor}.3\nBuild version 17C", "");
+            runner.SetResponse("xcodebuild -version", 0, $"Xcode {xcodeMajor}.3\nBuild version 17C", "");
 
             SupportedToolchain.AssertSupported(runner, logger);
 

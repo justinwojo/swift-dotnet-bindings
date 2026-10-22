@@ -124,14 +124,18 @@ partial class Build
             "x86_64-apple-macosx13.0",
         };
 
-        // Resolve each slice's bin dir (.build/<triple>/release) via --show-bin-path so
-        // we never hard-code SPM's layout.
+        // Give each slice its own scratch dir: SwiftPM's swiftbuild engine (the
+        // Xcode 27 default) otherwise puts both triples in the same Products/Release
+        // directory, so the second build overwrites the first. Resolve each bin dir
+        // via --show-bin-path rather than assuming either build engine's layout.
         var binDirByTriple = new Dictionary<string, AbsolutePath>();
         foreach (var triple in triples)
         {
+            var scratchDir = packageDir / ".build" / "slices" / triple;
+            var buildArguments = $"build -c release --triple {triple} --scratch-path \"{scratchDir}\"";
             Log.Information("Building SwiftInterfaceParser slice {Triple} (cwd: {Dir})", triple, packageDir);
             var buildProcess = ProcessTasks.StartProcess(
-                    swiftPath, $"build -c release --triple {triple}",
+                    swiftPath, buildArguments,
                     workingDirectory: packageDir,
                     logOutput: false)
                 .AssertWaitForExit();
@@ -147,7 +151,7 @@ partial class Build
             }
 
             var binPathProcess = ProcessTasks.StartProcess(
-                    swiftPath, $"build -c release --triple {triple} --show-bin-path",
+                    swiftPath, buildArguments + " --show-bin-path",
                     workingDirectory: packageDir,
                     logOutput: false)
                 .AssertWaitForExit()

@@ -116,7 +116,7 @@ final class SubscriptLabelsWalker: SyntaxVisitor {
             scopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         // Regex `ExtensionDeclRegex` captures only `[\w.]+` for the extended type.
         guard RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)

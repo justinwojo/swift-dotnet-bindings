@@ -74,7 +74,7 @@ namespace BindingsGeneration
                        Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
                        Opt out (to probe an upstream Mono fix):
                          <SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit> -->
-                  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'maccatalyst-x64' AND '$(SwiftBindingsMacCatalystX64UseJit)' != 'true'">
+                  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'maccatalyst-x64' AND '$(SwiftBindingsMacCatalystX64UseJit)' != 'true' AND $(TargetFramework.StartsWith('net10.0-', StringComparison.OrdinalIgnoreCase))">
                     <MtouchInterpreter Condition="'$(MtouchInterpreter)' == ''">all</MtouchInterpreter>
                     <UseInterpreter Condition="'$(UseInterpreter)' == ''">true</UseInterpreter>
                   </PropertyGroup>
@@ -82,6 +82,7 @@ namespace BindingsGeneration
                           BeforeTargets="Build"
                           Condition="'$(RuntimeIdentifier)' == 'maccatalyst-x64'
                                      AND '$(SwiftBindingsMacCatalystX64UseJit)' != 'true'
+                                     AND $(TargetFramework.StartsWith('net10.0-', StringComparison.OrdinalIgnoreCase))
                                      AND '$(_SwiftBindingsMacCatalystX64WorkaroundAnnounced)' != 'true'">
                     <PropertyGroup>
                       <_SwiftBindingsMacCatalystX64WorkaroundAnnounced>true</_SwiftBindingsMacCatalystX64WorkaroundAnnounced>

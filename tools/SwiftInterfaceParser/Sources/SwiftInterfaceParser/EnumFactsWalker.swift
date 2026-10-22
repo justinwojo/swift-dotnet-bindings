@@ -135,7 +135,7 @@ final class EnumFactsWalker: SyntaxVisitor {
             scopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         // The extended type must match `[\w.]+` (word characters and dots only);
         // generics, parens, or composition types are not captured.
         guard RegexShape.isWordOrDotOnly(qualified) else {

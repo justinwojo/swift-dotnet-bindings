@@ -192,6 +192,7 @@ partial class Build
             SeedSkipSurfaceBaseline, SeedParityBaseline, RegenStdlibConformances, SeedWrapperStripBaseline)
         .Executes(() =>
         {
+            ProfileContext.AssertBaselineWriteAllowed("SeedApiManifestBaseline");
             var scanned = ScanApiManifests();
             if (scanned.Entries.Count == 0)
                 throw new Exception(

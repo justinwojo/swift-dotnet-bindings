@@ -48,7 +48,7 @@ internal sealed record AppleTypeSurfaceEntry(
 /// dangling reference.
 /// </para>
 /// The reference assemblies live on disk in the installed Apple workload; the index is built at most
-/// once per target platform (a per-platform cache). When the platform's workload isn't present the
+/// once per exact reference context. When the target's workload isn't present the
 /// entry is null and callers fall back to name synthesis, so generation never depends on it.
 /// </summary>
 internal sealed class AppleTypeSurfaceIndex
@@ -105,20 +105,48 @@ internal sealed class AppleTypeSurfaceIndex
     /// Records the target Apple platform for the current generation so <see cref="Default"/> resolves
     /// the reference assembly that ships for it. Set once at generation start; unset resolves to iOS.
     /// </summary>
-    internal static void SetAmbientPlatform(ApplePlatform platform) => s_ambientPlatform.Value = platform;
+    internal static void SetAmbientPlatform(ApplePlatform platform)
+    {
+        if (s_ambientReferences.Value?.Target.Platform != platform)
+            s_ambientReferences.Value = null;
+        s_ambientPlatform.Value = platform;
+    }
 
     /// <summary>The recorded ambient platform, or null when unset (<see cref="Default"/> then resolves iOS).</summary>
     internal static ApplePlatform? AmbientPlatform => s_ambientPlatform.Value;
 
     /// <summary>Clears the ambient platform so a later read falls back to iOS (test isolation).</summary>
-    internal static void ResetAmbientPlatform() => s_ambientPlatform.Value = null;
+    internal static void ResetAmbientPlatform()
+    {
+        s_ambientPlatform.Value = null;
+        s_ambientReferences.Value = null;
+    }
 
-    // One index per platform, each built at most once. GetOrAdd caches a null result too, so a platform
-    // whose reference pack isn't installed degrades to name synthesis without re-probing every lookup.
-    private static readonly ConcurrentDictionary<ApplePlatform, AppleTypeSurfaceIndex?> s_byPlatform = new();
+    private static readonly AsyncLocal<ManagedReferenceContext?> s_ambientReferences = new();
+    private static readonly ConcurrentDictionary<string, Lazy<AppleTypeSurfaceIndex?>> s_byReferences = new();
+
+    internal static ManagedReferenceContext? AmbientReferences => s_ambientReferences.Value;
+
+    internal static IDisposable UseReferenceContext(ManagedReferenceContext references)
+    {
+        var previousReferences = s_ambientReferences.Value;
+        var previousPlatform = s_ambientPlatform.Value;
+        s_ambientReferences.Value = references;
+        s_ambientPlatform.Value = references.Target.Platform;
+        return new ReferenceScope(() =>
+        {
+            s_ambientReferences.Value = previousReferences;
+            s_ambientPlatform.Value = previousPlatform;
+        });
+    }
+
+    private sealed class ReferenceScope(Action restore) : IDisposable
+    {
+        public void Dispose() => restore();
+    }
 
     // A test-installed override of the resolved index for the current async flow. Production never sets
-    // this — Default falls through to the per-platform reference-pack cache below. It exists so
+    // this — Default falls through to the reference-context cache below. It exists so
     // synthesis/emitter tests can drive the real ingress path (ObjC-bridging synthesis →
     // TryProjectViaAppleSurface → ClassifyUnsupportedReference) against a hand-built surface — or a
     // deterministically *absent* surface (Index null, modelling the workload-not-installed fallback) —
@@ -142,7 +170,8 @@ internal sealed class AppleTypeSurfaceIndex
     internal static AppleTypeSurfaceIndex? Default =>
         s_overrideForCurrentFlow.Value is { } o
             ? o.Index
-            : GetForPlatform(s_ambientPlatform.Value ?? ApplePlatform.iOS);
+            : GetForContext(s_ambientReferences.Value ??= ManagedReferenceContext.Resolve(
+                PlatformInfoFactory.Create(s_ambientPlatform.Value ?? ApplePlatform.iOS)));
 
     /// <summary>
     /// Test-only: installs <paramref name="index"/> as <see cref="Default"/> for the current async flow
@@ -175,25 +204,25 @@ internal sealed class AppleTypeSurfaceIndex
 
     /// <summary>The index for a specific platform, or null when its reference assembly isn't installed.</summary>
     internal static AppleTypeSurfaceIndex? GetForPlatform(ApplePlatform platform)
-        => s_byPlatform.GetOrAdd(platform, BuildFromInstalledRefPack);
+        => GetForContext(ManagedReferenceContext.Resolve(PlatformInfoFactory.Create(platform)));
+
+    internal static AppleTypeSurfaceIndex? GetForContext(ManagedReferenceContext references)
+        => references.IsAvailable
+            ? s_byReferences.GetOrAdd(references.CacheKey,
+                _ => new Lazy<AppleTypeSurfaceIndex?>(() => BuildFromReferences(references))).Value
+            : null;
 
     [UnconditionalSuppressMessage("AOT", "IL3050",
         Justification = "MetadataLoadContext reads metadata only and never executes code; the generator never runs under NativeAOT.")]
-    private static AppleTypeSurfaceIndex? BuildFromInstalledRefPack(ApplePlatform platform)
+    private static AppleTypeSurfaceIndex? BuildFromReferences(ManagedReferenceContext references)
     {
         try
         {
-            var appleRefAssembly = FindMicrosoftRefAssembly(platform);
+            var appleRefAssembly = references.AppleReferencePath;
             if (appleRefAssembly is null)
                 return null;
 
-            var coreRefDir = FindNetCoreAppRefDir();
-            if (coreRefDir is null)
-                return null;
-
-            var refDir = Path.GetDirectoryName(appleRefAssembly)!;
-            var assemblies = Directory.GetFiles(refDir, "*.dll")
-                .Concat(Directory.GetFiles(coreRefDir, "*.dll"))
+            var assemblies = references.ReferencePaths
                 .GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToArray();
@@ -327,92 +356,4 @@ internal sealed class AppleTypeSurfaceIndex
         _ => "Microsoft.iOS",
     };
 
-    private static string? FindMicrosoftRefAssembly(ApplePlatform platform)
-    {
-        var token = RefPackName(platform);
-        var packGlob = $"{token}.Ref*";
-        var dllName = $"{token}.dll";
-
-        foreach (var root in DotNetRoots())
-        {
-            var packsDir = Path.Combine(root, "packs");
-            if (!Directory.Exists(packsDir))
-                continue;
-
-            var best = Directory.GetDirectories(packsDir, packGlob)
-                .SelectMany(packDir => Directory.GetFiles(packDir, dllName, SearchOption.AllDirectories))
-                .Where(IsRefAssemblyPath)
-                .OrderByDescending(VersionFromRefPath)
-                .FirstOrDefault();
-
-            if (best is not null)
-                return best;
-        }
-
-        return null;
-    }
-
-    private static string? FindNetCoreAppRefDir()
-    {
-        foreach (var root in DotNetRoots())
-        {
-            var packDir = Path.Combine(root, "packs", "Microsoft.NETCore.App.Ref");
-            if (!Directory.Exists(packDir))
-                continue;
-
-            var systemRuntime = Directory.GetFiles(packDir, "System.Runtime.dll", SearchOption.AllDirectories)
-                .Where(IsRefAssemblyPath)
-                .OrderByDescending(VersionFromRefPath)
-                .FirstOrDefault();
-
-            if (systemRuntime is not null)
-                return Path.GetDirectoryName(systemRuntime);
-        }
-
-        return null;
-    }
-
-    private static bool IsRefAssemblyPath(string path)
-        => path.Replace('\\', '/').Contains("/ref/", StringComparison.Ordinal);
-
-    /// <summary>
-    /// Extracts the pack version from a <c>{pack}/{version}/ref/{tfm}/{assembly}.dll</c> path so the
-    /// newest installed pack wins. Returns 0.0 when the path doesn't match (sorts last).
-    /// </summary>
-    private static Version VersionFromRefPath(string file)
-    {
-        var versionDir = Path.GetDirectoryName(   // {pack}/{version}
-            Path.GetDirectoryName(                 // {pack}/{version}/ref
-                Path.GetDirectoryName(file)));      // {pack}/{version}/ref/{tfm}
-        var segment = versionDir is null ? null : Path.GetFileName(versionDir);
-        return Version.TryParse(segment, out var v) ? v : new Version(0, 0);
-    }
-
-    private static IEnumerable<string> DotNetRoots()
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        // The running shared framework lives at {root}/shared/Microsoft.NETCore.App/{ver}; climb to {root}.
-        var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-        if (!string.IsNullOrEmpty(runtimeDir))
-        {
-            var inferred = Path.GetFullPath(Path.Combine(runtimeDir, "..", "..", ".."));
-            if (seen.Add(inferred))
-                yield return inferred;
-        }
-
-        foreach (var candidate in new[]
-                 {
-                     Environment.GetEnvironmentVariable("DOTNET_ROOT"),
-                     "/usr/local/share/dotnet",
-                     "/usr/share/dotnet",
-                     Environment.GetEnvironmentVariable("HOME") is { Length: > 0 } home
-                         ? Path.Combine(home, ".dotnet")
-                         : null,
-                 })
-        {
-            if (!string.IsNullOrEmpty(candidate) && seen.Add(candidate))
-                yield return candidate;
-        }
-    }
 }

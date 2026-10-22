@@ -276,6 +276,7 @@ partial class Build
         .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate, SeedSkipSurfaceBaseline, SeedParityBaseline, RegenStdlibConformances)
         .Executes(() =>
         {
+            ProfileContext.AssertBaselineWriteAllowed("SeedWrapperStripBaseline");
             var swiftFiles = Directory.GetFiles(BtOutputDir, "*.swift")
                 .Where(f => !f.EndsWith(".SwiftUIBridge.swift"))
                 .ToList();

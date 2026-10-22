@@ -67,7 +67,8 @@ partial class Build
 
     // Throwaway version with its own suffix so this leg's NuGet-cache clears never collide with
     // --mixed-pack / --mixed-direct.
-    const string AppStoreHygieneVersion = "0.0.0-appstorehygiene";
+    string AppStoreHygieneVersion => RuntimeLane.IsNet11
+        ? "0.0.0-appstorehygiene-net11" : "0.0.0-appstorehygiene";
 
     const string AppStoreHygieneAppName = "AppStoreHygieneApp";
     const string AppStoreHygieneBundleId = "com.swiftbindings.appstorehygiene";
@@ -80,15 +81,16 @@ partial class Build
     // matching RuntimeTestsApp / the mixed legs). Hoisted to one constant so the consumer csproj's
     // <CodesignKey> and the up-front "can this host sign?" tri-state check (Finding 61) reference the
     // same string and cannot drift — a host missing this identity is an honest skip, not a failure.
-    const string AppStoreHygieneCodesignKey = "Apple Development: Justin Wojciechowski (KBKS29A36Q)";
+    const string AppStoreHygieneCodesignKey = "Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)";
 
-    AbsolutePath AppStoreHygieneScratch => RootDirectory / "artifacts" / "appstore-hygiene";
+    AbsolutePath AppStoreHygieneScratch => RootDirectory / "artifacts" /
+        (RuntimeLane.IsNet11 ? "appstore-hygiene-net11" : "appstore-hygiene");
 
     // Entry point invoked from the BindingTests dispatch when --appstore-hygiene is set.
     void RunAppStoreHygieneLeg()
     {
         Log.Information("=================================================");
-        Log.Information(" BindingTests — App Store TN2435-hygiene gate");
+        Log.Information(" BindingTests — App Store TN2435-hygiene gate ({Framework})", BtFramework);
         Log.Information("=================================================");
 
         var scratch = AppStoreHygieneScratch;
@@ -347,17 +349,16 @@ partial class Build
         AssertAppStoreHygieneIpa((AbsolutePath)ipa, scratch);
     }
 
-    // The consumer: a minimal net10.0-ios app that takes ONE PackageReference on
-    // SwiftBindings.Runtime and forces an IPA on the device publish. No NativeAOT — a plain Mono
-    // device publish still runs CreateIpa and embeds the runtime framework (the embed shape is
-    // identical to the AOT path and far cheaper to produce here).
-    static void WriteAppStoreHygieneConsumerApp(AbsolutePath appDir)
+    // The consumer uses the selected managed framework and ONE PackageReference on the unchanged
+    // net10-compatible Runtime package. A normal device publish (Mono on net10, CoreCLR on net11)
+    // runs CreateIpa and embeds the runtime framework without requiring NativeAOT compilation.
+    void WriteAppStoreHygieneConsumerApp(AbsolutePath appDir)
     {
         var csproj = $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{BtFramework}-ios</TargetFramework>
                 <RuntimeIdentifier>{AppStoreHygieneIosRid}</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
@@ -380,8 +381,8 @@ partial class Build
                 <!-- Justin's wildcard dev identity (matches RuntimeTestsApp / the mixed legs). One
                      constant shared with the up-front tri-state skip check so the two can't drift. -->
                 <CodesignKey>{AppStoreHygieneCodesignKey}</CodesignKey>
-                <CodesignProvision>Wildcard Dev</CodesignProvision>
-                <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+                <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+                <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
 
               <!-- The single reference under test: the Runtime package's buildTransitive targets
@@ -421,14 +422,32 @@ partial class Build
 
             public class AppDelegate : UIApplicationDelegate
             {
+                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+                // UIKit consumes this protocol conformance natively after managed interface trimming.
+                [System.Diagnostics.CodeAnalysis.DynamicDependency(
+                    System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+                public override UISceneConfiguration GetConfiguration(UIApplication application,
+                    UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+                    new("Default Configuration", connectingSceneSession.Role)
+                    {
+                        DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+                    };
+            }
+
+            [Register("SceneDelegate")]
+            public class SceneDelegate : UIWindowSceneDelegate
+            {
                 public override UIWindow? Window { get; set; }
 
-                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+                public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
                 {
-                    Window = new UIWindow(UIScreen.MainScreen.Bounds);
+                    if (scene is not UIWindowScene windowScene)
+                        return;
+
+                    Window = new UIWindow(windowScene);
                     Window.RootViewController = new UIViewController();
                     Window.MakeKeyAndVisible();
-                    return true;
                 }
             }
             """;
@@ -439,6 +458,23 @@ partial class Build
             "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
             "<plist version=\"1.0\">\n<dict>\n" +
             "    <key>UILaunchScreen</key>\n    <dict/>\n" +
+            "    <key>UIApplicationSceneManifest</key>\n" +
+            "    <dict>\n" +
+            "        <key>UIApplicationSupportsMultipleScenes</key>\n" +
+            "        <false/>\n" +
+            "        <key>UISceneConfigurations</key>\n" +
+            "        <dict>\n" +
+            "            <key>UIWindowSceneSessionRoleApplication</key>\n" +
+            "            <array>\n" +
+            "                <dict>\n" +
+            "                    <key>UISceneConfigurationName</key>\n" +
+            "                    <string>Default Configuration</string>\n" +
+            "                    <key>UISceneDelegateClassName</key>\n" +
+            "                    <string>SceneDelegate</string>\n" +
+            "                </dict>\n" +
+            "            </array>\n" +
+            "        </dict>\n" +
+            "    </dict>\n" +
             "</dict>\n</plist>\n");
     }
 

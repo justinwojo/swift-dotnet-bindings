@@ -40,6 +40,7 @@ mkdir -p "${SLICE_DIR}/Modules/${MODULE}.swiftmodule"
 xcrun -sdk iphonesimulator swiftc \
     -emit-module \
     -emit-module-interface \
+    -swift-version 5 \
     -emit-library \
     -static \
     -enable-library-evolution \

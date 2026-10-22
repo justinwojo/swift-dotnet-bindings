@@ -2,6 +2,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- SDK 11's in-process MSBuild/NuGet assemblies require the .NET 11 host.
+         Retarget only the build orchestrator; shipped tools and libraries stay net10. -->
+    <TargetFramework Condition="'$(SWIFT_BINDINGS_MANAGED_FRAMEWORK)' == 'net11.0'">net11.0</TargetFramework>
+    <!-- Nuke 10 compares argv[0] with Assembly.Location. .NET 11 apphost now
+         reports the native host path there; launching the DLL preserves that contract. -->
+    <UseAppHost Condition="'$(SWIFT_BINDINGS_MANAGED_FRAMEWORK)' == 'net11.0'">false</UseAppHost>
     <Nullable>enable</Nullable>
     <RootNamespace></RootNamespace>
     <NoWarn>CS0649;CS0169;NU1901;NU1902;NU1903;NU1904</NoWarn>
@@ -11,12 +17,21 @@
     <PackageReference Include="Nuke.Build" Version="10.1.0" />
     <PackageReference Include="Nuke.Common" Version="10.1.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+    <!-- Nuke.Tooling brings NuGet.Frameworks 6.12.1, but in-process evaluation loads
+         MSBuild from the selected SDK. Use that SDK's matching framework parser:
+         a copied older package assembly cannot satisfy the newer MSBuild reference. -->
+    <PackageReference Include="NuGet.Frameworks" Version="6.12.1" ExcludeAssets="all" PrivateAssets="all" />
+    <Reference Include="NuGet.Frameworks">
+      <HintPath>$(MSBuildToolsPath)/NuGet.Frameworks.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
   <!-- The x64-thunk-gate Driver is a standalone osx-x64 project published by the
        X64ThunkGate target; it is not part of the build assembly. Exclude its
        sources so the build project doesn't try to compile them. -->
   <ItemGroup>
     <Compile Remove="x64-thunk-gate\**\*.cs" />
+    <Compile Remove="fixtures\net11-package-consumer\**\*.cs" />
   </ItemGroup>
   <!-- Link-compile the bounded-range helper so VersionScope (Sdk.props stamping)
        and BindingProjectEmitter (standalone csproj emission) share one source and

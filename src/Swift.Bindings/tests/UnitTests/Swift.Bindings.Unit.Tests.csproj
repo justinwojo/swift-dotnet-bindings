@@ -37,6 +37,11 @@
        enable, source-gen JSON) so it compiles cleanly under this project's
        Nullable=disable + IsAotCompatible + warnings-as-errors. -->
   <ItemGroup>
+    <!-- Keep the actual Nuke Swift argument builder under unit coverage without
+         importing Nuke's process execution dependencies into the test project. -->
+    <Compile Include="../../../../build/Tools/SwiftCompilerSettings.cs" Link="Tools/SwiftCompilerSettings.cs" />
+    <Compile Include="../../../../build/Tools/ArgumentEscaper.cs" Link="Tools/ArgumentEscaper.cs" />
+    <Compile Include="../../../../build/Models/ToolchainProfileContext.cs" Link="Models/ToolchainProfileContext.cs" />
     <Compile Include="../../../../build/Helpers/ArtifactParityGate.cs" Link="Parity/ArtifactParityGate.cs" />
     <!-- Link-compile the build-side Mach-O reader so the appstore-hygiene gate's install_name reader
          (Finding 61, replacing the otool scrape) is unit-tested against hand-built Mach-O fixtures
@@ -168,6 +173,8 @@
          reports a NativeAOT result under the Mono lane's name. The judgement over the app's own
          runtime banner is the thing that must not drift, and it is testable here without a phone.
          BCL-only string/regex work with its own `#nullable enable`, AOT-clean. -->
+    <Compile Include="../../../../build/Models/ApplePlatform.cs" Link="Models/ApplePlatform.cs" />
+    <Compile Include="../../../../build/Models/RuntimeTestLane.cs" Link="Models/RuntimeTestLane.cs" />
     <Compile Include="../../../../build/Models/DeviceRuntimeFlavorGate.cs" Link="Models/DeviceRuntimeFlavorGate.cs" />
     <!-- Link-compile the platform-label ⇒ baseline-key mapping. It is the single point at which a
          runtime-test lane becomes graded: an unmapped label makes CompareRuntimeBaseline return

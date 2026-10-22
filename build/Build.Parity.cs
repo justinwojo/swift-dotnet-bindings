@@ -297,6 +297,7 @@ partial class Build
         .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate, SeedSkipSurfaceBaseline)
         .Executes(() =>
         {
+            ProfileContext.AssertBaselineWriteAllowed("SeedParityBaseline");
             var inputs = ResolveParityInputs();
             var findings = ArtifactParityGate.ComputeFindings(
                 inputs.CsSource, inputs.SwiftWrapperSource, inputs.AbiJson,

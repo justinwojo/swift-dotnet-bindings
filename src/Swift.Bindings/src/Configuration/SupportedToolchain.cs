@@ -37,7 +37,7 @@ namespace BindingsGeneration
         /// matrix needs a tested ceiling, not just a floor) so "we have not validated this toolchain"
         /// is observable rather than assumed-fine.
         /// </summary>
-        internal const int MaxXcodeMajor = 26;
+        internal const int MaxXcodeMajor = 27;
 
         /// <summary>
         /// Minimum supported .NET SDK band (the README floor: ".NET 10 SDK"). This is <em>declarative</em>
@@ -59,11 +59,11 @@ namespace BindingsGeneration
         internal const int ExpectedAbiFormatVersion = 8;
 
         /// <summary>
-        /// The swift-syntax tag the interface-facts producer is pinned to (Swift 6.1 grammar). Pinned
+        /// The swift-syntax tag the interface-facts producer is pinned to (Swift 6.4 grammar). Pinned
         /// in <c>tools/SwiftInterfaceParser/Package.swift</c> + <c>Package.resolved</c>; the matrix test
         /// asserts this constant equals that manifest pin so a deliberate bump moves both together.
         /// </summary>
-        internal const string PinnedSwiftSyntaxVersion = "601.0.1";
+        internal const string PinnedSwiftSyntaxVersion = "604.0.0";
 
         /// <summary>
         /// The resolved git revision of <see cref="PinnedSwiftSyntaxVersion"/> (from
@@ -71,7 +71,7 @@ namespace BindingsGeneration
         /// swift-syntax stamp (only its own <c>schemaVersion</c> handshake), so the strongest available
         /// assertion is the build-manifest parity check in the matrix test.
         /// </summary>
-        internal const string PinnedSwiftSyntaxRevision = "f99ae8aa18f0cf0d53481901f88a0991dc3bd4a2";
+        internal const string PinnedSwiftSyntaxRevision = "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf";
 
         /// <summary>
         /// Reads the active Xcode major version (<c>xcodebuild -version</c>) and classifies it against

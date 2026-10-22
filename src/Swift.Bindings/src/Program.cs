@@ -50,7 +50,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null, string? staticMergedModuleName = null, string? asyncPatternManifestPath = null, Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>>? vetObjCImportedTypeNames = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null, string? staticMergedModuleName = null, string? asyncPatternManifestPath = null, Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>>? vetObjCImportedTypeNames = null, ManagedReferenceContext? managedReferences = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -64,6 +64,11 @@ namespace BindingsGeneration
             // its ObjC-bridged references verified against that platform's reference assembly rather
             // than the unset (iOS) default. Re-recording the CLI's identical value is a no-op; a null
             // platform leaves any earlier-recorded ambient untouched.
+            if (managedReferences is not null && platform is { } requestedPlatform &&
+                requestedPlatform != managedReferences.Target.Platform)
+                throw new ArgumentException("Managed reference context does not match the requested platform.", nameof(managedReferences));
+            platform ??= managedReferences?.Target.Platform;
+            using var referenceScope = managedReferences is null ? null : AppleTypeSurfaceIndex.UseReferenceContext(managedReferences);
             if (platform is { } targetPlatform)
                 AppleTypeSurfaceIndex.SetAmbientPlatform(targetPlatform);
 
@@ -218,7 +223,7 @@ namespace BindingsGeneration
                     resolvedDependencies: resolvedDependencies);
 
                 var importProbe = new SwiftFrontendImportProbe(
-                    PlatformInfoFactory.Create(platform.Value), new SystemCommandRunner(), logger);
+                    managedReferences?.Target ?? PlatformInfoFactory.Create(platform.Value), new SystemCommandRunner(), logger);
 
                 if (!BindingInputClosurePreflight.RunOrFail(
                         inputInventory,
@@ -715,7 +720,7 @@ namespace BindingsGeneration
                 }
                 else if (platform != null &&
                          ModuleNameShadowProbe.IsModuleNameShadowedBySdk(
-                             moduleName, PlatformInfoFactory.Create(platform.Value), new SystemCommandRunner(), logger))
+                             moduleName, managedReferences?.Target ?? PlatformInfoFactory.Create(platform.Value), new SystemCommandRunner(), logger))
                 {
                     // The shadowing type belongs to the SDK rather than the bound module, but the
                     // consequence and the escape are identical: `<ModuleName>.` resolves into that
@@ -741,7 +746,7 @@ namespace BindingsGeneration
                 // `<DepModule>.` qualifier and compiles a shadow binary swiftmodule.
                 if (resolvedDependencies != null && resolvedDependencies.Count > 0 && platform != null)
                 {
-                    var detectorPlatformInfo = PlatformInfoFactory.Create(platform.Value);
+                    var detectorPlatformInfo = managedReferences?.Target ?? PlatformInfoFactory.Create(platform.Value);
                     depModuleCollisions = DepModuleCollisionDetector.DetectPerSlice(
                         resolvedDependencies, detectorPlatformInfo, logger);
                 }
@@ -1228,7 +1233,7 @@ namespace BindingsGeneration
                 // platform was threaded in (e.g., unit-test paths that don't ship a binding), fall
                 // back to iOS so the descriptor still writes a coherent file rather than silently
                 // dropping the gate.
-                var descriptorPlatform = PlatformInfoFactory.Create(platform ?? ApplePlatform.iOS);
+                var descriptorPlatform = managedReferences?.Target ?? PlatformInfoFactory.Create(platform ?? ApplePlatform.iOS);
                 var descriptorAssemblyName = string.IsNullOrEmpty(descriptorAssemblyNameOverride)
                     ? descriptorPlatform.GetDefaultSwiftPackageId(moduleName)
                     : descriptorAssemblyNameOverride;

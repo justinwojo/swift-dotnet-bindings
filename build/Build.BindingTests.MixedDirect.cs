@@ -68,7 +68,9 @@ partial class Build
 
     const string MixedDirectSimRid = "iossimulator-arm64";
 
-    AbsolutePath MixedDirectScratch => RootDirectory / "artifacts" / "mixed-direct";
+    string MixedDirectLaneVersion => MixedPackageLaneVersion(MixedDirectVersion, RuntimeLane);
+    string MixedDirectLaneAppleVersion => MixedPackageLaneVersion(MixedDirectAppleVersion, RuntimeLane);
+    AbsolutePath MixedDirectScratch => RootDirectory / "artifacts" / ("mixed-direct" + MixedPackageLaneSuffix(RuntimeLane));
 
     // Entry point invoked from the BindingTests target dispatch when --mixed-direct is set.
     void RunMixedDirectLeg()
@@ -94,7 +96,7 @@ partial class Build
         nupkgDir.CreateDirectory();
         appDir.CreateDirectory();
 
-        using var scope = new VersionScope(MixedDirectVersion, RootDirectory, MixedDirectAppleVersion);
+        using var scope = new VersionScope(MixedDirectLaneVersion, RootDirectory, MixedDirectLaneAppleVersion);
 
         BuildMixedDirectFeed(nupkgDir, scope);
 
@@ -104,15 +106,16 @@ partial class Build
         // (a sim-only xcframework would not exercise the SDK's slice selection).
         var xcfw = BuildMixedPackIosXcframework(scratch / "build", MixedDirectModule, MixedDirectProbeClass);
 
-        WriteMixedDirectConsumerApp(appDir, MixedDirectModule, MixedDirectProbeClass, xcfw);
+        WriteMixedDirectConsumerApp(appDir, MixedDirectModule, MixedDirectProbeClass, xcfw, RuntimeLane, MixedDirectLaneVersion);
         // No fixture package in SDK-direct mode: the app resolves SwiftBindings.Sdk + the transitive
         // Runtime/Apple packages from the local throwaway feed (fixtureNupkgDir: null).
         File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
 
-        Log.Information("=== mixed-direct: building SDK-direct consumer for the iOS Simulator (Mono JIT) ===");
+        Log.Information("=== mixed-direct: building SDK-direct consumer for the iOS Simulator ({Engine}, {Configuration}) ===",
+            RuntimeLane.IsNet11 ? "CoreCLR" : "Mono JIT", BtConfiguration);
         DotNetBuild(s => s
             .SetProjectFile(appDir / $"{MixedDirectAppName}.csproj")
-            .SetConfiguration("Debug")
+            .SetConfiguration(BtConfiguration)
             .EnableNoLogo()
             .SetVerbosity(DotNetVerbosity.quiet));
 
@@ -128,15 +131,15 @@ partial class Build
         // filesystem enumeration order (mirrors RunMixedPackConsumer).
         var candidates = Directory
             .GetDirectories(appDir / "bin", $"{MixedDirectAppName}.app", SearchOption.AllDirectories)
-            .Where(d => d.Contains("Debug", StringComparison.Ordinal) && d.Contains(MixedDirectSimRid, StringComparison.Ordinal))
+            .Where(d => d.Contains(BtConfiguration, StringComparison.Ordinal) && d.Contains(MixedDirectSimRid, StringComparison.Ordinal))
             .OrderBy(d => d.Length)
             .ThenBy(d => d, StringComparer.Ordinal)
             .ToList();
         var appPath = candidates.FirstOrDefault()
             ?? throw new Exception($"--mixed-direct: {MixedDirectAppName}.app bundle not found after build");
         if (candidates.Count > 1)
-            Log.Warning("--mixed-direct: {Count} matching {App}.app bundles (config=Debug, rid={Rid}); selected {Path}",
-                candidates.Count, MixedDirectAppName, MixedDirectSimRid, appPath);
+            Log.Warning("--mixed-direct: {Count} matching {App}.app bundles (config={Configuration}, rid={Rid}); selected {Path}",
+                candidates.Count, MixedDirectAppName, BtConfiguration, MixedDirectSimRid, appPath);
         Log.Information("    app bundle: {Path}", appPath);
 
         Log.Information("=== mixed-direct: deploying + launching consumer on the simulator ===");
@@ -159,6 +162,7 @@ partial class Build
         Log.Information("=== CONSUMER OUTPUT (SDK-direct, simulator) ===");
         Log.Information(result.Output);
 
+        AssertLiveRuntimeLane(result);
         AssertMixedDirectConsumerResult(result);
     }
 
@@ -168,7 +172,7 @@ partial class Build
     // prior run can't shadow these), minus the fixture (there is no fixture package in path b).
     void BuildMixedDirectFeed(AbsolutePath nupkgDir, VersionScope scope)
     {
-        Log.Information("=== mixed-direct: building local feed at {Version} ===", MixedDirectVersion);
+        Log.Information("=== mixed-direct: building local feed at {Version} ===", MixedDirectLaneVersion);
 
         Log.Information("  [1/3] Publishing generator into SDK tools");
         DotNetPublish(s => scope.Apply(s
@@ -201,9 +205,9 @@ partial class Build
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages"));
         foreach (var (pkg, ver) in new[]
         {
-            ("swiftbindings.runtime", MixedDirectVersion),
-            ("swiftbindings.sdk", MixedDirectVersion),
-            ("swiftbindings.apple", MixedDirectAppleVersion),
+            ("swiftbindings.runtime", MixedDirectLaneVersion),
+            ("swiftbindings.sdk", MixedDirectLaneVersion),
+            ("swiftbindings.apple", MixedDirectLaneAppleVersion),
         })
         {
             var pkgDir = nugetCacheDir / pkg / ver;
@@ -217,14 +221,16 @@ partial class Build
     // THIS project's compile). IsPackable=false: SDK-direct apps are run, not packed. Sim shape
     // (MtouchLink=None, no trimming) mirrors the --mixed-pack sim consumer.
     static void WriteMixedDirectConsumerApp(
-        AbsolutePath appDir, string module, string probeClass, AbsolutePath xcfwPath)
+        AbsolutePath appDir, string module, string probeClass, AbsolutePath xcfwPath,
+        RuntimeTestLane lane, string packageVersion)
     {
         var csproj = $"""
-            <Project Sdk="SwiftBindings.Sdk/{MixedDirectVersion}">
+            <Project Sdk="SwiftBindings.Sdk/{packageVersion}">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{lane.Framework}-ios</TargetFramework>
                 <RuntimeIdentifier>{MixedDirectSimRid}</RuntimeIdentifier>
+                {MixedConsumerRuntimeProperties(lane, device: false)}
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
                 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -278,24 +284,49 @@ partial class Build
 
             public class AppDelegate : UIApplicationDelegate
             {
+                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+                // UIKit consumes this protocol conformance natively after managed interface trimming.
+                [System.Diagnostics.CodeAnalysis.DynamicDependency(
+                    System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+                public override UISceneConfiguration GetConfiguration(UIApplication application,
+                    UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+                    new("Default Configuration", connectingSceneSession.Role)
+                    {
+                        DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+                    };
+            }
+
+            [Register("SceneDelegate")]
+            public class SceneDelegate : UIWindowSceneDelegate
+            {
+                private static bool _probeStarted;
+
                 public override UIWindow? Window { get; set; }
 
-                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+                public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
                 {
-                    Window = new UIWindow(UIScreen.MainScreen.Bounds);
+                    if (scene is not UIWindowScene windowScene)
+                        return;
+
+                    Window = new UIWindow(windowScene);
                     Window.RootViewController = new UIViewController();
                     Window.MakeKeyAndVisible();
+
+                    if (_probeStarted)
+                        return;
+                    _probeStarted = true;
 
                     // Defer the probe so launch completes first, then run it on the main queue
                     // (object init + objc_msgSend through the SDK-direct binding).
                     DispatchQueue.MainQueue.DispatchAsync(RunProbe);
-                    return true;
                 }
 
                 static void RunProbe()
                 {
                     try
                     {
+                        {{MixedConsumerRuntimeBanner()}}
                         var probe = new global::{{module}}.{{probeClass}}();
                         Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
                         Console.WriteLine("FOREIGN_CATEGORY:" + global::{{module}}.NSNull_{{module}}Extras.Contract{{module}}Answer(global::Foundation.NSNull.Null));
@@ -317,6 +348,23 @@ partial class Build
             "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
             "<plist version=\"1.0\">\n<dict>\n" +
             "    <key>UILaunchScreen</key>\n    <dict/>\n" +
+            "    <key>UIApplicationSceneManifest</key>\n" +
+            "    <dict>\n" +
+            "        <key>UIApplicationSupportsMultipleScenes</key>\n" +
+            "        <false/>\n" +
+            "        <key>UISceneConfigurations</key>\n" +
+            "        <dict>\n" +
+            "            <key>UIWindowSceneSessionRoleApplication</key>\n" +
+            "            <array>\n" +
+            "                <dict>\n" +
+            "                    <key>UISceneConfigurationName</key>\n" +
+            "                    <string>Default Configuration</string>\n" +
+            "                    <key>UISceneDelegateClassName</key>\n" +
+            "                    <string>SceneDelegate</string>\n" +
+            "                </dict>\n" +
+            "            </array>\n" +
+            "        </dict>\n" +
+            "    </dict>\n" +
             "</dict>\n</plist>\n");
     }
 
@@ -350,6 +398,10 @@ partial class Build
 
         foreach (var (path, text) in companions)
         {
+            var companionTarget = System.Xml.Linq.XDocument.Parse(text)
+                .Descendants("TargetFramework").SingleOrDefault()?.Value;
+            if (companionTarget == null || !companionTarget.StartsWith($"{BtFramework}-ios", StringComparison.Ordinal))
+                Assert.Fail($"--mixed-direct STRUCTURAL: generated companion '{path}' targets '{companionTarget}', expected {BtFramework}-ios<version>.");
             if (text.Contains("<NativeReference Include=", StringComparison.Ordinal))
                 Assert.Fail(
                     $"--mixed-direct STRUCTURAL: generated companion csproj '{path}' still emits an active source <NativeReference> for a static source whose wrapper carries the archive. " +

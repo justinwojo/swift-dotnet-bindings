@@ -67,7 +67,9 @@ public class SretSelfProbeTests : TestBase
             selfBuf[0] = 1; selfBuf[1] = 2; selfBuf[2] = 3; selfBuf[3] = 4; selfBuf[4] = 5;
             for (int i = 0; i < 5; i++) sretBuf[i] = -1;
 
+            TestLogger.Info($"Combine inputs: self=0x{(nuint)selfBuf:X}, sret=0x{(nuint)sretBuf:X}; self words={selfBuf[0]:X16},{selfBuf[1]:X16},{selfBuf[2]:X16},{selfBuf[3]:X16},{selfBuf[4]:X16}");
             Combine(new SwiftIndirectResult(sretBuf), 10, 20, new SwiftSelf(selfBuf));
+            TestLogger.Info($"Combine outputs: self words={selfBuf[0]:X16},{selfBuf[1]:X16},{selfBuf[2]:X16},{selfBuf[3]:X16},{selfBuf[4]:X16}; sret words={sretBuf[0]:X16},{sretBuf[1]:X16},{sretBuf[2]:X16},{sretBuf[3]:X16},{sretBuf[4]:X16}");
 
             AssertEqual(11L, sretBuf[0], "heap sret a = 1 + 10");
             AssertEqual(22L, sretBuf[1], "heap sret b = 2 + 20");
@@ -99,7 +101,9 @@ public class SretSelfProbeTests : TestBase
         long* sretBuf = stackalloc long[5];
         for (int i = 0; i < 5; i++) sretBuf[i] = -1;
 
+        TestLogger.Info($"Combine inputs: self=0x{(nuint)selfBuf:X}, sret=0x{(nuint)sretBuf:X}; self words={selfBuf[0]:X16},{selfBuf[1]:X16},{selfBuf[2]:X16},{selfBuf[3]:X16},{selfBuf[4]:X16}");
         Combine(new SwiftIndirectResult(sretBuf), 10, 20, new SwiftSelf(selfBuf));
+        TestLogger.Info($"Combine outputs: self words={selfBuf[0]:X16},{selfBuf[1]:X16},{selfBuf[2]:X16},{selfBuf[3]:X16},{selfBuf[4]:X16}; sret words={sretBuf[0]:X16},{sretBuf[1]:X16},{sretBuf[2]:X16},{sretBuf[3]:X16},{sretBuf[4]:X16}");
 
         AssertEqual(11L, sretBuf[0], "stack sret a = 1 + 10");
         AssertEqual(22L, sretBuf[1], "stack sret b = 2 + 20");

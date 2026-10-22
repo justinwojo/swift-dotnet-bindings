@@ -63,7 +63,7 @@ final class MarkerProtocolWalker: SyntaxVisitor {
         // Reject extensions with a generic where clause to mirror that.
         if node.genericWhereClause != nil { return .visitChildren }
 
-        let extendedType = node.extendedType.trimmedDescription
+        let extendedType = node.extendedType.dottedDescription
         // Type capture is `[\w.]+`: word characters and dots only. `extension Foo<T>`,
         // `extension (Foo)`, and similar would not match — skip them.
         if !isWordOrDotOnly(extendedType) { return .visitChildren }
@@ -73,12 +73,12 @@ final class MarkerProtocolWalker: SyntaxVisitor {
         // else (composition `&`, generics `<>`, optionality `?`, etc.) fails the
         // capture shape, so reject the whole extension.
         for entry in inheritance.inheritedTypes {
-            let proto = entry.type.trimmedDescription
+            let proto = entry.type.dottedDescription
             if !isWordOrDotOnly(proto) { return .visitChildren }
         }
 
         for entry in inheritance.inheritedTypes {
-            let proto = entry.type.trimmedDescription
+            let proto = entry.type.dottedDescription
             // Last-dot-component as key (qualifiers stripped).
             let key: String
             if let lastDot = proto.lastIndex(of: ".") {

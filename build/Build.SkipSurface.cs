@@ -275,6 +275,7 @@ partial class Build
         .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate)
         .Executes(() =>
         {
+            ProfileContext.AssertBaselineWriteAllowed("SeedSkipSurfaceBaseline");
             var roots = CollectSkipSurfaceRoots();
             if (roots.Count == 0)
                 throw new Exception(

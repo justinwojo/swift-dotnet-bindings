@@ -198,7 +198,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         if (UsesObjCContainerBridge)
         {
             var objcElemType = GetObjCElementType();
-            return ProjectObjCLeafElements(
+            return ProjectObjCElements(
                 $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({containerVar}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)");
         }
 
@@ -311,7 +311,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         if (UsesObjCContainerBridge)
         {
             var objcElemType = GetObjCElementType();
-            return ProjectObjCLeafElements(
+            return ProjectObjCElements(
                 $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({elementVar}.Handle)");
         }
 
@@ -365,12 +365,46 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
     /// <summary>
     /// Projects the ObjC elements read back out of a bridged collection to the public element type.
-    /// Identity for elements that already project as their ObjC object.
+    /// Reasserts the non-optional Swift array/element contract at the ObjC bridge boundary.
     /// </summary>
-    private string ProjectObjCLeafElements(string collectionExpr)
-        => _elementProjection.TypedEnumAdapter is { } adapter
-            ? $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({collectionExpr}, e => {adapter.FromCarrier("e")}))"
-            : collectionExpr;
+    private string ProjectObjCElements(string collectionExpr)
+    {
+        // NSArray's general-purpose readers permit a nil handle and nullable elements (T?[]?).
+        // Here Swift supplied Array<NonOptionalElement>, bridged to a non-nil NSArray whose
+        // elements are non-nil ObjC objects, including nested collections and typed-enum carriers.
+        // Optional<Array<...>> checks its nil pointer before reaching this conversion. Assert both
+        // levels of that contract explicitly: ! covers the array, and the array cast covers its
+        // elements. Nullable annotations have no CLR identity, so this does not copy the array or
+        // change the reader's releaseHandle ownership behavior.
+        var nonNullElements = $"(({GetObjCElementType()}[]){collectionExpr}!)";
+        if (_elementProjection.TypedEnumAdapter is { } adapter)
+            return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({nonNullElements}, e => {adapter.FromCarrier("e")}))";
+        if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+            && _elementProjection.UsesObjCContainerBridge)
+        {
+            // Different nesting levels must not redeclare the same lambda parameter (CS0136).
+            var elementVar = $"_arrayElement{ObjCArrayNestingDepth}";
+            var innerConv = _elementProjection.GetReturnElementConversion(elementVar);
+            if (innerConv != null)
+                return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({nonNullElements}, {elementVar} => {innerConv}))";
+        }
+        return nonNullElements;
+    }
+
+    private int ObjCArrayNestingDepth => GetObjCArrayNestingDepth(this);
+
+    // Count arrays through intervening containers too: their element conversions can nest an
+    // array selector beneath this one, so restarting the height at a dictionary/set can shadow
+    // an enclosing lambda parameter. This only chooses local names; it does not enable bridges.
+    private static int GetObjCArrayNestingDepth(ITypeProjection projection) => projection switch
+    {
+        ArrayProjection array => 1 + GetObjCArrayNestingDepth(array.ElementProjection),
+        DictionaryProjection dictionary => Math.Max(
+            GetObjCArrayNestingDepth(dictionary.KeyProjection),
+            GetObjCArrayNestingDepth(dictionary.ValueProjection)),
+        SetProjection set => GetObjCArrayNestingDepth(set.ElementProjection),
+        _ => 0
+    };
 
     /// <summary>
     /// Gets the ObjC/.NET type for elements when extracted from an NSArray.
@@ -487,17 +521,8 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
     {
         var objcElemType = GetObjCElementType();
-        var arrayFromHandle = ProjectObjCLeafElements(
+        var arrayFromHandle = ProjectObjCElements(
             $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)");
-
-        // For nested containers, apply inner element conversion
-        if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
-            && _elementProjection.UsesObjCContainerBridge)
-        {
-            var innerConv = _elementProjection.GetReturnElementConversion("e");
-            if (innerConv != null)
-                arrayFromHandle = $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true), e => {innerConv}))";
-        }
 
         // ObjC bridge returns as ClassPointer (direct IntPtr), not IndirectResult
         return new MarshalPlan

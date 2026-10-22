@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using InteropMarshal = global::System.Runtime.InteropServices.Marshal;
 using System;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
@@ -18,6 +19,8 @@ public class FailableLifetimeTests : TestBase
         using var argument = new FailableLifetimeArgument(37);
         string text = "original";
         int before = Functions.ReadFailablePayloadDeinits();
+        var argumentPointer = argument.Payload.DangerousGetHandle();
+        TestLogger.Info($"Failable ABI before TryCreate: argument=0x{argumentPointer.ToInt64():X}, number={InteropMarshal.ReadInt32(argumentPointer)}, mode=1, text={text}");
         AssertTrue(FailableLifetimeValue.TryCreate(ref text, argument, 1, out var result));
         using (result)
         {

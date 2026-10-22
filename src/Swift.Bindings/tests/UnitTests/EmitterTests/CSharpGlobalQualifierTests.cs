@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 using System.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
@@ -316,6 +319,164 @@ public class CSharpGlobalQualifierTests
         Assert.Equal(output.Length - source.Length, journal.Edits.Sum(e => e.NewLength - e.OldLength));
         Assert.All(journal.Edits, e => Assert.Equal(0, e.OldLength));
         Assert.Equal(2, journal.Edits.Count);
+    }
+
+    [Theory]
+    [InlineData("ISwiftObject", "IExistentialBoxable")]
+    [InlineData("Swift.Runtime.ISwiftObject", "Swift.Runtime.IExistentialBoxable")]
+    [InlineData("global::Swift.Runtime.ISwiftObject", "global::Swift.Runtime.IExistentialBoxable")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Test-only dynamically compiled interface dispatch probe, retained in full.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only dynamically compiled interface dispatch probe, retained in full.")]
+    public void RuntimeExplicitInterfaces_HaveCanonicalMetadataAndPreserveDispatch(string swiftObject, string boxable)
+    {
+        var source = $$"""
+            using Swift.Runtime;
+            namespace MyModule;
+            public class Host : {{swiftObject}}, {{boxable}}
+            {
+                public class __SwiftBindingsISwiftObject { }
+                public class __SwiftBindingsISwiftObject1 { }
+                public class __SwiftBindingsIExistentialBoxable { }
+                public int Swift => 1;
+                static int {{swiftObject}}.GetTypeMetadata() => 17;
+                static int {{swiftObject}}.GetProtocolConformanceDescriptor<T>() => 19;
+                static global::Swift.Runtime.ISwiftObject {{swiftObject}}.NewFromPayload(int value) => new Host();
+                static int {{swiftObject}}.PayloadConstructionSemantics => 31;
+                int {{swiftObject}}.SwiftHandle => 29;
+                int {{swiftObject}}.MarshalToSwift() => 23;
+                int {{boxable}}.BoxAsExistential1<T>() => 37;
+            }
+            public static class Probe
+            {
+                private static int StaticDispatch<T>() where T : global::Swift.Runtime.ISwiftObject
+                    => T.GetTypeMetadata() + T.GetProtocolConformanceDescriptor<object>()
+                        + T.PayloadConstructionSemantics + T.NewFromPayload(0).SwiftHandle;
+                public static int Run()
+                {
+                    global::Swift.Runtime.ISwiftObject value = new Host();
+                    return StaticDispatch<Host>() + value.SwiftHandle + value.MarshalToSwift()
+                        + ((global::Swift.Runtime.IExistentialBoxable)value).BoxAsExistential1<object>();
+                }
+            }
+            """;
+        var journal = new TextEditJournal();
+        var output = CSharpGlobalQualifier.Qualify(source, Roots,
+            CSharpGlobalQualifier.CollectDeclaredTypeNames(source), null, null, journal);
+        Assert.Equal(output, Qualify(output));
+        Assert.Equal(output.Length - source.Length, journal.Edits.Sum(e => e.NewLength - e.OldLength));
+        Assert.Equal(output.IndexOf("public static int Run()", StringComparison.Ordinal),
+            journal.MapOffset(source.IndexOf("public static int Run()", StringComparison.Ordinal)));
+
+        const string contracts = """
+            namespace Swift.Runtime;
+            public interface ISwiftObject
+            {
+                static abstract int GetTypeMetadata();
+                static abstract int GetProtocolConformanceDescriptor<T>() where T : class;
+                static abstract ISwiftObject NewFromPayload(int value);
+                static abstract int PayloadConstructionSemantics { get; }
+                int SwiftHandle { get; }
+                int MarshalToSwift();
+            }
+            public interface IExistentialBoxable { int BoxAsExistential1<T>() where T : class; }
+            """;
+        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
+        var references = tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => Path.GetFileName(p) is "System.Private.CoreLib.dll" or "System.Runtime.dll")
+            .Select(p => MetadataReference.CreateFromFile(p));
+        var compilation = CSharpCompilation.Create("ExplicitInterface" + Guid.NewGuid().ToString("N"),
+            new[] { CSharpSyntaxTree.ParseText(contracts), CSharpSyntaxTree.ParseText(output) }, references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var stream = new MemoryStream();
+        var emitted = compilation.Emit(stream);
+        Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
+        stream.Position = 0;
+        using (var pe = new PEReader(stream, PEStreamOptions.LeaveOpen))
+        {
+            var reader = pe.GetMetadataReader();
+            var host = reader.TypeDefinitions.Select(reader.GetTypeDefinition)
+                .Single(t => reader.GetString(t.Name) == "Host");
+            var methods = host.GetMethods().Select(reader.GetMethodDefinition)
+                .Select(m => reader.GetString(m.Name)).Where(n => n.StartsWith("Swift.Runtime.", StringComparison.Ordinal)).ToArray();
+            Assert.Equal(7, methods.Length);
+            Assert.Contains("Swift.Runtime.ISwiftObject.GetTypeMetadata", methods);
+            Assert.Contains("Swift.Runtime.ISwiftObject.GetProtocolConformanceDescriptor", methods);
+            Assert.Contains("Swift.Runtime.ISwiftObject.NewFromPayload", methods);
+            Assert.Contains("Swift.Runtime.ISwiftObject.get_PayloadConstructionSemantics", methods);
+            Assert.Contains("Swift.Runtime.ISwiftObject.get_SwiftHandle", methods);
+            Assert.Contains("Swift.Runtime.ISwiftObject.MarshalToSwift", methods);
+            Assert.Contains("Swift.Runtime.IExistentialBoxable.BoxAsExistential1", methods);
+        }
+        var assembly = Assembly.Load(stream.ToArray());
+        var run = assembly.GetType("MyModule.Probe")!.GetMethod("Run")!.CreateDelegate<Func<int>>();
+        Assert.Equal(185, run());
+    }
+
+    [Fact]
+    public void RuntimeExplicitInterfaces_QualifyBothConditionalBranches()
+    {
+        var source = """
+            using Swift.Runtime;
+            namespace MyModule;
+            #if __IOS__
+            class Host { int ISwiftObject.SwiftHandle => 1; }
+            #else
+            class Host { int global::Swift.Runtime.ISwiftObject.SwiftHandle => 2; }
+            class __SwiftBindingsISwiftObject { }
+            #endif
+            """;
+        var output = Qualify(source);
+        var tree = CSharpSyntaxTree.ParseText(output);
+        var alias = tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.UsingDirectiveSyntax>()
+            .Single(u => u.Alias != null).Alias!.Name.Identifier.ValueText;
+        Assert.NotEqual("__SwiftBindingsISwiftObject", alias);
+        Assert.Contains($"int {alias}.SwiftHandle => 1;", output);
+        Assert.Contains($"int {alias}.SwiftHandle => 2;", output);
+        Assert.Contains($"using {alias} = global::Swift.Runtime.ISwiftObject;", output);
+        Assert.Equal(output, Qualify(output));
+    }
+
+    [Fact]
+    public void RuntimeExplicitInterfaces_LeaveModuleOwnedLookalikesAlone()
+    {
+        const string source = """
+            namespace MyModule;
+            public interface ISwiftObject { int Value { get; } }
+            public class Host : ISwiftObject { int ISwiftObject.Value => 1; }
+            """;
+        var output = Qualify(source);
+        Assert.Equal(source, output);
+        Assert.Empty(CompileErrors(output));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("extern alias External;\n")]
+    public void RuntimeExplicitInterfaces_PreserveDirectiveAndExternAliasOrdering(string externAlias)
+    {
+        var source = "// header\n#define ENABLED\n#undef DISABLED\n#nullable enable\n" + externAlias + """
+            using Swift.Runtime;
+            #if ENABLED
+            namespace MyModule;
+            class Host { int ISwiftObject.SwiftHandle => 1; }
+            #endif
+            """;
+        var journal = new TextEditJournal();
+        var output = CSharpGlobalQualifier.Qualify(source, Roots,
+            CSharpGlobalQualifier.CollectDeclaredTypeNames(source), null, null, journal);
+        var tree = CSharpSyntaxTree.ParseText(output);
+        Assert.DoesNotContain(tree.GetDiagnostics(), d => d.Severity == DiagnosticSeverity.Error);
+        var alias = tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.UsingDirectiveSyntax>()
+            .Single(u => u.Alias != null);
+        Assert.True(alias.SpanStart > output.IndexOf("#undef DISABLED", StringComparison.Ordinal));
+        if (externAlias.Length > 0)
+            Assert.True(alias.SpanStart > output.IndexOf(externAlias.Trim(), StringComparison.Ordinal));
+        Assert.True(alias.SpanStart < output.IndexOf("#if ENABLED", StringComparison.Ordinal));
+        Assert.StartsWith("// header\n#define ENABLED\n#undef DISABLED\n#nullable enable\n", output);
+        Assert.Equal(output, Qualify(output));
+        Assert.Equal(output.Length - source.Length, journal.Edits.Sum(e => e.NewLength - e.OldLength));
+        Assert.Equal(output.IndexOf("class Host", StringComparison.Ordinal),
+            journal.MapOffset(source.IndexOf("class Host", StringComparison.Ordinal)));
     }
 
     /// <summary>

@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-tvos</TargetFramework>
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-tvos</TargetFramework>
     <RuntimeIdentifier>tvossimulator-arm64</RuntimeIdentifier>
+    <BtRuntimeEngine Condition="'$(BtRuntimeEngine)' == ''">coreclr</BtRuntimeEngine>
+    <!-- Keep CoreCLR and NativeAOT output/intermediate products distinct even in Release. -->
+    <OutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">bin/$(BtRuntimeEngine)/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">obj/$(BtRuntimeEngine)/$(Configuration)/</IntermediateOutputPath>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -22,12 +27,16 @@
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
+  <!-- ProjectReference does not import buildTransitive assets. Use the production
+       final-app engine hook; Nuke owns native injection for these test apps. -->
+  <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
+
   <!-- tvOS simulator defaults to NativeAOT which trips on Unicode identifiers
        in generated wrapper symbols (e.g. Café). Use the Mono interpreter so the
        tvOS runner executes under the same family of runtime as the iOS simulator
        Mono JIT path — the point of this runner is cross-platform smoke coverage,
        not a second NativeAOT gate. -->
-  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'tvossimulator-arm64'">
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'tvossimulator-arm64' AND '$(BtTargetFramework)' == 'net10.0'">
     <MtouchLink>None</MtouchLink>
     <UseInterpreter>true</UseInterpreter>
   </PropertyGroup>
@@ -175,5 +184,11 @@
   <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
           Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
     <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
+  </Target>
+  <Target Name="ValidateBindingTestsManagedTarget" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(BtTargetFramework)' != 'net10.0' AND '$(BtTargetFramework)' != 'net11.0'"
+           Text="BtTargetFramework must be net10.0 or net11.0." />
+    <Error Condition="'$(BtTargetFramework)' == 'net11.0' AND '$(SwiftBindingsDeviceMonoAot)' == 'true'"
+           Text=".NET 11 BindingTests does not support Mono; use the CoreCLR or NativeAOT lane." />
   </Target>
 </Project>

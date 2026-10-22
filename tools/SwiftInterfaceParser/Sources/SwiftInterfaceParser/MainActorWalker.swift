@@ -213,7 +213,7 @@ final class MainActorWalker: SyntaxVisitor {
     private func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
-            let typeName = attribute.attributeName.trimmedDescription
+            let typeName = attribute.attributeName.dottedDescription
             if typeName == "MainActor" || typeName == "_Concurrency.MainActor" {
                 return true
             }
@@ -235,6 +235,6 @@ final class MainActorWalker: SyntaxVisitor {
         // SwiftSyntax's TypeSyntax round-trips back to the original source text via
         // `trimmedDescription`. For `extension CryptoKit.P256.Signing { … }` this returns
         // "CryptoKit.P256.Signing" — exactly the `[\w.]+` extended-type text.
-        return type.trimmedDescription
+        return type.dottedDescription
     }
 }

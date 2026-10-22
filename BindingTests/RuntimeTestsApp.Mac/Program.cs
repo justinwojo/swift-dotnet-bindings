@@ -108,6 +108,7 @@ public class Program
 
         TestLogger.Info("=== RUNTIME TESTS (macOS) ===");
         TestLogger.Info($"Platform: {Platform}");
+        TestLogger.Info($"Runtime flavor: {TestBase.RuntimeFlavorDescription}");
         if (ClassFilter != null)
             TestLogger.Info($"Class filter: {ClassFilter}");
         TestLogger.Info($"Started at {DateTime.Now:HH:mm:ss}");

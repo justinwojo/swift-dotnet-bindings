@@ -71,7 +71,10 @@ build_single_arch() {
     # about "using sysroot for 'MacOSX' but targeting 'iPhone'" on the iOS/tvOS
     # slices (objects are still correct, but the warning is misleading).
     local collections_obj="${output%.dylib}.collections.o"
-    SDKROOT="" clang -c -O2 \
+    local clang_path swiftc_path
+    clang_path=$(xcrun --find clang)
+    swiftc_path=$(xcrun --find swiftc)
+    SDKROOT="" "$clang_path" -c -O2 \
         -target "$triple" \
         -isysroot "$sdk_path" \
         -o "$collections_obj" \
@@ -79,7 +82,7 @@ build_single_arch() {
 
     # Unset SDKROOT to prevent clang sysroot mismatch warnings when
     # cross-compiling (swiftc uses the explicit -sdk flag instead).
-    SDKROOT="" swiftc -emit-library \
+    SDKROOT="" "$swiftc_path" -emit-library \
         -o "$output" \
         -module-name "$MODULE_NAME" \
         -parse-as-library \

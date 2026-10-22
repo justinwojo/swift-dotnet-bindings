@@ -36,6 +36,36 @@ def current_launcher_abort_text():
 EXHAUSTED_LAUNCH, CURRENT_ABORT_HELPER = current_launcher_abort_text()
 
 
+class ManagedTargetTests(unittest.TestCase):
+    def test_default_and_profile_framework(self):
+        with patch.dict(ci_ios_test.os.environ, {}, clear=True):
+            self.assertEqual(ci_ios_test.managed_framework(), "net10.0")
+        with patch.dict(ci_ios_test.os.environ, {"SWIFT_BINDINGS_MANAGED_FRAMEWORK": "net11.0"}):
+            self.assertEqual(ci_ios_test.managed_framework(), "net11.0")
+            with self.assertRaises(ValueError):
+                ci_ios_test.managed_framework("net10.0")
+
+    def test_new_target_build_and_bundle_are_same_lane(self):
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        with patch.dict(ci_ios_test.os.environ, {}, clear=True), \
+                patch.object(ci_ios_test.subprocess, "run", return_value=completed) as run, \
+                patch.object(ci_ios_test.os.path, "isdir", return_value=True) as exists:
+            ci_ios_test.run_build("/fixture/BindingTests", binding_test_framework="net11.0", binding_test_configuration="Release")
+            self.assertIn("-p:BtTargetFramework=net11.0", run.call_args.args[0])
+            self.assertEqual(run.call_args.args[0][3], "Release")
+            self.assertIn("bin/coreclr/Release/net11.0-ios/iossimulator-arm64", exists.call_args.args[0])
+
+    def test_new_target_test_command_keeps_identity(self):
+        completed = subprocess.CompletedProcess([], 0, "TEST SUCCESS", "")
+        with patch.dict(ci_ios_test.os.environ, {}, clear=True), \
+                patch.object(ci_ios_test.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(ci_ios_test.run_tests("/fixture/BindingTests", "sim", binding_test_framework="net11.0", binding_test_configuration="Release", allow_unqualified_runtime=True), 0)
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index("--binding-test-framework") + 1], "net11.0")
+            self.assertEqual(command[command.index("--binding-test-configuration") + 1], "Release")
+            self.assertIn("--allow-unqualified-runtime", command)
+
+
 class RunTestsAcceptanceTests(unittest.TestCase):
     def _run(self, side_effect, max_test_retries=1):
         calls = []

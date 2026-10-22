@@ -35,8 +35,10 @@
         "Compile",
         "CompileCheckBindings",
         "CompileSwiftInterfaceParser",
+        "CoreClrCanary",
         "Fetch",
         "NativeThunkProbe",
+        "Net11PackageConsumerTests",
         "Pack",
         "PackGate",
         "PromoteValidationBaseline",
@@ -54,10 +56,14 @@
         "SmokeTest",
         "SurfaceAccounting",
         "Test",
+        "ToolchainProfileTests",
         "UnitTests",
         "Validate",
         "ValidateAppleTypesManifest",
         "ValidateBlastRadius",
+        "VerifyGeneratorHosts",
+        "VerifyManagedCompatibility",
+        "VerifyNet11PackageConsumer",
         "WithdrawalGateTests",
         "WithdrawalInvocationGate",
         "WithdrawalInvocationPromotion",
@@ -150,6 +156,10 @@
           "type": "boolean",
           "description": "Opt in to the entitlement-qualified ActivityKit usePushToken:true physical-device arm"
         },
+        "AllowUnqualifiedRuntime": {
+          "type": "boolean",
+          "description": "Permit a .NET 11 functional run without a reviewed runtime baseline; reports UNQUALIFIED"
+        },
         "ApiCompatBaseline": {
           "type": "string",
           "description": "ApiCompat baseline for the SwiftBindings.Runtime pack: the last shipped Runtime version this pack's public surface must be additive over (defaults to the highest stable sdk-v* tag below --version)"
@@ -165,6 +175,14 @@
         "AppstoreHygiene": {
           "type": "boolean",
           "description": "Opt-in: through a Runtime-referencing consumer, build a device App Store IPA and assert TN2435 hygiene — the native runtime embeds as a signed SwiftBindingsRuntime.framework (not a loose dylib), the app embeds zero libswift*.dylib, no SwiftSupport/ folder is present, and the app signature verifies. Also asserts the runtime nupkg preserves the framework xcframework. Builds + inspects on the host; needs a code-signing identity but no connected device. Never part of the default run or --compile-only"
+        },
+        "BindingTestConfiguration": {
+          "type": "string",
+          "description": ".NET 11 CoreCLR app configuration: Debug (default) or Release"
+        },
+        "BindingTestFramework": {
+          "type": "string",
+          "description": "Managed BindingTests target: net10.0 (default) or net11.0"
         },
         "By": {
           "type": "string",
@@ -189,6 +207,26 @@
         "CompileOnly": {
           "type": "boolean",
           "description": "Compile-check generated bindings only; skip app build and test execution"
+        },
+        "CoreClr": {
+          "type": "boolean",
+          "description": "Run the .NET 11 physical-device app on CoreCLR instead of NativeAOT"
+        },
+        "CoreClrCanaryDeveloperDir": {
+          "type": "string",
+          "description": "Explicit Xcode Developer directory for the CoreCLR canary native fixture"
+        },
+        "CoreClrCanaryDotnet": {
+          "type": "string",
+          "description": "Isolated .NET 11 dotnet executable for the focused CoreCLR package canary"
+        },
+        "CoreClrCanaryFeed": {
+          "type": "string",
+          "description": "Local NuGet feed containing the Runtime package under test"
+        },
+        "CoreClrCanaryRuntimeVersion": {
+          "type": "string",
+          "description": "Exact SwiftBindings.Runtime package version for the CoreCLR canary"
         },
         "Device": {
           "type": "boolean",
@@ -262,6 +300,10 @@
           "type": "string",
           "description": "Apple framework name for regen-apple-snapshot (e.g. CryptoKit)"
         },
+        "GeneratorCandidateDotnet": {
+          "type": "string",
+          "description": "Path to an isolated .NET 11 dotnet executable for generator-host qualification"
+        },
         "IncludeDevice": {
           "type": "boolean",
           "description": "Include device slice in xcframework build"
@@ -306,6 +348,14 @@
         "MonoAot": {
           "type": "boolean",
           "description": "With --device: build the device app under Mono full-AOT (the .NET-for-iOS default) instead of NativeAOT"
+        },
+        "Net11ConsumerDotnet": {
+          "type": "string",
+          "description": "Isolated .NET 11 dotnet executable with all four Apple workloads installed"
+        },
+        "Net11ConsumerPackageCache": {
+          "type": "string",
+          "description": "Cache containing the pinned, retained .NET 10 mixed-pack nupkgs"
         },
         "OutputDir": {
           "type": "string",

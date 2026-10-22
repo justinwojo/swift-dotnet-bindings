@@ -105,6 +105,7 @@ partial class Build
         var baselineEmpty = baseline.ByReason.Count == 0 && baseline.ByDisposition.Count == 0;
         if (baselineEmpty)
         {
+            ProfileContext.AssertBaselineWriteAllowed("Seeding the partial-success kitchen baseline");
             // First green run seeds the frozen budget. Floors already passed above, so the seed can
             // never capture a degenerate report. Commit the emitted baseline alongside the fixture.
             var seeded = PartialSuccessKitchenBaseline.FromReport(report, ReadHeadShaShort());

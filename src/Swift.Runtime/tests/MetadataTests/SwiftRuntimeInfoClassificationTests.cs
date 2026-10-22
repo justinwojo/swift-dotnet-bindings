@@ -228,4 +228,110 @@ public class SwiftRuntimeInfoClassificationTests
     {
         Assert.Equal(expected, SwiftRuntimeInfo.IsSimulatorRid(rid));
     }
+
+    [Theory]
+    [InlineData(true, false, false, false, true)]
+    [InlineData(false, true, false, false, false)]
+    [InlineData(false, false, true, true, false)]
+    public void AuthoritativeEngine_IsIndependentOfLegacyPolicyAndCapabilities(
+        bool mono, bool coreClr, bool nativeAot, bool expectedNativeAot, bool expectedMono)
+    {
+        foreach (bool dynamicCode in new[] { false, true })
+        foreach (bool oldPolicy in new[] { false, true })
+        foreach (string rid in new[] { "ios-arm64", "iossimulator-arm64", "maccatalyst-arm64", "tvos-arm64", "osx-arm64" })
+        {
+            var flavor = SwiftRuntimeInfo.ResolveRuntimeFlavor(mono, coreClr, nativeAot,
+                true, oldPolicy, false, rid, dynamicCode, 11);
+            Assert.Equal(expectedNativeAot, flavor.IsNativeAot);
+            Assert.Equal(expectedMono, flavor.IsMono);
+        }
+    }
+
+    [Theory]
+    [InlineData(null, false, true)]
+    [InlineData(false, null, true)]
+    [InlineData(false, true, null)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void IncompleteOrConflictingAuthoritativeIdentity_Throws(bool? mono, bool? coreClr, bool? nativeAot)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => SwiftRuntimeInfo.ResolveRuntimeFlavor(
+            mono, coreClr, nativeAot, false, false, false, "ios-arm64", false, 11));
+        Assert.Contains("runtime-engine conflict", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void AuthoritativeIdentity_ConflictingLiveMonoIndicator_Throws(bool mono, bool coreClr, bool nativeAot)
+    {
+        Assert.Throws<InvalidOperationException>(() => SwiftRuntimeInfo.ResolveRuntimeFlavor(
+            mono, coreClr, nativeAot, false, false, true, "osx-arm64", true, 11));
+    }
+
+    [Fact]
+    public void AuthoritativeMono_ConfirmsLiveMonoIndicator()
+    {
+        var flavor = SwiftRuntimeInfo.ResolveRuntimeFlavor(true, false, false,
+            false, false, true, "ios-arm64", false, 10);
+        Assert.True(flavor.IsMono);
+        Assert.False(flavor.IsNativeAot);
+    }
+
+    [Theory]
+    [InlineData("ios-arm64", false)]
+    [InlineData("iossimulator-arm64", true)]
+    [InlineData("maccatalyst-arm64", false)]
+    [InlineData("tvossimulator-arm64", false)]
+    [InlineData("osx-arm64", false)]
+    public void MissingIdentity_Net11AmbiguousEngine_DiagnosesInsteadOfUsingLegacyPolicy(string rid, bool dynamicCode)
+    {
+        foreach (bool oldPolicy in new[] { false, true })
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() => SwiftRuntimeInfo.ResolveRuntimeFlavor(
+                null, null, null, true, oldPolicy, false, rid, dynamicCode, 11));
+            Assert.Contains("unresolved", ex.Message);
+        }
+    }
+
+    [Theory]
+    [InlineData("osx-arm64")]
+    [InlineData("linux-x64")]
+    [InlineData("win-x64")]
+    public void MissingIdentity_Net11DesktopCoreClr_PreservesOldLibraryCompatibility(string rid)
+    {
+        var flavor = SwiftRuntimeInfo.ResolveRuntimeFlavor(null, null, null,
+            false, false, false, rid, true, 11);
+        Assert.False(flavor.IsMono);
+        Assert.False(flavor.IsNativeAot);
+    }
+
+    [Fact]
+    public void MissingIdentity_Net11LiveMono_IsRecognizedWithoutRidHeuristic()
+    {
+        var flavor = SwiftRuntimeInfo.ResolveRuntimeFlavor(null, null, null,
+            false, false, true, "ios-arm64", false, 11);
+        Assert.True(flavor.IsMono);
+        Assert.False(flavor.IsNativeAot);
+    }
+
+    [Theory]
+    [InlineData("iossimulator-arm64", false, false, false, false, true)]
+    [InlineData("ios-arm64", true, false, false, false, true)]
+    [InlineData("ios-arm64", true, true, false, true, false)]
+    [InlineData("ios-arm64", false, false, false, true, false)]
+    [InlineData("maccatalyst-arm64", true, false, true, false, true)]
+    [InlineData("osx-arm64", false, false, true, false, false)]
+    public void MissingIdentity_Net10_RetainsLegacyBehavior(string rid, bool oldPresent, bool oldValue,
+        bool dynamicCode, bool nativeAot, bool mono)
+    {
+        var flavor = SwiftRuntimeInfo.ResolveRuntimeFlavor(null, null, null,
+            oldPresent, oldValue, false, rid, dynamicCode, 10);
+        Assert.Equal(nativeAot, flavor.IsNativeAot);
+        Assert.Equal(mono, flavor.IsMono);
+    }
+
 }

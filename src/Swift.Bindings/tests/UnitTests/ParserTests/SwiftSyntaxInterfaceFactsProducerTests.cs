@@ -26,6 +26,112 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class SwiftSyntaxInterfaceFactsProducerTests
 {
+    [SkippableTheory]
+    [InlineData(".")]
+    [InlineData("::")]
+    public void ModuleQualifications_PreserveScopesAndCanonicalFactNames(string separator)
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ModuleQualifications_PreserveScopesAndCanonicalFactNames));
+        // Change module qualifications only. A literal, comment, default expression,
+        // and nested type path deliberately contain different punctuation contracts.
+        var source = """
+            // swift-module-flags: -module-name Kit
+            public protocol DependencyProtocol {
+              func describe(first: Swift.QUAL.Int32, second: Swift.QUAL.String)
+              func load(first: Swift.QUAL.Int32, second: Swift.QUAL.String) throws(Kit.QUAL.Failure) -> Swift.QUAL.Int32
+            }
+            @frozen public enum DependencyStatus : Swift.QUAL.Int32 {
+              case unknown = 10
+              case active = 20
+              public var label: Swift.QUAL.String { get }
+              public func describe(first: Swift.QUAL.Int32, second: Swift.QUAL.String)
+            }
+            public enum Literal : Swift.QUAL.String {
+              case marker = "literal::suffix"
+            }
+            public struct Outer {
+              public struct Inner { }
+            }
+            extension Kit.QUAL.Outer.Inner : Swift.QUAL.Sendable { }
+            extension Kit.QUAL.Outer.Inner {
+              // Keep :: in comments as well as literal contents.
+              public func combine(first: Swift.QUAL.Int32, /* keep::comment */ second: Swift.QUAL.String = "literal::suffix") -> Swift.QUAL.String
+              public func fallback(value: Swift.QUAL.Int32 = Swift.QUAL.Int32.max) -> Swift.QUAL.Int32
+              public func raw(value: Swift.QUAL.String = #"raw::marker"#)
+              public func pattern(value: Swift.QUAL.String = #/left::right/#)
+              public func interpolated(value: Swift.QUAL.String = "\(Swift.QUAL.Int32.max)::suffix")
+            }
+            extension Kit.QUAL.DependencyProtocol where Self : Swift.QUAL.Sendable {
+              public func constrained(value: Swift.QUAL.Int32) -> Swift.QUAL.String
+            }
+            """.Replace(".QUAL.", separator);
+        var path = WriteTempFile(source);
+        var privatePath = SwiftSyntaxInterfaceFactsProducer.DerivePrivateSwiftInterfacePath(path)!;
+        File.WriteAllText(privatePath,
+            $"@_spi(Hidden) extension Kit{separator}Outer.Inner : Swift{separator}Codable {{ }}\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            Assert.Equal(new[] { "DependencyProtocol", "DependencyStatus", "Literal", "Outer", "Outer.Inner" },
+                facts.PublicTypeNames!.OrderBy(n => n));
+            // PublicMemberNames records explicit public/open modifiers. Protocol
+            // requirements are implicitly public and have separate signature facts.
+            Assert.Contains("DependencyStatus.describe(first:second:)", facts.PublicMemberNames!);
+            Assert.Contains("DependencyStatus.label", facts.PublicMemberNames!);
+            Assert.Equal("Kit.Failure", facts.TypedThrowsErrors!["DependencyProtocol.load(first:second:)"]);
+            Assert.Equal("10", facts.EnumCaseRawValues!["DependencyStatus.unknown"]);
+            Assert.Equal("20", facts.EnumCaseRawValues["DependencyStatus.active"]);
+            Assert.Equal("literal::suffix", facts.EnumCaseRawValues["Literal.marker"]);
+            Assert.Equal(new[] { "first", "second" }, facts.ParameterNames!["DependencyProtocol.describe(first:second:)"]);
+            Assert.Contains("Kit.Outer.Inner", facts.MarkerProtocolConformances!["Sendable"]);
+            Assert.Contains("Kit.Outer.Inner::Encodable", facts.SpiOnlyConformances!);
+            Assert.Contains("Kit.Outer.Inner::Decodable", facts.SpiOnlyConformances!);
+            Assert.Equal("\"literal::suffix\"", facts.DefaultParameterValues!["Outer.Inner.combine(first:second:)"][1]);
+            Assert.Equal("Swift.Int32.max", facts.DefaultParameterValues["Outer.Inner.fallback(value:)"][0]);
+            Assert.Equal("#\"raw::marker\"#", facts.DefaultParameterValues["Outer.Inner.raw(value:)"][0]);
+            Assert.Equal("#/left::right/#", facts.DefaultParameterValues["Outer.Inner.pattern(value:)"][0]);
+            Assert.Equal("\"\\(Swift.Int32.max)::suffix\"", facts.DefaultParameterValues["Outer.Inner.interpolated(value:)"][0]);
+            var candidate = Assert.Single(facts.ExtensionMemberCandidates!, c => c.MethodName == "combine");
+            Assert.Equal("Kit.Outer.Inner", candidate.ExtendedTypeName);
+            Assert.Equal("combine(first:second:)", candidate.PrintedName);
+            Assert.Contains("Swift.Int32", candidate.RawSignature);
+            Assert.Contains("\"literal::suffix\"", candidate.RawSignature);
+            Assert.Contains("/* keep::comment */", candidate.RawSignature);
+            Assert.DoesNotContain("Swift::", candidate.RawSignature);
+            var constrained = Assert.Single(facts.ExtensionMemberCandidates!, c => c.MethodName == "constrained");
+            Assert.Contains("Self : Swift.Sendable", constrained.WhereConstraints);
+            Assert.Contains("Kit.DependencyProtocol", facts.ProtocolExtensionMethods!.Keys);
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(privatePath);
+        }
+    }
+
+    [SkippableTheory]
+    [InlineData(".")]
+    [InlineData("::")]
+    public void ModuleQualifications_KeepOriginalUtf8SourcePositionsAndLiteralMessages(string separator)
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ModuleQualifications_KeepOriginalUtf8SourcePositionsAndLiteralMessages));
+        var prefix = $"@available(*, deprecated, message: \"é::🧬\") @_Concurrency{separator}MainActor ";
+        var path = WriteTempFile(prefix + "public struct Marked { }\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            var expectedColumn = System.Text.Encoding.UTF8.GetByteCount(prefix) + 1;
+            foreach (var position in new[] { facts.MainActorTypePositions!["Marked"], facts.AvailabilityAnnotationPositions!["Marked"] })
+            {
+                Assert.Equal(path, position.FilePath);
+                Assert.Equal(1, position.Line);
+                Assert.Equal(expectedColumn, position.Column);
+            }
+            Assert.Equal("é::🧬", Assert.Single(facts.AvailabilityAnnotations!["Marked"]).Message);
+        }
+        finally { File.Delete(path); }
+    }
+
     #region Actor isolation — imported custom global actor at member level
 
     /// <summary>
@@ -248,11 +354,13 @@ public class SwiftSyntaxInterfaceFactsProducerTests
     /// witness declares a plain closure and fails its conformance. A name that matches aliases
     /// with different attributes must resolve to nothing rather than a guess.
     /// </summary>
-    [SkippableFact]
-    public void ClosureParameterAttributes_FollowTypealiases()
+    [SkippableTheory]
+    [InlineData(".")]
+    [InlineData("::")]
+    public void ClosureParameterAttributes_FollowTypealiases(string separator)
     {
         var binaryPath = ResolveBinaryOrSkip(nameof(ClosureParameterAttributes_FollowTypealiases));
-        var path = WriteTempFile(
+        var path = WriteTempFile((
             "import Swift\n" +
             "public typealias CompletionBlock = @MainActor @Sendable (Swift.String?) -> Swift.Void\n" +
             "public typealias PlainBlock = (Swift.Int) -> Swift.Void\n" +
@@ -268,7 +376,7 @@ public class SwiftSyntaxInterfaceFactsProducerTests
             "  func plain(block: @escaping PlainBlock)\n" +
             "  func ambiguous(callback: @escaping Callback)\n" +
             "  func spelled(block: @escaping @Sendable () -> Swift.Void)\n" +
-            "}\n");
+            "}\n").Replace("Swift.", "Swift" + separator).Replace("Kit.", "Kit" + separator));
         try
         {
             var result = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);

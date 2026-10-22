@@ -140,11 +140,10 @@ public class MainActorTests : TestBase
         vm.Dispose();
     }
 
-    // The guard is [Conditional("DEBUG")] in Swift.Runtime; the Simulator app builds Debug, so it is
-    // active here, but the NativeAOT device app builds Release and compiles the guard out entirely.
-    // The Mono full-AOT device lane (--device --mono-aot) builds Debug, so the guard IS live there
-    // and this test runs — [SkipOnDevice] is scoped to the NativeAOT lane precisely so it isn't
-    // suppressed on a lane where it works.
+    // The guard is [Conditional("DEBUG")]: Debug must throw, while CoreCLR Release
+    // must omit it. Keep the historical test identity and NativeAOT device skip so
+    // existing lane inventories remain stable. This probes guard emission, not
+    // whether invoking arbitrary actor-isolated Swift code off-main is safe.
     [SkipOnDevice("MainActorGuard is [Conditional(\"DEBUG\")]; the device app is a Release build with the guard compiled out, so an off-main-thread call does not throw.")]
     public void TestMainActorGuard_OffMainThread_Throws()
     {
@@ -161,10 +160,14 @@ public class MainActorTests : TestBase
         worker.Start();
         worker.Join();
 
+#if DEBUG
         AssertNotNull(captured, "Calling a @MainActor member off the main thread should trip the Debug guard");
         AssertTrue(
             captured is InvalidOperationException,
             $"Off-main-thread @MainActor call should throw InvalidOperationException, got {captured?.GetType().Name ?? "null"}");
+#else
+        AssertNull(captured, "Release must omit the Conditional(DEBUG) main-thread guard");
+#endif
         vm.Dispose();
     }
 

@@ -138,26 +138,97 @@ internal static class CSharpGlobalQualifier
                 insertions[edit.Start] = GlobalPrefix;
         }
 
-        foreach (var tree in ParseAllBranches(source))
+        var trees = ParseAllBranches(source).ToArray();
+        foreach (var tree in trees)
         {
             CollectRootInsertions(tree, roots, declaredTypeNames, collisionNamespace, insertions);
             CollectImportedNameInsertions(tree, declaredTypeNames, hierarchy, insertions);
         }
 
-        if (insertions.Count == 0)
+        var replacements = CollectRuntimeExplicitInterfaceAliases(trees, declaredTypeNames, insertions);
+        if (insertions.Count == 0 && replacements.Count == 0)
             return source;
 
         var builder = new StringBuilder(source.Length + insertions.Count * GlobalPrefix.Length);
         var last = 0;
-        foreach (var (position, text) in insertions)
+        foreach (var position in insertions.Keys.Concat(replacements.Keys).Distinct().Order())
         {
             builder.Append(source, last, position - last);
+            var (oldLength, text) = replacements.TryGetValue(position, out var replacement)
+                ? replacement : (0, insertions[position]);
             builder.Append(text);
-            journal?.Record(position, 0, text.Length);
-            last = position;
+            journal?.Record(position, oldLength, text.Length);
+            last = position + oldLength;
         }
         builder.Append(source, last, source.Length - last);
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Keeps runtime explicit-interface metadata names compatible with documentation signatures.
+    /// Roslyn preserves a literal <c>global::</c> in an explicit member's metadata name. The Apple
+    /// assembly preparer turns these names into DynamicDependency documentation IDs, whose parser
+    /// cannot resolve that colon-containing spelling. A type alias preserves global lookup while
+    /// Roslyn emits the interface's canonical namespace-qualified metadata name.
+    /// </summary>
+    private static SortedDictionary<int, (int OldLength, string Text)> CollectRuntimeExplicitInterfaceAliases(
+        SyntaxTree[] trees, IReadOnlySet<string> declaredTypeNames, SortedDictionary<int, string> insertions)
+    {
+        var usedNames = trees.SelectMany(t => t.GetRoot().DescendantTokens())
+            .Where(t => t.IsKind(SyntaxKind.IdentifierToken)).Select(t => t.ValueText)
+            .Concat(declaredTypeNames).ToHashSet(StringComparer.Ordinal);
+        var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
+        var replacements = new SortedDictionary<int, (int, string)>();
+        foreach (var specifier in trees.SelectMany(t => t.GetRoot().DescendantNodes()
+                     .OfType<ExplicitInterfaceSpecifierSyntax>()).OrderBy(s => s.SpanStart))
+        {
+            var name = specifier.Name;
+            if (replacements.ContainsKey(name.SpanStart)) continue;
+            var spelling = name.ToString();
+            // Apply the qualification already selected by the ordinary name-lookup pass. This
+            // leaves a module-owned interface with the same bare name alone.
+            if (insertions.TryGetValue(name.SpanStart, out var qualification))
+                spelling = qualification + spelling;
+            if (spelling is not ("global::Swift.Runtime.ISwiftObject" or "global::Swift.Runtime.IExistentialBoxable"))
+                continue;
+
+            if (!aliases.TryGetValue(spelling, out var alias))
+            {
+                var stem = "__SwiftBindings" + spelling[(spelling.LastIndexOf('.') + 1)..];
+                alias = stem;
+                for (var suffix = 1; !usedNames.Add(alias); suffix++)
+                    alias = stem + suffix;
+                aliases.Add(spelling, alias);
+            }
+            insertions.Remove(name.SpanStart);
+            replacements.Add(name.SpanStart, (name.Span.Length, alias));
+        }
+        if (aliases.Count > 0)
+        {
+            // Append to the file's using prelude, preserving #define/#undef, extern aliases and
+            // header comments. If the first declaration is conditional, keep the aliases outside
+            // that block so every branch sees them.
+            var position = trees.Min(t =>
+            {
+                var root = t.GetCompilationUnitRoot();
+                return root.AttributeLists.FirstOrDefault()?.SpanStart
+                    ?? root.Members.FirstOrDefault()?.SpanStart ?? root.EndOfFileToken.SpanStart;
+            });
+            var conditionals = new Stack<int>();
+            foreach (var trivia in trees[0].GetRoot().DescendantTrivia(descendIntoTrivia: true))
+            {
+                if (trivia.SpanStart >= position) break;
+                if (trivia.GetStructure() is IfDirectiveTriviaSyntax)
+                    conditionals.Push(trivia.SpanStart);
+                else if (trivia.GetStructure() is EndIfDirectiveTriviaSyntax && conditionals.Count > 0)
+                    conditionals.Pop();
+            }
+            if (conditionals.Count > 0)
+                position = conditionals.Last();
+            var prelude = string.Concat(aliases.Select(a => $"using {a.Value} = {a.Key};\n"));
+            insertions[position] = prelude + (insertions.TryGetValue(position, out var existing) ? existing : "");
+        }
+        return replacements;
     }
 
     private static void CollectRootInsertions(

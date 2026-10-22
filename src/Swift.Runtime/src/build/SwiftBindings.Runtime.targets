@@ -20,41 +20,63 @@
           Condition="'$(_SwiftBindingsMacFrameworkAnatomyImported)' != 'true'
                      AND Exists('$(MSBuildThisFileDirectory)SwiftBindings.MacFrameworkAnatomy.targets')" />
 
-  <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Defect H: build-time runtime-flavor switch for SwiftRuntimeInfo         -->
-  <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- The managed heuristic in SwiftRuntimeInfo cannot distinguish Mono full-AOT
-       on an iOS *device* (rid 'ios-arm64', no PublishAot, SwiftBindingsInteropMode=Safe)
-       from NativeAOT: both report IsDynamicCodeSupported=false and neither exposes the
-       'Mono.Runtime' type. Misclassifying the supported device-Mono build as NativeAOT
-       enables direct static-virtual generic dispatch, which aborts Mono (jit-info.c:918).
-       We inject the build-time truth as an AppContext switch read by SwiftRuntimeInfo:
-       true iff the binding is built for the NativeAOT (Direct) interop contract, false for
-       Mono/CoreCLR (Safe). The switch is authoritative; the heuristic is only a fallback
-       when it is absent — so injecting it for *every* config (Direct and Safe alike) is
-       what actually closes the hole.
-
-       This lives in the Runtime package's buildTransitive targets because that file is
-       imported by every consumer (PackageReference bindings, SDK-direct apps, and pure
-       Runtime consumers), giving a single injection point with no resolution-logic drift.
-
-       The value is computed inside a target that runs just before the runtimeconfig.json
-       generation so SwiftBindingsInteropMode/PublishAot are fully resolved regardless of
-       import order (Grok flagged top-level-property ordering as the main risk). The
-       resolution mirrors the SDK / ConsumerTargetsEmitter twin: explicit Direct/Safe wins;
-       otherwise Direct iff PublishAot. The PublishAot fallback also yields the correct
-       answer when SwiftBindingsInteropMode is unset (pure Runtime consumer) or still 'Auto'. -->
+  <!-- Final-app engine identity, independent of SwiftBindingsInteropMode.
+       RC2 integration contract (recheck for the shipping workload):
+       dotnet/macios tag dotnet-11.0.1xx-rc2-12212,
+       dotnet/targets/Xamarin.Shared.Sdk.props lines 37-47 resolves _UseNativeAot
+       from PublishAot AND _IsPublishing and defaults UseMonoRuntime=false.
+       Both are resolved at evaluation, before GenerateBuildRuntimeConfigurationFiles.
+       The same hook feeds CoreCLR's merged runtimeconfig and NativeAOT feature switches.
+       Never stamp a library producer's engine into reusable binding assemblies. -->
   <Target Name="_SwiftBindingsInjectRuntimeFlavorSwitch"
-          BeforeTargets="GenerateBuildRuntimeConfigurationFiles;GenerateRuntimeConfigurationFiles">
+          BeforeTargets="GenerateBuildRuntimeConfigurationFiles;GenerateRuntimeConfigurationFiles"
+          Condition="'$(OutputType)' == 'Exe' OR '$(OutputType)' == 'WinExe' OR '$(IsAppExtension)' == 'true'">
     <PropertyGroup>
-      <_SwiftRuntimeIsNativeAot Condition="'$(SwiftBindingsInteropMode)' == 'Direct'">true</_SwiftRuntimeIsNativeAot>
-      <_SwiftRuntimeIsNativeAot Condition="'$(SwiftBindingsInteropMode)' == 'Safe'">false</_SwiftRuntimeIsNativeAot>
-      <_SwiftRuntimeIsNativeAot Condition="'$(_SwiftRuntimeIsNativeAot)' == '' AND '$(PublishAot)' == 'true'">true</_SwiftRuntimeIsNativeAot>
-      <_SwiftRuntimeIsNativeAot Condition="'$(_SwiftRuntimeIsNativeAot)' == ''">false</_SwiftRuntimeIsNativeAot>
+      <_SwiftRuntimeAppleApp>false</_SwiftRuntimeAppleApp>
+      <_SwiftRuntimeAppleApp Condition="$(TargetFramework.Contains('-ios')) OR $(TargetFramework.Contains('-tvos')) OR $(TargetFramework.Contains('-maccatalyst')) OR $(TargetFramework.Contains('-macos'))">true</_SwiftRuntimeAppleApp>
     </PropertyGroup>
+    <Error Code="SWIFTBIND124"
+           Condition="'$(_SwiftRuntimeAppleApp)' == 'true' AND '$(UseMonoRuntime)' != 'true' AND '$(UseMonoRuntime)' != 'false'"
+           Text="Swift.Runtime engine is unresolved: the final Apple app must resolve UseMonoRuntime through its workload before runtime configuration generation." />
+    <Error Code="SWIFTBIND125"
+           Condition="'$(_SwiftRuntimeAppleApp)' == 'true' AND '$(UseMonoRuntime)' == 'true' AND $([MSBuild]::VersionGreaterThanOrEquals($([MSBuild]::GetTargetFrameworkVersion('$(TargetFramework)')), '11.0'))"
+           Text="Swift.Runtime engine conflict: UseMonoRuntime=true is unsupported on .NET 11 Apple apps (NETSDK1242)." />
+    <Error Code="SWIFTBIND126"
+           Condition="('$(_UseNativeAot)' == 'true' AND ('$(PublishAot)' != 'true' OR '$(_IsPublishing)' != 'true' OR '$(UseMonoRuntime)' == 'true')) OR ('$(_SwiftRuntimeAppleApp)' == 'true' AND '$(PublishAot)' == 'true' AND '$(_IsPublishing)' == 'true' AND '$(_UseNativeAot)' != 'true')"
+           Text="Swift.Runtime engine conflict: resolved _UseNativeAot disagrees with PublishAot, _IsPublishing or UseMonoRuntime. Use the supported workload build/publish entry point." />
+    <PropertyGroup>
+      <_SwiftRuntimeIsNativeAot>false</_SwiftRuntimeIsNativeAot>
+      <_SwiftRuntimeIsNativeAot Condition="'$(_UseNativeAot)' == 'true' OR ('$(_SwiftRuntimeAppleApp)' != 'true' AND '$(PublishAot)' == 'true' AND '$(_IsPublishing)' == 'true')">true</_SwiftRuntimeIsNativeAot>
+      <_SwiftRuntimeIsMono>false</_SwiftRuntimeIsMono>
+      <_SwiftRuntimeIsMono Condition="'$(UseMonoRuntime)' == 'true'">true</_SwiftRuntimeIsMono>
+      <_SwiftRuntimeIsCoreClr>false</_SwiftRuntimeIsCoreClr>
+      <_SwiftRuntimeIsCoreClr Condition="'$(_SwiftRuntimeIsNativeAot)' != 'true' AND '$(_SwiftRuntimeIsMono)' != 'true'">true</_SwiftRuntimeIsCoreClr>
+    </PropertyGroup>
+    <Error Code="SWIFTBIND126"
+           Condition="'$(_SwiftRuntimeIsNativeAot)' == 'true' AND '$(_SwiftRuntimeIsMono)' == 'true'"
+           Text="Swift.Runtime engine conflict: Mono and NativeAOT cannot both be selected for the final app." />
+    <!-- Apple deliberately disables the SDK's generic NativeCompile publish hook,
+         then invokes IlcCompile from _CompileNativeExecutable instead. This contract
+         applies to both .NET 10 and .NET 11 (Xamarin.Shared.Sdk.props/targets).
+         Only the resolved Apple workload/runtime-pack path supplies that replacement;
+         elsewhere disabling native compilation still contradicts an AOT identity. -->
+    <Error Code="SWIFTBIND126"
+           Condition="'$(_SwiftRuntimeIsNativeAot)' == 'true' AND '$(NativeCompilationDuringPublish)' == 'false' AND ('$(_SwiftRuntimeAppleApp)' != 'true' OR '$(UsingAppleNETSdk)' != 'true' OR '$(PublishAotUsingRuntimePack)' != 'true')"
+           Text="Swift.Runtime engine is unresolved: NativeCompilationDuringPublish=false suppresses native compilation without a resolved Apple workload runtime-pack AOT path." />
     <ItemGroup>
-      <RuntimeHostConfigurationOption Include="Swift.Runtime.IsNativeAot"
-                                      Value="$(_SwiftRuntimeIsNativeAot)" />
+      <!-- Replace any legacy policy-derived input; engine switches are reserved for
+           this integration layer so duplicate user-authored facts cannot silently win. -->
+      <_SwiftRuntimeExistingEngine Include="@(RuntimeHostConfigurationOption)"
+          Condition="'%(Identity)' == 'Swift.Runtime.Engine.Mono' OR '%(Identity)' == 'Swift.Runtime.Engine.CoreCLR' OR '%(Identity)' == 'Swift.Runtime.Engine.NativeAOT'" />
+    </ItemGroup>
+    <Error Code="SWIFTBIND127" Condition="'@(_SwiftRuntimeExistingEngine)' != ''"
+           Text="Swift.Runtime engine switches are reserved for resolved final-app identity; remove manually supplied Swift.Runtime.Engine.* RuntimeHostConfigurationOption items." />
+    <ItemGroup>
+      <RuntimeHostConfigurationOption Remove="Swift.Runtime.IsNativeAot" />
+      <RuntimeHostConfigurationOption Include="Swift.Runtime.IsNativeAot" Value="$(_SwiftRuntimeIsNativeAot)" />
+      <RuntimeHostConfigurationOption Include="Swift.Runtime.Engine.Mono" Value="$(_SwiftRuntimeIsMono)" />
+      <RuntimeHostConfigurationOption Include="Swift.Runtime.Engine.CoreCLR" Value="$(_SwiftRuntimeIsCoreClr)" />
+      <RuntimeHostConfigurationOption Include="Swift.Runtime.Engine.NativeAOT" Value="$(_SwiftRuntimeIsNativeAot)" />
     </ItemGroup>
   </Target>
 

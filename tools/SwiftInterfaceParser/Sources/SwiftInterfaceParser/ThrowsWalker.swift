@@ -69,7 +69,7 @@ final class ThrowsWalker: SyntaxVisitor {
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
         // Module-qualified swiftinterface targets use the availability convention:
         // drop the module component, preserving every nested owner component.
-        let qualified = node.extendedType.trimmedDescription.replacingOccurrences(of: "`", with: "")
+        let qualified = node.extendedType.dottedDescription.replacingOccurrences(of: "`", with: "")
         let owner = qualified.firstIndex(of: ".").map { String(qualified[qualified.index(after: $0)...]) } ?? qualified
         scopeStack.append(owner)
         return .visitChildren
@@ -96,7 +96,7 @@ final class ThrowsWalker: SyntaxVisitor {
     private func extractTypedThrows(effectSpecifiers: FunctionEffectSpecifiersSyntax?) -> String? {
         guard let throwsClause = effectSpecifiers?.throwsClause else { return nil }
         guard let errorType = throwsClause.type else { return nil }
-        let raw = errorType.trimmedDescription.trimmingCharacters(in: .whitespaces)
+        let raw = errorType.dottedDescription.trimmingCharacters(in: .whitespaces)
         return raw.isEmpty ? nil : raw
     }
 

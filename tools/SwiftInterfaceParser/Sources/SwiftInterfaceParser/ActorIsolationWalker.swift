@@ -212,7 +212,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
             scopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         guard RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)
             return .visitChildren
@@ -415,7 +415,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
     private func hasIsolatedParameter(_ params: FunctionParameterClauseSyntax?) -> Bool {
         guard let params else { return false }
         for param in params.parameters {
-            if param.type.trimmedDescription.hasPrefix("isolated ") {
+            if param.type.dottedDescription.hasPrefix("isolated ") {
                 return true
             }
         }
@@ -425,7 +425,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
     private func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
-            let typeName = attribute.attributeName.trimmedDescription
+            let typeName = attribute.attributeName.dottedDescription
             if typeName == "MainActor" || typeName == "_Concurrency.MainActor" {
                 return true
             }
@@ -447,7 +447,7 @@ final class ActorIsolationWalker: SyntaxVisitor {
 
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
-            let typeName = attribute.attributeName.trimmedDescription
+            let typeName = attribute.attributeName.dottedDescription
 
             // Skip MainActor — handled separately and excluded by both regexes.
             if typeName == "MainActor" || typeName == "_Concurrency.MainActor" { continue }

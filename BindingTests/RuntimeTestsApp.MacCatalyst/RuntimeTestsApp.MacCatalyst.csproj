@@ -1,20 +1,30 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-maccatalyst</TargetFramework>
-    <!-- Default to arm64; the Nuke binding-tests target passes maccatalyst-x64 (a
-         global property that wins over this) for the Rosetta/x64 cell. -->
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-maccatalyst</TargetFramework>
+    <!-- Keep the harness RID local to this app. A global RuntimeIdentifier also
+         reaches every TFM restored by multi-targeted ProjectReferences, where an
+         osx RID incorrectly requests a Mono macOS runtime for the mobile TFMs.
+         BtRuntimeIdentifier selects the arm64/x64 cell without leaking that RID. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(BtRuntimeIdentifier)' != ''">$(BtRuntimeIdentifier)</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">maccatalyst-arm64</RuntimeIdentifier>
     <!-- Wrapper xcframework slice id this RID consumes. Overridden to
          ios-x86_64-maccatalyst by the x64 cell. Gates the wrapper NativeReference. -->
     <BtNativeWrapperSlice Condition="'$(BtNativeWrapperSlice)' == ''">ios-arm64-maccatalyst</BtNativeWrapperSlice>
+    <BtRuntimeEngine Condition="'$(BtRuntimeEngine)' == ''">coreclr</BtRuntimeEngine>
+    <!-- Keep CoreCLR and NativeAOT output/intermediate products distinct even in Release. -->
+    <OutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">bin/$(BtRuntimeEngine)/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">obj/$(BtRuntimeEngine)/$(Configuration)/</IntermediateOutputPath>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
-    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <!-- Test-host floor shared by the qualified Xcode 26/27 workloads.
+         Runtime and Apple package deployment floors remain independently declared. -->
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
     <!-- Disable IL linker to avoid trim analysis errors with SupportedOSPlatformAttribute -->
     <MtouchLink>None</MtouchLink>
     <!-- Disable build-time codesign: native dylibs are injected post-build by the
@@ -28,6 +38,10 @@
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
   </PropertyGroup>
+
+  <!-- ProjectReference does not import buildTransitive assets. Use the production
+       final-app engine hook; Nuke owns native injection for these test apps. -->
+  <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
 
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>
@@ -135,4 +149,10 @@
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
+  <Target Name="ValidateBindingTestsManagedTarget" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(BtTargetFramework)' != 'net10.0' AND '$(BtTargetFramework)' != 'net11.0'"
+           Text="BtTargetFramework must be net10.0 or net11.0." />
+    <Error Condition="'$(BtTargetFramework)' == 'net11.0' AND '$(SwiftBindingsDeviceMonoAot)' == 'true'"
+           Text=".NET 11 BindingTests does not support Mono; use the CoreCLR or NativeAOT lane." />
+  </Target>
 </Project>

@@ -137,17 +137,33 @@ def process_output_text(value) -> str:
 # Build step
 # ---------------------------------------------------------------------------
 
-def run_build(test_framework_dir: str, skip_regen: bool = True) -> None:
+def managed_framework(requested: Optional[str] = None) -> str:
+    profile = os.environ.get("SWIFT_BINDINGS_MANAGED_FRAMEWORK")
+    framework = requested or profile or "net10.0"
+    if framework not in ("net10.0", "net11.0"):
+        raise ValueError("BindingTests framework must be net10.0 or net11.0")
+    if profile and framework != profile:
+        raise ValueError(f"Framework {framework} disagrees with toolchain profile {profile}")
+    return framework
+
+
+def run_build(test_framework_dir: str, skip_regen: bool = True,
+              binding_test_framework: Optional[str] = None,
+              binding_test_configuration: str = "Debug") -> None:
     """Run the BindingTests build steps.
 
     When used in the full CI pipeline, dotnet nuke binding-tests has already
     run by this point. We just need to ensure the RuntimeTestsApp is built.
     """
     log.info("=== BUILD: Starting dotnet build ===")
+    framework = managed_framework(binding_test_framework)
+    if binding_test_configuration not in ("Debug", "Release") or (framework == "net10.0" and binding_test_configuration != "Debug"):
+        raise ValueError("Release harness configuration requires .NET 11")
     app_dir = os.path.join(test_framework_dir, "RuntimeTestsApp")
 
     result = subprocess.run(
-        ["dotnet", "build", "-c", "Debug"],
+        ["dotnet", "build", "-c", binding_test_configuration,
+         f"-p:BtTargetFramework={framework}", "-p:BtRuntimeEngine=coreclr"],
         cwd=app_dir,
         capture_output=True,
         text=True,
@@ -160,7 +176,8 @@ def run_build(test_framework_dir: str, skip_regen: bool = True) -> None:
 
     # Verify app bundle exists
     app_bundle = os.path.join(
-        app_dir, "bin", "Debug", "net10.0-ios", "iossimulator-arm64", "RuntimeTestsApp.app"
+        app_dir, "bin", *( ["coreclr"] if framework == "net11.0" else [] ),
+        binding_test_configuration, f"{framework}-ios", "iossimulator-arm64", "RuntimeTestsApp.app"
     )
     if not os.path.isdir(app_bundle):
         raise RuntimeError(f"App bundle not found at {app_bundle}")
@@ -179,6 +196,9 @@ def run_tests(
     skip_regen: bool = True,
     max_test_retries: int = 1,
     deadline: Optional[float] = None,
+    binding_test_framework: Optional[str] = None,
+    binding_test_configuration: str = "Debug",
+    allow_unqualified_runtime: bool = False,
 ) -> int:
     """Run runtime tests using dotnet nuke binding-tests --sim.
 
@@ -194,12 +214,17 @@ def run_tests(
     Returns:
         Exit code from dotnet nuke binding-tests --sim
     """
+    framework = managed_framework(binding_test_framework)
     cmd = [
         "dotnet", "nuke", "binding-tests",
+        "--binding-test-framework", framework,
+        "--binding-test-configuration", binding_test_configuration,
         "--sim",
         "--timeout", str(timeout),
         "--device-udid", device_udid,
     ]
+    if allow_unqualified_runtime:
+        cmd.append("--allow-unqualified-runtime")
     if skip_regen:
         cmd.append("--skip-regen")
 
@@ -386,6 +411,9 @@ def run_pipeline(
     max_infra_retries: int = 1,
     diag_dir: str = "/tmp/sim-diagnostics",
     step_timeout: int = 900,
+    binding_test_framework: Optional[str] = None,
+    binding_test_configuration: str = "Debug",
+    allow_unqualified_runtime: bool = False,
 ) -> int:
     """Full CI pipeline: prepare simulator, build, test, cleanup.
 
@@ -397,6 +425,7 @@ def run_pipeline(
     Returns:
         0 on success, non-zero on failure.
     """
+    binding_test_framework = managed_framework(binding_test_framework)
     pipeline_start = time.time()
     deadline = pipeline_start + step_timeout  # absolute time we must finish by
     mgr = SimManager()
@@ -434,7 +463,7 @@ def run_pipeline(
                             create_fresh,
                         )
                         build_future: Future = executor.submit(
-                            run_build, test_framework_dir, skip_regen,
+                            run_build, test_framework_dir, skip_regen, binding_test_framework, binding_test_configuration,
                         )
 
                         # Wait for both, collect errors
@@ -477,7 +506,7 @@ def run_pipeline(
             # Phase 2: Build (if not already done in parallel)
             if not skip_build:
                 gha_group("Build RuntimeTestsApp")
-                run_build(test_framework_dir, skip_regen)
+                run_build(test_framework_dir, skip_regen, binding_test_framework, binding_test_configuration)
                 gha_endgroup()
                 skip_build = True
 
@@ -489,6 +518,9 @@ def run_pipeline(
                 timeout=test_timeout,
                 skip_regen=skip_regen,
                 deadline=deadline,
+                binding_test_framework=binding_test_framework,
+                binding_test_configuration=binding_test_configuration,
+                allow_unqualified_runtime=allow_unqualified_runtime,
             )
             gha_endgroup()
 
@@ -588,6 +620,12 @@ Examples:
     test_group.add_argument("--skip-build", action="store_true",
                            help="Skip dotnet build (app already built)")
 
+    test_group.add_argument("--binding-test-framework", choices=("net10.0", "net11.0"), default=None,
+                           help="Managed target (default: selected profile or net10.0)")
+    test_group.add_argument("--binding-test-configuration", choices=("Debug", "Release"), default="Debug")
+    test_group.add_argument("--allow-unqualified-runtime", action="store_true",
+                           help="Explicit .NET 11 bring-up without a reviewed identity baseline")
+
     # Resilience options
     resilience_group = parser.add_argument_group("resilience")
     resilience_group.add_argument("--max-retries", type=int, default=1,
@@ -640,6 +678,9 @@ Examples:
         max_infra_retries=args.max_retries,
         diag_dir=args.diag_dir,
         step_timeout=args.step_timeout,
+        binding_test_framework=args.binding_test_framework,
+        binding_test_configuration=args.binding_test_configuration,
+        allow_unqualified_runtime=args.allow_unqualified_runtime,
     )
     sys.exit(exit_code)
 

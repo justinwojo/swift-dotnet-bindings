@@ -45,6 +45,15 @@ public class CliOptions
                      "Only used with --xcframework.",
         getDefaultValue: () => "simulator");
 
+    public Option<string?> TargetFramework { get; } = new("--target-framework",
+        "Managed project TFM (net10.0 or net11.0 on an Apple platform). A full TFM infers --platform-version when omitted; explicit conflicting versions fail. Defaults to net10.0 for the selected platform.");
+
+    public Option<string?> ReferenceAssembliesFile { get; } = new("--reference-assemblies-file",
+        "Newline-separated absolute reference paths resolved by MSBuild for this target. Missing or inconsistent references fail generation.");
+
+    public Option<string?> ReferenceSdkDirectory { get; } = new("--reference-sdk-directory",
+        "Exact dotnet SDK directory whose BundledVersions pins standalone BCL references. Defaults to SDK selection by the executing dotnet root.");
+
     public Option<string> LibraryName { get; } = new(
         aliases: new[] { "-l", "--library-name" },
         description: "Runtime library name for DllImport. If not specified, uses the dylib path. " +
@@ -458,6 +467,9 @@ public class CliOptions
             XCFramework,
             Platform,
             PlatformVersion,
+            TargetFramework,
+            ReferenceAssembliesFile,
+            ReferenceSdkDirectory,
             PlatformTarget,
             LibraryName,
             AsyncLibrary,

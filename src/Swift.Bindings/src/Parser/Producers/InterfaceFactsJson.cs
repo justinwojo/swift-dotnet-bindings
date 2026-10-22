@@ -91,13 +91,16 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 /// <item><b>v7</b> — <c>typedThrowsErrors</c> preserves full nested owner paths and
 ///   uses parameter-signature keys for overloads, including plain-throws siblings in
 ///   disambiguation. A v6 host can silently select another declaration's error type.</item>
+/// <item><b>v8</b> — Swift 6.4 module selectors are parsed structurally and rendered
+///   as dotted ABI names. Older hosts silently corrupt scopes and signatures on
+///   these interfaces; rejecting a stale helper prevents partial public facts.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 7;
+    public const int ExpectedSchemaVersion = 8;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

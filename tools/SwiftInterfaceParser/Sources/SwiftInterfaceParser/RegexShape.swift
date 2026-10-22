@@ -13,7 +13,7 @@ import SwiftSyntax
 ///
 /// Conventions:
 ///   * `name`/`s` arguments are the unmodified `node.name.text` /
-///     `node.extendedType.trimmedDescription` strings — backticks INCLUDED.
+///     `node.extendedType.dottedDescription` strings — backticks INCLUDED.
 ///   * Empty strings always return `false` (captures `\w+` / `[\w.]+`
 ///     are at-least-one-character).
 enum RegexShape {

@@ -10,61 +10,21 @@ namespace Swift.Runtime;
 /// Provides runtime environment detection for runtime-specific behavior differences.
 /// </summary>
 /// <remarks>
-/// <para>
-/// On .NET 10 iOS simulator, none of the standard Mono detection methods work:
-/// <c>Type.GetType("Mono.Runtime")</c> returns null, <c>FrameworkDescription</c> says ".NET 10.0.3",
-/// and <c>IsDynamicCodeSupported</c> is false (same as NativeAOT). The only reliable distinguisher
-/// is <c>RuntimeIdentifier</c>: "iossimulator-arm64" for Mono AOT vs "ios-arm64" for NativeAOT device.
-/// </para>
-/// <para>
-/// Used by <c>RuntimeLimitations</c> to determine which runtime-specific workarounds are needed
-/// (e.g., Mono JIT assertion with CallConvSwift, NativeAOT float struct parameter issues).
-/// Note: GC finalizer cleanup of Swift structs is safe on all runtimes — VWT Destroy is called
-/// via a Cdecl trampoline (<c>SBW_VWTDestroy</c>) whose DllImport stub is resolved by the
-/// runtime loader without JIT compilation.
-/// </para>
-/// <para>
-/// Three-way runtime taxonomy:
-/// <list type="bullet">
-/// <item>Desktop CoreCLR (macOS): <c>IsMonoRuntime=false</c>, <c>IsDynamicCodeSupported=true</c></item>
-/// <item>iOS Simulator (Mono AOT): <c>IsMonoRuntime=true</c>, <c>IsDynamicCodeSupported=false</c></item>
-/// <item>iOS Device, no PublishAot (Mono full-AOT): <c>IsMonoRuntime=true</c>, <c>IsDynamicCodeSupported=false</c></item>
-/// <item>iOS Device, PublishAot (NativeAOT): <c>IsMonoRuntime=false</c>, <c>IsDynamicCodeSupported=false</c></item>
-/// </list>
-/// </para>
-/// <para>
-/// <b>Defect H — build-time truth.</b> The managed heuristic alone cannot tell Mono
-/// full-AOT on an iOS <i>device</i> (rid <c>ios-arm64</c>, no <c>PublishAot</c>) from
-/// NativeAOT: both report <c>IsDynamicCodeSupported=false</c> and neither exposes the
-/// <c>Mono.Runtime</c> type. The legacy <c>!IsMonoRuntime &amp;&amp; !IsDynamicCodeSupported</c>
-/// formula therefore misclassified the supported device-Mono (Safe) config as NativeAOT,
-/// silently enabling direct static-virtual generic dispatch and crashing Mono
-/// (jit-info.c:918). The SDK's <c>SwiftBindings.Runtime.targets</c> now injects an
-/// <c>AppContext</c> feature switch (<see cref="NativeAotSwitchName"/>) carrying the
-/// build-time interop contract — <c>true</c> for the NativeAOT (Direct) mode, <c>false</c>
-/// otherwise. That switch is authoritative for <see cref="IsNativeAotRuntime"/>; the
-/// heuristic is used only as a fallback when the switch is absent (e.g. a ProjectReference
-/// consumer that does not import the package's buildTransitive targets). Even in that
-/// fallback the simulator is never mistaken for NativeAOT — an Apple <i>simulator</i> RID is
-/// a conclusive Mono signal (NativeAOT does not run on the simulator), so only the genuinely
-/// ambiguous device case relies on the switch. <see cref="IsMonoRuntime"/> is computed
-/// <i>separately</i> from definitive Mono/platform indicators — never as the negation of
-/// <see cref="IsNativeAotRuntime"/> — so a non-AOT desktop CoreCLR consumer is not mislabeled Mono.
-/// </para>
+/// Engine identity is supplied by the final application's resolved workload properties.
+/// Mono, CoreCLR and NativeAOT are independent of platform, dynamic-code capability and
+/// the binding's Safe/Direct interop policy. Older .NET 10 consumers retain their legacy
+/// switch and heuristic fallback. Ambiguous unconfigured .NET 11 consumers fail explicitly.
 /// </remarks>
 public static class SwiftRuntimeInfo
 {
-    /// <summary>
-    /// Name of the <c>AppContext</c> feature switch injected by the SDK's
-    /// <c>SwiftBindings.Runtime.targets</c> (a <c>RuntimeHostConfigurationOption</c> written
-    /// into <c>runtimeconfig.json</c>). <c>true</c> iff the binding was built for the NativeAOT
-    /// (Direct) interop contract; <c>false</c> for Mono/CoreCLR (Safe). Authoritative,
-    /// build-time-resolved input for <see cref="IsNativeAotRuntime"/>.
-    /// </summary>
+    // Keep the old policy-derived switch as a compatibility input only. New engine
+    // switches take precedence because Direct/Safe did not identify the actual engine.
     internal const string NativeAotSwitchName = "Swift.Runtime.IsNativeAot";
+    internal const string MonoEngineSwitchName = "Swift.Runtime.Engine.Mono";
+    internal const string CoreClrEngineSwitchName = "Swift.Runtime.Engine.CoreCLR";
+    internal const string NativeAotEngineSwitchName = "Swift.Runtime.Engine.NativeAOT";
 
-    /// <summary>Resolved runtime flavor — NativeAOT vs Mono — computed once on first access.</summary>
-    private readonly record struct RuntimeFlavor(bool IsNativeAot, bool IsMono);
+    internal readonly record struct RuntimeFlavor(bool IsNativeAot, bool IsMono);
 
     /// <summary>
     /// Lazily-resolved runtime flavor. The resolution is deliberately deferred OFF the static
@@ -83,38 +43,74 @@ public static class SwiftRuntimeInfo
     private static readonly Lazy<RuntimeFlavor> s_flavor = new(ResolveFlavor);
 
     /// <summary>
-    /// True when running on NativeAOT (iOS/tvOS device with PublishAot, or a desktop
-    /// NativeAOT publish). False on Mono (simulator, device full-AOT, Catalyst) and
-    /// CoreCLR (desktop macOS). Driven by the build-time <see cref="NativeAotSwitchName"/>
-    /// switch when present, else by the legacy heuristic.
-    /// Public so generated binding assemblies can gate eager static-cctor metadata
-    /// caching on NativeAOT (mirrors the SwiftArray eager-init pattern).
+    /// True when running on NativeAOT, independently of interop policy or platform.
+    /// Public so generated bindings can gate NativeAOT registration and eager caching.
     /// </summary>
     public static bool IsNativeAotRuntime => s_flavor.Value.IsNativeAot;
 
-    /// <summary>
-    /// True when running on a Mono runtime (iOS/tvOS simulator, iOS/tvOS device full-AOT,
-    /// Mac Catalyst). False on NativeAOT and desktop CoreCLR.
-    /// Used by <see cref="RuntimeLimitations"/> to gate runtime-specific workarounds.
-    /// Note: VWT Destroy from the GC finalizer is safe on all runtimes via the Cdecl trampoline.
-    /// </summary>
+    /// <summary>True when running on Mono, independently of compilation mode or platform.</summary>
     public static bool IsMonoRuntime => s_flavor.Value.IsMono;
 
     private static RuntimeFlavor ResolveFlavor()
     {
-        bool switchPresent = AppContext.TryGetSwitch(NativeAotSwitchName, out bool switchValue);
-        bool monoDetected = DetectMonoIndicator();
-        bool isDynamicCodeSupported = RuntimeFeature.IsDynamicCodeSupported;
-        string? rid = TryGetRuntimeIdentifier();
-
-        bool isNativeAot = ResolveIsNativeAot(
-            switchPresent, switchValue, monoDetected, IsSimulatorRid(rid), isDynamicCodeSupported);
-        bool isMono = ResolveIsMono(isNativeAot, monoDetected, IsAppleMobileRid(rid));
-        return new RuntimeFlavor(isNativeAot, isMono);
+        bool monoPresent = AppContext.TryGetSwitch(MonoEngineSwitchName, out bool mono);
+        bool coreClrPresent = AppContext.TryGetSwitch(CoreClrEngineSwitchName, out bool coreClr);
+        bool nativeAotPresent = AppContext.TryGetSwitch(NativeAotEngineSwitchName, out bool nativeAot);
+        bool legacyPresent = AppContext.TryGetSwitch(NativeAotSwitchName, out bool legacyNativeAot);
+        return ResolveRuntimeFlavor(
+            monoPresent ? mono : null, coreClrPresent ? coreClr : null,
+            nativeAotPresent ? nativeAot : null, legacyPresent, legacyNativeAot,
+            DetectMonoIndicator(), TryGetRuntimeIdentifier(), RuntimeFeature.IsDynamicCodeSupported,
+            Environment.Version.Major);
     }
 
     /// <summary>
-    /// Pure classification of the NativeAOT flavor. The build-time switch is authoritative
+    /// Classifies authoritative engine switches first, with legacy inputs isolated to old
+    /// consumers. Boolean switches work in both runtimeconfig hosts and NativeAOT's feature
+    /// switch pipeline. All three must be present with exactly one true.
+    /// </summary>
+    internal static RuntimeFlavor ResolveRuntimeFlavor(
+        bool? monoEngine, bool? coreClrEngine, bool? nativeAotEngine,
+        bool legacySwitchPresent, bool legacySwitchValue, bool monoDetected,
+        string? rid, bool isDynamicCodeSupported, int runtimeMajor)
+    {
+        if (monoEngine.HasValue || coreClrEngine.HasValue || nativeAotEngine.HasValue)
+        {
+            int engineCount = (monoEngine == true ? 1 : 0) + (coreClrEngine == true ? 1 : 0)
+                + (nativeAotEngine == true ? 1 : 0);
+            if (!monoEngine.HasValue || !coreClrEngine.HasValue || !nativeAotEngine.HasValue || engineCount != 1)
+                throw new InvalidOperationException(
+                    "Swift.Runtime runtime-engine conflict: expected all three engine switches with exactly one true. " +
+                    "Rebuild the final app with SwiftBindings.Runtime buildTransitive targets.");
+            if (monoDetected && monoEngine != true)
+                throw new InvalidOperationException(
+                    "Swift.Runtime runtime-engine conflict: the configured engine contradicts the live Mono.Runtime type.");
+            // Neither an old policy switch nor a RID/dynamic-code heuristic can override
+            // the final app's engine. In particular, CoreCLR can disable dynamic code.
+            return new RuntimeFlavor(nativeAotEngine == true, monoEngine == true);
+        }
+
+        if (runtimeMajor >= 11)
+        {
+            if (monoDetected)
+                return new RuntimeFlavor(false, true);
+            // Preserve previously published net10 libraries on desktop CoreCLR hosts.
+            // Mobile RIDs and disabled dynamic code are ambiguous without the new identity.
+            if (!IsAppleMobileRid(rid) && isDynamicCodeSupported)
+                return new RuntimeFlavor(false, false);
+            throw new InvalidOperationException(
+                "Swift.Runtime runtime engine is unresolved on .NET 11 or later. Import the final app's " +
+                "SwiftBindings.Runtime buildTransitive targets; RID, dynamic-code support and the legacy " +
+                $"'{NativeAotSwitchName}' policy switch cannot identify its engine.");
+        }
+
+        bool isNativeAot = ResolveIsNativeAot(legacySwitchPresent, legacySwitchValue,
+            monoDetected, IsSimulatorRid(rid), isDynamicCodeSupported);
+        return new RuntimeFlavor(isNativeAot, ResolveIsMono(isNativeAot, monoDetected, IsAppleMobileRid(rid)));
+    }
+
+    /// <summary>
+    /// Legacy .NET 10 classification of the NativeAOT flavor. The build-time switch is authoritative
     /// when present; the heuristic is a fallback only. In the fallback, a live Mono indicator
     /// or an Apple <i>simulator</i> RID is conclusively <i>not</i> NativeAOT — NativeAOT does
     /// not run on the iOS/tvOS simulator, so the simulator is always Mono there. Only the
@@ -158,7 +154,7 @@ public static class SwiftRuntimeInfo
     }
 
     /// <summary>
-    /// Pure classification of the Mono flavor, computed independently of
+    /// Legacy .NET 10 classification of the Mono flavor, computed independently of
     /// <see cref="IsNativeAotRuntime"/>. NativeAOT is never Mono. Otherwise a runtime is Mono
     /// when a definitive Mono indicator is present OR the RID is an Apple non-desktop RID
     /// (iOS/tvOS device + simulator, Mac Catalyst). Desktop macOS (osx-*) is CoreCLR, not Mono.
@@ -171,7 +167,7 @@ public static class SwiftRuntimeInfo
     }
 
     /// <summary>
-    /// True for Apple non-desktop RIDs where the runtime is Mono (unless NativeAOT):
+    /// True for Apple non-desktop RIDs (a legacy Mono signal on .NET 10):
     /// iOS device/simulator, tvOS device/simulator, Mac Catalyst. Desktop macOS (osx-*) is
     /// CoreCLR and returns false.
     /// </summary>
@@ -186,7 +182,7 @@ public static class SwiftRuntimeInfo
 
     /// <summary>
     /// True for Apple <i>simulator</i> RIDs (<c>iossimulator-*</c>, <c>tvossimulator-*</c>).
-    /// NativeAOT does not run on the Apple simulator, so a simulator RID is a definitive
+    /// In the legacy .NET 10 fallback a simulator RID is treated as a definitive
     /// "not NativeAOT / is Mono" signal even when the <c>Mono.Runtime</c> type is absent (as it
     /// is on .NET 10+ Mono AOT). Consumed by <see cref="ResolveIsNativeAot"/>'s switch-less
     /// fallback so the simulator is not mistaken for NativeAOT.

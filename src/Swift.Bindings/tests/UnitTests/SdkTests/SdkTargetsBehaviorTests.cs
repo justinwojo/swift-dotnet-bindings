@@ -641,12 +641,8 @@ namespace BindingsGeneration.Tests
         }
 
         // ── SWIFTBIND010: the TargetFramework gate ──
-        // The SDK binds against .NET 10 Apple TFMs only, and the generator emits net10.0-*
-        // projects. The platform half of the gate is a substring match over $(TargetFramework),
-        // so it accepts an Apple platform on ANY .NET version — a project one .NET version below
-        // the floor would sail past this first validation and fail much later, deep inside
-        // generation, on an output TFM it never declared. The gate therefore has to reject the
-        // .NET version in its own right, and its message has to name the floor it enforces.
+        // The SDK and CLI support the same complete net10/net11 Apple TFM grammar.
+        // Malformed prefixes and suffixes must fail before discovery or generation.
         // These tests drive the REAL _ValidateSwiftPackageItems target from Sdk.targets.
 
         /// <summary>
@@ -716,6 +712,10 @@ namespace BindingsGeneration.Tests
         [InlineData("net10.0-macos")]
         [InlineData("net10.0-tvos")]
         [InlineData("net10.0-maccatalyst")]
+        [InlineData("net11.0-ios")]
+        [InlineData("net11.0-macos")]
+        [InlineData("net11.0-tvos")]
+        [InlineData("net11.0-maccatalyst")]
         public void TargetFrameworkGate_AcceptsSupportedAppleTargetFrameworks(string targetFramework)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -730,6 +730,14 @@ namespace BindingsGeneration.Tests
         [Theory]
         [InlineData("net10.0")]
         [InlineData("net10.0-android")]
+        [InlineData("net11.0-android")]
+        [InlineData("net12.0-ios")]
+        [InlineData("net10.00-ios")]
+        [InlineData("net10.0-iossimulator")]
+        [InlineData("net11.0-ios27.0-preview")]
+        [InlineData("net11.0-ios27.0.1")]
+        [InlineData("net11.0-ios27")]
+        [InlineData("net11.0-ios27.0garbage")]
         public void TargetFrameworkGate_RejectsNonAppleTargetFrameworks(string targetFramework)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -753,6 +761,11 @@ namespace BindingsGeneration.Tests
         [InlineData("net10.0-tvos26.0")]
         [InlineData("net10.0-maccatalyst18.0")]
         [InlineData("NET10.0-ios")]
+        [InlineData("net11.0-ios27.0")]
+        [InlineData("net11.0-macos27.0")]
+        [InlineData("net11.0-tvos27.0")]
+        [InlineData("net11.0-maccatalyst27.0")]
+        [InlineData("NET11.0-IOS27.0")]
         public void TargetFrameworkGate_AcceptsVersionedAndCaseVariantAppleTargetFrameworks(
             string targetFramework)
         {
@@ -768,15 +781,17 @@ namespace BindingsGeneration.Tests
         // The shipped Apple-framework template multi-targets all four Apple TFMs, so the
         // gate's real input for that shape is the per-slice global property, not the
         // <TargetFrameworks> list in the body.
-        [Fact]
-        public void TargetFrameworkGate_MultiTargeting_AcceptsASupportedInnerSlice()
+        [Theory]
+        [InlineData("net10.0-ios")]
+        [InlineData("net11.0-maccatalyst27.0")]
+        public void TargetFrameworkGate_MultiTargeting_AcceptsASupportedInnerSlice(string innerFramework)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
             var (output, exitCode) = RunTargetFrameworkGate(
                 bodyTargetFramework: null,
-                bodyTargetFrameworks: "net10.0-ios;net10.0-macos;net10.0-maccatalyst;net10.0-tvos",
-                innerBuildTargetFramework: "net10.0-ios");
+                bodyTargetFrameworks: "net10.0-ios;net11.0-maccatalyst27.0",
+                innerBuildTargetFramework: innerFramework);
 
             Assert.True(exitCode == 0, $"Expected the TFM gate to accept the inner slice.\n{output}");
             Assert.DoesNotContain("SWIFTBIND010", output);
@@ -795,6 +810,100 @@ namespace BindingsGeneration.Tests
             Assert.True(exitCode != 0, $"Expected the TFM gate to fail the inner slice.\n{output}");
             Assert.Contains("SWIFTBIND010", output);
             Assert.Contains("net10.0", output);
+        }
+
+        [Theory]
+        [InlineData("net10.0-macos26.0", "12.0")]
+        [InlineData("net11.0-macos27.0", "14.0")]
+        [InlineData("net10.0-maccatalyst26.0", "15.0")]
+        [InlineData("net11.0-maccatalyst27.0", "17.0")]
+        [InlineData("net11.0-ios27.0", "15.0")]
+        [InlineData("net11.0-tvos27.0", "15.0")]
+        public void TargetFrameworkGate_SelectsTargetSpecificDeploymentFloor(string framework, string floor)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var project = Path.Combine(_tempDir, "Floor.proj");
+            // Sdk.targets imports the .NET SDK targets, which require their matching props
+            // to establish evaluation context (including NETCoreSdkVersion on .NET 11).
+            File.WriteAllText(project, $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup><TargetFramework>{framework}</TargetFramework></PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="Probe"><Message Importance="high" Text="TARGET_FLOOR=$(SwiftAppleFrameworkMinDeploymentVersion)" /></Target>
+                </Project>
+                """);
+            var result = RunDotnet($"msbuild \"{project}\" -t:Probe -nologo -v:n");
+            Assert.True(result.ExitCode == 0, result.StdOut + result.StdErr);
+            Assert.Contains("TARGET_FLOOR=" + floor, result.StdOut);
+        }
+
+        [Theory]
+        [InlineData("net10.0-maccatalyst26.0", false, "all", "true")]
+        [InlineData("net11.0-maccatalyst27.0", false, "", "")]
+        [InlineData("net10.0-maccatalyst26.0", true, "all", "true")]
+        [InlineData("net11.0-maccatalyst27.0", true, "", "")]
+        public void EmittedConsumerTargets_ApplyMonoWorkaroundOnlyToNet10Consumers(
+            string consumerFramework, bool projectReference, string interpreter, string useInterpreter)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // Produce a legacy package and consume it from each framework. The consumer's
+            // framework controls the engine workaround, independent of the producer's target.
+            ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+            {
+                OutputDirectory = _tempDir,
+                ModuleName = "Example",
+                PackageId = "Example.Swift.MacCatalyst",
+                EffectiveMinimumOSVersion = "15.0",
+                HasWrapperXCFramework = false,
+                PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.MacCatalyst),
+            }, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+            var targets = Path.Combine(_tempDir, "Example.Swift.MacCatalyst" +
+                (projectReference ? ".ProjectReference.targets" : ".targets"));
+            var project = Path.Combine(_tempDir, "Consumer.proj");
+            File.WriteAllText(project, $"""
+                <Project>
+                  <PropertyGroup>
+                    <TargetFramework>{consumerFramework}</TargetFramework>
+                    <RuntimeIdentifier>maccatalyst-x64</RuntimeIdentifier>
+                  </PropertyGroup>
+                  <Import Project="{targets}" />
+                  <Target Name="Probe"><Message Importance="high" Text="INTERPRETER=[$(MtouchInterpreter)] USE=[$(UseInterpreter)]" /></Target>
+                </Project>
+                """);
+            var result = RunDotnet($"msbuild \"{project}\" -t:Probe -nologo -v:n");
+            Assert.True(result.ExitCode == 0, result.StdOut + result.StdErr);
+            Assert.Contains($"INTERPRETER=[{interpreter}] USE=[{useInterpreter}]", result.StdOut);
+        }
+
+        [Fact]
+        public void Template_FrameworkChoiceScaffoldsSelectedTargetsAndKeepsNet10Default()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var template = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Templates", "content", "swift-binding");
+            var hive = Path.Combine(_tempDir, "template-hive");
+            var installed = RunDotnet($"new install \"{template}\" --debug:custom-hive \"{hive}\"");
+            Assert.True(installed.ExitCode == 0, installed.StdOut + installed.StdErr);
+            var cases = new[]
+            {
+                (Arguments: "", Expected: "net10.0-ios"),
+                (Arguments: "--framework net11.0 --platform ios", Expected: "net11.0-ios"),
+                (Arguments: "--framework net11.0 --platform macos", Expected: "net11.0-macos"),
+                (Arguments: "--framework net11.0 --platform tvos", Expected: "net11.0-tvos"),
+                (Arguments: "--framework net11.0 --platform maccatalyst", Expected: "net11.0-maccatalyst"),
+                (Arguments: "--appleFramework StoreKit", Expected: "net10.0-ios;net10.0-macos;net10.0-maccatalyst;net10.0-tvos"),
+                (Arguments: "--framework net11.0 --appleFramework StoreKit", Expected: "net11.0-ios;net11.0-macos;net11.0-maccatalyst;net11.0-tvos"),
+            };
+            for (var index = 0; index < cases.Length; index++)
+            {
+                var destination = Path.Combine(_tempDir, "template-output-" + index);
+                var created = RunDotnet($"new swift-binding -n Example -o \"{destination}\" {cases[index].Arguments} --debug:custom-hive \"{hive}\"");
+                Assert.True(created.ExitCode == 0, created.StdOut + created.StdErr);
+                var project = System.Xml.Linq.XDocument.Load(Path.Combine(destination, "Example.csproj"));
+                var framework = project.Descendants().Single(e => e.Name.LocalName is "TargetFramework" or "TargetFrameworks");
+                Assert.Equal(cases[index].Expected, framework.Value);
+            }
         }
 
         // ── SWIFTBIND005: the empty-DLL trap (issue #43) ──
@@ -4673,8 +4782,48 @@ namespace BindingsGeneration.Tests
                 """;
         }
 
+        [Fact]
+        public void ManagedReferences_UseTargetingAssetsWithoutResolvingProjectReferences()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var reference = Path.Combine(_tempDir, "ResolvedReference.dll");
+            File.WriteAllText(reference, "targeting-pack metadata");
+            var output = Path.Combine(_tempDir, "refs") + "/";
+            var sdkTargets = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            WriteTestProject($"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0-ios26.2</TargetFramework>
+                    <TargetPlatformIdentifier>iOS</TargetPlatformIdentifier>
+                    <TargetPlatformVersion>26.2</TargetPlatformVersion>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargets}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{output}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="ResolveTargetingPackAssets">
+                    <ItemGroup><Reference Include="{reference}" /><Reference Include="UnresolvedName" /></ItemGroup>
+                  </Target>
+                  <Target Name="ResolveProjectReferences"><Error Text="Must not resolve project references" /></Target>
+                </Project>
+                """);
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_ResolveSwiftManagedReferences -nologo -v:n");
+            Assert.True(result.ExitCode == 0, result.StdOut + result.StdErr);
+            var lines = File.ReadAllLines(Path.Combine(output, "managed-references.txt"));
+            Assert.Contains("msbuild-target-framework=net10.0-ios26.2", lines);
+            Assert.Contains("msbuild-target-platform-version=26.2", lines);
+            Assert.Contains(reference, lines);
+            Assert.DoesNotContain("UnresolvedName", lines);
+        }
+
         private void WriteTestProject(string projectContent)
         {
+            // These target-only probes import Sdk.props without Sdk.targets, so framework
+            // resolution is normally absent. Supply its seam unless the probe exercises it.
+            if (!projectContent.Contains("Name=\"ResolveTargetingPackAssets\"", StringComparison.Ordinal))
+                projectContent = projectContent.Replace("</Project>",
+                    "<Target Name=\"ResolveTargetingPackAssets\" /></Project>", StringComparison.Ordinal);
             File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), projectContent);
             // Prevent repo-level Directory.Build files from interfering
             File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");

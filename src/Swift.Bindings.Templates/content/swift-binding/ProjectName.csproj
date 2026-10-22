@@ -1,10 +1,10 @@
 <Project Sdk="SwiftBindings.Sdk/0.0.0-dev">
   <PropertyGroup>
 <!--#if (isAppleFramework) -->
-    <TargetFrameworks>net10.0-ios;net10.0-macos;net10.0-maccatalyst;net10.0-tvos</TargetFrameworks>
+    <TargetFrameworks>BINDING_FRAMEWORK-ios;BINDING_FRAMEWORK-macos;BINDING_FRAMEWORK-maccatalyst;BINDING_FRAMEWORK-tvos</TargetFrameworks>
 <!--#else -->
     <!-- Platform options: ios (default), macos, tvos, maccatalyst -->
-    <TargetFramework>net10.0-ios</TargetFramework>
+    <TargetFramework>BINDING_FRAMEWORK-BINDING_PLATFORM</TargetFramework>
 <!--#endif -->
   </PropertyGroup>
 <!--#if (isAppleFramework) -->

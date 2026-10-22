@@ -6,11 +6,11 @@ import PackageDescription
 
 // Pinned swift-syntax tag.
 //
-// 601.0.x is the swift-syntax line that ships with the Swift 6.1 compiler and remains
-// source-compatible against newer toolchains. Bump only deliberately when adopting new
-// node shapes. Do NOT track the host toolchain's bundled SwiftSyntax: that pulls in
-// node-shape changes mid-stream and breaks the regex-vs-SwiftSyntax parity gate.
-let swiftSyntaxVersion: Version = "601.0.1"
+// 604.0.x understands the Module::Type spelling emitted by Swift 6.4. Keep it
+// buildable with our Swift 6.2 (Xcode 26) host and use one deliberate pin across
+// toolchains: using the host's bundled SwiftSyntax would change fact extraction
+// whenever Xcode changes. Fact text canonicalizes module selectors to ABI dots.
+let swiftSyntaxVersion: Version = "604.0.0"
 
 let package = Package(
     name: "SwiftInterfaceParser",

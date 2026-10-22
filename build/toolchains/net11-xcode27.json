@@ -1,0 +1,9 @@
+{
+  "sdkVersion": "11.0.100-rc.2.26504.105",
+  "workloadVersion": "11.0.100-rc.2.26509.2",
+  "xcodeVersion": "27.0",
+  "dotnetRoot": "~/.local/share/swift-bindings/toolchains/net11-xcode27.0/dotnet",
+  "developerDirectory": "/Applications/Xcode-27.0.0.app/Contents/Developer",
+  "managedFramework": "net11.0",
+  "allowPrerelease": true
+}

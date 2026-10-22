@@ -14,14 +14,14 @@ namespace BindingsGeneration;
 /// <see cref="SwiftInterfaceFacts.ProtocolExtensionMethods"/>.
 /// <para/>
 /// Field shape mirrors <see cref="ProtocolExtensionMethodDecl"/> exactly EXCEPT that
-/// the type-side key is <see cref="ExtendedTypeName"/> (the verbatim extension target,
+/// the type-side key is <see cref="ExtendedTypeName"/> (the dot-qualified extension target,
 /// e.g. "UIKit.UIView", "Mod.MyProto", or "MyOwnedType") instead of
 /// <c>ProtocolQualifiedName</c>. Conversions are 1:1 in
 /// <see cref="SwiftInterfaceFacts.ResolveForeignExtensions"/>.
 /// </summary>
 public sealed class ExtensionMemberCandidate
 {
-    /// <summary>The full extension target name as written in the swiftinterface,
+    /// <summary>The full extension target name with module selectors rendered as dots,
     /// including any module qualifier (e.g., "UIKit.UIView", "Mod.MyProto", "MyType").
     /// Partitioning by module is done in <see cref="SwiftInterfaceFacts.ResolveForeignExtensions"/>
     /// using the first-dot rule.</summary>

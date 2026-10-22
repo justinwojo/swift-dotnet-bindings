@@ -33,6 +33,14 @@ public class CustomGlobalActorTests : TestBase
 {
     public CustomGlobalActorTests(TestResults results) : base(results) { }
 
+    private static void LogActorPointer(string stage, global::Swift.Runtime.ISwiftObject instance)
+    {
+        var pointer = instance.SwiftHandle;
+        var metadata = global::System.Runtime.InteropServices.Marshal.ReadInt64(pointer);
+        var refCounts = global::System.Runtime.InteropServices.Marshal.ReadInt64(pointer, global::System.IntPtr.Size);
+        TestLogger.Info($"Actor ABI {stage}: object=0x{pointer.ToInt64():X}, metadata=0x{metadata:X16}, refCounts=0x{refCounts:X16}");
+    }
+
     /// <summary>
     /// The class type itself must appear in the bindings — the marker-protocol metadata
     /// gap historically dropped non-init members alongside the constructor skip. This
@@ -102,8 +110,11 @@ public class CustomGlobalActorTests : TestBase
 
         AssertNotNull(instance, "CreateAsync must return a non-null instance");
 
+        LogActorPointer("primary after CreateAsync", instance);
         AssertEqual("hello", instance.Label.ToString(), "label was not preserved across the actor boundary");
+        LogActorPointer("primary after Label", instance);
         AssertEqual(7, instance.Count, "count was not preserved across the actor boundary");
+        LogActorPointer("primary after Count, before GetDescribeAsync", instance);
 
         // The describe() method is itself actor-isolated → exposed as GetDescribeAsync.
         // Calling it confirms the returned instance is a fully wired ISwiftObject and
@@ -243,12 +254,15 @@ public class CustomGlobalActorTests : TestBase
             DefaultAsyncTimeout);
 
         AssertNotNull(instance, "Trimmed CreateAsync should return a non-null instance");
+        LogActorPointer("trimmed after CreateAsync", instance);
         AssertEqual("hello", instance.Label.ToString(),
             "label was not preserved across the actor boundary on the trimmed overload");
+        LogActorPointer("trimmed after Label", instance);
         AssertEqual(7, instance.Depth,
             "depth should reflect the Swift-side default GlobalActorConfig().depth = 7 — " +
             "if this is 0 or another value, the trimmed overload isn't routing through the " +
             "default-arg-trimming Swift wrapper.");
+        LogActorPointer("trimmed after Depth, before Dispose", instance);
 
         instance.Dispose();
     }

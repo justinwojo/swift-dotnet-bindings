@@ -92,11 +92,11 @@ import SwiftParser
 ///
 /// 7. **Default value extraction**: captures everything after `= ` (with surrounding
 ///    spaces) up to the next top-level comma — equivalent to
-///    `param.defaultValue.value.trimmedDescription`.
+///    `param.defaultValue.value.dottedDescription`.
 ///
 /// 8. **Autoclosure detection**: checks whether the parameter type's text contains
 ///    `"@autoclosure"` — equivalent to a substring search on the type portion after
-///    the colon, using `paramType.trimmedDescription`.
+///    the colon, using `paramType.dottedDescription`.
 ///
 /// 9. **Variadic detection**: `param.ellipsis != nil`, equivalent to the type
 ///    text ending with `"..."` after stripping the default-value tail.
@@ -269,7 +269,7 @@ final class SignatureFactsWalker: SyntaxVisitor {
             scopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         guard RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)
             return .visitChildren
@@ -482,13 +482,13 @@ final class SignatureFactsWalker: SyntaxVisitor {
 
             // Default value: raw expression, trimmed.
             if let dv = param.defaultValue {
-                defaults.append(dv.value.trimmedDescription)
+                defaults.append(dv.value.dottedDescription)
             } else {
                 defaults.append(nil)
             }
 
             // Autoclosure: check whether the type's printed text contains `"@autoclosure"`.
-            autoclosures.append(param.type.trimmedDescription.contains("@autoclosure"))
+            autoclosures.append(param.type.dottedDescription.contains("@autoclosure"))
 
             // Variadic: structured ellipsis token.
             if param.ellipsis != nil {
@@ -516,11 +516,11 @@ final class SignatureFactsWalker: SyntaxVisitor {
     }
 
     /// Returns the text following the parameter's top-level colon, left-trimmed.
-    /// A trailing comma (present on non-final parameters in `param.trimmedDescription`)
+    /// A trailing comma (present on non-final parameters in `param.dottedDescription`)
     /// is dropped first so the slice matches the comma-split parameter text.
     /// Returns nil when the parameter has no top-level colon.
     private func parameterTypeText(_ param: FunctionParameterSyntax) -> String? {
-        var text = Substring(param.trimmedDescription)
+        var text = Substring(param.dottedDescription)
         while let last = text.last, last == "," || last == " " { text = text.dropLast() }
         guard let colon = topLevelColonIndex(text) else { return nil }
         let after = text[text.index(after: colon)...]

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
 using System;
 
 public record ApplePlatform
@@ -56,7 +57,10 @@ public record ApplePlatform
             $"ApplePlatform '{Name}' has neither a host Rid nor a device slice id to derive a native RID from.");
 
     public const string BaseTfm = "net10.0";
-    public string GetTfm() => $"{BaseTfm}-{TfmSuffix}";
+    public string GetTfm() => GetTfm(BaseTfm);
+    public string GetTfm(string baseTfm) => baseTfm is "net10.0" or "net11.0"
+        ? $"{baseTfm}-{TfmSuffix}"
+        : throw new ArgumentException("The BindingTests target must be net10.0 or net11.0.", nameof(baseTfm));
 
     public static ApplePlatform IOS { get; } = new()
     {

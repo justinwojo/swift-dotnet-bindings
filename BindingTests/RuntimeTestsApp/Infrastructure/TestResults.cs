@@ -285,7 +285,10 @@ public enum TestPlatform
     /// (so <c>[Conditional("DEBUG")]</c> code is live, unlike the NativeAOT Release app).
     /// Selected by <c>nuke binding-tests --device --mono-aot</c>.
     /// </summary>
-    DeviceMonoAot
+    DeviceMonoAot,
+
+    /// <summary>Physical iOS device running .NET 11 CoreCLR; NativeAOT-specific skips do not apply.</summary>
+    DeviceCoreClr
 }
 
 
@@ -417,10 +420,9 @@ public class SkipOnCatalystX64Attribute : Attribute
 /// [SkipOnSimulator] would <em>also</em> suppress the test on macOS — where it provably cannot
 /// crash because CoreCLR is not Mono. To avoid that false suppression, a Mono-JIT skip is
 /// detected at <b>runtime</b> (see <c>TestBase.IsMonoJitRuntime</c>) rather than from the CLI
-/// flag, mirroring the existing <see cref="SkipOnCatalystX64Attribute"/> precedent. Note that
-/// <c>SwiftRuntimeInfo.IsMonoRuntime</c> alone is insufficient: its RID check only recognizes
-/// "simulator" RIDs and misses <c>maccatalyst-*</c>, so the predicate must also consult
-/// <see cref="OperatingSystem.IsMacCatalyst"/>.
+/// flag, mirroring the existing <see cref="SkipOnCatalystX64Attribute"/> precedent. The final
+/// app's production engine configuration is authoritative; a Catalyst/simulator RID alone must
+/// not add Mono skips to CoreCLR.
 ///
 /// The reason MUST name the specific CallConvSwift entry-point symbol (<c>$s…</c>) on the test's
 /// own path — enforced by <c>Issue1SkipAttributionTests</c> in the generator unit tests.

@@ -161,7 +161,7 @@ final class ProtocolFactsWalker: SyntaxVisitor {
         // `@convention(c)`/`@convention(block)` directly OR a word-boundary alias name.
         var flagged = false
         for member in node.memberBlock.members {
-            let text = member.decl.trimmedDescription
+            let text = member.decl.dottedDescription
             if text.contains("@convention(c)") || text.contains("@convention(block)") {
                 flagged = true
                 break
@@ -202,7 +202,7 @@ final class ProtocolFactsWalker: SyntaxVisitor {
     // MARK: - Extension walk (pass 2 — collect satisfying defaults)
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         let firstDot = qualified.firstIndex(of: ".")
         let simpleName: String?
         if let dot = firstDot {
@@ -247,7 +247,7 @@ final class ProtocolFactsWalker: SyntaxVisitor {
                 if name.hasPrefix("__") {
                     set.insert(name)
                 } else if let ty = binding.typeAnnotation?.type,
-                          ProtocolFactsWalker.textReferencesUnderscoredType(ty.trimmedDescription) {
+                          ProtocolFactsWalker.textReferencesUnderscoredType(ty.dottedDescription) {
                     // Type-hidden requirement: ordinary name, but the property type
                     // references a __-prefixed SPI type (stripped from the ABI JSON).
                     set.insert(name)
@@ -257,15 +257,15 @@ final class ProtocolFactsWalker: SyntaxVisitor {
             let name = f.name.text
             if name.hasPrefix("__") {
                 set.insert(name)
-            } else if ProtocolFactsWalker.textReferencesUnderscoredType(f.signature.trimmedDescription) {
+            } else if ProtocolFactsWalker.textReferencesUnderscoredType(f.signature.dottedDescription) {
                 set.insert(name)
             }
         } else if let i = decl.as(InitializerDeclSyntax.self) {
-            if ProtocolFactsWalker.textReferencesUnderscoredType(i.signature.trimmedDescription) {
+            if ProtocolFactsWalker.textReferencesUnderscoredType(i.signature.dottedDescription) {
                 set.insert("init")
             }
         } else if let s = decl.as(SubscriptDeclSyntax.self) {
-            let sig = s.parameterClause.trimmedDescription + s.returnClause.trimmedDescription
+            let sig = s.parameterClause.dottedDescription + s.returnClause.dottedDescription
             if ProtocolFactsWalker.textReferencesUnderscoredType(sig) {
                 set.insert("subscript")
             }
@@ -304,7 +304,7 @@ private final class ConventionAliasCollector: SyntaxVisitor {
     }
 
     override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind {
-        let body = node.initializer.value.trimmedDescription
+        let body = node.initializer.value.dottedDescription
         if body.contains("@convention(c)") || body.contains("@convention(block)") {
             aliases.insert(node.name.text)
         }

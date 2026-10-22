@@ -975,23 +975,23 @@ namespace BindingsGeneration.Tests
             // both the XCFramework-mode and Apple-framework-mode fingerprint hashes — otherwise
             // changing the pinned runtime version leaves the stamp unchanged, the generator is
             // skipped, and stale generated .cs carrying the OLD epoch is reused while restore moves
-            // the app onto the new runtime (the load-time gate then aborts). The echo strings are the
-            // hashed inputs; the variable must appear inside each (the file stores the embedded quote
-            // as the literal entity &quot;).
-            foreach (var (label, echoAnchor) in new[]
+            // the app onto the new runtime (the load-time gate then aborts). Inspect both actual
+            // fingerprint commands rather than anchoring on the order of their echoed properties.
+            var target = XDocument.Parse(TargetsContent).Root!.Elements("Target")
+                .Single(e => (string?)e.Attribute("Name") == "_ComputeSwiftFingerprint");
+            var commands = target.Elements("Exec").ToArray();
+            Assert.Equal(2, commands.Length); // XCFramework and Apple-framework modes.
+            foreach (var exec in commands)
             {
-                ("XCFramework", "echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform)"),
-                ("AppleFramework", "echo &quot;$(_SwiftAppleFrameworkSdkPath)"),
-            })
-            {
-                var start = TargetsContent.IndexOf(echoAnchor, StringComparison.Ordinal);
-                Assert.True(start >= 0, $"{label} fingerprint echo not found.");
-                var end = TargetsContent.IndexOf("&quot;", start + echoAnchor.Length, StringComparison.Ordinal);
-                Assert.True(end > start, $"{label} fingerprint echo is not terminated.");
-                var echoString = TargetsContent.Substring(start, end - start);
-                Assert.True(
-                    echoString.Contains("$(SwiftRuntimeVersion)", StringComparison.Ordinal),
-                    $"{label} fingerprint must hash $(SwiftRuntimeVersion) so a runtime-version change re-runs the generator instead of reusing a stale epoch.");
+                var command = (string)exec.Attribute("Command")!;
+                var echoedProperties = Regex.Matches(command, @"echo\s+""([^""]*)""")
+                    .Select(match => match.Groups[1].Value).ToArray();
+                Assert.Contains(echoedProperties, line => line.Contains("$(SwiftRuntimeVersion)", StringComparison.Ordinal));
+                Assert.Contains(echoedProperties, line => line.Contains("$(TargetFramework)", StringComparison.Ordinal));
+                Assert.Contains("shasum -a 256 \"$(_SwiftManagedReferencesFile)\"", command);
+                Assert.True(command.LastIndexOf("| shasum -a 256", StringComparison.Ordinal) >
+                    command.IndexOf("$(SwiftRuntimeVersion)", StringComparison.Ordinal),
+                    "Runtime and target inputs must feed the final fingerprint hash.");
             }
         }
 
@@ -1282,22 +1282,13 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_DetectsMaccatalystBeforeMacos()
+        public void Targets_DetectsPlatformFromValidatedFramework()
         {
-            // maccatalyst must be checked before macos to avoid substring overlap
-            var maccatalystIdx = TargetsContent.IndexOf("Contains('maccatalyst')", StringComparison.Ordinal);
-            var macosIdx = TargetsContent.IndexOf("Contains('macos')", StringComparison.Ordinal);
-            Assert.True(maccatalystIdx > 0);
-            Assert.True(macosIdx > 0);
-            Assert.True(maccatalystIdx < macosIdx, "maccatalyst detection must come before macos");
-        }
-
-        [Fact]
-        public void Targets_DetectsIosExplicitly()
-        {
-            // iOS detection uses Contains('ios') — not an unconditional fallback
-            Assert.Contains("TargetFramework.Contains('ios')", TargetsContent);
-            Assert.Contains(">ios</_SwiftBindingPlatform>", TargetsContent);
+            // The gate validates the whole TFM before extracting its platform; malformed
+            // suffixes and platforms containing an Apple token must never reach generation.
+            Assert.Contains("_SwiftBindingTargetFrameworkValid", TargetsContent);
+            Assert.Contains("(ios|macos|tvos|maccatalyst)", TargetsContent);
+            Assert.DoesNotContain("TargetFramework.Contains('ios')", TargetsContent);
         }
 
         [Fact]

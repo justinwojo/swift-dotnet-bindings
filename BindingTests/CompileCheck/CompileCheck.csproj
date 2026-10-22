@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0-ios</TargetFramework>
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-ios</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <!-- CS0169: unused private field (generated backing fields) -->

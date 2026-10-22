@@ -61,7 +61,25 @@ partial class Build
     // (matches PackGate's ExpectedSourceXcframeworkLayout / ExpectedXcframeworkLayout).
     const string MixedPackIosRid = "ios-arm64";
 
-    AbsolutePath MixedPackScratch => RootDirectory / "artifacts" / "mixed-pack";
+    string MixedPackLaneVersion => MixedPackageLaneVersion(MixedPackVersion, RuntimeLane);
+    string MixedPackLaneAppleVersion => MixedPackageLaneVersion(MixedPackAppleVersion, RuntimeLane);
+    AbsolutePath MixedPackScratch => RootDirectory / "artifacts" / ("mixed-pack" + MixedPackageLaneSuffix(RuntimeLane));
+
+    // Keep each target/configuration/engine feed separate. The reusable runtime assets
+    // remain net10; generated bindings and the final consumer use the selected target.
+    static string MixedPackageLaneSuffix(RuntimeTestLane lane) => lane.IsNet11
+        ? $"-{lane.Framework}-{lane.Configuration.ToLowerInvariant()}-{(lane.DeviceCoreClr ? "coreclr" : "nativeaot")}" : "";
+    static string MixedPackageLaneVersion(string version, RuntimeTestLane lane) => version + MixedPackageLaneSuffix(lane);
+
+    static string MixedConsumerRuntimeBanner() => """
+        Console.WriteLine($"Runtime flavor: IsMonoRuntime={Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime}, IsNativeAotRuntime={Swift.Runtime.SwiftRuntimeInfo.IsNativeAotRuntime}, Framework={AppContext.TargetFrameworkName}, Runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
+        """;
+
+    static string MixedConsumerRuntimeProperties(RuntimeTestLane lane, bool device) => $"""
+        <PublishAot>{(device && !lane.DeviceCoreClr ? "true" : "false")}</PublishAot>
+        <PublishAotUsingRuntimePack>{(device && !lane.DeviceCoreClr ? "true" : "false")}</PublishAotUsingRuntimePack>
+        {(lane.IsNet11 ? "<UseMonoRuntime>false</UseMonoRuntime>" : "")}
+        """;
 
     // Entry point invoked from the BindingTests target dispatch when --mixed-pack is set.
     // Builds the feed + fixture once (the nupkg is platform-agnostic: it carries both the
@@ -92,14 +110,14 @@ partial class Build
         fixtureDir.CreateDirectory();
         fixtureOut.CreateDirectory();
 
-        using var scope = new VersionScope(MixedPackVersion, RootDirectory, MixedPackAppleVersion);
+        using var scope = new VersionScope(MixedPackLaneVersion, RootDirectory, MixedPackLaneAppleVersion);
 
         BuildMixedPackFeed(nupkgDir, scope);
 
         Log.Information("=== mixed-pack: building 2-slice (device + simulator) iOS mixed xcframework ===");
         var xcfw = BuildMixedPackIosXcframework(scratch / "build", MixedPackModule, MixedPackProbeClass);
 
-        WriteMixedPackFixture(fixtureDir, nupkgDir, MixedPackModule, xcfw);
+        WriteMixedPackFixture(fixtureDir, nupkgDir, MixedPackModule, xcfw, RuntimeLane, MixedPackLaneVersion);
 
         Log.Information("=== mixed-pack: packing fixture ===");
         DotNetPack(s => s
@@ -124,7 +142,7 @@ partial class Build
     // a stale same-version entry from a prior run can't shadow these).
     void BuildMixedPackFeed(AbsolutePath nupkgDir, VersionScope scope)
     {
-        Log.Information("=== mixed-pack: building local feed at {Version} ===", MixedPackVersion);
+        Log.Information("=== mixed-pack: building local feed at {Version} ===", MixedPackLaneVersion);
 
         Log.Information("  [1/3] Publishing generator into SDK tools");
         DotNetPublish(s => scope.Apply(s
@@ -157,10 +175,10 @@ partial class Build
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages"));
         foreach (var (pkg, ver) in new[]
         {
-            ("swiftbindings.runtime", MixedPackVersion),
-            ("swiftbindings.sdk", MixedPackVersion),
-            ("swiftbindings.apple", MixedPackAppleVersion),
-            ($"mixedpackfixture.{MixedPackModule.ToLowerInvariant()}", MixedPackVersion),
+            ("swiftbindings.runtime", MixedPackLaneVersion),
+            ("swiftbindings.sdk", MixedPackLaneVersion),
+            ("swiftbindings.apple", MixedPackLaneAppleVersion),
+            ($"mixedpackfixture.{MixedPackModule.ToLowerInvariant()}", MixedPackLaneVersion),
         })
         {
             var pkgDir = nugetCacheDir / pkg / ver;
@@ -204,19 +222,20 @@ partial class Build
         return xcframeworkPath;
     }
 
-    // The mixed binding fixture, targeting the unsuffixed net10.0-ios single TFM (the
+    // The mixed binding fixture, targeting the selected unsuffixed iOS single TFM (the
     // version-suffixed form breaks the SDK's single-TFM platform detection — see the
     // PackGateConsumerTfm commentary). SwiftBindings.Sdk drives generate → compile wrapper →
     // build the ObjC companion and EMBED its managed dll into the single Swift nupkg's lib/.
     static void WriteMixedPackFixture(
-        AbsolutePath fixtureDir, AbsolutePath nupkgDir, string module, AbsolutePath xcfwPath)
+        AbsolutePath fixtureDir, AbsolutePath nupkgDir, string module, AbsolutePath xcfwPath,
+        RuntimeTestLane lane, string packageVersion)
     {
         var csproj = $"""
-            <Project Sdk="SwiftBindings.Sdk/{MixedPackVersion}">
+            <Project Sdk="SwiftBindings.Sdk/{packageVersion}">
               <PropertyGroup>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{lane.Framework}-ios</TargetFramework>
                 <PackageId>MixedPackFixture.{module}</PackageId>
-                <PackageVersion>{MixedPackVersion}</PackageVersion>
+                <PackageVersion>{packageVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
                 <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
                 <NoWarn>$(NoWarn);CS0649;CS0114;CA1416;CS8604</NoWarn>
@@ -237,7 +256,7 @@ partial class Build
     // Build.PackGate.MixedFixture.cs; the runtimes/ rid + the lib/ TFM slice are iOS here.
     void AssertMixedPackNupkgStructure(AbsolutePath fixtureOut, string module, string probeClass)
     {
-        var swiftNupkg = fixtureOut / $"MixedPackFixture.{module}.{MixedPackVersion}.nupkg";
+        var swiftNupkg = fixtureOut / $"MixedPackFixture.{module}.{MixedPackLaneVersion}.nupkg";
         if (!File.Exists(swiftNupkg))
             Assert.Fail($"--mixed-pack: Swift binding nupkg not produced at {swiftNupkg}");
 
@@ -320,6 +339,18 @@ partial class Build
         // (e) the Swift nupkg EMBEDS the companion's managed assembly under a version-qualified
         //     iOS lib/ TFM slice (lib/net*-ios<version>/) — single-package topology.
         AssertCompanionEmbeddedInLib(extract, module, "iOS", "ios", failures);
+        // Both assemblies must target this lane: an old net10 binding remains consumable
+        // from a net11 app and would otherwise accidentally pass this qualification gate.
+        var lib = extract / "lib";
+        foreach (var assembly in new[] { $"{module}.dll", $"{module}.ObjC.iOS.dll" })
+        {
+            var assemblies = Directory.Exists(lib)
+                ? Directory.EnumerateFiles(lib, assembly, SearchOption.AllDirectories).ToList()
+                : new List<string>();
+            if (assemblies.Count != 1 || !Path.GetFileName(Path.GetDirectoryName(assemblies[0]))!
+                    .StartsWith($"{BtFramework}-ios", StringComparison.OrdinalIgnoreCase))
+                failures.Add($"{assembly} must occur exactly once under the selected lib/{BtFramework}-ios<version>/ target.");
+        }
 
         // (f) and the embed is NOT also (or instead) declared as a nuspec <dependency>.
         AssertNuspecHasNoCompanionDependency(extract, "MixedPackFixture", module, failures);
@@ -345,7 +376,7 @@ partial class Build
             probeClass);
     }
 
-    // Single-PackageReference iOS consumer: a net10.0-ios app that takes ONE PackageReference
+    // Single-PackageReference iOS consumer: an app targeting the selected iOS TFM that takes ONE PackageReference
     // to the Swift binding and uses the ObjC type (the companion managed dll arrives EMBEDDED
     // in that package's lib/ and the wrapper native through its runtimes/ — both from the one
     // reference; the Runtime package's [ModuleInitializer] auto-registers the DllImportResolver,
@@ -356,22 +387,26 @@ partial class Build
         AbsolutePath scratch, AbsolutePath nupkgDir, AbsolutePath fixtureOut,
         string module, string probeClass, bool onDevice)
     {
-        var label = onDevice ? "device (NativeAOT)" : "simulator (Mono JIT)";
+        var nativeAot = onDevice && !RuntimeLane.DeviceCoreClr;
+        var config = RuntimeLane.BuildConfiguration(onDevice, false);
+        var label = RuntimeLane.IsNet11
+            ? $"{(onDevice ? "device" : "simulator")} ({RuntimeLane.Engine(onDevice)}, {config})"
+            : onDevice ? "device (NativeAOT)" : "simulator (Mono JIT)";
         var rid = onDevice ? "ios-arm64" : "iossimulator-arm64";
         var appDir = scratch / (onDevice ? "consumer-device" : "consumer-sim");
         if (Directory.Exists(appDir)) appDir.DeleteDirectory();
         appDir.CreateDirectory();
 
-        WriteMixedPackConsumerApp(appDir, module, probeClass, rid);
+        WriteMixedPackConsumerApp(appDir, module, probeClass, rid, RuntimeLane, MixedPackLaneVersion);
         File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureOut));
 
         Log.Information("=== mixed-pack ({Label}): building single-PackageReference consumer ===", label);
-        if (onDevice)
+        if (nativeAot)
         {
             Log.Information("    NativeAOT publish — this may take several minutes (ILCompiler + code signing)...");
             DotNetPublish(s => s
                 .SetProject(appDir / $"{MixedPackAppName}.csproj")
-                .SetConfiguration("Release")
+                .SetConfiguration(config)
                 .SetRuntime("ios-arm64")
                 .SetVerbosity(DotNetVerbosity.quiet));
         }
@@ -379,7 +414,7 @@ partial class Build
         {
             DotNetBuild(s => s
                 .SetProjectFile(appDir / $"{MixedPackAppName}.csproj")
-                .SetConfiguration("Debug")
+                .SetConfiguration(config)
                 .EnableNoLogo()
                 .SetVerbosity(DotNetVerbosity.quiet));
         }
@@ -387,7 +422,6 @@ partial class Build
         // Locate the produced .app bundle. The exact intermediate layout differs between a
         // sim build (bin/Debug/...) and a device publish (bin/Release/.../publish or not), so
         // search the bin tree for the bundle matching this config + rid.
-        var config = onDevice ? "Release" : "Debug";
         var publishSegment = $"{Path.DirectorySeparatorChar}publish{Path.DirectorySeparatorChar}";
         var candidates = Directory
             .GetDirectories(appDir / "bin", $"{MixedPackAppName}.app", SearchOption.AllDirectories)
@@ -395,7 +429,7 @@ partial class Build
             // Deterministic selection: on device prefer the published bundle (the signed,
             // NativeAOT-compiled output) over a stray build-dir copy; then a stable path
             // tiebreak so the choice never depends on filesystem enumeration order.
-            .OrderByDescending(d => onDevice && d.Contains(publishSegment, StringComparison.Ordinal))
+            .OrderByDescending(d => nativeAot && d.Contains(publishSegment, StringComparison.Ordinal))
             .ThenBy(d => d.Length)
             .ThenBy(d => d, StringComparer.Ordinal)
             .ToList();
@@ -449,6 +483,7 @@ partial class Build
         Log.Information("=== CONSUMER OUTPUT ({Label}) ===", label);
         Log.Information(result.Output);
 
+        AssertLiveRuntimeLane(result, onDevice);
         AssertMixedPackConsumerResult(result, label);
     }
 
@@ -495,19 +530,21 @@ partial class Build
     }
 
     // The iOS consumer csproj + Program.cs + Info.plist. Mirrors RuntimeTestsApp's iOS shape:
-    // default sim RID with a device-RID PropertyGroup that flips on PublishAot + code signing.
+    // explicit runtime selection plus a device-RID PropertyGroup for code signing.
     // Unlike RuntimeTestsApp (which ProjectReferences Swift.Runtime and must hand-include the
     // ILLink descriptor because buildTransitive does NOT flow across ProjectReference), this
     // consumer takes a PackageReference, so the Runtime package's buildTransitive descriptor
     // flows automatically — exercising the packaged NativeAOT wiring a real consumer relies on.
-    static void WriteMixedPackConsumerApp(AbsolutePath appDir, string module, string probeClass, string rid)
+    static void WriteMixedPackConsumerApp(AbsolutePath appDir, string module, string probeClass, string rid,
+        RuntimeTestLane lane, string packageVersion)
     {
         var csproj = $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{lane.Framework}-ios</TargetFramework>
                 <RuntimeIdentifier>{rid}</RuntimeIdentifier>
+                {MixedConsumerRuntimeProperties(lane, rid == "ios-arm64")}
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
                 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -515,7 +552,9 @@ partial class Build
                 <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
                 <ApplicationVersion>1</ApplicationVersion>
                 <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
-                <NoWarn>$(NoWarn);CA1416;CA1422</NoWarn>
+                <!-- ILLink considers some NativeAOT-required suppressions unused (IL2121),
+                     as in RuntimeTestsApp. Keep all actual trim diagnostics enabled. -->
+                <NoWarn>$(NoWarn);CA1416;CA1422{(lane.IsNet11 && lane.DeviceCoreClr && rid == "ios-arm64" ? ";IL2121" : "")}</NoWarn>
               </PropertyGroup>
 
               <!-- Simulator (Mono JIT): no trimming. -->
@@ -523,14 +562,12 @@ partial class Build
                 <MtouchLink>None</MtouchLink>
               </PropertyGroup>
 
-              <!-- Device (NativeAOT): PublishAot + code signing (Justin's wildcard dev identity,
+              <!-- Device code signing (Justin's wildcard dev identity,
                    matching RuntimeTestsApp). -->
               <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
-                <PublishAot>true</PublishAot>
-                <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
-                <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
-                <CodesignProvision>Wildcard Dev</CodesignProvision>
-                <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+                <CodesignKey>Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)</CodesignKey>
+                <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+                <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
 
               <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types. -->
@@ -546,7 +583,7 @@ partial class Build
                    companion dll and its runtimes/ carries the wrapper native; the transitive
                    SwiftBindings.Runtime + SwiftBindings.Apple deps come from the local feed. -->
               <ItemGroup>
-                <PackageReference Include="MixedPackFixture.{module}" Version="{MixedPackVersion}" />
+                <PackageReference Include="MixedPackFixture.{module}" Version="{packageVersion}" />
               </ItemGroup>
             </Project>
             """;
@@ -572,24 +609,49 @@ partial class Build
 
             public class AppDelegate : UIApplicationDelegate
             {
+                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions) => true;
+
+                // UIKit consumes this protocol conformance natively after managed interface trimming.
+                [System.Diagnostics.CodeAnalysis.DynamicDependency(
+                    System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.Interfaces, typeof(SceneDelegate))]
+                public override UISceneConfiguration GetConfiguration(UIApplication application,
+                    UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
+                    new("Default Configuration", connectingSceneSession.Role)
+                    {
+                        DelegateClass = new ObjCRuntime.Class(typeof(SceneDelegate))
+                    };
+            }
+
+            [Register("SceneDelegate")]
+            public class SceneDelegate : UIWindowSceneDelegate
+            {
+                private static bool _probeStarted;
+
                 public override UIWindow? Window { get; set; }
 
-                public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
+                public override void WillConnect(UIScene scene, UISceneSession session, UISceneConnectionOptions connectionOptions)
                 {
-                    Window = new UIWindow(UIScreen.MainScreen.Bounds);
+                    if (scene is not UIWindowScene windowScene)
+                        return;
+
+                    Window = new UIWindow(windowScene);
                     Window.RootViewController = new UIViewController();
                     Window.MakeKeyAndVisible();
+
+                    if (_probeStarted)
+                        return;
+                    _probeStarted = true;
 
                     // Defer the probe so launch completes first, then run it on the main
                     // queue (object init + objc_msgSend through the binding).
                     DispatchQueue.MainQueue.DispatchAsync(RunProbe);
-                    return true;
                 }
 
                 static void RunProbe()
                 {
                     try
                     {
+                        {{MixedConsumerRuntimeBanner()}}
                         var probe = new global::{{module}}.{{probeClass}}();
                         Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
                         Console.WriteLine("FOREIGN_CATEGORY:" + global::{{module}}.NSNull_{{module}}Extras.Contract{{module}}Answer(global::Foundation.NSNull.Null));
@@ -611,6 +673,23 @@ partial class Build
             "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
             "<plist version=\"1.0\">\n<dict>\n" +
             "    <key>UILaunchScreen</key>\n    <dict/>\n" +
+            "    <key>UIApplicationSceneManifest</key>\n" +
+            "    <dict>\n" +
+            "        <key>UIApplicationSupportsMultipleScenes</key>\n" +
+            "        <false/>\n" +
+            "        <key>UISceneConfigurations</key>\n" +
+            "        <dict>\n" +
+            "            <key>UIWindowSceneSessionRoleApplication</key>\n" +
+            "            <array>\n" +
+            "                <dict>\n" +
+            "                    <key>UISceneConfigurationName</key>\n" +
+            "                    <string>Default Configuration</string>\n" +
+            "                    <key>UISceneDelegateClassName</key>\n" +
+            "                    <string>SceneDelegate</string>\n" +
+            "                </dict>\n" +
+            "            </array>\n" +
+            "        </dict>\n" +
+            "    </dict>\n" +
             "</dict>\n</plist>\n");
     }
 

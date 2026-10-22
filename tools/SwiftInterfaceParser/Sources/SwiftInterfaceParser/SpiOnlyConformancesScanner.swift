@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import Foundation
+import SwiftParser
 
 /// Single-line scanner that surfaces SPI-only conformances from a
 /// `*.private.swiftinterface`: `@_spi(...) extension Mod.Type : P1, P2 { ... }`
@@ -37,7 +38,7 @@ enum SpiOnlyConformancesScanner {
 
         // `String.enumerateLines` strips the terminator and treats `\n`, `\r\n`, and `\r`
         // as line breaks — the same split that `File.ReadAllLines` would produce.
-        source.enumerateLines { rawLine, _ in
+        Parser.parse(source: source).dottedDescription.enumerateLines { rawLine, _ in
             // TrimStart: drop leading whitespace, matching C# `string.TrimStart()`.
             let trimmed = String(rawLine.drop(while: { $0.isWhitespace }))
             guard trimmed.hasPrefix("@_spi(") else { return }

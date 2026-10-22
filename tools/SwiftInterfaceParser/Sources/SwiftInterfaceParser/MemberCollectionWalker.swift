@@ -151,7 +151,7 @@ final class MemberCollectionWalker: SyntaxVisitor {
             scopePushed.append(false)
             return .visitChildren
         }
-        let qualified = node.extendedType.trimmedDescription
+        let qualified = node.extendedType.dottedDescription
         guard RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)
             return .visitChildren

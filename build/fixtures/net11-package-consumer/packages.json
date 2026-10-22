@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "origin": "Retained .NET 10 / Xcode 26.3 mixed-pack qualification; never regenerate these inputs with the candidate toolchain.",
+  "packages": [
+    {"id": "SwiftBindings.Runtime", "version": "0.0.0-mixedpack", "sha256": "b1e1528c78cf799d599a981fc4427a18f3108ff26900ebcf5dc2c54c320c518b", "assembly": "Swift.Runtime.dll"},
+    {"id": "SwiftBindings.Apple", "version": "26.2.0-mixedpack", "sha256": "4a7c2a2628b7079216d29121c72258c762b0dd8905261ff536e726086f5f5075", "assembly": "SwiftBindings.Apple.dll"},
+    {"id": "MixedPackFixture.SbMixedPack", "version": "0.0.0-mixedpack", "sha256": "870c4d50a5840be5733eac0ac3c755dd69423e2fec86798a43d99103dda5ef90", "assembly": "SbMixedPack.dll"}
+  ]
+}

@@ -37,6 +37,43 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Validates the requested framework and infers its TPV when no explicit override is supplied.
+        /// A versionless TFM retains the platform default. Explicit conflicting TPVs are rejected.
+        /// </summary>
+        public static PlatformInfo Create(ApplePlatform platform, string? platformVersion, string? targetFramework)
+        {
+            var pi = Create(platform, platformVersion);
+            if (string.IsNullOrWhiteSpace(targetFramework))
+                return pi;
+
+            // Parse the complete supported grammar, including the platform. Prefix matching
+            // would also accept malformed targets such as net10.00-ios or iosSimulator.
+            var match = System.Text.RegularExpressions.Regex.Match(targetFramework,
+                @"\Anet(?<major>10|11)\.0-(?<platform>ios|macos|tvos|maccatalyst)(?<tpv>[0-9]+\.[0-9]+)?\z",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success || ParsePlatform(match.Groups["platform"].Value) != platform)
+                throw new ArgumentException($"Unsupported target framework '{targetFramework}'. " +
+                    "This generator supports net10.0 and net11.0 Apple targets; supply a matching --platform and --platform-version.");
+
+            var major = match.Groups["major"].Value;
+            var tpv = match.Groups["tpv"].Value;
+            if (tpv.Length != 0 && !string.IsNullOrWhiteSpace(platformVersion) && tpv != platformVersion)
+                throw new ArgumentException($"Target framework '{targetFramework}' conflicts with --platform-version '{platformVersion}'.");
+            return pi with
+            {
+                Tfm = $"net{major}.0-{match.Groups["platform"].Value.ToLowerInvariant()}",
+                PlatformVersion = tpv.Length != 0 ? tpv : !string.IsNullOrWhiteSpace(platformVersion)
+                    ? platformVersion : major == "11" ? "27.0" : PlatformInfo.DefaultPlatformVersion,
+                DefaultMinimumOS = major == "11" ? platform switch
+                {
+                    ApplePlatform.macOS => "14.0",
+                    ApplePlatform.MacCatalyst => "17.0",
+                    _ => pi.DefaultMinimumOS,
+                } : pi.DefaultMinimumOS,
+            };
+        }
+
+        /// <summary>
         /// Parse platform from CLI string. Accepts: "ios", "macos", "tvos", "maccatalyst".
         /// Returns null for unrecognized input.
         /// </summary>

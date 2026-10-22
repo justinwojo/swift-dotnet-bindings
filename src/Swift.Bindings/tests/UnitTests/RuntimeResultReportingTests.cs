@@ -17,7 +17,12 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class RuntimeResultReportingTests
 {
-    private static readonly Lazy<Func<string, int, string[], bool, bool, string>> Report = new(CompileReporter);
+    private delegate string Reporter(string directory, int verdict, string[] attempts, bool throwAtBoundary,
+        bool permissive, string framework = "net10.0", bool coreClr = false, string output = "",
+        string platform = "Simulator");
+    private static readonly Lazy<Reporter> Report = new(CompileReporter);
+    private const string CoreClrBanner = "Runtime flavor: IsMonoRuntime=False, IsNativeAotRuntime=False, " +
+        "Framework=.NETCoreApp,Version=v11.0, Runtime=.NET 11";
     private const string Prefix = "{\"run_token\":\"prefix\"}\n" +
         "{\"class\":\"CompletedTests\",\"test\":\"TestPass\",\"status\":\"pass\"}\n";
     private const string Complete = Prefix + "{\"done\":true,\"total\":1,\"passed\":1,\"failed\":0,\"skipped\":0}\n";
@@ -116,6 +121,51 @@ public class RuntimeResultReportingTests
         AssertNoComparison(TestResult.Failure, new[] { Complete + failure }, "Runtime tests failed (Simulator)");
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("Runtime flavor: IsMonoRuntime=True, IsNativeAotRuntime=False, Framework=.NETCoreApp,Version=v11.0, Runtime=.NET 11")]
+    [InlineData("Runtime flavor: IsMonoRuntime=False, IsNativeAotRuntime=True, Framework=.NETCoreApp,Version=v11.0, Runtime=.NET 11")]
+    [InlineData("Runtime flavor: IsMonoRuntime=False, IsNativeAotRuntime=False, Framework=.NETCoreApp,Version=v10.0, Runtime=.NET 10")]
+    public void Net11_WrongOrMissingLiveIdentityNeverReachesBaselineBoundary(string output)
+    {
+        InScratch(directory =>
+        {
+            var error = Report.Value(directory, (int)TestResult.Success, new[] { Complete }, true, false,
+                framework: "net11.0", coreClr: true, output: output, platform: "Device/CoreCLR");
+            Assert.Contains("Wrong or missing live .NET 11 coreclr identity", error);
+            foreach (var name in BaselineNames)
+                Assert.Equal("original", File.ReadAllText(Path.Combine(directory, name)));
+        });
+    }
+
+    [Fact]
+    public void Net11_CorrectLiveIdentityReachesBaselineBoundary()
+    {
+        InScratch(directory =>
+        {
+            Assert.Equal("BASELINE_BOUNDARY_FAILURE",
+                Report.Value(directory, (int)TestResult.Success, new[] { Complete }, true, false,
+                    framework: "net11.0", coreClr: true, output: CoreClrBanner, platform: "Device/CoreCLR"));
+            foreach (var name in BaselineNames)
+                Assert.Equal("original", File.ReadAllText(Path.Combine(directory, name)));
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Net11_MissingStructuredResultsFailsEvenWhenPermissive(bool permissive)
+    {
+        InScratch(directory =>
+        {
+            Assert.Equal("Runtime tests failed (Device/CoreCLR)",
+                Report.Value(directory, (int)TestResult.Success, null, true, permissive,
+                    framework: "net11.0", coreClr: true, output: CoreClrBanner, platform: "Device/CoreCLR"));
+            foreach (var name in BaselineNames)
+                Assert.Equal("original", File.ReadAllText(Path.Combine(directory, name)));
+        });
+    }
+
     private static readonly string[] BaselineNames = { "validation-baseline.json", "runtime-identity-baseline.json" };
 
     private static void AssertNoComparison(TestResult result, string[] jsonl, string expectedMessage)
@@ -143,14 +193,16 @@ public class RuntimeResultReportingTests
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Test-only dynamically compiled production method, retained in full.")]
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only dynamically compiled fixture entry, retained in full.")]
-    private static Func<string, int, string[], bool, bool, string> CompileReporter()
+    private static Reporter CompileReporter()
     {
         var root = LocateRepoRoot();
-        var production = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "build", "Build.RuntimeTests.cs")))
-            .GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>()
-            .Single(m => m.Identifier.Text == "ReportRuntimeTestResult");
+        var methods = CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "build", "Build.RuntimeTests.cs")))
+            .GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
+        var production = methods.Single(m => m.Identifier.Text == "ReportRuntimeTestResult");
+        var assertLiveLane = methods.Single(m => m.Identifier.Text == "AssertLiveRuntimeLane");
         // No copied verdict switch: the entire current production method is inserted verbatim.
-        // The only replaced authorities are external Log/grid and the baseline IO boundary.
+        // The live identity gate and lane policy also come from production sources. The only
+        // replaced authorities are external Log/grid and the terminal baseline IO boundary.
         var fixture = $$"""
             #nullable enable
             using System;
@@ -159,6 +211,9 @@ public class RuntimeResultReportingTests
             public class ReporterFixture {
                 bool AbiGrid => false;
                 bool Permissive;
+                bool MonoAot => false;
+                RuntimeTestLane RuntimeLane = RuntimeTestLane.Create(null, null, null, false, false, false);
+                string BtFramework => RuntimeLane.Framework;
                 string directory = "";
                 bool throwAtBoundary;
                 static class Log {
@@ -172,22 +227,29 @@ public class RuntimeResultReportingTests
                     foreach (var name in new[] { "validation-baseline.json", "runtime-identity-baseline.json" })
                         File.WriteAllText(Path.Combine(directory, name), "comparison reached");
                 }
+                {{assertLiveLane}}
                 {{production}}
-                public static string Run(string directory, int verdict, string[]? attempts, bool throwAtBoundary, bool permissive) {
-                    var fixture = new ReporterFixture { directory = directory, throwAtBoundary = throwAtBoundary, Permissive = permissive };
+                public static string Run(string directory, int verdict, string[]? attempts, bool throwAtBoundary,
+                    bool permissive, string framework, bool coreClr, string output, string platform) {
+                    var fixture = new ReporterFixture {
+                        directory = directory, throwAtBoundary = throwAtBoundary, Permissive = permissive,
+                        RuntimeLane = RuntimeTestLane.Create(framework, null, null, coreClr,
+                            platform.StartsWith("Device/", StringComparison.Ordinal), false)
+                    };
                     JsonlTestResults? merged = null;
                     if (attempts != null) {
                         merged = new JsonlTestResults();
                         foreach (var jsonl in attempts) merged.Merge(JsonlTestResults.Parse(jsonl));
                     }
                     try {
-                        fixture.ReportRuntimeTestResult(new LaunchResult((TestResult)verdict, "", null, null), "Simulator", merged);
+                        fixture.ReportRuntimeTestResult(new LaunchResult((TestResult)verdict, output, null, null), platform, merged);
                         return "";
                     } catch (Exception error) { return error.Message; }
                 }
             }
             """;
-        var trees = new[] { "TestResult.cs", "JsonlTestResults.cs", "TestClassInventory.cs" }
+        var trees = new[] { "TestResult.cs", "JsonlTestResults.cs", "TestClassInventory.cs",
+            "RuntimeTestLane.cs", "DeviceRuntimeFlavorGate.cs", "LaunchDiagnostics.cs" }
             .Select(name => CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "build", "Models", name))))
             .Append(CSharpSyntaxTree.ParseText(fixture));
         var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))
@@ -198,7 +260,7 @@ public class RuntimeResultReportingTests
         var emitted = compilation.Emit(stream);
         Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
         return Assembly.Load(stream.ToArray()).GetType("ReporterFixture").GetMethod("Run")
-            .CreateDelegate<Func<string, int, string[], bool, bool, string>>();
+            .CreateDelegate<Reporter>();
     }
 
     private static string LocateRepoRoot()

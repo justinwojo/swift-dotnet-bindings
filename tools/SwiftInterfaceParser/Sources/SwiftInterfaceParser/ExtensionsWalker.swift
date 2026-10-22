@@ -37,7 +37,7 @@ import SwiftParser
 ///        between access and `var`. `public lazy var`, `public weak var` rejected.
 ///      * Modifiers BEFORE access are tolerated (unanchored scan).
 ///
-/// 5. **Extended type: verbatim**: `node.extendedType.trimmedDescription` is
+/// 5. **Extended type: verbatim**: `node.extendedType.dottedDescription` is
 ///    used as `extendedTypeName` (e.g., `"UIKit.UIView"`, `"Mod.MyProto"`,
 ///    `"MyType"`). Partitioning happens .NET-side via the first-dot rule.
 ///
@@ -107,7 +107,7 @@ final class ExtensionsWalker: SyntaxVisitor {
             return .visitChildren
         }
         // `[\w.]+` capture on extended type (`ExtensionDeclRegex` shape).
-        let extendedType = node.extendedType.trimmedDescription
+        let extendedType = node.extendedType.dottedDescription
         guard RegexShape.isWordOrDotOnly(extendedType) else {
             return .visitChildren
         }
@@ -165,7 +165,7 @@ final class ExtensionsWalker: SyntaxVisitor {
                                                 params: node.signature.parameterClause.parameters)
         let anchorLine = accessModifierLine(node.modifiers)
         let detached = node.detached.with(\.attributes, sameLineAttributes(node.attributes, anchorLine: anchorLine))
-        let rawSignature = collapseWhitespace(detached.trimmedDescription)
+        let rawSignature = collapseWhitespace(detached.dottedDescription)
         let returnsSelf = detectSelfReturn(returnClause: node.signature.returnClause)
         let isMainActor = hasMainActorAttribute(node.attributes)
         let isStatic = hasModifier(node.modifiers, "static")
@@ -203,7 +203,7 @@ final class ExtensionsWalker: SyntaxVisitor {
         // entirely — emit nothing. SwiftSyntax's `.text` strips the backticks, so
         // the source representation via `trimmedDescription` is used to detect
         // the escape.
-        let sourceText = pattern.identifier.trimmedDescription
+        let sourceText = pattern.identifier.dottedDescription
         if sourceText.hasPrefix("`") { return }
         let propertyName = pattern.identifier.text
         guard RegexShape.isWordIdentifier(propertyName) else { return }
@@ -334,7 +334,7 @@ final class ExtensionsWalker: SyntaxVisitor {
         let detached = node.detached
             .with(\.attributes, sameLineAttributes(node.attributes, anchorLine: anchorLine))
             .with(\.bindings, PatternBindingListSyntax([bindingForSig]))
-        var rawSignature = collapseWhitespace(detached.trimmedDescription)
+        var rawSignature = collapseWhitespace(detached.dottedDescription)
         if let suffix = multilineAccessorFirstLine {
             rawSignature += " " + suffix
         }
@@ -367,7 +367,7 @@ final class ExtensionsWalker: SyntaxVisitor {
     private func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
-            let typeName = attribute.attributeName.trimmedDescription
+            let typeName = attribute.attributeName.dottedDescription
             if typeName == "MainActor" || typeName == "_Concurrency.MainActor" {
                 return true
             }
@@ -380,10 +380,10 @@ final class ExtensionsWalker: SyntaxVisitor {
     private func hasDeprecatedAttribute(_ attributes: AttributeListSyntax) -> Bool {
         for element in attributes {
             guard case .attribute(let attribute) = element else { continue }
-            guard attribute.attributeName.trimmedDescription == "available" else { continue }
+            guard attribute.attributeName.dottedDescription == "available" else { continue }
             // Source-text scan on the attribute's full text.
             // `available(*, deprecated, ...)` — match.
-            let text = attribute.trimmedDescription
+            let text = attribute.dottedDescription
             // Look for `*` then `deprecated` separated by whitespace+comma: `\(\s*\*\s*,\s*deprecated`.
             if let regex = try? NSRegularExpression(pattern: "\\(\\s*\\*\\s*,\\s*deprecated", options: []),
                regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count)) != nil {
@@ -450,7 +450,7 @@ final class ExtensionsWalker: SyntaxVisitor {
     /// SwiftSyntax skips the manual paren-walk by using the structured returnClause.
     private func detectSelfReturn(returnClause: ReturnClauseSyntax?) -> Bool {
         guard let returnClause = returnClause else { return false }
-        let text = returnClause.type.trimmedDescription
+        let text = returnClause.type.dottedDescription
         return text == "Self" || text.hasSuffix(" Self")
     }
 
@@ -461,9 +461,9 @@ final class ExtensionsWalker: SyntaxVisitor {
         guard let whereClause = whereClause else { return [] }
         var constraints: [String] = []
         for requirement in whereClause.requirements {
-            // `requirement.requirement.trimmedDescription` returns the source text of
+            // `requirement.requirement.dottedDescription` returns the source text of
             // the requirement without the trailing comma.
-            let text = requirement.requirement.trimmedDescription
+            let text = requirement.requirement.dottedDescription
             if !text.isEmpty {
                 constraints.append(text)
             }

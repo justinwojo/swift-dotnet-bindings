@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using InteropMarshal = global::System.Runtime.InteropServices.Marshal;
 using System.Runtime.InteropServices.Swift;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
@@ -274,8 +275,13 @@ public class ClosureEdgeCaseTests : TestBase
         bool hasBeta = false;
         Action<Swift.SwiftSet<Swift.SwiftString>> observe = members =>
         {
+            var payload = members.Payload.DangerousGetHandle();
+            var storage = InteropMarshal.ReadIntPtr(payload);
+            TestLogger.Info($"Set callback entered: payload=0x{payload.ToInt64():X}, storage=0x{storage.ToInt64():X}, metadata=0x{InteropMarshal.ReadInt64(storage):X16}, refCounts=0x{InteropMarshal.ReadInt64(storage, global::System.IntPtr.Size):X16}");
             seen = members.Count;
+            TestLogger.Info($"Set callback Count={seen}: metadata=0x{InteropMarshal.ReadInt64(storage):X16}");
             hasBeta = members.Contains("beta");
+            TestLogger.Info($"Set callback Contains(beta)={hasBeta}: metadata=0x{InteropMarshal.ReadInt64(storage):X16}, refCounts=0x{InteropMarshal.ReadInt64(storage, global::System.IntPtr.Size):X16}");
         };
 
         var result = TestLibFunctions.CallThrowingWithSetParam(observe);

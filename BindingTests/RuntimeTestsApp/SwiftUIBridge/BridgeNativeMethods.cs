@@ -419,7 +419,7 @@ internal static class BridgeNativeMethods
     // --- PlayerStyleView (video-player-kit pattern) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern IntPtr PlayerStyleView_Create(IntPtr playerPtr, IntPtr titlePtr, int titleLen);
+    internal static extern IntPtr PlayerStyleView_Create(IntPtr playerPtr, IntPtr titlePtr, nint titleLen);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_GetViewController")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -458,7 +458,7 @@ internal static class BridgeNativeMethods
     // --- RichToolbarView (rich-text-editor toolbar pattern — dual string) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern IntPtr RichToolbarView_Create(IntPtr titlePtr, int titleLen, IntPtr subtitlePtr, int subtitleLen);
+    internal static extern IntPtr RichToolbarView_Create(IntPtr titlePtr, nint titleLen, IntPtr subtitlePtr, nint subtitleLen);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_GetViewController")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]

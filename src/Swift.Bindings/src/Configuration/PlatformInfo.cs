@@ -29,12 +29,15 @@ namespace BindingsGeneration
 
         public required ApplePlatform Platform { get; init; }
 
-        /// <summary>"net10.0-ios", "net10.0-macos", etc.</summary>
+        /// <summary>Managed Apple target, e.g. "net10.0-ios" or "net11.0-macos".</summary>
         public required string Tfm { get; init; }
+
+        /// <summary>The managed framework without its Apple platform suffix.</summary>
+        public string ManagedFramework => Tfm.Split('-')[0];
 
         /// <summary>
         /// Apple-workload platform version this PlatformInfo was created with (e.g. "26.0",
-        /// "26.2"). Defaults to <see cref="DefaultPlatformVersion"/>; overridden by the CLI
+        /// "26.2"). Defaults to 26.0 for .NET 10 and 27.0 for .NET 11; overridden by the CLI
         /// <c>--platform-version</c> flag via <see cref="PlatformInfoFactory.Create(ApplePlatform, string?)"/>.
         /// Both <see cref="PackTfm"/> and the generator-emitted <c>&lt;TargetFramework&gt;</c>
         /// element source from this single value, so they cannot drift.

@@ -71,7 +71,7 @@ partial class Build
     // ============================================================
 
     Target Test => _ => _
-        .DependsOn(UnitTests, RuntimeUnitTests, AnalyzerTests, WithdrawalGateTests)
+        .DependsOn(UnitTests, RuntimeUnitTests, AnalyzerTests, WithdrawalGateTests, ToolchainProfileTests)
         .After(ValidateAppleTypesManifest)
         .ProceedAfterFailure()
         .Executes(() =>
@@ -132,6 +132,11 @@ partial class Build
 
         if (effective > floor)
         {
+            if (!ProfileContext.CanWriteBaselines)
+            {
+                Log.Information("Unit test pass floor auto-update suppressed for toolchain profile {Profile}.", ProfileContext.Profile);
+                return;
+            }
             var updated = baseline with
             {
                 UnitTests = new ValidationBaseline.UnitTestsBaseline { SwiftBindingsUnitPassFloor = effective }

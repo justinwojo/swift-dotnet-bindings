@@ -55,7 +55,10 @@ import Foundation
 /// A v6 host can silently select a different declaration's error type.
 ///
 /// On the .NET side, see `InterfaceFactsJson.SchemaVersion` — values must match.
-let kSchemaVersion = 7
+// v8: Swift 6.4 module selectors are parsed structurally and canonicalized to
+// dotted ABI fact names. Older helpers silently corrupt declaration scopes on
+// these interfaces; reject a stale binary instead of accepting incomplete facts.
+let kSchemaVersion = 8
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

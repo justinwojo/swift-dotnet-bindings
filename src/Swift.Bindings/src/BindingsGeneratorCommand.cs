@@ -16,6 +16,15 @@ namespace BindingsGeneration;
 /// </summary>
 public static class BindingsGeneratorCommand
 {
+    internal static void RequireReferenceAvailability(ManagedReferenceContext references, bool explicitTarget, ILogger logger)
+    {
+        foreach (var diagnostic in references.Diagnostics)
+            logger.LogWarning("{Diagnostic}", diagnostic);
+        if (!references.IsAvailable && explicitTarget)
+            throw new InvalidOperationException($"Exact managed references for requested target {references.Target.PackTfm} are unavailable. " +
+                "Restore the target's reference packs or pass --reference-assemblies-file; newer installed packs will not be substituted.");
+    }
+
     /// <summary>
     /// Main command handler. Parses options, validates inputs, and orchestrates the binding generation pipeline.
     /// </summary>
@@ -29,6 +38,9 @@ public static class BindingsGeneratorCommand
         var xcframeworkPath = parseResult.GetValueForOption(options.XCFramework);
         var platformStr = parseResult.GetValueForOption(options.Platform);
         var platformVersionOverride = parseResult.GetValueForOption(options.PlatformVersion);
+        var targetFramework = parseResult.GetValueForOption(options.TargetFramework);
+        var referenceAssembliesFile = parseResult.GetValueForOption(options.ReferenceAssembliesFile);
+        var referenceSdkDirectory = parseResult.GetValueForOption(options.ReferenceSdkDirectory);
         var platformTargetStr = parseResult.GetValueForOption(options.PlatformTarget);
         var libraryName = parseResult.GetValueForOption(options.LibraryName);
         var asyncLibrary = parseResult.GetValueForOption(options.AsyncLibrary);
@@ -312,7 +324,17 @@ public static class BindingsGeneratorCommand
             return;
         }
 
-        var platformInfo = PlatformInfoFactory.Create(parsedPlatform.Value, platformVersionOverride);
+        PlatformInfo platformInfo;
+        try
+        {
+            platformInfo = PlatformInfoFactory.Create(parsedPlatform.Value, platformVersionOverride, targetFramework);
+        }
+        catch (ArgumentException ex)
+        {
+            logger.LogError("Error: {Message}", ex.Message);
+            context.ExitCode = 1;
+            return;
+        }
 
         // The Apple-type surface index verifies every ObjC-bridged reference against the reference
         // assembly that actually ships for the target platform. Record the platform now, before any
@@ -390,12 +412,12 @@ public static class BindingsGeneratorCommand
         // no-op on those branches and demanding `--platform-version` would be a false
         // positive. Catching it here still fires before any binding-emit work.
         if (RequiresExplicitPlatformVersion(swiftRuntimeVersion) &&
-            string.IsNullOrWhiteSpace(platformVersionOverride))
+            string.IsNullOrWhiteSpace(platformVersionOverride) && targetFramework != platformInfo.PackTfm)
         {
             logger.LogError(
                 "Error: --platform-version is required when --swift-runtime-version is set to a published " +
                 "value (got --swift-runtime-version '{Value}'). Pass --platform-version <major.minor> " +
-                "(e.g. '26.2' for net10.0-ios26.2) so the emitted csproj is labeled for an explicit Apple " +
+                "(e.g. '26.2' for net10.0-ios26.2), or a full --target-framework net10.0-ios26.2, so the emitted csproj is labeled for an explicit Apple " +
                 "workload version instead of silently inheriting the in-tree default.",
                 swiftRuntimeVersion);
             context.ExitCode = 1;
@@ -439,6 +461,23 @@ public static class BindingsGeneratorCommand
             context.ExitCode = 1;
             return;
         }
+
+        ManagedReferenceContext references;
+        try
+        {
+            references = string.IsNullOrWhiteSpace(referenceAssembliesFile)
+                ? ManagedReferenceContext.Resolve(platformInfo, referenceSdkDirectory)
+                : ManagedReferenceContext.FromReferenceFile(platformInfo, referenceAssembliesFile);
+            RequireReferenceAvailability(references, !string.IsNullOrWhiteSpace(platformVersionOverride) ||
+                !string.IsNullOrWhiteSpace(targetFramework), logger);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException)
+        {
+            logger.LogError("Error: {Message}", ex.Message);
+            context.ExitCode = 1;
+            return;
+        }
+        using var referenceScope = AppleTypeSurfaceIndex.UseReferenceContext(references);
 
         // Resolve xcframework mode
         XCFrameworkResolution? resolution = null;
@@ -3242,6 +3281,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --xcframework        Path to xcframework directory. Replaces -a, -d, -t.");
         Console.WriteLine("  --platform           Apple platform: 'ios' (default), 'macos', 'tvos', 'maccatalyst'.");
         Console.WriteLine("  --platform-version   Optional. Apple workload platform version baked into the emitted csproj (e.g. '26.2' for net10.0-ios26.2). Required when packing for nuget.org so library-default 'oldest TPV' resolution can't desync TFM from buildTransitive/ paths. Default falls back to the in-tree value.");
+        Console.WriteLine("  --target-framework   Optional. net10.0 or net11.0 Apple TFM (e.g. net11.0-ios27.0). Defaults to net10.0 for --platform. A versioned TFM also supplies --platform-version.");
         Console.WriteLine("  --platform-target    Platform target: 'simulator' (default) or 'device'. Used with --xcframework.");
         Console.WriteLine("  -a, --swiftabi       Path to the Swift ABI file. Required if --xcframework not used.");
         Console.WriteLine("  -d, --dylib          Path to the dynamic library. Required if --xcframework not used.");
