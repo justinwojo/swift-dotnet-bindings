@@ -1387,10 +1387,16 @@ partial class Build
                 name => name!,
                 name => File.ReadAllBytes(measurementsDir / name!));
 
+            // The newer macOS host records managed assembly filenames in its executable.
+            // Keep the legacy golden unchanged and qualify that exact loader-string shape
+            // separately; native linkage and symbol goldens remain shared and strict.
+            var goldenNames = gates.ToDictionary(name => name, name =>
+                name == "strings-swift.diff" && ProfileContext.Profile == "net10-xcode27"
+                    ? "strings-swift.net10-xcode27.diff" : name);
             foreach (var gate in gates)
             {
-                if (!snapshots.ContainsKey(gate))
-                    throw new Exception($"Expected golden diff missing: {measurementsDir / gate}. Commit the baseline output before gating.");
+                if (!snapshots.ContainsKey(goldenNames[gate]))
+                    throw new Exception($"Expected golden diff missing: {measurementsDir / goldenNames[gate]}. Commit the baseline output before gating.");
             }
 
             Log.Information("Running blast-radius measurement script...");
@@ -1405,7 +1411,7 @@ partial class Build
             var regressions = new List<string>();
             foreach (var name in gates)
             {
-                var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[name]));
+                var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[goldenNames[name]]));
                 var fresh = NormalizeDiffOutput(File.ReadAllText(measurementsDir / name));
                 if (!string.Equals(snapshot, fresh, StringComparison.Ordinal))
                     regressions.Add(name);
@@ -1415,9 +1421,9 @@ partial class Build
             {
                 foreach (var name in regressions)
                 {
-                    var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[name]));
+                    var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[goldenNames[name]]));
                     var fresh = NormalizeDiffOutput(File.ReadAllText(measurementsDir / name));
-                    Log.Error("=== {Name}: committed (HEAD) ===", name);
+                    Log.Error("=== {Name}: committed golden ({Golden}) ===", name, goldenNames[name]);
                     Log.Error("{Content}", snapshot);
                     Log.Error("=== {Name}: fresh (working tree) ===", name);
                     Log.Error("{Content}", fresh);

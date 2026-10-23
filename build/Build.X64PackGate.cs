@@ -498,7 +498,7 @@ partial class Build
                 <RuntimeIdentifier>{rid}</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
-                <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+                <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
                 <ApplicationId>com.swiftbindings.x64packgate</ApplicationId>
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
               </PropertyGroup>

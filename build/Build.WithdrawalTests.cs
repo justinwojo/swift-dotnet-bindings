@@ -114,6 +114,30 @@ partial class Build
             Reject(() => WithdrawalGate.Compare(accepted, "Fixture/ios", new([second], path)));
             Reject(() => WithdrawalGate.Compare(accepted, "Fixture/macos", new([], path)));
             Reject(() => WithdrawalGate.Compare(null, "Fixture/ios", new([], path)));
+            var legacy = JsonSerializer.Deserialize<ValidationBaseline.LibraryResult>(JsonSerializer.Serialize(
+                new ValidationBaseline.LibraryResult { WithdrawalPolicy = accepted }))!;
+            Check(legacy.WithdrawalPolicyAlternatives == null);
+            Check(!WithdrawalGate.Compare(WithdrawalGate.SelectPolicy(legacy.WithdrawalPolicy,
+                legacy.WithdrawalPolicyAlternatives, "Fixture/ios"), "Fixture/ios", new([first], path)));
+            Check(WithdrawalGate.Compare(WithdrawalGate.SelectPolicy(legacy.WithdrawalPolicy,
+                legacy.WithdrawalPolicyAlternatives, "Fixture/ios"), "Fixture/ios", new([], path)));
+            Reject(() => WithdrawalGate.SelectPolicy(legacy.WithdrawalPolicy, null, "Fixture/unknown"));
+            var alternative = new WithdrawalPolicy(1, "Fixture/ios/new-sdk", []);
+            var multiple = JsonSerializer.Deserialize<ValidationBaseline.LibraryResult>(JsonSerializer.Serialize(
+                legacy with { WithdrawalPolicyAlternatives = [alternative] }))!;
+            var selectedLegacy = WithdrawalGate.SelectPolicy(multiple.WithdrawalPolicy,
+                multiple.WithdrawalPolicyAlternatives, "Fixture/ios");
+            Check(!WithdrawalGate.Compare(selectedLegacy, "Fixture/ios", new([first], path)));
+            var selectedAlternative = WithdrawalGate.SelectPolicy(multiple.WithdrawalPolicy,
+                multiple.WithdrawalPolicyAlternatives, "Fixture/ios/new-sdk");
+            Check(!WithdrawalGate.Compare(selectedAlternative, "Fixture/ios/new-sdk", new([], path)));
+            Reject(() => WithdrawalGate.Compare(selectedAlternative, "Fixture/ios/new-sdk", new([first], path)));
+            Reject(() => WithdrawalGate.SelectPolicy(multiple.WithdrawalPolicy,
+                multiple.WithdrawalPolicyAlternatives, "Fixture/unknown"));
+            Reject(() => WithdrawalGate.SelectPolicy(accepted, [alternative, accepted], "Fixture/ios/new-sdk"));
+            Reject(() => WithdrawalGate.SelectPolicy(accepted, [alternative, alternative], "Fixture/ios"));
+            Reject(() => WithdrawalGate.SelectPolicy(null, [], "Fixture/ios"));
+            Reject(() => WithdrawalGate.SelectPolicy(accepted, [null!], "Fixture/ios"));
             Check(!JsonSerializer.Serialize(new ValidationBaseline.LibraryResult()).Contains("withdrawal_policy", StringComparison.Ordinal));
             Check(!JsonSerializer.Serialize(JsonSerializer.Deserialize<ValidationBaseline.LibraryResult>("{\"withdrawal_policy\":null}"))
                 .Contains("withdrawal_policy", StringComparison.Ordinal));

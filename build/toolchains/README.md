@@ -7,8 +7,14 @@ the release gates.
 | Profile | .NET SDK | Workload set | Xcode |
 | --- | --- | --- | --- |
 | `net10-xcode26` | 10.0.107 | 10.0.107 | 26.3 |
-| `net10-xcode27` | 10.0.402 | 10.0.402.1 | 27.1 |
+| `net10-xcode27` | 10.0.401 | 10.0.401.1 | 27.0 |
 | `net11-xcode27` | 11.0.100-rc.2.26504.105 | 11.0.100-rc.2.26509.2 | 27.0 |
+
+The .NET 10/Xcode 27.0 pair follows Microsoft's
+[27.0.10722 release](https://github.com/dotnet/macios/releases/tag/dotnet-10.0.1xx-xcode27.0-10722).
+Earlier `net10-xcode27` receipts used SDK 10.0.402/workload 10.0.402.1 and Xcode
+27.1. Their recorded identities remain authoritative; they do not qualify the
+current 27.0 pair. Changing this profile invalidates its disposable workspace.
 
 Install the matching SDK and the `ios`, `tvos`, `macos` and `maccatalyst` workloads
 before using a profile. The launcher validates the installed versions. It does not
@@ -35,12 +41,20 @@ bash build.sh --toolchain-profile net10-xcode27 \
 Without `--toolchain-profile`, `build.sh` retains the normal repository workflow
 and `global.json` selection.
 
+The [.NET 10 maintenance qualification](net10-maintenance-qualification-2026-10-22.md)
+records the tested 26.3 and 27.0 pairings. The 27.0 profile passes the full Mono AOT
+device suite, but its full NativeAOT suite is blocked by upstream IL2037 for explicit
+interface properties on NSObject subclasses. Do not treat the profile manifest as
+unrestricted NativeAOT support.
+
 ## Isolation and reuse
 
 Each profile owns `artifacts/toolchains/<profile>/`. Its `workspace/` is a disposable
 Git checkout containing the current source, including uncommitted changes and new
 non-ignored files. Build products from the source checkout are excluded. The profile
-has its own NuGet package/cache directories and CLI home. Its temporary directory
+has its own NuGet HTTP cache and CLI home. Installed NuGet packages live inside
+its owned external temporary directory, so packaged generator source discovery
+cannot find the owning checkout and inherit a different workload pin. The temporary directory
 lives under `/private/tmp/swift-bindings-tc-*`, outside the repository, so scratch
 consumer projects cannot inherit repository build properties. A standalone `global.json`
 in that directory pins the same SDK and workload set, even when newer SDKs share the
@@ -48,7 +62,7 @@ selected .NET installation.
 Expect the first run to restore packages and build both native parser architectures.
 
 `toolchain.json` records SDK/workload identities, Xcode and Swift versions, native SDK
-paths/versions and reference-assembly hashes. `source.json` records the source
+paths/versions, the installed NuGet package directory, and reference-assembly hashes. `source.json` records the source
 inventory and fingerprints. `--prepare-only` produces the checkout and receipts
 without running Nuke. `--state-root /path` relocates profile storage; a location
 inside the source checkout must be Git-ignored.
@@ -107,7 +121,8 @@ Receipts are written to the profile workspace's `artifacts/generator-hosts/` and
 
 These probes do not qualify mobile CoreCLR, its interpreter, Apple workload
 packaging, or NativeAOT configuration transport. The current .NET 11 RC2 Apple
-workload requires Xcode 27.0; installed Xcode 27.1 remains paired with .NET 10.
+workload requires Xcode 27.0. Both Xcode 27 profiles now use that installation,
+with independent .NET 10 and .NET 11 SDK/workload roots.
 
 ## .NET 11 Apple bring-up
 

@@ -1,0 +1,7 @@
+--- baseline.strings-swift.txt
++++ consumer.strings-swift.txt
+@@ -1,2 +1,4 @@
+ Swift.Runtime
+ Swift.Runtime.dll
++SwiftBindings.Apple
++SwiftBindings.Apple.dll

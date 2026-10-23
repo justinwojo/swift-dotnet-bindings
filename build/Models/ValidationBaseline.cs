@@ -44,6 +44,9 @@ public record ValidationBaseline
         [JsonPropertyName("withdrawal_policy")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public WithdrawalPolicy? WithdrawalPolicy { get; init; }
+        [JsonPropertyName("withdrawal_policy_alternatives")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public WithdrawalPolicy[]? WithdrawalPolicyAlternatives { get; init; }
         [JsonPropertyName("compile")] public string Compile { get; init; } = "unknown";
         [JsonPropertyName("errors")] public int Errors { get; init; }
         [JsonPropertyName("lines")] public int Lines { get; init; }

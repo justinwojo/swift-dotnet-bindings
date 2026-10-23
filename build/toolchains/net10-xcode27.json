@@ -1,7 +1,7 @@
 {
-  "sdkVersion": "10.0.402",
-  "workloadVersion": "10.0.402.1",
-  "xcodeVersion": "27.1",
-  "dotnetRoot": "~/.local/share/swift-bindings/toolchains/net10-xcode27.1/dotnet",
-  "developerDirectory": "/Applications/Xcode-27.1.0.app/Contents/Developer"
+  "sdkVersion": "10.0.401",
+  "workloadVersion": "10.0.401.1",
+  "xcodeVersion": "27.0",
+  "dotnetRoot": "~/.local/share/swift-bindings/toolchains/net10-xcode27.0/dotnet",
+  "developerDirectory": "/Applications/Xcode-27.0.0.app/Contents/Developer"
 }

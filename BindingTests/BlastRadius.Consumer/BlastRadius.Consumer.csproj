@@ -15,7 +15,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+    <!-- Shared fixture floor accepted by the Xcode 26 and 27 workloads; product floors are unchanged. -->
+    <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
     <ApplicationId>com.swiftbindings.blastradius.consumer</ApplicationId>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>

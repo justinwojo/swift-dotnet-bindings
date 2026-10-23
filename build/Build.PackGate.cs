@@ -707,9 +707,11 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
-                <!-- Four TFMs — pack gate exercises device + simulator slice assembly
-                     on iOS and tvOS, plus the single-slice macOS / MacCatalyst paths. -->
-                <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-maccatalyst26.2;net10.0-macos26.2</TargetFrameworks>
+                <!-- Both workload families retain the 26.0 library reference floor;
+                     intermediate SDK TPVs such as 26.2 are absent in the 27 workload.
+                     Exercise device + simulator slices on iOS/tvOS and the single-slice
+                     macOS/MacCatalyst paths without requiring that intermediate pack. -->
+                <TargetFrameworks>net10.0-ios26.0;net10.0-tvos26.0;net10.0-maccatalyst26.0;net10.0-macos26.0</TargetFrameworks>
                 <PackageId>PackGateFixture.{PackGateFixtureFramework}</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
@@ -755,7 +757,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
-                <TargetFramework>net10.0-ios26.2</TargetFramework>
+                <TargetFramework>net10.0-ios26.0</TargetFramework>
                 <Nullable>enable</Nullable>
                 <IsPackable>false</IsPackable>
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
@@ -805,7 +807,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
-                <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-macos26.2</TargetFrameworks>
+                <TargetFrameworks>net10.0-ios26.0;net10.0-tvos26.0;net10.0-macos26.0</TargetFrameworks>
                 <PackageId>PackGateSourceFixture.ImagePipeline</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
@@ -867,7 +869,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
-                <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-macos26.2</TargetFrameworks>
+                <TargetFrameworks>net10.0-ios26.0;net10.0-tvos26.0;net10.0-macos26.0</TargetFrameworks>
                 <PackageId>PackGateAutoDiscoverFixture.ImagePipeline</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
@@ -998,7 +1000,7 @@ partial class Build
                 <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
-                <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+                <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
                 <ApplicationId>com.swiftbindings.packgate</ApplicationId>
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
               </PropertyGroup>

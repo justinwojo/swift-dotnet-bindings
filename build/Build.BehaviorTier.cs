@@ -211,7 +211,7 @@ partial class Build
                 <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
-                <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+                <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
                 <ApplicationId>com.swiftbindings.behaviortier.foundation</ApplicationId>
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
               </PropertyGroup>
@@ -315,7 +315,7 @@ partial class Build
                 <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
-                <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+                <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
                 <ApplicationId>com.swiftbindings.behaviortier.alamofire</ApplicationId>
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
               </PropertyGroup>

@@ -82,7 +82,10 @@ def environment(profile, state, inherited=None):
         "DOTNET_CLI_HOME": str(state / "cli-home"),
         "DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE": "true",
         "DOTNET_GENERATE_ASPNET_CERTIFICATE": "false",
-        "NUGET_PACKAGES": str(state / "packages"),
+        # A packaged generator discovers development source by walking its ancestors.
+        # Keep installed packages outside the owner checkout so verification uses the
+        # packaged Runtime rather than the owner's unrelated SDK/workload pin.
+        "NUGET_PACKAGES": str(temporary_root(state) / "packages"),
         "NUGET_HTTP_CACHE_PATH": str(state / "http-cache"),
         # Scratch consumers inherit only the profile pin, outside repository build props.
         # A short external path also leaves room for Unix socket names.
@@ -143,7 +146,7 @@ def toolchain_receipt(profile, state, env):
                 "runtimes": execute([host, "--list-runtimes"], cwd=control, env=env)}
                if env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"] != "net10.0" else {}),
             "dotnetRoot": env["DOTNET_ROOT"], "developerDirectory": env["DEVELOPER_DIR"],
-            "temporaryDirectory": env["TMPDIR"],
+            "temporaryDirectory": env["TMPDIR"], "nugetPackages": env["NUGET_PACKAGES"],
             "swift": execute(["xcrun", "swiftc", "--version"], cwd=control, env=env),
             "nativeSdks": {sdk: {
                 "path": execute(["xcrun", "--sdk", sdk, "--show-sdk-path"], cwd=control, env=env),
@@ -299,10 +302,11 @@ def main(argv=None):
             raise RuntimeError("A state directory inside the source checkout must be Git-ignored")
     state.mkdir(parents=True, exist_ok=True)
     with profile_lock(state):
-        for name in ("cli-home", "packages", "http-cache", "logs"):
+        for name in ("cli-home", "http-cache", "logs"):
             (state / name).mkdir(exist_ok=True)
         env = environment(profile, state)
         prepare_temporary_directory(Path(env["TMPDIR"]), state, profile)
+        Path(env["NUGET_PACKAGES"]).mkdir(exist_ok=True)
         receipt = toolchain_receipt(profile, state, env)
         inventory = source_inventory(source)
         identity = {"schema": SCHEMA, "owner": str(source), "profile": options.profile,

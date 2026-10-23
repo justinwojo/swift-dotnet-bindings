@@ -618,7 +618,7 @@ partial class Build
                         target.FrameworkModule ?? target.Name, expectedPlanes, WithdrawalGate.ParseIdentity);
                     prevBaseline.Gate.Libraries.TryGetValue(target.Name, out var accepted);
                     var profile = target.Name + "/" + target.Platform + "/" + provenance.Architecture + "/" + provenance.TargetTriple + "/" + provenance.Sdk;
-                    if (accepted?.WithdrawalPolicy == null)
+                    if (accepted?.WithdrawalPolicy == null && accepted?.WithdrawalPolicyAlternatives == null)
                     {
                         WithdrawalGate.RequireZero(evidence);
                         currentResults[target.Name] = currentResults[target.Name] with
@@ -628,7 +628,8 @@ partial class Build
                         Log.Information("{Target}: fresh zero-withdrawal policy enrollment candidate", target.Name);
                     }
                     else
-                        WithdrawalGate.Compare(accepted.WithdrawalPolicy, profile, evidence, target.FrameworkModule ?? target.Name);
+                        WithdrawalGate.Compare(WithdrawalGate.SelectPolicy(accepted!.WithdrawalPolicy,
+                            accepted.WithdrawalPolicyAlternatives, profile), profile, evidence, target.FrameworkModule ?? target.Name);
                 }
             }
             validationPromotion.UpdateResults(currentResults);

@@ -21,6 +21,7 @@ partial class Build
 
     Target CoreClrCanary => _ => _
         .Description("Run a package-only .NET 11 CoreCLR native interop canary in Debug and trimmed Release.")
+        .After(VerifyManagedCompatibility)
         .Requires(() => CoreClrCanaryDotnet)
         .Requires(() => CoreClrCanaryFeed)
         .Requires(() => CoreClrCanaryRuntimeVersion)

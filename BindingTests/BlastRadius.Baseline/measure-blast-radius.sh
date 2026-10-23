@@ -26,7 +26,7 @@ export LC_ALL=C
 HOST_ARCH="$(uname -m)"
 if [ "$HOST_ARCH" != "arm64" ]; then
   echo "ERROR: measure-blast-radius.sh requires an arm64 host; got '$HOST_ARCH'." >&2
-  echo "       The script builds -r osx-arm64 and compares the resulting Mach-Os;" >&2
+  echo "       The fixture projects target osx-arm64 and compare the resulting Mach-Os;" >&2
   echo "       an Intel cross-compile introduces differences unrelated to Swift linkage." >&2
   exit 2
 fi
@@ -45,13 +45,13 @@ publish() {
   # NOTE: We use `dotnet build` instead of `dotnet publish`:
   #   - PublishAot fails because Swift.Analyzers (a Roslyn analyzer project pulled
   #     in transitively) is not AOT-compatible.
-  #   - Plain `publish --self-contained` fails to locate
-  #     `Microsoft.NETCore.App.Runtime.Mono.osx-arm64` 10.0.3 on nuget.org.
   # For the linkage question we only need the .app bundle (Xamarin.Shared.Sdk
   # produces it during Build), so we keep the flow simple and deterministic.
+  # Both fixtures set RuntimeIdentifier=osx-arm64 locally. Passing -r here makes
+  # that RID global, leaking it into the multi-target Runtime ProjectReference's
+  # iOS/Catalyst/tvOS restore legs and requesting a nonexistent Mono osx pack.
   dotnet build "$proj" \
     -c Release \
-    -r osx-arm64 \
     2>&1 | tail -10
 }
 

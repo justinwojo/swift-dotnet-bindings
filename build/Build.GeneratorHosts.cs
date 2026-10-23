@@ -12,6 +12,8 @@ partial class Build
 
     Target VerifyGeneratorHosts => _ => _
         .Description("Qualify the net10 generator on 10-only, 11-only and mixed runtime installations.")
+        // Ordering only: keep optional probes in the strict graph without running them by default.
+        .After(NativeThunkProbe)
         .DependsOn(Compile)
         .Requires(() => GeneratorCandidateDotnet)
         .Executes(() =>

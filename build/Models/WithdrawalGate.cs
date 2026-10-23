@@ -121,6 +121,21 @@ public static class WithdrawalGate
         }
     }
 
+    /// <summary>Selects one exact profile without weakening the policy's comparison contract.</summary>
+    public static WithdrawalPolicy SelectPolicy(WithdrawalPolicy? primary, WithdrawalPolicy[]? alternatives, string profile)
+    {
+        var profiles = new HashSet<string>(StringComparer.Ordinal);
+        WithdrawalPolicy? selected = null;
+        foreach (var policy in (primary == null ? Array.Empty<WithdrawalPolicy>() : new[] { primary })
+            .Concat(alternatives ?? []))
+        {
+            if (policy == null || string.IsNullOrWhiteSpace(policy.Profile) || !profiles.Add(policy.Profile))
+                throw new InvalidDataException($"Malformed or duplicate withdrawal policy profile for {profile}");
+            if (policy.Profile == profile) selected = policy;
+        }
+        return selected ?? throw new InvalidDataException($"Missing exact withdrawal policy for {profile}");
+    }
+
     public static bool Compare(WithdrawalPolicy? accepted, string profile, Evidence current, string? module = null)
     {
         if (accepted == null || accepted.SchemaVersion != 1 || accepted.Profile != profile ||

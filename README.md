@@ -125,7 +125,23 @@ All generated C# — no manual wrapper code. These packages are published from [
 
 ## Getting Started
 
-**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the platform workload for your target (e.g., `dotnet workload install ios`). Binding projects must target .NET 10 — `net10.0-ios`, `net10.0-macos`, `net10.0-tvos`, or `net10.0-maccatalyst`. Earlier .NET versions are not supported: the generator emits `net10.0-*` projects, and the MSBuild SDK turns an older TFM away with `SWIFTBIND010`.
+**Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the platform workload for your target (e.g., `dotnet workload install ios`). For stable use, binding projects should target .NET 10 — `net10.0-ios`, `net10.0-macos`, `net10.0-tvos`, or `net10.0-maccatalyst`. Earlier .NET versions are not supported: the generator defaults to `net10.0-*` projects, and the MSBuild SDK turns an older TFM away with `SWIFTBIND010`.
+
+**.NET 10/Xcode 27 NativeAOT limitation:** the current Apple workload has an
+[upstream explicit-interface-property trimming regression](https://github.com/dotnet/macios/issues/26969)
+that can block NativeAOT publishing for generated NSObject subclasses with IL2037.
+The full Mono AOT device suite passes; the .NET 10/Xcode 26.3 NativeAOT lane also
+passes. A servicing fix is merged upstream, but a released fixed workload has not
+yet been qualified. See the [maintenance qualification](build/toolchains/net10-maintenance-qualification-2026-10-22.md)
+for tested pairings and scope.
+
+**Experimental .NET 11 support:** the CLI, SDK and templates also accept `net11.0-*`
+targets for prerelease testing. The generator and Runtime packages retain their
+.NET 10 floor. CoreCLR Release has local qualification, but CoreCLR Debug has
+known Swift calling-convention interpreter defects and is not generally qualified.
+.NET 11 support remains experimental until the final SDK and matching Apple
+workloads pass release qualification. Keep a supported .NET/Xcode workload pair;
+installing a newer Xcode alone does not update the Apple workload.
 
 **Supported platforms**: iOS, macOS, Mac Catalyst, tvOS. The generator, MSBuild SDK, and runtime all support multi-platform targeting — generate bindings for any Apple platform with a single `--platform` flag or by changing the TFM to another `net10.0-*` Apple TFM.
 

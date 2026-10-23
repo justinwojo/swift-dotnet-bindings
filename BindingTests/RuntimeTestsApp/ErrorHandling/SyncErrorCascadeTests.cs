@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift.Runtime;
 using SwiftBindingsTestLib;
@@ -230,52 +230,71 @@ public class SyncErrorCascadeTests : TestBase
         // rather than merely "did not crash". Two independent +1s exist on this path — the
         // error box owned by the exception, and the retained class pointer owned by the
         // marshalled payload — so this also gates them not collapsing into a double free.
-        LifetimeTracker.RunWithLeakCheck(() =>
+        LifetimeTracker.RunWithLeakCheck(() => RunOnFinishedThread(() =>
         {
             for (int i = 0; i < 25; i++)
                 ThrowAndDropTrackedClassError(i);
-            DisplaceResidualCarrierReferences();
-        }, "sync typed throw, class-shaped error");
+        }), "sync typed throw, class-shaped error");
+        var stats = LifetimeTracker.GetStats();
+        AssertEqual(25, stats.allocations, "all class-error throws allocated a tracked payload");
+        AssertEqual(25, stats.deallocations, "all class-error payloads were released exactly once");
     }
 
     public void TestStructErrorCarrierIsReleasedExactlyOnce()
     {
         // Same probe for the SafeHandle-owned carrier shape: the wire buffer holds a +1 on the
         // embedded ref, which only balances if the carrier is released exactly once.
-        LifetimeTracker.RunWithLeakCheck(() =>
+        LifetimeTracker.RunWithLeakCheck(() => RunOnFinishedThread(() =>
         {
             for (int i = 0; i < 25; i++)
                 ThrowAndDropTrackedStructError(i);
-            DisplaceResidualCarrierReferences();
-        }, "sync typed throw, struct-shaped error");
+        }), "sync typed throw, struct-shaped error");
+        var stats = LifetimeTracker.GetStats();
+        AssertEqual(25, stats.allocations, "all struct-error throws allocated a tracked payload");
+        AssertEqual(25, stats.deallocations, "all struct-error payloads were released exactly once");
     }
 
-    // The collector scans this thread conservatively, so a reference to the churn's final
-    // exception can survive in a spilled slot or a callee-saved register of the frames it ran
-    // in — and that exception owns the error box, which owns the tracked ref, so the box would
-    // still be alive when the assertion drains. Re-running both carrier shapes with errors that
-    // embed nothing tracked overwrites those slots with untracked references. This only ever
-    // drops references and allocates nothing tracked, so an unbalanced retain on the tracked
-    // path still fails the assertion.
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private void DisplaceResidualCarrierReferences()
+    // Keep a real managed owner alive after its allocating thread exits. This control proves
+    // that thread isolation does not hide a retained error box: disposing the marshalled payload
+    // releases only its own +1, and the exception's +1 must survive until its root is removed.
+    public void TestRootedClassErrorKeepsItsBoxUntilCollected()
     {
-        for (int i = 0; i < 4; i++)
+        LifetimeTracker.Reset();
+        GCHandle root = default;
+        try
         {
-            var buffered = CatchTyped<SyncCascadeStructError>(
-                () => TestLibFunctions.SyncCascadeLoadConfig("/etc/bad"));
-            using (var bufferedPayload = buffered.Error)
-                AssertNotNull(bufferedPayload, "the displacing throw must still marshal its payload");
-
-            var retained = CatchTyped<SyncCascadeClassError>(
-                () => TestLibFunctions.SyncCascadeScan("denied"));
-            using (var retainedPayload = retained.Error)
-                AssertNotNull(retainedPayload, "the displacing throw must still marshal its payload");
+            root = RunOnFinishedThread(() =>
+            {
+                var caught = CatchTyped<SyncCascadeTrackedClassError>(
+                    () => TestLibFunctions.SyncCascadeThrowTrackedClassError(777));
+                using var payload = caught.Error;
+                AssertNotNull(payload, "the rooted error must have a marshalled payload");
+                AssertEqual(777, payload!.Code, "the rooted error must retain its value");
+                return GCHandle.Alloc(caught);
+            });
+            ForceGC();
+            LifetimeTracker.AssertLiveCount(1, "the rooted exception still owns its error box");
+            var stats = LifetimeTracker.GetStats();
+            AssertEqual(1, stats.allocations, "the control allocated one native payload");
+            AssertEqual(0, stats.deallocations, "disposing the payload did not release the box's owner");
+            var identities = LifetimeTracker.DescribeLiveIdentities();
+            AssertTrue(identities.Contains("category=SyncCascadeTrackedClassError")
+                && identities.Contains("tag=777"), "the survivor must be the deliberately rooted error");
         }
+        finally
+        {
+            if (root.IsAllocated)
+                root.Free();
+        }
+        LifetimeTracker.AssertNoLeaks("the unrooted exception releases its error box on finalization");
+        AssertEqual(1, LifetimeTracker.GetStats().deallocations,
+            "the control's error box was released exactly once");
     }
 
-    // Kept out of the probe frame so neither the exception nor the payload is still rooted by
-    // a live local when the leak assertion drains.
+    // The whole churn runs on a thread that has exited before collection. Mono conservatively
+    // scans live thread stacks: a stale slot can pin any iteration's exception, which owns the
+    // native box even after its payload is disposed. Thread exit removes those incidental roots
+    // while leaving real managed owners and unbalanced native retains visible to the assertion.
     private void ThrowAndDropTrackedClassError(int code)
     {
         var caught = CatchTyped<SyncCascadeTrackedClassError>(

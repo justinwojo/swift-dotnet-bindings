@@ -895,7 +895,7 @@ partial class Build
                 <RuntimeIdentifier>{PackGateMixedRid}</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
-                <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+                <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
                 <ApplicationId>com.swiftbindings.packgate.{module.ToLowerInvariant()}</ApplicationId>
                 <NoWarn>$(NoWarn);CA1416</NoWarn>
               </PropertyGroup>

@@ -145,6 +145,21 @@ class ToolchainIsolationTests(unittest.TestCase):
         for key in ("GIT_DIR", "SDKROOT", "MSBuildSDKsPath", "SWIFT_INTERFACE_PARSER_PATH"):
             self.assertNotIn(key, new)
 
+    def test_package_cache_cannot_discover_owner_source_or_another_profile(self):
+        selected = {"dotnetRoot": str(self.root / "sdk"),
+                    "developerDirectory": str(self.root / "xcode")}
+        # Real profiles nest state under the checkout. Installed package executables
+        # must not inherit that ancestry, or source discovery crosses the boundary.
+        states = [self.source / "artifacts/toolchains" / name for name in ("old", "new")]
+        caches = [Path(profile.environment(selected, state, {})["NUGET_PACKAGES"])
+                  for state in states]
+        self.assertNotEqual(caches[0], caches[1])
+        for state, cache in zip(states, caches):
+            packaged_generator = cache / "swiftbindings.sdk/0.20.1/tools/net10.0/any"
+            self.assertNotIn(self.source, packaged_generator.parents)
+            self.assertNotIn(state, packaged_generator.parents)
+            self.assertEqual(cache.parent, profile.temporary_root(state))
+
     def test_net11_profile_selects_framework_without_global_runtime_rollforward(self):
         selected = {"dotnetRoot": str(self.root / "sdk"),
                     "developerDirectory": str(self.root / "xcode"),

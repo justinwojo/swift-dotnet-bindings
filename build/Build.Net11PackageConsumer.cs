@@ -15,6 +15,7 @@ partial class Build
 
     Target VerifyNet11PackageConsumer => _ => _
         .Description("Restore .NET 11 Apple consumers of unchanged .NET 10 packages and compile their public APIs.")
+        .After(CoreClrCanary)
         .Requires(() => Net11ConsumerDotnet)
         .Executes(() =>
         {
@@ -29,6 +30,7 @@ partial class Build
 
     Target Net11PackageConsumerTests => _ => _
         .Description("Test the .NET 11 package consumer's fail-closed evidence checks without Apple workloads.")
+        .After(VerifyNet11PackageConsumer)
         .Executes(() => ProcessTasks.StartProcess("python3",
             $"-B \"{RootDirectory / "build/scripts/test_net11_package_consumer.py"}\" -v",
             workingDirectory: RootDirectory).AssertZeroExitCode());
