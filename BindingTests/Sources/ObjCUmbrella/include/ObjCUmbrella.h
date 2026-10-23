@@ -511,4 +511,54 @@ extern const char *OUFixtureLabel(void);
 - (int32_t)walkUpTo:(int32_t)count visitor:(void (^)(int32_t value, BOOL *stop))visitor;
 @end
 
+// MARK: - Adopted delegate collisions and class initialization (issues #47 / #48).
+@protocol OULoadDelegate <NSObject>
+- (NSInteger)didLoad:(NSInteger)value withAdInfo:(NSInteger)info;
+@end
+@protocol OUInteractionDelegate <NSObject>
+- (NSInteger)didRecordImpression:(NSInteger)value withAdInfo:(NSInteger)info;
+@end
+@protocol OUCombinedDelegate <OULoadDelegate, OUInteractionDelegate>
+@end
+// Same-selector redeclarations and diamonds must remain one callable member after flattening.
+@protocol OULoadAgainDelegate <NSObject>
+- (NSInteger)didLoad:(NSInteger)value withAdInfo:(NSInteger)info;
+@end
+@protocol OULoadDiamondDelegate <OULoadDelegate>
+@end
+@protocol OUDescendantDelegate <OUCombinedDelegate, OULoadAgainDelegate, OULoadDiamondDelegate>
+@end
+@interface OUAdCallbacks : NSObject <OUDescendantDelegate>
+@property (nonatomic, readonly) NSInteger didRecordImpressionWithAdInfo;
++ (NSInteger)dispatchTo:(id<OUCombinedDelegate>)target;
+@end
+@interface OUClassInitialization : NSObject
+@property (nonatomic, readonly) NSString *request;
+- (instancetype)initWithRequest:(NSString *)request;
++ (void)initWithRequest:(NSString *)request completion:(void (^)(NSString *response))completion;
+@end
+@interface OUClassInitialization (Setup)
++ (NSInteger)initWithValue:(NSInteger)value;
+@end
+
+// Two valid native type spellings collapse to the same generated protocol interface.
+@protocol OUMappedLoadDelegate <NSObject>
+- (NSInteger)didLoad:(OUBadge *)value withInfo:(NSInteger)info;
+@end
+@protocol OUMappedRecordDelegate <NSObject>
+- (NSInteger)didRecord:(id<OUBadge>)value withInfo:(NSInteger)info;
+@end
+@protocol OUMappedCombinedDelegate <OUMappedLoadDelegate, OUMappedRecordDelegate>
+@end
+@interface OUMappedCallbacks : NSObject <OUMappedCombinedDelegate>
+@end
+
+// A class-only parameterless init must not suppress the inherited instance constructor.
+@protocol OUClassInitializationProtocol <NSObject>
++ (NSInteger)init;
+@end
+@interface OUClassOnlyInitialization : NSObject <OUClassInitializationProtocol>
++ (NSInteger)init;
+@end
+
 NS_ASSUME_NONNULL_END

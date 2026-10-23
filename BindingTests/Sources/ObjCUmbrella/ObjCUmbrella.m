@@ -369,3 +369,33 @@ static int OUOwnershipDeallocations;
 + (int)readValue:(in int *)value { return *value; }
 + (void)writeValue:(out int *)value { *value = 42; }
 @end
+
+@implementation OUAdCallbacks
+- (NSInteger)didRecordImpressionWithAdInfo { return 99; }
+- (NSInteger)didLoad:(NSInteger)value withAdInfo:(NSInteger)info { return value + info; }
+- (NSInteger)didRecordImpression:(NSInteger)value withAdInfo:(NSInteger)info { return value * info; }
++ (NSInteger)dispatchTo:(id<OUCombinedDelegate>)target {
+    return [target didLoad:3 withAdInfo:4] + [target didRecordImpression:5 withAdInfo:6];
+}
+@end
+@implementation OUClassInitialization
+- (instancetype)initWithRequest:(NSString *)request {
+    if ((self = [super init])) { _request = [request copy]; }
+    return self;
+}
++ (void)initWithRequest:(NSString *)request completion:(void (^)(NSString *response))completion {
+    completion([@"class:" stringByAppendingString:request]);
+}
+@end
+@implementation OUClassInitialization (Setup)
++ (NSInteger)initWithValue:(NSInteger)value { return value + 10; }
+@end
+
+@implementation OUMappedCallbacks
+- (NSInteger)didLoad:(OUBadge *)value withInfo:(NSInteger)info { return [value badgeLabel].length + info; }
+- (NSInteger)didRecord:(id<OUBadge>)value withInfo:(NSInteger)info { return [value badgeLabel].length * info; }
+@end
+
+@implementation OUClassOnlyInitialization
++ (NSInteger)init { return 123; }
+@end

@@ -98,16 +98,9 @@ The clang AST-dump `-target` triple is built from a `SliceVariant` whose archite
 
 <a id="objc-apidefinitionemitter-dedup-key-would-emit-check-omit-delegateprotocolnames-grok-m2"></a>
 
-## ObjC `ApiDefinitionEmitter` dedup key + would-emit check omit `delegateProtocolNames` (Grok M2)
+## ObjC emitted-signature dedup (resolved)
 
-**Revisit when:** first case where a delegate-protocol and a same-named regular protocol are both same-selector method params on one type, or any other `ApiDefinitionEmitter` dedup work.
-
-<details>
-<summary>Recorded evidence and disposition</summary>
-
-`EmitMethod` renders emitted parameter types **with** `delegateProtocolNames` (via `EmitParameters` → `ObjCTypeMapper.MapType`, `ApiDefinitionEmitter.cs:698`), so a delegate-protocol param emits as `Foo`; but the dedup signature in `ResolveMethodNameWithDedup` (`:747`) and the resolvability check in `WouldEmitMethod` (`:784/:789`) call `MapType` **without** it, rendering the same param as `IFoo`. The dedup set is still internally consistent — every writer (`ResolveMethodNameWithDedup`, plus inherited-signature seeding `SeedInheritedProtocolSignatures`/`ComputeProtocolEmissionSet`, which route through those same two helpers) omits `delegateProtocolNames`, and `MapType` is deterministic — so two methods that EMIT with identical signatures also dedup-key identically: **no missed collision, no CS0111/CS0102 reachable**. The only reachable effect is a cosmetic **false-positive** over-rename: a delegate-protocol param (emits `Foo`) and a same-named regular-protocol param (emits `IFoo`) collapse to one `IFoo` dedup key and trigger a spurious suffix/`SelectorToFullMethodName` rename. No validation-library or fixture repro. **Deferred (real, not cheap):** the fix is a lock-step change across `ResolveMethodNameWithDedup` + `WouldEmitMethod` (both feed the seeding path) to thread the delegate-aware `MapType` view, plus a full ObjC re-validation since it perturbs dedup for every ObjC binding. **Trigger:** first case where a delegate-protocol and a same-named regular protocol are both same-selector method params on one type, or any other `ApiDefinitionEmitter` dedup work.
-
-</details>
+Issue #47 exposed the mismatch between the old ObjC dedup key and emitted parameter types. Method naming, inherited-protocol replay, cross-protocol collision planning, and category forwarder checks now share `BuildMethodParameterSignature`, including local protocol interfaces, class/protocol clash renames, pointer direction, and array projections. The old conclusion that the omission could only over-rename was incorrect: a direct class/protocol spelling and an `id<Protocol>` spelling can emit the same interface type while producing different old keys, missing a real bgen CS0111. `ObjCProtocolCollisionTests.ProtocolParameterSpellings_UseTheEmittedInterfaceForDedup` and the `OUMappedCallbacks` BindingTests fixture cover that shape. `WouldEmitMethod` already uses the same protocol-aware type view as emission.
 
 <a id="objc-enum-case-collision-disambiguation-diverges-from-the-topascalcase-reference-site-naming"></a>
 
