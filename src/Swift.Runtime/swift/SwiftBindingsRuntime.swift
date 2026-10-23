@@ -305,6 +305,28 @@ public func sbw_vwtDestroy(_ ptr: UnsafeMutableRawPointer, _ metadataPtr: Unsafe
     destroy(ptr, metadataPtr)
 }
 
+// MARK: - Equatable Witness Dispatch
+
+/// Compares two borrowed values of the same concrete Equatable type.
+/// The managed caller owns and destroys both initialized operand buffers.
+@_cdecl("SBW_Equatable_Equals")
+public func sbw_equatableEquals(
+    _ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer,
+    _ metadata: UnsafeRawPointer, _ witness: UnsafeRawPointer
+) -> UInt8 {
+    // Apple Swift ABI: an existential metatype holds concrete metadata followed
+    // by its protocol witness tables. Equatable contributes exactly one table.
+    // This is any Equatable.Type (a conforming type), not (any Equatable).Type.
+    let type = unsafeBitCast((metadata, witness), to: (any Equatable.Type).self)
+    func compare<T: Equatable>(_ type: T.Type) -> UInt8 {
+        // Reads may copy or borrow, but never consume either caller-owned value.
+        // Swift balances any temporary ownership around its witness dispatch.
+        lhs.assumingMemoryBound(to: T.self).pointee ==
+            rhs.assumingMemoryBound(to: T.self).pointee ? 1 : 0
+    }
+    return _openExistential(type, do: compare)
+}
+
 // MARK: - Bulk ARC (Single Managed→Native Transition)
 //
 // Per-element `swift_retain` / `swift_release` from C# costs one managed↔native

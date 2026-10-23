@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Swift;
 using Swift.Runtime.InteropServices;
 
 namespace Swift.Runtime
@@ -13,15 +13,16 @@ namespace Swift.Runtime
     /// </summary>
     public static class SwiftEquatable
     {
-        // P/Invoke declaration for Swift's Equatable protocol equality operator
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSQ2eeoiySbx_xtFZTj")]
-        private static extern bool PInvoke_SwiftEquals(
+        // Keep generic witness dispatch inside Swift: Mono and interpreted CoreCLR
+        // cannot reliably marshal this thunk's SwiftSelf/hidden arguments. A byte
+        // return also avoids managed bool marshalling at the native boundary.
+        [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl,
+            EntryPoint = "SBW_Equatable_Equals")]
+        private static extern byte PInvoke_SwiftEquals(
             IntPtr lhs,
             IntPtr rhs,
-            SwiftSelf typeMetadataInSwiftSelf,
-            TypeMetadata typeMetadata,
-            ProtocolWitnessTable equatableProtocolWitnessTable);
+            IntPtr typeMetadata,
+            IntPtr equatableProtocolWitnessTable);
 
         /// <summary>
         /// Compares two objects using Swift's Equatable protocol.
@@ -62,9 +63,8 @@ namespace Swift.Runtime
                 return PInvoke_SwiftEquals(
                     lhsPayload,
                     rhsPayload,
-                    new SwiftSelf(metadata),
-                    metadata,
-                    equatablePwt);
+                    metadata.Handle,
+                    equatablePwt.Handle) != 0;
             }
             finally
             {

@@ -16,7 +16,10 @@ public class Net11MixedPackageLaneTests
 {
     private delegate string Writer(string kind, string directory, string framework, string configuration,
         bool coreClr, bool device);
-    private static readonly Lazy<Writer> Write = new(CompileWriters);
+    private delegate string AppleVersionWriter(string leg, string framework, string configuration,
+        bool coreClr, bool device);
+    private sealed record HarnessWriters(Writer Consumer, AppleVersionWriter AppleVersion);
+    private static readonly Lazy<HarnessWriters> Write = new(CompileWriters);
 
     [Theory]
     [InlineData("net10.0", "Debug", false, false, false)]
@@ -116,6 +119,61 @@ public class Net11MixedPackageLaneTests
             (_, _, version) => Assert.Equal("0.0.0-mixedpack", version));
     }
 
+    [Fact]
+    public void MixedAppleVersionsAreCompactAndUniqueAcrossSupportedLegsAndLanes()
+    {
+        var versions = new HashSet<string>();
+        foreach (var leg in new[] { "pack", "direct" })
+        foreach (var framework in new[] { "net10.0", "net11.0" })
+        foreach (var configuration in framework == "net11.0" ? new[] { "Debug", "Release" } : new[] { "Debug" })
+        foreach (bool coreClr in framework == "net11.0" ? new[] { false, true } : new[] { false })
+        {
+            var version = Write.Value.AppleVersion(leg, framework, configuration, coreClr, true);
+            var lane = $"{leg}/{framework}/{configuration}/deviceCoreClr={coreClr}";
+            Assert.True(versions.Add(version), $"Apple package version {version} collides for {lane}.");
+            Assert.True(version.Length <= 9, $"Apple version {version} for {lane} exceeds its Windows path budget.");
+            Assert.StartsWith("26.2.0-", version);
+        }
+    }
+
+    [Theory]
+    [InlineData("pack", "0.0.0-mixedpack")]
+    [InlineData("direct", "0.0.0-mixeddirect")]
+    public void CompactAppleVersionsPreserveSdkAndRuntimeVersions(string leg, string legacyVersion)
+    {
+        WithConsumer(leg, "net10.0", "Debug", false, false,
+            (_, _, version) => Assert.Equal(legacyVersion, version));
+        foreach (var configuration in new[] { "Debug", "Release" })
+        foreach (bool coreClr in new[] { false, true })
+            WithConsumer(leg, "net11.0", configuration, coreClr, true,
+                (_, _, version) => Assert.Equal(
+                    $"{legacyVersion}-net11.0-{configuration.ToLowerInvariant()}-{(coreClr ? "coreclr" : "nativeaot")}", version));
+    }
+
+    [Theory]
+    [InlineData("net10.0")]
+    [InlineData("net11.0")]
+    public void MixedAppleVersionRejectsUnsupportedLegs(string framework)
+    {
+        foreach (var leg in new[] { "", "apple", "fixture", "PACK" })
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                Write.Value.AppleVersion(leg, framework, "Debug", false, false));
+    }
+
+    [Fact]
+    public void Net11SimulatorSelectsCoreClrWithDefaultDevicePreference()
+    {
+        var lane = RuntimeTestLane.Create("net11.0", null, "Release", false, false, false);
+        Assert.False(lane.DeviceCoreClr);
+        Assert.Equal("coreclr", lane.Engine(device: false));
+        Assert.Equal("nativeaot", lane.Engine(device: true));
+        WithConsumer("pack", "net11.0", "Release", false, false, (project, _, _) =>
+        {
+            Assert.Equal("false", Value(project, "UseMonoRuntime"));
+            Assert.Equal("false", Value(project, "PublishAot"));
+        });
+    }
+
     private static string Value(XDocument project, string element) => project.Descendants(element).SingleOrDefault()?.Value;
 
     private static void AssertNoAppRoots(XDocument project)
@@ -143,7 +201,7 @@ public class Net11MixedPackageLaneTests
         Directory.CreateDirectory(directory);
         try
         {
-            var version = Write.Value(kind, directory, framework, configuration, coreClr, device);
+            var version = Write.Value.Consumer(kind, directory, framework, configuration, coreClr, device);
             var project = XDocument.Load(Directory.GetFiles(directory, "*.csproj").Single());
             var programPath = Path.Combine(directory, "Program.cs");
             verify(project, File.Exists(programPath) ? File.ReadAllText(programPath) : "", version);
@@ -153,7 +211,7 @@ public class Net11MixedPackageLaneTests
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Test-only dynamically compiled production writers, retained in full.")]
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Test-only dynamically compiled fixture entry, retained in full.")]
-    private static Writer CompileWriters()
+    private static HarnessWriters CompileWriters()
     {
         var root = LocateRepoRoot();
         var sources = new[] { "MixedPack", "MixedDirect", "ApplePackageConsumer" }
@@ -161,11 +219,14 @@ public class Net11MixedPackageLaneTests
             .ToArray();
         var names = new[] { "WriteMixedPackConsumerApp", "WriteMixedPackFixture", "WriteMixedDirectConsumerApp",
             "WriteApplePackageConsumer", "MixedPackNuGetConfig", "MixedConsumerRuntimeProperties", "MixedConsumerRuntimeBanner",
-            "MixedPackageLaneVersion", "MixedPackageLaneSuffix", "ApplePackageConsumerVersionFor" };
+            "MixedPackageLaneVersion", "MixedPackageLaneSuffix", "MixedPackageAppleVersion", "ApplePackageConsumerVersionFor" };
         var methods = sources.SelectMany(source => source.DescendantNodes().OfType<MethodDeclarationSyntax>())
             .Where(method => names.Contains(method.Identifier.Text)).Select(method => method.ToString());
         var constants = sources.SelectMany(source => source.DescendantNodes().OfType<FieldDeclarationSyntax>())
             .Where(field => field.Modifiers.Any(SyntaxKind.ConstKeyword)).Select(field => field.ToString());
+        var appleVersionProperties = sources.SelectMany(source => source.DescendantNodes().OfType<PropertyDeclarationSyntax>())
+            .Where(property => property.Identifier.Text is "MixedPackLaneAppleVersion" or "MixedDirectLaneAppleVersion")
+            .Select(property => property.ToString());
         var fixture = $$"""
             #nullable enable
             using System;
@@ -179,6 +240,17 @@ public class Net11MixedPackageLaneTests
             public class WriterFixture {
                 {{string.Join("\n", constants)}}
                 {{string.Join("\n", methods)}}
+                {{string.Join("\n", appleVersionProperties)}}
+                private RuntimeTestLane RuntimeLane { get; init; } = null!;
+                public static string AppleVersion(string leg, string framework, string configuration, bool coreClr, bool device) {
+                    var lane = RuntimeTestLane.Create(framework, null, configuration, coreClr, device, false);
+                    var fixture = new WriterFixture { RuntimeLane = lane };
+                    return leg switch {
+                        "pack" => fixture.MixedPackLaneAppleVersion,
+                        "direct" => fixture.MixedDirectLaneAppleVersion,
+                        _ => MixedPackageAppleVersion(leg, lane)
+                    };
+                }
                 public static string Run(string kind, string directory, string framework, string configuration, bool coreClr, bool device) {
                     var lane = RuntimeTestLane.Create(framework, null, configuration, coreClr, device, false);
                     var version = kind == "apple" ? ApplePackageConsumerVersionFor(lane, apple: true)
@@ -204,7 +276,9 @@ public class Net11MixedPackageLaneTests
         using var stream = new MemoryStream();
         var emitted = compilation.Emit(stream);
         Assert.True(emitted.Success, string.Join("\n", emitted.Diagnostics));
-        return Assembly.Load(stream.ToArray()).GetType("WriterFixture").GetMethod("Run").CreateDelegate<Writer>();
+        var fixtureType = Assembly.Load(stream.ToArray()).GetType("WriterFixture");
+        return new HarnessWriters(fixtureType.GetMethod("Run").CreateDelegate<Writer>(),
+            fixtureType.GetMethod("AppleVersion").CreateDelegate<AppleVersionWriter>());
     }
 
     private static string LocateRepoRoot()

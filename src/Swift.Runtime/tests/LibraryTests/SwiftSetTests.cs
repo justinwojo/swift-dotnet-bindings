@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Reflection;
@@ -146,8 +147,8 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         bool hasLast = set.Contains(new SwiftIntMock(3));
         Assert.True(hasFirst);
         Assert.True(hasLast);
-        var values = new HashSet<int>(set.Select(e => e.Value));
-        Assert.Equal(new HashSet<int> { 1, 2, 3 }, values);
+        var values = new HashSet<nint>(set.Select(e => e.Value));
+        Assert.Equal(new HashSet<nint> { 1, 2, 3 }, values);
     }
 
     [Fact]
@@ -214,7 +215,7 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         set.Add(new SwiftIntMock(20));
         set.Add(new SwiftIntMock(30));
 
-        var values = new HashSet<int>();
+        var values = new HashSet<nint>();
         foreach (var elem in set)
         {
             values.Add(elem.Value);
@@ -257,7 +258,7 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
         var array = set.ToArray();
         int length = array.Length;
         Assert.Equal(3, length);
-        var values = new HashSet<int>(array.Select(e => e.Value));
+        var values = new HashSet<nint>(array.Select(e => e.Value));
         Assert.Contains(5, values);
         Assert.Contains(10, values);
         Assert.Contains(15, values);

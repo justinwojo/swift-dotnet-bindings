@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
 using Swift;
 using Swift.Runtime;
 
@@ -7,9 +10,9 @@ struct TypeNotImplementingAnyProtocols { }
 
 struct SwiftIntMock : ISwiftObject
 {
-    public int Value { get; set; }
+    public nint Value { get; set; }
 
-    public SwiftIntMock(int value)
+    public SwiftIntMock(nint value)
     {
         Value = value;
     }
@@ -42,7 +45,7 @@ struct SwiftIntMock : ISwiftObject
 
     static unsafe ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
     {
-        return new SwiftIntMock(*(int*)payload);
+        return new SwiftIntMock(*(nint*)payload);
     }
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -51,8 +54,8 @@ struct SwiftIntMock : ISwiftObject
         {
             fixed (void* swiftDest = swiftDestSpan)
             {
-                *(int*)swiftDest = Value;
-                return 4;
+                *(nint*)swiftDest = Value;
+                return sizeof(nint);
             }
         }
     }

@@ -44,9 +44,10 @@ partial class Build
     // Distinct throwaway versions (own suffix) so the leg is independent of whether
     // PackGate ran and its NuGet-cache clears never collide with PackGate's. The Apple
     // supplement major must be an integer (the generator rejects a leading 0), so pin it
-    // to the live Apple train with a -mixedpack suffix, mirroring PackGateAppleVersion.
+    // to the live Apple train. Keep the Apple-only local versions short enough for NuGet
+    // to pack the rebuilt supplement's full Swift module files (see ApplePackageConsumerVersionFor).
     const string MixedPackVersion = "0.0.0-mixedpack";
-    const string MixedPackAppleVersion = "26.2.0-mixedpack";
+    const string MixedAppleVersionPrefix = "26.2.0";
 
     // The mixed fixture: a STATIC source (the issue #40 condition — the wrapper force-loads
     // the ObjC archive and is the sole carrier, the source is dropped from the consumer).
@@ -62,7 +63,7 @@ partial class Build
     const string MixedPackIosRid = "ios-arm64";
 
     string MixedPackLaneVersion => MixedPackageLaneVersion(MixedPackVersion, RuntimeLane);
-    string MixedPackLaneAppleVersion => MixedPackageLaneVersion(MixedPackAppleVersion, RuntimeLane);
+    string MixedPackLaneAppleVersion => MixedPackageAppleVersion("pack", RuntimeLane);
     AbsolutePath MixedPackScratch => RootDirectory / "artifacts" / ("mixed-pack" + MixedPackageLaneSuffix(RuntimeLane));
 
     // Keep each target/configuration/engine feed separate. The reusable runtime assets
@@ -70,6 +71,22 @@ partial class Build
     static string MixedPackageLaneSuffix(RuntimeTestLane lane) => lane.IsNet11
         ? $"-{lane.Framework}-{lane.Configuration.ToLowerInvariant()}-{(lane.DeviceCoreClr ? "coreclr" : "nativeaot")}" : "";
     static string MixedPackageLaneVersion(string version, RuntimeTestLane lane) => version + MixedPackageLaneSuffix(lane);
+
+    // Apple module paths leave little Windows restore headroom. Encode the same
+    // framework/configuration/device-runtime tuple without the verbose SDK/Runtime suffix.
+    static string MixedPackageAppleVersion(string leg, RuntimeTestLane lane)
+    {
+        var legCode = leg switch
+        {
+            "pack" => "p",
+            "direct" => "d",
+            _ => throw new ArgumentOutOfRangeException(nameof(leg), leg, "Expected pack or direct.")
+        };
+        int laneCode = (lane.IsNet11 ? 4 : 0)
+            + (lane.Configuration == "Release" ? 2 : 0)
+            + (lane.DeviceCoreClr ? 1 : 0);
+        return $"{MixedAppleVersionPrefix}-{legCode}{laneCode}";
+    }
 
     static string MixedConsumerRuntimeBanner() => """
         Console.WriteLine($"Runtime flavor: IsMonoRuntime={Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime}, IsNativeAotRuntime={Swift.Runtime.SwiftRuntimeInfo.IsNativeAotRuntime}, Framework={AppContext.TargetFrameworkName}, Runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");

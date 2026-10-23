@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
 using BindingsGeneration.Tests;
 using Swift.Runtime;
 using Xunit;
@@ -6,19 +9,18 @@ namespace LibraryTests
 {
     public class SwiftEquatableTests
     {
-        [Fact]
-        public void SwiftIntMock_Equals_ShouldWork()
+        [Theory]
+        [InlineData(42L, 42L, true)]
+        [InlineData(42L, 100L, false)]
+        [InlineData(0x1_0000_002AL, 0x1_0000_002AL, true)]
+        [InlineData(42L, 0x1_0000_002AL, false)]
+        [InlineData(-1L, 0xFFFF_FFFFL, false)]
+        public void SwiftIntMock_Equals_UsesFullSwiftIntValue(long lhs, long rhs, bool expected)
         {
-            var intMock1 = new SwiftIntMock(42);
-            var intMock2 = new SwiftIntMock(42);
-            var intMock3 = new SwiftIntMock(100);
+            var left = new SwiftIntMock(checked((nint)lhs));
+            var right = new SwiftIntMock(checked((nint)rhs));
 
-            bool equalsResult1 = SwiftEquatable.Equals(intMock1, intMock2);
-            bool equalsResult2 = SwiftEquatable.Equals(intMock1, intMock3);
-
-
-            Assert.True(equalsResult1, "Two SwiftIntMock instances with the same value should be equal");
-            Assert.False(equalsResult2, "Two SwiftIntMock instances with different values should not be equal");
+            Assert.Equal(expected, SwiftEquatable.Equals(left, right));
         }
     }
 }

@@ -53,9 +53,8 @@ partial class Build
 
     // Distinct throwaway versions (own suffix) so this leg's NuGet-cache clears never collide
     // with --mixed-pack's. The Apple supplement major must be an integer (the generator rejects a
-    // leading 0), so pin it to the live Apple train with a -mixeddirect suffix.
+    // leading 0); the shared compact Apple version helper keeps rebuilt module paths safe.
     const string MixedDirectVersion = "0.0.0-mixeddirect";
-    const string MixedDirectAppleVersion = "26.2.0-mixeddirect";
 
     // STATIC source (the issue #40 condition): the wrapper force-loads the ObjC archive and is the
     // sole carrier, and the companion's own source NativeReference is dropped (Gap 2). Distinct
@@ -69,7 +68,7 @@ partial class Build
     const string MixedDirectSimRid = "iossimulator-arm64";
 
     string MixedDirectLaneVersion => MixedPackageLaneVersion(MixedDirectVersion, RuntimeLane);
-    string MixedDirectLaneAppleVersion => MixedPackageLaneVersion(MixedDirectAppleVersion, RuntimeLane);
+    string MixedDirectLaneAppleVersion => MixedPackageAppleVersion("direct", RuntimeLane);
     AbsolutePath MixedDirectScratch => RootDirectory / "artifacts" / ("mixed-direct" + MixedPackageLaneSuffix(RuntimeLane));
 
     // Entry point invoked from the BindingTests target dispatch when --mixed-direct is set.
