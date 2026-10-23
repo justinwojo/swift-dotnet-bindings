@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration.ObjC;
 
-public static class ApiDefinitionEmitter
+public static partial class ApiDefinitionEmitter
 {
     public static string Emit(ObjCModule module, string outputDir, string resolvedNamespace, ILogger logger, ObjCBindingDiagnostics? diagnostics = null, PlatformInfo? platformInfo = null)
     {
@@ -115,8 +115,10 @@ public static class ApiDefinitionEmitter
             sb.AppendLine();
 
         var protocolsByName = module.Protocols.ToDictionary(p => p.Name, p => p, StringComparer.Ordinal);
+        var protocolMethodNames = PlanProtocolMethodNames(module, protocolsByName, typedefMap, blockTypedefMap,
+            knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames);
         foreach (var proto in module.Protocols)
-            EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, protocolsByName, localProtocolNames, classProtocolClashNames, logger, diagnostics);
+            EmitProtocol(sb, proto, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, protocolsByName, localProtocolNames, classProtocolClashNames, logger, diagnostics, protocolMethodNames);
 
         // Drop classes whose base-type chain isn't resolvable in the binding context (e.g. an
         // external superclass with no .NET binding). Computed as a fixpoint BEFORE emission so a
@@ -214,7 +216,7 @@ public static class ApiDefinitionEmitter
         return dropped;
     }
 
-    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, Dictionary<string, ObjCProtocolDecl>? protocolsByName, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitProtocol(StringBuilder sb, ObjCProtocolDecl proto, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, Dictionary<string, ObjCProtocolDecl>? protocolsByName, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ILogger logger, ObjCBindingDiagnostics? diagnostics, IReadOnlyDictionary<ObjCMethodDecl, string> protocolMethodNames)
     {
         ObjCDocCommentEmitter.EmitDocComment(sb, proto.DocComment, null, "    ");
         ObjCAvailabilityEmitter.EmitAvailabilityAttributes(sb, proto.Availability, "    ");
@@ -250,8 +252,7 @@ public static class ApiDefinitionEmitter
         // emitted. Parameterless `initWith…` requirements export a distinct selector and do not
         // collide, but they still warrant [DisableDefaultCtor] for the same reason EmitClass does.
         var protocolDeclaresParameterlessInit =
-            proto.Methods.Any(m => m.Selector == "init" && m.Parameters.Count == 0)
-            || proto.Methods.Any(m => m.Selector.StartsWith("initWith", StringComparison.Ordinal) && m.Parameters.Count == 0);
+            proto.Methods.Any(m => IsInstanceInitializer(m) && m.Parameters.Count == 0);
 
         // Delegate/data-source protocols get [Model] attribute.
         // With [Model], the Xamarin convention uses the bare protocol name (not I-prefixed).
@@ -306,7 +307,7 @@ public static class ApiDefinitionEmitter
         // colliding child property is dropped (consistent with intra-protocol collision handling).
         if (protocolsByName != null && proto.InheritedProtocolNames.Count > 0)
         {
-            SeedInheritedProtocolSignatures(emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, proto, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames);
+            SeedInheritedProtocolSignatures(emittedMethodSignatures, emittedMemberNames, emittedPropertyNames, proto, protocolsByName, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, protocolMethodNames);
         }
 
         // Pre-seed this protocol's OWN emittable property names + accessor selectors before the
@@ -326,7 +327,7 @@ public static class ApiDefinitionEmitter
             // mirrors EmitClass's "Fix #6". Keeping it would re-register selector `init` (colliding
             // with bgen's synthesized adapter ctor) and emit a `public virtual NSObject Init()` that
             // hides NSObject.Init() (CS0108).
-            if (protocolDeclaresParameterlessInit && method.Selector == "init" && method.Parameters.Count == 0)
+            if (protocolDeclaresParameterlessInit && method.IsInstanceMethod && method.Selector == "init" && method.Parameters.Count == 0)
             {
                 logger.LogDebug("Skipping parameterless init on protocol {Protocol}: [DisableDefaultCtor] covers the selector", proto.Name);
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"parameterless init on protocol '{proto.Name}' is covered by [DisableDefaultCtor] (avoids duplicate selector + NSObject.Init() shadow)");
@@ -338,7 +339,7 @@ public static class ApiDefinitionEmitter
                 diagnostics?.RecordSkip("Method", method.Selector, ObjCSkipReason.DuplicateSelector, $"selector also exported by a property accessor on protocol '{proto.Name}' (kept the property)");
                 continue;
             }
-            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, isDelegateProtocol: proto.IsDelegateProtocol, delegateProtocolName: proto.RawObjCName ?? proto.Name, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics);
+            var emittedName = EmitMethod(sb, method, declaringClassName: null, isProtocol: true, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: emittedMethodSignatures, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, enumNames: enumNames, isDelegateProtocol: proto.IsDelegateProtocol, delegateProtocolName: proto.RawObjCName ?? proto.Name, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, nameOverride: protocolMethodNames.GetValueOrDefault(method));
             if (emittedName != null) emittedMemberNames.Add(emittedName);
         }
 
@@ -349,7 +350,7 @@ public static class ApiDefinitionEmitter
         sb.AppendLine();
     }
 
-    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, Dictionary<string, ObjCProtocolDecl>? protocolsByName, IReadOnlyDictionary<string, ObjCClassDecl>? classesByName, List<ObjCArrayOverload> arrayOverloads, ILogger logger, ObjCBindingDiagnostics? diagnostics)
+    static void EmitClass(StringBuilder sb, ObjCClassDecl cls, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string> knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, HashSet<string>? delegateProtocolNames, HashSet<string>? enumNames, IReadOnlyDictionary<string, string>? droppedClassReasons, Dictionary<string, ObjCProtocolDecl>? protocolsByName, IReadOnlyDictionary<string, ObjCClassDecl>? classesByName, List<ObjCArrayOverload> arrayOverloads, ILogger logger, ObjCBindingDiagnostics? diagnostics, Action<HashSet<string>, HashSet<string>>? collectMemberNames = null)
     {
         // Resolvability gate (must run before any emission): drop the class if it's in the
         // precomputed unresolvable-base-class set — the fixpoint closure of classes whose base type
@@ -372,9 +373,9 @@ public static class ApiDefinitionEmitter
         // When DisableDefaultCtor is set, we also suppress the explicit init constructor
         // to avoid contradicting attributes (Fix #6).
         var hasExplicitParameterlessInit = cls.Methods.Any(m =>
-            m.Selector == "init" && m.Parameters.Count == 0);
+            m.IsInstanceMethod && m.Selector == "init" && m.Parameters.Count == 0);
         var hasParameterlessInitWith = cls.Methods.Any(m =>
-            m.Selector.StartsWith("initWith", StringComparison.Ordinal)
+            m.IsInstanceMethod && m.Selector.StartsWith("initWith", StringComparison.Ordinal)
             && m.Parameters.Count == 0);
         var disableDefaultCtor = hasExplicitParameterlessInit || hasParameterlessInitWith;
         if (disableDefaultCtor)
@@ -500,9 +501,9 @@ public static class ApiDefinitionEmitter
         }
 
         foreach (var method in cls.Methods.Where(m =>
-            !(conformsToNSCoding && m.Selector == "initWithCoder:")
+            !(conformsToNSCoding && m.IsInstanceMethod && m.Selector == "initWithCoder:")
             // Suppress explicit parameterless init when DisableDefaultCtor is emitted (Fix #6)
-            && !(disableDefaultCtor && m.Selector == "init" && m.Parameters.Count == 0)))
+            && !(disableDefaultCtor && m.IsInstanceMethod && m.Selector == "init" && m.Parameters.Count == 0)))
         {
             if (CollidesWithPropertyAccessor(method, propertyAccessorSelectors))
             {
@@ -616,6 +617,7 @@ public static class ApiDefinitionEmitter
             EmitProperty(sb, plan.Declaration, declaringClassName: classDeclarationName, genericTypeParams: classGenericParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMemberNames: emittedMemberNames, emittedPropertyNames: emittedPropertyNames, knownTypes: knownTypes, appleSdkTypes: appleSdkTypes, localProtocolNames: localProtocolNames, classProtocolClashNames: classProtocolClashNames, logger: logger, diagnostics: diagnostics, emitNew: true, hidesInheritedInterfaceMember: true);
         }
 
+        collectMemberNames?.Invoke(emittedMethodSignatures, emittedPropertyNames);
         sb.AppendLine("    }");
         sb.AppendLine();
     }
@@ -638,7 +640,7 @@ public static class ApiDefinitionEmitter
         // which are legal members of a static extension class.
         // Filter out init methods — MAUI category interfaces cannot declare constructors.
         var emittableMethods = cat.Methods
-            .Where(m => m.Selector != "init" && !m.Selector.StartsWith("initWith", StringComparison.Ordinal))
+            .Where(m => !IsInstanceInitializer(m))
             .ToList();
         var emittableClassProperties = cat.Properties.Where(p => p.IsClass).ToList();
         var categoryGenericParams = cat.GenericTypeParamNames.Count > 0
@@ -951,7 +953,7 @@ public static class ApiDefinitionEmitter
             }
         }
 
-        var isConstructor = !isProtocol && (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal));
+        var isConstructor = !isProtocol && IsInstanceInitializer(method);
 
         // Decide how this method's value-type pointer parameters project BEFORE emitting any text,
         // so a member that turns out to have no sound projection leaves nothing behind.
@@ -1045,7 +1047,7 @@ public static class ApiDefinitionEmitter
         var methodName = isConstructor
             ? "Constructor"
             : nameOverride
-              ?? (isDelegateProtocol ? SelectorToDelegateMethodName(method.Selector, delegateProtocolName) : SelectorToMethodName(method.Selector));
+              ?? InitialMethodName(method, isDelegateProtocol, delegateProtocolName);
 
         // Duplicate method signature detection: rename with full selector parts if collision.
         // Also rename if the short name collides with an already-emitted PROPERTY name (CS0102) —
@@ -1058,8 +1060,11 @@ public static class ApiDefinitionEmitter
             // For an array-projected member the name that has to survive dedup is the PUBLIC
             // overload's, so the collision is computed against the signature consumers see
             // (`CGPoint[]`), not against the internal pointer+count one.
-            methodName = ResolveMethodNameWithDedup(methodName, method, genericTypeParams, typedefMap, blockTypedefMap, emittedMethodSignatures, emittedPropertyNames,
-                paramSignatureOverride: arrayPlan == null ? null : BuildProjectedParamSignature(method, arrayPlan));
+            var paramSignature = BuildMethodParameterSignature(method, genericTypeParams, typedefMap,
+                blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan,
+                publicArrayShape: arrayPlan != null);
+            methodName = ResolveMethodNameWithDedup(methodName, method, paramSignature,
+                emittedMethodSignatures, emittedPropertyNames);
         }
 
         // Emit generic type hints as remarks
@@ -1111,7 +1116,7 @@ public static class ApiDefinitionEmitter
     /// </summary>
     static void RecordCategoryStaticForwarder(CategoryStaticsCollector statics, ObjCMethodDecl method, string declaredName, string methodName, string returnType, bool isInternalMember, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan)
     {
-        var paramTypes = BuildCategorySignatureKeyTypes(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan);
+        var paramTypes = BuildMethodParameterSignature(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan);
         statics.RecordGeneratedMember(declaredName, paramTypes);
 
         if (method.IsInstanceMethod || isInternalMember)
@@ -1170,7 +1175,7 @@ public static class ApiDefinitionEmitter
         // ask whether a signature it never declares is free.
         var candidateKey = arrayPlan == null
             ? paramTypes
-            : BuildCategorySignatureKeyTypes(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan, publicArrayShape: true);
+            : BuildMethodParameterSignature(method, genericTypeParams, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames, arrayPlan, publicArrayShape: true);
 
         statics.AddCandidate(methodName, candidateKey, method.Selector, new ObjCCategoryStaticForwarder
         {
@@ -1250,23 +1255,6 @@ public static class ApiDefinitionEmitter
             ? "no adjacent 'count:' keyword identifies it as an array"
             : "an array overload cannot be generated for this declaration";
         return $"{lead} is a const pointer to a value type — read-only, so it cannot be an out parameter, and {noCount}";
-    }
-
-    /// <summary>
-    /// The parameter-type signature the PUBLIC array overload will have: the pointer parameter as an
-    /// array, the count parameter gone, everything else unchanged. Dedup keys on this because the
-    /// name being deduped is the overload's.
-    /// </summary>
-    static string BuildProjectedParamSignature(ObjCMethodDecl method, ObjCArrayParameterPlan plan)
-    {
-        var types = new List<string>();
-        for (var i = 0; i < method.Parameters.Count; i++)
-        {
-            if (i == plan.CountParameterIndex)
-                continue;
-            types.Add(i == plan.PointerParameterIndex ? $"{plan.ElementType}[]" : plan.PassThroughTypes[i] ?? "");
-        }
-        return string.Join(",", types);
     }
 
     /// <summary>
@@ -1850,8 +1838,8 @@ public static class ApiDefinitionEmitter
             : $"I{ObjCTypeMapper.MapProtocolName(protocolName, classProtocolClashNames)}";
 
     /// <summary>
-    /// The parameter-type list that decides C# SIGNATURE IDENTITY for a member of a generated
-    /// category class. It makes the same shaping decisions <see cref="EmitParameters"/> does — the
+    /// The parameter-type list shared by method dedup, protocol planning and category forwarders.
+    /// It makes the same shaping decisions <see cref="EmitParameters"/> does — the
     /// array pair's pointer half as a raw address, an NSError out parameter, a value-type pointer's
     /// <c>out T</c>, a variadic member's trailing argument list — and drops the parts C# does not
     /// count: parameter names, the <c>[NullAllowed]</c> attribute, and the nullable annotation.
@@ -1867,7 +1855,7 @@ public static class ApiDefinitionEmitter
     /// generates. The receiver-free overload of an array-projected class method declares that shape,
     /// so its own signature has to be keyed by it while the member it forwards to is keyed by the
     /// generated one.</param>
-    static string BuildCategorySignatureKeyTypes(ObjCMethodDecl method, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan, bool publicArrayShape = false)
+    static string BuildMethodParameterSignature(ObjCMethodDecl method, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, ObjCArrayParameterPlan? arrayPlan, bool publicArrayShape = false)
     {
         var types = new List<string>();
         for (var index = 0; index < method.Parameters.Count; index++)
@@ -1890,7 +1878,14 @@ public static class ApiDefinitionEmitter
         if (method.IsVariadic)
             types.Add("IntPtr");
 
-        return string.Join(",", types);
+        // C# ref/out and native-integer aliases have identical overload identity.
+        return string.Join(",", types.Select(type =>
+        {
+            if (type.StartsWith("out ", StringComparison.Ordinal))
+                type = "ref " + type[4..];
+            return System.Text.RegularExpressions.Regex.Replace(type, @"\b(nint|nuint)\b",
+                match => match.Value == "nint" ? "IntPtr" : "UIntPtr");
+        }));
     }
 
     // A mutable pointee alone does not establish direction. Preserve the historical default only
@@ -1952,6 +1947,22 @@ public static class ApiDefinitionEmitter
     internal static string EscapeCSharpKeyword(string name) =>
         CSharpKeywords.Contains(name) ? $"@{name}" : name;
 
+    // Class methods can share init selectors, but only instance methods initialize an object.
+    static string InitialMethodName(ObjCMethodDecl method, bool isDelegateProtocol, string? protocolName)
+    {
+        // NSObject already has an instance Init(). [New] cannot solve this for protocol models:
+        // bgen also applies it to the static interface helper, where it produces CS0109.
+        if (!method.IsInstanceMethod && method.Selector == "init")
+            return "InitClass";
+        return isDelegateProtocol
+            ? SelectorToDelegateMethodName(method.Selector, protocolName)
+            : SelectorToMethodName(method.Selector);
+    }
+
+    static bool IsInstanceInitializer(ObjCMethodDecl method) =>
+        method.IsInstanceMethod
+        && (method.Selector == "init" || method.Selector.StartsWith("initWith", StringComparison.Ordinal));
+
     internal static string SelectorToMethodName(string selector)
     {
         // Take text before first ':', PascalCase it
@@ -1970,15 +1981,9 @@ public static class ApiDefinitionEmitter
     /// signature set catches identical-sig collisions). Mutates the signature set and returns the
     /// final method name. Pure with respect to the StringBuilder so the seeding path can reuse it.
     /// </summary>
-    static string ResolveMethodNameWithDedup(string methodName, ObjCMethodDecl method, HashSet<string>? genericTypeParams, Dictionary<string, ObjCTypeRef>? typedefMap, Dictionary<string, ObjCTypeRef>? blockTypedefMap, HashSet<string> emittedMethodSignatures, HashSet<string>? emittedPropertyNames = null, string? paramSignatureOverride = null)
+    static string ResolveMethodNameWithDedup(string methodName, ObjCMethodDecl method, string paramSignature,
+        HashSet<string> emittedMethodSignatures, HashSet<string>? emittedPropertyNames = null)
     {
-        var paramSignature = paramSignatureOverride
-            ?? string.Join(",", method.Parameters.Select(p => ObjCTypeMapper.MapType(p.Type, genericTypeParams: genericTypeParams, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap)));
-        // Include the variadic IntPtr param in the signature to detect collisions
-        // with explicit args: variants (e.g., objectsWhere: + objectsWhere:args:)
-        if (method.IsVariadic)
-            paramSignature = paramSignature.Length > 0 ? $"{paramSignature},IntPtr" : "IntPtr";
-
         bool Clashes(string name) =>
             emittedMethodSignatures.Contains($"{name}({paramSignature})")
             || (emittedPropertyNames != null && emittedPropertyNames.Contains(name));
@@ -2192,20 +2197,23 @@ public static class ApiDefinitionEmitter
     /// dedup blocks only ancestor PROPERTY name collisions (CS0102) while still permitting legal
     /// method overloads against ancestor methods of the same short name.
     /// </summary>
-    static void SeedInheritedProtocolSignatures(HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
+    static void SeedInheritedProtocolSignatures(HashSet<string> emittedMethodSignatures, HashSet<string> emittedMemberNames, HashSet<string> emittedPropertyNames, ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, IReadOnlyDictionary<ObjCMethodDecl, string> protocolMethodNames)
     {
         var cache = new Dictionary<string, ProtocolEmissionSet>(StringComparer.Ordinal);
         foreach (var name in proto.InheritedProtocolNames)
         {
             if (!protocolsByName.TryGetValue(name, out var parent)) continue;
-            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames);
+            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, protocolMethodNames);
             foreach (var s in parentSet.Signatures) emittedMethodSignatures.Add(s);
             foreach (var m in parentSet.MemberNames) emittedMemberNames.Add(m);
             foreach (var p in parentSet.PropertyNames) emittedPropertyNames.Add(p);
         }
     }
 
-    readonly record struct ProtocolEmissionSet(HashSet<string> Signatures, HashSet<string> MemberNames, HashSet<string> PropertyNames);
+    readonly record struct ProtocolMethodEmission(ObjCMethodDecl Method, string Owner, string Name, string Parameters);
+
+    readonly record struct ProtocolEmissionSet(HashSet<string> Signatures, HashSet<string> MemberNames,
+        HashSet<string> PropertyNames, Dictionary<ObjCMethodDecl, ProtocolMethodEmission> Methods);
 
     /// <summary>
     /// Recursively computes the signatures, all-member names, and property-only names a protocol
@@ -2213,14 +2221,15 @@ public static class ApiDefinitionEmitter
     /// ancestors. Results are cached per protocol name. Defensive against cycles via a placeholder
     /// entry in <paramref name="cache"/>.
     /// </summary>
-    static ProtocolEmissionSet ComputeProtocolEmissionSet(ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ProtocolEmissionSet> cache, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames)
+    static ProtocolEmissionSet ComputeProtocolEmissionSet(ObjCProtocolDecl proto, Dictionary<string, ObjCProtocolDecl> protocolsByName, Dictionary<string, ProtocolEmissionSet> cache, Dictionary<string, ObjCTypeRef> typedefMap, Dictionary<string, ObjCTypeRef> blockTypedefMap, HashSet<string>? knownTypes, HashSet<string>? appleSdkTypes, HashSet<string>? enumNames, HashSet<string>? localProtocolNames, HashSet<string>? classProtocolClashNames, IReadOnlyDictionary<ObjCMethodDecl, string> protocolMethodNames)
     {
         if (cache.TryGetValue(proto.Name, out var cached)) return cached;
 
         var sigs = new HashSet<string>(StringComparer.Ordinal);
         var memberNames = new HashSet<string>(StringComparer.Ordinal);
         var propertyNames = new HashSet<string>(StringComparer.Ordinal);
-        var result = new ProtocolEmissionSet(sigs, memberNames, propertyNames);
+        var methods = new Dictionary<ObjCMethodDecl, ProtocolMethodEmission>(ReferenceEqualityComparer.Instance);
+        var result = new ProtocolEmissionSet(sigs, memberNames, propertyNames, methods);
         // Placeholder break-cycle entry (protocols normally don't cycle, but be defensive).
         cache[proto.Name] = result;
 
@@ -2228,10 +2237,11 @@ public static class ApiDefinitionEmitter
         foreach (var name in proto.InheritedProtocolNames)
         {
             if (!protocolsByName.TryGetValue(name, out var parent)) continue;
-            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames);
+            var parentSet = ComputeProtocolEmissionSet(parent, protocolsByName, cache, typedefMap, blockTypedefMap, knownTypes, appleSdkTypes, enumNames, localProtocolNames, classProtocolClashNames, protocolMethodNames);
             foreach (var s in parentSet.Signatures) sigs.Add(s);
             foreach (var m in parentSet.MemberNames) memberNames.Add(m);
             foreach (var p in parentSet.PropertyNames) propertyNames.Add(p);
+            foreach (var entry in parentSet.Methods) methods.TryAdd(entry.Key, entry.Value);
         }
 
         // Pre-compute this protocol's own emittable properties — the single resolvability decision the
@@ -2252,8 +2262,7 @@ public static class ApiDefinitionEmitter
         // and shadow NSObject.Init()), so the replay must NOT cache a phantom `Init` member — a stale
         // entry would wrongly dedup a descendant protocol's same-named member out of existence.
         var replayDeclaresParameterlessInit =
-            proto.Methods.Any(m => m.Selector == "init" && m.Parameters.Count == 0)
-            || proto.Methods.Any(m => m.Selector.StartsWith("initWith", StringComparison.Ordinal) && m.Parameters.Count == 0);
+            proto.Methods.Any(m => IsInstanceInitializer(m) && m.Parameters.Count == 0);
 
         // Replay this protocol's own methods against the seeded sets so any rename induced by an
         // ancestor (intra- or grandparent-level) OR an own property shows up in the cached result.
@@ -2262,15 +2271,17 @@ public static class ApiDefinitionEmitter
         {
             if (!WouldEmitMethod(method, knownTypes, appleSdkTypes, typedefMap, blockTypedefMap, enumNames, localProtocolNames, classProtocolClashNames))
                 continue;
-            if (replayDeclaresParameterlessInit && method.Selector == "init" && method.Parameters.Count == 0)
+            if (replayDeclaresParameterlessInit && method.IsInstanceMethod && method.Selector == "init" && method.Parameters.Count == 0)
                 continue;
             if (CollidesWithPropertyAccessor(method, ownAccessorSelectors))
                 continue;
-            var startName = proto.IsDelegateProtocol
-                ? SelectorToDelegateMethodName(method.Selector, proto.RawObjCName ?? proto.Name)
-                : SelectorToMethodName(method.Selector);
-            var finalName = ResolveMethodNameWithDedup(startName, method, genericTypeParams: null, typedefMap: typedefMap, blockTypedefMap: blockTypedefMap, emittedMethodSignatures: sigs, emittedPropertyNames: propertyNames);
+            var startName = protocolMethodNames.GetValueOrDefault(method)
+                ?? InitialMethodName(method, proto.IsDelegateProtocol, proto.RawObjCName ?? proto.Name);
+            var parameters = BuildMethodParameterSignature(method, null, typedefMap, blockTypedefMap,
+                enumNames, localProtocolNames, classProtocolClashNames, arrayPlan: null);
+            var finalName = ResolveMethodNameWithDedup(startName, method, parameters, sigs, propertyNames);
             memberNames.Add(finalName);
+            methods[method] = new(method, proto.Name, finalName, parameters);
         }
 
         // Property names live in the member-name space (any prior emitted name blocks them) AND

@@ -649,6 +649,49 @@ public class ObjCUmbrellaFixtureTests : TestBase
         AssertEqual(3, (int)observer.SelectedIndex, "the receiver-only sibling callback still dispatches");
     }
 
+    public void TestCoAdoptedDelegateMethodsDispatchIndependently()
+    {
+        using var callbacks = new OUAdCallbacks();
+        AssertEqual(7, (int)callbacks.WithAdInfo(3, 4), "load selector retains its existing name");
+        AssertEqual(30, (int)callbacks.DidRecordImpressionWithAdInfo2(5, 6), "impression selector has its own name");
+        AssertEqual(99, (int)callbacks.DidRecordImpressionWithAdInfo, "replacement name leaves the class property callable");
+        using var observer = new CapturingCombinedDelegate();
+        AssertEqual(307, (int)OUAdCallbacks.DispatchTo(observer), "both inherited selectors dispatch to managed overrides");
+    }
+
+    public void TestMappedProtocolParameterCollisionsDispatchIndependently()
+    {
+        using var callbacks = new OUMappedCallbacks();
+        using var badge = new OUBadge("mapped");
+        // OUBadge prefixes the supplied label with "badge:", yielding 12 characters.
+        AssertEqual(16, (int)callbacks.WithInfo(badge, 4), "direct class spelling maps to the shared protocol interface");
+        AssertEqual(48, (int)callbacks.DidRecordWithInfo(badge, 4), "qualified id spelling retains its distinct selector");
+    }
+
+    public void TestClassInitSelectorRemainsStatic()
+    {
+        string? response = null;
+        OUClassInitialization.InitWithRequest("sample", value => response = value);
+        AssertEqual("class:sample", response, "class initialization sends to the class, not an allocated instance");
+        using var instance = new OUClassInitialization("instance");
+        AssertEqual("instance", instance.Request, "instance initialization still constructs the native object");
+        AssertEqual(15, (int)OUClassInitialization.InitWithValue(5), "category class init remains callable");
+    }
+
+    public void TestParameterlessClassInitKeepsDefaultInstanceConstructor()
+    {
+        AssertEqual(123, (int)OUClassOnlyInitialization.InitClass(), "parameterless class init uses class dispatch");
+        AssertEqual(123, (int)IOUClassInitializationProtocol.InitClass<OUClassOnlyInitialization>(), "protocol class init uses the conforming class");
+        using var instance = new OUClassOnlyInitialization();
+        AssertTrue(instance.Handle != IntPtr.Zero, "inherited instance init still constructs an object");
+    }
+
+    private sealed class CapturingCombinedDelegate : OUCombinedDelegate
+    {
+        public override nint WithAdInfo(nint value, nint info) => value + info;
+        public override nint DidRecordImpressionWithAdInfo2(nint value, nint info) => value * info * 10;
+    }
+
     /// <summary>
     /// Managed adopter of the optional-callback protocol. Conforming to <see cref="IOUListener"/> plus
     /// the <c>[Export("didReceiveValue:")]</c> selector makes <c>respondsToSelector:</c> return true,
