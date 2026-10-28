@@ -528,9 +528,9 @@ partial class Build
               <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
                 <PublishAot>true</PublishAot>
                 <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
-                <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
-                <CodesignProvision>Wildcard Dev</CodesignProvision>
-                <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+                <CodesignKey>Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)</CodesignKey>
+                <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+                <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
 
               <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types. -->

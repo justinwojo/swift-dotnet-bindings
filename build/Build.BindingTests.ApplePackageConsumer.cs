@@ -172,9 +172,9 @@ partial class Build
                 <ApplicationVersion>1</ApplicationVersion>
                 <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
                 <NoWarn>$(NoWarn);CA1416;CA1422</NoWarn>
-                <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
-                <CodesignProvision>Wildcard Dev</CodesignProvision>
-                <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+                <CodesignKey>Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)</CodesignKey>
+                <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+                <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
               <ItemGroup>
                 <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />

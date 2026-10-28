@@ -80,7 +80,7 @@ partial class Build
     // matching RuntimeTestsApp / the mixed legs). Hoisted to one constant so the consumer csproj's
     // <CodesignKey> and the up-front "can this host sign?" tri-state check (Finding 61) reference the
     // same string and cannot drift — a host missing this identity is an honest skip, not a failure.
-    const string AppStoreHygieneCodesignKey = "Apple Development: Justin Wojciechowski (KBKS29A36Q)";
+    const string AppStoreHygieneCodesignKey = "Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)";
 
     AbsolutePath AppStoreHygieneScratch => RootDirectory / "artifacts" / "appstore-hygiene";
 
@@ -380,8 +380,8 @@ partial class Build
                 <!-- Justin's wildcard dev identity (matches RuntimeTestsApp / the mixed legs). One
                      constant shared with the up-front tri-state skip check so the two can't drift. -->
                 <CodesignKey>{AppStoreHygieneCodesignKey}</CodesignKey>
-                <CodesignProvision>Wildcard Dev</CodesignProvision>
-                <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+                <CodesignProvision>Swift Bindings Dev</CodesignProvision>
+                <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
 
               <!-- The single reference under test: the Runtime package's buildTransitive targets
