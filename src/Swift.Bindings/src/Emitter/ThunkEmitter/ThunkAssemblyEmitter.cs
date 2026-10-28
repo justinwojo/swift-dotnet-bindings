@@ -104,6 +104,17 @@ public static class ThunkAssemblyEmitter
 
         target.EmitSymbolDecl(sb, descriptor.ThunkSymbol);
 
+        // A thunk names its targets in assembly, outside swiftc, so it gets none of swiftc's
+        // availability-driven weak linking: a plain reference is a strong import, and a strong import
+        // of a symbol newer than the deployment target makes dyld refuse to load the wrapper — and the
+        // app embedding it — on an older OS, whether or not the member is ever called. Declaring every
+        // target weak costs nothing where the symbol is always present: the linker keeps an import
+        // strong when any other reference to it is strong, and still requires the symbol to exist at
+        // link time. The directives sit after the label so they stay inside the span the device-slice
+        // filter (SimulatorOnlyMemberDetector.FilterThunkAssembly) removes with a simulator-only thunk.
+        foreach (var symbol in BranchTargets(descriptor))
+            target.EmitWeakReference(sb, symbol);
+
         switch (classification)
         {
             case ThunkKind.TailCall:
@@ -116,6 +127,18 @@ public static class ThunkAssemblyEmitter
 
         sb.AppendLine();
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Every external symbol the thunk body branches to: the Swift callee, plus the type's metadata
+    /// accessor when a constructor or static method loads its metatype into the swiftself register.
+    /// Both targets render these same calls, so this is the set each thunk declares weak.
+    /// </summary>
+    internal static IEnumerable<string> BranchTargets(ThunkDescriptor descriptor)
+    {
+        yield return descriptor.SwiftSymbol;
+        if ((descriptor.IsConstructor || descriptor.IsStaticMethod) && descriptor.MetadataAccessorSymbol != null)
+            yield return descriptor.MetadataAccessorSymbol;
     }
 
     /// <summary>

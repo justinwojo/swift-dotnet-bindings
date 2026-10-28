@@ -1249,6 +1249,13 @@ partial class Build
                 // This is a reporting invariant, so it remains fail-closed under --permissive.
                 RunExposureReportGate();
 
+                // Thunk weak-link gate: assemble every emitted thunk file and assert each undefined
+                // symbol is weak, then read both linked wrappers back with `dyld_info -imports` and
+                // assert every import of the iOS 99 fixtures is weak. A strong import of a symbol
+                // newer than the deployment target is a dyld load failure for the whole app on an
+                // older OS, before any managed guard can run. Fail-closed and unconditional.
+                RunThunkWeakLinkGate();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

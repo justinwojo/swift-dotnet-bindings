@@ -68,6 +68,13 @@ public abstract class ThunkTargetArch
     /// <summary>Emits the symbol declaration (<c>.globl</c>, alignment, label) for a thunk.</summary>
     public abstract void EmitSymbolDecl(StringBuilder sb, string thunkSymbol);
 
+    /// <summary>
+    /// Declares a symbol the thunk branches to as a weak reference (Mach-O <c>.weak_reference</c>,
+    /// the same directive on every Apple architecture), so the linked wrapper imports it weakly.
+    /// </summary>
+    public virtual void EmitWeakReference(StringBuilder sb, string symbol) =>
+        sb.AppendLine($"    .weak_reference {symbol}");
+
     /// <summary>Emits a tail-call thunk — zero overhead, no frame, parameters/return forwarded as-is.</summary>
     public abstract void EmitTailCall(StringBuilder sb, ThunkDescriptor descriptor);
 
