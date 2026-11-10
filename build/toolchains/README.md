@@ -7,14 +7,25 @@ the release gates.
 | Profile | .NET SDK | Workload set | Xcode |
 | --- | --- | --- | --- |
 | `net10-xcode26` | 10.0.107 | 10.0.107 | 26.3 |
-| `net10-xcode27` | 10.0.401 | 10.0.401.1 | 27.0 |
-| `net11-xcode27` | 11.0.100-rc.2.26504.105 | 11.0.100-rc.2.26509.2 | 27.0 |
+| `net10-xcode27` | 10.0.404 | 10.0.404 | 27.2 |
+| `net11-xcode27` | 11.0.100 | 11.0.100.1 | 27.2 |
 
-The .NET 10/Xcode 27.0 pair follows Microsoft's
-[27.0.10722 release](https://github.com/dotnet/macios/releases/tag/dotnet-10.0.1xx-xcode27.0-10722).
-Earlier `net10-xcode27` receipts used SDK 10.0.402/workload 10.0.402.1 and Xcode
-27.1. Their recorded identities remain authoritative; they do not qualify the
-current 27.0 pair. Changing this profile invalidates its disposable workspace.
+The .NET 10/Xcode 27.2 pair follows Microsoft's
+[27.2.10000 release](https://github.com/dotnet/macios/releases/tag/dotnet-10.0.1xx-xcode27.2.10000)
+(Apple workload manifests 27.2.10000). The .NET 11/Xcode 27.2 pair is the .NET 11 GA
+SDK with Microsoft's
+[27.2.11039 release](https://github.com/dotnet/macios/releases/tag/dotnet-11.0.1xx-xcode27.2.11039)
+(Apple workload manifests 27.2.11039). Both use Xcode 27.2 (27B52) from separate
+SDK roots, `~/.local/share/swift-bindings/toolchains/net10-xcode27.2/dotnet` and
+`~/.local/share/swift-bindings/toolchains/net11-xcode27.2/dotnet`; the .NET 11 root
+also carries a .NET 10 runtime (10.0.15) for the net10 build tools.
+
+Earlier receipts for these profile names used other pins: `net10-xcode27` used SDK
+10.0.401/workload 10.0.401.1 with Xcode 27.0 (and before that 10.0.402/10.0.402.1
+with Xcode 27.1); `net11-xcode27` used the RC2 SDK 11.0.100-rc.2.26504.105/workload
+11.0.100-rc.2.26509.2 with Xcode 27.0. Their recorded identities remain authoritative
+for the runs they describe; they do not qualify the current 27.2 pairs, which have
+not yet been qualified. Changing a profile invalidates its disposable workspace.
 
 Install the matching SDK and the `ios`, `tvos`, `macos` and `maccatalyst` workloads
 before using a profile. The launcher validates the installed versions. It does not
@@ -42,10 +53,11 @@ Without `--toolchain-profile`, `build.sh` retains the normal repository workflow
 and `global.json` selection.
 
 The [.NET 10 maintenance qualification](net10-maintenance-qualification-2026-10-22.md)
-records the tested 26.3 and 27.0 pairings. The 27.0 profile passes the full Mono AOT
-device suite, but its full NativeAOT suite is blocked by upstream IL2037 for explicit
-interface properties on NSObject subclasses. Do not treat the profile manifest as
-unrestricted NativeAOT support.
+records the tested 26.3 and 27.0 pairings. The 27.0 profile passed the full Mono AOT
+device suite, but its full NativeAOT suite was blocked by upstream IL2037 for explicit
+interface properties on NSObject subclasses. That record does not cover the current
+27.2 pin; do not treat the profile manifest as unrestricted NativeAOT support until
+the 27.2 pair passes the NativeAOT gates.
 
 ## Isolation and reuse
 
@@ -107,8 +119,9 @@ bash build.sh --toolchain-profile net10-xcode26 -- verify-managed-compatibility 
 The gate executes the same built generator on 10-only, 11-only and temporarily
 composed side-by-side runtime roots, checks host traces, parses real dependency
 input, and proves that removing major roll-forward fails on the 11-only host.
-The RC probe opts into prerelease runtime roll-forward only in generator child
-processes; repeat with GA before claiming GA qualification.
+The probe opts into prerelease runtime roll-forward only in generator child
+processes, so it also accepts a preview .NET 11 runtime. Its recorded results used
+the RC2 runtime; repeat it with the GA root before claiming GA qualification.
 
 It also builds a real net11.0 desktop executable consuming the existing net10.0
 Runtime assembly and its production configuration target. Safe and Direct policy
@@ -120,13 +133,14 @@ Receipts are written to the profile workspace's `artifacts/generator-hosts/` and
 `artifacts/runtime-host/`; retain them before changing source/profile inputs.
 
 These probes do not qualify mobile CoreCLR, its interpreter, Apple workload
-packaging, or NativeAOT configuration transport. The current .NET 11 RC2 Apple
-workload requires Xcode 27.0. Both Xcode 27 profiles now use that installation,
-with independent .NET 10 and .NET 11 SDK/workload roots.
+packaging, or NativeAOT configuration transport. Both Xcode 27 profiles use the
+Xcode 27.2 installation, with independent .NET 10 and .NET 11 SDK/workload roots.
 
 ## .NET 11 Apple bring-up
 
-The `net11-xcode27` profile selects net11 apps and permits the pinned prerelease SDK.
+The `net11-xcode27` profile selects net11 apps. Its GA pin does not set
+`allowPrerelease`; a profile opts into prerelease SDK selection only while its pin is
+a prerelease, and the launcher tests enforce that for the committed manifests.
 Its Nuke build orchestrator also runs on net11 because the selected SDK's in-process
 MSBuild/NuGet assemblies require that runtime. Product libraries and the shipped
 generator retain their net10 targets. Keep a .NET 10 runtime in the isolated SDK root

@@ -163,9 +163,8 @@ class ToolchainIsolationTests(unittest.TestCase):
     def test_net11_profile_selects_framework_without_global_runtime_rollforward(self):
         selected = {"dotnetRoot": str(self.root / "sdk"),
                     "developerDirectory": str(self.root / "xcode"),
-                    "managedFramework": "net11.0", "allowPrerelease": True,
-                    "sdkVersion": "11.0.100-rc.2.26504.105",
-                    "workloadVersion": "11.0.100-rc.2.26509.2"}
+                    "managedFramework": "net11.0",
+                    "sdkVersion": "11.0.100", "workloadVersion": "11.0.100.1"}
         env = profile.environment(selected, self.state, {
             "SWIFT_BINDINGS_MANAGED_FRAMEWORK": "net10.0",
             "DOTNET_ROLL_FORWARD_TO_PRERELEASE": "1", "DOTNET_ROLL_FORWARD": "Major"})
@@ -174,7 +173,24 @@ class ToolchainIsolationTests(unittest.TestCase):
         self.assertNotIn("DOTNET_ROLL_FORWARD", env)
         self.assertEqual(profile.global_json(selected)["sdk"], {
             "version": selected["sdkVersion"], "rollForward": "disable",
-            "allowPrerelease": True, "workloadVersion": selected["workloadVersion"]})
+            "allowPrerelease": False, "workloadVersion": selected["workloadVersion"]})
+        # A prerelease pin must opt in explicitly; the SDK pin itself never rolls forward.
+        preview = dict(selected, allowPrerelease=True,
+                       sdkVersion="11.0.100-rc.2.26504.105", workloadVersion="11.0.100-rc.2.26509.2")
+        self.assertTrue(profile.global_json(preview)["sdk"]["allowPrerelease"])
+        self.assertEqual(profile.global_json(preview)["sdk"]["rollForward"], "disable")
+
+    def test_committed_profiles_allow_prerelease_only_for_prerelease_pins(self):
+        manifests = sorted((Path(spec.origin).resolve().parents[1] / "toolchains").glob("*.json"))
+        self.assertEqual({path.stem for path in manifests},
+                         {"net10-xcode26", "net10-xcode27", "net11-xcode27"})
+        for path in manifests:
+            with self.subTest(profile=path.stem):
+                selected = json.loads(path.read_text())
+                prerelease = "-" in selected["sdkVersion"] or "-" in selected["workloadVersion"]
+                self.assertEqual(selected.get("allowPrerelease", False), prerelease)
+                self.assertEqual(selected.get("managedFramework", "net10.0"),
+                                 "net11.0" if path.stem.startswith("net11-") else "net10.0")
 
     def test_legacy_profile_keeps_net10_and_rejects_unknown_framework(self):
         selected = {"dotnetRoot": str(self.root / "sdk"),
