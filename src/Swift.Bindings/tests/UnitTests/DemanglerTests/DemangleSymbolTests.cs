@@ -894,11 +894,11 @@ exports:
     [Fact]
     public void FromTbd_RealFoundationTbd_ProducesResults()
     {
-        var tbd = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework/Foundation.tbd";
+        var tbd = SelectedAppleSdk.MacOSFoundationTbd;
         // xUnit 2.6 has no built-in skip semantics; early return is the
         // pragmatic alternative. If this test silently passes on CI, verify
         // that Foundation.tbd is available on the build agent.
-        if (!File.Exists(tbd))
+        if (tbd is null || !File.Exists(tbd))
         {
             Assert.True(true, "SKIPPED: Foundation.tbd not found (Xcode not installed)");
             return;

@@ -33,7 +33,7 @@ namespace BindingsGeneration.Tests
 
             private static void InitializeResources()
             {
-                _tbdFilePath = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Foundation.framework/Foundation.tbd";
+                _tbdFilePath = SelectedAppleSdk.MacOSFoundationTbd;
                 _tbdParser = new TbdParser(NullLoggerFactory.Instance);
 
                 // Create a mock TBD file for testing
