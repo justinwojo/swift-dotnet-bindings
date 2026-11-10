@@ -27,6 +27,14 @@ namespace BindingsGeneration
         /// </summary>
         public const string DefaultPlatformVersion = "26.0";
 
+        /// <summary>
+        /// Default Apple-workload platform version for a <c>net11.0</c> target without an explicit
+        /// version. The .NET 11 Apple workloads (27.2.11039) build only against the 27.2 platform
+        /// on iOS, macOS, tvOS and Mac Catalyst. Every earlier version, 27.0 included, is
+        /// define-constants-only there, and a TFM that names one fails restore with NETSDK1140.
+        /// </summary>
+        public const string Net11DefaultPlatformVersion = "27.2";
+
         public required ApplePlatform Platform { get; init; }
 
         /// <summary>Managed Apple target, e.g. "net10.0-ios" or "net11.0-macos".</summary>
@@ -37,7 +45,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Apple-workload platform version this PlatformInfo was created with (e.g. "26.0",
-        /// "26.2"). Defaults to 26.0 for .NET 10 and 27.0 for .NET 11; overridden by the CLI
+        /// "26.2"). Defaults to <see cref="DefaultPlatformVersion"/> for .NET 10 and
+        /// <see cref="Net11DefaultPlatformVersion"/> for .NET 11; overridden by the CLI
         /// <c>--platform-version</c> flag via <see cref="PlatformInfoFactory.Create(ApplePlatform, string?)"/>.
         /// Both <see cref="PackTfm"/> and the generator-emitted <c>&lt;TargetFramework&gt;</c>
         /// element source from this single value, so they cannot drift.

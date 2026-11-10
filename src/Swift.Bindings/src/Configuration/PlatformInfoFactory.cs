@@ -63,7 +63,7 @@ namespace BindingsGeneration
             {
                 Tfm = $"net{major}.0-{match.Groups["platform"].Value.ToLowerInvariant()}",
                 PlatformVersion = tpv.Length != 0 ? tpv : !string.IsNullOrWhiteSpace(platformVersion)
-                    ? platformVersion : major == "11" ? "27.0" : PlatformInfo.DefaultPlatformVersion,
+                    ? platformVersion : major == "11" ? PlatformInfo.Net11DefaultPlatformVersion : PlatformInfo.DefaultPlatformVersion,
                 DefaultMinimumOS = major == "11" ? platform switch
                 {
                     ApplePlatform.macOS => "14.0",

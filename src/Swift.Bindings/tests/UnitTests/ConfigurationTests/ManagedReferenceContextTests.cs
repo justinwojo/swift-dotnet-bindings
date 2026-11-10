@@ -313,8 +313,8 @@ public sealed class ManagedReferenceContextTests : IDisposable
             </ItemGroup></Project>
             """);
         WriteCore("11.0.0-rc.2", "net11.0");
-        WriteApple(name, "27.0");
-        var apple = WriteApple(name, "27.0", framework: "net11.0");
+        WriteApple(name, PlatformInfo.Net11DefaultPlatformVersion);
+        var apple = WriteApple(name, PlatformInfo.Net11DefaultPlatformVersion, framework: "net11.0");
         var target = PlatformInfoFactory.Create(platform, null, $"net11.0-{token}");
         var context = ManagedReferenceContext.ResolveInstalled(target, root, Sdk);
         Assert.True(context.IsAvailable);
@@ -322,7 +322,7 @@ public sealed class ManagedReferenceContextTests : IDisposable
         Assert.Equal("11.0.0-rc.2", context.NetCoreRefPackVersion);
         Assert.All(context.ReferencePaths, p => Assert.Contains("/ref/net11.0/", p));
         var file = WriteReferenceFile($"msbuild-target-framework=net11.0-{token}",
-            "msbuild-target-platform-version=27.0", apple, CorePath("11.0.0-rc.2", "net11.0"));
+            $"msbuild-target-platform-version={PlatformInfo.Net11DefaultPlatformVersion}", apple, CorePath("11.0.0-rc.2", "net11.0"));
         Assert.Equal(context.ReferencePaths, ManagedReferenceContext.FromReferenceFile(target, file).ReferencePaths);
         // Header identity must match even when the resolved assembly paths look correct.
         File.WriteAllText(file, File.ReadAllText(file).Replace("msbuild-target-framework=net11.0-", "msbuild-target-framework=net10.0-"));

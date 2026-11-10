@@ -734,10 +734,10 @@ namespace BindingsGeneration.Tests
         [InlineData("net12.0-ios")]
         [InlineData("net10.00-ios")]
         [InlineData("net10.0-iossimulator")]
-        [InlineData("net11.0-ios27.0-preview")]
-        [InlineData("net11.0-ios27.0.1")]
+        [InlineData("net11.0-ios27.2-preview")]
+        [InlineData("net11.0-ios27.2.1")]
         [InlineData("net11.0-ios27")]
-        [InlineData("net11.0-ios27.0garbage")]
+        [InlineData("net11.0-ios27.2garbage")]
         public void TargetFrameworkGate_RejectsNonAppleTargetFrameworks(string targetFramework)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -761,11 +761,11 @@ namespace BindingsGeneration.Tests
         [InlineData("net10.0-tvos26.0")]
         [InlineData("net10.0-maccatalyst18.0")]
         [InlineData("NET10.0-ios")]
-        [InlineData("net11.0-ios27.0")]
-        [InlineData("net11.0-macos27.0")]
-        [InlineData("net11.0-tvos27.0")]
-        [InlineData("net11.0-maccatalyst27.0")]
-        [InlineData("NET11.0-IOS27.0")]
+        [InlineData("net11.0-ios27.2")]
+        [InlineData("net11.0-macos27.2")]
+        [InlineData("net11.0-tvos27.2")]
+        [InlineData("net11.0-maccatalyst27.2")]
+        [InlineData("NET11.0-IOS27.2")]
         public void TargetFrameworkGate_AcceptsVersionedAndCaseVariantAppleTargetFrameworks(
             string targetFramework)
         {
@@ -783,14 +783,14 @@ namespace BindingsGeneration.Tests
         // <TargetFrameworks> list in the body.
         [Theory]
         [InlineData("net10.0-ios")]
-        [InlineData("net11.0-maccatalyst27.0")]
+        [InlineData("net11.0-maccatalyst27.2")]
         public void TargetFrameworkGate_MultiTargeting_AcceptsASupportedInnerSlice(string innerFramework)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
             var (output, exitCode) = RunTargetFrameworkGate(
                 bodyTargetFramework: null,
-                bodyTargetFrameworks: "net10.0-ios;net11.0-maccatalyst27.0",
+                bodyTargetFrameworks: "net10.0-ios;net11.0-maccatalyst27.2",
                 innerBuildTargetFramework: innerFramework);
 
             Assert.True(exitCode == 0, $"Expected the TFM gate to accept the inner slice.\n{output}");
@@ -814,11 +814,11 @@ namespace BindingsGeneration.Tests
 
         [Theory]
         [InlineData("net10.0-macos26.0", "12.0")]
-        [InlineData("net11.0-macos27.0", "14.0")]
+        [InlineData("net11.0-macos27.2", "14.0")]
         [InlineData("net10.0-maccatalyst26.0", "15.0")]
-        [InlineData("net11.0-maccatalyst27.0", "17.0")]
-        [InlineData("net11.0-ios27.0", "15.0")]
-        [InlineData("net11.0-tvos27.0", "15.0")]
+        [InlineData("net11.0-maccatalyst27.2", "17.0")]
+        [InlineData("net11.0-ios27.2", "15.0")]
+        [InlineData("net11.0-tvos27.2", "15.0")]
         public void TargetFrameworkGate_SelectsTargetSpecificDeploymentFloor(string framework, string floor)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -841,9 +841,9 @@ namespace BindingsGeneration.Tests
 
         [Theory]
         [InlineData("net10.0-maccatalyst26.0", false, "all", "true")]
-        [InlineData("net11.0-maccatalyst27.0", false, "", "")]
+        [InlineData("net11.0-maccatalyst27.2", false, "", "")]
         [InlineData("net10.0-maccatalyst26.0", true, "all", "true")]
-        [InlineData("net11.0-maccatalyst27.0", true, "", "")]
+        [InlineData("net11.0-maccatalyst27.2", true, "", "")]
         public void EmittedConsumerTargets_ApplyMonoWorkaroundOnlyToNet10Consumers(
             string consumerFramework, bool projectReference, string interpreter, string useInterpreter)
         {

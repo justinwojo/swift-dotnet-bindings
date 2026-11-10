@@ -38,14 +38,14 @@ class AssetEvidenceTests(unittest.TestCase):
             item['sha256'] = consumer.sha256(archive.read_bytes())
             self.specifications.append(item)
         self.staged = consumer.stage_packages(self.cache, self.root / 'feed', self.specifications)
-        self.assets = {'targets': {'net11.0-ios27.0': {}}, 'libraries': {}}
+        self.assets = {'targets': {'net11.0-ios27.2': {}}, 'libraries': {}}
         for package in self.staged:
             key = package['id'] + '/1.0.0'
             relative = package['id'].lower() + '/1.0.0'
             selected = {f"lib/net10.0-ios26.0/{package['assembly']}": {}}
             if package['id'].startswith('Mixed'):
                 selected['lib/net10.0-ios26.0/SbMixedPack.ObjC.iOS.dll'] = {}
-            self.assets['targets']['net11.0-ios27.0'][key] = {
+            self.assets['targets']['net11.0-ios27.2'][key] = {
                 'compile': copy.deepcopy(selected), 'runtime': copy.deepcopy(selected),
                 'build': {'buildTransitive/original.targets': {}}}
             self.assets['libraries'][key] = {'type': 'package', 'path': relative}
@@ -60,30 +60,30 @@ class AssetEvidenceTests(unittest.TestCase):
         self.assertEqual(3, len(result[0]['selected']))
 
     def test_neutral_compile_fallback_fails(self):
-        entry = self.assets['targets']['net11.0-ios27.0']['SwiftBindings.Runtime/1.0.0']
+        entry = self.assets['targets']['net11.0-ios27.2']['SwiftBindings.Runtime/1.0.0']
         entry['compile'] = {'lib/net10.0/Swift.Runtime.dll': {}}
         with self.assertRaisesRegex(ValueError, 'must select lib/net10.0-ios'):
             self.check()
 
     def test_neutral_runtime_fallback_fails(self):
-        entry = self.assets['targets']['net11.0-ios27.0']['SwiftBindings.Runtime/1.0.0']
+        entry = self.assets['targets']['net11.0-ios27.2']['SwiftBindings.Runtime/1.0.0']
         entry['runtime'] = {'lib/net10.0/Swift.Runtime.dll': {}}
         with self.assertRaisesRegex(ValueError, 'must select lib/net10.0-ios'):
             self.check()
 
     def test_missing_apple_package_fails(self):
-        del self.assets['targets']['net11.0-ios27.0']['SwiftBindings.Apple/1.0.0']
+        del self.assets['targets']['net11.0-ios27.2']['SwiftBindings.Apple/1.0.0']
         with self.assertRaisesRegex(ValueError, 'missing package SwiftBindings.Apple'):
             self.check()
 
     def test_missing_objc_companion_fails(self):
-        entry = self.assets['targets']['net11.0-ios27.0']['MixedPackFixture.SbMixedPack/1.0.0']
+        entry = self.assets['targets']['net11.0-ios27.2']['MixedPackFixture.SbMixedPack/1.0.0']
         del entry['compile']['lib/net10.0-ios26.0/SbMixedPack.ObjC.iOS.dll']
         with self.assertRaisesRegex(ValueError, 'ObjC companion'):
             self.check()
 
     def test_package_targets_missing_fails(self):
-        del self.assets['targets']['net11.0-ios27.0']['SwiftBindings.Runtime/1.0.0']['build']
+        del self.assets['targets']['net11.0-ios27.2']['SwiftBindings.Runtime/1.0.0']['build']
         with self.assertRaisesRegex(ValueError, 'buildTransitive'):
             self.check()
 
@@ -117,20 +117,20 @@ class AssetEvidenceTests(unittest.TestCase):
 
     def test_missing_workload_is_not_reported_as_package_incompatibility(self):
         self.assertEqual('missing-apple-workload', consumer.diagnose('error NETSDK1147: install ios'))
-        self.assertEqual('xcode-workload-version-mismatch', consumer.diagnose('This workload requires Xcode 27.0'))
+        self.assertEqual('xcode-workload-version-mismatch', consumer.diagnose('This workload requires Xcode 27.2'))
 
     def test_compiler_receipts_preserve_both_assemblies_and_native_references(self):
         project = self.root / 'consumer/Consumer.csproj'
         project.parent.mkdir()
         evidence = self.root / 'receipts'
         evidence.mkdir()
-        for relative, content in [('obj/Release/net11.0-ios27.0/Consumer.dll', b'consumer'),
-                                  ('identity/obj/Release/net11.0-ios27.0/Identity.dll', b'identity'),
+        for relative, content in [('obj/Release/net11.0-ios27.2/Consumer.dll', b'consumer'),
+                                  ('identity/obj/Release/net11.0-ios27.2/Identity.dll', b'identity'),
                                   ('native-references.txt', b'original/native/framework')]:
             path = project.parent / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
-        hashes = consumer.preserve_compiler_outputs(project, evidence, 'net11.0-ios27.0')
+        hashes = consumer.preserve_compiler_outputs(project, evidence, 'net11.0-ios27.2')
         self.assertEqual(consumer.sha256(b'consumer'), hashes['Consumer.dll'])
         self.assertEqual(consumer.sha256(b'identity'), hashes['Identity.dll'])
         self.assertEqual(b'consumer', (evidence / 'compiled/Consumer.dll').read_bytes())
@@ -142,7 +142,8 @@ class AssetEvidenceTests(unittest.TestCase):
         for platform in consumer.PLATFORMS:
             project = consumer.write_projects(self.root / platform, fixtures, platform)
             xml = project.read_text()
-            self.assertIn(f'net11.0-{platform}27.0', xml)
+            self.assertIn(f'<TargetFramework>net11.0-{platform}27.2</TargetFramework>', xml)
+            self.assertEqual(f'net11.0-{platform}27.2', consumer.net11_tfm(platform))
             self.assertNotIn('SwiftBindings.Sdk', xml)
             self.assertNotIn('ProjectReference Include="../../src/', xml)
             self.assertEqual(platform == 'ios', 'MixedPackFixture.SbMixedPack' in xml)

@@ -57,8 +57,10 @@ partial class Build
     // projects need the OS-version suffix so each inner build pre-sets
     // TargetFramework before _SwiftBindingPlatform detection runs). The Leg A
     // consumer app targets the same suffixed macOS TFM so NuGet resolves the
-    // package's net10.0-macos26.2 asset exactly.
-    const string X64PackConsumerTfm = "net10.0-macos26.2";
+    // package's net10.0-macos26.0 asset exactly. 26.0 is the platform version every
+    // qualified .NET 10 workload builds (the Xcode 27.2 workload builds only 26.0 and
+    // 27.2; 26.2 fails restore there with NETSDK1140).
+    const string X64PackConsumerTfm = "net10.0-macos26.0";
 
     // Round-trip the committed fixture exercises (class ARC + String + by-value
     // int + top-level func). The consumer prints these so the gate can assert the
@@ -336,7 +338,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{X64PackGateVersion}">
               <PropertyGroup>
-                <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-maccatalyst26.2;net10.0-macos26.2</TargetFrameworks>
+                <TargetFrameworks>net10.0-ios26.0;net10.0-tvos26.0;net10.0-maccatalyst26.0;net10.0-macos26.0</TargetFrameworks>
                 <PackageId>{X64PackBindingsPackageId}</PackageId>
                 <PackageVersion>{X64PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>

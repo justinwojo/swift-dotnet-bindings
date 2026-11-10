@@ -19,6 +19,15 @@ from xml.sax.saxutils import escape
 import zipfile
 
 PLATFORMS = ('ios', 'tvos', 'macos', 'maccatalyst')
+# The .NET 11 GA Apple workloads (27.2.11039) build only the 27.2 platform on all four
+# Apple platforms. Earlier versions, 27.0 included, are define-constants-only and a TFM
+# naming one fails restore with NETSDK1140. Keep in step with the generator's
+# PlatformInfo.Net11DefaultPlatformVersion.
+NET11_PLATFORM_VERSION = '27.2'
+
+
+def net11_tfm(platform_name):
+    return f'net11.0-{platform_name}{NET11_PLATFORM_VERSION}'
 
 
 def require(condition, message):
@@ -104,7 +113,7 @@ def check_assets(assets, platform_name, specifications, package_folder):
 
 def write_projects(directory, fixtures, platform_name):
     directory.mkdir(parents=True)
-    tfm = f'net11.0-{platform_name}27.0'
+    tfm = net11_tfm(platform_name)
     identity = directory / 'identity'
     identity.mkdir()
     shutil.copy2(fixtures / 'Identity.cs', identity / 'Identity.cs')
@@ -198,7 +207,7 @@ def verify(root, dotnet, cache, evidence):
           </packageSource><packageSource key="nuget.org"><package pattern="Microsoft.*" />
           <package pattern="System.*" /></packageSource></packageSourceMapping></configuration>''')
         for platform_name in PLATFORMS:
-            leg = {'platform': platform_name, 'targetFramework': f'net11.0-{platform_name}27.0', 'status': 'incomplete'}
+            leg = {'platform': platform_name, 'targetFramework': net11_tfm(platform_name), 'status': 'incomplete'}
             report['platforms'].append(leg)
             leg_evidence = evidence / platform_name
             leg_evidence.mkdir()

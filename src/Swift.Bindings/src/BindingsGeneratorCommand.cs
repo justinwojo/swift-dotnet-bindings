@@ -3281,7 +3281,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --xcframework        Path to xcframework directory. Replaces -a, -d, -t.");
         Console.WriteLine("  --platform           Apple platform: 'ios' (default), 'macos', 'tvos', 'maccatalyst'.");
         Console.WriteLine("  --platform-version   Optional. Apple workload platform version baked into the emitted csproj (e.g. '26.2' for net10.0-ios26.2). Required when packing for nuget.org so library-default 'oldest TPV' resolution can't desync TFM from buildTransitive/ paths. Default falls back to the in-tree value.");
-        Console.WriteLine("  --target-framework   Optional. net10.0 or net11.0 Apple TFM (e.g. net11.0-ios27.0). Defaults to net10.0 for --platform. A versioned TFM also supplies --platform-version.");
+        Console.WriteLine("  --target-framework   Optional. net10.0 or net11.0 Apple TFM (e.g. net11.0-ios27.2). Defaults to net10.0 for --platform. A versioned TFM also supplies --platform-version.");
         Console.WriteLine("  --platform-target    Platform target: 'simulator' (default) or 'device'. Used with --xcframework.");
         Console.WriteLine("  -a, --swiftabi       Path to the Swift ABI file. Required if --xcframework not used.");
         Console.WriteLine("  -d, --dylib          Path to the dynamic library. Required if --xcframework not used.");
