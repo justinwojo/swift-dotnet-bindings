@@ -19,12 +19,19 @@ import Foundation
 // throws PlatformNotSupportedException BEFORE the P/Invoke, converting the
 // uncatchable native crash into a catchable, self-explanatory managed exception.
 //
-// We cannot reproduce the *null symbol* with our own test-lib types — symbols
-// defined in our own dylib are never weak-imported, only external Apple-SDK
-// symbols are. But the guard fires purely on the running OS version, independent
-// of whether the target symbol is actually null, so a *future* floor (iOS 99)
-// lets us observe the guard firing on any real simulator/device, and a
-// currently-satisfied floor lets us prove it does NOT over-fire.
+// We cannot reproduce the *null symbol* at runtime with our own test-lib types —
+// the test lib always defines them, so they resolve on every OS. But the guard
+// fires purely on the running OS version, independent of whether the target
+// symbol is actually null, so a *future* floor (iOS 99) lets us observe the guard
+// firing on any real simulator/device, and a currently-satisfied floor lets us
+// prove it does NOT over-fire.
+//
+// The guard only helps if the wrapper loads at all. The iOS 99 members below are
+// imported by the SwiftBindings wrapper, and every such import must be WEAK — a
+// strong import of a symbol the running OS lacks is a dyld failure that takes the
+// whole app down at launch. Several reach the wrapper through native assembly
+// thunks (outside swiftc's weak linking); the compile-only thunk weak-link gate
+// reads the linked wrapper back and fails if any of them is strong.
 
 /// Non-gated carrier (available everywhere the package is) with members gated to
 /// distinct floors. Mirrors the real `AppStore.getAgeRatingCode()` shape: a

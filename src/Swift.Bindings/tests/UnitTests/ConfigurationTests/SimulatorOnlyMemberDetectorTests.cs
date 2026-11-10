@@ -1088,6 +1088,69 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        /// <summary>
+        /// Real emitter output, not a hand-built block: each thunk carries a <c>.weak_reference</c>
+        /// directive per branch target, and the device filter must drop a removed thunk's directives
+        /// with it. A surviving directive names a symbol the device SDK does not define — a link
+        /// failure for the device slice — and a directive lost from a kept thunk turns its import back
+        /// into a strong one.
+        /// </summary>
+        [Theory]
+        [InlineData(ThunkArch.Arm64, true)]
+        [InlineData(ThunkArch.Arm64, false)]
+        [InlineData(ThunkArch.X86_64, true)]
+        [InlineData(ThunkArch.X86_64, false)]
+        public void FilterThunkAssembly_RemovesWeakReferencesWithTheirThunk(ThunkArch arch, bool simOnlyFirst)
+        {
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var target = ThunkTargetArch.For(arch);
+                const string accessor = "_$s6Module4CardCMa";
+                // Sim-only member is a plain tail call (block ends at the next .globl); the device
+                // member is a full-frame constructor (block ends at ret) that also loads metadata.
+                var simOnlyMangled = "$s6Module4CardC10simulatoryyF";
+                var deviceMangled = "$s6Module4CardCACycfC";
+                var simOnly = new ThunkDescriptor(
+                    ThunkAssemblyEmitter.GenerateThunkSymbol("Module", simOnlyMangled), "_" + simOnlyMangled,
+                    ReturnLowering: null, SelfLowering: null, ParameterCount: 1, FloatParameterCount: 0,
+                    IsInstanceMethod: false, IsStaticMethod: false, IsConstructor: false, Throws: false,
+                    MetadataAccessorSymbol: null);
+                var device = new ThunkDescriptor(
+                    ThunkAssemblyEmitter.GenerateThunkSymbol("Module", deviceMangled), "_" + deviceMangled,
+                    ReturnLowering: new TypeLoweringResult(new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) }, IsIndirect: false, TotalByteSize: 8),
+                    SelfLowering: null, ParameterCount: 0, FloatParameterCount: 0,
+                    IsInstanceMethod: false, IsStaticMethod: false, IsConstructor: true, Throws: false,
+                    MetadataAccessorSymbol: accessor);
+
+                var sb = new System.Text.StringBuilder();
+                target.EmitFileHeader(sb, "Module");
+                foreach (var d in simOnlyFirst ? new[] { simOnly, device } : new[] { device, simOnly })
+                    sb.Append(ThunkAssemblyEmitter.EmitThunk(d, target));
+                Assert.Contains($".weak_reference {simOnly.SwiftSymbol}", sb.ToString());
+
+                var asmFile = Path.Combine(dir, $"Module.{target.ArchTag}.s");
+                File.WriteAllText(asmFile, sb.ToString());
+                var outDir = Path.Combine(dir, "out");
+                Directory.CreateDirectory(outDir);
+
+                var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(
+                    asmFile, MakeResult(("Card.simulator", simOnlyMangled)), outDir);
+
+                Assert.NotNull(result);
+                Assert.Equal(1, result!.Value.RemovedCount);
+                var weakRefs = File.ReadAllLines(result.Value.FilteredPath)
+                    .Select(l => l.Trim())
+                    .Where(l => l.StartsWith(".weak_reference ", StringComparison.Ordinal))
+                    .Select(l => l.Substring(".weak_reference ".Length).Trim())
+                    .OrderBy(s => s, StringComparer.Ordinal)
+                    .ToList();
+                Assert.Equal(new[] { device.SwiftSymbol, accessor }.OrderBy(s => s, StringComparer.Ordinal), weakRefs);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         [Fact]
         public void FilterThunkAssembly_NoOp_WhenEmptyResult()
         {
