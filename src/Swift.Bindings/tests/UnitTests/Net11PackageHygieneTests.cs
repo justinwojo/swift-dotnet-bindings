@@ -37,6 +37,7 @@ public class Net11PackageHygieneTests
             Assert.Equal("Apple Development: Justin Wojciechowski (2YJ2TQ6Q7Q)", Value(ios, "CodesignKey"));
             Assert.Equal("Swift Bindings Dev", Value(ios, "CodesignProvision"));
             AssertRuntimeReference(ios, version);
+            AssertSceneLifecycle(Path.Combine(scratch, "consumer"));
 
             foreach (var (platform, rid, floor) in new[]
                      {
@@ -51,6 +52,8 @@ public class Net11PackageHygieneTests
                 Assert.Equal(floor, Value(project, "SupportedOSPlatformVersion"));
                 AssertRuntimeReference(project, version);
                 Assert.Equal("Framework", project.Descendants("NativeReference").Single().Attribute("Kind")?.Value);
+                if (platform == "maccatalyst")
+                    AssertSceneLifecycle(Path.Combine(scratch, "mac-anatomy-" + framework + "-" + platform));
             }
 
             var universal = XDocument.Load(Path.Combine(scratch, "mac-anatomy-" + framework + "-macos-universal",
@@ -81,6 +84,20 @@ public class Net11PackageHygieneTests
     }
 
     private static string Value(XDocument project, string name) => project.Descendants(name).Single().Value;
+
+    // The iOS and Mac Catalyst 27 SDKs require the UIKit scene lifecycle (MT7199 at build time,
+    // a refused launch on 27.0+). The consumer must declare the manifest and register the
+    // scene delegate it names, so the app launches on both the Xcode 26 and Xcode 27 lanes.
+    private static void AssertSceneLifecycle(string appDirectory)
+    {
+        var plist = File.ReadAllText(Path.Combine(appDirectory, "Info.plist"));
+        Assert.Contains("<key>UIApplicationSceneManifest</key>", plist);
+        Assert.Contains("<key>UISceneDelegateClassName</key>", plist);
+        Assert.Contains("<string>SceneDelegate</string>", plist);
+        var program = File.ReadAllText(Path.Combine(appDirectory, "Program.cs"));
+        Assert.Contains("[Register(\"SceneDelegate\")]", program);
+        Assert.Contains("class SceneDelegate : UIWindowSceneDelegate", program);
+    }
 
     private static void AssertRuntimeReference(XDocument project, string version)
     {

@@ -159,6 +159,20 @@ bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --sim \
   --device-udid <simulator-udid> --allow-unqualified-runtime
 ```
 
+The .NET 11 Apple workloads build only the 27.2 platform version on iOS, macOS, tvOS
+and Mac Catalyst; `net11.0-ios27.0` and the other earlier versions fail restore with
+NETSDK1140. A versionless `net11.0-<platform>` target therefore generates
+`net11.0-<platform>27.2`. The .NET 10 defaults stay at 26.0, which the 27.2 .NET 10
+workload still builds.
+
+Both Xcode 27.2 workloads also fail any iOS or Mac Catalyst app whose Info.plist lacks
+`UIApplicationSceneManifest` (MT7199): on iOS and macOS 27 such an app crashes at
+launch without the UIKit scene lifecycle. Every iOS, tvOS and Mac Catalyst app that the
+repository checks in or the gates generate declares a manifest. Apps that start
+`UIApplication.Main` register the scene delegate their manifest names. Executables that
+never start it declare a manifest with no scene configuration. None disables
+`ValidateSceneManifest`. AppKit macOS apps are outside MT7199.
+
 New lanes require their own reviewed `runtime-identity-net11-baseline.json` entries.
 Until those exist, full bring-up runs require `--allow-unqualified-runtime` and report
 UNQUALIFIED even when functional assertions pass. The legacy identity floors are

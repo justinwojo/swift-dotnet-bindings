@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Apps built with the Mac Catalyst 27 SDK must declare the UIKit scene lifecycle
+         (the Apple workload fails the build with MT7199 otherwise). This runner is a plain
+         executable that never calls UIApplication.Main, so UIKit creates no scenes and no
+         scene configuration or delegate is declared. If the runner ever adopts
+         UIApplication.Main, add a UIWindowSceneSessionRoleApplication configuration naming a
+         registered scene delegate, as the iOS and tvOS hosts do. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+    </dict>
+</dict>
+</plist>

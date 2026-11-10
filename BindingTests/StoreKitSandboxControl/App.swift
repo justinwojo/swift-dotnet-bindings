@@ -100,9 +100,28 @@ private func sandboxTransaction(_ result: VerificationResult<Transaction>) throw
     return transaction
 }
 
+// Apps built with the iOS 27 SDK must use the UIKit scene lifecycle or they are refused at
+// launch on iOS 27. The probes are app-level work and start at launch; the scene delegate only
+// owns the window. Info.plist names this class under its Objective-C name.
+@objc(SceneDelegate)
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(
+        _ scene: UIScene,
+        willConnectTo session: UISceneSession,
+        options connectionOptions: UIScene.ConnectionOptions
+    ) {
+        guard let windowScene = scene as? UIWindowScene else { return }
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+    }
+}
+
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
     var heartbeat: DispatchSourceTimer?
     private var configuration: Configuration?
 
@@ -110,10 +129,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        window = UIWindow(frame: UIScreen.main.bounds)
-        window?.rootViewController = UIViewController()
-        window?.makeKeyAndVisible()
-
         do {
             let config = try Configuration.load()
             guard Bundle.main.bundleIdentifier == config.bundleID else {

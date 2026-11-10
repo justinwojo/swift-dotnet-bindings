@@ -85,9 +85,11 @@ partial class Build
     // Consumer TFMs (suffixed — required by the multi-TFM SwiftBindings pipeline
     // so each inner build pre-sets TargetFramework before _SwiftBindingPlatform
     // detection runs). Consumer apps target the matching iOS/tvOS suffix so the
-    // resolved native asset comes from the corresponding nupkg TFM.
-    const string X64SimIosTfm = "net10.0-ios26.2";
-    const string X64SimTvosTfm = "net10.0-tvos26.2";
+    // resolved native asset comes from the corresponding nupkg TFM. 26.0 is the
+    // platform version every qualified .NET 10 workload builds (the Xcode 27.2
+    // workload builds only 26.0 and 27.2; 26.2 fails restore there with NETSDK1140).
+    const string X64SimIosTfm = "net10.0-ios26.0";
+    const string X64SimTvosTfm = "net10.0-tvos26.0";
 
     AbsolutePath X64SimGateScratch => RootDirectory / "artifacts" / "x64-sim-gate";
 
@@ -610,6 +612,7 @@ partial class Build
               </PropertyGroup>
               <ItemGroup>
                 <PackageReference Include="{bindingsPackageId}" Version="{X64SimGateVersion}" />
+                <None Include="Info.plist" />
               </ItemGroup>
             </Project>
             """;
@@ -663,6 +666,24 @@ partial class Build
                 """;
         }
         File.WriteAllText(appDir / "Program.cs", program);
+
+        // Apps built with the iOS 27 SDK must declare the UIKit scene lifecycle; the workload
+        // fails the build with MT7199 otherwise. This consumer is built, never launched (an
+        // x86_64 simulator cannot boot on Apple Silicon), and its top-level program never calls
+        // UIApplication.Main, so UIKit creates no scenes and no configuration is declared.
+        File.WriteAllText(appDir / "Info.plist", """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>UIApplicationSceneManifest</key>
+                <dict>
+                    <key>UIApplicationSupportsMultipleScenes</key>
+                    <false/>
+                </dict>
+            </dict>
+            </plist>
+            """);
 
         var nugetConfig = $"""
             <?xml version="1.0" encoding="utf-8"?>

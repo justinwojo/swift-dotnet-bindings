@@ -43,6 +43,10 @@
        final-app engine hook; Nuke owns native injection for these test apps. -->
   <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
 
+  <ItemGroup>
+    <None Include="Info.plist" />
+  </ItemGroup>
+
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
