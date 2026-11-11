@@ -42,12 +42,10 @@ public static class TypeProbe
     /// <c>SwiftObjectHelper&lt;Language&gt;.NewFromPayload</c>. The caller owns
     /// the returned instance and must Dispose it.
     ///
-    /// Ownership contract: <c>NewFromPayload</c> moves the value out of the
-    /// source buffer. We must NOT call <c>VWT.Destroy</c> on that buffer
-    /// afterwards — doing so is safe today only because <c>Language</c> is
-    /// trivially destructible, but would double-free the first non-POD
-    /// supplement type (e.g. anything holding a Swift reference). Just free
-    /// the raw allocation.
+    /// Ownership contract: <c>Language</c> declares
+    /// <c>PayloadConstructionSemantics.Copy</c>, so <c>NewFromPayload</c> copies
+    /// the value out of the source buffer and the buffer keeps its own +1. It is
+    /// VWT-destroyed before the raw allocation is freed.
     /// </summary>
     public static Swift.Foundation.Locale.Language CreateDefaultLanguage()
     {
@@ -55,14 +53,18 @@ public static class TypeProbe
         unsafe
         {
             void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            var initialized = false;
             try
             {
                 CreateLocaleLanguage((IntPtr)buf);
+                initialized = true;
                 return (Swift.Foundation.Locale.Language)
                     SwiftObjectHelper<Swift.Foundation.Locale.Language>.NewFromPayload((IntPtr)buf);
             }
             finally
             {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(buf, metadata);
                 NativeMemory.Free(buf);
             }
         }

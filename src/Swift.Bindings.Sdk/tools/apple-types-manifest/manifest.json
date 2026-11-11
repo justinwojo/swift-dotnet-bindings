@@ -2,7 +2,7 @@
   "$schema": "./schema.json",
   "manifest_version": 1,
   "generated_by": "Swift.Bindings --emit-apple-types-manifest",
-  "generated_at": "2026-04-18T01:12:36.2519300Z",
+  "generated_at": "2026-11-11T08:51:38.5615300Z",
   "sdk_train": {
     "major": 26,
     "label": "Xcode 26 / iOS 26 / macOS 26 / tvOS 26",
@@ -44,7 +44,7 @@
             "library": "CryptoKit",
             "availability": {
               "ios": "13.0",
-              "maccatalyst": null,
+              "maccatalyst": "13.0",
               "tvos": "13.0",
               "macos": "10.15"
             },
@@ -87,7 +87,7 @@
             "library": "CryptoKit",
             "availability": {
               "ios": "13.0",
-              "maccatalyst": null,
+              "maccatalyst": "13.0",
               "tvos": "13.0",
               "macos": "10.15"
             },
@@ -130,7 +130,7 @@
             "library": "CryptoKit",
             "availability": {
               "ios": "13.0",
-              "maccatalyst": null,
+              "maccatalyst": "13.0",
               "tvos": "13.0",
               "macos": "10.15"
             },
@@ -150,6 +150,45 @@
     },
     "Foundation": {
       "types": [
+        {
+          "swift_identity": "Foundation.AttributedString",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "AttributedString"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "AttributedString"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation16AttributedStringVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "15",
+              "maccatalyst": "15",
+              "tvos": "15",
+              "macos": "12"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
         {
           "swift_identity": "Foundation.DateComponents",
           "managed_projection": {
@@ -174,7 +213,7 @@
             "library": "Foundation",
             "availability": {
               "ios": "8.0",
-              "maccatalyst": null,
+              "maccatalyst": "8.0",
               "tvos": "9.0",
               "macos": "10.9"
             },
@@ -215,7 +254,7 @@
             "library": "Foundation",
             "availability": {
               "ios": "16",
-              "maccatalyst": null,
+              "maccatalyst": "16",
               "tvos": "16",
               "macos": "13"
             },
@@ -256,7 +295,7 @@
             "library": "Foundation",
             "availability": {
               "ios": "16",
-              "maccatalyst": null,
+              "maccatalyst": "16",
               "tvos": "16",
               "macos": "13"
             },
@@ -297,7 +336,7 @@
             "library": "Foundation",
             "availability": {
               "ios": "16",
-              "maccatalyst": null,
+              "maccatalyst": "16",
               "tvos": "16",
               "macos": "13"
             },
@@ -338,7 +377,7 @@
             "library": "Foundation",
             "availability": {
               "ios": "16",
-              "maccatalyst": null,
+              "maccatalyst": "16",
               "tvos": "16",
               "macos": "13"
             },
@@ -379,7 +418,7 @@
             "library": "Foundation",
             "availability": {
               "ios": "16",
-              "maccatalyst": null,
+              "maccatalyst": "16",
               "tvos": "16",
               "macos": "13"
             },
@@ -418,48 +457,9 @@
             "library": "Foundation",
             "availability": {
               "ios": "9.0",
-              "maccatalyst": null,
+              "maccatalyst": "9.0",
               "tvos": "9.0",
               "macos": "10.11"
-            },
-            "weak_link": true
-          },
-          "value_witness": {
-            "source": "metadata",
-            "trivial": false
-          },
-          "storage_strategy": "vwt_opaque",
-          "sequential_layout_whitelisted": false,
-          "conformance_descriptors": [],
-          "status": "generated"
-        },
-        {
-          "swift_identity": "Foundation.AttributedString",
-          "managed_projection": {
-            "namespace": "Swift.Foundation",
-            "declaration_path": [
-              "AttributedString"
-            ]
-          },
-          "abi_carrier": {
-            "namespace": "Swift.Foundation",
-            "declaration_path": [
-              "AttributedString"
-            ]
-          },
-          "kind": "struct",
-          "frozen": false,
-          "size": null,
-          "alignment": null,
-          "stride": null,
-          "metadata_accessor": {
-            "symbol": "$s10Foundation16AttributedStringVMa",
-            "library": "Foundation",
-            "availability": {
-              "ios": "15.0",
-              "maccatalyst": "15.0",
-              "tvos": "15.0",
-              "macos": "12.0"
             },
             "weak_link": true
           },
@@ -501,7 +501,7 @@
             "library": "ManagedSettings",
             "availability": {
               "ios": "15.0",
-              "maccatalyst": null,
+              "maccatalyst": "15.0",
               "tvos": null,
               "macos": null
             },
@@ -540,7 +540,7 @@
             "library": "ManagedSettings",
             "availability": {
               "ios": "15.0",
-              "maccatalyst": null,
+              "maccatalyst": "15.0",
               "tvos": null,
               "macos": null
             },
@@ -579,7 +579,7 @@
             "library": "ManagedSettings",
             "availability": {
               "ios": "15.0",
-              "maccatalyst": null,
+              "maccatalyst": "15.0",
               "tvos": null,
               "macos": null
             },

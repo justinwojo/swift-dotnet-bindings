@@ -89,8 +89,9 @@ public class AppleSupplementRoundTripTests : TestBase
     // interop, mis-sized buffer, missing metadata registration) would still
     // show green above since the metadata-only tests never touch a payload.
     //
-    // NewFromPayload moves the value out of the source buffer, so we free the
-    // raw allocation but must NOT call VWT.Destroy on it afterwards.
+    // NewFromPayload copies the value out of the source buffer (the supplement's opaque types
+    // declare PayloadConstructionSemantics.Copy), so the source keeps its own +1 and must be
+    // VWT-destroyed before its raw allocation is freed.
 
     [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_CreateLocaleLanguage")]
     private static extern void CreateLocaleLanguage(IntPtr bufferPtr);
@@ -113,9 +114,11 @@ public class AppleSupplementRoundTripTests : TestBase
         unsafe
         {
             void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            var initialized = false;
             try
             {
                 CreateLocaleLanguage((IntPtr)buf);
+                initialized = true;
                 // ISwiftObject has static abstract members, so it can't be a generic type
                 // argument to AssertNotNull<T>. Cast to object for the null check, then down
                 // to the concrete supplement type for Dispose.
@@ -133,6 +136,8 @@ public class AppleSupplementRoundTripTests : TestBase
             }
             finally
             {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(buf, metadata);
                 NativeMemory.Free(buf);
             }
         }
@@ -166,9 +171,11 @@ public class AppleSupplementRoundTripTests : TestBase
         unsafe
         {
             void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            var initialized = false;
             try
             {
                 CreateP256Signature((IntPtr)buf);
+                initialized = true;
                 object boxed = SwiftObjectHelper<Swift.CryptoKit.P256.Signing.ECDSASignature>.NewFromPayload((IntPtr)buf);
                 AssertNotNull(boxed, "P256.Signing.ECDSASignature materialized from payload");
                 var value = (Swift.CryptoKit.P256.Signing.ECDSASignature)(ISwiftObject)boxed;
@@ -183,6 +190,8 @@ public class AppleSupplementRoundTripTests : TestBase
             }
             finally
             {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(buf, metadata);
                 NativeMemory.Free(buf);
             }
         }
@@ -200,9 +209,11 @@ public class AppleSupplementRoundTripTests : TestBase
         unsafe
         {
             void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            var initialized = false;
             try
             {
                 CreateManagedSettingsApplication((IntPtr)buf);
+                initialized = true;
                 object boxed = SwiftObjectHelper<Swift.ManagedSettings.Application>.NewFromPayload((IntPtr)buf);
                 AssertNotNull(boxed, "ManagedSettings.Application materialized from payload");
                 var value = (Swift.ManagedSettings.Application)(ISwiftObject)boxed;
@@ -217,8 +228,125 @@ public class AppleSupplementRoundTripTests : TestBase
             }
             finally
             {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(buf, metadata);
                 NativeMemory.Free(buf);
             }
+        }
+    }
+    // Known-value round trip for every type in the supplement manifest. Swift writes a fixed
+    // sample (SBT_AppleSupplement_InitSample), C# materializes it into the managed projection,
+    // marshals the projection into a fresh buffer, and Swift checks the value survived
+    // (SBT_AppleSupplement_SampleMatches). Each manifest platform column claims the type's
+    // metadata accessor, value witnesses and payload copy work on that OS; on Mac Catalyst,
+    // these tests are the runtime evidence behind the maccatalyst column.
+
+    /// <summary>Sample indices; the order matches <c>visitSupplementSample</c> in AppleSupplementFactory.swift.</summary>
+    private enum AppleSupplementSample
+    {
+        LocaleLanguage = 0,
+        LocaleRegion = 1,
+        LocaleCurrency = 2,
+        LocaleLanguageCode = 3,
+        LocaleCollation = 4,
+        ManagedSettingsApplication = 5,
+        ManagedSettingsWebDomain = 6,
+        ManagedSettingsActivityCategory = 7,
+        P256Signature = 8,
+        P384Signature = 9,
+        P521Signature = 10,
+        DateComponents = 11,
+        PersonNameComponents = 12,
+        AttributedString = 13,
+    }
+
+    [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_InitSample")]
+    private static extern nint InitSample(nint kind, IntPtr bufferPtr);
+
+    [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_SampleMatches")]
+    private static extern nint SampleMatches(nint kind, IntPtr bufferPtr);
+
+    public void TestLocaleLanguageSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.Locale.Language>(AppleSupplementSample.LocaleLanguage, 16);
+    public void TestLocaleRegionSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.Locale.Region>(AppleSupplementSample.LocaleRegion, 16);
+    public void TestLocaleCurrencySampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.Locale.Currency>(AppleSupplementSample.LocaleCurrency, 16);
+    public void TestLocaleLanguageCodeSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.Locale.LanguageCode>(AppleSupplementSample.LocaleLanguageCode, 16);
+    public void TestLocaleCollationSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.Locale.Collation>(AppleSupplementSample.LocaleCollation, 16);
+    public void TestManagedSettingsApplicationSampleRoundTrips() => AssertSampleRoundTrips<Swift.ManagedSettings.Application>(AppleSupplementSample.ManagedSettingsApplication, 15);
+    public void TestManagedSettingsWebDomainSampleRoundTrips() => AssertSampleRoundTrips<Swift.ManagedSettings.WebDomain>(AppleSupplementSample.ManagedSettingsWebDomain, 15);
+    public void TestManagedSettingsActivityCategorySampleRoundTrips() => AssertSampleRoundTrips<Swift.ManagedSettings.ActivityCategory>(AppleSupplementSample.ManagedSettingsActivityCategory, 15);
+    public void TestP256SignatureSampleRoundTrips() => AssertSampleRoundTrips<Swift.CryptoKit.P256.Signing.ECDSASignature>(AppleSupplementSample.P256Signature, 13);
+    public void TestP384SignatureSampleRoundTrips() => AssertSampleRoundTrips<Swift.CryptoKit.P384.Signing.ECDSASignature>(AppleSupplementSample.P384Signature, 13);
+    public void TestP521SignatureSampleRoundTrips() => AssertSampleRoundTrips<Swift.CryptoKit.P521.Signing.ECDSASignature>(AppleSupplementSample.P521Signature, 13);
+    public void TestDateComponentsSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.DateComponents>(AppleSupplementSample.DateComponents, 8);
+    public void TestPersonNameComponentsSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.PersonNameComponents>(AppleSupplementSample.PersonNameComponents, 9);
+    public void TestAttributedStringSampleRoundTrips() => AssertSampleRoundTrips<Swift.Foundation.AttributedString>(AppleSupplementSample.AttributedString, 15);
+
+    // iosFloor is the type's iOS floor in the manifest; Mac Catalyst follows it, and
+    // IsIOSVersionAtLeast is true on Mac Catalyst. tvOS and macOS do not run these tests.
+    private void AssertSampleRoundTrips<T>(AppleSupplementSample sample, int iosFloor)
+        where T : class, ISwiftObject
+    {
+        var name = typeof(T).FullName;
+        if (!OperatingSystem.IsIOSVersionAtLeast(iosFloor))
+        {
+            TestLogger.Info($"{name} requires iOS {iosFloor}+; skipping.");
+            return;
+        }
+
+        var metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+        AssertTrue(metadata.IsValid, $"{name} metadata accessor returned a valid TypeMetadata");
+        AssertTrue(metadata.Size > 0, $"{name} size must be > 0; got {metadata.Size}");
+        // The cleanup below destroys the source buffer, which is only right when
+        // NewFromPayload copies out of it rather than adopting or moving it.
+        AssertEqual(PayloadConstructionSemantics.Copy, Swift.Runtime.InteropServices.SwiftMarshal.GetPayloadSemantics<T>(),
+            $"{name} declares copy payload semantics");
+
+        var size = (int)metadata.Size;
+        T value;
+        unsafe
+        {
+            void* source = NativeMemory.Alloc((nuint)size);
+            var initialized = false;
+            try
+            {
+                AssertEqual((nint)1, InitSample((nint)sample, (IntPtr)source), $"{name} Swift sample initialized");
+                initialized = true;
+                value = (T)SwiftObjectHelper<T>.NewFromPayload((IntPtr)source);
+            }
+            finally
+            {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(source, metadata);
+                NativeMemory.Free(source);
+            }
+        }
+
+        try
+        {
+            AssertEqual(typeof(T), value.GetType(), $"{name} materializes as its managed projection");
+            unsafe
+            {
+                void* destination = NativeMemory.Alloc((nuint)size);
+                var marshalled = false;
+                try
+                {
+                    var span = new Span<byte>(destination, size);
+                    AssertEqual(size, ((ISwiftObject)value).MarshalToSwift(ref span), $"{name} marshals its full payload");
+                    marshalled = true;
+                    AssertEqual((nint)1, SampleMatches((nint)sample, (IntPtr)destination),
+                        $"{name} value survives Swift -> C# -> Swift");
+                }
+                finally
+                {
+                    if (marshalled)
+                        metadata.ValueWitnessTable->Destroy(destination, metadata);
+                    NativeMemory.Free(destination);
+                }
+            }
+        }
+        finally
+        {
+            ((IDisposable)value).Dispose();
         }
     }
 }

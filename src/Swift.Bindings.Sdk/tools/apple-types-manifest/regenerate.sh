@@ -15,8 +15,9 @@ GENERATOR_PROJECT="$REPO_ROOT/src/Swift.Bindings/src"
 # target-framework modules need supplement coverage.
 MODULES=(Foundation ManagedSettings CryptoKit)
 
-# Platform targets driving swift-api-digester. Each dump contributes its platform's
-# intro_* availability fields; the manifest builder unions them per swift_identity.
+# Platform targets driving swift-api-digester. Each dump fills only its own platform's
+# column (Mac Catalyst from the iOS record, since the digester writes no intro_macCatalyst);
+# the manifest builder unions the columns per swift_identity.
 # Targets track the Apple SDK train the supplement ships against. Override the default
 # (Xcode 26) via SDK_TRAIN_MAJOR=NN to regenerate against a newer train without
 # editing the script.
@@ -45,6 +46,7 @@ fi
 
 abi_json_args=()
 failures=()
+skipped_dumps=()
 for module in "${MODULES[@]}"; do
   for triple in "${PLATFORMS[@]}"; do
     IFS='|' read -r platform sdk target <<<"$triple"
@@ -54,6 +56,7 @@ for module in "${MODULES[@]}"; do
       msg="SDK '$sdk' not installed (module=$module platform=$platform)"
       if [ "$ALLOW_PARTIAL" = "1" ]; then
         echo "[regenerate] Skipping: $msg" >&2
+        skipped_dumps+=(--skip-dump "$module:$platform")
         continue
       fi
       failures+=("$msg")
@@ -64,6 +67,7 @@ for module in "${MODULES[@]}"; do
       msg="swift-api-digester failed (module=$module platform=$platform target=$target)"
       if [ "$ALLOW_PARTIAL" = "1" ]; then
         echo "[regenerate] Skipping: $msg" >&2
+        skipped_dumps+=(--skip-dump "$module:$platform")
         continue
       fi
       failures+=("$msg")
@@ -100,3 +104,10 @@ dotnet run --project "$GENERATOR_PROJECT" -- \
   -o "$MANIFEST_DIR/manifest.json"
 
 echo "[regenerate] Wrote $MANIFEST_DIR/manifest.json"
+
+# The digester cannot state a Mac Catalyst floor (it writes no intro_macCatalyst), and an
+# unsupported column is inferred from a type's absence from a dump. Check every column
+# against swiftc, which applies Apple's real @available records.
+# Columns a skipped dump would have filled are left unchecked.
+python3 -I "$MANIFEST_DIR/verify-availability.py" --manifest "$MANIFEST_DIR/manifest.json" \
+  ${skipped_dumps[@]+"${skipped_dumps[@]}"}

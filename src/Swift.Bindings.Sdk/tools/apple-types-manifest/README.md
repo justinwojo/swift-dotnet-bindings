@@ -29,6 +29,14 @@ reformat.
 - `schema.json` — JSON Schema describing the manifest shape. Human- and
   tooling-readable; not a runtime dependency.
 - `README.md` — this file.
+- `regenerate.sh` — dumps the Apple SDK modules with `swift-api-digester` (one dump per
+  platform) and rebuilds `manifest.json` from them, then runs `verify-availability.py`.
+- `verify-availability.py` — checks every platform column against `swiftc`. A version must
+  type-check a reference to the type at that deployment target; a null column (rendered as
+  `[UnsupportedOSPlatform]`) must fail to type-check at the current SDK version. The digester
+  writes no `intro_macCatalyst`, so the builder floors Mac Catalyst at the iOS record; this
+  check is what catches a type Apple introduced later on Mac Catalyst, or marked unavailable
+  there.
 
 ## Key fields per type
 
