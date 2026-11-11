@@ -1280,6 +1280,36 @@ public class TypeHandlerHelpersTests
         Assert.DoesNotContain("IEquatable", result);
     }
 
+    [Fact]
+    public async Task ConformanceDescriptor_GenericEquatableStruct_RegistersEquatableUnderItsRuntimeLookupKey()
+    {
+        // A generic type gets no per-type == wrapper, so C# equality resolves Swift's Equatable
+        // witness at runtime through the conformance dictionary, keyed on IEquatable<T>. Equatable
+        // carries a Self requirement in the stdlib record, which alone would drop the entry and
+        // leave every `a == b` throwing "no conformance was found".
+        var typeDatabase = new TypeDatabase();
+        await typeDatabase.LoadModuleDatabaseFromFile(
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftDatabase.xml"));
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        var box = SwiftTypeName.FromModuleQualifiedName("TestModule.EquatableBox");
+        var conformances = new[]
+        {
+            new TypeConformance(box, SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"), "$s10TestModule12EquatableBoxVyxGSQAAMc"),
+            new TypeConformance(box, SwiftTypeName.FromModuleQualifiedName("Swift.Comparable"), "$s10TestModule12EquatableBoxVyxGSLAAMc"),
+        };
+
+        var entries = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
+            conformances, "TestModule", "EquatableBox<T>", typeDatabase);
+        var preRegistered = ProtocolConformanceHelper.GetConformanceProtocolNames(
+            conformances, "TestModule", "EquatableBox<T>", typeDatabase);
+
+        Assert.Contains("IEquatable<EquatableBox<T>>), \"$s10TestModule12EquatableBoxVyxGSQAAMc\"}", entries);
+        // Other Self-requirement protocols have no runtime lookup and stay out.
+        Assert.DoesNotContain("$s10TestModule12EquatableBoxVyxGSLAAMc", entries);
+        // Equatable stays a lazy lookup: nothing resolves its witness table at module init.
+        Assert.DoesNotContain(preRegistered, name => name.Contains("IEquatable", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region EqualityMethodsWriter Tests

@@ -147,10 +147,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         foreach (var arg in originalMethod.CSSignature)
             substitutedSignature.Add(arg);
 
+        var declaredNames = DeclaredGenericNames(pairing, originalMethod);
         for (int i = 0; i < pairing.Count; i++)
         {
             var genericName = pairing[i].Param.GenericParam.TypeName;
-            var altGenericName = GetAlternateDepthName(genericName);
+            var altGenericName = GetAlternateDepthName(genericName, declaredNames);
             bool substitutionOk = true;
 
             for (int j = 0; j < substitutedSignature.Count; j++)

@@ -4531,7 +4531,7 @@ public class ConcreteSpecializationEngineTests
         var returnSpec = new NamedTypeSpec("H");
         var pairing = MakeCryptoHashPairing("CryptoKit.SHA256");
 
-        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing);
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("CryptoKit.SHA256", named.Name);
@@ -4548,13 +4548,90 @@ public class ConcreteSpecializationEngineTests
         var returnSpec = new NamedTypeSpec("CryptoKit.HashedAuthenticationCode", new NamedTypeSpec("H"));
         var pairing = MakeCryptoHashPairing("CryptoKit.SHA256");
 
-        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing);
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("CryptoKit.HashedAuthenticationCode", named.Name);
         Assert.Single(named.GenericParameters);
         var inner = Assert.IsType<NamedTypeSpec>(named.GenericParameters[0]);
         Assert.Equal("CryptoKit.SHA256", inner.Name);
+    }
+
+    [Fact]
+    public void SubstitutePairingGenerics_ParentAndMethodParamAtTheSameIndex_StayDistinct()
+    {
+        // `HMAC<H>.authenticationCode<D>(for: D, …) -> HashedAuthenticationCode<H>` in the
+        // compiler's spelling: H is τ_0_0 and D is τ_1_0, each the other's depth twin. Both are
+        // parameters in their own right, so H's conformer must not land on τ_1_0 and D's must not
+        // land on τ_0_0.
+        var pairing = new[]
+        {
+            MakeDepthIndexedPairingEntry("τ_0_0", "CryptoKit.SHA256"),
+            MakeDepthIndexedPairingEntry("τ_1_0", "Foundation.Data"),
+        };
+
+        var returnSpec = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
+            new NamedTypeSpec("CryptoKit.HashedAuthenticationCode", new NamedTypeSpec("τ_0_0")), pairing, method: null);
+        var argumentSpec = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
+            new NamedTypeSpec("τ_1_0"), pairing, method: null);
+
+        var code = Assert.IsType<NamedTypeSpec>(returnSpec);
+        Assert.Equal("CryptoKit.SHA256", Assert.IsType<NamedTypeSpec>(Assert.Single(code.GenericParameters)).Name);
+        Assert.Equal("Foundation.Data", Assert.IsType<NamedTypeSpec>(argumentSpec).Name);
+    }
+
+    [Fact]
+    public void SubstitutePairingGenerics_MethodParamWithoutAParentTwin_StillMatchesItsDepthTwin()
+    {
+        // A lone method-level τ_0_0 is still accepted under its τ_1_0 spelling: the twin is
+        // withheld only when it names another parameter in scope.
+        var pairing = new[] { MakeDepthIndexedPairingEntry("τ_0_0", "Foundation.Data") };
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
+            new NamedTypeSpec("τ_1_0"), pairing, method: null);
+
+        Assert.Equal("Foundation.Data", Assert.IsType<NamedTypeSpec>(result).Name);
+    }
+
+    [Fact]
+    public void SubstitutePairingGenerics_UnpairedMethodParamTwinOfAPairedParentParam_IsLeftAlone()
+    {
+        // `Box<T: P>.mix<U, S: Sequence>(u: U, s: S) -> Wrapper<U>`: the pairing binds only the
+        // constrained T (τ_0_0) and S (τ_1_1). U (τ_1_0) is unconstrained and unpaired, but it is
+        // still a parameter of the method, so T's conformer must not land on it as T's twin.
+        var pairing = new[]
+        {
+            MakeDepthIndexedPairingEntry("τ_0_0", "CryptoKit.SHA256"),
+            MakeDepthIndexedPairingEntry("τ_1_1", "Foundation.Data"),
+        };
+        var method = TestDecls.Method("mix", returnType: new NamedTypeSpec("TestLib.Wrapper", new NamedTypeSpec("τ_1_0")));
+        method.GenericParameters = [DepthIndexedGeneric("τ_1_0"), DepthIndexedGeneric("τ_1_1")];
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
+            method.CSSignature[0].SwiftTypeSpec, pairing, method);
+
+        var wrapper = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("τ_1_0", Assert.IsType<NamedTypeSpec>(Assert.Single(wrapper.GenericParameters)).Name);
+    }
+
+    private static GenericArgumentDecl DepthIndexedGeneric(string typeName)
+        => new(
+            TypeName: typeName,
+            SugaredTypeName: typeName,
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+    private static (ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)
+        MakeDepthIndexedPairingEntry(string typeName, string conformerQualifiedName)
+    {
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: DepthIndexedGeneric(typeName),
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Constraint"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerQualifiedName,
+            CSharpType: conformerQualifiedName.Split('.')[^1]);
+        return (param, conformer);
     }
 
     [Fact]
@@ -4565,7 +4642,7 @@ public class ConcreteSpecializationEngineTests
         var returnSpec = new NamedTypeSpec("Swift.String");
         var pairing = MakeCryptoHashPairing("CryptoKit.SHA256");
 
-        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing);
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("Swift.String", named.Name);
@@ -5384,7 +5461,7 @@ public class ConcreteSpecializationEngineTests
         var pairing = BuildParentPairing(parent, "TestLib.SongItem", "SongItem");
 
         var result = ConcreteProtocolSpecializationEmitter.SubstituteSelfAndPairingGenericsInTypeSpec(
-            new NamedTypeSpec("TestLib.Holder"), parent, pairing);
+            new NamedTypeSpec("TestLib.Holder"), parent, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("TestLib.Holder", named.Name);
@@ -5399,7 +5476,7 @@ public class ConcreteSpecializationEngineTests
         var pairing = BuildParentPairing(parent, "TestLib.SongItem", "SongItem");
 
         var result = ConcreteProtocolSpecializationEmitter.SubstituteSelfAndPairingGenericsInTypeSpec(
-            new NamedTypeSpec("Self"), parent, pairing);
+            new NamedTypeSpec("Self"), parent, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("TestLib.Holder", named.Name);
@@ -5416,7 +5493,7 @@ public class ConcreteSpecializationEngineTests
         var pairing = BuildParentPairing(parent, "TestLib.SongItem", "SongItem");
 
         var result = ConcreteProtocolSpecializationEmitter.SubstituteSelfAndPairingGenericsInTypeSpec(
-            new NamedTypeSpec("Swift.String"), parent, pairing);
+            new NamedTypeSpec("Swift.String"), parent, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("Swift.String", named.Name);

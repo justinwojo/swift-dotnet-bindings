@@ -5,13 +5,13 @@
 //
 // Nuke target wrapping the generator's `--regen-stdlib-conformances` mode. Dumps the Swift
 // standard library's conformance graph via swift-api-digester, then has the generator
-// verify/prune the committed `stdlib-conformances.json` fact table against that ground truth.
+// reconcile the committed `stdlib-conformances.json` fact table with that ground truth.
 //
-// The table is the ConformanceOracle's curated stdlib slice — a deliberately minimal "ONE
-// input" — so this target never widens it to the full live conformance set; it only prunes a
-// curated entry the live stdlib no longer declares (catching a hand-curation error or a
-// cross-Xcode drift). Run it after a toolchain bump, or whenever the comment in the table says
-// to regenerate rather than hand-edit.
+// The table is the ConformanceOracle's curated stdlib slice: a matrix of curated type keys ×
+// a curated `protocols` axis. This target fills that matrix from the live stdlib — pruning a
+// listed conformance it does not declare (a hand-curation error or a cross-Xcode drift) and
+// completing a curated pair it does — but never adds a type or protocol outside the curation.
+// Run it after a toolchain bump, and after adding a type key or a protocol to the table.
 
 using Nuke.Common;
 using Nuke.Common.IO;
@@ -35,8 +35,8 @@ partial class Build
     // so this must hold.
     Target RegenStdlibConformances => _ => _
         .After(BindingTests, BehaviorTier, ValidateBlastRadius, X64SimGate, SeedSkipSurfaceBaseline, SeedParityBaseline)
-        .Description("Dump the Swift stdlib via swift-api-digester and prune stale entries from " +
-                     "stdlib-conformances.json (write-back). Pass nothing else — sim SDK + arm64 triple.")
+        .Description("Dump the Swift stdlib via swift-api-digester and reconcile stdlib-conformances.json " +
+                     "with it (write-back). Pass nothing else — sim SDK + arm64 triple.")
         .Executes(() =>
         {
             // This generator mode consumes a swift-api-digester ABI dump + the conformance table,
@@ -76,7 +76,7 @@ partial class Build
                 Assert.Fail($"swift-api-digester exited 0 but did not produce {dumpPath}.");
 
             Log.Information("Dump: {Path} ({Size:N0} bytes)", dumpPath, new System.IO.FileInfo(dumpPath).Length);
-            Log.Information("=== Verifying/pruning {Table} ===", StdlibConformancesPath);
+            Log.Information("=== Reconciling {Table} ===", StdlibConformancesPath);
 
             var args = string.Join(" ", new[]
             {

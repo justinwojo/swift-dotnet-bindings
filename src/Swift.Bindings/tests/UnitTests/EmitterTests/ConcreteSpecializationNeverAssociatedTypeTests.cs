@@ -78,7 +78,7 @@ public class ConcreteSpecializationNeverAssociatedTypeTests
         var pairing = Pairing(new Dictionary<string, string> { ["Payload"] = "Swift.Never" });
 
         var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
-            typeSpec, pairing);
+            typeSpec, pairing, method: null);
 
         // The self-qualified member resolves to the concrete witness with Optional lifted to the
         // outer spec: Optional<Never> — NOT the bare parent generic the old code produced.
@@ -101,7 +101,7 @@ public class ConcreteSpecializationNeverAssociatedTypeTests
         var pairing = Pairing(new Dictionary<string, string> { ["Payload"] = "Swift.Int32" });
 
         var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
-            typeSpec, pairing);
+            typeSpec, pairing, method: null);
 
         var optional = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("Swift.Optional", optional.Name);
@@ -121,7 +121,7 @@ public class ConcreteSpecializationNeverAssociatedTypeTests
         var pairing = Pairing(new Dictionary<string, string> { ["Payload"] = "Swift.Never" });
 
         var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
-            typeSpec, pairing);
+            typeSpec, pairing, method: null);
 
         var optional = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("Swift.Optional", optional.Name);
@@ -139,7 +139,7 @@ public class ConcreteSpecializationNeverAssociatedTypeTests
         var pairing = Pairing(new Dictionary<string, string> { ["Payload"] = "Swift.Int32" });
 
         var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
-            typeSpec, pairing);
+            typeSpec, pairing, method: null);
 
         var optional = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("Swift.Optional", optional.Name);
@@ -162,7 +162,7 @@ public class ConcreteSpecializationNeverAssociatedTypeTests
         var pairing = Pairing(new Dictionary<string, string> { ["Action"] = "Swift.Never" });
 
         var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
-            node, pairing);
+            node, pairing, method: null);
 
         // Unchanged: still the bare parent with its InnerType leaf intact — no witness resolution.
         var named = Assert.IsType<NamedTypeSpec>(result);
@@ -180,7 +180,7 @@ public class ConcreteSpecializationNeverAssociatedTypeTests
         var pairing = Pairing(new Dictionary<string, string> { ["Metric"] = "Swift.Int32" });
 
         var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(
-            typeSpec, pairing);
+            typeSpec, pairing, method: null);
 
         var named = Assert.IsType<NamedTypeSpec>(result);
         Assert.Equal("Swift.Int32", named.Name);

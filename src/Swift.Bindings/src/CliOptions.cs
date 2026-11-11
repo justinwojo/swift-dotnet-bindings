@@ -404,10 +404,12 @@ public class CliOptions
     public Option<bool> RegenStdlibConformances { get; } = new(
         aliases: new[] { "--regen-stdlib-conformances" },
         description: "Regenerate/verify the embedded stdlib-conformances.json fact table against a Swift " +
-                     "stdlib swift-api-digester dump (--stdlib-dump). Prunes any curated conformance the " +
-                     "live stdlib no longer declares (does not widen — the curated type/protocol set is the " +
-                     "file's existing entries). Drift-detect by default (non-zero exit when an entry is " +
-                     "stale); combine with --stdlib-conformances-write-back to rewrite in place. Requires " +
+                     "stdlib swift-api-digester dump (--stdlib-dump). Reconciles the table to its curated " +
+                     "matrix (its type keys × its `protocols` axis) intersected with what the live stdlib " +
+                     "declares: prunes a listed conformance the stdlib does not declare and completes a " +
+                     "curated pair it does (never adds a type or a protocol — those are the curation). " +
+                     "Drift-detect by default (non-zero exit when the table differs); combine with " +
+                     "--stdlib-conformances-write-back to rewrite in place. Requires " +
                      "--stdlib-dump <path> and --stdlib-conformances <path>.",
         getDefaultValue: () => false);
 
@@ -422,7 +424,7 @@ public class CliOptions
 
     public Option<bool> StdlibConformancesWriteBack { get; } = new(
         aliases: new[] { "--stdlib-conformances-write-back" },
-        description: "Used with --regen-stdlib-conformances. When set, prunes and rewrites the table at " +
+        description: "Used with --regen-stdlib-conformances. When set, reconciles and rewrites the table at " +
                      "--stdlib-conformances in place, preserving the existing two-space-indent JSON format.",
         getDefaultValue: () => false);
 

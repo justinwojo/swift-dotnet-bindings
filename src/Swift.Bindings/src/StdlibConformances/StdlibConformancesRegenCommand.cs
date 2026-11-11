@@ -11,24 +11,28 @@ namespace BindingsGeneration.StdlibConformances;
 // `nuke regen-stdlib-conformances` target, which runs swift-api-digester to produce the
 // --stdlib-dump first).
 //
-// Verifies the embedded stdlib-conformances.json fact table — the ConformanceOracle's
-// curated stdlib slice — against ground truth from a `swift-api-digester -dump-sdk -module
-// Swift` dump. The table is a deliberately MINIMAL "ONE input" (it omits true-but-irrelevant
-// conformances like Sendable/Copyable/Decodable), so this command does NOT widen it to the
-// full live conformance graph. It only PRUNES: any curated `Type : Protocol` the live stdlib
-// no longer declares is dropped. That keeps the file a faithful, reproducible projection of
-// the toolchain's stdlib without silently expanding the oracle's emission surface, and it
-// catches hand-curation errors (a listed conformance the stdlib never actually declared) and
-// cross-Xcode drift (a conformance removed upstream).
+// Reconciles the embedded stdlib-conformances.json fact table — the ConformanceOracle's
+// curated stdlib slice — with ground truth from a `swift-api-digester -dump-sdk -module
+// Swift` dump. The table is a curated MATRIX: its type keys are the stdlib types the oracle
+// answers for, and its `protocols` list is the protocol axis it answers about. The command
+// makes the table exactly (curated types × curated protocols) ∩ (what the live stdlib
+// declares), in two directions:
 //
-// Extending the curated set (a new stdlib type, or a new protocol for an existing type) stays
-// a deliberate edit to the JSON followed by a regen-to-verify run; the regen confirms the
-// addition against ground truth or prunes it back out if it isn't real.
+//   - PRUNE: a listed `Type : Protocol` pair the live stdlib does not declare is dropped
+//     (a hand-curation error, or a conformance removed upstream).
+//   - COMPLETE: a curated pair the live stdlib declares but the table omits is added, so a
+//     protocol curated for one type is never silently missing for another (the gap that left
+//     every non-Int scalar failing a `Codable` constraint).
+//
+// The curation itself — which types, which protocols — stays a deliberate edit to the JSON
+// (add a type key with an empty list, or add a protocol to `protocols`); the regen fills the
+// matrix from ground truth. It never adds a protocol that is not on the axis, so the oracle's
+// surface grows only by deliberate curation.
 //
 // Exit codes:
-//   0 — table matches ground truth (nothing to prune), or write-back succeeded.
-//   1 — drift detected in drift-detect mode (a curated entry the stdlib does not declare),
-//       or a file/parse/write error.
+//   0 — table matches ground truth, or write-back succeeded.
+//   1 — drift detected in drift-detect mode (a pair to prune or to complete), or a
+//       file/parse/write error.
 public static class StdlibConformancesRegenCommand
 {
     public static int Run(
@@ -81,10 +85,10 @@ public static class StdlibConformancesRegenCommand
             return 1;
         }
 
-        PruneResult result;
+        ReconcileResult result;
         try
         {
-            result = PruneAgainstDump(table, dumpJson, logger);
+            result = ReconcileAgainstDump(table, dumpJson);
         }
         catch (Exception ex)
         {
@@ -100,27 +104,32 @@ public static class StdlibConformancesRegenCommand
 
         foreach (var pair in result.DroppedPairs)
             logger.LogInformation("PRUNE   {Pair} — not declared by the live Swift stdlib.", pair);
+        foreach (var pair in result.AddedPairs)
+            logger.LogInformation("ADD     {Pair} — declared by the live Swift stdlib, missing from the table.", pair);
 
         logger.LogInformation(
-            "stdlib-conformances regen: {Types} types verified, {Dropped} stale conformance(s) pruned, " +
-            "{NotFound} type(s) absent from dump.",
-            table.Conformances.Count, result.DroppedPairs.Count, result.TypesNotInDump.Count);
+            "stdlib-conformances regen: {Types} types × {Protocols} protocols verified, {Dropped} stale " +
+            "conformance(s) pruned, {Added} missing conformance(s) completed, {NotFound} type(s) absent from dump.",
+            table.Conformances.Count, table.Protocols.Count, result.DroppedPairs.Count, result.AddedPairs.Count,
+            result.TypesNotInDump.Count);
 
+        var changed = result.DroppedPairs.Count + result.AddedPairs.Count;
         if (!writeBack)
         {
-            if (result.DroppedPairs.Count > 0)
+            if (changed > 0)
             {
                 logger.LogError(
-                    "stdlib-conformances.json is stale: {Count} curated conformance(s) are not declared by " +
-                    "the live Swift stdlib. Re-run with --stdlib-conformances-write-back to prune them.",
-                    result.DroppedPairs.Count);
+                    "stdlib-conformances.json is stale: {Dropped} curated conformance(s) are not declared by the " +
+                    "live Swift stdlib and {Added} it declares are missing. Re-run with " +
+                    "--stdlib-conformances-write-back to reconcile.",
+                    result.DroppedPairs.Count, result.AddedPairs.Count);
                 return 1;
             }
             logger.LogInformation("stdlib-conformances.json matches the live Swift stdlib — no drift.");
             return 0;
         }
 
-        if (result.DroppedPairs.Count == 0)
+        if (changed == 0)
         {
             logger.LogInformation("stdlib-conformances.json already matches the live Swift stdlib — nothing to write.");
             return 0;
@@ -133,7 +142,7 @@ public static class StdlibConformancesRegenCommand
         {
             File.WriteAllText(tempPath, Serialize(table));
             File.Move(tempPath, tablePath, overwrite: true);
-            logger.LogInformation("Wrote pruned table to '{Path}'.", tablePath);
+            logger.LogInformation("Wrote reconciled table to '{Path}'.", tablePath);
         }
         catch (Exception ex)
         {
@@ -149,17 +158,21 @@ public static class StdlibConformancesRegenCommand
     }
 
     /// <summary>
-    /// Prunes from <paramref name="table"/> every curated <c>Type : Protocol</c> pair that the
-    /// live Swift stdlib (per the swift-api-digester dump in <paramref name="dumpJson"/>) does
-    /// not declare. Mutates <paramref name="table"/> in place; never adds a conformance, never
-    /// reorders surviving ones — so a clean run is a byte-stable round-trip. A type key absent
-    /// from the dump is left untouched (a wrong dump must not empty the table) and reported via
-    /// <see cref="PruneResult.TypesNotInDump"/>. Pure and toolchain-free for unit testing.
+    /// Makes <paramref name="table"/> exactly its curated matrix — every type key × every
+    /// protocol on <see cref="StdlibConformanceTable.Protocols"/> — intersected with what the
+    /// live Swift stdlib (per the swift-api-digester dump in <paramref name="dumpJson"/>)
+    /// declares. Mutates the table in place. A listed pair the stdlib does not declare, or whose
+    /// protocol is off the axis, is pruned, wherever it came from; a declared pair on the protocol axis that the table omits
+    /// is added. Surviving entries keep their order and additions follow in axis order, so a
+    /// clean run is a byte-stable round-trip. A type key absent from the dump is left untouched
+    /// (a wrong dump must not empty the table) and reported. Pure and toolchain-free for unit
+    /// testing.
     /// </summary>
-    public static PruneResult PruneAgainstDump(StdlibConformanceTable table, string dumpJson, ILogger? logger = null)
+    public static ReconcileResult ReconcileAgainstDump(StdlibConformanceTable table, string dumpJson)
     {
         var live = ParseLiveConformances(dumpJson);
         var dropped = new List<string>();
+        var added = new List<string>();
         var notInDump = new List<string>();
 
         // Snapshot the keys so reassigning values doesn't risk enumerator invalidation.
@@ -174,15 +187,23 @@ public static class StdlibConformancesRegenCommand
             var kept = new List<string>();
             foreach (var protocol in table.Conformances[typeKey])
             {
-                if (liveProtocols.Contains(BareName(protocol)))
+                if (table.Protocols.Contains(protocol, StringComparer.Ordinal)
+                    && liveProtocols.Contains(BareName(protocol)))
                     kept.Add(protocol);
                 else
                     dropped.Add($"{typeKey} : {protocol}");
             }
+            foreach (var protocol in table.Protocols)
+            {
+                if (kept.Contains(protocol, StringComparer.Ordinal) || !liveProtocols.Contains(BareName(protocol)))
+                    continue;
+                kept.Add(protocol);
+                added.Add($"{typeKey} : {protocol}");
+            }
             table.Conformances[typeKey] = kept;
         }
 
-        return new PruneResult(dropped, notInDump);
+        return new ReconcileResult(dropped, added, notInDump);
     }
 
     /// <summary>
@@ -232,24 +253,31 @@ public static class StdlibConformancesRegenCommand
 
     private static string Serialize(StdlibConformanceTable table)
     {
-        // Two-space indented, trailing newline — matches the committed format so a prune is a
-        // minimal one-line-per-dropped-conformance diff.
+        // Two-space indented, trailing newline — matches the committed format so a reconcile is a
+        // minimal one-line-per-changed-conformance diff.
         var json = JsonConvert.SerializeObject(table, Formatting.Indented);
         return json + "\n";
     }
 }
 
-/// <summary>Outcome of a <see cref="StdlibConformancesRegenCommand.PruneAgainstDump"/> pass.</summary>
-public sealed class PruneResult
+/// <summary>Outcome of a <see cref="StdlibConformancesRegenCommand.ReconcileAgainstDump"/> pass.</summary>
+public sealed class ReconcileResult
 {
-    public PruneResult(IReadOnlyList<string> droppedPairs, IReadOnlyList<string> typesNotInDump)
+    public ReconcileResult(
+        IReadOnlyList<string> droppedPairs,
+        IReadOnlyList<string> addedPairs,
+        IReadOnlyList<string> typesNotInDump)
     {
         DroppedPairs = droppedPairs;
+        AddedPairs = addedPairs;
         TypesNotInDump = typesNotInDump;
     }
 
-    /// <summary>Curated <c>Type : Protocol</c> pairs the live stdlib does not declare (now pruned).</summary>
+    /// <summary>Listed <c>Type : Protocol</c> pairs the live stdlib does not declare (now pruned).</summary>
     public IReadOnlyList<string> DroppedPairs { get; }
+
+    /// <summary>Curated-matrix pairs the live stdlib declares that the table omitted (now added).</summary>
+    public IReadOnlyList<string> AddedPairs { get; }
 
     /// <summary>Table type keys absent from the dump — left unchanged, reported for inspection.</summary>
     public IReadOnlyList<string> TypesNotInDump { get; }
@@ -269,6 +297,10 @@ public sealed class StdlibConformanceTable
 
     [JsonProperty("comment")]
     public string? Comment { get; set; }
+
+    /// <summary>The curated protocol axis: the protocols the table answers about.</summary>
+    [JsonProperty("protocols")]
+    public List<string> Protocols { get; set; } = new();
 
     [JsonProperty("conformances")]
     public Dictionary<string, List<string>> Conformances { get; set; } = new();

@@ -56,7 +56,7 @@ public sealed class ConformanceOracle
     /// / SwiftInterfaceParser handshake. A stale embedded file then fails loud at load time
     /// instead of silently mis-answering every stdlib conformance query.
     /// </summary>
-    public const int ExpectedStdlibSchemaVersion = 1;
+    public const int ExpectedStdlibSchemaVersion = 2;
 
     private readonly ITypeDatabase _typeDatabase;
 

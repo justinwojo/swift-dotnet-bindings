@@ -2490,6 +2490,12 @@ public class BoundGenericsHandlerTests
     [InlineData("Swift.Double", "Swift.BinaryFloatingPoint")]
     [InlineData("Swift.Bool", "Swift.ExpressibleByBooleanLiteral")]
     [InlineData("Swift.Never", "Swift.Error")]
+    [InlineData("Swift.Float", "Swift.Decodable")]
+    [InlineData("Swift.Float", "Swift.Encodable")]
+    [InlineData("Swift.Int32", "Swift.Decodable")]
+    [InlineData("Swift.UInt8", "Swift.Comparable")]
+    [InlineData("Swift.Bool", "Swift.Encodable")]
+    [InlineData("Swift.String", "Swift.Decodable")]
     public void ConformanceOracle_HasStdlibConformance_SeededFacts_ReturnTrue(string type, string protocol)
     {
         var oracle = new ConformanceOracle(new MockTypeDatabase());
@@ -2508,8 +2514,12 @@ public class BoundGenericsHandlerTests
             SwiftTypeName.FromModuleQualifiedName("Swift.FloatingPoint")));
         // A stdlib type entirely absent from the table.
         Assert.False(oracle.HasStdlibConformance(
-            SwiftTypeName.FromModuleQualifiedName("Swift.UInt8"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Substring"),
             SwiftTypeName.FromModuleQualifiedName("Swift.Comparable")));
+        // A stdlib type the table covers, for a protocol it really does not declare.
+        Assert.False(oracle.HasStdlibConformance(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Character"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Decodable")));
     }
 
     [Fact]
@@ -2519,7 +2529,7 @@ public class BoundGenericsHandlerTests
         // ExpectedStdlibSchemaVersion — a mismatch throws at construction.
         var ex = Record.Exception(() => new ConformanceOracle(new MockTypeDatabase()));
         Assert.Null(ex);
-        Assert.Equal(1, ConformanceOracle.ExpectedStdlibSchemaVersion);
+        Assert.Equal(2, ConformanceOracle.ExpectedStdlibSchemaVersion);
     }
 
     #endregion
