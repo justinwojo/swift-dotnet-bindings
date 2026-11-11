@@ -40,10 +40,10 @@ public static class TypeProbe
     /// <c>GetType()</c> so the caller can assert cross-assembly type identity
     /// on the round-tripped value.
     ///
-    /// Ownership contract: <c>NewFromPayload</c> moves the value out of the
-    /// source buffer. We must NOT call <c>VWT.Destroy</c> on that buffer
-    /// afterwards — safe today only for trivially destructible
-    /// <c>Language</c>, would double-free any non-POD supplement type.
+    /// Ownership contract: <c>Language</c> declares
+    /// <c>PayloadConstructionSemantics.Copy</c>, so <c>NewFromPayload</c> copies
+    /// the value out of the marshalled buffer and the buffer keeps its own +1.
+    /// It is VWT-destroyed before the raw allocation is freed.
     /// </summary>
     public static System.Type RoundTripLanguage(Swift.Foundation.Locale.Language value)
     {
@@ -52,10 +52,12 @@ public static class TypeProbe
         unsafe
         {
             void* buf = NativeMemory.Alloc((nuint)size);
+            var initialized = false;
             try
             {
                 var span = new Span<byte>(buf, size);
                 ((ISwiftObject)value).MarshalToSwift(ref span);
+                initialized = true;
                 var copy = (Swift.Foundation.Locale.Language)
                     SwiftObjectHelper<Swift.Foundation.Locale.Language>.NewFromPayload((IntPtr)buf);
                 try
@@ -69,6 +71,8 @@ public static class TypeProbe
             }
             finally
             {
+                if (initialized)
+                    metadata.ValueWitnessTable->Destroy(buf, metadata);
                 NativeMemory.Free(buf);
             }
         }

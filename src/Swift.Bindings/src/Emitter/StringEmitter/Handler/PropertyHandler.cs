@@ -936,12 +936,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 dispatchModifier = "virtual ";
             }
         }
-
-        // Then emit the property
-        if (fallbackInfo.HasValue)
+        else if (propertyDecl.ParentDecl is ClassDecl staticParent && propertyDecl.IsStatic && propertyDecl.IsOverride
+            && WrapperEmitter.HasPropertyInResolvedAncestors(staticParent, propertyDecl.Name))
         {
-            UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value, context.GetEmissionContext());
+            // An override of a `class` property projects to a static in each class; the derived one
+            // hides the ancestor's (CS0108 without `new`). Reading it on the derived class passes the
+            // derived metatype, which reaches the Swift override.
+            dispatchModifier = "new ";
         }
+
+        // Then emit the property: every doc line first, then the attributes. A doc comment written
+        // after any attribute documents nothing (CS1587).
         XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
         // Swift `weak`/`unowned` storage does not retain what it holds, so assigning a C#
         // implementation of the protocol here transfers no ownership: the Swift side clears (weak)
@@ -977,9 +982,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var needsMainActorMarker = WrapperValidation.NeedsMainActorAnnotation(
             propertyDecl.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
         if (needsMainActorMarker)
+            TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+
+        if (fallbackInfo.HasValue)
         {
-            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+            UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, fallbackInfo.Value, context.GetEmissionContext());
         }
+        if (needsMainActorMarker)
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
 
         // A narrowed property gets a lossless companion reading the same storage at Swift's own
@@ -1036,10 +1046,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // the lossless read is free of the main-thread contract its narrowed sibling carries.
             if (needsMainActorMarker)
             {
-                TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+                TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+                TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
             }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
-            csWriter.WriteLine($"public {staticModifier}{nativePropertyType} {nativeCompanionName}");
+            // A hiding static override hides the ancestor's companion too.
+            var companionHiding = dispatchModifier == "new " ? "new " : string.Empty;
+            csWriter.WriteLine($"public {staticModifier}{companionHiding}{nativePropertyType} {nativeCompanionName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             // Re-emitted through the same accessor bodies with narrowing switched off, so the

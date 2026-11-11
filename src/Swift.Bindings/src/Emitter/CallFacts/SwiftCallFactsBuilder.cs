@@ -433,9 +433,11 @@ public sealed class SwiftCallFactsBuilder
 
     /// <summary>
     /// Whether the member is reached through a dispatch thunk (<c>…Tj</c>): a protocol
-    /// requirement, or an overridable instance member of a class — not final, on a class that is
-    /// not final, and not declared in an extension. A class's static, <c>class</c> and initializer
-    /// entries are not derived: the model does not say which of them have a vtable entry.
+    /// requirement, or an overridable member of a class — an instance member or a <c>class</c>
+    /// member, not final, on a class that is not final, and not declared in an extension. The ABI
+    /// marks a class's <c>static</c> member final, so it has no vtable entry and no thunk; nor does
+    /// an initializer, which binds its own exported entry. These are the gates
+    /// <see cref="SwiftCallTargetResolver"/> applies when it binds a member through its thunk.
     /// </summary>
     private bool HasDispatchThunk(MethodDecl method, TypeDecl? parent, SwiftCallTargetKind kind)
     {
@@ -445,7 +447,7 @@ public sealed class SwiftCallFactsBuilder
         {
             ProtocolDecl => !method.IsExtensionMethod || method.IsProtocolRequirement,
             ClassDecl c => !c.IsFinal && !method.IsFinal && !method.IsExtensionMethod
-                && !method.IsConstructor && method.MethodType == MethodType.Instance,
+                && !method.IsConstructor,
             _ => false,
         };
     }
@@ -558,7 +560,7 @@ public sealed class SwiftCallFactsBuilder
             return SwiftSelfMutation.Consuming;
         if (method.IsBorrowing)
             return SwiftSelfMutation.Borrowing;
-        if (method.IsMutating || method.IsDeclaredMutatingSubscriptGetter)
+        if (method.IsMutating)
             return SwiftSelfMutation.Mutating;
         if (context.Accessor == SwiftAccessorKind.Set && !method.IsNonmutating)
             return SwiftSelfMutation.Mutating;

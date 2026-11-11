@@ -81,15 +81,11 @@ public class OperatorTests : TestBase
     // fixture (Vector2D) plus the regenerate-and-compile step of the compile gate is what proves
     // that return-marshalling fix end-to-end.
     //
-    // These runtime tests are [Skip]ped, not deleted: a class-parent operator never gets an
-    // @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the emitted
-    // P/Invoke passes the class operands as SafeHandle under CallConvSwift. That non-blittable
-    // shape is rejected on both Mono and NativeAOT with InvalidProgramException BEFORE the return
-    // marshalling runs — a confirmed upstream limitation (Issue 2), independent of and larger than
-    // the CS0029 fix. When the generator emits @_cdecl (CallConvCdecl) wrappers for class-parent
-    // operators — carrying the class operands as IntPtr and handling the static-metatype ABI the
-    // way class static methods already do — these round-trip assertions activate unchanged.
-    [Skip("Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents.")]
+    // A class-parent operator is a static member of the class, so the Swift callee takes the class
+    // metatype in the Swift self register, and its body allocates the result from that metatype.
+    // The binding reaches the operator through a native thunk that loads the class metadata into
+    // that register; these round-trips are what fail (or build the result with the wrong isa) when
+    // it does not.
     public void TestClassReturningOperatorAdd()
     {
         var a = new Vector2D(1.0, 2.0);
@@ -100,7 +96,6 @@ public class OperatorTests : TestBase
         TestLogger.Info($"Vector2D add: ({result.X}, {result.Y})");
     }
 
-    [Skip("Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents.")]
     public void TestClassReturningOperatorSubtract()
     {
         var a = new Vector2D(10.0, 8.0);
@@ -111,7 +106,6 @@ public class OperatorTests : TestBase
         TestLogger.Info($"Vector2D subtract: ({result.X}, {result.Y})");
     }
 
-    [Skip("Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents.")]
     public void TestClassReturningOperatorScalarMultiply()
     {
         var a = new Vector2D(2.0, 3.0);
@@ -121,11 +115,6 @@ public class OperatorTests : TestBase
         TestLogger.Info($"Vector2D scalar multiply: ({result.X}, {result.Y})");
     }
 
-    // These assertions remain as the activation contract for Issue 2. Class-parent operators use
-    // CallConvSwift with SafeHandle operands and currently terminate before managed execution on
-    // CoreCLR as well as being rejected by Mono and NativeAOT. The compile fixture and focused
-    // emitter tests prove this release fix without expanding it into a new operator transport.
-    [Skip("Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands.")]
     public void TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult()
     {
         using var value = new NumberBox(11);
@@ -133,13 +122,14 @@ public class OperatorTests : TestBase
         using var result = value + valueOther;
 
         AssertEqual(42, result.Value, "NumberBox operator returns the summed value");
+        AssertEqual("SwiftBindingsTestLib.NumberBox", result.DynamicTypeName.ToString(),
+            "NumberBox operator allocates its result from the NumberBox metatype");
         result.Payload.Dispose();
         AssertThrows<ObjectDisposedException>(() => _ = result.Value,
             "Disposing the operator result releases its owned Swift object");
         TestLogger.Info("NumberBox class operator returned and released its generated result");
     }
 
-    [Skip("Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands.")]
     public void TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures()
     {
         using var live = new NumberBox(1);
@@ -154,7 +144,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("NumberBox class operator preserved null/disposed operand behavior");
     }
 
-    [Skip("Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands.")]
     public void TestHeterogeneousClassOperatorUsesMarshallingAlias()
     {
         using var operatorValue = new OperatorValue(11);
@@ -164,6 +153,18 @@ public class OperatorTests : TestBase
         AssertEqual(42, result.Value,
             "Heterogeneous class operator returns the summed value through the escaped operand alias");
         TestLogger.Info("Heterogeneous class operator executed through its marshalling-base alias");
+    }
+
+    public void TestObjCRootedClassOperatorAllocatesFromItsMetatype()
+    {
+        // NSObject-rooted: the operator allocates its result with objc_allocWithZone from the class
+        // in the self register, and the operands travel as ObjC handles.
+        using var operatorValue = new ObjCOperatorValue(19);
+        using var operatorValueOther = new ObjCOperatorValueOther(23);
+        using var result = operatorValue + operatorValueOther;
+
+        AssertEqual(42, result.Value, "ObjC-rooted class operator returns the summed value");
+        TestLogger.Info("ObjC-rooted class operator executed and returned its result");
     }
 
     #endregion

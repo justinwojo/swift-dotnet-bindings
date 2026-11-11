@@ -2003,20 +2003,27 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("Int32", record.RawValueTypeName);
     }
 
-    // --- CMTime resolves from CoreMediaDatabase.xml ---
+    // --- CMTime family resolves from CoreMediaDatabase.xml to the same-layout .NET structs ---
 
-    [Fact]
-    public async Task LoadCoreMediaDatabase_CMTime_ResolvesToIntPtr()
+    [Theory]
+    [InlineData("CMTime", "$sSo6CMTimeV")]
+    [InlineData("CMTimeRange", "$sSo11CMTimeRangeV")]
+    [InlineData("CMTimeMapping", "$sSo13CMTimeMappingV")]
+    public async Task LoadCoreMediaDatabase_TimeStructs_ResolveToCoreMediaValueTypes(string name, string mangledName)
     {
+        // A pointer-sized stand-in (the old System.IntPtr mapping of CMTime) let the generator size a
+        // 24-byte native value as 8 bytes, so every by-value read overran its buffer.
         var typeDatabase = await CreateDbWithXmlAsync("CoreMediaDatabase.xml");
 
         Assert.True(typeDatabase.IsModuleLoaded("CoreMedia"));
-        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreMedia.CMTime");
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"CoreMedia.{name}");
         Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
-        Assert.Equal("System", record!.CSharpTypeName.Namespace);
-        Assert.Equal("IntPtr", record.CSharpTypeName.Name);
+        Assert.Equal("CoreMedia", record!.CSharpTypeName.Namespace);
+        Assert.Equal(name, record.CSharpTypeName.Name);
         Assert.Equal(TypeRecordKind.Struct, record.Kind);
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        Assert.Equal(mangledName, record.MetadataAccessor);
     }
 
     // --- SecTrustResultType resolves as uint (System.UInt32 keyword alias) from SecurityDatabase.xml ---

@@ -121,40 +121,62 @@ public class AvailabilityAttributeEmitterTests
         Assert.Contains("[Obsolete(\"Use newName instead.\")]", stringWriter.ToString());
     }
 
-    [Fact]
-    public void VisionOS_EmitsSupportedOSPlatform()
+    // .NET has no visionOS platform, so a "visionos" platform name draws CA1418 ("not a known
+    // platform name") on every attribute and OperatingSystem.IsOSPlatform guard clause. Every
+    // emission path drops visionOS and keeps the platforms .NET knows.
+
+    private static List<AvailabilityAnnotation> IosAndVisionOS() => new()
     {
-        // Family-F-5: visionOS was previously skipped wholesale. The
-        // PlatformMapping now includes visionOS → visionos so 453 markers in
-        // SwiftBindings.Apple.MusicKit lower correctly.
+        new("iOS", "17.0", "18.0", null, false, false, null, null),
+        new("visionOS", "1.0", "2.0", "3.0", false, false, null, null),
+    };
+
+    [Fact]
+    public void VisionOS_EmitAvailabilityAttributes_DropsVisionOSKeepsIOS()
+    {
         var (csWriter, stringWriter) = CreateWriter();
-        var decl = CreateDecl(new List<AvailabilityAnnotation>
-        {
-            new("visionOS", "1.0", null, null, false, false, null, null)
-        });
-        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, decl);
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, CreateDecl(IosAndVisionOS()));
         csWriter.Flush();
-        Assert.Contains(
-            "[global::System.Runtime.Versioning.SupportedOSPlatform(\"visionos1.0\")]",
-            stringWriter.ToString());
+        var output = stringWriter.ToString();
+        Assert.DoesNotContain("visionos", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios17.0\")]", output);
+        Assert.Contains("[global::System.Runtime.Versioning.ObsoletedOSPlatform(\"ios18.0\")]", output);
     }
 
     [Fact]
-    public void VisionOS_FromAnnotations_EmitsSupportedOSPlatform()
+    public void VisionOS_FromAnnotations_DropsVisionOSKeepsIOS()
     {
-        // Mirror EmitFromAnnotations path — specialization emitters that merge
-        // availability from method + parent + conformer must also propagate
-        // visionOS, not skip it.
         var (csWriter, stringWriter) = CreateWriter();
-        var annotations = new List<AvailabilityAnnotation>
-        {
-            new("visionOS", "1.0", null, null, false, false, null, null)
-        };
-        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, annotations);
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, IosAndVisionOS());
         csWriter.Flush();
-        Assert.Contains(
-            "[global::System.Runtime.Versioning.SupportedOSPlatform(\"visionos1.0\")]",
-            stringWriter.ToString());
+        var output = stringWriter.ToString();
+        Assert.DoesNotContain("visionos", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios17.0\")]", output);
+    }
+
+    [Fact]
+    public void VisionOS_RuntimeGuard_HasNoVisionOSClause()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, IosAndVisionOS(), "Foo");
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.DoesNotContain("visionos", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 17, 0)", output);
+    }
+
+    [Fact]
+    public void VisionOS_Only_EmitsNothing()
+    {
+        // A visionOS-only floor must not become a "supported only on visionos" list, which CA1416
+        // would read as "unsupported on iOS".
+        var visionOnly = new List<AvailabilityAnnotation> { new("visionOS", "1.0", null, null, false, false, null, null) };
+        var (csWriter, stringWriter) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, CreateDecl(visionOnly));
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, visionOnly, "Foo");
+        csWriter.Flush();
+        Assert.Equal("", stringWriter.ToString());
+        Assert.Null(AvailabilityAttributeEmitter.BuildIsAvailableCondition(visionOnly));
     }
 
     [Fact]

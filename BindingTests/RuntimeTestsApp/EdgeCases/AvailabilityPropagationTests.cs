@@ -405,34 +405,31 @@ public class AvailabilityPropagationTests : TestBase
     }
 
     /// <summary>
-    /// F-5 (MusicKit). A type whose Swift <c>@available</c> list explicitly
-    /// names <c>visionOS 1.0</c> must lower to a C# type with
-    /// <c>[SupportedOSPlatform("visionos1.0")]</c>. Pre-fix, PlatformMapping
-    /// had no entry for visionOS and the emitter silently dropped the
-    /// clause across ~every MusicKit type.
+    /// F-5. A type whose Swift <c>@available</c> list names <c>visionOS 1.0</c>
+    /// beside iOS/macOS/tvOS must keep every .NET-known clause and carry no
+    /// <c>visionos</c> attribute. .NET has no visionOS platform: no SDK declares
+    /// it as a <c>SupportedPlatform</c>, so an emitted
+    /// <c>[SupportedOSPlatform("visionos1.0")]</c> drew CA1418 in every consumer's
+    /// build of the binding (a hard error under TreatWarningsAsErrors) while it
+    /// could never narrow a call site on a platform a .NET app runs on.
     /// </summary>
-    public void TestF5_VisionOSPlatformSurvivesLowering()
+    public void TestF5_VisionOSClauseDroppedKnownPlatformsSurvive()
     {
         var carrierType = typeof(VisionPlatformCarrier);
         var attrs = carrierType.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
         TestLogger.Info($"VisionPlatformCarrier SupportedOSPlatform attrs: " +
             $"[{string.Join(", ", attrs.Select(a => a.PlatformName))}]");
 
-        var visionOS = attrs.FirstOrDefault(a =>
-            string.Equals(a.PlatformName, "visionos1.0", StringComparison.OrdinalIgnoreCase));
-        AssertTrue(visionOS is not null,
-            "VisionPlatformCarrier must carry SupportedOSPlatform(\"visionos1.0\"). " +
-            "If this fires, F-5 has regressed: visionOS is being silently dropped " +
-            "from the lowered C# attribute set. The MusicKit consumer experience " +
-            "regresses to spurious platform-availability warnings on visionOS.");
+        AssertTrue(!attrs.Any(a => a.PlatformName.StartsWith("visionos", StringComparison.OrdinalIgnoreCase)),
+            "VisionPlatformCarrier must not carry a visionos SupportedOSPlatform attribute: " +
+            "the platform analyzer rejects the name (CA1418) in every consumer build.");
 
-        // Sanity: the iOS / macOS / tvOS clauses must still come through —
-        // the visionOS fix must not disrupt the existing platform mappings.
-        var hasIos = attrs.Any(a =>
-            string.Equals(a.PlatformName, "ios15.0", StringComparison.OrdinalIgnoreCase));
-        AssertTrue(hasIos,
-            "Sibling iOS clause must still survive lowering alongside visionOS — " +
-            "if this fires, the F-5 fix accidentally regressed the existing platform mappings.");
+        foreach (var expected in new[] { "ios15.0", "macos12.0", "tvos15.0" })
+        {
+            AssertTrue(attrs.Any(a => string.Equals(a.PlatformName, expected, StringComparison.OrdinalIgnoreCase)),
+                $"VisionPlatformCarrier must still carry SupportedOSPlatform(\"{expected}\") — " +
+                "dropping visionOS must not drop the sibling clauses of the same @available list.");
+        }
     }
 
 }

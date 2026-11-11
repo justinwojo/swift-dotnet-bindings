@@ -97,7 +97,7 @@ public class XmlDocCommentEmitterTests
                 Remarks = new List<string> { "Note: Requires setup." }
             });
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, Array.Empty<string>());
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <remarks>", output);
@@ -124,7 +124,7 @@ public class XmlDocCommentEmitterTests
             ("lhs", "lhs", null),
             ("rhs", "rhs", null));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "lhs", "rhs" });
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <summary>", output);
@@ -145,7 +145,7 @@ public class XmlDocCommentEmitterTests
                 Returns = "A new instance."
             });
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, isConstructor: true);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, Array.Empty<string>(), isConstructor: true);
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <summary>", output);
@@ -163,7 +163,7 @@ public class XmlDocCommentEmitterTests
                 Returns = "The created instance if valid."
             });
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, isFailableFactory: true);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, Array.Empty<string>(), failableResultName: "result");
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <param name=\"result\">The created instance if valid.</param>", output);
@@ -181,7 +181,7 @@ public class XmlDocCommentEmitterTests
                 Throws = "ParseError if input is malformed."
             });
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, Array.Empty<string>());
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <remarks>", output);
@@ -190,10 +190,10 @@ public class XmlDocCommentEmitterTests
     }
 
     [Fact]
-    public void EmitMethodDocComment_FailableFactory_NoDuplicateResultParam()
+    public void EmitMethodDocComment_FailableFactory_RenamedOutParamTakesReturns()
     {
-        // If a Swift init? has a parameter that maps to C# "result",
-        // the synthetic <param name="result"> from Returns should be skipped
+        // A Swift init? whose own parameter maps to C# "result" gets a renamed out parameter.
+        // The Swift parameter keeps its description, and Returns: describes the renamed out.
         var (csWriter, stringWriter) = CreateWriter();
         var methodDecl = CreateMethodDecl(
             new DocComment
@@ -207,14 +207,144 @@ public class XmlDocCommentEmitterTests
             },
             ("result", "result", null));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, isFailableFactory: true);
+        XmlDocCommentEmitter.EmitMethodDocComment(
+            csWriter, methodDecl, new[] { "result" }, failableResultName: "__resultOut1");
 
         var output = stringWriter.ToString();
-        // Should have exactly one <param name="result"> from the mapped parameter
-        var count = output.Split("/// <param name=\"result\">").Length - 1;
-        Assert.Equal(1, count);
-        // The mapped parameter description wins, not the Returns text
+        Assert.Equal(1, output.Split("/// <param name=\"result\">").Length - 1);
         Assert.Contains("/// <param name=\"result\">The result parameter.</param>", output);
+        Assert.Contains("/// <param name=\"__resultOut1\">The created instance.</param>", output);
+        Assert.DoesNotContain("<returns>", output);
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_FailableFactory_ParamDocsWithoutReturns_TagsOutParam()
+    {
+        // Documented parameters but no Returns: the out result still needs a tag (CS1573).
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Tries to create.",
+                Parameters = new Dictionary<string, string> { { "value", "The input." } }
+            },
+            ("value", "value", null));
+
+        XmlDocCommentEmitter.EmitMethodDocComment(
+            csWriter, methodDecl, new[] { "value" }, failableResultName: "result");
+
+        var output = stringWriter.ToString();
+        Assert.Contains("/// <param name=\"value\">The input.</param>", output);
+        Assert.Contains(
+            $"/// <param name=\"result\">{XmlDocCommentEmitter.FailableResultParamText}</param>", output);
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_PartialDocs_TagsEveryEmittedParameter()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Moves.",
+                Parameters = new Dictionary<string, string> { { "dx", "Horizontal offset." } }
+            },
+            ("dx", "dx", null),
+            ("dy", "dy", null));
+
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "dx", "dy" });
+
+        var output = stringWriter.ToString();
+        Assert.Contains("/// <param name=\"dx\">Horizontal offset.</param>", output);
+        Assert.Contains("/// <param name=\"dy\"></param>", output);
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_ParameterAbsentFromEmittedSignature_Dropped()
+    {
+        // A bridge that drops a defaulted or closure parameter must not tag it (CS1572), and
+        // the parameters it keeps are tagged in the order it declares them.
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Runs.",
+                Parameters = new Dictionary<string, string>
+                {
+                    { "count", "How many." },
+                    { "label", "The label." }
+                }
+            },
+            ("count", "count", null),
+            ("label", "label", null),
+            ("body", "body", null));
+
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "body", "label" });
+
+        var output = stringWriter.ToString();
+        Assert.DoesNotContain("<param name=\"count\">", output);
+        var body = output.IndexOf("/// <param name=\"body\"></param>", StringComparison.Ordinal);
+        var label = output.IndexOf("/// <param name=\"label\">The label.</param>", StringComparison.Ordinal);
+        Assert.True(body >= 0 && label > body, output);
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_NoEmittedParameterDescribed_WritesNoParamTags()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Runs.",
+                Parameters = new Dictionary<string, string> { { "count", "How many." } }
+            },
+            ("count", "count", null),
+            ("label", "label", null));
+
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "label" });
+
+        Assert.DoesNotContain("<param ", stringWriter.ToString());
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_VerbatimEmittedName_MatchesAndStripsPrefix()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Rebases.",
+                Parameters = new Dictionary<string, string> { { "base", "The base." } }
+            },
+            ("base", "base", null),
+            ("other", "other", null));
+
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "@base", "other" });
+
+        var output = stringWriter.ToString();
+        Assert.Contains("/// <param name=\"base\">The base.</param>", output);
+        Assert.Contains("/// <param name=\"other\"></param>", output);
+    }
+
+    [Fact]
+    public void EmitMethodDocComment_CancellationToken_TaggedAfterParameters()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var methodDecl = CreateMethodDecl(
+            new DocComment
+            {
+                Summary = "Loads.",
+                Parameters = new Dictionary<string, string> { { "id", "The id." } }
+            },
+            ("id", "id", null));
+
+        XmlDocCommentEmitter.EmitMethodDocComment(
+            csWriter, methodDecl, new[] { "id" }, cancellationTokenName: "cancellationToken");
+
+        var output = stringWriter.ToString();
+        var id = output.IndexOf("<param name=\"id\">", StringComparison.Ordinal);
+        var ct = output.IndexOf("<param name=\"cancellationToken\">", StringComparison.Ordinal);
+        Assert.True(id >= 0 && ct > id, output);
     }
 
     [Fact]
@@ -262,7 +392,7 @@ public class XmlDocCommentEmitterTests
             },
             ("to", "to", "other"));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "other" });
 
         var output = stringWriter.ToString();
         // NameProvider.GetCSharpParameterName prefers PrivateName, so the param name should be "other"
@@ -286,7 +416,7 @@ public class XmlDocCommentEmitterTests
             },
             ("_", "_", "value"));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "value" });
 
         var output = stringWriter.ToString();
         // "value" matches via PrivateName fallback, C# name is "value" (no longer sanitized)
@@ -308,10 +438,12 @@ public class XmlDocCommentEmitterTests
             },
             ("x", "x", null));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "x" });
 
         var output = stringWriter.ToString();
         Assert.DoesNotContain("<param name=\"nonexistent\">", output);
+        // Nothing the declaration has is described, so no parameter is tagged at all.
+        Assert.DoesNotContain("<param ", output);
     }
 
     [Fact]
@@ -332,7 +464,7 @@ public class XmlDocCommentEmitterTests
             },
             ("url", "url", null));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, new[] { "url" });
 
         var output = stringWriter.ToString();
         Assert.Contains("/// <summary>", output);

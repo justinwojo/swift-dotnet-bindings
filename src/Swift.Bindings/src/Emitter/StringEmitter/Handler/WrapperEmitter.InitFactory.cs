@@ -107,12 +107,12 @@ namespace BindingsGeneration
             var helperName = $"CreateSwiftInstance_{NameProvider.GetPInvokeName(_env.EmissionSymbol, (MethodDecl)_env.MethodDecl)}";
             var paramArgs = string.Join(", ", _wrapperSignature.Parameters.Select(p => p.Name));
 
+            EmitMemberDocumentation(csWriter, isConstructor: true);
             EmitFallbackAttribute(csWriter);
             var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
-            EmitMainActorMemberAnnotation(csWriter);
+            EmitMainActorMemberAttribute(csWriter);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
             // No main-thread guard here: the Swift init already ran inside the static helper, which carries

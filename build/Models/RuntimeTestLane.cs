@@ -35,6 +35,62 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
         $"{Framework}_{platform}_{rid}_{Engine(device)}_{BuildConfiguration(device, false).ToLowerInvariant()}";
     public string AppBinDirectory(bool device) => IsNet11 ? $"bin/{Engine(device)}" : "bin";
 
+    /// <summary>
+    /// The lane a built test app belongs to, as its build receipt records it. .NET 11 names its
+    /// engine; a .NET 10 lane is fixed by its bundle path, whose configuration segment already
+    /// separates the NativeAOT (Release) and Mono full-AOT (Debug) device apps.
+    /// </summary>
+    public string AppIdentity(bool device, bool monoAot) => IsNet11
+        ? $"{Framework}/{Engine(device)}/{BuildConfiguration(device, monoAot)}"
+        : $"{Framework}/{BuildConfiguration(device, monoAot)}";
+
+    /// <summary>The baseline file that owns this lane's runtime-identity floors.</summary>
+    public string IdentityBaselineFile => IsNet11 ? "runtime-identity-net11-baseline.json" : "runtime-identity-baseline.json";
+
+    /// <summary>
+    /// Why <c>--seed-runtime-identity-baseline</c> may not write this lane's floor, or null when it may.
+    /// </summary>
+    /// <remarks>
+    /// The .NET 10 floors belong to the unprofiled repository toolchain, so a toolchain profile never
+    /// writes them. The .NET 11 floors are the opposite: only the net11 profile can build those apps,
+    /// so they are seeded only inside it, and its launcher copies that one file back to the checkout.
+    /// Debug .NET 11 lanes run the CoreCLR interpreter, whose known defects the bridge work has not
+    /// closed, so they get no floor yet. <paramref name="buildConfiguration"/> is the configuration
+    /// the lane actually builds; when seeding is checked before any lane runs, pass the requested
+    /// configuration, which every non-NativeAOT lane builds.
+    /// </remarks>
+    public string? IdentitySeedRefusal(bool isolatedProfile, string buildConfiguration)
+    {
+        if (!IsNet11)
+            return isolatedProfile
+                ? "A toolchain profile never writes the .NET 10 runtime-identity floors; seed them from the repository toolchain."
+                : null;
+        if (!isolatedProfile)
+            return "The .NET 11 runtime-identity floors are seeded only through the net11 toolchain profile launcher, " +
+                   "which records the SDK, workload and Xcode identity and copies the seeded file back.";
+        if (buildConfiguration != "Release")
+            return "Debug .NET 11 lanes have no runtime-identity floor yet; seed with --binding-test-configuration Release.";
+        return null;
+    }
+
+    /// <summary>
+    /// Why this lane refuses the requested auxiliary gates, or null when it runs them.
+    /// </summary>
+    /// <remarks>
+    /// The compile-only gate needs no runtime and runs for either framework: it generates and
+    /// compile-checks for this lane's framework, and its baselines describe the generated surface.
+    /// The ABI grid grades results against the Mono JIT simulator and NativeAOT device runtimes its
+    /// manifest declares, and the Apple-framework smokes regenerate their snapshots for .NET 10, so
+    /// both keep .NET 10 policy, as do the Mono-only ActivityKit push-token and Catalyst x64 JIT arms.
+    /// </remarks>
+    public string? AuxiliaryGateRefusal(bool abiGrid, bool appleSmoke, bool activityKitPushToken, bool catalystX64Jit)
+    {
+        if (!IsNet11 || !(abiGrid || appleSmoke || activityKitPushToken || catalystX64Jit))
+            return null;
+        return "This auxiliary gate has not been migrated to .NET 11. " +
+               "ABI-grid, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.";
+    }
+
     /// <summary>Requires positive framework and engine evidence; dynamic-code support is irrelevant.</summary>
     public bool MatchesLiveIdentity(string? output, bool device)
     {

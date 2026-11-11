@@ -657,6 +657,8 @@ public class ConsumerSafetyAttributeTests
             Name = name,
             MangledName = $"$s10TestModule{parentDecl.Name.Length}{parentDecl.Name}C{name.Length}{name}SiyF",
             MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            // A `static` member of a class is a final `class` member, and the ABI marks it so.
+            IsFinal = isStatic,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
             {

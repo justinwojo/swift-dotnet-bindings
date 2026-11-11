@@ -2217,6 +2217,27 @@ namespace BindingsGeneration
             // Propagate SB0001/SB0002 safety attributes from the underlying method
             var safetyAttr = GetSafetyObsoleteAttribute(methodEnv, asyncMethodName);
 
+            // Documentation precedes every attribute (after one it documents nothing, CS1587), and
+            // documents every parameter: the cancellation token always has a tag, so a forwarded
+            // parameter without one is CS1573. A forwarded parameter keeps the primary's Swift
+            // description, or else says where it goes. The primary is named in prose, not by a cref:
+            // a bare method-group cref is ambiguous whenever the name is overloaded (CS0419) — which
+            // the primary's own trailing-default overloads alone make it — and a disambiguating
+            // cref would have to respell every C# parameter type in cref syntax.
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// Task-returning overload for <c>{baseMethodName}</c>.");
+            csWriter.WriteLine("/// </summary>");
+            var primaryParamDocs = XmlDocCommentEmitter.MapParameterDocs(methodDecl)
+                .ToDictionary(p => p.CsName, p => p.XmlText, StringComparer.Ordinal);
+            foreach (var p in nonClosureParams)
+            {
+                var csName = NameProvider.GetCSharpParameterName(p);
+                csWriter.WriteLine(XmlDocCommentEmitter.ParamTag(csName,
+                    primaryParamDocs.TryGetValue(csName, out var text) ? text : $"Passed to <c>{baseMethodName}</c>."));
+            }
+            csWriter.WriteLine(XmlDocCommentEmitter.ParamTag(ctName,
+                "Cancels the returned Task but does not cancel the underlying operation."));
+
             // Inherit [SupportedOSPlatform] / [ObsoletedOSPlatform] from the primary method.
             // Without these, CA1416 flags the Task-returning forwarder as reachable on lower
             // OS versions than the platform-gated completion-handler API it delegates to.
@@ -2225,10 +2246,6 @@ namespace BindingsGeneration
 
             // Emit the overload
             csWriter.WriteLines($$"""
-                /// <summary>
-                /// Task-returning overload for <see cref="{{baseMethodName}}"/>.
-                /// </summary>
-                /// <param name="{{ctName}}">Cancels the returned Task but does not cancel the underlying operation.</param>
                 {{(safetyAttr != null ? safetyAttr + "\n    " : "")}}{{accessModifier}} {{staticModifier}}async {{taskType}} {{asyncMethodName}}({{paramString}})
                 {
                     var {{tcsName}} = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);

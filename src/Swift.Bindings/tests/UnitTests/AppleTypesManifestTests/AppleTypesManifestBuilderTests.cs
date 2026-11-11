@@ -305,6 +305,27 @@ public class AppleTypesManifestBuilderTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Type_left_out_of_the_Catalyst_dump_is_unsupported_on_Catalyst(bool nested)
+    {
+        // `@available(iOS 15.0, *) @available(macCatalyst, unavailable)`: the digester prints
+        // no Mac Catalyst record, and its macabi dump leaves the type out, at top level or
+        // under a parent that stays in the dump. The Catalyst column must stay null, not
+        // follow the iOS record, so the emitter marks the type [UnsupportedOSPlatform].
+        var leaf = TypeDecl("Struct", "Shield", nested ? "$s3Kit5OuterO6ShieldV" : "$s3Kit6ShieldV", introIos: "15.0");
+        string Dump(bool withLeaf) => nested
+            ? TypeDecl("Enum", "Outer", "$s3Kit5OuterO", childrenJson: withLeaf ? "[" + leaf + "]" : "[]")
+            : withLeaf ? leaf : TypeDecl("Struct", "Other", "$s3Kit5OtherV");
+
+        var availability = BuildAcrossDumps(nested ? "Kit.Outer.Shield" : "Kit.Shield",
+            target => target == CatalystTarget ? Dump(withLeaf: false) : Dump(withLeaf: true));
+
+        Assert.Equal("15.0", availability.Ios);
+        Assert.Null(availability.Maccatalyst);
+    }
+
+    [Theory]
     [InlineData(null, "records no -target")]
     [InlineData("arm64-apple-watchos11.0-simulator", "columns only for")]
     [InlineData("arm64-unknown-linux-gnu", "names no Apple OS")]

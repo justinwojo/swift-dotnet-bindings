@@ -260,16 +260,17 @@ namespace BindingsGeneration
                 outType = $"({string.Join(", ", tupleElements)})";
             }
 
-            // Checkpoint before the doc + signature so a suppressed-proxy produce-throw can inject the
-            // compile-time-visible SB0006 [Obsolete(error:true)] marker ahead of them; the body
-            // checkpoint below only rolls back the half-written body.
-            var __tryGetSigCp = csWriter.Checkpoint();
             // Emit the TryGet method
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
             csWriter.WriteLine("/// </summary>");
             csWriter.WriteLine($"/// <param name=\"value\">When this method returns true, contains the associated value(s).</param>");
             csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
+            // Checkpoint between the doc and the signature so a suppressed-proxy produce-throw can inject
+            // the compile-time-visible SB0006 [Obsolete(error:true)] marker ahead of the signature but
+            // after the doc, which documents the method only while it precedes every attribute (CS1587).
+            // The body checkpoint below only rolls back the half-written body.
+            var __tryGetSigCp = csWriter.Checkpoint();
             csWriter.WriteLine($"public bool TryGet{capitalizedName}([MaybeNullWhen(false)] out {outType} value)");
             // Predict-before-emit: a payload existential whose EveryProtocol conformance was not
             // emitted throws SuppressedProxyReferenceException from EmitPayloadMarshal* mid-body.
@@ -371,9 +372,9 @@ namespace BindingsGeneration
             catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(__tryGetCp);
-                // Inject the SB0006 marker ahead of the (already-written) doc + signature so calling
-                // TryGet is a COMPILE error, not just a runtime throw; restore the captured doc +
-                // signature after it, then emit the throw-stub body as the runtime backstop.
+                // Inject the SB0006 marker between the (already-written) doc and signature so calling
+                // TryGet is a COMPILE error, not just a runtime throw; restore the captured signature
+                // after it, then emit the throw-stub body as the runtime backstop.
                 var __tryGetDocSig = csWriter.RollbackToAndCapture(__tryGetSigCp);
                 WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
                 csWriter.AppendCaptured(__tryGetDocSig);
@@ -489,18 +490,18 @@ namespace BindingsGeneration
             var successName = bodyScope.Mint("success");
             var tupleMetadataName = bodyScope.Mint("tupleMetadata");
 
-            // Checkpoint before the doc + signature so a suppressed-proxy produce-throw can inject the
-            // compile-time-visible SB0006 marker ahead of them (see the single-value TryGet above).
-            var __tryGetTupleSigCp = csWriter.Checkpoint();
             // Emit the TryGet method
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
             csWriter.WriteLine("/// </summary>");
             foreach (var (_, _, name, _) in parameters)
             {
-                csWriter.WriteLine($"/// <param name=\"{name}\">When this method returns true, contains the associated value.</param>");
+                csWriter.WriteLine(XmlDocCommentEmitter.ParamTag(name, "When this method returns true, contains the associated value."));
             }
             csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
+            // Checkpoint between the doc and the signature so a suppressed-proxy produce-throw can inject
+            // the SB0006 marker after the doc (see the single-value TryGet above).
+            var __tryGetTupleSigCp = csWriter.Checkpoint();
             csWriter.WriteLine($"public bool TryGet{capitalizedName}({outParamString})");
             // Predict-before-emit: a tuple-element existential whose EveryProtocol conformance was
             // not emitted throws SuppressedProxyReferenceException from EmitPayloadMarshalWithOffset
@@ -587,8 +588,8 @@ namespace BindingsGeneration
             catch (SuppressedProxyReferenceException ex)
             {
                 csWriter.RollbackTo(__tryGetTupleCp);
-                // Inject the SB0006 marker ahead of the doc + signature so calling TryGet is a compile
-                // error, not just a runtime throw; restore the doc + signature, then emit the throw stub.
+                // Inject the SB0006 marker between the doc and the signature so calling TryGet is a
+                // compile error, not just a runtime throw; restore the signature, then emit the throw stub.
                 var __tryGetTupleDocSig = csWriter.RollbackToAndCapture(__tryGetTupleSigCp);
                 WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
                 csWriter.AppendCaptured(__tryGetTupleDocSig);

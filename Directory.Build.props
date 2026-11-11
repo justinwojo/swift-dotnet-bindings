@@ -18,6 +18,15 @@
     <SwiftBindingsAppleVersion Condition="'$(SwiftBindingsAppleVersion)' == ''">0.0.0-dev</SwiftBindingsAppleVersion>
   </PropertyGroup>
 
+  <!-- Exact NuGet audit advisories a toolchain profile's pinned Microsoft toolchain cannot avoid.
+       Each one, with its reason, is declared in build/toolchains/<profile>.json (nugetAuditSuppress),
+       and the profile launcher exports the URLs; outside a profile nothing is suppressed. An item
+       suppresses only its own advisory URL: every other NU1901-NU1904 still fails under
+       TreatWarningsAsErrors. ToolchainProfileTests pins both properties of this group. -->
+  <ItemGroup Condition="'$(SWIFT_BINDINGS_TOOLCHAIN_PROFILE)' != '' AND '$(SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS)' != ''">
+    <NuGetAuditSuppress Include="$(SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS)" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
     <IsPackable>false</IsPackable>
     <TestCaptureOutput>false</TestCaptureOutput>

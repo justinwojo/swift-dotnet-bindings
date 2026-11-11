@@ -1796,12 +1796,14 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void PInvokeCall_NonCdeclGenericClassConstructor_UsesUnconstrainedTypeMetadataAccessor()
+    public void PInvokeCall_NonCdeclGenericClassConstructor_PassesTheSpecializedMetatypeAsSelf()
     {
-        // Non-@_cdecl constructors (silgen_name path) should still use per-param metadata.
-        // The metadata source is the unconstrained TypeMetadata.GetTypeMetadataOrThrow<T>()
-        // (not SwiftObjectHelper<T>), so call sites compile when the surrounding generic's
-        // where clause has dropped the ISwiftObject seed for blittable instantiations.
+        // A direct (silgen_name) allocating init of a generic class takes the specialised class
+        // metatype in the self register and reads T out of it, so T travels inside that metatype
+        // and nowhere else: no trailing metatype or per-parameter metadata argument. The metatype
+        // is built from the unconstrained TypeMetadata.GetTypeMetadataOrThrow<T>() (not
+        // SwiftObjectHelper<T>), so call sites compile when the surrounding generic's where clause
+        // has dropped the ISwiftObject seed for blittable instantiations.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("GenericCache", moduleDecl);
         classDecl.GenericParameters = new List<GenericArgumentDecl>
@@ -1834,14 +1836,18 @@ public class MethodMarshalPlanBuilderTests
         var helperContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
         var env = new MethodEnvironment(method, typeDb, pinvokeHelperContext: helperContext);
 
+        var pInvokeBuilder = new PInvokeSignatureBuilder(env);
+        pInvokeBuilder.HandleClassMetatypeSelf();
         var wrapperSig = new Signature("void", Array.Empty<Parameter>());
-        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
-        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+        var plan = BuildPlan(env, wrapperSig, pInvokeBuilder.Build());
 
-        // Non-@_cdecl should use per-param metadata. Source is the unconstrained helper
-        // so the call site compiles when the type's where clause has no ISwiftObject seed.
-        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<T>", plan.PInvokeCallStatement);
-        Assert.DoesNotContain("SwiftObjectHelper<T>", plan.PInvokeCallStatement);
+        var call = plan.PInvokeCallStatement;
+        Assert.Contains(
+            $"new SwiftSelf((void*){helperContext!.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, TypeMetadata.GetTypeMetadataOrThrow<T>().Handle).Handle)",
+            call);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(call, "PInvoke_getMetadata"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(call, "GetTypeMetadataOrThrow<T>"));
+        Assert.DoesNotContain("SwiftObjectHelper<T>", call);
     }
 
     [Fact]

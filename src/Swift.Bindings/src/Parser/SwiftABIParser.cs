@@ -1054,6 +1054,9 @@ namespace BindingsGeneration
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
+            int normalized = GenericParameterDialectNormalizer.Normalize(_moduleRoot.ABIRoot);
+            if (normalized > 0)
+                _logger.LogDebug("Respelled the source-named generic parameters of {Count} declaration(s) by depth and index", normalized);
         }
 
         /// <summary>
@@ -1840,10 +1843,9 @@ namespace BindingsGeneration
 
         private TypeConformance HandleConformance(Node node, SwiftTypeName typeName, string? implementingTypeMangledName = null)
         {
-            // Demangle the conformance's protocol mangled name. The demangler does not
-            // yet recognize every standard library short substitution (notably the
-            // `Sc*` family used by `_Concurrency` types — `$sSci` for AsyncSequence,
-            // `$sScI` for AsyncIteratorProtocol, etc.), and a crash here would propagate
+            // Demangle the conformance's protocol mangled name. A mangling the demangler
+            // does not recognize (the `Sc*` concurrency substitutions were one such gap
+            // until the second-level table was implemented) must not crash here: it would propagate
             // up through the conformance list select in CreateStructDecl/CreateClassDecl
             // and kill the entire enclosing TypeDecl via HandleNode's catch-all. Wrap
             // the call so a missing substitution merely degrades the conformance to a
@@ -2593,20 +2595,18 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // Mirror the HandleConformance guard: an unsupported demangler
-                    // substitution (e.g. `$sSci` for `_Concurrency.AsyncSequence`) would
-                    // otherwise throw and HandleNode's catch-all would silently drop the
-                    // entire enclosing ProtocolDecl. Fall back to the printedName-derived
-                    // identity so the inherited protocol is still recorded.
+                    // Mirror the HandleConformance guard: a mangling the demangler does not
+                    // recognize would otherwise throw and HandleNode's catch-all would silently
+                    // drop the entire enclosing ProtocolDecl — or, when it fails without throwing,
+                    // drop just this inherited protocol. Either way, fall back to the
+                    // printedName-derived identity so the inherited protocol is still recorded.
                     NamedTypeSpec? namedTypeSpec = null;
                     try
                     {
                         var reduction = demangler.Run(conformance.MangledName);
-                        if (reduction is TypeSpecReduction typeSpecReduction &&
-                            typeSpecReduction.TypeSpec is NamedTypeSpec demangledSpec)
-                        {
-                            namedTypeSpec = demangledSpec;
-                        }
+                        namedTypeSpec = (reduction as TypeSpecReduction)?.TypeSpec as NamedTypeSpec
+                            ?? throw new InvalidOperationException(
+                                $"Invalid demangling result for '{conformance.MangledName}'.");
                     }
                     catch (Exception ex)
                     {
@@ -2875,8 +2875,11 @@ namespace BindingsGeneration
             // Constructors are NOT skipped even if implicit: implicit inits on types with
             // @_hasMissingDesignatedInitializers are internal and MUST be caught.
             // Public implicit inits DO appear in the public swiftinterface (memberwise inits, etc.).
+            // Operator functions are skipped too: the public member set never indexes them, so
+            // an operator's absence from it carries no information about its access level.
             if (!methodDecl.IsModuleInternal &&
-                (node.@implicit != true || methodDecl.IsConstructor))
+                (node.@implicit != true || methodDecl.IsConstructor) &&
+                !IsOperator(node.Name))
             {
                 bool isCurrentModuleMember = !string.IsNullOrEmpty(node.ModuleName) &&
                     node.ModuleName == CurrentModuleName;
@@ -3412,10 +3415,7 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 Throws = accessor.throwing ?? false,
                 IsAsync = isAsync,
-                // Accessors mark mutation via the "Mutating" DeclAttribute (lazy-var getters, mutating get).
-                // Plain methods use funcSelfKind, but accessor nodes don't carry that — use either signal.
-                IsMutating = accessor.DeclAttributes?.Contains("Mutating") == true
-                    || accessor.funcSelfKind == "Mutating",
+                IsMutating = IsMutatingAccessor(accessor),
                 IsConsuming = accessor.funcSelfKind == "Consuming",
                 IsBorrowing = accessor.funcSelfKind == "Borrowing",
                 IsSynthesizedAccessor = true,
@@ -3948,6 +3948,16 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether an accessor node takes self inout. The ABI descriptor marks a `mutating get`
+        /// (property or subscript) with a <c>Mutating</c> declaration attribute and carries no
+        /// <c>funcSelfKind</c> on accessors, while a function node uses <c>funcSelfKind</c>; read
+        /// either. A <c>swift-api-digester -dump-sdk</c> dump carries neither on an accessor.
+        /// </summary>
+        internal static bool IsMutatingAccessor(Node accessor)
+            => accessor.DeclAttributes?.Contains("Mutating") == true
+                || accessor.funcSelfKind == "Mutating";
+
+        /// <summary>
         /// Creates a getter accessor for a subscript.
         /// </summary>
         private GetAccessorDecl CreateSubscriptGetAccessor(
@@ -4009,10 +4019,12 @@ namespace BindingsGeneration
                 // an ABI mismatch that compiles.
                 Throws = accessor.throwing ?? false,
                 IsAsync = isAsync,
+                // A `mutating get` takes self inout, exactly like a `mutating func`, so the wrapper
+                // and thunk have to hand it the caller's own storage rather than a borrowed copy.
+                IsMutating = IsMutatingAccessor(accessor),
                 IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
-                IsDeclaredMutatingSubscriptGetter = accessor.DeclAttributes?.Contains("Mutating") == true,
             };
 
             return new GetAccessorDecl { Method = methodDecl };

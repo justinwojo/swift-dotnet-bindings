@@ -684,7 +684,7 @@ public class SwiftCallFactsTests
     }
 
     [Fact]
-    public void MutatingSubscriptGetter_MutatesSelf_WithoutChangingTheEmissionFlag()
+    public void MutatingSubscriptGetter_MutatesSelf_AndAgreesWithTheEmissionFlag()
     {
         var point = TypeDecl("Struct", "Point", Point, new[]
         {
@@ -695,8 +695,7 @@ public class SwiftCallFactsTests
 
         Assert.Equal(SwiftSelfMutation.Mutating, Facts(table, Point + "ys5Int32VSScig").Self.Mutation);
         var getter = Assert.Single(module.Types).Subscripts.Single().Accessors.OfType<GetAccessorDecl>().Single().Method;
-        Assert.True(getter.IsDeclaredMutatingSubscriptGetter);
-        Assert.False(getter.IsMutating);
+        Assert.True(getter.IsMutating);
     }
 
     [Fact]
@@ -840,6 +839,7 @@ public class SwiftCallFactsTests
     [Fact]
     public void DispatchThunk_IsNotDerivedForFinalExtensionStaticOrInitializerMembers()
     {
+        // The ABI marks a class's `static` member Final; a `class` member is not, and has a thunk.
         const string sealedBox = "$s10TestModule9SealedBoxC";
         var sealedDecl = TypeDecl("Class", "SealedBox", sealedBox, new[]
         {
@@ -850,7 +850,9 @@ public class SwiftCallFactsTests
             Func("open", "open()", Box + "4openyyF", new[] { Void }),
             Func("pinned", "pinned()", Box + "6pinnedyyF", new[] { Void }, attrs: new[] { "AccessControl", "Final" }),
             Func("extra", "extra()", Box + "5extrayyF", new[] { Void }, extra: "\"isFromExtension\": true"),
-            Func("make", "make()", Box + "4makeACyFZ", new[] { Nominal("TestModule.Box") }, isStatic: true),
+            Func("make", "make()", Box + "4makeACyFZ", new[] { Nominal("TestModule.Box") }, isStatic: true,
+                attrs: new[] { "Final", "AccessControl" }),
+            Func("report", "report()", Box + "6reportyyFZ", new[] { Void }, isStatic: true),
             Func("init", "init(seed:)", Box + "4seedACs5Int32V_tcfc", new[] { Nominal("TestModule.Box"), Int32 }, declKind: "Constructor", kind: "Constructor"),
         });
 
@@ -858,6 +860,9 @@ public class SwiftCallFactsTests
 
         Assert.True(Facts(table, Box + "4openyyF").Target.HasDispatchThunk);
         Assert.True(table.TryGet(Box + "4openyyFTj", out _));
+        var classMember = Facts(table, Box + "6reportyyFZTj");
+        Assert.Equal(SwiftEntryKind.DispatchThunk, classMember.Target.Entry);
+        Assert.Equal(SwiftCallSelfKind.ThickMetatype, classMember.Self.Kind);
         foreach (var symbol in new[] { sealedBox + "4openyyF", Box + "6pinnedyyF", Box + "5extrayyF", Box + "4makeACyFZ", Box + "4seedACs5Int32V_tcfC" })
         {
             Assert.False(Facts(table, symbol).Target.HasDispatchThunk, symbol);

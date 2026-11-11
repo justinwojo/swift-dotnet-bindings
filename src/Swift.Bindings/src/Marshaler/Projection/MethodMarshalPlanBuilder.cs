@@ -302,6 +302,11 @@ internal class MethodMarshalPlanBuilder
             var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName, StringComparer.Ordinal);
             foreach (var conformance in conformances)
             {
+                // Lockstep with PInvokeSignatureBuilder.HandleProtocolConformance: a witness table
+                // the class metatype self already carries is not an argument, so no local for it.
+                if (MarshallingHelpers.IsConformanceFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
+                    continue;
+
                 bool resolvable = _isProtocolAvailable(conformance.ConformanceTarget);
                 if (resolvable)
                 {
@@ -440,10 +445,9 @@ internal class MethodMarshalPlanBuilder
             lines.Add($"IntPtr {payloadName} = IntPtr.Zero;");
         }
 
-        // Pre-declare SwiftError for 'ref' passing (caller must zero-initialize per Swift ABI).
-        // @_cdecl wrappers and native thunks use 'out IntPtr errorPtr' — no SwiftError needed.
-        if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
-            lines.Add("var swiftError = default(SwiftError);");
+        var swiftErrorCarrier = BuildSwiftErrorCarrierDeclaration();
+        if (swiftErrorCarrier != null)
+            lines.Add(swiftErrorCarrier);
 
         // Multi-element generic tuple non-cdecl returns split each element into its own @out
         // buffer. The first buffer reuses _cdeclBuf (declared by EmitCdeclPayloadDeclaration);
@@ -1536,9 +1540,20 @@ internal class MethodMarshalPlanBuilder
             TypedErrorTypeName = syncTypedErrorType,
             SwiftErrorTypeName = swiftErrorTypeName,
             TypedErrorSafeSuffix = typedErrorSafeSuffix,
-            ErrorCheckCode = errorCheckCode
+            ErrorCheckCode = errorCheckCode,
+            CarrierDeclaration = BuildSwiftErrorCarrierDeclaration()
         };
     }
+
+    /// <summary>
+    /// Pre-declares the SwiftError a direct Swift-convention call passes by <c>ref</c> (the caller
+    /// must zero-initialize it per the Swift ABI). <c>@_cdecl</c> wrappers and native thunks report
+    /// through an inline <c>out IntPtr errorPtr</c> instead, so they need no carrier.
+    /// </summary>
+    private string? BuildSwiftErrorCarrierDeclaration()
+        => _requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk
+            ? "var swiftError = default(SwiftError);"
+            : null;
 
     /// <summary>
     /// Builds the P/Invoke call statement.
@@ -1566,6 +1581,14 @@ internal class MethodMarshalPlanBuilder
             }
             else if (_env.MethodDecl.IsProtocolExtensionMethod)
             {
+                metadataArgs = "";
+            }
+            else if (MarshallingHelpers.RequiresClassMetatypeSelf(_env))
+            {
+                // The class metatype travels in the self register (see
+                // PInvokeSignatureBuilder.HandleClassMetatypeSelf) and the callee reads the class's
+                // generic arguments out of it. Only a method's own generic metadata — already in
+                // the signature — is passed; no trailing metadata or metatype argument.
                 metadataArgs = "";
             }
             else if (_env.MethodDecl.IsConstructor &&
@@ -1714,8 +1737,12 @@ internal class MethodMarshalPlanBuilder
             _env.TypeDatabase.TryGetTypeRecord(returnArg.SwiftTypeSpec, out var returnTypeRecord) &&
             returnTypeRecord.Kind == TypeRecordKind.Class && !MarshallingHelpers.IsObjCBridged(returnTypeRecord);
 
+        // The class metatype self is built as `new SwiftSelf((void*)…)`.
+        bool passesClassMetatypeSelf = MarshallingHelpers.RequiresClassMetatypeSelf(_env);
+
         return _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError ||
-            methodOwnParamCount > 0 || containsBoundGenerics || hasClosureParams || hasClassReturn;
+            methodOwnParamCount > 0 || containsBoundGenerics || hasClosureParams || hasClassReturn ||
+            passesClassMetatypeSelf;
     }
 
     /// <summary>
@@ -1784,6 +1811,8 @@ internal class MethodMarshalPlanBuilder
     {
         if (_env.MethodDecl.IsConstructor) return false;
         if (_env.MethodDecl.MethodType == MethodType.Static && _env.ParentDecl is StructDecl or EnumDecl) return false;
+        // A class static's metatype goes in the self register, not in a metadata slot.
+        if (MarshallingHelpers.RequiresClassMetatypeSelf(_env)) return false;
         if (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) return false;
         if (_env.MethodDecl.UsesNativeThunk) return false;
         if (_env.MethodDecl.UsesFreeFunctionWrapper) return false;

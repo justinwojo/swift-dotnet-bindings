@@ -66,6 +66,34 @@ class ManagedTargetTests(unittest.TestCase):
             self.assertIn("--allow-unqualified-runtime", command)
 
 
+    def test_profile_launch_runs_nuke_through_the_launcher_with_its_framework(self):
+        completed = subprocess.CompletedProcess([], 0, "TEST SUCCESS", "")
+        launch = ci_ios_test.ProfileLaunch("net11-xcode27", "/ci/dotnet", "/Applications/Xcode_27.2.app/Contents/Developer")
+        with patch.dict(ci_ios_test.os.environ, {}, clear=True), \
+                patch.object(ci_ios_test.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(ci_ios_test.run_tests("/fixture/BindingTests", "sim", binding_test_configuration="Release",
+                                                   profile_launch=launch), 0)
+            command = run.call_args.args[0]
+            separator = command.index("--")
+            self.assertEqual(command[:separator], [
+                "bash", "/fixture/build.sh", "--toolchain-profile", "net11-xcode27",
+                "--dotnet-root", "/ci/dotnet", "--developer-dir", "/Applications/Xcode_27.2.app/Contents/Developer"])
+            self.assertEqual(command[separator + 1], "binding-tests")
+            # The profile, not the caller's environment, decides the lane's framework.
+            self.assertEqual(command[command.index("--binding-test-framework") + 1], "net11.0")
+            self.assertEqual(run.call_args.kwargs["cwd"], "/fixture")
+        self.assertEqual(ci_ios_test.ProfileLaunch("net10-xcode27").framework, "net10.0")
+        with self.assertRaisesRegex(ValueError, "disagrees"):
+            ci_ios_test.run_tests("/fixture/BindingTests", "sim", binding_test_framework="net10.0", profile_launch=launch)
+        with self.assertRaisesRegex(ValueError, "Unknown toolchain profile"):
+            ci_ios_test.ProfileLaunch("net12-xcode28").framework
+
+    def test_profile_launch_never_builds_outside_the_launcher(self):
+        with self.assertRaisesRegex(ValueError, "requires --skip-build"):
+            ci_ios_test.run_pipeline("/fixture/BindingTests", skip_build=False,
+                                     profile_launch=ci_ios_test.ProfileLaunch("net11-xcode27"))
+
+
 class RunTestsAcceptanceTests(unittest.TestCase):
     def _run(self, side_effect, max_test_retries=1):
         calls = []
@@ -177,6 +205,45 @@ class RunTestsAcceptanceTests(unittest.TestCase):
                 result, calls = self._run([failure])
                 self.assertEqual(result, 1)
                 self.assertEqual(len(calls), 1)
+
+    def test_build_budget_applies_only_when_this_run_builds(self):
+        success = subprocess.CompletedProcess(["dotnet"], 0, stdout="TEST SUCCESS\n", stderr="")
+        for prebuilt, overhead in ((False, ci_ios_test.BUILD_OVERHEAD), (True, ci_ios_test.PREBUILT_OVERHEAD)):
+            with self.subTest(prebuilt=prebuilt), \
+                    patch.object(ci_ios_test.subprocess, "run", return_value=success) as run, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ci_ios_test.run_tests("/fixture/BindingTests", "sim", timeout=420,
+                                                       prebuilt_app=prebuilt), 0)
+                self.assertEqual(run.call_args.kwargs["timeout"], 420 + overhead)
+                self.assertEqual("--skip-build" in run.call_args.args[0], prebuilt)
+        self.assertLess(ci_ios_test.PREBUILT_OVERHEAD, ci_ios_test.BUILD_OVERHEAD)
+
+    def test_prebuilt_retry_reuses_the_build_and_never_deletes_it(self):
+        startup_failure = subprocess.CompletedProcess(["dotnet"], 1, stdout=EXHAUSTED_LAUNCH, stderr="")
+        success = subprocess.CompletedProcess(["dotnet"], 0, stdout="TEST SUCCESS\n", stderr="")
+        with patch.object(ci_ios_test.subprocess, "run", side_effect=[startup_failure, success]) as run, \
+                patch.object(ci_ios_test, "SimManager", return_value=MagicMock()), \
+                patch.object(ci_ios_test.shutil, "rmtree") as rmtree, \
+                patch.object(ci_ios_test.os.path, "isdir", return_value=True), \
+                patch.object(ci_ios_test.time, "sleep"), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(ci_ios_test.run_tests("/fixture/BindingTests", "sim", timeout=420, prebuilt_app=True), 0)
+        rmtree.assert_not_called()
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            self.assertIn("--skip-build", call.args[0])
+            self.assertEqual(call.kwargs["timeout"], 420 + ci_ios_test.PREBUILT_OVERHEAD)
+
+    def test_prebuilt_app_runs_through_the_profile_launcher(self):
+        with patch.object(ci_ios_test, "run_tests", return_value=0) as run_tests, \
+                patch.object(ci_ios_test, "SimManager", return_value=MagicMock()), \
+                patch.object(ci_ios_test, "run_build") as run_build, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(ci_ios_test.run_pipeline(
+                "/fixture/BindingTests", device_udid="sim", skip_prepare=True, prebuilt_app=True,
+                profile_launch=ci_ios_test.ProfileLaunch("net11-xcode27")), 0)
+        run_build.assert_not_called()
+        self.assertTrue(run_tests.call_args.kwargs["prebuilt_app"])
 
     def test_healthy_control_runs_full_simulator_suite_once(self):
         success = subprocess.CompletedProcess(["dotnet"], 0, stdout="RUNTIME TESTS PASSED\n", stderr="")

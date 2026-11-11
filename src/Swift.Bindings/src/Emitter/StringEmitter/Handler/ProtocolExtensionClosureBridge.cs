@@ -419,8 +419,9 @@ public static class ProtocolExtensionClosureBridge
             csharpName: methodName,
             parameterPortion: ModuleEmissionContext.FormatParameterPortion(new[] { delegateType }));
 
-        // Emit XML doc
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
+        // Emit XML doc. The closure is the only parameter written, so it is the only one a tag
+        // may name.
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method, new[] { closureParamName });
 
         csWriter.WriteLine($"public unsafe {returnType} {methodName}{methodGenericClause}({string.Join(", ", publicParams)}){methodGenericConstraints}");
         csWriter.WriteLine("{");

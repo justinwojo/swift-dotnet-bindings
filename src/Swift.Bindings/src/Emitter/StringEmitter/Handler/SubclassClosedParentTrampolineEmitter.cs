@@ -273,9 +273,10 @@ public static class SubclassClosedParentTrampolineEmitter
         // No AddRef/Release: the live `self` reference keeps the handle valid across the
         // synchronous P/Invoke (matches the sync CSM extension convention).
         csWriter.WriteLine();
+        // Doc first: after an attribute it documents nothing (CS1587).
+        csWriter.WriteLine($"/// <summary>Inherited from {baseDecl.Name}&lt;…&gt;.</summary>");
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, baseDecl.AvailabilityAnnotations);
-        csWriter.WriteLine($"/// <summary>Inherited from {baseDecl.Name}&lt;…&gt;.</summary>");
         csWriter.WriteLine($"public static {csReturn} {csMethodName}(this {leafDecl.Name} self)");
         csWriter.WriteLine("{");
         csWriter.Indent++;

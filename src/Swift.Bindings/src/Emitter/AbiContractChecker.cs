@@ -14,6 +14,8 @@
 //   SWIFTBIND092 (Tj):     Dispatch thunk bound to a library that can't export it
 //   SWIFTBIND093 (CC-003): @_cdecl wrapper entry point targeting original library
 //   SWIFTBIND094 (CC-004): CallConvCdecl targeting mangled Swift symbol
+//   SWIFTBIND097 (CC-005): CallConvSwift class member whose self register is left unset
+//                          (non-recoverable: thrown as SelfRegisterContractException)
 //
 // WHAT THIS CHECKER CAN AND CANNOT SEE. It reads emitted text, so it reasons about
 // symbol/convention/library pairing — never about Swift's declared signature. Two
@@ -149,6 +151,39 @@ public sealed class AbiValidationInvariantException : Exception
                $"is a cross-check that must agree, so this is a generator invariant failure — one of the plan " +
                $"population, the typed comparison, or the text scan is wrong. Failing closed; this is never " +
                $"auto-resolved. Report this as a generator bug." + Environment.NewLine + detail;
+    }
+}
+
+/// <summary>
+/// Thrown when a generated P/Invoke calls a Swift class member under the Swift calling convention
+/// without filling the self register (CC-005, SWIFTBIND097). The callee reads its instance or class
+/// metatype from that register, so the call compiles and then reads whatever the register last held.
+/// Unlike <see cref="AbiContractViolationException"/> this is never recovered by withdrawing the member:
+/// whether a member passes a self is decided once per member shape, so a single omission means the
+/// emitter's rule is wrong for every member of that shape. Generation fails, naming each call.
+/// </summary>
+public sealed class SelfRegisterContractException : Exception
+{
+    public SelfRegisterContractException(string moduleName, ImmutableArray<AbiCheckViolation> violations)
+        : base(BuildMessage(moduleName, violations))
+    {
+        ModuleName = moduleName;
+        Violations = violations;
+    }
+
+    /// <summary>The Swift module whose emitted binding failed the check.</summary>
+    public string ModuleName { get; }
+
+    /// <summary>Every call that leaves the self register unset.</summary>
+    public ImmutableArray<AbiCheckViolation> Violations { get; }
+
+    private static string BuildMessage(string moduleName, ImmutableArray<AbiCheckViolation> violations)
+    {
+        var detail = string.Join(Environment.NewLine, violations.Select(v => "  " + v.Describe()));
+        return $"{AbiContractChecker.SelfRegisterDiagnosticCode}: the generated binding for '{moduleName}' calls " +
+               $"{violations.Length} Swift class member(s) without passing the self register their native " +
+               $"code reads. Generation fails rather than writing a binding whose calls read an undefined " +
+               $"self. Report this as a generator bug." + Environment.NewLine + detail;
     }
 }
 
@@ -341,6 +376,7 @@ public static class AbiContractChecker
             violations.AddRange(CheckCC002_NonBlittableReturn(pinvoke));
             violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke, hasWrapperLibrary));
             violations.AddRange(CheckCC004_CdeclMangledSymbol(pinvoke));
+            violations.AddRange(CheckCC005_SelfRegisterOmitted(pinvoke));
             violations.AddRange(CheckTjThunkCrossModule(pinvoke, staticallyMergedModules));
         }
 
@@ -412,6 +448,20 @@ public static class AbiContractChecker
             invariantFirings.Add(vx);
         }
 
+        // A call that leaves the Swift self register unset is not a member the loop may quietly
+        // withdraw: the emitter decides the self parameter from the same facts for every member of its
+        // shape, so one hit means the decision itself is wrong and every sibling is suspect. Fail the
+        // module by name, ahead of the invariant check, so the cause is never reported as a
+        // disagreement between the typed and text oracles.
+        var selfRegisterViolations = typed.Select(t => t.Violation)
+            .Concat(textViolations)
+            .Where(v => v.RuleId == SelfRegisterRuleId)
+            .GroupBy(v => (v.MethodName, v.EntryPoint))
+            .Select(g => g.First())
+            .ToImmutableArray();
+        if (!selfRegisterViolations.IsEmpty)
+            throw new SelfRegisterContractException(moduleName, selfRegisterViolations);
+
         if (invariantFirings.Count > 0)
             throw new AbiValidationInvariantException(moduleName, invariantFirings.ToImmutableArray());
 
@@ -460,6 +510,8 @@ public static class AbiContractChecker
             foreach (var v in CheckCC003_CdeclTargetsWrongLib(info, hasWrapperLibrary))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
             foreach (var v in CheckCC004_CdeclMangledSymbol(info))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+            foreach (var v in CheckCC005_SelfRegisterOmitted(info))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
             foreach (var v in CheckTjThunkCrossModule(info, staticallyMergedModules))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
@@ -624,6 +676,164 @@ public static class AbiContractChecker
                 $"Report this as a generator bug.",
             AffectedElements = ImmutableArray.Create($"declared convention: {pinvoke.CallingConvention}"),
         });
+    }
+
+    /// <summary>The diagnostic CC-005 reports under; also the code of <see cref="SelfRegisterContractException"/>.</summary>
+    internal const string SelfRegisterDiagnosticCode = "SWIFTBIND097";
+
+    /// <summary>The rule identifier of <see cref="CheckCC005_SelfRegisterOmitted"/>.</summary>
+    internal const string SelfRegisterRuleId = "CC-005";
+
+    /// <summary>
+    /// CC-005: a CallConvSwift P/Invoke binds a member of a Swift class whose native function reads
+    /// the self register, yet declares no <c>SwiftSelf</c> parameter to fill it.
+    /// </summary>
+    /// <remarks>
+    /// Every class member except a static stored property's addressor is lowered over a self: the
+    /// instance for an instance member, the thick metatype for an allocating initializer, a
+    /// <c>static</c> or <c>class</c> member, or an operator. The callee reads that register — to
+    /// allocate, to dispatch, to recover the class's generic arguments — so a call that leaves it
+    /// undefined hands it whatever the register last held. It compiles, usually survives a smoke
+    /// test, and fails later and far away. Judged from the symbol alone: the demangled entity names
+    /// the class context and the member kind, which is all the rule needs. A symbol the demangler
+    /// cannot read, or one with an Objective-C entry (<c>To</c>), is not judged. A wrapper with a
+    /// custom symbol name (<c>@_silgen_name</c>) is invisible to it; the emitter's own predicate
+    /// covers those.
+    /// </remarks>
+    internal static ImmutableArray<AbiCheckViolation> CheckCC005_SelfRegisterOmitted(PInvokeInfo pinvoke)
+    {
+        if (pinvoke.CallingConvention != "CallConvSwift")
+            return ImmutableArray<AbiCheckViolation>.Empty;
+        if (!pinvoke.EntryPoint.StartsWith(ManglingProbes.StablePrefix, StringComparison.Ordinal))
+            return ImmutableArray<AbiCheckViolation>.Empty;
+        if (pinvoke.Parameters.Any(p => IsSwiftSelfCarrier(p.CSharpType)))
+            return ImmutableArray<AbiCheckViolation>.Empty;
+        if (DescribeClassSelfTakingMember(pinvoke.EntryPoint) is not { } member)
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        return ImmutableArray.Create(new AbiCheckViolation
+        {
+            DiagnosticCode = SelfRegisterDiagnosticCode,
+            RuleId = SelfRegisterRuleId,
+            MethodName = pinvoke.MethodName,
+            EntryPoint = pinvoke.EntryPoint,
+            Explanation = $"'{pinvoke.MethodName}' binds {member} of a Swift class under the Swift calling " +
+                $"convention but declares no SwiftSelf parameter. The native function reads its self (the " +
+                $"instance, or the class metatype for a static member or allocating initializer) from the " +
+                $"self register, which this call leaves undefined. Report this as a generator bug.",
+            AffectedElements = ImmutableArray.Create("missing parameter: SwiftSelf"),
+        });
+    }
+
+    /// <summary>True for a lowered carrier that fills the Swift self register.</summary>
+    private static bool IsSwiftSelfCarrier(string csharpType)
+    {
+        // StripTypeModifiers also drops a generic suffix, so SwiftSelf<T> reads as SwiftSelf.
+        var type = StripTypeModifiers(csharpType);
+        var lastDot = type.LastIndexOf('.');
+        return (lastDot >= 0 ? type[(lastDot + 1)..] : type) == "SwiftSelf";
+    }
+
+    /// <summary>
+    /// Demangles <paramref name="entryPoint"/> and, when it names a member of a Swift class that takes a
+    /// self, returns a short description of that member ("a static member", "an allocating initializer",
+    /// "an instance member"); otherwise null.
+    /// </summary>
+    internal static string? DescribeClassSelfTakingMember(string entryPoint)
+    {
+        Demangling.Node? root;
+        try
+        {
+            root = new Demangling.Swift5Demangler().DemangleSymbol(entryPoint);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        if (root is null || root.Kind != Demangling.NodeKind.Global)
+            return null;
+
+        Demangling.Node? entity = null;
+        foreach (var child in root.Children)
+        {
+            switch (child.Kind)
+            {
+                // An Objective-C entry point is called under the ObjC convention, never this one.
+                case Demangling.NodeKind.ObjCAttribute:
+                    return null;
+                // Attributes that leave the function's own lowering unchanged.
+                case Demangling.NodeKind.DispatchThunk:
+                case Demangling.NodeKind.MergedFunction:
+                    if (child.Children.Count > 0)
+                        entity ??= child.Children[0];
+                    continue;
+                default:
+                    entity ??= child;
+                    continue;
+            }
+        }
+        if (entity is null)
+            return null;
+
+        bool isStatic = false;
+        if (entity.Kind == Demangling.NodeKind.Static)
+        {
+            if (entity.Children.Count == 0)
+                return null;
+            isStatic = true;
+            entity = entity.Children[0];
+        }
+
+        Demangling.Node? context;
+        string description;
+        switch (entity.Kind)
+        {
+            case Demangling.NodeKind.Allocator:
+                context = FirstChild(entity);
+                description = "an allocating initializer";
+                break;
+            case Demangling.NodeKind.Constructor:
+            case Demangling.NodeKind.Destructor:
+            case Demangling.NodeKind.Deallocator:
+                context = FirstChild(entity);
+                description = "an instance member";
+                break;
+            case Demangling.NodeKind.Function:
+                context = FirstChild(entity);
+                description = isStatic ? "a static member" : "an instance member";
+                break;
+            case Demangling.NodeKind.Getter:
+            case Demangling.NodeKind.Setter:
+            case Demangling.NodeKind.ModifyAccessor:
+            case Demangling.NodeKind.ReadAccessor:
+                // Accessor → Variable/Subscript → context.
+                context = FirstChild(FirstChild(entity));
+                description = isStatic ? "a static member" : "an instance member";
+                break;
+            case Demangling.NodeKind.UnsafeAddressor:
+            case Demangling.NodeKind.UnsafeMutableAddressor:
+                // A static stored property's addressor is a thin global accessor with no self.
+                if (isStatic)
+                    return null;
+                context = FirstChild(FirstChild(entity));
+                description = "an instance member";
+                break;
+            default:
+                return null;
+        }
+
+        return IsClassContext(context) ? description : null;
+
+        static Demangling.Node? FirstChild(Demangling.Node? node)
+            => node is { Children.Count: > 0 } ? node.Children[0] : null;
+
+        static bool IsClassContext(Demangling.Node? node) => node?.Kind switch
+        {
+            Demangling.NodeKind.Class => true,
+            // extension in M : Class — children are (Module, extended type[, generic signature]).
+            Demangling.NodeKind.Extension => node.Children.Count > 1 && node.Children[1].Kind == Demangling.NodeKind.Class,
+            _ => false,
+        };
     }
 
     /// <summary>

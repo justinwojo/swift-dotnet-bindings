@@ -1998,6 +1998,10 @@ public static class NameProvider
         "Accept", "Accepts", "Pass", "Passes", "Sum", "Sums",
         "Confirm", "Present", "Dismiss", "Select", "Deselect",
         "Submit", "Complete", "Finish", "Collect",
+        // A zero-arg `analyze()` beside `analyze(for:)` would otherwise split one action across
+        // GetAnalyzeAsync and AnalyzeAsync. Recognised as a verb rather than through a
+        // sibling-overload rule so a member's name stays a function of its own signature.
+        "Analyze", "Analyse",
     };
 
     /// <summary>

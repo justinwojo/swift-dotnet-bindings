@@ -360,6 +360,99 @@ public class AbiContractCheckerTests
 
     #endregion
 
+    #region CC-005: class member called without its self register
+
+    [Theory]
+    // A static method, an overridable `class func`'s dispatch thunk, an operator, a static property
+    // getter of a generic class, and an allocating initializer: each reads the class metatype as self.
+    [InlineData("$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ", "a static member")]
+    [InlineData("$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj", "a static member")]
+    [InlineData("$s20SwiftBindingsTestLib9NumberBoxC1poiyA2C_ACtFZ", "a static member")]
+    [InlineData("$s20SwiftBindingsTestLib9StaticGenC13elementStrideSivgZ", "a static member")]
+    [InlineData("$s20SwiftBindingsTestLib20StaticSelfErrorProbeCACycfC", "an allocating initializer")]
+    // An instance member's dispatch thunk reads the instance.
+    [InlineData("$s20SwiftBindingsTestLib6AnimalC8describeSSyFTj", "an instance member")]
+    public void CC005_ClassMemberWithoutSwiftSelf_DetectsViolation(string entryPoint, string member)
+    {
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "SwiftBindingsTestLib",
+            entryPoint: entryPoint,
+            returnType: "IntPtr",
+            methodName: "PInvoke_member_ABC123",
+            parameters: "IntPtr value");
+
+        var result = AbiContractChecker.Validate(csOutput, "SwiftBindingsTestLib", TestLogger);
+
+        var cc005 = Assert.Single(result.Violations, v => v.RuleId == "CC-005");
+        Assert.Equal("SWIFTBIND097", cc005.DiagnosticCode);
+        Assert.Equal(entryPoint, cc005.EntryPoint);
+        Assert.Contains(member, cc005.Explanation);
+    }
+
+    [Theory]
+    [InlineData("SwiftSelf _metatypeSelf")]
+    [InlineData("IntPtr value, global::System.Runtime.InteropServices.Swift.SwiftSelf _metatypeSelf")]
+    [InlineData("SwiftSelf<IntPtr> self")]
+    public void CC005_ClassMemberWithSwiftSelf_NoViolation(string parameters)
+    {
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "SwiftBindingsTestLib",
+            entryPoint: "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ",
+            returnType: "IntPtr",
+            methodName: "PInvoke_check_ABC123",
+            parameters: parameters);
+
+        var result = AbiContractChecker.Validate(csOutput, "SwiftBindingsTestLib", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-005");
+    }
+
+    [Theory]
+    // A struct or enum static has a thin metatype and no self.
+    [InlineData("$s20SwiftBindingsTestLib10UnaryValueV1topyA2CFZ")]
+    [InlineData("$s4Test5PointV4zeroACvgZ")]
+    // A static stored property's addressor is a thin global accessor.
+    [InlineData("$s4Test7CounterC6sharedACvauZ")]
+    // An Objective-C entry point is not called under the Swift convention's self rules.
+    [InlineData("$s4Test7CounterC6reportyyFZTo")]
+    // A free function and an unreadable symbol are not judged.
+    [InlineData("$s4Test6doWorkyyF")]
+    [InlineData("$sNotAMangledName")]
+    public void CC005_SymbolWithoutAClassSelf_NoViolation(string entryPoint)
+    {
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvSwift",
+            library: "Test",
+            entryPoint: entryPoint,
+            returnType: "IntPtr",
+            methodName: "PInvoke_member_ABC123",
+            parameters: "IntPtr value");
+
+        var result = AbiContractChecker.Validate(csOutput, "Test", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-005");
+    }
+
+    [Fact]
+    public void CC005_CdeclCall_NotChecked()
+    {
+        var csOutput = BuildPInvoke(
+            callConv: "CallConvCdecl",
+            library: "SwiftBindingsTestLibSwiftBindings",
+            entryPoint: "SBW_SwiftBindingsTestLib_StaticSelfErrorProbe_check_ABC123",
+            returnType: "IntPtr",
+            methodName: "PInvoke_check_ABC123",
+            parameters: "");
+
+        var result = AbiContractChecker.Validate(csOutput, "SwiftBindingsTestLib", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-005");
+    }
+
+    #endregion
+
     #region Tj Thunk Cross-Module Detection
 
     [Fact]

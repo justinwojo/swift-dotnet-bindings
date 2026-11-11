@@ -62,66 +62,6 @@ public class GenericDispatchEmitterTests
         };
     }
 
-    // --- HasGenericOuterAncestor ---
-
-    [Fact]
-    public void HasGenericOuterAncestor_TopLevel_ReturnsFalse()
-    {
-        var module = CreateModule();
-        var inner = CreateStruct("Leaf", module, module, isGeneric: false);
-
-        Assert.False(GenericDispatchEmitter.HasGenericOuterAncestor(inner));
-    }
-
-    [Fact]
-    public void HasGenericOuterAncestor_NestedInNonGenericOuter_ReturnsFalse()
-    {
-        // Inner.ParentDecl is a non-generic Outer; ancestor chain has no generic type.
-        var module = CreateModule();
-        var outer = CreateStruct("Outer", module, module, isGeneric: false);
-        var inner = CreateStruct("Inner", module, outer, isGeneric: false);
-
-        Assert.False(GenericDispatchEmitter.HasGenericOuterAncestor(inner));
-    }
-
-    [Fact]
-    public void HasGenericOuterAncestor_NestedInGenericOuter_ReturnsTrue()
-    {
-        // The dotted construction expression places generic args on the wrong segment
-        // when the outer is generic — gate must trip.
-        var module = CreateModule();
-        var outer = CreateStruct("Outer", module, module, isGeneric: true);
-        var inner = CreateStruct("Inner", module, outer, isGeneric: false);
-
-        Assert.True(GenericDispatchEmitter.HasGenericOuterAncestor(inner));
-    }
-
-    [Fact]
-    public void HasGenericOuterAncestor_DeeplyNestedWithGenericGrandparent_ReturnsTrue()
-    {
-        // Generic ancestor at depth 2 still trips the gate — the walk doesn't stop at
-        // the direct parent.
-        var module = CreateModule();
-        var grand = CreateStruct("Grand", module, module, isGeneric: true);
-        var middle = CreateStruct("Middle", module, grand, isGeneric: false);
-        var leaf = CreateStruct("Leaf", module, middle, isGeneric: false);
-
-        Assert.True(GenericDispatchEmitter.HasGenericOuterAncestor(leaf));
-    }
-
-    [Fact]
-    public void HasGenericOuterAncestor_GenericSelfNonGenericOuter_ReturnsFalse()
-    {
-        // The check inspects ANCESTORS only — the parent type's own genericity does
-        // not count. Inner generic + Outer non-generic is a case that the gate must NOT
-        // block (single-segment generic args are well-formed for the host itself).
-        var module = CreateModule();
-        var outer = CreateStruct("Outer", module, module, isGeneric: false);
-        var inner = CreateStruct("Inner", module, outer, isGeneric: true);
-
-        Assert.False(GenericDispatchEmitter.HasGenericOuterAncestor(inner));
-    }
-
     // --- OuterMatchesParent ---
 
     [Fact]

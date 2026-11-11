@@ -345,7 +345,7 @@ namespace BindingsGeneration
                 { Type: MarshalledType.Simple("IntPtr") } when parameter.Name.EndsWith("PWT")
                     => $"{parameter.Name}.Handle",
                 // Self register supplied by the emitter rather than by a call-site local — the
-                // allocating-init metatype is the only user today.
+                // class metatype self of a static member or allocating initializer.
                 { Type: MarshalledType.SwiftSelfUntypedType, CallExpression: { } selfExpression }
                     => selfExpression,
                 _ => parameter.Name
@@ -1206,11 +1206,12 @@ namespace BindingsGeneration
                     pInvokeSignature.HandleSwiftError();
                 }
 
-                // Class allocating initializers reached directly through CallConvSwift carry the
-                // hidden @thick Self.Type in the self register. It sits outside the cdecl phase
-                // contract on purpose: no wrapper lane declares it, and the register — not the
-                // argument position — is what the callee reads.
-                pInvokeSignature.HandleAllocatingInitMetatypeSelf();
+                // Class members whose native function takes @thick Self.Type as self (allocating
+                // initializers, static and class members) carry the class metatype in the self
+                // register. It sits outside the cdecl phase contract on purpose: no wrapper lane
+                // declares it, and the register — not the argument position — is what the callee
+                // reads.
+                pInvokeSignature.HandleClassMetatypeSelf();
 
                 _pInvokeSignature = pInvokeSignature.Build();
             }

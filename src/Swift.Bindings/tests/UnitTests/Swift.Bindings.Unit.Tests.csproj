@@ -184,6 +184,13 @@
          BCL-only string/regex work with its own `#nullable enable`, AOT-clean. -->
     <Compile Include="../../../../build/Models/ApplePlatform.cs" Link="Models/ApplePlatform.cs" />
     <Compile Include="../../../../build/Models/RuntimeTestLane.cs" Link="Models/RuntimeTestLane.cs" />
+    <!-- A skip-build run reuses whatever app sits at the bundle path; the receipt decides whether
+         that is refused, run as a partial run, or graded as the current build. A digest that missed
+         a change would let a stale app grade the runtime baselines, so pin it here. BCL-only. -->
+    <Compile Include="../../../../build/Models/AppBuildReceipt.cs" Link="Models/AppBuildReceipt.cs" />
+    <!-- Link the per-lane native-slice requirement: a missing slice used to build an app without its
+         wrapper, so the list and the reused-regen diagnosis are worth pinning without an Apple build. -->
+    <Compile Include="../../../../build/Models/LaneNativeSlices.cs" Link="Models/LaneNativeSlices.cs" />
     <Compile Include="../../../../build/Models/DeviceRuntimeFlavorGate.cs" Link="Models/DeviceRuntimeFlavorGate.cs" />
     <!-- Link-compile the platform-label ⇒ baseline-key mapping. It is the single point at which a
          runtime-test lane becomes graded: an unmapped label makes CompareRuntimeBaseline return

@@ -27,39 +27,89 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits XML doc comments for a method, constructor, or failable factory.
-        /// Includes summary, param tags, returns, and remarks.
+        /// Emits XML doc comments for a method, constructor, or failable factory: summary, param
+        /// tags, returns, and remarks.
+        ///
+        /// <para>The param tags follow the declaration the caller writes, never the Swift
+        /// signature. The two differ often: a bridge drops defaulted or closure parameters, a
+        /// projection renames one, an async member appends a token and a failable init an
+        /// <c>out</c> result. A tag naming a parameter the declaration lacks is CS1572, and once one
+        /// parameter is tagged every other untagged one is CS1573, both of them errors for a
+        /// consumer building with a documentation file under warnings-as-errors. So a Swift
+        /// description is written only for a parameter the declaration has, and as soon as one is,
+        /// every other parameter is tagged too, with an empty description when Swift gave none.
+        /// With no description to write, no parameter is tagged.</para>
         /// </summary>
         /// <param name="csWriter">The C# writer.</param>
         /// <param name="methodDecl">The method declaration.</param>
-        /// <param name="isConstructor">True for constructors (suppresses returns tag).</param>
-        /// <param name="isFailableFactory">True for failable init? → TryCreate (maps Returns to param "result").</param>
-        public static void EmitMethodDocComment(CSharpWriter csWriter, MethodDecl methodDecl, bool isConstructor = false, bool isFailableFactory = false)
+        /// <param name="emittedParameterNames">
+        /// The C# names of the parameters the declaration writes for the Swift ones, in declaration
+        /// order. Leave out the synthetic trailing parameters named by
+        /// <paramref name="cancellationTokenName"/> and <paramref name="failableResultName"/>.
+        /// </param>
+        /// <param name="isConstructor">True for constructors and factories built from an
+        /// initializer (suppresses the returns tag).</param>
+        /// <param name="cancellationTokenName">
+        /// The C# name of the trailing <c>CancellationToken</c> an async projection appends, or
+        /// <see langword="null"/> when the emitted signature has none.
+        /// </param>
+        /// <param name="failableResultName">
+        /// The C# name of the trailing <c>out</c> result a failable initializer's <c>TryCreate</c>
+        /// factory appends, or <see langword="null"/> for every other member. The Swift
+        /// <c>Returns:</c> text describes it.
+        /// </param>
+        public static void EmitMethodDocComment(
+            CSharpWriter csWriter,
+            MethodDecl methodDecl,
+            IReadOnlyList<string> emittedParameterNames,
+            bool isConstructor = false,
+            string? cancellationTokenName = null,
+            string? failableResultName = null)
         {
             if (methodDecl.Documentation == null || methodDecl.Documentation.IsEmpty)
                 return;
 
             var doc = methodDecl.Documentation;
+            bool hasReturns = !string.IsNullOrWhiteSpace(doc.Returns);
 
             EmitSummary(csWriter, doc.Summary);
-            var emittedParamNames = EmitParameterTags(csWriter, methodDecl, doc);
 
-            // Returns handling depends on context
-            if (!string.IsNullOrWhiteSpace(doc.Returns))
+            var described = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (csName, text) in MapParameterDocs(methodDecl, doc))
+                described.TryAdd(NameProvider.StripVerbatimPrefix(csName), text);
+
+            var tags = new List<(string Name, string Text)>();
+            bool anyDescribed = false;
+            foreach (var name in emittedParameterNames)
             {
-                if (isFailableFactory && !emittedParamNames.Contains("result"))
+                if (described.TryGetValue(NameProvider.StripVerbatimPrefix(name), out var text))
                 {
-                    // Failable factory: Swift "Returns:" maps to <param name="result"> on TryCreate
-                    // Skip if a mapped parameter already emitted <param name="result">
-                    csWriter.WriteLine($"/// <param name=\"result\">{FormatDocText(doc.Returns)}</param>");
+                    anyDescribed = true;
+                    tags.Add((name, text));
                 }
-                else if (!isConstructor && !isFailableFactory)
+                else
                 {
-                    // Regular methods get a <returns> tag
-                    csWriter.WriteLine($"/// <returns>{FormatDocText(doc.Returns)}</returns>");
+                    tags.Add((name, string.Empty));
                 }
-                // Constructors: suppress <returns> entirely
             }
+            if (cancellationTokenName != null)
+                tags.Add((cancellationTokenName, CancellationTokenParamText));
+            if (failableResultName != null)
+            {
+                anyDescribed |= hasReturns;
+                tags.Add((failableResultName, hasReturns ? FormatDocText(doc.Returns!) : FailableResultParamText));
+            }
+
+            if (anyDescribed)
+            {
+                foreach (var (name, text) in tags)
+                    csWriter.WriteLine(ParamTag(name, text));
+            }
+
+            // A constructor returns nothing to describe, and a failable factory's result is the
+            // out parameter tagged above.
+            if (hasReturns && !isConstructor && failableResultName == null)
+                csWriter.WriteLine($"/// <returns>{FormatDocText(doc.Returns!)}</returns>");
 
             EmitRemarks(csWriter, doc);
         }
@@ -77,15 +127,39 @@ namespace BindingsGeneration
             csWriter.WriteLine($"/// </summary>");
         }
 
+        /// <summary>The <c>&lt;param&gt;</c> text for an async projection's trailing token.</summary>
+        internal const string CancellationTokenParamText = "Requests cancellation of the asynchronous Swift call.";
+
         /// <summary>
-        /// Emits param tags by mapping Swift public labels to C# parameter names.
-        /// Returns the set of emitted C# parameter names (for duplicate detection).
+        /// The <c>&lt;param&gt;</c> text for a failable factory's <c>out</c> result when the Swift
+        /// comment has no <c>Returns:</c> to describe it.
         /// </summary>
-        private static HashSet<string> EmitParameterTags(CSharpWriter csWriter, MethodDecl methodDecl, DocComment doc)
+        internal const string FailableResultParamText = "When this method returns true, the initialized instance.";
+
+        /// <summary>
+        /// A <c>&lt;param&gt;</c> line for a C# parameter. The tag names the parameter without a
+        /// verbatim-identifier <c>@</c> (a Swift <c>base:</c> label becomes the C# <c>@base</c>), as
+        /// C# does: <c>name="@base"</c> names no parameter (CS1572). <paramref name="xmlText"/> is
+        /// already doc XML.
+        /// </summary>
+        internal static string ParamTag(string csParamName, string xmlText)
+            => $"/// <param name=\"{XmlEscape(NameProvider.StripVerbatimPrefix(csParamName))}\">{xmlText}</param>";
+
+        /// <summary>
+        /// The method's Swift parameter documentation keyed by C# parameter name, as doc XML, in
+        /// doc-comment order. Parameters the Swift comment does not describe are absent.
+        /// </summary>
+        internal static IReadOnlyList<(string CsName, string XmlText)> MapParameterDocs(MethodDecl methodDecl)
+            => methodDecl.Documentation is { IsEmpty: false } doc
+                ? MapParameterDocs(methodDecl, doc)
+                : Array.Empty<(string, string)>();
+
+        private static List<(string CsName, string XmlText)> MapParameterDocs(MethodDecl methodDecl, DocComment doc)
         {
-            var emittedNames = new HashSet<string>(StringComparer.Ordinal);
+            var mapped = new List<(string CsName, string XmlText)>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             if (doc.Parameters.Count == 0)
-                return emittedNames;
+                return mapped;
 
             // Build Swift label → C# parameter name mapping from CSSignature
             // CSSignature[0] is the return type, actual parameters start at index 1
@@ -123,14 +197,11 @@ namespace BindingsGeneration
                 }
 
                 // Only emit if we found a matching C# parameter name
-                if (csParamName != null)
-                {
-                    csWriter.WriteLine($"/// <param name=\"{XmlEscape(csParamName)}\">{FormatDocText(description)}</param>");
-                    emittedNames.Add(csParamName);
-                }
+                if (csParamName != null && seen.Add(csParamName))
+                    mapped.Add((csParamName, FormatDocText(description)));
             }
 
-            return emittedNames;
+            return mapped;
         }
 
         /// <summary>

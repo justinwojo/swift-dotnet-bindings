@@ -57,7 +57,7 @@ public sealed partial class AttributedString
     /// no concept of a nil-text AttributedString.</param>
     public unsafe AttributedString(string text)
     {
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         var size = (nuint)metadata.Size;
         var heapCopy = NativeMemory.Alloc(size);
         bool initialized = false;

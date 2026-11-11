@@ -455,16 +455,37 @@ namespace BindingsGeneration
                    _env.MethodDecl.IsNonisolated);
 
         /// <summary>
-        /// Emits the <c>[SwiftMainActor]</c> marker attribute and an isolation <c>&lt;remarks&gt;</c>
-        /// doc line for a <c>@MainActor</c>-isolated member. Surfaced per-member (in addition to any
-        /// type-level attribute) so the requirement is visible on the individual member's IntelliSense
-        /// and via reflection. Must run after the member's XML doc summary and before its signature.
+        /// Writes the member's doc lines: its symbol-graph doc comment and, for a
+        /// <c>@MainActor</c>-isolated member, the isolation <c>&lt;remarks&gt;</c>. Must run before the
+        /// member's first attribute, including the fallback marker and anything injected later at a
+        /// pre-signature checkpoint: a doc comment written after an attribute documents nothing
+        /// (CS1587). Accessor backing methods carry no docs; their property surfaces them. The param
+        /// tags name the wrapper signature's parameters, which every declaration this emitter writes
+        /// renders from, plus the synthetic trailing token or <c>out</c> result the caller names.
         /// </summary>
-        private void EmitMainActorMemberAnnotation(CSharpWriter csWriter)
+        private void EmitMemberDocumentation(
+            CSharpWriter csWriter, bool isConstructor = false, string? failableResultName = null, bool includeMainActorRemarks = true,
+            string? cancellationTokenName = null)
+        {
+            if (!_env.MethodDecl.IsAccessor)
+                XmlDocCommentEmitter.EmitMethodDocComment(
+                    csWriter, _env.MethodDecl, _wrapperSignature.Parameters.Select(p => p.Name).ToList(),
+                    isConstructor, cancellationTokenName, failableResultName);
+            if (includeMainActorRemarks && NeedsMainActorSurfacing)
+                TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the <c>[SwiftMainActor]</c> marker attribute for a <c>@MainActor</c>-isolated member.
+        /// Surfaced per-member (in addition to any type-level attribute) so the requirement is visible
+        /// via reflection; <see cref="EmitMemberDocumentation"/> writes the matching remark. Must run
+        /// with the member's other attributes, before its signature.
+        /// </summary>
+        private void EmitMainActorMemberAttribute(CSharpWriter csWriter)
         {
             if (!NeedsMainActorSurfacing)
                 return;
-            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         }
 
         /// <summary>
@@ -516,6 +537,7 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            EmitMemberDocumentation(csWriter, isConstructor: true);
             EmitFallbackAttribute(csWriter);
             // Capture ahead of the attributes and signature so a CONSUME-degraded parameter — discovered
             // only once the body's marshalling has been emitted — can still have its marker injected in
@@ -523,8 +545,7 @@ namespace BindingsGeneration
             var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
-            EmitMainActorMemberAnnotation(csWriter);
+            EmitMainActorMemberAttribute(csWriter);
             EmitSignatureConstructor(csWriter);
             // ABI floor, same contract as the method path: capture the body start so a constructor with
             // no ABI-correct call route can have its call replaced by a throw once the body has been
@@ -611,6 +632,7 @@ namespace BindingsGeneration
             EmitObjCRootedStaticHelper(csWriter);
 
             // Now emit the public constructor that calls the helper
+            EmitMemberDocumentation(csWriter, isConstructor: true);
             EmitFallbackAttribute(csWriter);
             // The marshalling that discovers a CONSUME degrade ran in the static helper above, but the
             // member a consumer names is this public constructor — so the marker is captured around it,
@@ -618,8 +640,7 @@ namespace BindingsGeneration
             var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor: true);
-            EmitMainActorMemberAnnotation(csWriter);
+            EmitMainActorMemberAttribute(csWriter);
             EmitSignatureConstructor(csWriter);
             EmitBodyStart(csWriter);
             // No main-thread guard here: the Swift init already ran inside the static helper called
@@ -768,6 +789,8 @@ namespace BindingsGeneration
             EmitErrorHelperPInvokes(csWriter);
             EmitClosureCallbacks(csWriter);
             EmitClosureReturnInvokeThunkHelper(csWriter);
+            // The signature this method writes appends a CancellationToken to an async member.
+            EmitMemberDocumentation(csWriter, cancellationTokenName: _requiresSwiftAsync ? CancellationTokenName : null);
             if (_fallbackInfo.HasValue)
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value, _emissionContext);
@@ -782,11 +805,7 @@ namespace BindingsGeneration
             var preSignatureCheckpoint = csWriter.Checkpoint();
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, _env.MethodDecl, _env.ParentDecl, emitObsolete: false);
             EmitSafetyObsolete(csWriter);
-            if (!_env.MethodDecl.IsAccessor)
-            {
-                XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl);
-            }
-            EmitMainActorMemberAnnotation(csWriter);
+            EmitMainActorMemberAttribute(csWriter);
             EmitReturnTypeOriginalSwiftType(csWriter);
             EmitSignatureMethod(csWriter);
             // PRODUCE-path proxy gate (method body). A return/marshalling construction may attempt

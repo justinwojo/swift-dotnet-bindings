@@ -453,10 +453,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         var current = returnSpec;
+        var declaredNames = DeclaredGenericNames(pairing, method);
         for (int i = 0; i < pairing.Count; i++)
         {
             var genericName = pairing[i].Param.GenericParam.TypeName;
-            var altGenericName = GetAlternateDepthName(genericName);
+            var altGenericName = GetAlternateDepthName(genericName, declaredNames);
             bool substitutionOk = true;
             current = SubstituteTypeSpec(
                 current, genericName, altGenericName,
@@ -1119,10 +1120,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string cancelRegName = asyncScope.Reserve("_cancelRegistration");
 
         csWriter.WriteLine();
+        // Doc first: after an attribute it documents nothing (CS1587). The parent's C# name is a
+        // closed generic, so it is escaped for the doc XML.
+        csWriter.WriteLine(
+            $"/// <summary>Parent-only async specialization: {XmlDocCommentEmitter.XmlEscape(parentCsName)}.{method.Name}.</summary>");
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
-        csWriter.WriteLine(
-            $"/// <summary>Parent-only async specialization: {parentCsName}.{method.Name}.</summary>");
         csWriter.WriteLine(
             $"public static unsafe {taskType} {csMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");

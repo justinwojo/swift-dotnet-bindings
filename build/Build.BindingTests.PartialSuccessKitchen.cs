@@ -175,6 +175,8 @@ partial class Build
             $"--xcframework \"{xcframework}\"",
             $"-o \"{outputDir}\"",
             $"--async-library {KitchenWrapperModule}",
+            // The lane's framework, matching the compile check below and the main regeneration.
+            $"--target-framework {ApplePlatform.IOS.GetTfm(BtFramework)}",
         };
 
         Log.Information("=== partial-success-kitchen: generating bindings ===");
@@ -188,6 +190,8 @@ partial class Build
     // Compile-checks the generated C# with a hermetic csproj that references only Swift.Runtime +
     // Swift.Bindings.Apple (the SwiftUI bridge stubs) — the same shape as CompileCheck.csproj, but
     // scoped to the kitchen output so a compile error here is unambiguously the kitchen binding.
+    // It targets the selected lane's framework: the generator and its report are framework-neutral,
+    // so a .NET 11 consumer's compile is the only part of this gate that differs.
     void AssertKitchenCompiles(AbsolutePath outputDir)
     {
         var csprojDir = outputDir / ".compile-check";
@@ -199,7 +203,7 @@ partial class Build
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Library</OutputType>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{BtFramework}-ios</TargetFramework>
                 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
                 <Nullable>enable</Nullable>
                 <NoWarn>CS0169;CS0649;CA1418;CA1420</NoWarn>

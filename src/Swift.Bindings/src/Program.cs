@@ -941,8 +941,19 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Every member, including the extension members injected above, is in place: record
-                // the runtime-support floor its signature needs before any emitter reads availability.
+                // Every member, including the extension members injected above, is in place. A class
+                // composed only with marker protocols is the class itself at runtime; rewrite it to the
+                // class before anything classifies the signature as an existential.
+                var erasedMarkerCompositions = MarkerCompositionLowering.Apply(decl, typeDatabase);
+                if (erasedMarkerCompositions > 0)
+                {
+                    logger.LogInformation(
+                        "Projected {Count} class-and-marker-protocol composition(s) as their class",
+                        erasedMarkerCompositions);
+                }
+
+                // Record the runtime-support floor each signature needs before any emitter reads
+                // availability.
                 var parameterizedExistentialMembers = ParameterizedExistentialFloor.Apply(decl, typeDatabase);
                 if (parameterizedExistentialMembers > 0)
                 {
@@ -1507,7 +1518,7 @@ namespace BindingsGeneration
 
             return true;
             }
-            catch (AbiContractViolationException ex)
+            catch (Exception ex) when (ex is AbiContractViolationException or SelfRegisterContractException)
             {
                 // Caught separately from the generic handler below so the failure reports as the
                 // ABI contract violation it is rather than an unexplained generation error. The

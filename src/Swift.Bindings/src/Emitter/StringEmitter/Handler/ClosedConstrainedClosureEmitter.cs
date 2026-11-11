@@ -479,9 +479,10 @@ public static class ClosedConstrainedClosureEmitter
         }
 
         csWriter.WriteLine();
+        // Doc first: after an attribute it documents nothing (CS1587).
+        csWriter.WriteLine($"/// <summary>Constrained-extension method on {plan.Parent.Name}&lt;{XmlDocCommentEmitter.XmlEscape(LastSegment(plan.ConcreteAnchor.ModuleQualifiedName))}&gt; (escaping closure).</summary>");
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, plan.Parent.AvailabilityAnnotations);
-        csWriter.WriteLine($"/// <summary>Constrained-extension method on {plan.Parent.Name}&lt;{LastSegment(plan.ConcreteAnchor.ModuleQualifiedName)}&gt; (escaping closure).</summary>");
         csWriter.WriteLine($"public static void {csMethodName}({string.Join(", ", sigParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;

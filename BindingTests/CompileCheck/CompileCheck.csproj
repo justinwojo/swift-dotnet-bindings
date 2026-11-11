@@ -8,14 +8,18 @@
     <!-- CS0169: unused private field (generated backing fields) -->
     <!-- CS0649: field never assigned (protocol proxy vtable entries for closure-skipped methods) -->
     <!-- CA1420: using features that require runtime marshalling (LibraryImport with Swift types) -->
-    <!-- CA1418: 'visionos' is not yet in the .NET 10.0.107 analyzer's KnownPlatforms list,
-         even though visionOS IS a recognized OSPlatform at runtime. The Apple-framework
-         SDK TFMs (e.g. net10.0-ios26.2) carry the updated list; the plain net10.0-ios
-         TFM used by CompileCheck still has the stale list. The emitted attribute is
-         legitimate Swift metadata — suppress here so the F-5 visionOS lowering compiles
-         under the test harness's TFM. -->
+    <!-- CA1418 (unknown platform name in a SupportedOSPlatform attribute) is deliberately NOT
+         suppressed: a consumer building the binding sees it, under warnings-as-errors as a break,
+         so this gate must too. The generator emits only platforms .NET knows. -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
-    <NoWarn>CS0169;CS0649;CA1418;CA1420</NoWarn>
+    <!-- Build the documentation file the way a packed binding does: the generated binding csproj
+         and the SDK both turn it on and suppress only CS1591, because not every generated member
+         carries a doc comment. Every other doc-comment warning then fails this gate under the
+         repository's TreatWarningsAsErrors, exactly as it fails a consumer who builds a binding
+         with warnings as errors: CS1587 for a /// block written after an attribute (it documents
+         nothing), malformed doc XML, a <param> that names no parameter. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>CS0169;CS0649;CA1420;CS1591</NoWarn>
   </PropertyGroup>
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>

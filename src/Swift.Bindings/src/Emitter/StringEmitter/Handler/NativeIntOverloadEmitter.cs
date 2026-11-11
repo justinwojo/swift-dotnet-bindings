@@ -261,7 +261,8 @@ internal static class NativeIntOverloadEmitter
         if (WrapperValidation.NeedsMainActorAnnotation(
                 methodEnv.ParentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated))
         {
-            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         }
 
         // Inherit [SupportedOSPlatform] / [ObsoletedOSPlatform] from the primary method.
@@ -547,7 +548,8 @@ internal static class NativeIntOverloadEmitter
                 isolationAccessor?.IsMainActorIsolated ?? false,
                 isolationAccessor?.IsNonisolated ?? false))
         {
-            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         }
 
         // Inherit availability attributes from the primary subscript — same CA1416

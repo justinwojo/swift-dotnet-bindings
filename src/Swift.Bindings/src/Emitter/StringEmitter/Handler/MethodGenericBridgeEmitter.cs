@@ -765,7 +765,7 @@ public static class MethodGenericBridgeEmitter
             parameterPortion: ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
 
         // Emit XML doc comment
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, publicParamNames);
 
         // Detect Utf8Slice (Swift.String) params — they need `unsafe` for the
         // `fixed (byte* …Ptr = …Utf8)` pin that brackets the P/Invoke call below.

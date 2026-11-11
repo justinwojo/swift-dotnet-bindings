@@ -50,17 +50,13 @@ public class NestedOfParentTests : TestBase
     }
 
     // Cross-host nested-of-parent (outer != host): the GSF gate REJECTS this shape
-    // (predicate `OuterMatchesParent` in `GenericDispatchEmitter.IsNestedTypeOfParentGeneric`).
-    // Reason: the foreign outer's value-witness table does not flow through the
-    // `any _SBW_GSF_X.Type` existential dispatch, so the host's VWT.destroy walks a
-    // layout that does not match the initialized storage and SIGSEGVs in
-    // `RefCounts::doDecrementSlow` at SafeHandle.Dispose. Doc 14 hypothesis 1 (Option B
-    // reconstruction) was tried and did not change runtime behaviour; SIL emission for
-    // same-host vs cross-host is structurally identical, so the divergence is in
-    // runtime metadata resolution, not the emitted code. Doc 14 hypothesis 3 keeps
-    // cross-host on direct CallConvSwift (SB0001) — the fixtures remain in-tree as
-    // durable regression markers; when GSF can carry the foreign outer's witness
-    // table the `[Skip]` drops and these tests turn green.
+    // (predicate `OuterMatchesParent` in `GenericDispatchEmitter.IsNestedTypeOfParentGeneric`),
+    // so both hosts' initializers are reached directly through the Swift calling convention.
+    // The struct host still faults in `RefCounts::doDecrementSlow` at SafeHandle.Dispose and
+    // stays skipped until GSF can carry the foreign outer's witness table. The class host's
+    // fault was the binding's: its generic allocating initializer was called without the
+    // specialized class metatype in the self register, so it allocated from whatever the
+    // register held. With the metatype passed it runs.
 
     [Skip("Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer's VWT does not thread through `any _SBW_GSF_X.Type` existential dispatch.")]
     public void TestCrossHostStruct_AcceptsForeignOuterNested()
@@ -71,7 +67,8 @@ public class NestedOfParentTests : TestBase
         AssertEqual("crosshost-struct", text, "Cross-host nested-of-parent (struct host) round-trips through GSF");
     }
 
-    [Skip("Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer's VWT does not thread through `any _SBW_GSF_X.Type` existential dispatch.")]
+    // The class host's initializer is a generic allocating init reached directly through the
+    // Swift calling convention, which takes the specialized class metatype in the self register.
     public void TestCrossHostClass_AcceptsForeignOuterNested()
     {
         var payload = new CrossHostOuter<BoxKP>.Body("crosshost-class");

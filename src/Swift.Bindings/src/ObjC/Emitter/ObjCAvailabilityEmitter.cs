@@ -47,7 +47,9 @@ public static class ObjCAvailabilityEmitter
 
         foreach (var avail in effective)
         {
-            if (string.IsNullOrEmpty(avail.Platform))
+            // A platform .NET does not know (visionos) would draw CA1418 on the attribute.
+            if (string.IsNullOrEmpty(avail.Platform)
+                || !BindingsGeneration.AvailabilityAttributeEmitter.IsEmittableDotNetPlatform(avail.Platform))
                 continue;
 
             if (avail.IsUnavailable)

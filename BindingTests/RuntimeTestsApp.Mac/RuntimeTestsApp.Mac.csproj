@@ -28,10 +28,8 @@
     <!-- Disable build-time codesign: native dylibs are injected post-build by the
          Nuke target. The Nuke target re-signs the bundle bottom-up after injection. -->
     <EnableCodeSigning>false</EnableCodeSigning>
-    <!-- Same warning suppressions as RuntimeTestsApp. CA1418: 'visionos' is
-         missing from the .NET 10.0.107 analyzer's KnownPlatforms list on this
-         TFM, so the generated [SupportedOSPlatform("visionos1.0")] trips it. -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- Same warning suppressions as RuntimeTestsApp. -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
@@ -90,6 +88,9 @@
     <Compile Include="../RuntimeTestsApp/Collisions/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/EdgeCases/**/*.cs" />
+    <!-- Types/ is iOS-shaped and not compiled here; CMTime and its range/mapping structs project as
+         the platform's own CoreMedia value types, so their tests run on CoreCLR too. -->
+    <Compile Include="../RuntimeTestsApp/Types/CoreMediaTimeTests.cs" />
     <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />

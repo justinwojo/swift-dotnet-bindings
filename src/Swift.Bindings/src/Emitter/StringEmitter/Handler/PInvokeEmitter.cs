@@ -952,6 +952,10 @@ namespace BindingsGeneration
 
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
+                // A class member that takes the class metatype as self recovers the class's own
+                // generic arguments from it; only a method's own generic parameters are passed.
+                if (MarshallingHelpers.IsGenericParameterFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName))
+                    continue;
                 var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
                 AddParameter("IntPtr", metadataName);
             }
@@ -1029,6 +1033,10 @@ namespace BindingsGeneration
                     if (!admit && admitDynamicPwt && HasResolvableDynamicDescriptor(conformance.ConformanceTarget, _env.TypeDatabase))
                         admit = true;
                     if (!admit)
+                        continue;
+                    // The class metatype in the self register carries the witness tables the
+                    // class declares; only an extension-added conformance is passed.
+                    if (MarshallingHelpers.IsConformanceFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
                         continue;
 
                     var pwtName = NameProvider.GetProtocolWitnessTableName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter, conformance.ConformanceTarget.Name);
@@ -1172,21 +1180,47 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Adds the hidden <c>@thick Self.Type</c> self register for a class allocating initializer
-        /// that is called directly through CallConvSwift. The metatype is what
-        /// <c>swift_allocObject</c> allocates from, so leaving the register undefined produces an
-        /// instance whose isa is garbage — it survives construction and faults on release.
+        /// Name of the hidden self parameter that carries a class's <c>@thick Self.Type</c>.
         /// </summary>
-        public void HandleAllocatingInitMetatypeSelf()
+        public const string ClassMetatypeSelfParameterName = "_metatypeSelf";
+
+        /// <summary>
+        /// Adds the hidden <c>@thick Self.Type</c> self register for a class member whose native
+        /// function takes the class metatype as self — an allocating initializer, a static or
+        /// <c>class</c> member, or an operator called directly through CallConvSwift (see
+        /// <see cref="MarshallingHelpers.RequiresClassMetatypeSelf"/>). The register holds the
+        /// metadata the callee allocates from, dispatches on, and reads the class's generic
+        /// arguments out of; leaving it undefined hands the callee whatever it last held.
+        ///
+        /// A generic class's metatype is the specialised one, built from the type arguments through
+        /// the class's metadata accessor — the same expression the class's own
+        /// <c>GetTypeMetadata</c> uses — so the callee sees exactly the instantiation the managed
+        /// caller named.
+        /// </summary>
+        public void HandleClassMetatypeSelf()
         {
-            if (!MarshallingHelpers.RequiresAllocatingInitMetatypeSelf(_env))
+            if (!MarshallingHelpers.RequiresClassMetatypeSelf(_env))
                 return;
 
-            var selfTypeName = GetResolvedParentTypeName();
             _parameters.Add(new Parameter(
                 MarshalledType.SwiftSelfUntyped,
-                "_metatypeSelf",
-                CallExpression: $"new SwiftSelf((void*)SwiftObjectHelper<{selfTypeName}>.GetTypeMetadata().Handle)"));
+                ClassMetatypeSelfParameterName,
+                CallExpression: $"new SwiftSelf((void*){BuildClassMetatypeExpression()}.Handle)"));
+        }
+
+        private string BuildClassMetatypeExpression()
+        {
+            if (_env.ParentDecl is TypeDecl { IsGeneric: true })
+            {
+                var helper = _env.PInvokeHelperContext
+                    ?? throw new InvalidOperationException(
+                        $"Class member '{_env.MethodDecl.Name}' on generic parent '{_env.ParentDecl.Name}' takes the "
+                        + "class metatype as self but has no P/Invoke helper context to build the specialised metatype from.");
+                var accessorArguments = string.Join(", ", helper.GetTypeMetadataAccessorArgumentList());
+                return $"{helper.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {accessorArguments})";
+            }
+
+            return $"SwiftObjectHelper<{GetResolvedParentTypeName()}>.GetTypeMetadata()";
         }
 
         /// <summary>
@@ -1452,7 +1486,10 @@ namespace BindingsGeneration
                     // @_cdecl constructors: metadata is already included via HandleGenericMetadata()
                     // (maps to _metadata0 in the @_cdecl wrapper). No extra metatype param needed —
                     // the @_cdecl wrapper handles metatype dispatch internally.
+                    // A class member that takes the class metatype as self reads the class's
+                    // generic arguments from that register — no trailing metadata of any kind.
                     MetadataParameters = methodDecl.UsesCdeclWrapper || methodDecl.UsesNativeThunk
+                        || MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv)
                         ? Array.Empty<string>()
                         : methodDecl.GenericParameters.Count > 0
                             ? (methodDecl.IsConstructor

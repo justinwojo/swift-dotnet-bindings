@@ -162,10 +162,14 @@ internal static class OverloadNameDisambiguator
     /// rename (property, CS0542 parent-name, CS0102 generic-parameter) suppressed. Bare-name ownership
     /// keys off this: a member that only reaches the contested spelling BECAUSE it was renamed out of
     /// its own natural one has no claim on it.</param>
+    /// <param name="bareNameOwner">Replaces the content-based bare-name ownership rule for a lane
+    /// whose surface already shipped under a different one: given a contested family, returns the
+    /// member that keeps the natural name (null for none). Every other member still walks the ladder.</param>
     public static Dictionary<MethodDecl, OverloadNameAssignment> Resolve(
         IReadOnlyList<(MethodDecl Method, string ProjectedKey)> emittingMethods,
         Func<MethodDecl, string, string> projectWithNameOverride,
-        Func<MethodDecl, string> unrenamedNaturalName)
+        Func<MethodDecl, string> unrenamedNaturalName,
+        Func<IReadOnlyList<MethodDecl>, MethodDecl?>? bareNameOwner = null)
     {
         var result = new Dictionary<MethodDecl, OverloadNameAssignment>(ReferenceEqualityComparer.Instance);
 
@@ -205,18 +209,25 @@ internal static class OverloadNameDisambiguator
             // (`conflict(_:)` → `ConflictMethod`, because a `conflict` property took `Conflict`) from
             // out-claiming the sibling literally named `conflictMethod`.
             MethodDecl? owner = null;
-            int ownerCandidates = 0;
-            foreach (var m in family)
+            if (bareNameOwner != null)
             {
-                if (!string.Equals(BuildLabelDerivedNameInput(m), m.Name, StringComparison.Ordinal))
-                    continue;
-                if (!string.Equals(unrenamedNaturalName(m), contestedName, StringComparison.Ordinal))
-                    continue;
-                ownerCandidates++;
-                owner ??= m;
+                owner = bareNameOwner(family);
             }
-            if (ownerCandidates != 1)
-                owner = null;
+            else
+            {
+                int ownerCandidates = 0;
+                foreach (var m in family)
+                {
+                    if (!string.Equals(BuildLabelDerivedNameInput(m), m.Name, StringComparison.Ordinal))
+                        continue;
+                    if (!string.Equals(unrenamedNaturalName(m), contestedName, StringComparison.Ordinal))
+                        continue;
+                    ownerCandidates++;
+                    owner ??= m;
+                }
+                if (ownerCandidates != 1)
+                    owner = null;
+            }
 
             var discriminands = new List<MethodDecl>(family.Count);
             foreach (var m in family)

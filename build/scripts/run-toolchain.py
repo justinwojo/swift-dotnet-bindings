@@ -19,6 +19,10 @@ import tempfile
 
 MARKER = ".swift-bindings-toolchain.json"
 SCHEMA = 1
+# The one baseline a profile run may write: only the net11 profile can build those lanes.
+NET11_IDENTITY_BASELINE = "build/baselines/runtime-identity-net11-baseline.json"
+SEED_RUNTIME_IDENTITY = "seed-runtime-identity-baseline"
+ADVISORY = re.compile(r"https://github\.com/advisories/GHSA(-[23456789cfghjmpqrvwx]{4}){3}")
 
 
 def execute(args, *, cwd, env=None):
@@ -73,8 +77,13 @@ def environment(profile, state, inherited=None):
     for key in ("MSBuildSDKsPath", "DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR",
                 "DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR", "DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER",
                 "SDKROOT", "SWIFT_INTERFACE_PARSER_PATH", "GIT_DIR", "GIT_WORK_TREE",
-                "GIT_INDEX_FILE", "DOTNET_ROLL_FORWARD", "DOTNET_ROLL_FORWARD_TO_PRERELEASE"):
+                "GIT_INDEX_FILE", "DOTNET_ROLL_FORWARD", "DOTNET_ROLL_FORWARD_TO_PRERELEASE",
+                "SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS"):
         env.pop(key, None)
+    suppressed = audit_suppressions(profile)
+    if suppressed:
+        # Directory.Build.props turns this into NuGetAuditSuppress items, one per advisory URL.
+        env["SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS"] = ";".join(suppressed)
     env.update({
         "SWIFT_BINDINGS_MANAGED_FRAMEWORK": framework,
         "DOTNET_ROOT": root, "DOTNET_ROOT_ARM64": root,
@@ -94,6 +103,37 @@ def environment(profile, state, inherited=None):
                                   developer + "/usr/bin", env.get("PATH", os.defpath)]),
     })
     return env
+
+
+def audit_suppressions(profile):
+    """Exact advisory URLs a profile's pinned Microsoft toolchain cannot avoid, each with a reason."""
+    entries = profile.get("nugetAuditSuppress", [])
+    if not isinstance(entries, list):
+        raise RuntimeError("nugetAuditSuppress must be a list")
+    urls = []
+    for entry in entries:
+        if (not isinstance(entry, dict) or set(entry) != {"advisory", "reason"}
+                or not isinstance(entry["advisory"], str) or not ADVISORY.fullmatch(entry["advisory"])
+                or not isinstance(entry["reason"], str) or not entry["reason"].strip()):
+            raise RuntimeError("Each nugetAuditSuppress entry needs exactly one GitHub advisory URL "
+                               f"and a non-empty reason: {entry!r}")
+        urls.append(entry["advisory"])
+    if len(set(urls)) != len(urls):
+        raise RuntimeError("nugetAuditSuppress lists an advisory twice")
+    return urls
+
+
+def missing_host_runtimes(profile, listing):
+    """hostRuntimes a profile pins (Microsoft.NETCore.App versions) absent from `dotnet --list-runtimes`.
+
+    The net11 root carries a .NET 10 runtime for the net10 Nuke global tool and generator; CI
+    provisions exactly the versions listed here, so the launcher holds a local root to them too.
+    """
+    pinned = profile.get("hostRuntimes", [])
+    if not isinstance(pinned, list) or not all(isinstance(v, str) and v for v in pinned):
+        raise RuntimeError(f"hostRuntimes must be a list of runtime versions: {pinned!r}")
+    installed = set(re.findall(r"^Microsoft\.NETCore\.App (\S+) ", listing, re.M))
+    return [version for version in pinned if version not in installed]
 
 
 def temporary_root(state):
@@ -134,6 +174,9 @@ def toolchain_receipt(profile, state, env):
     for workload in ("ios", "tvos", "macos", "maccatalyst"):
         if f"[{workload}]" not in workloads:
             raise RuntimeError(f"Required workload is not installed: {workload}")
+    runtimes = execute([host, "--list-runtimes"], cwd=control, env=env)
+    if missing := missing_host_runtimes(profile, runtimes):
+        raise RuntimeError(f"Required host runtime is not installed: Microsoft.NETCore.App {', '.join(missing)}")
     # Include exact manifest identities, compiler build, paths and SDK versions, not mtimes.
     ref_packs = {}
     for family in sorted((Path(env["DOTNET_ROOT"]) / "packs").glob("Microsoft.*.Ref*")):
@@ -142,8 +185,7 @@ def toolchain_receipt(profile, state, env):
     return {"sdk": sdk, "workloads": workloads, "xcode": xcode, "referencePacks": ref_packs,
             # Preserve the legacy receipt shape/cache identity; the new profile additionally
             # records the distinct managed app target and its side-by-side build-host runtime.
-            **({"managedFramework": env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"],
-                "runtimes": execute([host, "--list-runtimes"], cwd=control, env=env)}
+            **({"managedFramework": env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"], "runtimes": runtimes}
                if env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"] != "net10.0" else {}),
             "dotnetRoot": env["DOTNET_ROOT"], "developerDirectory": env["DEVELOPER_DIR"],
             "temporaryDirectory": env["TMPDIR"], "nugetPackages": env["NUGET_PACKAGES"],
@@ -164,14 +206,89 @@ def profile_lock(state):
         yield
 
 
-def validate_arguments(arguments):
-    # A qualification run may compare canonical baselines, but cannot reseed/promote them.
+def seeds_net11_identity(arguments, profile):
+    """Whether this run seeds the .NET 11 identity floors (the only baseline write a profile allows)."""
+    for argument in arguments:
+        name, _, value = argument.lstrip("-").partition("=")
+        if name.lower() == SEED_RUNTIME_IDENTITY and value.lower() not in ("false", "0"):
+            target = arguments[0].replace("-", "").replace("_", "").lower() if arguments else ""
+            return profile.get("managedFramework", "net10.0") == "net11.0" and target == "bindingtests"
+    return False
+
+
+def validate_arguments(arguments, profile=None):
+    # A qualification run may compare canonical baselines, but cannot reseed/promote them. The
+    # exception is the net11 profile's own runtime-identity floor: no other toolchain builds
+    # those lanes, so Nuke seeds it here and the launcher copies only that file back.
+    seed_allowed = seeds_net11_identity(arguments, profile or {})
     for argument in arguments:
         normalized = argument.lstrip("-").split("=", 1)[0].lower()
+        if normalized == SEED_RUNTIME_IDENTITY and seed_allowed:
+            continue
         if normalized.startswith("seed-") or normalized == "promote-validation-baseline":
             raise RuntimeError(f"Baseline mutation is forbidden in a qualification profile: {argument}")
         if normalized in ("root", "root-directory"):
             raise RuntimeError("Nuke root overrides would escape the isolated workspace")
+
+
+def write_back_seeded_baseline(source, workspace, inventory):
+    """Copy the seeded .NET 11 identity baseline to the checkout, refusing any other baseline change."""
+    snapshot = {entry[0]: entry for entry in inventory if entry[0].startswith("build/baselines/")}
+    baselines = workspace / "build/baselines"
+    if baselines.is_symlink():
+        raise RuntimeError(f"Refusing a symlink baseline directory: {baselines}")
+    for path in sorted(baselines.iterdir()):
+        name = f"build/baselines/{path.name}"
+        if name == NET11_IDENTITY_BASELINE:
+            continue
+        entry = snapshot.get(name)
+        if (path.is_symlink() or not path.is_file() or entry is None
+                or hashlib.sha256(path.read_bytes()).hexdigest() != entry[2]):
+            raise RuntimeError(f"A profile run changed {name}; only {NET11_IDENTITY_BASELINE} may be written back.")
+    for name in snapshot:
+        if not (workspace / name).exists():
+            raise RuntimeError(f"A profile run removed {name}; nothing was written back.")
+    seeded = workspace / NET11_IDENTITY_BASELINE
+    if seeded.is_symlink() or not seeded.is_file():
+        raise RuntimeError(f"The seed run produced no {NET11_IDENTITY_BASELINE}")
+    content = seeded.read_bytes()
+    json.loads(content)
+    target = source / NET11_IDENTITY_BASELINE
+    entry = snapshot.get(NET11_IDENTITY_BASELINE)
+    current = None if not (target.exists() or target.is_symlink()) else target
+    if current is not None and (current.is_symlink() or not current.is_file()):
+        raise RuntimeError(f"Refusing to replace a non-file {target}")
+    current_hash = hashlib.sha256(current.read_bytes()).hexdigest() if current is not None else None
+    if current_hash != (entry[2] if entry else None):
+        raise RuntimeError(f"{NET11_IDENTITY_BASELINE} changed in the checkout during the run; "
+                           f"the seeded copy is kept at {seeded}.")
+    if entry and hashlib.sha256(content).hexdigest() == entry[2]:
+        print(f"Seeded baseline unchanged: {NET11_IDENTITY_BASELINE}", flush=True)
+        return False
+    staged = target.with_name(target.name + ".seeded")
+    staged.write_bytes(content)
+    os.replace(staged, target)
+    print(f"Wrote back seeded baseline: {target}", flush=True)
+    return True
+
+
+def reset_workspace_seed(source, workspace, inventory):
+    """Return the workspace copy of the seeded baseline to the snapshot the workspace was built from.
+
+    Nuke saves each lane's floor as soon as that lane passes, so a run that fails on a later lane
+    leaves the earlier floors in the reused workspace. The next run would then grade against an
+    unpublished floor, and a later successful seed would copy it back. Only a write-back publishes.
+    """
+    seeded = workspace / NET11_IDENTITY_BASELINE
+    if seeded.is_symlink() or seeded.exists():
+        seeded.unlink()
+    entry = next((entry for entry in inventory if entry[0] == NET11_IDENTITY_BASELINE), None)
+    origin = source / NET11_IDENTITY_BASELINE
+    # A checkout copy that changed since the snapshot changes the source identity, so the next
+    # invocation rebuilds the workspace and the missing copy is never read.
+    if (entry is not None and origin.is_file() and not origin.is_symlink()
+            and hashlib.sha256(origin.read_bytes()).hexdigest() == entry[2]):
+        shutil.copy2(origin, seeded)
 
 
 def parser_inputs(inventory):
@@ -294,7 +411,7 @@ def main(argv=None):
         arguments = arguments[1:]
     if not arguments and not options.prepare_only:
         parser.error("Specify a Nuke target after -- (or use --prepare-only)")
-    validate_arguments(arguments)
+    validate_arguments(arguments, profile)
     state = (options.state_root or source / "artifacts/toolchains").expanduser().resolve() / options.profile
     if state.is_relative_to(source):
         ignored = subprocess.run(["git", "check-ignore", "--quiet", str(state)], cwd=source)
@@ -324,7 +441,16 @@ def main(argv=None):
         if options.prepare_only:
             return 0
         subprocess.run([env["DOTNET_HOST_PATH"], "tool", "restore"], cwd=workspace, env=env, check=True)
-        return subprocess.call([env["DOTNET_HOST_PATH"], "nuke", *arguments], cwd=workspace, env=env)
+        seeding = seeds_net11_identity(arguments, profile)
+        try:
+            status = subprocess.call([env["DOTNET_HOST_PATH"], "nuke", *arguments], cwd=workspace, env=env)
+            # Nuke seeds only from a green run; a failed run leaves the checkout untouched.
+            if status == 0 and seeding:
+                write_back_seeded_baseline(source, workspace, inventory)
+        finally:
+            if seeding:
+                reset_workspace_seed(source, workspace, inventory)
+        return status
 
 
 if __name__ == "__main__":

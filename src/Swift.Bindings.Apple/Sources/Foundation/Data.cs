@@ -44,12 +44,12 @@ public struct Data : ISwiftObject
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return TypeMetadata.Cache.GetOrAdd(typeof(Data), _ => PInvoke_getMetadata());
+        return TypeMetadata.Cache.GetOrAdd(typeof(Data), _ => PInvoke_getMetadata(TypeMetadataRequest.Complete));
     }
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataVMa")]
-    internal static extern TypeMetadata PInvoke_getMetadata();
+    internal static extern TypeMetadata PInvoke_getMetadata(TypeMetadataRequest request);
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {

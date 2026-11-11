@@ -149,20 +149,12 @@ namespace BindingsGeneration
                 if (isProjectedAsClass)
                     interfaces.Insert(1, nameof(ISwiftStruct));
 
-                XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
-                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, structDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(structDecl, env.TypeDatabase);
-                if (opaqueEmittable == 0 && opaqueSkipped > 0)
-                {
-                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                var isOpaque = opaqueEmittable == 0 && opaqueSkipped > 0;
+                if (isOpaque)
                     context.GetEmissionContext()?.AddEmittedOpaqueType(structDecl.SwiftTypeName.ModuleQualifiedName);
-                }
-                else if (isProjectedAsClass)
-                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, structDecl);
-                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, structDecl);
-                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, structDecl);
-                if (structDecl.Name.StartsWith("_"))
-                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                TypeAnnotationHelper.EmitTypeDeclarationPreamble(
+                    csWriter, structDecl, isOpaque ? opaqueSkipped : null, emitDisposalRemarks: isProjectedAsClass);
                 if (isProjectedAsClass)
                 {
                     var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";

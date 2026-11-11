@@ -224,20 +224,12 @@ namespace BindingsGeneration
                 if (classDecl.IsActor)
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
 
-                XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
-                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, classDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(classDecl, env.TypeDatabase);
-                if (opaqueEmittable == 0 && opaqueSkipped > 0)
-                {
-                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                var isOpaque = opaqueEmittable == 0 && opaqueSkipped > 0;
+                if (isOpaque)
                     context.GetEmissionContext()?.AddEmittedOpaqueType(classDecl.SwiftTypeName.ModuleQualifiedName);
-                }
-                else
-                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, classDecl);
-                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, classDecl);
-                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, classDecl);
-                if (classDecl.Name.StartsWith("_"))
-                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                TypeAnnotationHelper.EmitTypeDeclarationPreamble(
+                    csWriter, classDecl, isOpaque ? opaqueSkipped : null, emitDisposalRemarks: true);
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
@@ -816,18 +808,8 @@ namespace BindingsGeneration
                     _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                     _writer.WriteLine();
 
-                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
-                    {
-                        LibraryPath = libPath,
-                        EntryPoint = metadataAccessor,
-                        MethodName = "PInvoke_getMetadata",
-                        ReturnType = "TypeMetadata",
-                        ParametersString = "",
-                        Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
-                        CallingConvention = PInvokeCallingConvention.Swift,
-                        EmissionContext = _emissionCtx
-                    }))
+                    foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+                        libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl), emissionContext: _emissionCtx))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                     _classDecl.EmittedMetadataPInvoke = true;
@@ -865,18 +847,8 @@ namespace BindingsGeneration
                     // catch around the wrapper-bound primary, i.e. exactly when the wrapper is
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
-                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
-                    {
-                        LibraryPath = _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name),
-                        EntryPoint = metadataAccessor,
-                        MethodName = "PInvoke_getMetadata_fallback",
-                        ReturnType = "TypeMetadata",
-                        ParametersString = "",
-                        Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = hasNew,
-                        CallingConvention = PInvokeCallingConvention.Swift,
-                        EmissionContext = _emissionCtx
-                    }))
+                    foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), metadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: hasNew, emissionContext: _emissionCtx))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                     _classDecl.EmittedMetadataPInvoke = true;
@@ -888,18 +860,8 @@ namespace BindingsGeneration
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 
-                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
-                {
-                    LibraryPath = libPath,
-                    EntryPoint = metadataAccessor,
-                    MethodName = "PInvoke_getMetadata",
-                    ReturnType = "TypeMetadata",
-                    ParametersString = "",
-                    Visibility = PInvokeVisibility.Internal,
-                    HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
-                    CallingConvention = PInvokeCallingConvention.Swift,
-                    EmissionContext = _emissionCtx
-                }))
+                foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+                    libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl), emissionContext: _emissionCtx))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
                 _classDecl.EmittedMetadataPInvoke = true;

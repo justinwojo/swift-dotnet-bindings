@@ -881,6 +881,24 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Async Static Member Wrapper Tests
+
+    [Fact]
+    public void AsyncWrapper_ClassStaticMethod_IsAFreeFunctionCallingThroughTheClass()
+    {
+        // The C# side calls this wrapper with no self. Emitted as a `static` member of an extension it
+        // would itself take the class metatype in the self register, which that call leaves unset, so
+        // it is a free function that names the class as the receiver.
+        var swiftOutput = GenerateAsyncClassStaticWrapper();
+
+        Assert.Contains("fetchShared", swiftOutput);
+        Assert.DoesNotContain("static func", swiftOutput);
+        Assert.DoesNotContain("extension ", swiftOutput);
+        Assert.Contains("TestModule.Pipeline.fetchShared(", swiftOutput);
+    }
+
+    #endregion
+
     #region Async Singleton Self Parameter Tests
 
     [Fact]
@@ -1740,6 +1758,96 @@ public class AsyncSwiftWrapperTests
         handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
+    }
+
+    private static string GenerateAsyncClassStaticWrapper()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var parentDecl = new ClassDecl
+        {
+            Name = "Pipeline",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
+            MangledName = "$s10TestModule8PipelineCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetchShared",
+            MangledName = "$s10TestModule8PipelineC11fetchSharedSiyYaFZ",
+            MethodType = MethodType.Static,
+            IsFinal = true,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(methodDecl);
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = "$s10TestModule8PipelineCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        var intTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int");
+        swiftModule.RegisterType(intTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.NIntType,
+            SwiftTypeName = intTypeName,
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(module);
+
+        var swiftStringWriter = new StringWriter();
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+        handler.Emit(new CSharpWriter(new StringWriter()), new SwiftWriter(swiftStringWriter), env,
+            new Conductor(new NullLoggerFactory()), TypeHandlerContext.Empty);
+        return swiftStringWriter.ToString();
     }
 
     private static string GenerateAsyncMethodWrapper(string methodName, bool isAsync, bool hasNonFrozenParam)

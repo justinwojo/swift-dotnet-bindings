@@ -4,5 +4,6 @@
   "xcodeVersion": "27.2",
   "dotnetRoot": "~/.local/share/swift-bindings/toolchains/net11-xcode27.2/dotnet",
   "developerDirectory": "/Applications/Xcode-27.2.0.app/Contents/Developer",
-  "managedFramework": "net11.0"
+  "managedFramework": "net11.0",
+  "hostRuntimes": ["10.0.15"]
 }

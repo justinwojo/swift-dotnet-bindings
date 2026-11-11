@@ -261,6 +261,44 @@ public static class ConstructorWrapperEmitter
     }
 
     /// <summary>
+    /// Spells a generic type against its own generic context, each nesting level carrying the
+    /// parameters it declares: <c>Module.Outer&lt;T&gt;.Inner&lt;U&gt;</c>, never
+    /// <c>Module.Outer.Inner&lt;T, U&gt;</c> (which names no type). Parameters are written by
+    /// their sugared names, which the enclosing extension on the type puts in scope.
+    /// </summary>
+    internal static string RenderOpenGenericTypeReference(TypeDecl typeDecl)
+    {
+        static string Sugared(GenericArgumentDecl p) =>
+            string.IsNullOrEmpty(p.SugaredTypeName) ? p.TypeName : p.SugaredTypeName;
+
+        var chain = new List<TypeDecl>();
+        for (BaseDecl? current = typeDecl; current is TypeDecl level; current = level.ParentDecl)
+            chain.Add(level);
+        chain.Reverse();
+
+        var rendered = new System.Text.StringBuilder();
+        string? outerName = null;
+        foreach (var level in chain)
+        {
+            var levelName = level.SwiftTypeName.ModuleQualifiedName;
+            if (outerName == null)
+                rendered.Append(levelName);
+            else if (levelName.StartsWith(outerName + ".", StringComparison.Ordinal))
+                rendered.Append(levelName, outerName.Length, levelName.Length - outerName.Length);
+            else
+                // The nesting chain does not spell a dotted path (no level structure to place
+                // arguments on): fall back to the flat spelling of every parameter.
+                return $"{typeDecl.SwiftTypeName.ModuleQualifiedName}<{string.Join(", ", typeDecl.GenericParameters.Select(Sugared))}>";
+
+            var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(level);
+            if (ownParams.Count > 0)
+                rendered.Append('<').Append(string.Join(", ", ownParams.Select(Sugared))).Append('>');
+            outerName = levelName;
+        }
+        return rendered.ToString();
+    }
+
+    /// <summary>
     /// Finds a StructDecl by module-qualified name in a type list (including nested types).
     /// </summary>
     private static StructDecl? FindStructDecl(IEnumerable<TypeDecl> types, string qualifiedName)
@@ -1142,17 +1180,15 @@ public static class ConstructorWrapperEmitter
             // but we can't add `required` to the original type. Using the concrete
             // module-qualified name avoids this requirement.
             //
-            // For generic parents, append the sugared generic param list explicitly
+            // For generic parents, spell the sugared generic params explicitly
             // (`Foo<T>`). Swift can't always infer the parameters from init args —
             // notably no-arg inits on non-final generic classes — and the extension's
-            // generic context puts the sugared param names in scope.
-            var ctorType = moduleQualifiedSwiftName;
-            if (parentTypeDecl.GenericParameters.Count > 0)
-            {
-                var sugared = string.Join(", ", parentTypeDecl.GenericParameters.Select(p =>
-                    string.IsNullOrEmpty(p.SugaredTypeName) ? p.TypeName : p.SugaredTypeName));
-                ctorType = $"{moduleQualifiedSwiftName}<{sugared}>";
-            }
+            // generic context puts the sugared param names in scope. A type nested in a
+            // generic type carries each level's parameters on that level's segment
+            // (`Outer<T>.Inner<U>`).
+            var ctorType = parentTypeDecl.GenericParameters.Count > 0
+                ? RenderOpenGenericTypeReference(parentTypeDecl)
+                : moduleQualifiedSwiftName;
             if (throws && isFailable)
             {
                 extensionLines.Add($"guard let result = try {ctorType}({initCallArgString}) else {{ return nil }}");

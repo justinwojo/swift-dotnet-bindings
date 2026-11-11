@@ -113,6 +113,10 @@ namespace BindingsGeneration
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl, context.GetEmissionContext());
 
+            // Metadata accessors for imported C structs the surface uses (registered in the
+            // module initializer). Needs the imports above: the accessor names the type.
+            EmitImportedValueTypeMetadataAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
+
             // Emit EveryProtocol class and protocol conformances for Swift side
             EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
@@ -554,6 +558,8 @@ namespace BindingsGeneration
                 ?? Array.Empty<(string, string, string, string)>();
             var classBoundExistentialRegistrations = emissionCtx?.ClassBoundExistentialRegistrations
                 ?? Array.Empty<(string, string)>();
+            var importedValueTypeRegistrations = emissionCtx?.ImportedValueTypeMetadataRegistrations
+                ?? Array.Empty<(string, string, string, string)>();
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
@@ -683,6 +689,13 @@ namespace BindingsGeneration
                 var safeName = typeName.Replace(".", "_");
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
             }
+            // Imported C structs projected as an existing .NET value type (CoreMedia.CMTime): same
+            // lane as the simple enums above, for the same reason — the managed type can't supply
+            // its own Swift metadata, and a generic over it needs that metadata for its layout.
+            foreach (var (typeofExpr, accessorName, _, _) in importedValueTypeRegistrations)
+            {
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeofExpr}), global::Swift.Runtime.TypeMetadata.FromHandle({accessorName}())); }} catch {{ }}");
+            }
             // Declare each simple enum's protocol-conformance descriptor symbols. The two
             // conformance loops above are constrained to ISwiftObject on both the runtime API and
             // the static-virtual dispatch they perform, which a C# enum can never satisfy — so
@@ -712,6 +725,11 @@ namespace BindingsGeneration
                 var safeName = typeName.Replace(".", "_");
                 csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{metadataSymbol}\")]");
                 csWriter.WriteLines($"    private static extern IntPtr __GetEnumMetadata_{safeName}();");
+            }
+            foreach (var (_, accessorName, metadataSymbol, wrapperLibName) in importedValueTypeRegistrations)
+            {
+                csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{metadataSymbol}\")]");
+                csWriter.WriteLines($"    private static extern IntPtr {accessorName}();");
             }
             csWriter.WriteLines($$"""
                 }
@@ -743,13 +761,114 @@ namespace BindingsGeneration
                 }
             }
 
+            ScanBoundSurfaceTypeNames(moduleDecl, typeName => CheckTypeNameForFrameworkImport(typeName, neededImports));
+
+            // Drop implicit / already-imported / self modules discovered during the scan.
+            // Swift stdlib is implicit; Foundation is imported unconditionally on the wrapper
+            // side and lives in System on the C# side; the module being bound is its own
+            // namespace.
+            neededImports.Remove("Swift");
+            neededImports.Remove("Foundation");
+            neededImports.Remove(moduleDecl.Name);
+
+            return neededImports;
+        }
+
+        /// <summary>
+        /// Emits a @_cdecl metadata accessor for every imported C struct the bound surface references
+        /// that is projected as an existing .NET value type (CoreMedia.CMTime, UIKit.UIEdgeInsets,
+        /// ...), and records it for registration in the module initializer.
+        /// <para>
+        /// Such a managed type is neither an <c>ISwiftObject</c> nor one of the runtime's built-in
+        /// metadata lanes (CoreGraphics, System.Numerics, Guid), so nothing else can resolve its Swift
+        /// metadata, and every generic over it (<c>SwiftArray&lt;CMTime&gt;</c>,
+        /// <c>SwiftOptional&lt;CMTime&gt;</c>) would compile and then throw on first use. A
+        /// clang-imported type's metadata is local to each image that uses it, so the binding's own
+        /// wrapper is the place that can name it.
+        /// </para>
+        /// </summary>
+        private void EmitImportedValueTypeMetadataAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
+        {
+            if (emissionCtx == null)
+                return;
+
+            var referenced = new SortedSet<string>(StringComparer.Ordinal);
+            ScanBoundSurfaceTypeNames(moduleDecl, typeName => referenced.Add(typeName));
+
+            var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
+            foreach (var typeName in referenced)
+            {
+                if (!SwiftTypeName.TryFromModuleQualifiedName(typeName, out var swiftTypeName)
+                    || !typeDatabase.TryGetTypeRecord(swiftTypeName, out var record)
+                    || !IsImportedValueTypeProjection(record, moduleDecl.Name))
+                {
+                    continue;
+                }
+
+                var swiftName = record.SwiftTypeName.ModuleQualifiedName;
+                var metadataSymbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleDecl.Name, swiftName);
+                var typeofExpr = $"global::{record.CSharpTypeName.FullyQualifiedName}";
+                var accessorName = $"__GetImportedMetadata_{swiftName.Replace(".", "_")}";
+                if (emissionCtx.RecordImportedValueTypeMetadata(typeofExpr, accessorName, metadataSymbol, wrapperLibName))
+                    MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name, swiftName, metadataSymbol, emissionCtx);
+            }
+        }
+
+        /// <summary>
+        /// True for a type-database struct that Swift imports from C (mangled <c>So…V</c>) and the
+        /// binding projects as a .NET value type outside the runtime's own metadata lanes, from a
+        /// module the wrapper imports.
+        /// </summary>
+        internal static bool IsImportedValueTypeProjection(TypeRecord record, string boundModuleName)
+        {
+            if (record.Kind != TypeRecordKind.Struct
+                || record.NativeTypeName != null
+                || (record.Flags & (TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement)) != 0)
+                return false;
+
+            if (!IsClangImportedStructMangling(record.MetadataAccessor))
+                return false;
+
+            // The runtime already resolves these namespaces' metadata itself (Swift.CGPoint and the
+            // other CoreGraphics structs, System.Numerics vectors, Guid), and a primitive or keyword
+            // stand-in (nint) is no distinct Swift type to register.
+            var ns = record.CSharpTypeName.Namespace;
+            if (ns.Length == 0 || ns == "Swift" || ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal))
+                return false;
+
+            var module = record.SwiftTypeName.Module;
+            if (string.IsNullOrEmpty(module) || module == boundModuleName)
+                return false;
+            return module == "Foundation" || AppleFrameworkRegistry.IsWrapperImportableModule(module);
+        }
+
+        // `$sSo` + <length><identifier> + `V`: a struct in the clang importer's `__C` module.
+        private static bool IsClangImportedStructMangling(string? mangled)
+        {
+            if (string.IsNullOrEmpty(mangled) || !mangled.StartsWith("$sSo", StringComparison.Ordinal) || !mangled.EndsWith('V'))
+                return false;
+            var i = 4;
+            while (i < mangled.Length && char.IsAsciiDigit(mangled[i]))
+                i++;
+            if (i == 4 || !int.TryParse(mangled.AsSpan(4, i - 4), out var length))
+                return false;
+            return i + length == mangled.Length - 1;
+        }
+
+        /// <summary>
+        /// Reports the name of every named type the bound surface references: type members (methods,
+        /// properties, operators, subscripts, enum payloads, nested types), protocol requirements, and
+        /// the module's free functions and globals, generic arguments included.
+        /// </summary>
+        private void ScanBoundSurfaceTypeNames(ModuleDecl moduleDecl, Action<string> onTypeName)
+        {
             // Scan for types used in methods that need corresponding imports
-            ScanTypesForFrameworkImports(moduleDecl.Types, neededImports);
+            ScanTypesForFrameworkImports(moduleDecl.Types, onTypeName);
 
             // Scan protocols for types used in method/property signatures
             if (moduleDecl.Protocols != null)
             {
-                ScanProtocolsForFrameworkImports(moduleDecl.Protocols, neededImports);
+                ScanProtocolsForFrameworkImports(moduleDecl.Protocols, onTypeName);
             }
 
             // Scan top-level free functions and global properties. These live directly on
@@ -761,17 +880,7 @@ namespace BindingsGeneration
             // which fails swiftc with "cannot find type 'X' in scope". The declared-imports
             // path can't cover this: it deliberately skips Apple frameworks and relies on this
             // scan to add them only when their types appear in the wrapper's public surface.
-            ScanModuleMembersForFrameworkImports(moduleDecl, neededImports);
-
-            // Drop implicit / already-imported / self modules discovered during the scan.
-            // Swift stdlib is implicit; Foundation is imported unconditionally on the wrapper
-            // side and lives in System on the C# side; the module being bound is its own
-            // namespace.
-            neededImports.Remove("Swift");
-            neededImports.Remove("Foundation");
-            neededImports.Remove(moduleDecl.Name);
-
-            return neededImports;
+            ScanModuleMembersForFrameworkImports(moduleDecl, onTypeName);
         }
 
         /// <summary>
@@ -961,7 +1070,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Recursively scans types for async methods that return framework types.
         /// </summary>
-        private void ScanTypesForFrameworkImports(IEnumerable<TypeDecl> types, HashSet<string> neededImports)
+        private void ScanTypesForFrameworkImports(IEnumerable<TypeDecl> types, Action<string> onTypeName)
         {
             foreach (var type in types)
             {
@@ -978,14 +1087,14 @@ namespace BindingsGeneration
                 {
                     foreach (var sig in method.CSSignature)
                     {
-                        ScanTypeSpecForImports(sig.SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(sig.SwiftTypeSpec, onTypeName);
                     }
                 }
 
                 // Check properties — @_cdecl wrappers also reference property types
                 foreach (var property in type.Properties)
                 {
-                    ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
+                    ScanTypeSpecForImports(property.SwiftTypeSpec, onTypeName);
                 }
 
                 // Check operators — emitted wrappers reference the underlying method's
@@ -997,7 +1106,7 @@ namespace BindingsGeneration
                 {
                     foreach (var sig in op.UnderlyingMethod.CSSignature)
                     {
-                        ScanTypeSpecForImports(sig.SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(sig.SwiftTypeSpec, onTypeName);
                     }
                 }
 
@@ -1006,10 +1115,10 @@ namespace BindingsGeneration
                 // Protocol subscripts are handled separately in ScanProtocolsForFrameworkImports.
                 foreach (var subscript in type.Subscripts)
                 {
-                    ScanTypeSpecForImports(subscript.ReturnTypeSpec, neededImports);
+                    ScanTypeSpecForImports(subscript.ReturnTypeSpec, onTypeName);
                     foreach (var param in subscript.IndexParameters)
                     {
-                        ScanTypeSpecForImports(param.SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(param.SwiftTypeSpec, onTypeName);
                     }
                 }
 
@@ -1022,7 +1131,7 @@ namespace BindingsGeneration
                     {
                         foreach (var payload in enumCase.AssociatedValues)
                         {
-                            ScanTypeSpecForImports(payload, neededImports);
+                            ScanTypeSpecForImports(payload, onTypeName);
                         }
                     }
                 }
@@ -1030,7 +1139,7 @@ namespace BindingsGeneration
                 // Recursively check nested types
                 if (type.Types.Any())
                 {
-                    ScanTypesForFrameworkImports(type.Types, neededImports);
+                    ScanTypesForFrameworkImports(type.Types, onTypeName);
                 }
             }
         }
@@ -1042,19 +1151,19 @@ namespace BindingsGeneration
         /// Apple-framework type used only by a free function or global never triggers its
         /// `import` and the wrapper fails to compile.
         /// </summary>
-        private void ScanModuleMembersForFrameworkImports(ModuleDecl moduleDecl, HashSet<string> neededImports)
+        private void ScanModuleMembersForFrameworkImports(ModuleDecl moduleDecl, Action<string> onTypeName)
         {
             foreach (var method in moduleDecl.Methods)
             {
                 foreach (var sig in method.CSSignature)
                 {
-                    ScanTypeSpecForImports(sig.SwiftTypeSpec, neededImports);
+                    ScanTypeSpecForImports(sig.SwiftTypeSpec, onTypeName);
                 }
             }
 
             foreach (var property in moduleDecl.Properties)
             {
-                ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
+                ScanTypeSpecForImports(property.SwiftTypeSpec, onTypeName);
             }
         }
 
@@ -1062,14 +1171,14 @@ namespace BindingsGeneration
         /// Scans protocols for types used in method parameters, return types, and properties.
         /// These types appear in EveryProtocol conformance code and need corresponding imports.
         /// </summary>
-        private void ScanProtocolsForFrameworkImports(IEnumerable<ProtocolDecl> protocols, HashSet<string> neededImports)
+        private void ScanProtocolsForFrameworkImports(IEnumerable<ProtocolDecl> protocols, Action<string> onTypeName)
         {
             foreach (var protocol in protocols)
             {
                 // Scan properties
                 foreach (var property in protocol.Properties)
                 {
-                    ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
+                    ScanTypeSpecForImports(property.SwiftTypeSpec, onTypeName);
                 }
 
                 // Scan methods
@@ -1078,23 +1187,23 @@ namespace BindingsGeneration
                     // Scan return type
                     if (method.CSSignature.Count > 0)
                     {
-                        ScanTypeSpecForImports(method.CSSignature[0].SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(method.CSSignature[0].SwiftTypeSpec, onTypeName);
                     }
 
                     // Scan parameter types
                     for (int i = 1; i < method.CSSignature.Count; i++)
                     {
-                        ScanTypeSpecForImports(method.CSSignature[i].SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(method.CSSignature[i].SwiftTypeSpec, onTypeName);
                     }
                 }
 
                 // Scan subscripts
                 foreach (var subscript in protocol.Subscripts)
                 {
-                    ScanTypeSpecForImports(subscript.ReturnTypeSpec, neededImports);
+                    ScanTypeSpecForImports(subscript.ReturnTypeSpec, onTypeName);
                     foreach (var param in subscript.IndexParameters)
                     {
-                        ScanTypeSpecForImports(param.SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(param.SwiftTypeSpec, onTypeName);
                     }
                 }
             }
@@ -1103,7 +1212,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Recursively scans a TypeSpec for framework types and adds needed imports.
         /// </summary>
-        private void ScanTypeSpecForImports(TypeSpec? typeSpec, HashSet<string> neededImports)
+        private void ScanTypeSpecForImports(TypeSpec? typeSpec, Action<string> onTypeName)
         {
             if (typeSpec == null)
                 return;
@@ -1111,31 +1220,31 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec namedType)
             {
                 // Check if the type name starts with a known framework
-                CheckTypeNameForFrameworkImport(namedType.Name, neededImports);
+                onTypeName(namedType.Name);
 
                 // Recursively check generic parameters
                 foreach (var genericParam in namedType.GenericParameters)
                 {
-                    ScanTypeSpecForImports(genericParam, neededImports);
+                    ScanTypeSpecForImports(genericParam, onTypeName);
                 }
             }
             else if (typeSpec is TupleTypeSpec tupleType)
             {
                 foreach (var element in tupleType.Elements)
                 {
-                    ScanTypeSpecForImports(element, neededImports);
+                    ScanTypeSpecForImports(element, onTypeName);
                 }
             }
             else if (typeSpec is ClosureTypeSpec closureType)
             {
-                ScanTypeSpecForImports(closureType.Arguments, neededImports);
-                ScanTypeSpecForImports(closureType.ReturnType, neededImports);
+                ScanTypeSpecForImports(closureType.Arguments, onTypeName);
+                ScanTypeSpecForImports(closureType.ReturnType, onTypeName);
             }
             else if (typeSpec is ProtocolListTypeSpec protocolList)
             {
                 foreach (var proto in protocolList.Protocols.Keys)
                 {
-                    CheckTypeNameForFrameworkImport(proto.Name, neededImports);
+                    onTypeName(proto.Name);
                 }
             }
         }

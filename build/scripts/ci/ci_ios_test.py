@@ -24,9 +24,13 @@ Usage:
 
     # Just run tests with pre-booted sim
     python3 ci_ios_test.py --device-udid <UDID> --skip-prepare
+
+    # Install and run the app `binding-tests --build-only` built before the simulator booted
+    python3 ci_ios_test.py --device-udid <UDID> --skip-prepare --prebuilt-app
 """
 
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -35,7 +39,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 # Add parent directory so we can import sim_manager
 sys.path.insert(0, str(Path(__file__).parent))
@@ -147,6 +151,36 @@ def managed_framework(requested: Optional[str] = None) -> str:
     return framework
 
 
+class ProfileLaunch(NamedTuple):
+    """Run Nuke through the toolchain profile launcher (build.sh --toolchain-profile).
+
+    The launcher builds in its own disposable workspace with the profile's exact SDK, workload
+    set and Xcode, so the profile also fixes the managed framework the lane builds.
+    """
+    profile: str
+    dotnet_root: Optional[str] = None
+    developer_dir: Optional[str] = None
+
+    @property
+    def framework(self) -> str:
+        manifest = Path(__file__).resolve().parents[2] / "toolchains" / f"{self.profile}.json"
+        if not manifest.is_file():
+            raise ValueError(f"Unknown toolchain profile: {self.profile}")
+        return json.loads(manifest.read_text()).get("managedFramework", "net10.0")
+
+    def nuke(self, repo_root: str) -> list:
+        command = ["bash", os.path.join(repo_root, "build.sh"), "--toolchain-profile", self.profile]
+        if self.dotnet_root:
+            command += ["--dotnet-root", self.dotnet_root]
+        if self.developer_dir:
+            command += ["--developer-dir", self.developer_dir]
+        return command + ["--"]
+
+    def workspace(self, repo_root: str) -> str:
+        # run-toolchain.py's default state root: artifacts/toolchains/<profile>/workspace.
+        return os.path.join(repo_root, "artifacts", "toolchains", self.profile, "workspace")
+
+
 def run_build(test_framework_dir: str, skip_regen: bool = True,
               binding_test_framework: Optional[str] = None,
               binding_test_configuration: str = "Debug") -> None:
@@ -189,6 +223,22 @@ def run_build(test_framework_dir: str, skip_regen: bool = True,
 # Test execution
 # ---------------------------------------------------------------------------
 
+# Seconds a Nuke attempt gets on top of the app's own --timeout. The build and the run are
+# budgeted apart: a prebuilt app's attempt has no build in it, so it gets no build allowance.
+BUILD_OVERHEAD = 900        # wrapper+bridge+app build (a cold CI dotnet build has been measured north of 9 min)
+INCREMENTAL_OVERHEAD = 120  # incremental rebuild after an attempt whose build completed
+PREBUILT_OVERHEAD = 180     # no build: Nuke start-up, build-receipt check, install, result retrieval
+
+
+def attempt_overhead(attempt: int, build_completed: bool, prebuilt_app: bool) -> int:
+    """The non-test allowance for one attempt (see the constants above)."""
+    if prebuilt_app:
+        return PREBUILT_OVERHEAD
+    if attempt > 1 and build_completed:
+        return INCREMENTAL_OVERHEAD
+    return BUILD_OVERHEAD
+
+
 def run_tests(
     test_framework_dir: str,
     device_udid: str,
@@ -199,8 +249,14 @@ def run_tests(
     binding_test_framework: Optional[str] = None,
     binding_test_configuration: str = "Debug",
     allow_unqualified_runtime: bool = False,
+    profile_launch: Optional[ProfileLaunch] = None,
+    prebuilt_app: bool = False,
 ) -> int:
     """Run runtime tests using dotnet nuke binding-tests --sim.
+
+    With prebuilt_app, Nuke reuses the app `binding-tests --build-only` built (--skip-build checks
+    its build receipt), so every attempt is budgeted for install and run only, and a retry never
+    deletes that build: nothing in this run could rebuild it.
 
     Retries an established pre-test launcher failure, but only if enough time
     remains before the deadline. Product/test evidence is immutable across the
@@ -214,9 +270,21 @@ def run_tests(
     Returns:
         Exit code from dotnet nuke binding-tests --sim
     """
-    framework = managed_framework(binding_test_framework)
+    # Nuke runs from repo root (parent of BindingTests/)
+    repo_root = os.path.dirname(os.path.abspath(test_framework_dir))
+    if profile_launch:
+        framework = profile_launch.framework
+        if binding_test_framework and binding_test_framework != framework:
+            raise ValueError(f"Framework {binding_test_framework} disagrees with toolchain profile {profile_launch.profile}")
+        nuke = profile_launch.nuke(repo_root)
+        # The launcher builds in its workspace, so that is where a retry must clean.
+        app_root = os.path.join(profile_launch.workspace(repo_root), "BindingTests")
+    else:
+        framework = managed_framework(binding_test_framework)
+        nuke = ["dotnet", "nuke"]
+        app_root = test_framework_dir
     cmd = [
-        "dotnet", "nuke", "binding-tests",
+        *nuke, "binding-tests",
         "--binding-test-framework", framework,
         "--binding-test-configuration", binding_test_configuration,
         "--sim",
@@ -227,12 +295,9 @@ def run_tests(
         cmd.append("--allow-unqualified-runtime")
     if skip_regen:
         cmd.append("--skip-regen")
+    if prebuilt_app:
+        cmd.append("--skip-build")
 
-    # First attempt: generous timeout (build + test).
-    # Retry overhead depends on whether the previous build completed.
-    FIRST_ATTEMPT_OVERHEAD = 900  # seconds for wrapper+bridge+app build (a cold CI dotnet build has been measured north of 9 min)
-    RETRY_OVERHEAD_CLEAN = 900    # full rebuild if build was interrupted
-    RETRY_OVERHEAD_CACHED = 120   # incremental rebuild if build completed
     APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
     last_output = ""  # Track output from previous attempt for smart cleanup
 
@@ -240,8 +305,8 @@ def run_tests(
         if attempt > 1:
             # Determine if we need a full rebuild or incremental
             # If simulator launch message appeared, build completed — artifacts are fine
-            build_completed = "Running on iOS Simulator" in last_output
-            retry_overhead = RETRY_OVERHEAD_CACHED if build_completed else RETRY_OVERHEAD_CLEAN
+            build_completed = prebuilt_app or "Running on iOS Simulator" in last_output
+            retry_overhead = attempt_overhead(attempt, build_completed, prebuilt_app)
 
             # Check if we have enough time for a retry
             min_retry_time = timeout + retry_overhead
@@ -265,7 +330,7 @@ def run_tests(
 
             if not build_completed:
                 # Build was interrupted — clean corrupted AOT artifacts
-                app_dir = os.path.join(test_framework_dir, "RuntimeTestsApp")
+                app_dir = os.path.join(app_root, "RuntimeTestsApp")
                 for subdir in ("obj", "bin"):
                     path = os.path.join(app_dir, subdir)
                     if os.path.isdir(path):
@@ -278,10 +343,7 @@ def run_tests(
             gha_warning(f"Test retry attempt {attempt} after pre-test launcher failure")
 
         # Calculate subprocess timeout
-        if attempt == 1:
-            overhead = FIRST_ATTEMPT_OVERHEAD
-        else:
-            overhead = RETRY_OVERHEAD_CLEAN if not build_completed else RETRY_OVERHEAD_CACHED
+        overhead = attempt_overhead(attempt, attempt > 1 and build_completed, prebuilt_app)
         if deadline is not None:
             remaining = deadline - time.time()
             # Use the lesser of our standard timeout and remaining time (minus 30s safety margin)
@@ -294,8 +356,6 @@ def run_tests(
         log.info("Command: %s", " ".join(cmd))
 
         try:
-            # Nuke runs from repo root (parent of BindingTests/)
-            repo_root = os.path.dirname(os.path.abspath(test_framework_dir))
             result = subprocess.run(
                 cmd,
                 cwd=repo_root,
@@ -414,6 +474,8 @@ def run_pipeline(
     binding_test_framework: Optional[str] = None,
     binding_test_configuration: str = "Debug",
     allow_unqualified_runtime: bool = False,
+    profile_launch: Optional[ProfileLaunch] = None,
+    prebuilt_app: bool = False,
 ) -> int:
     """Full CI pipeline: prepare simulator, build, test, cleanup.
 
@@ -421,11 +483,22 @@ def run_pipeline(
         step_timeout: Total wall-clock budget in seconds (matches the GHA
                       timeout-minutes value). Used to compute a deadline so
                       retries are skipped when insufficient time remains.
+        prebuilt_app: The app was built by `binding-tests --build-only`; nothing here builds.
 
     Returns:
         0 on success, non-zero on failure.
     """
-    binding_test_framework = managed_framework(binding_test_framework)
+    if prebuilt_app:
+        skip_build = True
+    if profile_launch:
+        # The direct `dotnet build` bypasses the launcher's pinned toolchain; Nuke builds the app.
+        if not skip_build:
+            raise ValueError("--toolchain-profile requires --skip-build: the profile's Nuke run builds the app")
+        if binding_test_framework and binding_test_framework != profile_launch.framework:
+            raise ValueError(f"Framework {binding_test_framework} disagrees with toolchain profile {profile_launch.profile}")
+        binding_test_framework = profile_launch.framework
+    else:
+        binding_test_framework = managed_framework(binding_test_framework)
     pipeline_start = time.time()
     deadline = pipeline_start + step_timeout  # absolute time we must finish by
     mgr = SimManager()
@@ -521,6 +594,8 @@ def run_pipeline(
                 binding_test_framework=binding_test_framework,
                 binding_test_configuration=binding_test_configuration,
                 allow_unqualified_runtime=allow_unqualified_runtime,
+                profile_launch=profile_launch,
+                prebuilt_app=prebuilt_app,
             )
             gha_endgroup()
 
@@ -618,7 +693,11 @@ Examples:
     test_group.add_argument("--skip-regen", action="store_true", default=True,
                            help="Skip binding regeneration (default: true)")
     test_group.add_argument("--skip-build", action="store_true",
-                           help="Skip dotnet build (app already built)")
+                           help="Skip this script's own dotnet build (Nuke still builds the app)")
+    test_group.add_argument("--prebuilt-app", action="store_true",
+                           help="Install and run the app `binding-tests --build-only` built: Nuke gets "
+                                "--skip-build, which checks that build's receipt, and each attempt is "
+                                "budgeted for install and run only. Implies --skip-build.")
 
     test_group.add_argument("--binding-test-framework", choices=("net10.0", "net11.0"), default=None,
                            help="Managed target (default: selected profile or net10.0)")
@@ -627,6 +706,12 @@ Examples:
                            help="Explicit .NET 11 bring-up without a reviewed identity baseline")
 
     # Resilience options
+    profile_group = parser.add_argument_group("toolchain profile")
+    profile_group.add_argument("--toolchain-profile",
+                               help="Run Nuke through build.sh --toolchain-profile (requires --skip-build)")
+    profile_group.add_argument("--dotnet-root", help="Profile launcher --dotnet-root")
+    profile_group.add_argument("--developer-dir", help="Profile launcher --developer-dir")
+
     resilience_group = parser.add_argument_group("resilience")
     resilience_group.add_argument("--max-retries", type=int, default=1,
                                  help="Max infrastructure retries (default: 1)")
@@ -648,6 +733,8 @@ Examples:
 
     if args.skip_prepare and not args.device_udid:
         parser.error("--skip-prepare requires --device-udid")
+    if (args.dotnet_root or args.developer_dir) and not args.toolchain_profile:
+        parser.error("--dotnet-root and --developer-dir require --toolchain-profile")
 
     # Resolve test framework directory relative to repo root
     tf_dir = args.test_framework_dir
@@ -681,6 +768,9 @@ Examples:
         binding_test_framework=args.binding_test_framework,
         binding_test_configuration=args.binding_test_configuration,
         allow_unqualified_runtime=args.allow_unqualified_runtime,
+        profile_launch=(ProfileLaunch(args.toolchain_profile, args.dotnet_root, args.developer_dir)
+                        if args.toolchain_profile else None),
+        prebuilt_app=args.prebuilt_app,
     )
     sys.exit(exit_code)
 

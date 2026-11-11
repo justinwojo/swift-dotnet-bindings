@@ -1282,7 +1282,8 @@ public static class AsyncMethodGenericBridgeEmitter
         // loop), so no loop-index reservation is needed in this public method body. The only
         // emitted loops here are over `count` / synthetic `__{name}` locals, none of which can
         // collide with a user parameter. See SwiftAsyncCallHolder.Cleanup.
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl,
+            keptArgs.Select(NameProvider.GetCSharpParameterName).ToList(), cancellationTokenName: ctName);
         var staticStr = methodDecl.MethodType == MethodType.Static ? "static " : "";
         csWriter.WriteLine($"public {staticStr}unsafe {taskReturnType} {methodName}Async({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");

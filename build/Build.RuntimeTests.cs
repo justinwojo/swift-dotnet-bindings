@@ -61,10 +61,9 @@ partial class Build
     void ValidateRuntimeLaneSelection()
     {
         _ = RuntimeLane;
-        if (RuntimeLane.IsNet11 && (CompileOnly || PartialSuccessKitchen || AbiGrid || GetActiveSmokeFlags().Count > 0 ||
-            ActivityKitPushToken || CatalystX64Jit || SeedRuntimeIdentityBaseline))
-            throw new InvalidOperationException("This auxiliary gate has not been migrated to .NET 11. " +
-                "Compile-only, kitchen/ABI-grid, baseline seeding, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.");
+        if (RuntimeLane.AuxiliaryGateRefusal(AbiGrid, GetActiveSmokeFlags().Count > 0,
+                ActivityKitPushToken, CatalystX64Jit) is { } refusal)
+            throw new InvalidOperationException(refusal);
         if (AllowUnqualifiedRuntime && !RuntimeLane.IsNet11)
             throw new InvalidOperationException("--allow-unqualified-runtime applies only to .NET 11 bring-up lanes.");
     }
@@ -81,20 +80,81 @@ partial class Build
     string RuntimeEvidenceSuffix(bool device = false) => RuntimeLane.IsNet11
         ? $"-{BtFramework}-{RuntimeLane.Engine(device)}-{RuntimeLane.BuildConfiguration(device, MonoAot)}" : "";
 
-    void StampOrCheckRuntimeApp(string appPath, bool device = false)
+    /// <summary>
+    /// Records a freshly built app's receipt, or, under <c>--skip-build</c>, checks the receipt of
+    /// the app about to be reused. A receipt for another lane or toolchain, or none at all, refuses
+    /// the reuse. A matching one also decides whether this lane's results are graded: see
+    /// <see cref="ReusedAppUngraded"/>. Call it once per lane, after the bundle is final and before
+    /// the lane's results are reported.
+    /// </summary>
+    void StampOrCheckRuntimeApp(string appPath, bool device = false, bool interpreter = false)
     {
-        if (!RuntimeLane.IsNet11) return;
-        var path = appPath + ".bindingtests-lane";
-        var identity = $"{BtFramework}/{RuntimeLane.Engine(device)}/{RuntimeLane.BuildConfiguration(device, MonoAot)}/{ToolchainFingerprint}";
-        if (SkipBuild)
+        var lane = RuntimeAppLane(device) + (interpreter ? "+INTERPRETER" : "");
+        var source = AppBuildSourceFingerprint();
+        if (!SkipBuild)
         {
-            if (!File.Exists(path) || File.ReadAllText(path) != identity)
-                throw new InvalidOperationException("Cached test app does not match this framework, engine, configuration and toolchain; rerun without --skip-build.");
+            reusedAppVerified = false;
+            new AppBuildReceipt(lane, ToolchainFingerprint, source, AppBuildReceipt.BundleDigest(appPath),
+                DateTimeOffset.UtcNow).Save(appPath);
+            return;
         }
-        else File.WriteAllText(path, identity);
+        if (!Directory.Exists(appPath))
+            throw new InvalidOperationException($"--skip-build: no app at {appPath}. Build it first (drop --skip-build, or run --build-only).");
+        var recorded = AppBuildReceipt.Load(appPath);
+        if (AppBuildReceipt.Refusal(recorded, lane, ToolchainFingerprint) is { } refusal)
+            throw new InvalidOperationException(
+                $"--skip-build cannot reuse {appPath}: {refusal}. Rerun without --skip-build.");
+        var stale = recorded!.StaleReason(source, () => AppBuildReceipt.BundleDigest(appPath));
+        reusedAppVerified = stale == null;
+        if (stale == null)
+            Log.Information("--skip-build: reusing the {Lane} build of {BuiltAt:u}; its receipt matches the toolchain, source and bundle.",
+                lane, recorded.BuiltAt);
+        else
+            Log.Warning("--skip-build: reusing {App} as a partial run because {Reason}; its results are not graded.",
+                appPath, stale);
+    }
+
+    /// <summary>True when the lane that last ran <see cref="StampOrCheckRuntimeApp"/> reuses an app whose receipt proves it is the current build.</summary>
+    bool reusedAppVerified;
+
+    /// <summary>
+    /// A <c>--skip-build</c> run whose app the receipt could not prove current. Its results are
+    /// partial: they may describe older source, so no baseline is graded, seeded or updated from
+    /// them. A verified reuse (typically the app <c>--build-only</c> just built) is graded like a
+    /// fresh build.
+    /// </summary>
+    bool ReusedAppUngraded => SkipBuild && !reusedAppVerified;
+
+    string RuntimeAppLane(bool device)
+    {
+        var lane = RuntimeLane.AppIdentity(device, MonoAot);
+        // Opt-in test classes are compiled in, so an app built with them is a different test set.
+        foreach (var flag in GetActiveSmokeFlags())
+            lane += "+" + flag.Define;
+        if (device && ActivityKitPushToken)
+            lane += "+ACTIVITYKIT_PUSH_TOKEN";
+        return lane;
+    }
+
+    /// <summary>
+    /// Every file git would carry, tracked or new and non-ignored, except the baselines a test run
+    /// may rewrite. Build products are ignored, so they never enter it.
+    /// </summary>
+    string AppBuildSourceFingerprint()
+    {
+        var files = ProcessTasks.StartProcess("git", "-c core.quotepath=off ls-files --cached --others --exclude-standard",
+                workingDirectory: RootDirectory, logOutput: false).AssertZeroExitCode().Output
+            .Select(line => line.Text).Where(path => !path.StartsWith("build/baselines/", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        return WithdrawalProvenance.HashText(string.Join("\n", files.Select(path => path + ":" +
+            (File.Exists(RootDirectory / path) ? WithdrawalProvenance.HashFile(RootDirectory / path) : "deleted"))));
     }
 
     [Parameter("Skip all builds, just install + run")] readonly bool SkipBuild;
+    // Splits a simulator run into its two halves so CI can build before it boots a simulator: a
+    // booted simulator slows builds on the hosted runners two- to three-fold.
+    [Parameter("iOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build.")]
+    readonly bool BuildOnly;
     [Parameter("Pre-booted simulator or device UDID. With --device it identifies the physical device; simulator legs then resolve their own booted simulator.")]
     readonly string? DeviceUdid;
 
@@ -164,6 +224,8 @@ partial class Build
     // verification — expect crashes until upstream fixes land.
     [Parameter("Force the Mono JIT on Catalyst-x64 (default is interpreter). Expect crashes — used to verify upstream JIT fixes.")]
     readonly bool CatalystX64Jit;
+    bool CatalystUsesInterpreter(ApplePlatform platform) =>
+        !RuntimeLane.IsNet11 && platform == ApplePlatform.MacCatalystX64 && !CatalystX64Jit;
     [Parameter("Run on tvOS Simulator")]
     readonly bool Tvos;
 
@@ -988,6 +1050,8 @@ partial class Build
             // Step 2: Build RuntimeTestsApp (unless --skip-build)
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices("iOS Simulator", ApplePlatform.IOS.SimulatorSliceId);
+
                 // In-tree StoreKit 2 snapshot regeneration. Runs the generator against
                 // the active Xcode SDK and drops the output at
                 // BindingTests/obj/StoreKit2Snapshot/, which RuntimeTestsApp.csproj
@@ -1106,9 +1170,21 @@ partial class Build
                 Log.Information("--- Steps 1-2: Skipped (--skip-build) ---");
             }
 
+            var appPath = SimulatorAppPath;
+            StampOrCheckRuntimeApp(appPath);
+            if (BuildOnly)
+            {
+                Log.Information("--build-only: {App} is built and its receipt recorded; " +
+                    "install and run it with --skip-build.", appPath);
+                return;
+            }
+
             // Step 3: Install + run on simulator
-            RunOnSimulator();
+            RunOnSimulator(appPath);
     }
+
+    AbsolutePath SimulatorAppPath => BindingTestsDir / "RuntimeTestsApp" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+        $"{BtFramework}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
 
     // ============================================================
     // Physical iOS device runtime gate.
@@ -1177,7 +1253,6 @@ partial class Build
             else
             {
                 AssertBindingsNotStale(expectedPlatform: ApplePlatform.IOS);
-                AssertDeviceSliceExists();
             }
 
             // Configuration is the lane separator: NativeAOT publishes Release, Mono full-AOT builds
@@ -1186,6 +1261,7 @@ partial class Build
 
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices(laneLabel, ApplePlatform.IOS.DeviceSliceId!);
                 if (monoAot || CoreClr)
                 {
                     // Mono full-AOT: a plain device BUILD with PublishAot suppressed. Property choice
@@ -1372,6 +1448,8 @@ partial class Build
 
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices(label, platform.SimulatorSliceId);
+
                 // Regenerate Apple-framework macOS snapshots before building.
                 // Same pattern as iOS (RunSimulatorPlatform) — the regen is
                 // gated on the same Enable*Smoke CLI parameters and uses the
@@ -1489,6 +1567,7 @@ partial class Build
 
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices(label, platform.SimulatorSliceId);
                 Log.Information("--- Building RuntimeTestsApp.MacCatalyst ---");
 
                 // Clean previous app bundle to avoid codesign "unsealed contents"
@@ -1512,7 +1591,7 @@ partial class Build
                 // is the iOS-workload knob (Catalyst inherits the iOS workload);
                 // UseInterpreter is the newer alias added in .NET 9+. Set both
                 // for resilience across workload versions.
-                var useInterp = !RuntimeLane.IsNet11 && platform == ApplePlatform.MacCatalystX64 && !CatalystX64Jit;
+                var useInterp = CatalystUsesInterpreter(platform);
                 if (useInterp)
                     Log.Information("--- Mono interpreter mode (MtouchInterpreter=all) — Catalyst-x64 default; bypasses upstream-issue-04 JIT crashes ---");
                 else if (!RuntimeLane.IsNet11 && platform == ApplePlatform.MacCatalystX64)
@@ -1647,6 +1726,7 @@ partial class Build
             // Step 2: Build RuntimeTestsApp.tvOS (unless --skip-build)
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices("tvOS Simulator", platform.SimulatorSliceId);
                 if (EnableStoreKitSmoke)
                     RegenerateStoreKit2Snapshot(force: false, platform);
                 Log.Information("--- Building RuntimeTestsApp.tvOS ---");
@@ -1811,7 +1891,7 @@ partial class Build
     // Shared Helpers: Simulator Execution
     // ============================================================
 
-    void RunOnSimulator()
+    void RunOnSimulator(AbsolutePath appPath)
     {
         Log.Information("--- Running on iOS Simulator ---");
 
@@ -1825,10 +1905,6 @@ partial class Build
             : null;
         if (storeKitConfiguration is not null)
             RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
-
-        var appPath = BindingTestsDir / "RuntimeTestsApp" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
-            $"{BtFramework}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
-        StampOrCheckRuntimeApp(appPath);
 
         // Load test inventory for crash recovery
         var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
@@ -2388,7 +2464,8 @@ partial class Build
         var catalystExe = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
             $"{BtFramework}-maccatalyst" / platform.Rid! / "RuntimeTestsApp.MacCatalyst.app" /
             "Contents" / "MacOS" / "RuntimeTestsApp.MacCatalyst";
-        StampOrCheckRuntimeApp(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(catalystExe)!, "../..")));
+        StampOrCheckRuntimeApp(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(catalystExe)!, "../..")),
+            interpreter: CatalystUsesInterpreter(platform));
         process.StartInfo = BuildHostLaunchStartInfo(catalystExe, argList, platform.RunUnderRosetta);
 
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
@@ -2696,12 +2773,17 @@ partial class Build
             _ => throw new InvalidOperationException($"Unknown .NET 11 runtime lane: {platform}.")
         };
         var key = RuntimeLane.BaselineKey(platformKey, rid, device);
-        if (SkipBuild || !string.IsNullOrEmpty(ClassFilter))
+        var path = BaselinesDir / RuntimeLane.IdentityBaselineFile;
+        if (SeedRuntimeIdentityBaseline)
         {
-            Log.Warning("UNQUALIFIED runtime lane {Key}: partial or reused-app run; no runtime baseline was graded.", key);
+            SeedNet11RuntimeBaseline(platform, key, path, results, device);
             return;
         }
-        var path = BaselinesDir / "runtime-identity-net11-baseline.json";
+        if (ReusedAppUngraded || !string.IsNullOrEmpty(ClassFilter))
+        {
+            Log.Warning("UNQUALIFIED runtime lane {Key}: partial or unverified reused-app run; no runtime baseline was graded.", key);
+            return;
+        }
         var baseline = RuntimeIdentityBaseline.Load(path);
         if (!baseline.Platforms.ContainsKey(key))
         {
@@ -2718,6 +2800,29 @@ partial class Build
         if (comparison.Regressions.Count > 0)
             throw new InvalidOperationException($".NET 11 runtime identity regression for {key}: {string.Join("; ", comparison.Regressions)}");
         Log.Information("Qualified runtime baseline matched: {Key} (read-only).", key);
+    }
+
+    /// <summary>
+    /// Writes one .NET 11 lane's identity floor from a full, freshly built, green run. Same
+    /// replacement semantics as the .NET 10 seed: the entry is the lane's whole count and skip set.
+    /// The profile launcher copies the file back to the checkout once Nuke succeeds.
+    /// </summary>
+    void SeedNet11RuntimeBaseline(string platform, string key, AbsolutePath path, JsonlTestResults results, bool device)
+    {
+        if (RuntimeLane.IdentitySeedRefusal(ProfileContext.IsIsolated, RuntimeLane.BuildConfiguration(device, MonoAot)) is { } refusal)
+            throw new InvalidOperationException($"Cannot seed {key}: {refusal}");
+        if (ReusedAppUngraded || !string.IsNullOrEmpty(ClassFilter))
+            throw new InvalidOperationException(
+                $"Cannot seed {key} from a partial or unverified reused-app run; drop --class-filter and --skip-build.");
+        if (results.CrashCount != 0 || results.FailCount != 0)
+            throw new InvalidOperationException($"Cannot seed runtime identity baseline for {platform} from a failing run.");
+        var seeded = RuntimeIdentityBaseline.Load(path)
+            .WithPlatform(key, RuntimeIdentityBaseline.FromResults(results.Tests
+                .Select(t => new RuntimeIdentityBaseline.TestRecord(t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+                .ToList())) with { GitSha = ReadHeadShaShort() };
+        seeded.Save(path);
+        Log.Information("Seeded .NET 11 runtime identity baseline {Key}: pass={Pass}, {Skips} skip(s).",
+            key, seeded.Platforms[key].PassCount, seeded.Platforms[key].Skips.Count);
     }
 
     void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
@@ -2763,16 +2868,18 @@ partial class Build
         //     absent (the identity ratchet would read mass "regressions").
         //   * --skip-build reuses a possibly-stale installed app, whose results may not reflect
         //     current source — comparing identities against it can both false-regress and false-green.
+        //     The exception is a reuse whose build receipt proves it is the current build (the
+        //     --build-only then --skip-build split CI uses), which is graded like a fresh build.
         // This is the same conservative stance AbiGrid takes for partial runs (Build.AbiGrid.cs).
         // NOTE: --skip-regen alone is deliberately NOT partial here. It reuses only the generated
         // bindings; the app is still rebuilt and the FULL test suite runs, so every pass/skip
         // identity is present and the comparison is valid (this is the documented runtime-change
         // gate flow, `nuke binding-tests --skip-regen`).
-        if (!string.IsNullOrEmpty(ClassFilter) || SkipBuild)
+        if (!string.IsNullOrEmpty(ClassFilter) || ReusedAppUngraded)
         {
             Log.Information(
                 "Skipping runtime baseline comparison for {Platform}: partial run ({Reason}).",
-                platform, !string.IsNullOrEmpty(ClassFilter) ? $"--class-filter {ClassFilter}" : "--skip-build");
+                platform, !string.IsNullOrEmpty(ClassFilter) ? $"--class-filter {ClassFilter}" : "--skip-build of an unverified app");
             return;
         }
 
@@ -3050,13 +3157,18 @@ partial class Build
         return raw.Replace("\n", ",");
     }
 
-    void AssertDeviceSliceExists()
+    /// <summary>
+    /// Fails before the app build when the lane's xcframework slice is missing from any native
+    /// input the app loads. The app projects and the injection helpers skip such an input rather
+    /// than fail, so without this a reused regen from another lane ships an app with no wrapper.
+    /// </summary>
+    void AssertLaneNativeSlices(string lane, string sliceId)
     {
-        var deviceSliceDir = BtXcframeworkDir / "ios-arm64";
-        if (!Directory.Exists(deviceSliceDir))
-            throw new InvalidOperationException(
-                "Device slice missing from SwiftBindingsTestLib.xcframework. " +
-                "Run without --skip-regen first.");
+        var required = LaneNativeSlices.Required(BindingTestsDir, sliceId, ModuleName, DepModuleName, WrapperModule);
+        var failure = LaneNativeSlices.Failure(lane, sliceId, LaneNativeSlices.Missing(required), reusedBindings: SkipRegen);
+        if (failure != null)
+            throw new InvalidOperationException(failure);
+        Log.Information("Native inputs carry the {Slice} slice for {Lane}.", sliceId, lane);
     }
 
     // ============================================================

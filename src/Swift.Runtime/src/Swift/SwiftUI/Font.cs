@@ -116,7 +116,7 @@ public sealed class Font : ISwiftObject, IDisposable
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return _cachedMetadata ??= PInvoke_GetMetadata();
+        return _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
     }
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -130,7 +130,7 @@ public sealed class Font : ISwiftObject, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
             throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -200,7 +200,7 @@ public sealed class Font : ISwiftObject, IDisposable
         if (design < Design.Default || design > Design.Monospaced)
             throw new ArgumentOutOfRangeException(nameof(design), design, "Unknown font design.");
 
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
 
         // NativeMemory rather than Marshal.AllocHGlobal: on the success path the buffer is
         // handed to SwiftSafeHandle, which always releases it with NativeMemory.Free, so the
@@ -232,7 +232,7 @@ public sealed class Font : ISwiftObject, IDisposable
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftUI, EntryPoint = "$s7SwiftUI4FontVMa")]
-    private static extern TypeMetadata PInvoke_GetMetadata();
+    private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);
 
     private static class NativeMethods
     {

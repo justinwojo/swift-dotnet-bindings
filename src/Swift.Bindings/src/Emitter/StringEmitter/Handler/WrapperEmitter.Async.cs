@@ -33,6 +33,21 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The receiver a free-function async wrapper names for a static member or constructor call:
+        /// the module-qualified parent, plus its generic parameters when it has any. The free function
+        /// declares those parameters itself, and nothing else in its scope lets Swift infer them —
+        /// a no-argument initializer or a static that never mentions them would not compile bare.
+        /// </summary>
+        private string BuildStaticCallReceiver(SwiftTypeName parentTypeName)
+        {
+            if (_env.ParentDecl is not TypeDecl { IsGeneric: true } parentType)
+                return parentTypeName.ModuleQualifiedName;
+            var arguments = string.Join(", ", parentType.GenericParameters.Select(p =>
+                string.IsNullOrEmpty(p.SugaredTypeName) ? p.TypeName : p.SugaredTypeName));
+            return $"{parentTypeName.ModuleQualifiedName}<{arguments}>";
+        }
+
+        /// <summary>
         /// Emits the Async task.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -1249,8 +1264,11 @@ namespace BindingsGeneration
             string methodCallPrefix;
             if (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor)
             {
+                // The wrapper is a free function (see isExtension below), so it names the parent
+                // explicitly — with its generic arguments spelled out, which nothing else in a free
+                // function's scope would let Swift infer.
                 selfConversion = "";
-                methodCallPrefix = parentTypeName != null ? $"{parentTypeName.ModuleQualifiedName}." : "";
+                methodCallPrefix = parentTypeName != null ? $"{BuildStaticCallReceiver(parentTypeName)}." : "";
             }
             else if (useExtensionForGenericAsync)
             {
@@ -1307,8 +1325,14 @@ namespace BindingsGeneration
             // collapsed into a single parameterized template.
             // @_cdecl can't be used in extensions, so force free function for @_cdecl.
             // Async instance methods on generic parent types use extension to inherit generic context.
-            bool isExtension = (useExtensionForGenericAsync || (!isAsyncInstanceMethod && parentTypeName != null)) && !usesCdecl;
-            var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
+            //
+            // A static or constructor wrapper is always a free function. As a `static func` in an
+            // extension of a class it would take the class metatype in the self register — the C#
+            // side passes no self, so it would read whatever that register held, and on a generic
+            // class recover its generic arguments from it. A free function has no self register:
+            // it takes exactly the arguments and generic metadata the P/Invoke passes, the same
+            // shape as its @_cdecl variant.
+            bool isExtension = useExtensionForGenericAsync && !usesCdecl;
             var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
             // Skip Swift wrapper for methods with method-own generic parameters.
@@ -1399,7 +1423,6 @@ namespace BindingsGeneration
             swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(
                 isExtension: isExtension,
                 parentTypeName: parentTypeName,
-                staticModifier: staticModifier,
                 genericParams: genericParams,
                 parameters: parameters,
                 whereClause: whereClause,
@@ -1540,7 +1563,6 @@ namespace BindingsGeneration
         private string BuildSwiftAsyncWrapperCode(
             bool isExtension,
             SwiftTypeName? parentTypeName,
-            string staticModifier,
             string genericParams,
             string parameters,
             string whereClause,
@@ -1616,7 +1638,7 @@ namespace BindingsGeneration
             {
                 funcBody = $$"""
             {{availabilityLines}}{{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
-            {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
+            {{i}}public func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(_sbwCancelKey, _entry)
             {{i}}    let _sbwLaunchedTask = {{taskOpen}}
@@ -1639,7 +1661,7 @@ namespace BindingsGeneration
             {
                 funcBody = $$"""
             {{availabilityLines}}{{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
-            {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
+            {{i}}public func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(_sbwCancelKey, _entry)
             {{i}}    let _sbwLaunchedTask = {{taskOpen}}

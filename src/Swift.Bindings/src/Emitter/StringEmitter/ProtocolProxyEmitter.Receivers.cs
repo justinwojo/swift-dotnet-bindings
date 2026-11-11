@@ -2786,7 +2786,7 @@ public partial class ProtocolProxyEmitter
             /// <remarks>
             /// Swift-backed proxies created with this constructor dispatch blittable and String
             /// protocol members through witness table accessors. Non-dispatchable members
-            /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
+            /// (non-blittable non-String types, throwing, async) throw <see cref="global::System.NotSupportedException"/>.
             /// </remarks>
             /// <param name="container">The Swift existential container.</param>
             /// <param name="ownsContainer">

@@ -119,7 +119,7 @@ internal static class SilentTombstoneRegistrar
 
     /// <summary>
     /// Returns true iff the matching type handler would reach the opaque-tombstone
-    /// branch (<c>TypeAnnotationHelper.EmitOpaqueTypeAnnotation</c>). Every early
+    /// branch (the <c>[OpaqueSwiftType]</c> attribute <c>TypeAnnotationHelper.EmitTypeDeclarationPreamble</c> writes). Every early
     /// return here corresponds to a handler-side early exit that emits the type via
     /// a non-opaque path (namespace static class, C# enum value type, cross-module
     /// extension class) or skips emission entirely. Callers have already established

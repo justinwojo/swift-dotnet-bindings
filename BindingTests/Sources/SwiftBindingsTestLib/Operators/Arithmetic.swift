@@ -82,6 +82,10 @@ public final class NumberBox {
     public static func + (_ value: NumberBox, _ valueOther: NumberBox) -> NumberBox {
         NumberBox(value.value + valueOther.value)
     }
+
+    /// The instance's dynamic type. The operator above allocates its result from the metatype
+    /// in its self register, so a wrong one shows up here.
+    public var dynamicTypeName: String { String(reflecting: type(of: self)) }
 }
 
 /// Right-hand operand for the heterogeneous alias-collision operator below.

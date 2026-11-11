@@ -378,7 +378,7 @@ public static class ConstrainedExtensionEmitter
 
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>");
-        csWriter.WriteLine($"/// Extension methods for {closedGenericCsType} from constrained Swift extensions.");
+        csWriter.WriteLine($"/// Extension methods for {XmlDocCommentEmitter.XmlEscape(closedGenericCsType)} from constrained Swift extensions.");
         csWriter.WriteLine("/// </summary>");
         csWriter.WriteLine($"public static partial class {className}");
         csWriter.WriteLine("{");

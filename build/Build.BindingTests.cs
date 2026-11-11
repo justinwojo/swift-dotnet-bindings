@@ -1074,6 +1074,8 @@ partial class Build
         {
             ValidateRuntimeLaneSelection();
             RejectSkipBuildWithActiveSmokeFlags();
+            if (BuildOnly && BuildOnlyRefusal() is { } buildOnlyRefusal)
+                throw new InvalidOperationException("--build-only " + buildOnlyRefusal);
 
             if (EnableStoreKitSmoke)
             {
@@ -1387,6 +1389,27 @@ partial class Build
                 throw new Exception(
                     $"ABI coverage grid gate failed: {_abiGridReport.BlockingFailureSummary(_abiGridReport.Partial)}");
         });
+
+    /// <summary>
+    /// Why <c>--build-only</c> cannot honour the other flags, or null. It is the first half of an
+    /// iOS Simulator run, so anything that would not build that app, or whose app a later
+    /// <c>--skip-build</c> run refuses (the opt-in smoke builds), is a contradiction rather than
+    /// something to ignore.
+    /// </summary>
+    string? BuildOnlyRefusal()
+    {
+        if (SkipBuild)
+            return "and --skip-build contradict each other: run --build-only first, then --skip-build.";
+        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer)
+            return "builds the iOS Simulator RuntimeTestsApp; it cannot be combined with --compile-only or an opt-in focused leg.";
+        if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
+            return "is iOS Simulator only; drop the other platform flags.";
+        if (AbiGrid || SeedRuntimeIdentityBaseline)
+            return "runs no tests, so --abi-grid and --seed-runtime-identity-baseline belong on the --skip-build run.";
+        if (GetActiveSmokeFlags().Count > 0)
+            return "cannot build an app with smoke tests: --skip-build refuses smoke flags, so nothing could run it.";
+        return null;
+    }
 
     /// <summary>Last merged ABI grid report from this BindingTests run; rendered in the finally,
     /// gated on the success path. Field (not local) so the finally and the post-loop gate share it.</summary>

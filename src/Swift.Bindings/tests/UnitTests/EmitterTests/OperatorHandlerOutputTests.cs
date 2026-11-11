@@ -783,6 +783,245 @@ public class OperatorHandlerOutputTests
         Assert.Contains("EntryPoint = \"$s10TestModule16AnyMusicPropertyC2eeoiySbAC_ACtFZ\"", output);
         Assert.Contains("CallConvSwift", output);
         Assert.DoesNotContain("CallConvCdecl", output);
+        // An operator is a static member: the callee reads the class metatype from the self register.
+        Assert.Contains("SwiftSelf", output);
+    }
+
+    /// <summary>
+    /// A class operator is a static member, so Swift reads the class metatype from the self
+    /// register. With a wrapper library available it goes through a native thunk that loads the
+    /// metatype from the class's metadata accessor itself; the managed call is then a plain C call
+    /// that passes no self, so no managed-to-native transition has to carry that register.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassParentWithWrapperLibrary_ThunkLoadsTheMetatype()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+        var operatorSymbol = op.UnderlyingMethod.MangledName;
+        var thunkSymbol = ThunkAssemblyEmitter.GenerateThunkSymbol("TestModule", operatorSymbol);
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.True(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
+        Assert.Contains("\"TestModuleSwiftBindings\"", output);
+        Assert.Contains("CallConvCdecl", output);
+        Assert.DoesNotContain("CallConvSwift", output);
+        Assert.DoesNotContain("SwiftSelf", output);
+
+        var asm = emissionContext.AssemblyBuilder.ToString();
+        Assert.Contains(thunkSymbol, asm);
+        Assert.Contains("$s10TestModule4SizeCMa", asm);
+        Assert.Matches(@"mov\s+x20,\s*x0", asm);
+        Assert.Contains(operatorSymbol, asm);
+    }
+
+    /// <summary>
+    /// An operator the thunk declines stays on the direct Swift-convention call, which must still
+    /// hand the callee the class metatype in the self register.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassOperatorTheThunkDeclines_PassesTheMetatypeDirectly()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        // A module export list without the operator: the thunk has no call target to branch to.
+        moduleDecl.ExportedSymbols = new HashSet<string>();
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+        var operatorSymbol = op.UnderlyingMethod.MangledName;
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.False(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Contains($"EntryPoint = \"{operatorSymbol}\"", output);
+        Assert.Contains("CallConvSwift", output);
+        Assert.Contains("SwiftSelf", output);
+        Assert.Equal(0, emissionContext.AssemblyBuilder.Length);
+    }
+
+    /// <summary>
+    /// The thunk is appended to the module's assembly before the operand gates run. An operator a
+    /// later gate refuses must take its thunk back out, or the wrapper library ships a thunk no
+    /// P/Invoke calls, and the decl must not keep the thunk route it never used.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassOperatorRefusedAfterThunkWritten_RollsBackThunkAndDeclState()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+        var methodDecl = op.UnderlyingMethod;
+        var originalSymbol = methodDecl.MangledName;
+        // A generic operand is refused only after the route was chosen.
+        methodDecl.CSSignature[2].IsGeneric = true;
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.AssemblyBuilder.Append("// earlier thunk\n");
+        var asmBefore = emissionContext.AssemblyBuilder.ToString();
+        var x64Before = emissionContext.X64AssemblyBuilder.ToString();
+        var csOutput = new StringWriter();
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var emitted = handler.EmitOperator(
+            new CSharpWriter(csOutput), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(new StringWriter()), emissionContext: emissionContext);
+
+        Assert.False(emitted);
+        Assert.DoesNotContain("operator +", csOutput.ToString());
+        Assert.Equal(asmBefore, emissionContext.AssemblyBuilder.ToString());
+        Assert.Equal(x64Before, emissionContext.X64AssemblyBuilder.ToString());
+        Assert.False(methodDecl.UsesNativeThunk);
+        Assert.False(methodDecl.UsesWrapperLibrary);
+        Assert.Equal(originalSymbol, methodDecl.MangledName);
+    }
+
+    /// <summary>
+    /// The native thunk is ownership-transparent: an operand Swift takes <c>consuming</c> reaches the
+    /// callee at whatever count the caller hands across. The operator body has to take the same +1
+    /// lease an ordinary member takes for it, complete it once the call returns, and leave a borrowed
+    /// operand alone.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitOperator_ConsumingClassOperand_HandsItAcrossAtPlusOne(bool routedThroughThunk)
+    {
+        var (op, typeDatabase) = CreateThunkableClassOperator("Size", returnType: "TestModule.Size");
+        if (!routedThroughThunk)
+            op.UnderlyingMethod.ModuleDecl!.ExportedSymbols = new HashSet<string>();
+        op.UnderlyingMethod.CSSignature[1].Ownership = ParameterOwnership.Owned;
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Equal(routedThroughThunk, op.UnderlyingMethod.UsesNativeThunk);
+        var lease = System.Text.RegularExpressions.Regex.Matches(output,
+            @"using var (\w+) = new global::Swift\.Runtime\.OwnedArgument\.ClassTransfer\((\w+)\.Payload\);");
+        var single = Assert.Single(lease);
+        var leaseName = single.Groups[1].Value;
+        var complete = output.IndexOf($"{leaseName}.Complete();", StringComparison.Ordinal);
+        Assert.True(output.IndexOf(single.Value, StringComparison.Ordinal) < output.IndexOf("PInvoke_op_Addition(", StringComparison.Ordinal),
+            "the lease is taken before the call");
+        Assert.True(complete > output.IndexOf("PInvoke_op_Addition(", StringComparison.Ordinal), "the lease completes after the call");
+        Assert.True(complete < output.IndexOf("return ", StringComparison.Ordinal), "the lease completes before the result is read");
+    }
+
+    /// <summary>
+    /// A borrowed operand — the Swift default for a static member — is not handed over.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_BorrowedClassOperands_TakeNoLease()
+    {
+        var (op, typeDatabase) = CreateThunkableClassOperator("Size", returnType: "TestModule.Size");
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.True(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.DoesNotContain("OwnedArgument", output);
+    }
+
+    /// <summary>
+    /// A thrown error leaves the result register undefined, so the error slot has to be checked —
+    /// and the box released through the module's release helper — before the result is interpreted.
+    /// The thunk reports the error through an out-pointer; a direct Swift-convention call through
+    /// the zero-initialized error carrier it passes by ref. Both match an ordinary throwing member.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "Swift.Bool")]
+    [InlineData(true, "TestModule.Size")]
+    [InlineData(false, "Swift.Bool")]
+    [InlineData(false, "TestModule.Size")]
+    public void EmitOperator_ThrowingClassOperator_ChecksTheErrorBeforeReadingTheResult(bool routedThroughThunk, string returnType)
+    {
+        var (op, typeDatabase) = CreateThunkableClassOperator("Size", returnType);
+        if (!routedThroughThunk)
+            op.UnderlyingMethod.ModuleDecl!.ExportedSymbols = new HashSet<string>();
+        op.UnderlyingMethod.Throws = true;
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Equal(routedThroughThunk, op.UnderlyingMethod.UsesNativeThunk);
+        var errorCheck = routedThroughThunk ? "if (errorPtr != IntPtr.Zero)" : "if (swiftError.Value != null)";
+        if (!routedThroughThunk)
+            Assert.True(output.IndexOf("var swiftError = default(SwiftError);", StringComparison.Ordinal)
+                < output.IndexOf("PInvoke_op_Addition(", StringComparison.Ordinal), "the error carrier is declared before the call");
+        var call = output.IndexOf("PInvoke_op_Addition(", StringComparison.Ordinal);
+        var check = output.IndexOf(errorCheck, StringComparison.Ordinal);
+        var read = output.IndexOf("return ", check < 0 ? 0 : check, StringComparison.Ordinal);
+        Assert.True(call >= 0 && check > call, "the error slot is checked after the call");
+        Assert.True(read > check, "the result is read only after the error check");
+        Assert.DoesNotContain("return PInvoke_op_Addition(", output);
+        Assert.DoesNotContain("MarshalFromSwift<global::TestModule.Size>(PInvoke_op_Addition(", output);
+        // The error box is released through the same helper an ordinary throwing member declares.
+        Assert.Contains("SBW_ReleaseError", output.Substring(check));
+        Assert.Matches(@"static partial void SBW_ReleaseError\(", output);
+    }
+
+    /// <summary>
+    /// A typed throw leaves the raw error value in the error register, which neither the native
+    /// thunk nor a direct call can box; without a @_cdecl operator wrapper the operator is declined
+    /// rather than emitted to misread that value on its first throw — and leaves no thunk behind.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitOperator_TypedThrowingClassOperator_IsDeclined(bool symbolsExported)
+    {
+        var (op, typeDatabase) = CreateThunkableClassOperator("Size", returnType: "Swift.Bool");
+        if (!symbolsExported)
+            op.UnderlyingMethod.ModuleDecl!.ExportedSymbols = new HashSet<string>();
+        op.UnderlyingMethod.Throws = true;
+        op.UnderlyingMethod.ThrownErrorType = new NamedTypeSpec("TestModule.Size");
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.DoesNotContain("operator +", output);
+        Assert.DoesNotContain("SBW_ExtractTypedError", output);
+        Assert.False(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Equal(0, emissionContext.AssemblyBuilder.Length);
+    }
+
+    /// <summary>
+    /// An operator that neither throws nor consumes an operand keeps its plain call: the ordinary
+    /// member halves add nothing, and nothing is constructed for it.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_PlainClassOperator_KeepsItsSingleExpressionBody()
+    {
+        var (op, typeDatabase) = CreateThunkableClassOperator("Size", returnType: "Swift.Bool");
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Contains("return PInvoke_op_Addition(", output);
+        Assert.DoesNotContain("SBW_ReleaseError", output);
+    }
+
+    private static (OperatorDecl op, TypeDatabase typeDatabase) CreateThunkableClassOperator(string className, string returnType)
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", className);
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl(className, moduleDecl);
+        return (CreateClassBinaryOperator("+", parentType, moduleDecl, returnType), typeDatabase);
+    }
+
+    private static string EmitOperator(OperatorDecl op, TypeDatabase typeDatabase, ModuleEmissionContext emissionContext)
+    {
+        var writer = new StringWriter();
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        handler.EmitOperator(new CSharpWriter(writer), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(new StringWriter()), emissionContext: emissionContext);
+        return writer.ToString();
     }
 
     [Fact]
@@ -824,6 +1063,42 @@ public class OperatorHandlerOutputTests
         var handleLine = output.Split('\n').Single(line => line.Contains(" = __operatorValue.Handle;"));
         var handleName = handleLine.Trim().Split(' ')[1];
         Assert.Contains($"PInvoke_op_Addition({handleName},", output);
+    }
+
+    /// <summary>
+    /// An ObjC-rooted operand crosses as its object handle, read off an object C# keeps owning. When
+    /// Swift takes it <c>consuming</c>, the handle must carry the +1 an ordinary member's ObjC
+    /// argument carries — an isa-dispatched retain — and a borrowed operand must not.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitOperator_ConsumingObjCRootedOperand_IsRetainedForTheCallee(bool routedThroughThunk)
+    {
+        var typeDatabase = CreateTypeDatabaseWithClasses(
+            ("OperatorValue", TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCRooted));
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("OperatorValue", moduleDecl);
+        parentType.IsObjCRooted = true;
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "Swift.Bool");
+        if (!routedThroughThunk)
+            op.UnderlyingMethod.ModuleDecl!.ExportedSymbols = new HashSet<string>();
+        op.UnderlyingMethod.CSSignature[1].Ownership = ParameterOwnership.Owned;
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Equal(routedThroughThunk, op.UnderlyingMethod.UsesNativeThunk);
+        // The public operands, in order: the first is the consumed one.
+        var operands = System.Text.RegularExpressions.Regex.Match(output,
+            @"operator \+\(TestModule\.OperatorValue (\w+), TestModule\.OperatorValue (\w+)\)");
+        Assert.True(operands.Success);
+        var handleLines = output.Split('\n').Select(line => line.Trim())
+            .Where(line => line.StartsWith("IntPtr ", StringComparison.Ordinal) && line.Contains(".Handle")).ToList();
+        Assert.Equal(2, handleLines.Count);
+        Assert.Contains(handleLines, line => line.EndsWith(
+            $"= global::Swift.Runtime.Arc.UnknownObjectRetain({operands.Groups[1].Value}.Handle);", StringComparison.Ordinal));
+        Assert.Contains(handleLines, line => line.EndsWith($"= {operands.Groups[2].Value}.Handle;", StringComparison.Ordinal));
     }
 
     private static void SetOperatorAliasCollisionNames(OperatorDecl op)

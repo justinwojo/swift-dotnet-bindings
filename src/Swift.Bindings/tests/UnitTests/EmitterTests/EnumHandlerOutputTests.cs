@@ -1568,6 +1568,9 @@ public class EnumHandlerOutputTests
         // …never a cdecl SBW_GetMetadata_ wrapper symbol, and no Cdecl-first fallback pair.
         Assert.DoesNotContain("SBW_GetMetadata_", csOutput);
         Assert.DoesNotContain("PInvoke_getMetadata_fallback", csOutput);
+        // …and that accessor import passes the metadata request.
+        var accessor = Assert.Single(MetadataAccessorImportAudit.Find(csOutput));
+        Assert.True(accessor.PassesRequest, accessor.ToString());
     }
 
     [Fact]
@@ -1587,6 +1590,9 @@ public class EnumHandlerOutputTests
 
         Assert.Contains("SBW_GetMetadata_", csOutput);
         Assert.Contains("PInvoke_getMetadata_fallback", csOutput);
+        // The fallback imports the dylib's Swift accessor, so it passes the metadata request.
+        var fallback = Assert.Single(MetadataAccessorImportAudit.Find(csOutput));
+        Assert.True(fallback.PassesRequest, fallback.ToString());
     }
 
     [Fact]

@@ -605,6 +605,25 @@ namespace BindingsGeneration
         {
             var paramList = string.Join(", ", paramInfos.Select(p => $"{p.typeName} {p.paramName}"));
 
+            // Surface Swift @MainActor isolation on the public indexer, mirroring EXACTLY the oracle
+            // inputs the Swift @_cdecl subscript wrapper uses (SubscriptWrapperEmitter): the accessor's
+            // own isolation flags plus the parent type's. This keeps the consumer-facing contract in
+            // lock-step with the wrapper's actual isolation — a @MainActor-isolated subscript (today via
+            // its enclosing @MainActor type) gets the [SwiftMainActor] marker + a main-thread <remarks>.
+            // Per-member @MainActor on a subscript (on a non-isolated type) is not yet surfaced here for
+            // the same reason it is not yet @MainActor on the Swift wrapper: the accessor isolation flags
+            // are not populated per-member, and propagating them must move both sides together.
+            // The remark is written first: every doc line precedes the indexer's attributes (CS1587).
+            var isolationAccessor =
+                subscriptDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method
+                ?? subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault()?.Method;
+            var needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+                subscriptDecl.ParentDecl,
+                isolationAccessor?.IsMainActorIsolated ?? false,
+                isolationAccessor?.IsNonisolated ?? false);
+            if (needsMainActor)
+                TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+
             // Emit one [UnsupportedSwiftType] flag if the return type OR any index parameter degrades
             // to AnyType. Scanning only the return type left a subscript like
             // `subscript(_ key: any PWithAssociatedType) -> Int` with a silent `object` index param —
@@ -632,24 +651,8 @@ namespace BindingsGeneration
                 emissionContext, typeDatabase, closureHandler,
                 new[] { subscriptDecl.ReturnTypeSpec }.Concat(subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec)));
 
-            // Surface Swift @MainActor isolation on the public indexer, mirroring EXACTLY the oracle
-            // inputs the Swift @_cdecl subscript wrapper uses (SubscriptWrapperEmitter): the accessor's
-            // own isolation flags plus the parent type's. This keeps the consumer-facing contract in
-            // lock-step with the wrapper's actual isolation — a @MainActor-isolated subscript (today via
-            // its enclosing @MainActor type) gets the [SwiftMainActor] marker + a main-thread <remarks>.
-            // Per-member @MainActor on a subscript (on a non-isolated type) is not yet surfaced here for
-            // the same reason it is not yet @MainActor on the Swift wrapper: the accessor isolation flags
-            // are not populated per-member, and propagating them must move both sides together.
-            var isolationAccessor =
-                subscriptDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method
-                ?? subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault()?.Method;
-            if (WrapperValidation.NeedsMainActorAnnotation(
-                    subscriptDecl.ParentDecl,
-                    isolationAccessor?.IsMainActorIsolated ?? false,
-                    isolationAccessor?.IsNonisolated ?? false))
-            {
-                TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
-            }
+            if (needsMainActor)
+                TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
 
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: true);
             // Record the indexer against the same index types the declaration below is written from.

@@ -13,24 +13,65 @@ permissions:
   contents: read
   checks: write
 
+env:
+  # .NET 11 CoreCLR canary (net11-coreclr job). Release until the CoreCLR interpreter bridge
+  # lands: Debug runs the interpreter, which cannot yet call Swift. Flip to Debug then.
+  CORECLR_CANARY_CONFIGURATION: Release
+  # One class per risk the CoreCLR Swift calling convention carries, small enough to run in
+  # seconds once the app is built:
+  #   BlittableRoundTripTests     scalar and frozen-struct arguments/returns (the tier-1 smoke)
+  #   MixedRegisterReturnTests    swiftcc field-wise struct returns across GPR/FPR files
+  #   StringMarshallingTests      Swift String ownership and value-witness copies
+  #   SiblingMethodDispatchTests  reverse dispatch: Swift calling C# protocol implementations
+  #   ClosureTests                closures in both directions, UnmanagedCallersOnly trampolines
+  CORECLR_CANARY_CLASSES: >-
+    BlittableRoundTripTests MixedRegisterReturnTests StringMarshallingTests
+    SiblingMethodDispatchTests ClosureTests
+
 jobs:
+  # Every SDK, workload set, Xcode and runner label below comes from build/toolchains/*.json.
+  toolchains:
+    name: Resolve toolchain profiles
+    runs-on: ubuntu-latest
+    outputs:
+      profiles: ${{ steps.resolve.outputs.profiles }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build/toolchains
+            build/scripts/ci
+
+      - name: Resolve profile pins
+        id: resolve
+        run: python3 -B build/scripts/ci/toolchain_ci.py resolve --github-output profiles
+
   build-and-test:
     name: Build & Test
-    runs-on: macos-26
+    needs: toolchains
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      # global.json rolls forward to the newest installed 10.0.1xx patch; fail if the image's
+      # preinstalled SDKs would select anything but the profile's pin.
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -53,16 +94,20 @@ jobs:
       - name: Resolve Swift toolchain key
         run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
 
-      - name: Cache SwiftInterfaceParser
-        uses: actions/cache@v4
+      - name: Restore SwiftInterfaceParser cache
+        id: sip-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/SwiftInterfaceParser/.build
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
+      # Measured on macos-26 with a cold parser cache (18 min): parser build ~9 min, solution
+      # build ~2.5 min, unit/analyzer/runtime/toolchain tests ~6.5 min. A warm cache takes the
+      # parser to seconds; the limit is for the cold case.
       - name: Build and run tests
-        timeout-minutes: 10
+        timeout-minutes: 25
         run: |
           python3 -B build/scripts/ci/test_ci_ios_test.py -v
           dotnet nuke test
@@ -76,23 +121,42 @@ jobs:
             **/TestResults/*.trx
           retention-days: 7
 
+      # Saved even when a later step fails, so a red run does not leave the next one to rebuild
+      # swift-syntax from source. Only a staged parser proves the build finished.
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.sip-cache.outputs.cache-hit != 'true' && hashFiles('src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: ${{ steps.sip-cache.outputs.cache-primary-key }}
+
   bindingtests:
     name: BindingTests
-    runs-on: macos-26
+    needs: toolchains
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      # global.json rolls forward to the newest installed 10.0.1xx patch; fail if the image's
+      # preinstalled SDKs would select anything but the profile's pin.
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -115,23 +179,14 @@ jobs:
       - name: Resolve Swift toolchain key
         run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
 
-      - name: Cache SwiftInterfaceParser
-        uses: actions/cache@v4
+      - name: Restore SwiftInterfaceParser cache
+        id: sip-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/SwiftInterfaceParser/.build
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
-
-      - name: Create and boot iOS Simulator (background)
-        run: |
-          # Create sim and kick off boot in background so it warms up during binding-tests
-          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
-                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
-          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          echo "Created simulator: $UDID"
-          xcrun simctl boot "$UDID" &
-          echo "Boot started in background"
 
       - name: Build and test bindings (strict + coverage + baselines)
         # --skip-surface runs the Layer B skip-surface trend gate against
@@ -160,21 +215,43 @@ jobs:
           --abi-json "$(find .build -path '*/SwiftBindingsTestLib.swiftmodule/*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
-      - name: Wait for simulator boot
-        timeout-minutes: 5
-        run: xcrun simctl bootstatus "$SIM_UDID" -b
-
-      - name: Run iOS Simulator tests
-        timeout-minutes: 40
-        run: >
-          python3 build/scripts/ci/ci_ios_test.py
-          --device-udid "$SIM_UDID" --skip-prepare --skip-build
-          --timeout 420 --skip-regen
-          --step-timeout 2100
-
+      # Needs no simulator, so it runs before one boots (see below).
       - name: Validate blast radius
         timeout-minutes: 10
         run: dotnet nuke validate-blast-radius
+
+      # Everything that builds runs before the simulator boots: a booted simulator keeps the
+      # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
+      # slow and the app build two to three times slower. The app is built here and only
+      # installed and run once the simulator is up; --skip-build checks it is this build.
+      - name: Build the simulator test app
+        timeout-minutes: 20
+        run: dotnet nuke binding-tests --sim --build-only --skip-regen
+
+      # Booted in the foreground: a boot still in flight when bootstatus -b runs makes it send a
+      # second boot request, which fails once the first lands.
+      - name: Create and boot iOS Simulator
+        timeout-minutes: 10
+        run: |
+          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
+                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "Created simulator: $UDID"
+          xcrun simctl boot "$UDID"
+
+      - name: Wait for simulator boot
+        timeout-minutes: 10
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
+
+      # Install and run only: each attempt gets --timeout plus a small non-build allowance, and
+      # the step budget leaves room for one retry of a launcher failure.
+      - name: Run iOS Simulator tests
+        timeout-minutes: 22
+        run: >
+          python3 build/scripts/ci/ci_ios_test.py
+          --device-udid "$SIM_UDID" --skip-prepare --prebuilt-app
+          --timeout 420 --skip-regen
+          --step-timeout 1260
 
       - name: Upload simulator diagnostics
         if: failure()
@@ -185,10 +262,92 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # Saved even when a later step fails, so a red run does not leave the next one to rebuild
+      # swift-syntax from source. Only a staged parser proves the build finished.
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.sip-cache.outputs.cache-hit != 'true' && hashFiles('src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: ${{ steps.sip-cache.outputs.cache-primary-key }}
+
+  # net11-xcode27: the compile gate plus a CoreCLR runtime canary on the iOS simulator.
+  # Runs through the profile launcher, which pins the SDK, workload set and Xcode exactly.
+  # Set the repository variable SKIP_XCODE27_CI to 'true' to pause it while the hosted image for
+  # that Xcode is unavailable; the release workflow has no such switch.
+  net11-coreclr:
+    name: BindingTests (.NET 11 CoreCLR)
+    needs: toolchains
+    if: vars.SKIP_XCODE27_CI != 'true'
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27'].runner }}
+    timeout-minutes: 150
+    env:
+      # Not PROFILE: Nuke binds any environment variable named after one of its parameters, and
+      # PROFILE is its own --profile (a parameters.<name>.json file).
+      TOOLCHAIN_PROFILE: net11-xcode27
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain profile
+        id: toolchain
+        uses: ./.github/actions/toolchain-profile
+        with:
+          profile: net11-xcode27
+
+      - name: Compile gate (strict)
+        run: >
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --strict --compile-only --skip-surface
+
+      # Everything that builds runs before the simulator boots: a booted simulator keeps the
+      # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
+      # slow and the app build two to three times slower. Built from the bindings the compile
+      # gate generated.
+      - name: Build the simulator test app (${{ env.CORECLR_CANARY_CONFIGURATION }})
+        timeout-minutes: 25
+        run: >
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --sim --build-only --skip-regen
+          --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION"
+
+      - name: Create and boot iOS Simulator
+        timeout-minutes: 10
+        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
+
+      - name: Wait for simulator boot
+        timeout-minutes: 10
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
+
+      # Every class installs and runs the app built above; --skip-build checks it is that build.
+      # A class name that matches nothing fails inside the app ("No test class matches").
+      - name: CoreCLR runtime canary (${{ env.CORECLR_CANARY_CONFIGURATION }})
+        timeout-minutes: 15
+        run: |
+          for class in $CORECLR_CANARY_CLASSES; do
+            echo "::group::$class"
+            bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE" \
+              --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" \
+              -- binding-tests --sim --device-udid "$SIM_UDID" --skip-build \
+              --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION" --class-filter "$class"
+            echo "::endgroup::"
+          done
+
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.toolchain.outputs.parser-cache-hit != 'true' && hashFiles(steps.toolchain.outputs.parser-binary) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.toolchain.outputs.parser-cache-path }}
+          key: ${{ steps.toolchain.outputs.parser-cache-key }}
+
   package-smoke:
     name: Package Smoke Test
-    runs-on: macos-26
-    needs: build-and-test
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
+    needs: [toolchains, build-and-test]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -211,16 +370,23 @@ jobs:
           echo "SWIFT_BINDINGS_API_COMPAT_BASELINE=$baseline" >> "$GITHUB_ENV"
           echo "Runtime API compatibility baseline: $baseline"
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      # global.json rolls forward to the newest installed 10.0.1xx patch; fail if the image's
+      # preinstalled SDKs would select anything but the profile's pin.
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -243,8 +409,9 @@ jobs:
       - name: Resolve Swift toolchain key
         run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
 
-      - name: Cache SwiftInterfaceParser
-        uses: actions/cache@v4
+      - name: Restore SwiftInterfaceParser cache
+        id: sip-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/SwiftInterfaceParser/.build
@@ -269,3 +436,14 @@ jobs:
           name: packages
           path: /tmp/swift-nuget/*.nupkg
           retention-days: 7
+
+      # Saved even when a later step fails, so a red run does not leave the next one to rebuild
+      # swift-syntax from source. Only a staged parser proves the build finished.
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.sip-cache.outputs.cache-hit != 'true' && hashFiles('src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: ${{ steps.sip-cache.outputs.cache-primary-key }}

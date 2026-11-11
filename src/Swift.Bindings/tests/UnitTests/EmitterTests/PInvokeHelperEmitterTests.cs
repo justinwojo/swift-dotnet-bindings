@@ -110,6 +110,33 @@ public class PInvokeHelperEmitterTests
         Assert.Equal("B", result.GenericTypeParameters[1]);
     }
 
+    [Fact]
+    public void CreateIfGeneric_GenericNestedInGenericOuter_AccessorTakesEveryParameterOuterFirst()
+    {
+        // `Shelf<Value>.Tagged<Element>`: the nested type's accessor is
+        // `(request, Value, Element)`. Declaring it with the nested type's own parameter alone
+        // made the runtime read a garbage second argument and fault.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outer = CreateGenericStructDecl("Shelf", moduleDecl, null);
+        outer.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Value", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var inner = CreateGenericStructDecl("Tagged", moduleDecl, outer);
+        inner.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Value", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            new("τ_1_0", "Element", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var result = PInvokeHelperContext.CreateIfGeneric(inner);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.GenericTypeParameters.Count);
+        Assert.Contains("Value", result.GenericTypeParameters[0]);
+        Assert.Contains("Element", result.GenericTypeParameters[1]);
+    }
+
     #endregion
 
     #region GetQualifiedTypeName Tests (via HelperClassName)

@@ -297,7 +297,16 @@ public class BorrowedSlotParamDispatchTests : TestBase
             // snapshot: it only ever drains a transient OVER-count down toward the target, so it
             // cannot erode the root this control is holding, and its failure message already names
             // the survivors — which is the whole point of the probe this controls for.
-            LifetimeTracker.AssertLiveCount(1, "exactly the one deliberately rooted payload is still live");
+            // On failure the weak readout separates the causes exactly as in the leak probe above.
+            try
+            {
+                LifetimeTracker.AssertLiveCount(1, "exactly the one deliberately rooted payload is still live");
+            }
+            catch (AssertionException ex)
+            {
+                throw new AssertionException(
+                    $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)}", ex);
+            }
 
             // The Swift registry must NAME that survivor, not just count it: allocation order is
             // 1-based, so the rooted iteration reports allocOrder = rootedIteration + 1.

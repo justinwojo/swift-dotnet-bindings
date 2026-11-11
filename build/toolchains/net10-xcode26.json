@@ -3,5 +3,11 @@
   "workloadVersion": "10.0.107",
   "xcodeVersion": "26.3",
   "dotnetRoot": "/usr/local/share/dotnet",
-  "developerDirectory": "/Applications/Xcode-26.3.0.app/Contents/Developer"
+  "developerDirectory": "/Applications/Xcode-26.3.0.app/Contents/Developer",
+  "nugetAuditSuppress": [
+    {
+      "advisory": "https://github.com/advisories/GHSA-p3jp-9v83-76w9",
+      "reason": "Supported .NET 10 + Xcode 26.3 compatibility lane. The advisory affects Microsoft's .NET runtime and ILCompiler packages below 10.0.14, not SwiftBindings code. The first patched workload set (10.0.114) requires Xcode 27.1 and 10.0.115 requires Xcode 27.2, so no patched .NET 10 runtime pairs with Xcode 26.x. Only the NativeAOT restore on this profile needs it; the release anchors run patched runtimes."
+    }
+  ]
 }

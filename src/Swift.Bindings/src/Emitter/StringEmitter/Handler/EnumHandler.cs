@@ -192,20 +192,12 @@ namespace BindingsGeneration
                 // (handle is the instance pointer) treats complex enums as buffer-backed.
                 interfaces.Insert(1, nameof(ISwiftStruct));
 
-                XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
-                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(enumDecl, env.TypeDatabase);
-                if (opaqueEmittable == 0 && opaqueSkipped > 0)
-                {
-                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                var isOpaque = opaqueEmittable == 0 && opaqueSkipped > 0;
+                if (isOpaque)
                     context.GetEmissionContext()?.AddEmittedOpaqueType(enumDecl.SwiftTypeName.ModuleQualifiedName);
-                }
-                else
-                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, enumDecl);
-                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, enumDecl);
-                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, enumDecl);
-                if (enumDecl.Name.StartsWith("_"))
-                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                TypeAnnotationHelper.EmitTypeDeclarationPreamble(
+                    csWriter, enumDecl, isOpaque ? opaqueSkipped : null, emitDisposalRemarks: true);
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
@@ -841,7 +833,7 @@ namespace BindingsGeneration
 
             // Generate a static property for this case with backing P/Invoke
             csWriter.WriteLine($"/// <summary>");
-            csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+            csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
             csWriter.WriteLine($"/// </summary>");
             csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
             csWriter.WriteLine("{");
@@ -912,7 +904,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("});");
 
                 csWriter.WriteLine($"/// <summary>");
-                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                 csWriter.WriteLine($"/// </summary>");
                 csWriter.WriteLine($"/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
                 csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
@@ -923,7 +915,7 @@ namespace BindingsGeneration
                 // Per-access construction: enum has mutating methods or writable properties,
                 // so caching would allow global mutation of a shared instance.
                 csWriter.WriteLine($"/// <summary>");
-                csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                 csWriter.WriteLine($"/// </summary>");
                 csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                 csWriter.WriteLine("{");

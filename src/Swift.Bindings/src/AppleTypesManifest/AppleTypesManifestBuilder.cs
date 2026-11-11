@@ -19,6 +19,12 @@ namespace BindingsGeneration.AppleTypesManifest;
 // columns per swift_identity. A platform no dump covered stays null, which the emitter
 // treats as unsupported.
 //
+// The digester prints no `intro_macCatalyst` key, even for an explicit `macCatalyst N`
+// record, so a Mac Catalyst floor later than the iOS one cannot be read here. A Mac
+// Catalyst dump does leave out a type marked `@available(macCatalyst, unavailable)`, so
+// that case still reaches null. `tools/apple-types-manifest/verify-availability.py` checks
+// every column of a regenerated manifest against swiftc and catches the later floor.
+//
 // Size/alignment/stride and conformance descriptor symbols require live-SDK probing and
 // are deliberately left unset here (null / empty). The live-SDK validation step fills them
 // in; the builder's contract is the static ABI-JSON view only.

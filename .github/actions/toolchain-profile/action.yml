@@ -1,0 +1,65 @@
+name: Toolchain profile
+description: >-
+  Install a build/toolchains profile's .NET SDK, host runtimes and workload set into an
+  isolated root, select its Xcode, and prepare the profile launcher's workspace. Later steps
+  run Nuke with:
+  bash build.sh --toolchain-profile <profile> --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT"
+  --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" -- <target>
+  The parser build cache is only restored here. The job saves it once the parser has been built,
+  from the parser-cache outputs, so a run that fails afterwards still leaves a warm cache.
+
+inputs:
+  profile:
+    description: Profile name, the stem of build/toolchains/<profile>.json.
+    required: true
+
+outputs:
+  parser-cache-hit:
+    description: true when the restored parser cache matched the key exactly.
+    value: ${{ steps.sip-cache.outputs.cache-hit }}
+  parser-cache-key:
+    description: The key the job saves the parser cache under.
+    value: ${{ steps.sip-cache.outputs.cache-primary-key }}
+  parser-cache-path:
+    description: The cached SwiftPM build directory inside the launcher workspace.
+    value: artifacts/toolchains/${{ inputs.profile }}/workspace/tools/SwiftInterfaceParser/.build
+  parser-binary:
+    description: The staged parser, which exists only once a build in this job has finished.
+    value: artifacts/toolchains/${{ inputs.profile }}/workspace/src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser
+
+runs:
+  using: composite
+  steps:
+    # Exports SWIFT_BINDINGS_CI_DOTNET_ROOT, SWIFT_BINDINGS_CI_DEVELOPER_DIR and DEVELOPER_DIR.
+    # The runner's own dotnet and the repository global.json are never used by a profile run:
+    # the launcher pins its workspace to the profile's exact SDK and workload set.
+    - name: Provision ${{ inputs.profile }}
+      shell: bash
+      env:
+        TOOLCHAIN_PROFILE: ${{ inputs.profile }}
+      run: >
+        python3 -B build/scripts/ci/toolchain_ci.py provision --profile "$TOOLCHAIN_PROFILE"
+        --dotnet-root "$RUNNER_TEMP/toolchains/$TOOLCHAIN_PROFILE/dotnet"
+
+    - name: Prepare the profile workspace
+      shell: bash
+      env:
+        TOOLCHAIN_PROFILE: ${{ inputs.profile }}
+      run: >
+        bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+        --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT"
+        --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" --prepare-only
+
+    # Same reasoning as the unprofiled jobs' parser cache: swift-syntax dominates a cold
+    # generator build. The launcher builds in its own workspace, so the cache is restored there
+    # once the workspace exists (the launcher refuses to adopt a directory it did not create).
+    - name: Resolve Swift toolchain key
+      shell: bash
+      run: echo "SWIFT_TOOLCHAIN_KEY=$(xcrun swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
+
+    - name: Restore SwiftInterfaceParser cache
+      id: sip-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: artifacts/toolchains/${{ inputs.profile }}/workspace/tools/SwiftInterfaceParser/.build
+        key: sip-${{ inputs.profile }}-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}

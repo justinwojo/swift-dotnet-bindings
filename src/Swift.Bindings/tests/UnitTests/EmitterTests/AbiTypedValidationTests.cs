@@ -160,6 +160,55 @@ public sealed partial class TestClass
         Assert.Equal("SWIFTBIND092", v.DiagnosticCode);
     }
 
+    // ── CC-005: a class member called without its self register fails the module by name ───────────
+
+    [Fact]
+    public void CC005_ClassStaticWithoutSwiftSelf_ThrowsSelfRegisterContractException()
+    {
+        // Seeded red: a direct Swift-convention call of a class static with no SwiftSelf. This is never a
+        // recoverable, withdrawable violation — the self parameter is decided per member shape.
+        const string entryPoint = "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ";
+        var plan = Plan("PInvoke_check", entryPoint, "SwiftBindingsTestLib",
+            PInvokeCallingConvention.Swift, returnCarrier: "nint", owner: Owner("check"));
+        var text = TextPInvoke("CallConvSwift", "SwiftBindingsTestLib", entryPoint, "nint", "PInvoke_check", "");
+
+        var ex = Assert.Throws<SelfRegisterContractException>(
+            () => AbiContractChecker.ValidateModule(text, new[] { plan }, "SwiftBindingsTestLib", Log));
+
+        Assert.StartsWith("SWIFTBIND097", ex.Message);
+        Assert.Equal("SwiftBindingsTestLib", ex.ModuleName);
+        var violation = Assert.Single(ex.Violations);
+        Assert.Equal(entryPoint, violation.EntryPoint);
+        Assert.True(NonRecoverableFault.Test(ex));
+    }
+
+    [Fact]
+    public void CC005_ClassStaticWithoutSwiftSelf_OnACallNoPlanBacks_StillThrows()
+    {
+        const string entryPoint = "$s20SwiftBindingsTestLib9NumberBoxC1poiyA2C_ACtFZ";
+        var text = TextPInvoke("CallConvSwift", "SwiftBindingsTestLib", entryPoint, "nint", "PInvoke_add", "nint lhs, nint rhs");
+
+        var ex = Assert.Throws<SelfRegisterContractException>(
+            () => AbiContractChecker.ValidateModule(text, Array.Empty<AbiCallPlan>(), "SwiftBindingsTestLib", Log));
+
+        Assert.Equal(entryPoint, Assert.Single(ex.Violations).EntryPoint);
+    }
+
+    [Fact]
+    public void CC005_ClassStaticWithSwiftSelf_IsClean()
+    {
+        const string entryPoint = "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ";
+        var plan = Plan("PInvoke_check", entryPoint, "SwiftBindingsTestLib",
+            PInvokeCallingConvention.Swift, returnCarrier: "nint",
+            parameters: new[] { "global::System.Runtime.InteropServices.Swift.SwiftSelf" }, owner: Owner("check"));
+        var text = TextPInvoke("CallConvSwift", "SwiftBindingsTestLib", entryPoint, "nint", "PInvoke_check",
+            "global::System.Runtime.InteropServices.Swift.SwiftSelf _metatypeSelf");
+
+        var result = AbiContractChecker.ValidateModule(text, new[] { plan }, "SwiftBindingsTestLib", Log);
+
+        Assert.True(result.IsClean);
+    }
+
     // ── CC-004 structural immunity comes from emission, not from ValidatePlans (the 91-FP class) ────
 
     [Fact]

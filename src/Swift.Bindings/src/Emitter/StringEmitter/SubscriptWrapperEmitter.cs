@@ -199,6 +199,11 @@ public static class SubscriptWrapperEmitter
         bool isClass = env.ParentDecl is ClassDecl;
         bool isString = WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec);
         bool isNonCopyableParent = !isClass && WrapperValidation.IsNonCopyableStructParent(env.ParentDecl);
+        // A `mutating get` on a value type takes self inout: the wrapper receives the caller's
+        // storage mutably and reads through it, so whatever the getter writes lands there rather
+        // than in a local copy (which swiftc rejects anyway, as a mutating access on a `let`).
+        bool isMutatingGetter = !isClass && env.MethodDecl.IsMutating;
+        bool readsSelfThroughPointer = isNonCopyableParent || isMutatingGetter;
 
         // Determine return mapping
         var (returnMapping, needsResultPtr) = isString
@@ -271,7 +276,7 @@ public static class SubscriptWrapperEmitter
                     break;
 
                 case CdeclPhase.Self:
-                    if (isClass)
+                    if (isClass || isMutatingGetter)
                         swiftParams.Add("_ self_: Swift.UnsafeMutableRawPointer");
                     else
                         swiftParams.Add("_ self_: Swift.UnsafeRawPointer");
@@ -287,8 +292,10 @@ public static class SubscriptWrapperEmitter
         var swiftFuncName = $"_sbw_subget_{EmitterUtility.DeterministicHash8(symbolName)}";
 
         // Build bracket access expression
-        // For noncopyable types, use inline pointer borrow instead of obj
-        var selfExpr = isNonCopyableParent
+        // For noncopyable types and mutating getters, access self through the pointer instead of
+        // binding a copy to obj: a noncopyable value cannot be copied, and a mutating getter's
+        // writes have to reach the caller's storage.
+        var selfExpr = readsSelfThroughPointer
             ? $"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee"
             : "obj";
         var subscriptAccess = BuildSubscriptAccessExpr(selfExpr, callArgs);
@@ -336,12 +343,12 @@ public static class SubscriptWrapperEmitter
         foreach (var line in reconstructionLines)
             swiftWriter.WriteLine(line);
 
-        // Reconstruct self (skip for noncopyable — inline pointer borrow used in subscriptAccess)
+        // Reconstruct self (skip when subscriptAccess reads through the pointer)
         if (isGenericParent && protocolName != null)
         {
             SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: false);
         }
-        else if (!isNonCopyableParent)
+        else if (!readsSelfThroughPointer)
         {
             EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName);
         }

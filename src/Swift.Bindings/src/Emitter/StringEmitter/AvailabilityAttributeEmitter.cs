@@ -16,13 +16,21 @@ internal static class AvailabilityAttributeEmitter
         ["tvOS"] = "tvos",
         ["watchOS"] = "watchos",
         ["macCatalyst"] = "maccatalyst",
-        // .NET 6+ recognizes "visionos" via System.Runtime.Versioning.OSPlatform.
-        // Without this entry the `@available(visionOS 1.0, *)` clause from the
-        // swiftinterface is silently elided (Family-F-5: 453 dropped markers in
-        // SwiftBindings.Apple.MusicKit alone). Map verbatim so visionOS-targeting
-        // consumers see CA1416 narrow correctly.
-        ["visionOS"] = "visionos",
+        // visionOS is deliberately absent. .NET has no visionOS platform: the platform analyzer
+        // knows only the names behind OperatingSystem.Is<Platform>() plus the SDK's
+        // SupportedPlatform items, so "visionos" draws CA1418 ("not a known platform name") on
+        // every attribute and every runtime-guard clause, and fails a warnings-as-errors build.
+        // No .NET app runs on visionOS, so the attribute could never narrow a call site and the
+        // guard clause could never fire — dropping the platform loses nothing.
     };
+
+    /// <summary>
+    /// Whether <paramref name="dotnetPlatform"/> (a .NET platform id such as <c>ios</c>) may appear in
+    /// an emitted <c>System.Runtime.Versioning</c> attribute. The Objective-C emitter shares this so
+    /// both paths drop the same names.
+    /// </summary>
+    internal static bool IsEmittableDotNetPlatform(string dotnetPlatform)
+        => PlatformMapping.Values.Contains(dotnetPlatform, StringComparer.Ordinal);
 
     /// <summary>
     /// Emits [SupportedOSPlatform], [ObsoletedOSPlatform], and optionally [Obsolete] attributes.
@@ -185,7 +193,6 @@ internal static class AvailabilityAttributeEmitter
         ["tvos"] = "tvOS",
         ["watchos"] = "watchOS",
         ["maccatalyst"] = "Mac Catalyst",
-        ["visionos"] = "visionOS",
     };
 
     /// <summary>
