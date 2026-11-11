@@ -24,7 +24,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string moduleName,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
-        ILogger logger)
+        ILogger logger,
+        CsmOverloadLedger overloadLedger)
     {
         // Phase B path accepts 1+ pairings. The first pairing's conformer is used for
         // symbol naming / logging — additional pairings are applied via substitution.
@@ -85,18 +86,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // the original generic Swift method with the conformer-typed kept args; Swift
         // dispatches the generic at the call site and fills the trimmed defaults.
         //
-        // Unlike the CSM-sync path, the CSM-async primary preserves mappable trailing
-        // defaults inline (e.g. `nint tag = 13` on the C# surface), so a trim variant
-        // that drops only the mappable suffix produces a signature ambiguous with the
+        // Unlike the CSM-sync path, the CSM-async primary keeps every parameter and preserves
+        // mappable trailing defaults inline (e.g. `nint tag = 13` on the C# surface), so a trim
+        // variant that drops only the mappable suffix produces a signature ambiguous with the
         // primary at the call site (`AppendAsync(source, options)` would match both
         // `AppendAsync(source, options, tag = 13, ct)` and the trim-1 variant
-        // `AppendAsync(source, options, ct)`). Pre-populate the projected-signature
-        // dedup set with the keys the primary already covers via its inline mappable
-        // defaults — those trim depths are redundant and would produce CS0121.
-        env.EmittedProjectedSignatures = BuildMappableSuffixShadowKeys(synthesized, typeDatabase);
+        // `AppendAsync(source, options, ct)`). The keys the primary already covers via its inline
+        // mappable defaults join the primary's own key in the type's ledger, and the trims run
+        // once every primary of the type is reserved, so a trim cannot re-declare another
+        // pairing's primary either.
+        overloadLedger.ReservePrimary(synthesized, typeDatabase, nameOverride: null);
+        overloadLedger.Keys.UnionWith(BuildMappableSuffixShadowKeys(synthesized, typeDatabase));
+        env.EmittedProjectedSignatures = overloadLedger.Keys;
+        env.ReservedOverloadShapes = overloadLedger.Shapes;
 
-        DefaultParameterOverloadEmitter.TryEmitOverloads(
-            csWriter, swiftWriter, env, logger, emissionContext);
+        overloadLedger.Defer(() => DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, logger, emissionContext));
 
         logger.LogInformation(
             "Emitted concrete async specialization: {Type}.{Method}<{Conformer}> → {Symbol}_async",

@@ -118,6 +118,7 @@ public class NativeDefaultOverloadRecoveryTests
         env.FailableFactoryName = "TryCreateWithValue";
         env.InitFactoryName = "CreateWithValue";
         env.AdoptedOverrideCSharpName = "Adopted";
+        env.PrimaryOmitsDefaultedParameters = true;
         env.MethodDecl.Documentation = new DocComment { Parameters = new() { ["text"] = "Original" }, Remarks = new() { "Remark" } };
         var recipe = DefaultOverloadReplayRecipe.Capture(env);
         env.MethodDecl.CSSignature[1].IsInOut = false;
@@ -127,6 +128,7 @@ public class NativeDefaultOverloadRecoveryTests
         ((string[])env.MethodDecl.GenericParameters[0].UnrepresentableConcreteSameTypePins!)[0] = "Changed";
         env.MethodDecl.CSSignature.Clear();
         env.FailableFactoryName = "Changed";
+        env.PrimaryOmitsDefaultedParameters = false;
         env.MethodDecl.Documentation.Parameters["text"] = "Changed";
         env.MethodDecl.Documentation.Remarks.Clear();
         var first = recipe.CreateEnvironment(env);
@@ -137,6 +139,7 @@ public class NativeDefaultOverloadRecoveryTests
         Assert.Equal("TryCreateWithValue", first.FailableFactoryName);
         Assert.Equal("CreateWithValue", first.InitFactoryName);
         Assert.Equal("Adopted", first.AdoptedOverrideCSharpName);
+        Assert.True(first.PrimaryOmitsDefaultedParameters);
         Assert.Equal("Original", first.MethodDecl.Documentation!.Parameters["text"]);
         Assert.Single(first.MethodDecl.Documentation.Remarks);
         Assert.Empty(first.MethodDecl.GenericParameters[0].GenericConformances);

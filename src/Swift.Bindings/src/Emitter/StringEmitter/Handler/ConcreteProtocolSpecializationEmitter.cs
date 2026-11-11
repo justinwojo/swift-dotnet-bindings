@@ -48,6 +48,62 @@ public static partial class ConcreteProtocolSpecializationEmitter
     internal const string LeasedSafeHandleType = "global::System.Runtime.InteropServices.SafeHandle";
 
     /// <summary>
+    /// The projected C# signatures this lane has declared in one emitted C# type, shared by every
+    /// specialized primary and every default-parameter overload built on one.
+    ///
+    /// A specialized primary drops each defaulted parameter, interior or trailing, so the shorter
+    /// overloads built on it can land on its exact signature, or on another pairing's. A per-pairing
+    /// set seeded from an assumed shape misses both cases. Instead each primary records the key it
+    /// really declares, and the shorter overloads run only after every primary in the type has
+    /// recorded its key. A primary therefore always wins against a shorter overload of the same
+    /// signature, whatever the declaration order. The keys come from
+    /// <see cref="DefaultParameterOverloadEmitter.GetProjectedOverloadKey"/>, the builder the
+    /// overload emitter dedups with, so a primary and an overload of the same Swift call key alike.
+    /// </summary>
+    internal sealed class CsmOverloadLedger
+    {
+        public HashSet<string> Keys { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, int> Shapes { get; } = new(StringComparer.Ordinal);
+        private readonly List<Action> _deferredOverloads = new();
+
+        /// <summary>Records a primary's projected key and how many of its parameters a caller must supply.</summary>
+        public void ReservePrimary(MethodDecl projectedDecl, ITypeDatabase typeDatabase, string? nameOverride)
+        {
+            var key = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+                projectedDecl, typeDatabase, nameOverride: nameOverride);
+            Keys.Add(key);
+            OverloadAmbiguityGuard.RecordReservation(
+                Shapes, key, OverloadAmbiguityGuard.RequiredCountFor(projectedDecl, typeDatabase, key));
+        }
+
+        /// <summary>
+        /// Records a primary by the key of the declaration it actually wrote. It declares no C#
+        /// optional parameter, so a caller must supply every one.
+        /// </summary>
+        public void ReserveEmittedPrimary(string emittedKey)
+        {
+            Keys.Add(emittedKey);
+            OverloadAmbiguityGuard.RecordReservation(
+                Shapes, emittedKey, OverloadAmbiguityGuard.ParseKey(emittedKey, int.MaxValue).ParameterTypes.Count);
+        }
+
+        public void Defer(Action emitOverloads) => _deferredOverloads.Add(emitOverloads);
+
+        /// <summary>An overload key with the spellings that do not change the C# type removed.</summary>
+        public static string CanonicalSpelling(string key)
+            => string.Concat(key.Replace("global::", "", StringComparison.Ordinal)
+                .Where(c => !char.IsWhiteSpace(c)));
+
+        /// <summary>Emits the queued default-parameter overloads, now that every primary is reserved.</summary>
+        public void EmitDeferredOverloads()
+        {
+            foreach (var emit in _deferredOverloads)
+                emit();
+            _deferredOverloads.Clear();
+        }
+    }
+
+    /// <summary>
     /// Returns the number of cartesian-product pairings that would be enumerated for
     /// <paramref name="specParams"/>, clamped to <see cref="long.MaxValue"/> on overflow.
     /// Used to short-circuit CSM-async emission for pathologically large products
@@ -90,6 +146,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Sync path keeps its local dedup set; async path uses the shared
         // ModuleEmissionContext claim so it agrees with the Phase-4a predicate.
         var emittedSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var overloadLedger = new CsmOverloadLedger();
 
         // Pre-seed with signatures of existing non-specialized methods on the type.
         // A CSM overload collides with a hand-written method when Swift has both
@@ -145,13 +202,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         TryEmitConcreteOverloadAsync(
                             csWriter, swiftWriter, method, typeDecl,
                             pairing,
-                            moduleName, typeDatabase, emissionContext, logger);
+                            moduleName, typeDatabase, emissionContext, logger, overloadLedger);
                     }
                     else
                     {
                         TryEmitConcreteOverload(
                             csWriter, swiftWriter, method, typeDecl, pairing,
-                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, logger);
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, overloadLedger, logger);
                     }
                 }
             }
@@ -184,17 +241,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         TryEmitConcreteOverloadAsync(
                             csWriter, swiftWriter, method, typeDecl,
                             pairing,
-                            moduleName, typeDatabase, emissionContext, logger);
+                            moduleName, typeDatabase, emissionContext, logger, overloadLedger);
                     }
                     else
                     {
                         TryEmitConcreteOverload(
                             csWriter, swiftWriter, method, typeDecl, pairing,
-                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, logger);
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, overloadLedger, logger);
                     }
                 }
             }
         }
+
+        // Every primary of the type has reserved its signature; the default-parameter overloads
+        // built on them can now be deduped against all of them.
+        overloadLedger.EmitDeferredOverloads();
     }
 
     /// <summary>
@@ -274,6 +335,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         HashSet<string> emittedSignatures,
+        CsmOverloadLedger overloadLedger,
         ILogger logger,
         bool isExtension = false)
     {
@@ -376,20 +438,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
             mergedAvailability);
 
         // --- Emit C# method ---
-        EmitCSharpMethod(
+        var emittedPrimaryKey = EmitCSharpMethod(
             csWriter, method, csMethodName, parentTypeDecl, pairing,
             cdeclSymbol, moduleName, wrapperLibPath, isConstructor, isStatic, isClass,
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
             emissionContext, mergedAvailability, isExtension);
+        if (emittedPrimaryKey != null)
+            overloadLedger.ReserveEmittedPrimary(emittedPrimaryKey);
 
         // Wire DefaultParameterOverloadEmitter so per-conformer specialized methods get
-        // trim-overload shortcuts for trailing default params (the StoreKit
-        // `purchase(confirmIn:options: = [])` shape, but on the sync side). The CSM-sync
-        // primary above already auto-fills all trailing defaults via Swift, so its public
-        // surface matches the maximally-trimmed trim variant. Pre-populate the projected
-        // signature set with the auto-trim primary's key to suppress the duplicate; less-
-        // trimmed variants (one default exposed, two defaults exposed, …) emit cleanly
-        // because their signatures are strictly longer than the auto-trim primary.
+        // shorter overloads for their defaulted params (the StoreKit
+        // `purchase(confirmIn:options: = [])` shape, but on the sync side). The primary above
+        // omits every defaulted parameter and lets Swift fill it; the overloads expose the ones
+        // a caller may want to pass. The primary's own declaration is reserved in the type's ledger
+        // above, and the overloads are emitted once every primary is reserved, so none of them can
+        // re-declare a primary.
         // Constructors are out of scope for this wiring — sync CSM constructors take a
         // bespoke `From{Conformer}(…)` factory shape that the standard overload emitter
         // doesn't model. Generic constructors with collection-typed defaults (e.g.
@@ -397,25 +460,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // CSM factory shape that auto-fills every default; intermediate factory overloads
         // exposing `options` while letting Swift fill `tag` are not currently emitted.
         // Tracked alongside option (a) in the gap-doc.
-        //
-        // When a method combines a non-mappable trailing default with a Swift
-        // compiler-injected debug param (#file, #line, #column, #function):
-        // BuildOverloadDecl removes raw trailing args while CountTrailingDefaults skips
-        // debugs, so the auto-trim seed key could target the wrong shape. Empirical
-        // verification on a purpose-built fixture (DefaultedHasherWithFile, see
-        // DefaultedTrimOverloadWithFileTests) showed this is not reachable: the parser
-        // strips trailing debug defaults from CSSignature before the emitter sees them,
-        // so the two helpers agree on the arg set. The IsDebugParameter skip in
-        // CountTrailingDefaults is harmless under that invariant; if a future parser
-        // change started passing debug args through, CountTrailingDefaults and
-        // BuildOverloadDecl would disagree at this seeding site, and the fix would be
-        // to drop `trailingDefaults + trailingDebugCount` raw args when computing the
-        // auto-trim seed key.
         if (!isConstructor)
         {
-            EmitTrimOverloadsForCsmSync(
+            QueueCsmSyncDefaultOverloads(
                 csWriter, swiftWriter, method, parentTypeDecl, pairing,
-                cdeclSymbol, typeDatabase, emissionContext, mergedAvailability, logger,
+                cdeclSymbol, emittedPrimaryKey, typeDatabase, emissionContext, mergedAvailability, overloadLedger, logger,
                 disambiguatedNameInput: string.Equals(csmNameInput, method.Name, StringComparison.Ordinal)
                     ? null
                     : csmNameInput);
@@ -429,25 +478,28 @@ public static partial class ConcreteProtocolSpecializationEmitter
     }
 
     /// <summary>
-    /// Emit trim overloads on top of a CSM-sync per-conformer specialized method.
+    /// Queues the default-parameter overloads built on a CSM-sync primary in
+    /// <paramref name="overloadLedger"/>.
     /// Substitutes the pairing's generic params into the original method's CSSignature
-    /// (mirroring CSM-async <c>TryBuildEmissionPlan</c>), clears the GenericParameters
-    /// list so the trim emitter's <c>methodDecl.IsGeneric</c> bail no longer fires, and
-    /// pre-populates the projected-signature dedup set with the CSM-sync primary's key
-    /// so the most-trimmed trim variant doesn't produce a CS0111 duplicate.
+    /// (mirroring CSM-async <c>TryBuildEmissionPlan</c>) and clears the GenericParameters
+    /// list so the trim emitter's <c>methodDecl.IsGeneric</c> bail no longer fires.
+    /// <paramref name="emittedPrimaryKey"/> is the key of the declaration the primary wrote (null
+    /// when it wrote none); the caller has already reserved it.
     /// </summary>
-    private static void EmitTrimOverloadsForCsmSync(
+    private static void QueueCsmSyncDefaultOverloads(
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
         MethodDecl method,
         TypeDecl parentTypeDecl,
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         string cdeclSymbol,
+        string? emittedPrimaryKey,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
+        CsmOverloadLedger overloadLedger,
         ILogger logger,
-        string? disambiguatedNameInput = null)
+        string? disambiguatedNameInput)
     {
         // Build conformer TypeSpecs for substitution. Mirrors IsEmittableAsyncPairing's
         // preparation step in the async path.
@@ -518,28 +570,45 @@ public static partial class ConcreteProtocolSpecializationEmitter
             WasEmitted = false,
         };
 
-        var trailingDefaults = DefaultParameterOverloadEmitter.CountTrailingDefaults(synthesized);
-        if (trailingDefaults == 0)
-            return; // No trailing defaults → nothing for the trim emitter to do.
+        // The overloads are keyed by the ordinary projection, which can spell a type the primary
+        // declares differently (a `global::` qualifier, spacing). When the projection of the
+        // primary's own parameter list (EmitCSharpMethod omits every defaulted parameter; debug
+        // parameters such as #file are defaulted too, and the key builder skips them) names the
+        // same declaration, reserve that spelling too. When it names a different one (an array
+        // conformer is SwiftArray<T> in the primary but IEnumerable<T> when projected), the
+        // overload with that signature is a distinct member and stays unreserved.
+        if (emittedPrimaryKey != null)
+        {
+            var omittedByPrimary = new List<int>();
+            for (int i = 1; i < synthesized.CSSignature.Count; i++)
+            {
+                if (synthesized.CSSignature[i].HasDefaultArg)
+                    omittedByPrimary.Add(i - 1);
+            }
+            var projectedPrimaryKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+                DefaultParameterOverloadEmitter.BuildOverloadDeclDropping(cdeclSymbol, synthesized, omittedByPrimary),
+                typeDatabase, nameOverride: disambiguatedNameInput);
+            if (string.Equals(CsmOverloadLedger.CanonicalSpelling(projectedPrimaryKey),
+                    CsmOverloadLedger.CanonicalSpelling(emittedPrimaryKey), StringComparison.Ordinal))
+                overloadLedger.ReserveEmittedPrimary(projectedPrimaryKey);
+        }
+
+        // With no trailing default the only overload the trim emitter could add is the one that
+        // omits every default, which is the primary itself.
+        if (DefaultParameterOverloadEmitter.CountTrailingDefaults(synthesized) == 0)
+            return;
 
         var trimEnv = new MethodEnvironment(synthesized, typeDatabase);
         trimEnv.EmissionContext = emissionContext;
         // A primary emitted under a content-derived name carries it to every trimmed overload.
         trimEnv.DisambiguatedNameInput = disambiguatedNameInput;
+        trimEnv.EmittedProjectedSignatures = overloadLedger.Keys;
+        trimEnv.ReservedOverloadShapes = overloadLedger.Shapes;
+        // The primary declares no inline `= value` tail, even for C#-mappable defaults.
+        trimEnv.PrimaryOmitsDefaultedParameters = true;
 
-        // Pre-populate the projected-signature set with the auto-trim primary's key.
-        // The CSM-sync primary above (EmitCSharpMethod) emits a public surface that
-        // skips every HasDefaultArg arg, which is exactly the shape of the maximally-
-        // trimmed trim variant (trim == trailingDefaults). Without this seed, the trim
-        // emitter would happily emit a duplicate method and Roslyn would reject the
-        // generated source with CS0111.
-        var autoTrimPrimaryDecl = DefaultParameterOverloadEmitter.BuildOverloadDecl(synthesized, trailingDefaults);
-        var autoTrimPrimaryKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
-            autoTrimPrimaryDecl, typeDatabase, nameOverride: disambiguatedNameInput);
-        trimEnv.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal) { autoTrimPrimaryKey };
-
-        DefaultParameterOverloadEmitter.TryEmitOverloads(
-            csWriter, swiftWriter, trimEnv, logger, emissionContext);
+        overloadLedger.Defer(() => DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, trimEnv, logger, emissionContext));
     }
 
     /// <summary>
@@ -1218,7 +1287,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
     // ─── C# Code Generation ──────────────────────────────────────────
 
-    private static void EmitCSharpMethod(
+    /// <returns>
+    /// The overload key (<c>Name(T1,T2)</c>) of the public declaration written, or null when the
+    /// method had a parameter it cannot pass and wrote nothing.
+    /// </returns>
+    private static string? EmitCSharpMethod(
         CSharpWriter csWriter,
         MethodDecl method,
         string methodName,
@@ -1511,10 +1584,26 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         break;
                     }
                     default:
-                        return; // Unsupported param type
+                        return null; // Unsupported param type
                 }
             }
         }
+
+        // What this method declares, keyed the way the default-parameter overloads are deduplicated.
+        // It is read off the declaration itself: a conformer parameter can be declared as a different
+        // C# type than its Swift type projects to elsewhere. Each arm above added exactly one entry,
+        // in argument order, and the receiver is not inserted yet.
+        var declaredArgs = method.CSSignature.Skip(1)
+            .Where(a => !a.SwiftTypeSpec.IsEmptyTuple && !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.HasDefaultArg)
+            .ToList();
+        var declaredTypes = new List<string>(publicParams.Count);
+        for (int i = 0; i < publicParams.Count; i++)
+        {
+            var declared = publicParams[i];
+            declaredTypes.Add(ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
+                declared.Substring(0, declared.LastIndexOf(' ')), declaredArgs[i].SwiftTypeSpec, typeDatabase));
+        }
+        var emittedOverloadKey = $"{methodName}({string.Join(",", declaredTypes)})";
 
         // Self parameter
         if (!isStatic)
@@ -2125,6 +2214,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("}");
 
         method.MarkEmitted();
+        return emittedOverloadKey;
     }
 
     /// <summary>
@@ -4155,6 +4245,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.Indent++;
 
             var emittedSignatures = new HashSet<string>(StringComparer.Ordinal);
+            var overloadLedger = new CsmOverloadLedger();
 
             foreach (var spec in parentGenericSpecs)
             {
@@ -4208,7 +4299,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     if (TryEmitConcreteOverload(
                         csWriter, swiftWriter, method, typeDecl, parentTuple,
                         moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                        emittedSignatures, logger, isExtension: true))
+                        emittedSignatures, overloadLedger, logger, isExtension: true))
                     {
                         RecordCsmMethodRecovered(method, typeDecl, parentTuple);
                     }
@@ -4241,7 +4332,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     if (TryEmitConcreteOverload(
                         csWriter, swiftWriter, method, typeDecl, fullPairing,
                         moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                        emittedSignatures, logger, isExtension: true))
+                        emittedSignatures, overloadLedger, logger, isExtension: true))
                     {
                         // Keyed on parentTuple, not fullPairing: the receiver a consumer names is the
                         // closed parent, and the method-own conformers vary across overloads that all
@@ -4267,7 +4358,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 var emitted = TryEmitConcreteOverload(
                     csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
                     moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                    emittedSignatures, logger, isExtension: true);
+                    emittedSignatures, overloadLedger, logger, isExtension: true);
 
                 // Emission fact: this closed getter recovers the open-generic property that
                 // PropertyHandler skipped (AnyTypeFallback) on the shell. Annotate the skip row so the
@@ -4281,6 +4372,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         $"{SpellClosedReceiver(typeDecl, parentTuple)}.{specProp.Property.Name}");
                 }
             }
+
+            overloadLedger.EmitDeferredOverloads();
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

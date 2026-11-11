@@ -61,6 +61,24 @@ public static class WithdrawalEvidenceArchive
 public sealed record WithdrawalReceipt(WithdrawalProvenance Provenance, string ReportHash,
     int GeneratorExit, string CSharpVerdict, string SwiftVerdict, string DependencyVerdict)
 {
+    /// <summary>
+    /// Why a target cannot be withdrawal-qualified at all, or null when it may be. Qualification
+    /// requires a clean generator exit and clean compile verdicts, and its evidence file to exist; a
+    /// target that failed any of those may not have written the evidence. This only screens out what
+    /// <see cref="RequireSuccess"/> and <see cref="RequirePureObjCSuccess"/> are certain to reject,
+    /// never something they would accept.
+    /// </summary>
+    public static string? UnqualifiableReason(int? generatorExit, string csharpVerdict, string swiftVerdict,
+        string? dependencyVerdict, string evidencePath)
+    {
+        bool evidencePresent = File.Exists(evidencePath);
+        if (generatorExit == 0 && csharpVerdict == "ok" && (swiftVerdict is "ok" or "no_wrapper") &&
+            ((dependencyVerdict ?? "none") is "none" or "ok") && evidencePresent)
+            return null;
+        return $"generator exit {generatorExit?.ToString() ?? "none"}, C# {csharpVerdict}, Swift {swiftVerdict}, " +
+            $"dependency {dependencyVerdict ?? "none"}" + (evidencePresent ? "" : $", no evidence at {evidencePath}");
+    }
+
     public void RequirePureObjCSuccess(string artifactManifestPath, string module)
     {
         if (GeneratorExit != 0 || ReportHash != WithdrawalProvenance.HashFile(artifactManifestPath) ||

@@ -160,6 +160,20 @@ partial class Build
             Reject(() => (receipt with { GeneratorExit = 1 }).RequireSuccess(path));
             Reject(() => (receipt with { CSharpVerdict = "known_errors" }).RequireSuccess(path));
             Reject(() => (receipt with { SwiftVerdict = "unknown" }).RequireSuccess(path));
+
+            // The pre-receipt screen passes exactly what qualification could accept, and names a
+            // failed target (missing evidence included) instead of letting the hash read throw.
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "ok", "ok", "none", path) == null);
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "ok", "no_wrapper", null, path) == null);
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "ok", "ok", "ok", path) == null);
+            Check(WithdrawalReceipt.UnqualifiableReason(1, "ok", "ok", "none", path)!.Contains("generator exit 1"));
+            Check(WithdrawalReceipt.UnqualifiableReason(null, "ok", "ok", "none", path)!.Contains("generator exit none"));
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "fail", "ok", "none", path)!.Contains("C# fail"));
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "known_errors", "ok", "none", path) != null);
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "ok", "fail", "none", path)!.Contains("Swift fail"));
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "ok", "ok", "fail", path)!.Contains("dependency fail"));
+            var missingEvidence = Path.Combine(scratch, "never-written.json");
+            Check(WithdrawalReceipt.UnqualifiableReason(0, "ok", "ok", "none", missingEvidence)!.Contains("no evidence at"));
             File.WriteAllText(path, JsonSerializer.Serialize(new { module = "ObjCUmbrella", withdrawnUnits = Array.Empty<string>(),
                 withdrawalEvidence = new { schemaVersion = 1, identityFormat = "RecoveryUnitId.Canonical/v1", loopStatus = "not-run",
                     notRunReason = "no-verification-planes", configuredPlanes = Array.Empty<string>(), unitIds = Array.Empty<string>() } }));

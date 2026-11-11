@@ -113,6 +113,224 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializations_DefaultBeforeRequiredParam_AllDefaultsOverloadDedupsAgainstRealPrimary()
+    {
+        // `static func process(label: String, prefix: String = "", item: some Processable,
+        //                      tags: Set<Int> = [])` closed over a conformer that projects the same
+        // way everywhere. The specialized primary omits EVERY defaulted parameter, so it is the
+        // `(label, item)` call. That is not the trailing trim of the full list — that one still
+        // carries `prefix` — so a duplicate check seeded with the trailing trim lets the
+        // all-defaults overload (the same `(label, item)` call) through as a CS0111 duplicate, and
+        // declines the genuinely new `(label, prefix, item)` form instead.
+        var (typeDecl, db, engine) = CreateProcessorWithProcessOverloads(
+            ProcessSignature(prefixHasDefault: true, trailingSetLabel: "tags"));
+
+        var (cs, swift) = EmitSpecializations(typeDecl, db, engine);
+
+        Assert.Equal(
+            new[] { "string, TestLib.ConcreteItem", "string, string, TestLib.ConcreteItem" },
+            ParameterTypeLists(cs, "Process").Order(StringComparer.Ordinal));
+        // The Swift side agrees: no shim re-issues the primary's all-defaults call, and the one that
+        // exposes the interior default omits only the trailing argument.
+        Assert.DoesNotContain("process(label: label, item: item)", swift);
+        Assert.Contains("process(label: label, prefix: prefix, item: item)", swift);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_ArrayConformer_AllDefaultsOverloadDistinctFromPrimaryStillEmitted()
+    {
+        // `func joinItems(label: String, prefix: String = "", items: some Collection<String>,
+        //                 tags: Set<Int> = [])` closed over `[String]`. The specialized primary takes
+        // the array as `SwiftArray<SwiftString>`, while the shorter overloads project it as
+        // `IEnumerable<string>`. So the all-defaults `(label, items)` overload is a different C#
+        // signature from the primary — the only one a caller holding a `List<string>` can use — and
+        // must still be emitted beside the `(label, prefix, items)` form.
+        var (typeDecl, db, engine) = CreateHostWithJoinItemsOverloads(
+            JoinItemsSignature(prefixHasDefault: true, trailingSetLabel: "tags"));
+
+        var (cs, swift) = EmitSpecializations(typeDecl, db, engine);
+
+        Assert.Equal(
+            new[]
+            {
+                "string, IEnumerable<string>",
+                "string, Swift.SwiftArray<Swift.SwiftString>",
+                "string, string, IEnumerable<string>",
+            },
+            ParameterTypeLists(cs, "JoinItems").Order(StringComparer.Ordinal));
+        Assert.Contains("self.joinItems(label: label, items: items)", swift);
+        Assert.Contains("self.joinItems(label: label, prefix: prefix, items: items)", swift);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_LaterPrimaryOwnsSignature_EarlierSiblingsShorterOverloadDeclines()
+    {
+        // The first-declared `process(label:prefix: = "":item:tags: = [])` has a shorter overload
+        // `(label, prefix, item)`. The second-declared `process(label:prefix:item:aliases: = [])`
+        // declares that same C# signature as its primary. Both siblings take four parameters, so
+        // the same-name-same-arity guard does not separate them. The primary is the real member, so
+        // it must win wherever it sits in the type: the first sibling's shorter overload declines,
+        // and only the second sibling's primary declares `(label, prefix, item)`.
+        var (typeDecl, db, engine) = CreateProcessorWithProcessOverloads(
+            ProcessSignature(prefixHasDefault: true, trailingSetLabel: "tags"),
+            ProcessSignature(prefixHasDefault: false, trailingSetLabel: "aliases"));
+
+        var (cs, swift) = EmitSpecializations(typeDecl, db, engine);
+
+        Assert.Equal(
+            new[] { "string, TestLib.ConcreteItem", "string, string, TestLib.ConcreteItem" },
+            ParameterTypeLists(cs, "Process").Order(StringComparer.Ordinal));
+        Assert.DoesNotContain("process(label: label, prefix: prefix, item: item)", swift);
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_MappableTrailingDefault_TrimOverloadStillEmitted()
+    {
+        // `static func process(label: String, prefix: String = "", item: some Processable,
+        //                      separator: String = ",")` — the trailing default HAS a C# constant.
+        // An ordinary primary would declare it inline (`string separator = ","`), which makes the
+        // trailing trims redundant. The specialized primary declares no inline tail: it omits every
+        // defaulted parameter. So the overload that exposes the interior `prefix` while Swift fills
+        // `separator` is the only way a caller can pass `prefix`, and it must still be emitted.
+        var (typeDecl, db, engine) = CreateProcessorWithProcessOverloads(
+            ProcessSignature(prefixHasDefault: true, "separator", new NamedTypeSpec("Swift.String"), "\",\""));
+
+        var (cs, swift) = EmitSpecializations(typeDecl, db, engine);
+
+        Assert.Equal(
+            new[] { "string, TestLib.ConcreteItem", "string, string, TestLib.ConcreteItem" },
+            ParameterTypeLists(cs, "Process").Order(StringComparer.Ordinal));
+        Assert.Contains("process(label: label, prefix: prefix, item: item)", swift);
+        Assert.DoesNotContain("process(label: label, item: item)", swift);
+    }
+
+    /// <summary>
+    /// The full parameter list of one <c>joinItems</c> sibling: <c>label: String</c>,
+    /// <c>prefix: String</c> (optionally <c>= ""</c>), the specializable
+    /// <c>items: some Collection&lt;String&gt;</c>, and a trailing <c>Set&lt;Int&gt; = []</c> under
+    /// <paramref name="trailingSetLabel"/>, whose default has no C# constant.
+    /// </summary>
+    private static List<ArgumentDecl> JoinItemsSignature(bool prefixHasDefault, string trailingSetLabel)
+        => DefaultBeforeRequiredSignature("items", "τ_0_0", prefixHasDefault, trailingSetLabel,
+            new NamedTypeSpec("Swift.Set", new NamedTypeSpec("Swift.Int")), "[]");
+
+    /// <summary>
+    /// The full parameter list of one <c>process</c> sibling: <c>label: String</c>,
+    /// <c>prefix: String</c> (optionally <c>= ""</c>), the specializable
+    /// <c>item: some Processable</c>, and a trailing <c>Set&lt;Int&gt; = []</c> under
+    /// <paramref name="trailingSetLabel"/>, whose default has no C# constant.
+    /// </summary>
+    private static List<ArgumentDecl> ProcessSignature(bool prefixHasDefault, string trailingSetLabel)
+        => ProcessSignature(prefixHasDefault, trailingSetLabel,
+            new NamedTypeSpec("Swift.Set", new NamedTypeSpec("Swift.Int")), "[]");
+
+    /// <summary>
+    /// <see cref="ProcessSignature(bool, string)"/> with the trailing defaulted parameter's type and
+    /// Swift default expression chosen by the caller.
+    /// </summary>
+    private static List<ArgumentDecl> ProcessSignature(
+        bool prefixHasDefault, string trailingLabel, TypeSpec trailingType, string trailingDefault)
+        => DefaultBeforeRequiredSignature("item", "τ_1_0", prefixHasDefault, trailingLabel, trailingType, trailingDefault);
+
+    /// <summary>
+    /// <c>(label: String, prefix: String [= ""], {genericLabel}: {genericParam}, {trailingLabel}:
+    /// {trailingType} = {trailingDefault}) -> String</c>.
+    /// </summary>
+    private static List<ArgumentDecl> DefaultBeforeRequiredSignature(string genericLabel, string genericParam,
+        bool prefixHasDefault, string trailingLabel, TypeSpec trailingType, string trailingDefault)
+        => new()
+        {
+            new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+            new() { Name = "label", PrivateName = "label", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+            new() { Name = "prefix", PrivateName = "prefix", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false, HasDefaultArg = prefixHasDefault, SwiftDefaultExpression = prefixHasDefault ? "\"\"" : null },
+            new() { Name = genericLabel, PrivateName = genericLabel, IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec(genericParam), IsGeneric = true },
+            new() { Name = trailingLabel, PrivateName = trailingLabel, IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = trailingType, IsGeneric = false, HasDefaultArg = true, SwiftDefaultExpression = trailingDefault },
+        };
+
+    /// <summary>
+    /// A class <c>Host</c> in a module, declaring one <c>joinItems</c> sibling per signature, in
+    /// order. Each sibling is generic over <c>some Collection&lt;String&gt;</c>, so the
+    /// specialization lane closes it over <c>[String]</c>.
+    /// </summary>
+    private static (ClassDecl TypeDecl, ResolvingTypeDatabase Db, ConcreteSpecializationEngine Engine)
+        CreateHostWithJoinItemsOverloads(params List<ArgumentDecl>[] signatures)
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        var engine = new ConcreteSpecializationEngine(db);
+        var typeDecl = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var template = Assert.Single(typeDecl.Methods);
+        // The trimmed overloads emit a full P/Invoke, which names the owning module's library.
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestLib", ParentDecl = null, ModuleDecl = null,
+            Properties = new List<PropertyDecl>(), Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { typeDecl }, Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(), AvailabilityAnnotations = null,
+        };
+        typeDecl.ModuleDecl = moduleDecl;
+        typeDecl.Methods = WithSignatures(template, moduleDecl, signatures);
+        return (typeDecl, db, engine);
+    }
+
+    /// <summary>
+    /// A struct <c>Processor</c> declaring one static <c>process</c> sibling per signature, in
+    /// order, each generic over <c>some Processable</c>, whose one conformer
+    /// <c>ConcreteItem</c> projects as <c>TestLib.ConcreteItem</c> in every member.
+    /// </summary>
+    private static (StructDecl TypeDecl, ResolvingTypeDatabase Db, ConcreteSpecializationEngine Engine)
+        CreateProcessorWithProcessOverloads(params List<ArgumentDecl>[] signatures)
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Processor"), "TestLib", "Processor");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+        var engine = new ConcreteSpecializationEngine(db);
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+        var typeDecl = CreateStructWithProtocolConstrainedMethod("Processor", "process", "TestLib.Processable");
+        typeDecl.ModuleDecl = moduleDecl;
+        typeDecl.Methods = WithSignatures(Assert.Single(typeDecl.Methods), moduleDecl, signatures);
+        return (typeDecl, db, engine);
+    }
+
+    private static List<MethodDecl> WithSignatures(
+        MethodDecl template, ModuleDecl moduleDecl, List<ArgumentDecl>[] signatures)
+        => signatures
+            .Select((signature, index) => template with
+            {
+                MangledName = $"{template.MangledName}{index}",
+                ModuleDecl = moduleDecl,
+                CSSignature = signature,
+            })
+            .ToList();
+
+    private static (string CSharp, string Swift) EmitSpecializations(
+        TypeDecl typeDecl, ITypeDatabase db, ConcreteSpecializationEngine engine)
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), typeDecl, db,
+            new ModuleEmissionContext(), engine, NullLogger.Instance);
+        return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    /// <summary>
+    /// The parameter types of every public C# <paramref name="methodName"/> declaration, comma
+    /// separated, one entry per declaration. Parameter attributes
+    /// (<c>[global::Swift.OriginalSwiftType("…")]</c>) and parameter names are dropped, so two
+    /// entries are equal exactly when the declarations collide.
+    /// </summary>
+    private static List<string> ParameterTypeLists(string cs, string methodName)
+        => System.Text.RegularExpressions.Regex.Matches(
+                cs, $@"^\s*public [^\n(]*\b{methodName}\((.*)\)\s*$", System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => System.Text.RegularExpressions.Regex.Replace(m.Groups[1].Value, @"\[global::[^\]]*\]", ""))
+            .Select(p => string.Join(", ", p
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(parameter => parameter[..parameter.LastIndexOf(' ')].Trim())))
+            .ToList();
+
+    [Fact]
     public void LoadedHints_ContainsDataProtocol()
     {
         var hints = ConcreteSpecializationEngine.LoadedHints;
