@@ -45,6 +45,32 @@ public class NameProviderMethodNamingTests
 
     #endregion
 
+    #region Verb names keep one name across an overload pair
+
+    [Theory]
+    [InlineData("analyze", "AnalyzeAsync")]
+    [InlineData("analyse", "AnalyseAsync")]
+    [InlineData("analyzeTrack", "AnalyzeTrackAsync")]
+    public void AnalyzeVerb_ZeroArg_KeepsTheLabelledOverloadsName(string swiftName, string expected)
+    {
+        // `analyze()` and `analyze(for:)` are one action; the zero-arg form must not become
+        // GetAnalyzeAsync next to the labelled AnalyzeAsync(Set<AnalysisType>).
+        var zeroArg = NameProvider.GetPublicMethodName(swiftName, isAsync: true, hasReturnValue: true, parameterCount: 0);
+        var labelled = NameProvider.GetPublicMethodName(swiftName, isAsync: true, hasReturnValue: true, parameterCount: 1);
+        Assert.Equal(expected, zeroArg);
+        Assert.Equal(expected, labelled);
+    }
+
+    [Theory]
+    [InlineData("analyzer", "GetAnalyzer")]
+    [InlineData("analysis", "GetAnalysis")]
+    public void AnalyzeVerb_DoesNotSwallowNounsSharingItsPrefix(string swiftName, string expected)
+    {
+        Assert.Equal(expected, NameProvider.GetPublicMethodName(swiftName, isAsync: false, hasReturnValue: true));
+    }
+
+    #endregion
+
     #region Double async stripping
 
     [Fact]

@@ -138,13 +138,12 @@ public struct VersionedOverloadCarrier {
     }
 }
 
-// MARK: F-5 — visionOS clause survives lowering
+// MARK: F-5 — visionOS clause dropped, sibling clauses kept
 
-/// Type whose `@available` list explicitly names visionOS. The emitted C#
-/// type must carry `[SupportedOSPlatform("visionos1.0")]` alongside the
-/// other platform attributes. Pre-fix, PlatformMapping had no entry for
-/// visionOS and the emitter silently dropped the clause across ~every
-/// MusicKit type.
+/// Type whose `@available` list names visionOS beside iOS, macOS and tvOS. The
+/// emitted C# type must carry the iOS/macOS/tvOS `[SupportedOSPlatform]`
+/// attributes and no visionos one: .NET has no visionOS platform, so the
+/// analyzer rejects that name (CA1418) in every build of the binding.
 @available(iOS 15.0, macOS 12.0, tvOS 15.0, visionOS 1.0, *)
 public struct VisionPlatformCarrier {
     public let value: Int32

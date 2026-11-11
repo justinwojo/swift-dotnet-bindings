@@ -1843,10 +1843,9 @@ namespace BindingsGeneration
 
         private TypeConformance HandleConformance(Node node, SwiftTypeName typeName, string? implementingTypeMangledName = null)
         {
-            // Demangle the conformance's protocol mangled name. The demangler does not
-            // yet recognize every standard library short substitution (notably the
-            // `Sc*` family used by `_Concurrency` types — `$sSci` for AsyncSequence,
-            // `$sScI` for AsyncIteratorProtocol, etc.), and a crash here would propagate
+            // Demangle the conformance's protocol mangled name. A mangling the demangler
+            // does not recognize (the `Sc*` concurrency substitutions were one such gap
+            // until the second-level table was implemented) must not crash here: it would propagate
             // up through the conformance list select in CreateStructDecl/CreateClassDecl
             // and kill the entire enclosing TypeDecl via HandleNode's catch-all. Wrap
             // the call so a missing substitution merely degrades the conformance to a
@@ -2596,20 +2595,18 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // Mirror the HandleConformance guard: an unsupported demangler
-                    // substitution (e.g. `$sSci` for `_Concurrency.AsyncSequence`) would
-                    // otherwise throw and HandleNode's catch-all would silently drop the
-                    // entire enclosing ProtocolDecl. Fall back to the printedName-derived
-                    // identity so the inherited protocol is still recorded.
+                    // Mirror the HandleConformance guard: a mangling the demangler does not
+                    // recognize would otherwise throw and HandleNode's catch-all would silently
+                    // drop the entire enclosing ProtocolDecl — or, when it fails without throwing,
+                    // drop just this inherited protocol. Either way, fall back to the
+                    // printedName-derived identity so the inherited protocol is still recorded.
                     NamedTypeSpec? namedTypeSpec = null;
                     try
                     {
                         var reduction = demangler.Run(conformance.MangledName);
-                        if (reduction is TypeSpecReduction typeSpecReduction &&
-                            typeSpecReduction.TypeSpec is NamedTypeSpec demangledSpec)
-                        {
-                            namedTypeSpec = demangledSpec;
-                        }
+                        namedTypeSpec = (reduction as TypeSpecReduction)?.TypeSpec as NamedTypeSpec
+                            ?? throw new InvalidOperationException(
+                                $"Invalid demangling result for '{conformance.MangledName}'.");
                     }
                     catch (Exception ex)
                     {

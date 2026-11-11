@@ -29,6 +29,18 @@ public class ObjCAvailabilityEmitterTests
     }
 
     [Fact]
+    public void VisionOS_IsDropped_OtherPlatformsKept()
+    {
+        // .NET has no visionOS platform; "visionos" in any availability attribute draws CA1418.
+        var output = Emit(
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" },
+            new ObjCAvailability { Platform = "visionos", IntroducedVersion = "1.0", DeprecatedVersion = "2.0" },
+            new ObjCAvailability { Platform = "visionos", IsUnavailable = true });
+        Assert.DoesNotContain("visionos", output);
+        Assert.Contains("SupportedOSPlatform(\"ios15.0\")", output);
+    }
+
+    [Fact]
     public void Introduced_MajorOnly_NormalizedToMajorMinor()
     {
         // Matches the Swift path: "13" → "13.0" so the two emitters produce identical strings.
