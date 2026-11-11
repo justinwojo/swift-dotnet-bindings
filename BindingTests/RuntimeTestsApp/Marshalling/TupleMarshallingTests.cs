@@ -383,7 +383,7 @@ public class TupleMarshallingTests : TestBase
         // deterministically red (the caller already roots both proxies to pass and Dispose them), so
         // the oracle is correct round-trip + no leak under induced GC pressure across iterations.
         LifetimeTracker.Reset();
-        PassBorrowedExistentialTupleUnderGcPressure(40);
+        LifetimeTracker.RunIsolated(() => PassBorrowedExistentialTupleUnderGcPressure(40));
         for (int i = 0; i < 4; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
         GC.Collect();
         LifetimeTracker.AssertNoLeaks("borrowed EC2 tuple args: each proxy must deinit after Dispose; no UAF, no leak");

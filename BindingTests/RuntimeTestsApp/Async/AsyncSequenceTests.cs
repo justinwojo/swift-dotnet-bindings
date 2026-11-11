@@ -315,7 +315,7 @@ public class AsyncSequenceTests : TestBase
     /// cancellation-stops assertion with the ownership assertion the plain
     /// <c>CounterSequence</c> cancel test cannot make.
     /// </summary>
-    public async Task TestTrackedRefSequenceMidStreamCancelNoLeak()
+    public void TestTrackedRefSequenceMidStreamCancelNoLeak()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
@@ -323,26 +323,10 @@ public class AsyncSequenceTests : TestBase
         using var cts = new CancellationTokenSource();
         var collected = new List<int>();
 
-        await WithTimeout(Task.Run(async () =>
-        {
-            var seq = new TrackedRefSequence(100);
-            try
-            {
-                await foreach (var item in seq.WithCancellation(cts.Token))
-                {
-                    collected.Add(item.Tag);
-                    item.Dispose();
-                    if (collected.Count >= 2)
-                    {
-                        cts.Cancel(); // cancel mid-stream — the next NextAsync(ct) must stop iteration
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected — mid-stream cancel surfaces as OperationCanceledException.
-            }
-        }), DefaultAsyncTimeout);
+        // The iteration runs on an isolated thread that exits before the leak assertion, so a
+        // stale stack slot of the iterating thread cannot pin an abandoned wrapper.
+        LifetimeTracker.RunIsolated(() =>
+            WithTimeout(IterateTrackedRefSequenceUntilCancelledAsync(cts, collected), DefaultAsyncTimeout));
 
         AssertTrue(collected.Count < 100, "mid-stream cancel must short-circuit before upTo=100");
         AssertTrue(collected.Count >= 2, "must drain the elements produced before the cancel");
@@ -356,6 +340,27 @@ public class AsyncSequenceTests : TestBase
         LifetimeTracker.AssertNoLeaks(
             "mid-stream cancel must dispose the Swift iterator (bridge finally) and leak no TrackedRef element");
         TestLogger.Info($"TrackedRefSequence mid-stream cancel after {collected.Count} elements, ARC balanced to 0");
+    }
+
+    private static async Task IterateTrackedRefSequenceUntilCancelledAsync(CancellationTokenSource cts, List<int> collected)
+    {
+        var seq = new TrackedRefSequence(100);
+        try
+        {
+            await foreach (var item in seq.WithCancellation(cts.Token))
+            {
+                collected.Add(item.Tag);
+                item.Dispose();
+                if (collected.Count >= 2)
+                {
+                    cts.Cancel(); // cancel mid-stream — the next NextAsync(ct) must stop iteration
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected — mid-stream cancel surfaces as OperationCanceledException.
+        }
     }
 
     /// <summary>

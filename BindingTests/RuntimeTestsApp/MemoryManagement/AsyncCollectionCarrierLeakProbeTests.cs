@@ -25,8 +25,9 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// not merely as "does not crash". These probes are the async-harness analogue of the SYNC
 /// collection probes in <see cref="WireCarrierLeakProbeTests"/>.
 ///
-/// The dispose loops run in <c>[MethodImpl(NoInlining)]</c> async helpers so the completed state
-/// machine (which holds the awaited carrier local) is collectible before the leak assertion. Each
+/// The dispose loops run in async helpers on an isolated, joined thread
+/// (<see cref="LifetimeTracker.RunIsolated(Func{Task})"/>) so neither the completed state machine
+/// (which holds the awaited carrier local) nor a stale stack slot pins anything past the assertion. Each
 /// call is bounded by <c>WithTimeout(DefaultAsyncTimeout)</c> so a regressed completion callback
 /// fails the probe bounded instead of hanging the run. As in the sync probes, disposing the
 /// extracted element wrappers alone is not enough — the projection/SwiftSet carrier holds its own
@@ -51,13 +52,13 @@ public class AsyncCollectionCarrierLeakProbeTests : TestBase
     /// every element. The async completion callback must value-witness-Destroy that carrier; a leak
     /// pins all <c>count</c> elements per awaited call.
     /// </summary>
-    public async Task TestAsyncArrayOfClassReturnReleasesElements()
+    public void TestAsyncArrayOfClassReturnReleasesElements()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int elementsPerCall = 5;
-        await AllocAndDisposeArraysAsync(50, elementsPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeArraysAsync(50, elementsPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("async [TrackedRef] return must not orphan the SwiftArray carrier's retain on the CoW storage");
@@ -91,13 +92,13 @@ public class AsyncCollectionCarrierLeakProbeTests : TestBase
     /// callback must value-witness-Destroy it. Disposing each struct wrapper releases the embedded
     /// ref, and disposing the projection releases the carrier.
     /// </summary>
-    public async Task TestAsyncArrayOfResilientStructReturnReleasesElements()
+    public void TestAsyncArrayOfResilientStructReturnReleasesElements()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int elementsPerCall = 5;
-        await AllocAndDisposeStructArraysAsync(50, elementsPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeStructArraysAsync(50, elementsPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("async [TrackedRefStruct] return must not orphan the SwiftArray carrier's retain on the CoW storage");
@@ -126,13 +127,13 @@ public class AsyncCollectionCarrierLeakProbeTests : TestBase
     /// <c>async -&gt; [Int32: TrackedRef]</c>: the SwiftDictionary carrier copies the CoW storage (+1).
     /// The async callback must value-witness-Destroy it; a leak pins every value per awaited call.
     /// </summary>
-    public async Task TestAsyncDictionaryOfClassReturnReleasesValues()
+    public void TestAsyncDictionaryOfClassReturnReleasesValues()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        await AllocAndDisposeDictsAsync(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeDictsAsync(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("async [Int32: TrackedRef] return must not orphan the SwiftDictionary carrier's retain");
@@ -161,13 +162,13 @@ public class AsyncCollectionCarrierLeakProbeTests : TestBase
     /// <c>async -&gt; Set&lt;TrackedRef&gt;</c>: the SwiftSet carrier copies the CoW storage (+1). The async
     /// callback must value-witness-Destroy it; a leak pins every member per awaited call.
     /// </summary>
-    public async Task TestAsyncSetOfClassReturnReleasesMembers()
+    public void TestAsyncSetOfClassReturnReleasesMembers()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int membersPerCall = 5;
-        await AllocAndDisposeSetsAsync(50, membersPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeSetsAsync(50, membersPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("async Set<TrackedRef> return must not orphan the SwiftSet carrier's retain");

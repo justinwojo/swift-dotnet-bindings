@@ -23,8 +23,9 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// <see cref="GenericBridgeReturns.WrapAsync"/> returns a <c>TrackedRefStruct</c> embedding a
 /// <see cref="LifetimeTracker"/>-counted <c>TrackedRef</c>, so a missed carrier Destroy surfaces as a
 /// non-zero live count after the wrappers are disposed and the GC has drained — not merely as "does
-/// not crash". The dispose loop runs in a <c>[MethodImpl(NoInlining)]</c> async helper so the
-/// completed state machine (holding the awaited carrier local) is collectible before the assertion,
+/// not crash". The dispose loop runs in an async helper on an isolated, joined thread
+/// (<see cref="LifetimeTracker.RunIsolated(Func{Task})"/>) so neither the completed state machine
+/// (holding the awaited carrier local) nor a stale stack slot pins anything past the assertion,
 /// and each call is bounded by <c>WithTimeout(DefaultAsyncTimeout)</c> so a regressed callback fails
 /// bounded instead of hanging the run.
 /// </summary>
@@ -47,12 +48,12 @@ public class AsyncGenericBridgeCarrierLeakProbeTests : TestBase
     /// carrier holds a +1 on the embedded <c>TrackedRef</c>. The callback's carrier-owns arm must
     /// value-witness-Destroy the carrier; a leak pins one <c>TrackedRef</c> per awaited call.
     /// </summary>
-    public async Task TestAsyncGenericBridgeStructReturnReleasesCarrier()
+    public void TestAsyncGenericBridgeStructReturnReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        await AllocAndDisposeBridgeStructsAsync(50);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeBridgeStructsAsync(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
@@ -85,12 +86,12 @@ public class AsyncGenericBridgeCarrierLeakProbeTests : TestBase
     /// <c>TrackedRef</c> +1 is orphaned every awaited call — covering the frozen arm independently so a
     /// regression localized to it cannot hide behind the non-frozen probe.
     /// </summary>
-    public async Task TestAsyncGenericBridgeFrozenStructReturnReleasesCarrier()
+    public void TestAsyncGenericBridgeFrozenStructReturnReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        await AllocAndDisposeBridgeFrozenStructsAsync(50);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeBridgeFrozenStructsAsync(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(

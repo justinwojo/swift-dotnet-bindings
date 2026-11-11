@@ -6,22 +6,15 @@ using Xunit;
 namespace Swift.Runtime.Tests;
 
 /// <summary>
-/// xunit collection definition that serializes test classes sharing process-global
-/// state: <see cref="SwiftExitGuard"/>'s exit flag and/or <see cref="SwiftObjectRegistry"/>'s
-/// handle→proxy map. Both are single-process globals — if two test classes run in
-/// parallel, one can observe or mutate the other's state (e.g., interleaved
-/// SetProcessExitingForTest true/false calls make <c>OnEveryProtocolDeinitCore</c>
-/// short-circuit a code path a test expected to exercise, and concurrent
-/// Register/Unregister calls break count-based assertions in
-/// <c>SwiftObjectRegistryTests</c>).
+/// xunit collection definition that serializes test classes sharing
+/// <see cref="SwiftObjectRegistry"/>'s process-global handle→proxy map. Concurrent
+/// Register/Unregister calls from parallel classes break count-based assertions in
+/// <c>SwiftObjectRegistryTests</c>.
 ///
-/// Apply <c>[Collection(SwiftExitGuardCollection.Name)]</c> to any test class
-/// that calls <c>SetProcessExitingForTest</c> or mutates the registry; xunit
-/// will then run all such classes serially within the test process. Tests that
-/// touch the exit flag should ALSO wrap mutations in
-/// <see cref="SwiftExitGuardTestScope"/> as a belt-and-suspenders Monitor lock —
-/// rare flakes were observed under full-suite runs where the collection alone
-/// didn't serialize reliably.
+/// The simulated exit flag (<see cref="SwiftExitGuardTestScope"/>) no longer needs this
+/// collection. It is thread-scoped, so it cannot reach another test or the GC finalizer
+/// thread. A collection could never have contained it anyway: the finalizer thread finalizes
+/// objects from every test, whatever collection that test belongs to.
 /// </summary>
 [CollectionDefinition(Name)]
 public sealed class SwiftExitGuardCollection

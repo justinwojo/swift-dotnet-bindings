@@ -154,7 +154,7 @@ public class OptionalReferenceClosureArbiterTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveObjCClosuresDisposing(200);
+        LifetimeTracker.RunIsolated(() => DriveObjCClosuresDisposing(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Optional<@objc class> closure arg must balance ARC (passUnretained/+0 ↔ MarshalCallbackArg/+1) on explicit Dispose");
@@ -173,7 +173,7 @@ public class OptionalReferenceClosureArbiterTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveSwiftClosures(200);
+        LifetimeTracker.RunIsolated(() => DriveSwiftClosures(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Optional<pure-Swift class> closure arg must balance ARC via finalization");

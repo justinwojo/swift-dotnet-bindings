@@ -242,8 +242,10 @@ public class LifetimeTrackingTests : TestBase
         // creating `captured` inline and then nulling it would null the display
         // class's field and let the TrackedObject collect even pre-fix. Routing
         // through a helper makes the delegate's display class the only path to
-        // the TrackedObject, which is itself only rooted by the GCHandle.
-        InvokeNonEscapingMcbClosure(303);
+        // the TrackedObject, which is itself only rooted by the GCHandle. The helper runs on
+        // an isolated thread that exits before the collection, so no stale stack slot of the
+        // test thread can stand in for the GCHandle.
+        LifetimeTracker.RunIsolated(() => InvokeNonEscapingMcbClosure(303));
 
         ForceGC();
         GC.WaitForPendingFinalizers();

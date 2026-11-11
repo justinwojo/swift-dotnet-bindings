@@ -325,23 +325,7 @@ public abstract class TestBase
     /// GCHandle or a live native owner still roots the target and fails collection.
     /// The work must finish all asynchronous operations before returning.
     /// </summary>
-    protected static T RunOnFinishedThread<T>(Func<T> work)
-    {
-        T result = default!;
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
-        var thread = new Thread(() =>
-        {
-            try { result = work(); }
-            catch (Exception ex)
-            {
-                failure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
-            }
-        });
-        thread.Start();
-        thread.Join();
-        failure?.Throw();
-        return result;
-    }
+    protected static T RunOnFinishedThread<T>(Func<T> work) => LifetimeTracker.RunIsolated(work);
 
     protected static void RunOnFinishedThread(Action work)
         => RunOnFinishedThread(() => { work(); return true; });
