@@ -109,6 +109,115 @@ public class SwiftSyntaxInterfaceFactsProducerTests
         }
     }
 
+    [SkippableFact]
+    public void NestedModuleSelectors_KeyFactsUnderTheAbiTypePath()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(NestedModuleSelectors_KeyFactsUnderTheAbiTypePath));
+        // Swift 6.4 prints a selector on every component of a nested name, in extension
+        // headers, member types and generic arguments alike. ABI JSON spells each of these
+        // `Kit.Outer.Inner`; a selector after `.` must not become a path component.
+        var source = """
+            // swift-module-flags: -module-name Kit
+            public struct Outer {
+              public struct Inner {
+                public struct Deep { }
+              }
+            }
+            extension Kit::Outer.Kit::Inner : Swift::Sendable { }
+            extension Kit::Outer.Kit::Inner {
+              @available(iOS 16.4, macOS 13.3, tvOS 16.4, watchOS 9.4, *)
+              public static var fortnight: Kit::Outer.Kit::Inner { get }
+              public func all(values: Swift::Array<Kit::Outer.Kit::Inner.Kit::Deep>, limit: Swift::Int = Swift::Int.Swift::max) -> Swift::Int
+            }
+            @available(iOS 15.4, macOS 12.3, *)
+            extension Kit::Outer.Kit::Inner.Kit::Deep {
+              public var summary: Swift::String { get }
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            Assert.Equal(new[] { "Outer", "Outer.Inner", "Outer.Inner.Deep" }, facts.PublicTypeNames!.OrderBy(n => n));
+            Assert.DoesNotContain(facts.AvailabilityAnnotations!.Keys, key => key.Contains("Kit.", StringComparison.Ordinal));
+            Assert.Contains(facts.AvailabilityAnnotations!["Outer.Inner.fortnight"],
+                a => a.Platform == "iOS" && a.IntroducedVersion == "16.4");
+            Assert.Contains(facts.AvailabilityAnnotations["Outer.Inner.Deep.summary"],
+                a => a.Platform == "iOS" && a.IntroducedVersion == "15.4");
+            Assert.Contains("Kit.Outer.Inner", facts.MarkerProtocolConformances!["Sendable"]);
+            var all = Assert.Single(facts.ExtensionMemberCandidates!, c => c.MethodName == "all");
+            Assert.Equal("Kit.Outer.Inner", all.ExtendedTypeName);
+            Assert.Contains("Swift.Array<Kit.Outer.Inner.Deep>", all.RawSignature);
+            Assert.Equal("Swift.Int.max", facts.DefaultParameterValues!["Outer.Inner.all(values:limit:)"][1]);
+            var summary = Assert.Single(facts.ExtensionMemberCandidates!, c => c.MethodName == "summary");
+            Assert.Equal("Kit.Outer.Inner.Deep", summary.ExtendedTypeName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
+    public void AnyAppleOSAvailability_ExpandsToEachAppleOSTheDeclarationDoesNotName()
+    {
+        var annotations = ProduceAvailability("""
+            // swift-module-flags: -module-name Kit
+            @available(anyAppleOS 27.0, *)
+            @available(watchOS, unavailable)
+            @available(tvOS, unavailable)
+            public struct Redeem { }
+            public struct Host {
+              @available(anyAppleOS 27.2, *)
+              public func token() -> Swift::Int
+              @available(anyAppleOS, deprecated: 27.2, message: "use token()")
+              public func legacy() -> Swift::Int
+              @available(anyAppleOS 27.0, *)
+              @available(macOS 26.0, iOS 26.4, *)
+              public func early() -> Swift::Int
+              @available(anyAppleOS 27.0, *)
+              @available(macOSApplicationExtension 26.0, *)
+              public func extensionEarly() -> Swift::Int
+            }
+            @available(macOS 26.0, *)
+            extension Host {
+              @available(anyAppleOS 27.0, *)
+              public func scoped() -> Swift::Int
+            }
+            """, out var path);
+        try
+        {
+            static string[] Introduced(List<AvailabilityAnnotation> list) => list
+                .Where(a => a.IntroducedVersion != null)
+                .Select(a => $"{a.Platform} {a.IntroducedVersion}").OrderBy(s => s, StringComparer.Ordinal).ToArray();
+
+            var redeem = annotations["Redeem"];
+            Assert.Equal(new[] { "iOS 27.0", "macOS 27.0", "visionOS 27.0" }, Introduced(redeem));
+            Assert.Contains(redeem, a => a.Platform == "tvOS" && a.IsUnconditionallyUnavailable);
+            Assert.Contains(redeem, a => a.Platform == "watchOS" && a.IsUnconditionallyUnavailable);
+            Assert.DoesNotContain(redeem, a => a.Platform == "anyAppleOS");
+
+            Assert.Equal(new[] { "iOS 27.2", "macOS 27.2", "tvOS 27.2", "visionOS 27.2", "watchOS 27.2" },
+                Introduced(annotations["Host.token()"]));
+            var legacy = annotations["Host.legacy()"];
+            Assert.Equal(5, legacy.Count);
+            Assert.All(legacy, a =>
+            {
+                Assert.Equal("27.2", a.DeprecatedVersion);
+                Assert.Equal("use token()", a.Message);
+            });
+
+            // Swift lets a platform record on the same declaration replace the umbrella, even
+            // with an earlier version; visionOS follows the named iOS record.
+            Assert.Equal(new[] { "iOS 26.4", "macOS 26.0", "tvOS 27.0", "watchOS 27.0" },
+                Introduced(annotations["Host.early()"]));
+            // An application-extension record governs only extension code, so the umbrella
+            // still floors the app's macOS.
+            Assert.Contains(annotations["Host.extensionEarly()"], a => a.Platform == "macOS" && a.IntroducedVersion == "27.0");
+            // An enclosing extension's record is a separate level: the inner umbrella still
+            // raises macOS to 27.0.
+            Assert.Contains(annotations["Host.scoped()"], a => a.Platform == "macOS" && a.IntroducedVersion == "27.0");
+        }
+        finally { File.Delete(path); }
+    }
+
     [SkippableTheory]
     [InlineData(".")]
     [InlineData("::")]

@@ -237,25 +237,30 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// Concatenated availability annotations from extension scope + decl-local
     /// attributes. Returns parsed JSON-friendly records.
     private func collectAnnotations(declAttrs: AttributeListSyntax) -> [AvailabilityAnnotationJson] {
-        var out: [AvailabilityAnnotationJson] = []
+        // One list per lexical level: `anyAppleOS` yields to platform records on its own level.
+        var levels: [[AvailabilityClauseParser.DomainRecord]] = []
 
         // Extension-scope annotations (from any enclosing `extension`).
         for scope in scopeStack where scope.isExtension {
+            var level: [AvailabilityClauseParser.DomainRecord] = []
             for attr in scope.extensionScopeAttributes {
                 if attr.attributeName.dottedDescription == "available" {
-                    out.append(contentsOf: parseAvailableAttribute(attr))
+                    level.append(contentsOf: parseAvailableAttribute(attr))
                 }
             }
+            levels.append(level)
         }
 
         // Inline / decl-local annotations.
+        var local: [AvailabilityClauseParser.DomainRecord] = []
         for el in declAttrs {
             guard case .attribute(let attr) = el else { continue }
             if attr.attributeName.dottedDescription == "available" {
-                out.append(contentsOf: parseAvailableAttribute(attr))
+                local.append(contentsOf: parseAvailableAttribute(attr))
             }
         }
-        return out
+        levels.append(local)
+        return AvailabilityClauseParser.resolveAnyAppleOS(levels: levels)
     }
 
     /// Compute the position for a decl. Column lands on the first non-attribute
@@ -1015,7 +1020,7 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     /// Parse a single `@available(...)` attribute into one or more
     /// AvailabilityAnnotationJson records. Delegates to `AvailabilityClauseParser`.
-    private func parseAvailableAttribute(_ attr: AttributeSyntax) -> [AvailabilityAnnotationJson] {
+    private func parseAvailableAttribute(_ attr: AttributeSyntax) -> [AvailabilityClauseParser.DomainRecord] {
         // The argument list shape for `@available` varies (per-platform vs. shorthand
         // vs. unconditional). The arguments are formatted back to source text and
         // passed to the shared clause-splitting logic. SwiftSyntax's
@@ -1043,7 +1048,14 @@ struct AvailabilityResult {
 ///  - `NormalizePlatformName` (`iOSApplicationExtension` → `iOS`, etc.).
 ///  - `IsUnconditionallyDeprecated = isDeprecated && deprecated == null`.
 enum AvailabilityClauseParser {
-    static func parse(clause: String) -> [AvailabilityAnnotationJson] {
+    /// A parsed record with the availability domain its clause named. `platform` is
+    /// normalized (`macOSApplicationExtension` → `macOS`); the domain is not.
+    struct DomainRecord {
+        let domain: String?
+        let annotation: AvailabilityAnnotationJson
+    }
+
+    static func parse(clause: String) -> [DomainRecord] {
         let parts = splitClause(clause: clause)
         guard !parts.isEmpty else { return [] }
 
@@ -1056,7 +1068,10 @@ enum AvailabilityClauseParser {
             return []
         }
 
-        var annotations: [AvailabilityAnnotationJson] = []
+        var annotations: [DomainRecord] = []
+        func record(_ domain: String?, _ annotation: AvailabilityAnnotationJson) {
+            annotations.append(DomainRecord(domain: domain, annotation: annotation))
+        }
 
         // Per-platform lifecycle: `@available(iOS, introduced: 10, deprecated: 12)`.
         if parts.count >= 2 && isKnownPlatform(first) && !first.contains(" ") {
@@ -1087,7 +1102,7 @@ enum AvailabilityClauseParser {
                     isDeprecated = true
                 }
             }
-            annotations.append(AvailabilityAnnotationJson(
+            record(first, AvailabilityAnnotationJson(
                 platform: normalizePlatformName(first),
                 introducedVersion: introduced,
                 deprecatedVersion: deprecated,
@@ -1120,7 +1135,7 @@ enum AvailabilityClauseParser {
                     renamed = extractQuotedString(raw)
                 }
             }
-            annotations.append(AvailabilityAnnotationJson(
+            record(nil, AvailabilityAnnotationJson(
                 platform: nil,
                 introducedVersion: nil,
                 deprecatedVersion: nil,
@@ -1141,7 +1156,7 @@ enum AvailabilityClauseParser {
             let platform = String(p[..<spaceIdx])
             let version = String(p[p.index(after: spaceIdx)...]).trimmingCharacters(in: .whitespaces)
             if isKnownPlatform(platform) {
-                annotations.append(AvailabilityAnnotationJson(
+                record(platform, AvailabilityAnnotationJson(
                     platform: normalizePlatformName(platform),
                     introducedVersion: version,
                     deprecatedVersion: nil,
@@ -1181,11 +1196,59 @@ enum AvailabilityClauseParser {
         return parts
     }
 
+    /// Swift 6.4's `anyAppleOS` domain (`@available(anyAppleOS 27.0, *)`) names every Apple
+    /// OS at once under the shared version numbering. The parser records it as the
+    /// platform-specific entries an interface would otherwise spell out; Mac Catalyst
+    /// inherits the iOS entry as it does for every other declaration.
+    static let anyAppleOSPlatform = "anyAppleOS"
+    static let anyAppleOSExpansion = ["iOS", "macOS", "tvOS", "watchOS", "visionOS"]
+
+    /// Expand `anyAppleOS` records, given one attribute list per lexical level (each enclosing
+    /// extension, then the declaration). Within a level, any record whose domain is a platform
+    /// replaces the umbrella for that platform, whatever its version, and an iOS record
+    /// also replaces it for visionOS, which inherits iOS. An application-extension domain
+    /// replaces nothing: it only governs extension code. Levels still combine as before, so
+    /// an outer floor keeps constraining an inner umbrella. A platform marked unavailable at
+    /// any level gets no umbrella entry: a version next to that mark would claim the
+    /// declaration exists there.
+    static func resolveAnyAppleOS(levels: [[DomainRecord]]) -> [AvailabilityAnnotationJson] {
+        let all = levels.flatMap { $0 }.map(\.annotation)
+        guard all.contains(where: { $0.platform == anyAppleOSPlatform }) else { return all }
+        let unavailable = Set(all.compactMap {
+            $0.isUnconditionallyUnavailable && $0.platform != anyAppleOSPlatform ? $0.platform : nil
+        })
+        var resolved: [AvailabilityAnnotationJson] = []
+        for level in levels {
+            let named = Set(level.compactMap(\.domain))
+            for annotation in level.map(\.annotation) {
+                guard annotation.platform == anyAppleOSPlatform else {
+                    resolved.append(annotation)
+                    continue
+                }
+                for platform in anyAppleOSExpansion
+                where !unavailable.contains(platform) && !named.contains(platform)
+                    && !(platform == "visionOS" && named.contains("iOS")) {
+                    resolved.append(AvailabilityAnnotationJson(
+                        platform: platform,
+                        introducedVersion: annotation.introducedVersion,
+                        deprecatedVersion: annotation.deprecatedVersion,
+                        obsoletedVersion: annotation.obsoletedVersion,
+                        isUnconditionallyDeprecated: annotation.isUnconditionallyDeprecated,
+                        isUnconditionallyUnavailable: annotation.isUnconditionallyUnavailable,
+                        message: annotation.message,
+                        renamed: annotation.renamed
+                    ))
+                }
+            }
+        }
+        return resolved
+    }
+
     private static func isKnownPlatform(_ name: String) -> Bool {
         switch name {
         case "iOS", "macOS", "tvOS", "watchOS", "visionOS",
              "macCatalyst", "iOSApplicationExtension", "macOSApplicationExtension",
-             "tvOSApplicationExtension", "watchOSApplicationExtension":
+             "tvOSApplicationExtension", "watchOSApplicationExtension", anyAppleOSPlatform:
             return true
         default:
             return false

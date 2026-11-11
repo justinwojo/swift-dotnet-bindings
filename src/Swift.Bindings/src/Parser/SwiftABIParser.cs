@@ -151,6 +151,8 @@ namespace BindingsGeneration
         public string? intro_watchOS { get; set; }
         public string? intro_visionOS { get; set; }
         public string? intro_macCatalyst { get; set; }
+        // Swift 6.4's umbrella `anyAppleOS` domain: one introduced version for every Apple OS.
+        public string? intro_anyAppleOS { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -646,19 +648,28 @@ namespace BindingsGeneration
         private static List<AvailabilityAnnotation>? ExtractAccessorAvailability(Node accessorNode)
         {
             List<AvailabilityAnnotation>? result = null;
-            void Add(string? platform, string? version)
+            // `anyAppleOS` fills each platform the descriptor does not name. A named platform
+            // keeps its own version, earlier or later, as Swift does. visionOS inherits a named
+            // iOS record instead, and Mac Catalyst always inherits the iOS one. A platform record
+            // without an introduced version (deprecated or unavailable only) leaves no key in
+            // the descriptor, so the umbrella floors that platform: stricter than Swift, never
+            // looser.
+            void Add(string? platform, string? version, bool coveredByAnyAppleOS)
             {
+                if (string.IsNullOrEmpty(version) && coveredByAnyAppleOS)
+                    version = accessorNode.intro_anyAppleOS;
                 if (string.IsNullOrEmpty(platform) || string.IsNullOrEmpty(version))
                     return;
                 result ??= new List<AvailabilityAnnotation>();
                 result.Add(new AvailabilityAnnotation(platform, version, null, null, false, false, null, null));
             }
-            Add("iOS", accessorNode.intro_iOS);
-            Add("macOS", accessorNode.intro_Macosx);
-            Add("tvOS", accessorNode.intro_tvOS);
-            Add("watchOS", accessorNode.intro_watchOS);
-            Add("visionOS", accessorNode.intro_visionOS);
-            Add("macCatalyst", accessorNode.intro_macCatalyst);
+            Add("iOS", accessorNode.intro_iOS, coveredByAnyAppleOS: true);
+            Add("macOS", accessorNode.intro_Macosx, coveredByAnyAppleOS: true);
+            Add("tvOS", accessorNode.intro_tvOS, coveredByAnyAppleOS: true);
+            Add("watchOS", accessorNode.intro_watchOS, coveredByAnyAppleOS: true);
+            Add("visionOS", accessorNode.intro_visionOS,
+                coveredByAnyAppleOS: string.IsNullOrEmpty(accessorNode.intro_iOS));
+            Add("macCatalyst", accessorNode.intro_macCatalyst, coveredByAnyAppleOS: false);
             return result;
         }
 

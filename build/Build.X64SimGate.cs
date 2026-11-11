@@ -82,14 +82,20 @@ partial class Build
     // consumer then asserts the embedded TipKitBridge.framework carries x86_64.
     const string X64SimTipKitDeviceFirstPackageId = "X64SimTipKitDeviceFirst.Bindings";
 
-    // Consumer TFMs (suffixed — required by the multi-TFM SwiftBindings pipeline
+    // Binding TFMs (suffixed — required by the multi-TFM SwiftBindings pipeline
     // so each inner build pre-sets TargetFramework before _SwiftBindingPlatform
-    // detection runs). Consumer apps target the matching iOS/tvOS suffix so the
-    // resolved native asset comes from the corresponding nupkg TFM. 26.0 is the
-    // platform version every qualified .NET 10 workload builds (the Xcode 27.2
-    // workload builds only 26.0 and 27.2; 26.2 fails restore there with NETSDK1140).
+    // detection runs). 26.0 is the platform version every qualified .NET 10
+    // workload builds as a library (the Xcode 27.2 workload builds only 26.0 and
+    // 27.2; 26.2 fails restore there with NETSDK1140).
     const string X64SimIosTfm = "net10.0-ios26.0";
     const string X64SimTvosTfm = "net10.0-tvos26.0";
+
+    // Consumer app TFMs stay versionless, so each workload builds the app against
+    // the platform its own Xcode supports: an app pinned to 26.0 selects the 26.0
+    // platform pack, which requires exactly Xcode 26.0. NuGet still resolves the
+    // nupkg's 26.0 asset for the newer app platform.
+    const string X64SimIosAppTfm = "net10.0-ios";
+    const string X64SimTvosAppTfm = "net10.0-tvos";
 
     AbsolutePath X64SimGateScratch => RootDirectory / "artifacts" / "x64-sim-gate";
 
@@ -274,12 +280,12 @@ partial class Build
             //    (no run — Apple Silicon cannot host x86_64 iOS/tvOS simulators).
             Log.Information("  [8/9] Consuming packed third-party binding under iossimulator-x64 + tvossimulator-x64 (Leg A)");
             VerifyConsumerX64SimSlice(scratch, nupkgDir, bindingsOut,
-                consumerTag: "ios-sim-x64", tfm: X64SimIosTfm, rid: "iossimulator-x64",
+                consumerTag: "ios-sim-x64", tfm: X64SimIosAppTfm, rid: "iossimulator-x64",
                 bindingsPackageId: X64SimBindingsPackageId,
                 programNamespace: "X64PackFixture",
                 useGreeter: true);
             VerifyConsumerX64SimSlice(scratch, nupkgDir, bindingsOut,
-                consumerTag: "tvos-sim-x64", tfm: X64SimTvosTfm, rid: "tvossimulator-x64",
+                consumerTag: "tvos-sim-x64", tfm: X64SimTvosAppTfm, rid: "tvossimulator-x64",
                 bindingsPackageId: X64SimBindingsPackageId,
                 programNamespace: "X64PackFixture",
                 useGreeter: true);
@@ -291,12 +297,12 @@ partial class Build
             //    gate does not need a configured StoreKit account.
             Log.Information("  [9/9] Consuming StoreKit (Leg B/C) + TipKit bridge (Leg D) Apple-framework bindings");
             VerifyConsumerX64SimSlice(scratch, nupkgDir, storeKitBindingsOut,
-                consumerTag: "ios-sim-x64-storekit", tfm: X64SimIosTfm, rid: "iossimulator-x64",
+                consumerTag: "ios-sim-x64-storekit", tfm: X64SimIosAppTfm, rid: "iossimulator-x64",
                 bindingsPackageId: X64SimAppleBindingsPackageId,
                 programNamespace: "StoreKit",
                 useGreeter: false);
             VerifyConsumerX64SimSlice(scratch, nupkgDir, storeKitBindingsOut,
-                consumerTag: "tvos-sim-x64-storekit", tfm: X64SimTvosTfm, rid: "tvossimulator-x64",
+                consumerTag: "tvos-sim-x64-storekit", tfm: X64SimTvosAppTfm, rid: "tvossimulator-x64",
                 bindingsPackageId: X64SimAppleBindingsPackageId,
                 programNamespace: "StoreKit",
                 useGreeter: false);
@@ -305,12 +311,12 @@ partial class Build
             // Pre-H1 fix this would resolve an arm64-only sim slice and the lipo
             // check on the embedded framework would fail with "missing x86_64".
             VerifyConsumerX64SimSlice(scratch, nupkgDir, storeKitDeviceFirstBindingsOut,
-                consumerTag: "ios-sim-x64-storekit-devicefirst", tfm: X64SimIosTfm, rid: "iossimulator-x64",
+                consumerTag: "ios-sim-x64-storekit-devicefirst", tfm: X64SimIosAppTfm, rid: "iossimulator-x64",
                 bindingsPackageId: X64SimAppleBindingsDeviceFirstPackageId,
                 programNamespace: "StoreKit",
                 useGreeter: false);
             VerifyConsumerX64SimSlice(scratch, nupkgDir, storeKitDeviceFirstBindingsOut,
-                consumerTag: "tvos-sim-x64-storekit-devicefirst", tfm: X64SimTvosTfm, rid: "tvossimulator-x64",
+                consumerTag: "tvos-sim-x64-storekit-devicefirst", tfm: X64SimTvosAppTfm, rid: "tvossimulator-x64",
                 bindingsPackageId: X64SimAppleBindingsDeviceFirstPackageId,
                 programNamespace: "StoreKit",
                 useGreeter: false);
@@ -323,14 +329,14 @@ partial class Build
             // anchor (TipKit's configuration namespace, emits in every supported
             // SDK); no real TipKit call, so no app context is needed.
             VerifyConsumerX64SimSlice(scratch, nupkgDir, tipKitDeviceFirstBindingsOut,
-                consumerTag: "ios-sim-x64-tipkit-devicefirst", tfm: X64SimIosTfm, rid: "iossimulator-x64",
+                consumerTag: "ios-sim-x64-tipkit-devicefirst", tfm: X64SimIosAppTfm, rid: "iossimulator-x64",
                 bindingsPackageId: X64SimTipKitDeviceFirstPackageId,
                 programNamespace: "TipKit",
                 useGreeter: false,
                 appleAnchorType: "Tips",
                 requiredFramework: "TipKitBridge");
             VerifyConsumerX64SimSlice(scratch, nupkgDir, tipKitDeviceFirstBindingsOut,
-                consumerTag: "tvos-sim-x64-tipkit-devicefirst", tfm: X64SimTvosTfm, rid: "tvossimulator-x64",
+                consumerTag: "tvos-sim-x64-tipkit-devicefirst", tfm: X64SimTvosAppTfm, rid: "tvossimulator-x64",
                 bindingsPackageId: X64SimTipKitDeviceFirstPackageId,
                 programNamespace: "TipKit",
                 useGreeter: false,

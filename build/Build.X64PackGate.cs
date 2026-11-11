@@ -53,14 +53,16 @@ partial class Build
     const string X64PackWrapperModule = "X64PackFixtureSwiftBindings";
     const string X64PackBindingsPackageId = "X64PackFixture.Bindings";
 
-    // The packed bindings library's macOS TFM (suffixed — multi-TFM SwiftBindings
-    // projects need the OS-version suffix so each inner build pre-sets
-    // TargetFramework before _SwiftBindingPlatform detection runs). The Leg A
-    // consumer app targets the same suffixed macOS TFM so NuGet resolves the
-    // package's net10.0-macos26.0 asset exactly. 26.0 is the platform version every
-    // qualified .NET 10 workload builds (the Xcode 27.2 workload builds only 26.0 and
-    // 27.2; 26.2 fails restore there with NETSDK1140).
-    const string X64PackConsumerTfm = "net10.0-macos26.0";
+    // The packed bindings library targets net10.0-<platform>26.0 (suffixed —
+    // multi-TFM SwiftBindings projects need the OS-version suffix so each inner
+    // build pre-sets TargetFramework before _SwiftBindingPlatform detection runs).
+    // 26.0 is the platform version every qualified .NET 10 workload builds as a
+    // library (the Xcode 27.2 workload builds only 26.0 and 27.2; 26.2 fails restore
+    // there with NETSDK1140). The Leg A consumer app stays versionless, so each
+    // workload builds it against the platform its own Xcode supports (an app pinned
+    // to 26.0 selects the 26.0 platform pack, which requires exactly Xcode 26.0);
+    // NuGet resolves the package's net10.0-macos26.0 asset, its only macOS asset.
+    const string X64PackConsumerTfm = "net10.0-macos";
 
     // Round-trip the committed fixture exercises (class ARC + String + by-value
     // int + top-level func). The consumer prints these so the gate can assert the

@@ -79,6 +79,29 @@ public class SetterAvailabilityIngestionTests
     }
 
     /// <summary>
+    /// Swift 6.4 dumps an accessor introduced under the umbrella <c>anyAppleOS</c> domain as
+    /// <c>intro_anyAppleOS</c>. It floors every Apple OS the descriptor does not name, except
+    /// Mac Catalyst, which inherits iOS. A named platform keeps its own version even when it
+    /// is earlier, as Swift's type checker does, and visionOS then inherits the named iOS one.
+    /// </summary>
+    [Theory]
+    [InlineData(null, new[] { "iOS 27.0", "macOS 27.0", "tvOS 27.0", "visionOS 27.0", "watchOS 27.0" })]
+    [InlineData("17.0", new[] { "iOS 17.0", "macOS 27.0", "tvOS 27.0", "watchOS 27.0" })]
+    public void ParseModule_SetAccessorIntroducedUnderAnyAppleOS_FloorsEveryUnnamedApplePlatform(
+        string? setterIntroIos, string[] expected)
+    {
+        using var fixture = CreateParser(ProtocolWithStaggeredSetter(setterIntroIos, setterIntroAnyAppleOS: "27.0"));
+
+        var property = SingleProperty(fixture);
+
+        Assert.Equal(
+            expected,
+            property.SetterAvailabilityAnnotations!
+                .Select(a => $"{a.Platform} {a.IntroducedVersion}")
+                .OrderBy(s => s, StringComparer.Ordinal));
+    }
+
+    /// <summary>
     /// The ABI accessor node states an introduced version and nothing else, so a property that
     /// is ALSO deprecated/obsoleted must hand those fields down to the setter list unchanged —
     /// otherwise the setter's attributes advertise a later floor but drop the deprecation the
@@ -146,7 +169,7 @@ public class SetterAvailabilityIngestionTests
     /// A protocol carrying one <c>Int32</c> requirement with both accessors, where the
     /// <c>set</c> accessor optionally declares its own introduced iOS version.
     /// </summary>
-    private static Node ProtocolWithStaggeredSetter(string? setterIntroIos)
+    private static Node ProtocolWithStaggeredSetter(string? setterIntroIos, string? setterIntroAnyAppleOS = null)
     {
         var int32 = CreateNode("TypeNominal", name: "Int32", printedName: "Swift.Int32", usr: "s:s5Int32V");
 
@@ -167,9 +190,10 @@ public class SetterAvailabilityIngestionTests
             });
         setter.AccessorKind = "set";
         setter.protocolReq = true;
-        if (setterIntroIos != null)
+        if (setterIntroIos != null || setterIntroAnyAppleOS != null)
         {
             setter.intro_iOS = setterIntroIos;
+            setter.intro_anyAppleOS = setterIntroAnyAppleOS;
             setter.DeclAttributes = new[] { "Available" };
         }
 

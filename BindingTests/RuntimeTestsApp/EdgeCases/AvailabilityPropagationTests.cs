@@ -160,6 +160,43 @@ public class AvailabilityPropagationTests : TestBase
             "floor was lost in emission.");
     }
 
+    /// <summary>
+    /// Members declared in extensions of a nested type keep the availability of their own
+    /// declaration and of their extension. Swift 6.4 module-qualifies every component of the
+    /// extended name in the interface; if the facts key those members under a path that
+    /// treats the module selector as a nested type, their forwarders lose the guards, the
+    /// wrapper fails to compile against the iOS 15 floor and the members disappear. The
+    /// calls run on every lane, whose OS floors are above the members' 16.4 / 13.3 gates.
+    /// </summary>
+    public void TestNestedTypeExtensionMembersKeepTheirAvailability()
+    {
+        var periodType = typeof(SwiftBindingsTestLib.NestedAvailabilityHost.Period);
+        foreach (var (name, binding) in new[]
+        {
+            ("Fortnight", BindingFlags.Static),
+            ("Weeks", BindingFlags.Instance),
+            ("Summary", BindingFlags.Instance),
+        })
+        {
+            var property = periodType.GetProperty(name, BindingFlags.Public | binding);
+            AssertTrue(property is not null,
+                $"NestedAvailabilityHost.Period.{name} must exist on the generated binding; a missing member " +
+                "means its wrapper forwarder lost its @available guard and was withdrawn.");
+            var platforms = property!.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false)
+                .Select(a => a.PlatformName).ToArray();
+            TestLogger.Info($"NestedAvailabilityHost.Period.{name} SupportedOSPlatform attrs: [{string.Join(", ", platforms)}]");
+            AssertTrue(platforms.Contains("ios16.4", StringComparer.OrdinalIgnoreCase),
+                $"NestedAvailabilityHost.Period.{name} must carry SupportedOSPlatform(\"ios16.4\").");
+        }
+
+#pragma warning disable CA1416
+        using var fortnight = SwiftBindingsTestLib.NestedAvailabilityHost.Period.Fortnight;
+        AssertEqual(14, fortnight.Days, "Period.fortnight must cross the boundary as 14 days.");
+        AssertEqual(2, fortnight.Weeks, "Period.weeks must read through the gated instance forwarder.");
+        AssertEqual("14 days", fortnight.Summary, "Period.summary must read through the extension-gated forwarder.");
+#pragma warning restore CA1416
+    }
+
     // ---------------------------------------------------------------------
     // Family-F sub-shapes — Layer A coverage of the spurious-Obsolete-on-recommended-overload
     // bug shapes. Synthetic fixtures live in BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/

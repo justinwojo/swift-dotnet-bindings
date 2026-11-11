@@ -127,3 +127,44 @@ extension AvailabilityBase {
         return "future:\(label)"
     }
 }
+
+// MARK: Members of an extension on a nested type
+
+/// A nested value type whose availability-gated members all live in extensions.
+/// Swift 6.4 prints every component of the extended name with a module selector
+/// (`extension Module::NestedAvailabilityHost.Module::Period`), while ABI JSON
+/// spells the same type `Module.NestedAvailabilityHost.Period`. The interface facts
+/// must key these members under `NestedAvailabilityHost.Period`, or the wrapper
+/// forwarders lose their `@available` guards and fail to compile against the
+/// library's iOS 15 deployment floor.
+public struct NestedAvailabilityHost {
+    public struct Period {
+        public let days: Int32
+
+        public init(days: Int32) {
+            self.days = days
+        }
+    }
+}
+
+extension NestedAvailabilityHost.Period {
+    /// Static member gated above the deployment floor on its own declaration.
+    @available(iOS 16.4, macOS 13.3, tvOS 16.4, *)
+    public static var fortnight: NestedAvailabilityHost.Period {
+        return NestedAvailabilityHost.Period(days: 14)
+    }
+
+    /// Instance member gated above the deployment floor on its own declaration.
+    @available(iOS 16.4, macOS 13.3, tvOS 16.4, *)
+    public var weeks: Int32 {
+        return days / 7
+    }
+}
+
+/// The extension itself carries the gate, so its members inherit it.
+@available(iOS 16.4, macOS 13.3, tvOS 16.4, *)
+extension NestedAvailabilityHost.Period {
+    public var summary: String {
+        return "\(days) days"
+    }
+}
