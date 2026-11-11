@@ -7,6 +7,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// Picks the results file that belongs to THIS launch out of the candidate paths an app's sandbox
@@ -87,5 +88,80 @@ public static class SandboxResultProbe
         }
 
         return new ProbeOutcome { Rejected = rejected };
+    }
+
+    /// <summary>The prefix the runtime test apps log their results path behind, once per launch.</summary>
+    public const string AnnouncementMarker = "JSONL output: ";
+
+    const string ResultsFileName = "test-results.jsonl";
+
+    /// <summary>
+    /// The results path a simulator app announced in its own console output
+    /// (<c>JSONL output: &lt;path&gt;</c>), or null when it announced none this harness may read.
+    ///
+    /// <para><b>Why the harness needs it.</b> The container path normally comes from
+    /// <c>simctl get_app_container</c>, a separate CoreSimulator query made after the app has been
+    /// terminated. On a loaded CI runner that query has returned nothing for a run that completed
+    /// and flushed its results, and the leg was then failed for having no results artifact. The app
+    /// printed where it wrote the file at the start of that same launch, and a simulator container is
+    /// an ordinary host directory, so that path is a second way to reach the file.</para>
+    ///
+    /// <para><b>What it does not relax.</b> The announced path is only another candidate for
+    /// <see cref="Probe"/>, so the file it names is accepted only when it carries this launch's run
+    /// token. It is also confined to the app data containers of the simulator being tested (the
+    /// <paramref name="udid"/> path segment), names the results file, and may not climb out with
+    /// <c>..</c>; any other announcement is ignored rather than read.</para>
+    /// </summary>
+    /// <param name="appOutput">This launch's captured console output.</param>
+    /// <param name="udid">The simulator the launch ran on.</param>
+    public static string? ParseAnnouncedResultsPath(string? appOutput, string udid)
+    {
+        if (string.IsNullOrEmpty(appOutput) || string.IsNullOrEmpty(udid))
+            return null;
+
+        string? announced = null;
+        foreach (var line in appOutput.Split('\n'))
+        {
+            var at = line.IndexOf(AnnouncementMarker, StringComparison.Ordinal);
+            if (at < 0)
+                continue;
+            // Last announcement wins: a launch announces once, and anything later in the same
+            // capture is closer to the file the run actually finished writing.
+            announced = line.Substring(at + AnnouncementMarker.Length).Trim();
+        }
+
+        if (string.IsNullOrEmpty(announced) || !announced.StartsWith("/", StringComparison.Ordinal))
+            return null;
+        if (!announced.EndsWith("/" + ResultsFileName, StringComparison.Ordinal))
+            return null;
+        if (announced.Contains("/../") || announced.Contains("/./"))
+            return null;
+        if (announced.IndexOf($"/{udid}/data/Containers/Data/Application/", StringComparison.OrdinalIgnoreCase) < 0)
+            return null;
+
+        return announced;
+    }
+
+    /// <summary>
+    /// The candidate results paths for a simulator launch: both container shapes under
+    /// <paramref name="containerPath"/> (when the container lookup succeeded), then the app's own
+    /// <paramref name="announcedPath"/> when it is not already one of them. Container-derived paths
+    /// come first because they are the harness's own query; the announcement is the fallback.
+    /// </summary>
+    public static IReadOnlyList<string> SimulatorCandidates(string? containerPath, string? announcedPath)
+    {
+        var candidates = new List<string>();
+        if (!string.IsNullOrEmpty(containerPath))
+        {
+            // MyDocuments is <container>/Documents on iOS and <container>/Library/Caches/Documents
+            // on tvOS (no persistent per-app Documents directory there).
+            candidates.Add(System.IO.Path.Combine(containerPath, "Documents", ResultsFileName));
+            candidates.Add(System.IO.Path.Combine(containerPath, "Library", "Caches", "Documents", ResultsFileName));
+        }
+
+        if (!string.IsNullOrEmpty(announcedPath) && !candidates.Contains(announcedPath, StringComparer.Ordinal))
+            candidates.Add(announcedPath);
+
+        return candidates;
     }
 }
