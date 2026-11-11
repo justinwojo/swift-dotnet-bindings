@@ -63,6 +63,23 @@ internal static class SwiftClosureContext
     internal static IntPtr FactoryAddress => Current.Factory;
 
     /// <summary>
+    /// The one native image the destroy callback was registered in, held for process lifetime
+    /// (<see cref="IntPtr.Zero"/> unless <see cref="Status"/> registered through our own resolver).
+    /// Reverse-callback boxes (<see cref="SwiftReverseContext"/>) must come from this image: a box's
+    /// <c>deinit</c> frees its payload through the callback registered in the image that created it.
+    /// </summary>
+    internal static IntPtr RegisteredImageHandle => Current.PinnedHandle;
+
+    /// <summary>True when the owner exports are reached through an externally installed resolver.</summary>
+    internal static bool UsesExternalResolver => Current.UseExternalResolver;
+
+    /// <summary>
+    /// Test observation only: raised with each context pointer the native destroy callback receives,
+    /// before its <see cref="GCHandle"/> is freed. Lets ownership tests count destructions per payload.
+    /// </summary>
+    internal static event Action<IntPtr>? ContextDestroyed;
+
+    /// <summary>
     /// Registers the destroy trampoline with the runtime dylib. Idempotent — safe
     /// to call multiple times. Called once from
     /// <see cref="SwiftFrameworkResolver.InitializeRuntime"/>.
@@ -257,6 +274,7 @@ internal static class SwiftClosureContext
     private static void DestroyClosureContext(IntPtr ctx)
     {
         if (ctx == IntPtr.Zero) return;
+        ContextDestroyed?.Invoke(ctx);
         var handle = GCHandle.FromIntPtr(ctx);
         if (handle.IsAllocated)
         {
@@ -319,7 +337,7 @@ internal static class SwiftClosureContext
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct DlInfo
+    internal struct DlInfo
     {
         public IntPtr FileName;
         public IntPtr ImageBase;
@@ -327,7 +345,7 @@ internal static class SwiftClosureContext
         public IntPtr SymbolAddress;
     }
 
-    private static class Darwin
+    internal static class Darwin
     {
         internal const int RtldNow = 0x2;
         internal const int RtldNoLoad = 0x10;

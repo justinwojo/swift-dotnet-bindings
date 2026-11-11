@@ -24,6 +24,11 @@ partial class Build
     const string RuntimeXcframeworkRoot = "native/SwiftBindingsRuntime.xcframework";
     const string RuntimeSwiftUiExportPrefix = "SBW_SwiftUI_";
     const string MacCatalystVariant = "maccatalyst";
+
+    // Entry-point prefixes the gate requires. `SBW_` names the runtime's wrapper functions;
+    // `SwiftBindings_` names its owner-token and reverse-context factories, whose managed imports
+    // (the external-resolver route) are as much a package contract as the wrappers.
+    static readonly string[] RuntimeNativeExportPrefixes = ["SBW_", "SwiftBindings_"];
     const string RuntimeFrameworkBinaryPath = "SwiftBindingsRuntime.framework/SwiftBindingsRuntime";
 
     static readonly IReadOnlyList<RuntimeNativeSlice> RequiredRuntimeNativeSlices =
@@ -60,7 +65,7 @@ partial class Build
 
     /// <summary>
     /// Verifies the native runtime exactly as it ships. The expected symbol set comes from every
-    /// <c>SBW_*</c> P/Invoke targeting SwiftBindingsRuntime in the packed Swift.Runtime
+    /// <c>SBW_*</c> and <c>SwiftBindings_*</c> P/Invoke targeting SwiftBindingsRuntime in the packed Swift.Runtime
     /// assemblies; the required slice and architecture inventory is an independent package contract.
     /// The packed XCFramework plist is treated only as actual inventory. Every actual Mach-O architecture
     /// must export every entry point applicable to that
@@ -86,7 +91,7 @@ partial class Build
             if (expectedSymbols.Count == 0)
             {
                 Assert.Fail(
-                    $"Runtime native-export gate: {nupkgPath} contains no SBW_* imports targeting " +
+                    $"Runtime native-export gate: {nupkgPath} contains no SBW_*/SwiftBindings_* imports targeting " +
                     $"{RuntimeNativeLibraryName}. A zero-sized expectation cannot certify exports.");
             }
 
@@ -135,7 +140,7 @@ partial class Build
                 slice.Architectures.Count * expectedSymbols.Count(symbol =>
                     IsRuntimeNativeImportExpectedForSlice(symbol, slice)));
             Log.Information(
-                "Runtime native-export gate OK — {Symbols} packed managed SBW_* import(s) satisfied " +
+                "Runtime native-export gate OK — {Symbols} packed managed SBW_*/SwiftBindings_* import(s) satisfied " +
                 "{Requirements} applicable export requirement(s) across {Pairs} packaged " +
                 "slice/architecture pair(s) and {Slices} XCFramework slice(s); package SHA256 {Sha}",
                 expectedSymbols.Count, requirementCount, pairCount, RequiredRuntimeNativeSlices.Count, packageSha);
@@ -187,7 +192,7 @@ partial class Build
                 var library = metadata.GetString(metadata.GetModuleReference(import.Module).Name);
                 var entryPoint = metadata.GetString(import.Name);
                 if (PackGateNormalizeLibraryName(library) == RuntimeNativeLibraryName
-                    && entryPoint.StartsWith("SBW_", StringComparison.Ordinal))
+                    && RuntimeNativeExportPrefixes.Any(prefix => entryPoint.StartsWith(prefix, StringComparison.Ordinal)))
                 {
                     symbols.Add(entryPoint);
                 }
@@ -280,7 +285,7 @@ partial class Build
     {
         // SwiftBindingsRuntime.swift places the entire SwiftUI bridge behind
         // !targetEnvironment(macCatalyst) because SwiftUI.Text is absent from the Catalyst SDK
-        // interface. All other packed managed SBW_* imports are universal package requirements.
+        // interface. All other packed managed imports are universal package requirements.
         return !string.Equals(slice.PlatformVariant, MacCatalystVariant, StringComparison.Ordinal)
                || !symbol.StartsWith(RuntimeSwiftUiExportPrefix, StringComparison.Ordinal);
     }

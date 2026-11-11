@@ -548,6 +548,81 @@ public func sbwUnboxClosureContext(
     Unmanaged<_SBClosureCtx>.fromOpaque(box).takeUnretainedValue().ctx
 }
 
+// MARK: - Reverse-Callback Context Box
+//
+// The context a Swift-convention closure carries when its body is a managed
+// callback. Swift passes the box as the closure context (+0, borrowed) to a
+// stateless native stub; the stub reads `target` and `payload` at fixed offsets
+// and calls `target` (a managed Cdecl `UnmanagedCallersOnly` entry point) with
+// `payload` (the delegate's `GCHandle`) as its trailing argument.
+//
+// The stub reads the fields by offset, so the offsets ARE the contract.
+// Layout contract v1, both 64-bit architectures: the two-word heap header,
+// then `target` at +16 and `payload` at +24. Never add, remove or reorder a
+// stored property without bumping the version reported by
+// `SwiftBindings_ReverseContextLayout`; the managed side refuses any layout it
+// was not built against.
+//
+// Every box owns its `payload`: `deinit` hands it to the same registered
+// context-destroy callback `_SBClosureCtx` uses, which frees the `GCHandle`
+// exactly once when the last reference goes.
+//
+// `@unchecked Sendable` for the same reason as `_SBClosureCtx`: both fields are
+// immutable after `init` and ARC is thread-safe.
+
+private final class _SBReverseCtx: @unchecked Sendable {
+    let target: UnsafeRawPointer
+    let payload: UnsafeMutableRawPointer
+    init(target: UnsafeRawPointer, payload: UnsafeMutableRawPointer) {
+        self.target = target
+        self.payload = payload
+    }
+    deinit {
+        // A box exists only when a callback was registered (see the factory),
+        // and registration never clears it.
+        _sbClosureCtxDestroy?(payload)
+    }
+}
+
+/// The reverse-context layout version this image implements. Bump it whenever
+/// `_SBReverseCtx`'s stored properties or its destroy contract change.
+private let _sbReverseContextLayoutVersion: Int32 = 1
+
+/// Allocates a reverse-callback context box and returns it +1-retained.
+///
+/// Returns nil — and allocates nothing — when either pointer is null or when no
+/// context-destroy callback has been registered in this image: a box created
+/// then could never free its `payload`, so the caller keeps ownership of it and
+/// reports the failure instead of leaking silently.
+@_cdecl("SwiftBindings_NewReverseContext")
+public func swiftBindingsNewReverseContext(
+    _ target: UnsafeRawPointer?,
+    _ payload: UnsafeMutableRawPointer?
+) -> UnsafeMutableRawPointer? {
+    guard let target, let payload, _sbClosureCtxDestroy != nil else { return nil }
+    return Unmanaged.passRetained(_SBReverseCtx(target: target, payload: payload)).toOpaque()
+}
+
+/// Reports the reverse-context layout this image actually has.
+///
+/// The offsets are read from the class's own instance-variable records rather
+/// than restated as constants, so the report cannot drift from the compiled
+/// layout. An offset the runtime cannot find is reported as -1.
+@_cdecl("SwiftBindings_ReverseContextLayout")
+public func swiftBindingsReverseContextLayout(
+    _ version: UnsafeMutablePointer<Int32>,
+    _ targetOffset: UnsafeMutablePointer<Int32>,
+    _ payloadOffset: UnsafeMutablePointer<Int32>
+) {
+    func offset(of name: String) -> Int32 {
+        guard let ivar = class_getInstanceVariable(_SBReverseCtx.self, name) else { return -1 }
+        return Int32(truncatingIfNeeded: ivar_getOffset(ivar))
+    }
+    version.pointee = _sbReverseContextLayoutVersion
+    targetOffset.pointee = offset(of: "target")
+    payloadOffset.pointee = offset(of: "payload")
+}
+
 // MARK: - CoreGraphics Type Metadata
 //
 // CGPoint, CGRect, CGSize are Clang-imported types whose metadata descriptors
