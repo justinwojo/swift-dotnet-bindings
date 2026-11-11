@@ -2356,6 +2356,189 @@ public class ConcreteSpecializationEngineTests
             reason);
     }
 
+    // ============ CSM sibling families ============
+    // Static overloads that differ only by an argument label (`deriveKey(material:info:)` beside
+    // `deriveKey(material:salt:)`, both generic over the same protocol) close to one C# signature
+    // per conformer. When the open-generic form cannot carry them, the first-declared member keeps
+    // the plain name it shipped under and each later one reaches the closed surface under its
+    // label-derived name; a sibling generic over a different protocol, or one the preflight refuses
+    // for the pairing, writes no identical member and never contends for the name.
+
+    [Fact]
+    public void CsmSiblingFamily_FirstDeclaredKeepsThePlainName_LaterSiblingTakesItsLabels()
+    {
+        var (parent, info, salt, _) = BuildDeriveKeyFamily();
+        var pairing = DeriveKeyPairing(info, "TestLib.Bytes", "TestLib.Conformer");
+
+        var infoName = ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(info, parent, pairing, CreateEmptyTypeDatabase());
+        var saltName = ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(salt, parent, pairing, CreateEmptyTypeDatabase());
+
+        Assert.Equal("deriveKey", infoName);
+        Assert.NotNull(saltName);
+        Assert.Contains("Salt", NameProvider.ToPascalCase(saltName!), StringComparison.Ordinal);
+        Assert.False(char.IsDigit(saltName![^1]), saltName);
+    }
+
+    [Fact]
+    public void CsmSiblingFamily_RefusedFirstSibling_LeavesThePlainNameToTheNext()
+    {
+        // The first-declared overload returns Self, which the closed lane refuses, so it writes no
+        // member and the next one is the only member with that closed signature.
+        var (parent, info, salt, _) = BuildDeriveKeyFamily();
+        info.CSSignature[0] = DeriveKeyArgument(info, string.Empty, new NamedTypeSpec("Self"));
+        var pairing = DeriveKeyPairing(salt, "TestLib.Bytes", "TestLib.Conformer");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.HasUnresolvableCsmSiblingCollision(
+            salt, parent, pairing, CreateEmptyTypeDatabase()));
+        Assert.Equal("deriveKey",
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(salt, parent, pairing, CreateEmptyTypeDatabase()));
+    }
+
+    [Fact]
+    public void CsmSiblingFamily_LabelDerivedName_NeverLandsOnAnExistingSibling()
+    {
+        // `deriveKeyMaterialSalt(material:salt:)` already owns the name the `salt:` overload's
+        // labels would derive; renaming onto it would close both to one C# member.
+        var (parent, info, salt, _) = BuildDeriveKeyFamily();
+        var natural = DeriveKeyOverload(parent, "salt", "TestLib.Bytes", name: "deriveKeyMaterialSalt");
+        parent.Methods.Add(natural);
+        PublishDeriveKeyDiscovery(parent);
+        var pairing = DeriveKeyPairing(info, "TestLib.Bytes", "TestLib.Conformer");
+
+        var saltName = ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(salt, parent, pairing, CreateEmptyTypeDatabase());
+
+        Assert.Equal("deriveKey",
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(info, parent, pairing, CreateEmptyTypeDatabase()));
+        Assert.Equal("deriveKeyMaterialSalt",
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(natural, parent, pairing, CreateEmptyTypeDatabase()));
+        Assert.NotNull(saltName);
+        Assert.NotEqual("DeriveKeyMaterialSalt", NameProvider.ToPascalCase(saltName!));
+        Assert.NotEqual("DeriveKey", NameProvider.ToPascalCase(saltName!));
+    }
+
+    [Fact]
+    public void CsmSiblingFamily_SiblingOverDifferentProtocol_KeepsThePlainName()
+    {
+        var (parent, _, _, digest) = BuildDeriveKeyFamily();
+        // `digest` is generic over TestLib.Digest; the label-only pair is generic over
+        // TestLib.Bytes. Under a Digest conformer only `digest` is specialized.
+        var pairing = DeriveKeyPairing(digest, "TestLib.Digest", "TestLib.DigestConformer");
+
+        Assert.Equal("deriveKey",
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(digest, parent, pairing, CreateEmptyTypeDatabase()));
+        Assert.False(ConcreteProtocolSpecializationEmitter.HasUnresolvableCsmSiblingCollision(
+            digest, parent, pairing, CreateEmptyTypeDatabase()));
+    }
+
+    [Fact]
+    public void CsmSiblingFamily_SiblingDiscoveryFilteredForTheConformer_LeavesThePlainNameToTheNext()
+    {
+        // `deriveKey<A: Bytes & Sealed>(material:info:)` before `deriveKey<B: Bytes>(material:salt:)`.
+        // Both close to one signature, but discovery drops `TestLib.Conformer` from the first one's
+        // parameter (it fails `Sealed`), so under that conformer only `salt:` is ever emitted and it
+        // keeps the plain name. A conformer of both protocols still forms the family.
+        var (parent, info, salt, _) = BuildDeriveKeyFamily();
+        info.GenericParameters[0].GenericConformances.Add(
+            new(Array.Empty<string>(), SwiftTypeName.FromModuleQualifiedName("TestLib.Sealed"), ConformanceKind.Protocol));
+        PublishDeriveKeyDiscovery(parent, new Dictionary<MethodDecl, string[]>
+        {
+            [info] = new[] { "TestLib.SealedConformer" },
+            [salt] = new[] { "TestLib.Conformer", "TestLib.SealedConformer" },
+        });
+        var bytesOnly = DeriveKeyPairing(salt, "TestLib.Bytes", "TestLib.Conformer", "TestLib.SealedConformer");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.HasUnresolvableCsmSiblingCollision(
+            salt, parent, bytesOnly, CreateEmptyTypeDatabase()));
+        Assert.Equal("deriveKey",
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(salt, parent, bytesOnly, CreateEmptyTypeDatabase()));
+
+        var both = DeriveKeyPairing(info, "TestLib.Bytes", "TestLib.SealedConformer");
+        Assert.Equal("deriveKey",
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(info, parent, both, CreateEmptyTypeDatabase()));
+        Assert.NotEqual("DeriveKey", NameProvider.ToPascalCase(
+            ConcreteProtocolSpecializationEmitter.ResolveCsmMethodNameInput(salt, parent, both, CreateEmptyTypeDatabase())!));
+    }
+
+    private static (StructDecl Parent, MethodDecl Info, MethodDecl Salt, MethodDecl Digest) BuildDeriveKeyFamily()
+    {
+        var parent = CreateGenericStructDecl("Deriver", "τ_0_0");
+        parent.GenericParameters.Clear();
+        var info = DeriveKeyOverload(parent, "info", "TestLib.Bytes");
+        var salt = DeriveKeyOverload(parent, "salt", "TestLib.Bytes");
+        var digest = DeriveKeyOverload(parent, "material", "TestLib.Digest");
+        parent.Methods.AddRange(new[] { info, salt, digest });
+        PublishDeriveKeyDiscovery(parent);
+        return (parent, info, salt, digest);
+    }
+
+    // Discovery as the engine records it: every overload specialized over its parameter's one
+    // protocol with that protocol's conformer — TestLib.Bytes → Conformer, TestLib.Digest →
+    // DigestConformer — unless `conformersOf` names a member's conformer list explicitly.
+    private static void PublishDeriveKeyDiscovery(
+        StructDecl parent, IReadOnlyDictionary<MethodDecl, string[]>? conformersOf = null)
+    {
+        var discovered = new List<ConcreteSpecializationEngine.SpecializableMethod>();
+        foreach (var method in parent.Methods)
+        {
+            var protocol = method.GenericParameters[0].GenericConformances[0].ConformanceTarget.ToString();
+            var names = conformersOf is not null && conformersOf.TryGetValue(method, out var explicitNames)
+                ? explicitNames
+                : new[] { protocol == "TestLib.Digest" ? "TestLib.DigestConformer" : "TestLib.Conformer" };
+            if (names.Length == 0) continue;
+            discovered.Add(new ConcreteSpecializationEngine.SpecializableMethod(
+                method,
+                new List<ConcreteSpecializationEngine.SpecializableParam> { DeriveKeyPairing(method, protocol, names)[0].Item1 }));
+        }
+        ConcreteSpecializationEngine.PublishDiscovery(parent, discovered);
+    }
+
+    private static MethodDecl DeriveKeyOverload(StructDecl parent, string label, string protocol, string name = "deriveKey")
+    {
+        var method = CreateMethodWithSig(name, $"<τ_0_0 where τ_0_0 : {protocol}>") with
+        {
+            MangledName = $"$s{name}_{label}_{protocol}",
+        };
+        method.ParentDecl = parent;
+        method.MethodType = MethodType.Static;
+        method.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "Value",
+            new List<GenericParameterConformance>
+            {
+                new(Array.Empty<string>(), SwiftTypeName.FromModuleQualifiedName(protocol), ConformanceKind.Protocol),
+            },
+            new List<GenericParameterConformance>()));
+        method.CSSignature.Add(DeriveKeyArgument(method, string.Empty, new NamedTypeSpec("Swift.Int32")));
+        method.CSSignature.Add(DeriveKeyArgument(method, "material", new NamedTypeSpec("Swift.Int32")));
+        method.CSSignature.Add(DeriveKeyArgument(method, label, new NamedTypeSpec("τ_0_0")));
+        return method;
+    }
+
+    private static ArgumentDecl DeriveKeyArgument(MethodDecl method, string label, TypeSpec type) => new()
+    {
+        Name = label,
+        PrivateName = label,
+        SwiftTypeSpec = type,
+        IsInOut = false,
+        IsGeneric = type is NamedTypeSpec { Name: var n } && n.StartsWith("τ_", StringComparison.Ordinal),
+        ParentDecl = method,
+        ModuleDecl = null,
+    };
+
+    // The pairing for the first of `conformerNames`, on a parameter whose discovered conformer
+    // list holds all of them.
+    private static (ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[] DeriveKeyPairing(
+        MethodDecl method, string protocol, params string[] conformerNames)
+    {
+        var conformers = conformerNames
+            .Select(n => new ConcreteSpecializationEngine.ConcreteConformer(n, n.Split('.')[^1]))
+            .ToList();
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            method.GenericParameters[0],
+            SwiftTypeName.FromModuleQualifiedName(protocol),
+            conformers);
+        return new[] { (param, conformers[0]) };
+    }
+
     [Theory]
     [InlineData("XMLCoder.BoolBox")]
     [InlineData("Swift.Array<XMLCoder.InternalElement>")]

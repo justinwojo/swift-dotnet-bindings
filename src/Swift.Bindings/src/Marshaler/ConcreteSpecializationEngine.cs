@@ -932,8 +932,26 @@ public class ConcreteSpecializationEngine
             }
         }
 
+        PublishDiscovery(typeDecl, result);
         return result;
     }
+
+    // The latest discovery per type, so the CSM emitter can tell which same-named siblings a
+    // conformer is really specialized for when it names an overload family. Every pairing the
+    // emitter builds comes from a FindSpecializableMethods call on the same type, so the entry is
+    // always the discovery that pairing came from; a rebuilt engine re-discovers before it emits.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TypeDecl, IReadOnlyList<SpecializableMethod>> s_publishedDiscovery = new();
+
+    /// <summary>Records <paramref name="methods"/> as <paramref name="typeDecl"/>'s discovery.</summary>
+    internal static void PublishDiscovery(TypeDecl typeDecl, IReadOnlyList<SpecializableMethod> methods)
+        => s_publishedDiscovery.AddOrUpdate(typeDecl, methods);
+
+    /// <summary>
+    /// The methods the latest <see cref="FindSpecializableMethods"/> call found specializable on
+    /// <paramref name="typeDecl"/>, with their filtered conformer lists, or null before any call.
+    /// </summary>
+    internal static IReadOnlyList<SpecializableMethod>? PublishedDiscovery(TypeDecl typeDecl)
+        => s_publishedDiscovery.TryGetValue(typeDecl, out var methods) ? methods : null;
 
     /// <summary>
     /// Finds read-only properties on a generic parent whose getter returns a bound generic

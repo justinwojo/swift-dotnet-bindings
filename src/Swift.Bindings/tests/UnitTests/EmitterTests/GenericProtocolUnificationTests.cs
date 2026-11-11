@@ -661,29 +661,47 @@ public class GenericProtocolUnificationTests
         Assert.Null(reason);
     }
 
-    [Fact]
-    public void WrapperHelperGate_StructNestedInGenericStruct_AdmitsAccessorsAndMethods()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WrapperHelperGate_TypeNestedInGenericStruct_AdmitsEveryDispatchKind(bool declaresOwnParameter)
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
 
         var outer = CreateGenericStructDecl("RankedTable", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
-        var inner = CreateGenericStructDecl("Cursor", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
+        var inner = declaresOwnParameter
+            ? CreateGenericStructDecl("Slot", moduleDecl, new[] { ("Base", "\u03C4_0_0"), ("Extra", "\u03C4_1_0") })
+            : CreateGenericStructDecl("Cursor", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
         inner.ParentDecl = outer;
-        Assert.True(WrapperValidation.IsInheritedGenericContext(inner));
+        Assert.Equal(!declaresOwnParameter, WrapperValidation.IsInheritedGenericContext(inner));
 
-        // Accessor and method dispatch name the nested type through `Self` and read its metadata
-        // from the nested type's own accessor, so neither needs the outer's argument list on a
-        // path segment.
+        // Accessor, method and constructor dispatch reach the nested type through `Self` (or the
+        // per-segment open reference for a class constructor) and read its metadata from the
+        // nested type's own accessor, which takes the whole generic signature.
         Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.PropertyGetter));
         Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.PropertySetter));
         Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.Method));
-        // Constructors still render the parent with its arguments and stay refused.
-        Assert.True(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.Constructor));
+        Assert.False(GenericDispatchEmitter.HasWrapperHelperGateBlocker(inner, typeDb, GenericDispatchKind.Constructor));
+    }
 
-        // A nested type that declares a parameter of its own is not an inherited context.
+    [Fact]
+    public void RenderOpenGenericTypeReference_PlacesEachLevelsParametersOnItsOwnSegment()
+    {
+        var (moduleDecl, _) = CreateTestEnvironment("TestType");
+
+        var outer = CreateGenericStructDecl("RankedTable", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
         var ownParams = CreateGenericStructDecl("Slot", moduleDecl, new[] { ("Base", "\u03C4_0_0"), ("Extra", "\u03C4_1_0") });
+        ownParams.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RankedTable.Slot");
         ownParams.ParentDecl = outer;
-        Assert.True(GenericDispatchEmitter.HasWrapperHelperGateBlocker(ownParams, typeDb, GenericDispatchKind.PropertyGetter));
+        var inheritedOnly = CreateGenericStructDecl("Cursor", moduleDecl, new[] { ("Base", "\u03C4_0_0") });
+        inheritedOnly.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RankedTable.Cursor");
+        inheritedOnly.ParentDecl = outer;
+
+        Assert.Equal("TestModule.RankedTable<Base>", ConstructorWrapperEmitter.RenderOpenGenericTypeReference(outer));
+        // `TestModule.RankedTable.Slot<Base, Extra>` names no type: the outer's argument belongs
+        // on the outer's segment.
+        Assert.Equal("TestModule.RankedTable<Base>.Slot<Extra>", ConstructorWrapperEmitter.RenderOpenGenericTypeReference(ownParams));
+        Assert.Equal("TestModule.RankedTable<Base>.Cursor", ConstructorWrapperEmitter.RenderOpenGenericTypeReference(inheritedOnly));
     }
 
     #endregion

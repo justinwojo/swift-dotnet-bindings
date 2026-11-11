@@ -328,9 +328,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // visible signature does not leak its cdeclSymbol into ModuleEmissionContext;
         // the wrapper-symbol contract gate must only see symbols whose Swift wrapper
         // actually emitted.
+        // In a label-only sibling family that reaches this lane (see the sibling-collision gate in
+        // CanEmitConcreteOverloadForPairing) the first-declared member keeps the Swift name and
+        // later ones emit under label- or type-derived names; everything else keeps the Swift
+        // name. The preflight already refused a member no name separates.
+        var csmNameInput = isConstructor
+            ? method.Name
+            : ResolveCsmMethodNameInput(method, parentTypeDecl, pairing, typeDatabase) ?? method.Name;
         var csMethodName = isConstructor
             ? BuildFactoryConstructorName(pairing)
-            : NameProvider.ToPascalCase(method.Name);
+            : NameProvider.ToPascalCase(csmNameInput);
         var sigKey = BuildCSharpSignatureKey(csMethodName, method, pairing, typeDatabase);
         if (!emittedSignatures.Add(sigKey))
         {
@@ -370,7 +377,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         // --- Emit C# method ---
         EmitCSharpMethod(
-            csWriter, method, parentTypeDecl, pairing,
+            csWriter, method, csMethodName, parentTypeDecl, pairing,
             cdeclSymbol, moduleName, wrapperLibPath, isConstructor, isStatic, isClass,
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
             emissionContext, mergedAvailability, isExtension);
@@ -408,7 +415,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             EmitTrimOverloadsForCsmSync(
                 csWriter, swiftWriter, method, parentTypeDecl, pairing,
-                cdeclSymbol, typeDatabase, emissionContext, mergedAvailability, logger);
+                cdeclSymbol, typeDatabase, emissionContext, mergedAvailability, logger,
+                disambiguatedNameInput: string.Equals(csmNameInput, method.Name, StringComparison.Ordinal)
+                    ? null
+                    : csmNameInput);
         }
 
         logger.LogInformation(
@@ -436,7 +446,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
-        ILogger logger)
+        ILogger logger,
+        string? disambiguatedNameInput = null)
     {
         // Build conformer TypeSpecs for substitution. Mirrors IsEmittableAsyncPairing's
         // preparation step in the async path.
@@ -513,6 +524,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         var trimEnv = new MethodEnvironment(synthesized, typeDatabase);
         trimEnv.EmissionContext = emissionContext;
+        // A primary emitted under a content-derived name carries it to every trimmed overload.
+        trimEnv.DisambiguatedNameInput = disambiguatedNameInput;
 
         // Pre-populate the projected-signature set with the auto-trim primary's key.
         // The CSM-sync primary above (EmitCSharpMethod) emits a public surface that
@@ -521,7 +534,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // emitter would happily emit a duplicate method and Roslyn would reject the
         // generated source with CS0111.
         var autoTrimPrimaryDecl = DefaultParameterOverloadEmitter.BuildOverloadDecl(synthesized, trailingDefaults);
-        var autoTrimPrimaryKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(autoTrimPrimaryDecl, typeDatabase);
+        var autoTrimPrimaryKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+            autoTrimPrimaryDecl, typeDatabase, nameOverride: disambiguatedNameInput);
         trimEnv.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal) { autoTrimPrimaryKey };
 
         DefaultParameterOverloadEmitter.TryEmitOverloads(
@@ -1207,6 +1221,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     private static void EmitCSharpMethod(
         CSharpWriter csWriter,
         MethodDecl method,
+        string methodName,
         TypeDecl parentTypeDecl,
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         string cdeclSymbol,
@@ -1223,10 +1238,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
         bool isExtension = false)
     {
-        var methodName = NameProvider.ToPascalCase(method.Name);
-        if (isConstructor)
-            methodName = BuildFactoryConstructorName(pairing);
-
         // Resolve the return-side conformer if the return is a generic param.
         ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
         if (returnsGenericParam)
@@ -2442,7 +2453,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         TypeDecl parentTypeDecl,
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         ITypeDatabase typeDatabase,
-        out string? rejectReason)
+        out string? rejectReason,
+        bool checkSiblingCollision = true)
     {
         // Per-conformer structural gate: rejects nested-type conformers whose C# name
         // can't be resolved (resolvable nested types like `KeyVault.Agreement.PublicKey`
@@ -2744,21 +2756,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
 
-        // Sibling-overload C# signature collision: the CSM emitter's dedup key is
-        // {C# method name | param public-CSharp-types} — argument labels are dropped.
-        // Two Swift methods with the same base name but different labels (e.g.
-        // `index(after: Int) -> Int` and `index(before: Int) -> Int`) collapse to
-        // identical dedup keys and one is silently dropped, stripping its surface.
-        // BoundGenericsHandler emits these via the open-generic path with sibling-
-        // aware C# collision suffixes (`Index` + `Index2`); defer to it so both
-        // siblings survive. Constructors don't collide here because their CSM C#
-        // name is `From{Conformers}` (pairing-derived), not pascal-cased Swift name.
-        if (!isConstructor && HasUnresolvableCsmSiblingCollision(method, parentTypeDecl, pairing, typeDatabase))
-        {
-            rejectReason = "sibling overload would collide under CSM dedup (different argument labels collapse to identical C# signature)";
-            return false;
-        }
-
         // Bilateral associated-type filter (defense in depth over ConformerPairingSatisfiesCoupling).
         // The coupling engine only sees same-type constraints that made it onto
         // SpecializableParam.CouplingConstraints. Constraints encoded on the parent type's
@@ -2771,6 +2768,40 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             rejectReason = "associated-type constraint not satisfied by conformer";
             return false;
+        }
+
+        // Sibling-overload C# signature collision: the CSM emitter's dedup key is
+        // {C# method name | param public-CSharp-types} — argument labels are dropped.
+        // Two Swift methods with the same base name but different labels (e.g.
+        // `index(after: Int) -> Int` and `index(before: Int) -> Int`) collapse to
+        // identical dedup keys, and under the Swift name alone one would be silently
+        // dropped. Where the open-generic form can carry the method, defer to it: the
+        // BoundGenericsHandler names label-only siblings apart through the overload-name
+        // ladder. Where it cannot — a method generic constrained to a protocol with
+        // associated types or Self requirements is never bound open
+        // (`HKDF.deriveKey(inputKeyMaterial:info:outputByteCount:)` beside
+        // `…(inputKeyMaterial:salt:outputByteCount:)`) — this lane is the method's only
+        // surface: the first-declared member keeps the Swift name and later ones are named by
+        // the ladder (ResolveCsmMethodNameInput), refusing only a member no label or type
+        // separates. Constructors don't collide here because their CSM C# name is
+        // `From{Conformers}` (pairing-derived), not pascal-cased Swift name.
+        // This gate runs last so only a member every other gate admits asks for its family, and
+        // the family holds only siblings the emission walk really emits for these conformers
+        // (discovered for them, coupling- and gate-admitted) — each emitting member sees the same
+        // family. checkSiblingCollision is false only when this preflight is asked on behalf of a
+        // sibling's family (CollectCsmSiblingFamily), which must not recurse back into it.
+        if (!isConstructor && checkSiblingCollision && HasUnresolvableCsmSiblingCollision(method, parentTypeDecl, pairing, typeDatabase))
+        {
+            if (!MethodValidationGates.HasUnsupportedProtocolConstraints(method, typeDatabase))
+            {
+                rejectReason = "sibling overload would collide under CSM dedup (different argument labels collapse to identical C# signature); the open-generic form carries it";
+                return false;
+            }
+            if (ResolveCsmMethodNameInput(method, parentTypeDecl, pairing, typeDatabase) is null)
+            {
+                rejectReason = "sibling overload projects to the same C# signature and no argument label or parameter type distinguishes them";
+                return false;
+            }
         }
 
         rejectReason = null;
@@ -3074,12 +3105,28 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// {C# method name | param public-CSharp-types} — argument labels are not part of
     /// the key, so two Swift methods that differ only by label (e.g.
     /// <c>index(after: Int) -> Int</c> and <c>index(before: Int) -> Int</c>) hash to
-    /// the same key and one is silently dropped, deleting its surface entirely. The
-    /// caller defers these to the BoundGenericsHandler open-generic emission, which
-    /// already disambiguates label-only siblings with C# collision suffixes
-    /// (<c>Index</c> + <c>Index2</c>).
+    /// the same key, and under the Swift name alone one would be silently dropped. The
+    /// caller defers these to the open-generic emission when that form can carry them, and
+    /// otherwise names the family with <see cref="ResolveCsmMethodNameInput"/>.
     /// </summary>
     internal static bool HasUnresolvableCsmSiblingCollision(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase)
+        => CollectCsmSiblingFamily(method, parentTypeDecl, pairing, typeDatabase).Count > 1;
+
+    /// <summary>
+    /// The members that would emit <paramref name="method"/>'s exact CSM C# signature under this
+    /// pairing when each is named by its Swift name: <paramref name="method"/> itself plus every
+    /// same-kind sibling of the same name whose parameters close to the same projected C# types
+    /// and that the emission walk would really emit for the same conformers — discovery
+    /// specialized it with them, and the coupling check and the preflight admit that pairing. A
+    /// sibling that closes to the same types but is never emitted for these conformers (an extra
+    /// constraint the conformer fails, a refused shape) writes no member, so it contends for
+    /// nothing. In declaration order — the order the emission walk visits them.
+    /// </summary>
+    private static List<MethodDecl> CollectCsmSiblingFamily(
         MethodDecl method,
         TypeDecl parentTypeDecl,
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
@@ -3087,9 +3134,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         var thisCsName = NameProvider.ToPascalCase(method.Name);
         var thisKey = BuildCSharpSignatureKey(thisCsName, method, pairing, typeDatabase);
+        var family = new List<MethodDecl>();
+        var discovery = ConcreteSpecializationEngine.PublishedDiscovery(parentTypeDecl);
         foreach (var other in parentTypeDecl.Methods)
         {
-            if (ReferenceEquals(other, method)) continue;
+            if (ReferenceEquals(other, method))
+            {
+                family.Add(method);
+                continue;
+            }
             if (other.IsConstructor) continue;
             if (other.IsAccessor) continue;
             if (other.IsSubscriptAccessor) continue;
@@ -3098,12 +3151,168 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (other.MethodType != method.MethodType) continue;
             var otherCsName = NameProvider.ToPascalCase(other.Name);
             if (!string.Equals(otherCsName, thisCsName, StringComparison.Ordinal)) continue;
+            if (!IsSpecializedUnderSameConstraint(other, pairing)) continue;
             var otherKey = BuildCSharpSignatureKey(otherCsName, other, pairing, typeDatabase);
-            if (string.Equals(otherKey, thisKey, StringComparison.Ordinal))
-                return true;
+            if (!string.Equals(otherKey, thisKey, StringComparison.Ordinal)) continue;
+            var otherPairing = RebindPairingToSibling(other, pairing, discovery);
+            if (otherPairing is null
+                || !ConformerPairingSatisfiesCoupling(otherPairing)
+                || !CanEmitConcreteOverloadForPairing(other, parentTypeDecl, otherPairing, typeDatabase, out _, checkSiblingCollision: false))
+                continue;
+            family.Add(other);
         }
-        return false;
+        if (!family.Any(f => ReferenceEquals(f, method)))
+            family.Add(method);
+        return family;
     }
+
+    /// <summary>
+    /// The pairing re-expressed as the one the emission walk builds for <paramref name="sibling"/>
+    /// with the same conformers: the sibling's own discovered parameters, each matched to the
+    /// pairing's by spelling (which is positional) and selected protocol and holding the same
+    /// conformer. Null when discovery did not specialize the sibling for exactly these conformers —
+    /// a conformer filtered out of one of its parameters, a parameter it specializes that the
+    /// pairing does not bind, or a conformer product past the cap — so the walk never emits it.
+    /// </summary>
+    private static (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[]? RebindPairingToSibling(
+        MethodDecl sibling,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        IReadOnlyList<ConcreteSpecializationEngine.SpecializableMethod>? discovery)
+    {
+        var discovered = discovery?.FirstOrDefault(s => ReferenceEquals(s.Method, sibling));
+        if (discovered is null || discovered.SpecializableParams.Count != pairing.Length)
+            return null;
+        if (discovered.SpecializableParams.Count > 1
+            && ComputePairingCount(discovered.SpecializableParams) > MaxCsmCartesianProductSize)
+            return null;
+
+        var rebound = new (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[pairing.Length];
+        for (int i = 0; i < pairing.Length; i++)
+        {
+            var (param, conformer) = pairing[i];
+            var siblingParam = discovered.SpecializableParams.FirstOrDefault(p =>
+                p.IsParentGeneric == param.IsParentGeneric
+                && string.Equals(p.GenericParam.TypeName, param.GenericParam.TypeName, StringComparison.Ordinal)
+                && string.Equals(p.ConstraintProtocol.ToString(), param.ConstraintProtocol.ToString(), StringComparison.Ordinal));
+            var siblingConformer = siblingParam?.Conformers.FirstOrDefault(c =>
+                string.Equals(c.SwiftQualifiedName, conformer.SwiftQualifiedName, StringComparison.Ordinal));
+            if (siblingParam is null || siblingConformer is null)
+                return null;
+            rebound[i] = (siblingParam, siblingConformer);
+        }
+        return rebound;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="sibling"/> is specialized from the same conformer lists as the
+    /// pairing: each of the pairing's method-own parameters names a parameter of the sibling
+    /// constrained to the protocol the pairing's conformers were drawn from. A sibling whose
+    /// parameter carries a different protocol (<c>signature&lt;D: Digest&gt;(for:)</c> beside
+    /// <c>signature&lt;D: DataProtocol&gt;(for:)</c>) is closed over a different conformer set, so
+    /// the two never close to the same C# parameter types and do not contend for a name. A type
+    /// conforming to both protocols would close both to one signature; the emitter's per-type
+    /// signature set keeps the first of those, so no duplicate member is written.
+    /// </summary>
+    private static bool IsSpecializedUnderSameConstraint(
+        MethodDecl sibling,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        foreach (var (param, _) in pairing)
+        {
+            if (param.IsParentGeneric) continue;
+            var siblingParam = sibling.GenericParameters.FirstOrDefault(
+                g => string.Equals(g.TypeName, param.GenericParam.TypeName, StringComparison.Ordinal));
+            if (siblingParam is null) continue;
+            var selected = param.ConstraintProtocol.ToString();
+            if (!siblingParam.GenericConformances.Any(c =>
+                    c.Kind == ConformanceKind.Protocol
+                    && string.Equals(c.ConformanceTarget.ToString(), selected, StringComparison.Ordinal)))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The Swift-level base name a CSM specialization emits under, or null when the member is
+    /// refused. Outside a family of members emitting one identical closed signature
+    /// (<see cref="HasUnresolvableCsmSiblingCollision"/>) this is the Swift name. Inside one, the
+    /// first member in declaration order keeps the Swift name and every later one takes what the
+    /// overload-name ladder (<see cref="OverloadNameDisambiguator.Resolve"/>) assigns: the method
+    /// name plus its argument labels, then its parameter types, never a numeric suffix.
+    /// <para>
+    /// First-declared ownership is deliberate here, unlike the ladder's content-based default.
+    /// Before generic parameters were respelled by position, these siblings' closed signatures
+    /// differed only in a generic-parameter spelling, so the collision gate missed them and the
+    /// emitter's per-type signature set let the first-declared member ship under the plain name
+    /// (CryptoKit's <c>HKDF.deriveKey(inputKeyMaterial:info:outputByteCount:)</c> as
+    /// <c>DeriveKey</c>) while dropping the rest. Keeping that owner keeps every shipped call site
+    /// bound to the same Swift member; only the members that used to be dropped gain a name.
+    /// </para>
+    /// Null means no label or type separates the member from a sibling, which C# cannot express.
+    /// A pure function of the method set and the pairing, so the preflight and the emitter agree.
+    /// </summary>
+    internal static string? ResolveCsmMethodNameInput(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase)
+    {
+        var family = CollectCsmSiblingFamily(method, parentTypeDecl, pairing, typeDatabase);
+        if (family.Count < 2)
+            return method.Name;
+
+        // One resolution per family and pairing: the preflight and the emitter both ask, once for
+        // each member, and the ladder records every rename it makes in the binding report. The
+        // selected protocol is part of the key because family membership depends on it.
+        var familyKey = method.MethodType + "#"
+            + BuildCSharpSignatureKey(NameProvider.ToPascalCase(method.Name), method, pairing, typeDatabase) + "#"
+            + string.Join("|", pairing.Select(p => p.Param.GenericParam.TypeName + ":" + p.Param.ConstraintProtocol + "=" + p.Conformer.SwiftQualifiedName));
+        var memo = s_csmFamilyAssignments.GetValue(parentTypeDecl, _ => new Dictionary<string, Dictionary<MethodDecl, OverloadNameAssignment>>(StringComparer.Ordinal));
+        Dictionary<MethodDecl, OverloadNameAssignment>? assignments;
+        lock (memo)
+        {
+            if (!memo.TryGetValue(familyKey, out assignments))
+            {
+                // The ladder reads the contested name off the key's `Name(` prefix.
+                string ProjectedKey(MethodDecl member, string nameInput) =>
+                    NameProvider.ToPascalCase(nameInput) + "(" + BuildCSharpSignatureKey(string.Empty, member, pairing, typeDatabase) + ")";
+
+                // The ladder reserves every uncontested member's natural key, so it is handed the
+                // whole surface the family's names land in — every same-kind member closed under
+                // this pairing — not the family alone; otherwise `deriveKey(material:info:)` could
+                // be renamed onto a real `deriveKeyMaterialInfo(material:info:)` sibling. Those
+                // members only reserve their key — one per key, so they never form a contested
+                // family of their own that this lane does not emit.
+                var scope = family.Select(m => (m, ProjectedKey(m, m.Name))).ToList();
+                var reservedKeys = new HashSet<string>(scope.Select(s => s.Item2), StringComparer.Ordinal);
+                foreach (var other in parentTypeDecl.Methods)
+                {
+                    if (other.IsConstructor || other.IsAccessor || other.IsSubscriptAccessor) continue;
+                    if (other.MethodType != method.MethodType) continue;
+                    if (family.Any(f => ReferenceEquals(f, other))) continue;
+                    if (!IsSpecializedUnderSameConstraint(other, pairing)) continue;
+                    var otherKey = ProjectedKey(other, other.Name);
+                    if (reservedKeys.Add(otherKey))
+                        scope.Add((other, otherKey));
+                }
+
+                // The scope lists the family first, in declaration order, and every other member
+                // holds a distinct key, so the one contested family is exactly `family`.
+                assignments = OverloadNameDisambiguator.Resolve(
+                    scope,
+                    ProjectedKey,
+                    m => NameProvider.ToPascalCase(m.Name),
+                    bareNameOwner: contested => contested[0]);
+                memo[familyKey] = assignments;
+            }
+        }
+        var assignment = assignments.TryGetValue(method, out var a) ? a : OverloadNameAssignment.Natural;
+        return assignment.IsRefused ? null : assignment.NameInput ?? method.Name;
+    }
+
+    // Keyed by reference identity of the parent (TypeDecl is a record), so it lives exactly as
+    // long as the declaration model it describes.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TypeDecl, Dictionary<string, Dictionary<MethodDecl, OverloadNameAssignment>>> s_csmFamilyAssignments = new();
 
     private static bool AreNonGenericParamsCompatible(
         MethodDecl method,
