@@ -16,6 +16,7 @@ internal sealed class DefaultOverloadReplayRecipe
     private readonly string? _adoptedName;
     private readonly string? _failableFactoryName;
     private readonly string? _initFactoryName;
+    private readonly bool _primaryOmitsDefaultedParameters;
 
     internal DeclId SourceDeclId { get; }
 
@@ -28,6 +29,7 @@ internal sealed class DefaultOverloadReplayRecipe
         _adoptedName = env.AdoptedOverrideCSharpName;
         _failableFactoryName = env.FailableFactoryName;
         _initFactoryName = env.InitFactoryName;
+        _primaryOmitsDefaultedParameters = env.PrimaryOmitsDefaultedParameters;
     }
 
     internal static DefaultOverloadReplayRecipe Capture(MethodEnvironment env) => new(env);
@@ -47,6 +49,7 @@ internal sealed class DefaultOverloadReplayRecipe
             AdoptedOverrideCSharpName = _adoptedName,
             FailableFactoryName = _failableFactoryName,
             InitFactoryName = _initFactoryName,
+            PrimaryOmitsDefaultedParameters = _primaryOmitsDefaultedParameters,
             EmittedProjectedSignatures = current.EmittedProjectedSignatures,
             ReservedOverloadShapes = current.ReservedOverloadShapes,
             EmissionContext = current.EmissionContext,
