@@ -838,30 +838,22 @@ namespace BindingsGeneration
                                 return SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{rln}});
                                 """);
                         }
-                        else if (projection is OptionalProjection)
+                        else
                         {
-                            // By-value Optional return: the callee handed back a +1 value sitting in
-                            // the result local. Constructing the SwiftOptional takes its own copy
-                            // through InitializeWithCopy, so the local's reference has to be
-                            // value-witness-destroyed or every Some read leaks it. Methods get that
-                            // from the projection's own Direct return plan; accessors never reach
-                            // that plan (the projection rewrite early-outs for them), so the same
-                            // consuming marshal is spelled out here rather than left to drift.
-                            // Applied to every by-value Optional, not just the carried ones — the
-                            // Direct plans make the same uniform choice, and a POD payload's witness
-                            // Destroy is a no-op, so narrowing it by width would only reintroduce
-                            // the leak for single-word containers like `[Element]?`.
+                            // By-value return (an Optional, an Array, a Dictionary, a Result…): the
+                            // callee handed back a +1 value sitting in the result local. Constructing
+                            // the carrier takes its own copy through InitializeWithCopy, so the
+                            // local's references have to be value-witness-destroyed or every read
+                            // leaks them. Methods get that from the projection's own Direct return
+                            // plan; accessors never reach that plan (the projection rewrite
+                            // early-outs for them), so the same consuming marshal is spelled out
+                            // here rather than left to drift. Applied uniformly, as the Direct plans
+                            // do: a POD payload's witness Destroy is a no-op, so narrowing it by
+                            // width or element type would only reintroduce the leak for single-word
+                            // containers like `[Element]` and `[Element]?`.
                             csWriter.WriteLines($$"""
                                 unsafe {
                                     return SwiftMarshal.MarshalFromSwiftObjectConsuming<{{marshalType}}>(&{{rln}});
-                                }
-                                """);
-                        }
-                        else
-                        {
-                            csWriter.WriteLines($$"""
-                                unsafe {
-                                    return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
                                 }
                                 """);
                         }
@@ -1102,13 +1094,18 @@ namespace BindingsGeneration
                     return;
                 }
 
-                // Frozen with memory management — MarshalFromSwift from buffer
+                // Frozen with memory management, returned by value: the result local holds the
+                // callee's +1 value. A copyable carrier's NewFromPayload takes its own copy, so the
+                // local must then be value-witness-destroyed or its references leak; a ~Copyable
+                // carrier takes the value instead and the destroy is skipped. Methods get this from
+                // the projection's Direct return plan, which accessors never reach, so the same
+                // consuming marshal is spelled out here.
                 if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 && (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
                 {
                     var rln = ReturnLocalName;
                     csWriter.WriteLine($$"""
                         unsafe {
-                            return SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(&{{rln}}));
+                            return SwiftMarshal.MarshalFromSwiftObjectConsuming<{{_wrapperSignature.ReturnType}}>(&{{rln}});
                         }
                         """);
                     return;

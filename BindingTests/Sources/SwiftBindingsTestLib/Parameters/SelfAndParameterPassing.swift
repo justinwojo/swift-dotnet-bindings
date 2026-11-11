@@ -179,3 +179,13 @@ public final class PassingCarrierHolder {
 
     public var carrierTokenID: Int { carrier.token.id }
 }
+
+/// A generic class whose getter returns an array of its parameter by value: the caller owns the
+/// returned array's +1, and the array keeps every token alive until that reference is gone.
+public final class PassingTokenBox<T> {
+    public var items: [T]
+
+    public init(_ item: T) {
+        items = [item]
+    }
+}

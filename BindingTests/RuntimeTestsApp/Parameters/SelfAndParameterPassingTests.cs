@@ -289,4 +289,33 @@ public class SelfAndParameterPassingTests : TestBase
     }
 
     #endregion
+
+    #region Getter results the caller owns
+
+    public void TestGenericArrayGetterHandsTheCallerOneOwnedArray()
+    {
+        int id = NextTokenId();
+        PassingTokenBox<PassingToken> box;
+        using (var token = new PassingToken(id))
+            box = new PassingTokenBox<PassingToken>(token);
+        try
+        {
+            for (int read = 0; read < 3; read++)
+            {
+                var items = box.Items;
+                try
+                {
+                    AssertEqual(1, items.Count, "the box holds one token");
+                    using var first = items[0];
+                    AssertEqual((nint)id, first.Id, "the element is the boxed token");
+                }
+                finally { (items as System.IDisposable)?.Dispose(); }
+            }
+            AssertEqual(0, Deaths(id), "the box keeps the token alive after the caller's handle is gone");
+        }
+        finally { box.Dispose(); }
+        AssertEqual(1, Deaths(id), "every read's array was released, so disposing the box destroys the token once");
+    }
+
+    #endregion
 }
