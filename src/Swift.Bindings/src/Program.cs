@@ -1507,7 +1507,7 @@ namespace BindingsGeneration
 
             return true;
             }
-            catch (AbiContractViolationException ex)
+            catch (Exception ex) when (ex is AbiContractViolationException or SelfRegisterContractException)
             {
                 // Caught separately from the generic handler below so the failure reports as the
                 // ABI contract violation it is rather than an unexplained generation error. The

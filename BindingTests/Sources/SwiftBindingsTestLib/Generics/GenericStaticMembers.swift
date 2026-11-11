@@ -156,6 +156,11 @@ public struct StaticNestOuter<T> {
     public final class Node {
         public let value: Int32
         public init(value: Int32) { self.value = value }
+
+        /// The instance's dynamic type, `StaticNestOuter<T>.Node` with `T` spelled out. Its
+        /// allocating initializer takes the specialized metatype in the self register, so a
+        /// wrong or stale one shows up here as the wrong `T`.
+        public var dynamicTypeName: String { String(reflecting: type(of: self)) }
     }
 
     public static func makeLeaf(value: Int32) -> Leaf { Leaf(value: value) }

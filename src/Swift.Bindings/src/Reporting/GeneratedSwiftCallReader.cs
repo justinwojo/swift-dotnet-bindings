@@ -231,10 +231,13 @@ public static class GeneratedSwiftCallReader
             .ToList();
         var untypedSelf = method.ParameterList.Parameters.Any(parameter => IsUntypedSwiftSelf(parameter.Type));
         var hasSwiftError = method.ParameterList.Parameters.Any(parameter => IsType(parameter.Type, "SwiftError"));
+        // A metatype-named self carrier is the class metatype in the self register: the
+        // allocating initializer's, or a static/class member's of a class, actor or ObjC-rooted
+        // parent. The declaration kind on the row says which.
         var selfRole = method.ParameterList.Parameters.Any(parameter =>
             IsUntypedSwiftSelf(parameter.Type)
             && parameter.Identifier.ValueText.Contains("metatype", StringComparison.OrdinalIgnoreCase))
-            ? "allocating_metatype"
+            ? "class_metatype"
             : "instance";
         var route = entryPoint.StartsWith("SBSW_", StringComparison.Ordinal)
             ? "swift_silgen_wrapper"

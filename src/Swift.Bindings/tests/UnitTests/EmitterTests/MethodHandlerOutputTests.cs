@@ -829,8 +829,9 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // P/Invoke should use IntPtr for bound generic, not void*
-        Assert.DoesNotContain("void*", csOutput);
+        // P/Invoke should use IntPtr for bound generic, not void*. The class static's metatype
+        // travels in self as a pointer; no tuple element may.
+        Assert.DoesNotContain(csOutput.Split('\n'), line => line.Contains("void*") && !line.Contains("new SwiftSelf("));
         Assert.Contains("ValueTuple<IntPtr, bool>", csOutput);
         // Return should use per-element marshalling, not raw `return result;`
         Assert.Contains("MarshalFromSwift", csOutput);
@@ -862,8 +863,9 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // P/Invoke should use IntPtr for optional non-ObjC, not void*
-        Assert.DoesNotContain("void*", csOutput);
+        // P/Invoke should use IntPtr for optional non-ObjC, not void*. The class static's metatype
+        // travels in self as a pointer; no tuple element may.
+        Assert.DoesNotContain(csOutput.Split('\n'), line => line.Contains("void*") && !line.Contains("new SwiftSelf("));
         Assert.Contains("ValueTuple<IntPtr, bool>", csOutput);
         // Marshal code should use result.Item1 directly (no &result.Item1)
         Assert.Contains("MarshalFromSwift", csOutput);

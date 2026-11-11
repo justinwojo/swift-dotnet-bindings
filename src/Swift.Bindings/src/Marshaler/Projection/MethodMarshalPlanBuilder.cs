@@ -302,6 +302,11 @@ internal class MethodMarshalPlanBuilder
             var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName, StringComparer.Ordinal);
             foreach (var conformance in conformances)
             {
+                // Lockstep with PInvokeSignatureBuilder.HandleProtocolConformance: a witness table
+                // the class metatype self already carries is not an argument, so no local for it.
+                if (MarshallingHelpers.IsConformanceFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
+                    continue;
+
                 bool resolvable = _isProtocolAvailable(conformance.ConformanceTarget);
                 if (resolvable)
                 {
@@ -1568,6 +1573,14 @@ internal class MethodMarshalPlanBuilder
             {
                 metadataArgs = "";
             }
+            else if (MarshallingHelpers.RequiresClassMetatypeSelf(_env))
+            {
+                // The class metatype travels in the self register (see
+                // PInvokeSignatureBuilder.HandleClassMetatypeSelf) and the callee reads the class's
+                // generic arguments out of it. Only a method's own generic metadata — already in
+                // the signature — is passed; no trailing metadata or metatype argument.
+                metadataArgs = "";
+            }
             else if (_env.MethodDecl.IsConstructor &&
                      _env.ParentDecl is TypeDecl { IsGeneric: true })
             {
@@ -1714,8 +1727,12 @@ internal class MethodMarshalPlanBuilder
             _env.TypeDatabase.TryGetTypeRecord(returnArg.SwiftTypeSpec, out var returnTypeRecord) &&
             returnTypeRecord.Kind == TypeRecordKind.Class && !MarshallingHelpers.IsObjCBridged(returnTypeRecord);
 
+        // The class metatype self is built as `new SwiftSelf((void*)…)`.
+        bool passesClassMetatypeSelf = MarshallingHelpers.RequiresClassMetatypeSelf(_env);
+
         return _requiresIndirectResult || _requiresSwiftSelf || _requiresSwiftAsync || _requiresSwiftError ||
-            methodOwnParamCount > 0 || containsBoundGenerics || hasClosureParams || hasClassReturn;
+            methodOwnParamCount > 0 || containsBoundGenerics || hasClosureParams || hasClassReturn ||
+            passesClassMetatypeSelf;
     }
 
     /// <summary>
@@ -1784,6 +1801,8 @@ internal class MethodMarshalPlanBuilder
     {
         if (_env.MethodDecl.IsConstructor) return false;
         if (_env.MethodDecl.MethodType == MethodType.Static && _env.ParentDecl is StructDecl or EnumDecl) return false;
+        // A class static's metatype goes in the self register, not in a metadata slot.
+        if (MarshallingHelpers.RequiresClassMetatypeSelf(_env)) return false;
         if (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) return false;
         if (_env.MethodDecl.UsesNativeThunk) return false;
         if (_env.MethodDecl.UsesFreeFunctionWrapper) return false;

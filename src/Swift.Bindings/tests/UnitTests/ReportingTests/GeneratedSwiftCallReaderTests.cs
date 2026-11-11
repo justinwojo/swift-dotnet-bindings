@@ -83,8 +83,28 @@ public sealed class GeneratedSwiftCallReaderTests
             public readonly struct SwiftSelf { }
             """).Observations);
 
-        Assert.Equal("allocating_metatype", row.SelfRole);
+        Assert.Equal("class_metatype", row.SelfRole);
         Assert.Equal("constructor", row.DeclarationKind);
+    }
+
+    [Fact]
+    public void ClassStaticMember_ReportsTheClassMetatypeRoleOnAMethodRow()
+    {
+        var row = Assert.Single(Scan("""
+            using System;
+            using System.Runtime.CompilerServices;
+            using System.Runtime.InteropServices;
+            namespace Sample;
+            public class Holder {
+              public static int Shared() => SharedNative(new SwiftSelf());
+              [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]
+              [LibraryImport("One", EntryPoint="$sShared")] private static partial int SharedNative(SwiftSelf _metatypeSelf);
+            }
+            public readonly struct SwiftSelf { }
+            """).Observations);
+
+        Assert.Equal("class_metatype", row.SelfRole);
+        Assert.Equal("method", row.DeclarationKind);
     }
 
     [Fact]

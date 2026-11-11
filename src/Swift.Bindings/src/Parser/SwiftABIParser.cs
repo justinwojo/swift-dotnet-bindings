@@ -2875,8 +2875,11 @@ namespace BindingsGeneration
             // Constructors are NOT skipped even if implicit: implicit inits on types with
             // @_hasMissingDesignatedInitializers are internal and MUST be caught.
             // Public implicit inits DO appear in the public swiftinterface (memberwise inits, etc.).
+            // Operator functions are skipped too: the public member set never indexes them, so
+            // an operator's absence from it carries no information about its access level.
             if (!methodDecl.IsModuleInternal &&
-                (node.@implicit != true || methodDecl.IsConstructor))
+                (node.@implicit != true || methodDecl.IsConstructor) &&
+                !IsOperator(node.Name))
             {
                 bool isCurrentModuleMember = !string.IsNullOrEmpty(node.ModuleName) &&
                     node.ModuleName == CurrentModuleName;

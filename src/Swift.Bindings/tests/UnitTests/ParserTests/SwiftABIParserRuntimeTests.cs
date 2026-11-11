@@ -529,6 +529,59 @@ public class SwiftABIParserRuntimeTests
         Assert.False(subscriptDecl.IsSpiProtected);
     }
 
+    [Fact]
+    public void ParseModule_OperatorAbsentFromPublicMemberNames_IsNotClassifiedInternal()
+    {
+        // The interface's public member set indexes funcs, vars, inits and subscripts but never
+        // operator functions, so an operator's absence from it says nothing about its access.
+        // The non-operator sibling missing from the same set is the control: negative-space
+        // classification is live for this type, so a public operator must not be caught by it.
+        var operatorNode = CreateFunctionNode(
+            name: "+",
+            printedName: "+(_:_:)",
+            funcSelfKind: null,
+            children: new[] { IntTypeNode(), IntTypeNode(), IntTypeNode() });
+        operatorNode.MangledName = "$s10TestModule8OperandsV1poiyS2i_SitFZ";
+        operatorNode.@static = true;
+
+        var hiddenNode = CreateFunctionNode(
+            name: "hidden",
+            printedName: "hidden()",
+            funcSelfKind: null,
+            children: new[] { IntTypeNode() });
+        hiddenNode.MangledName = "$s10TestModule8OperandsV6hiddenSiyFZ";
+        hiddenNode.@static = true;
+
+        var structNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "Operands",
+            mangledName: "$s10TestModule8OperandsVN",
+            children: new[] { operatorNode, hiddenNode });
+
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            PublicMemberNames = new HashSet<string> { "Operands.init()" }
+        };
+
+        using var fixture = CreateParserWithFacts(facts, structNode);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        var operatorDecl = Assert.Single(type.Operators);
+        Assert.False(operatorDecl.UnderlyingMethod.IsModuleInternal,
+            "an operator is never in the public member set, so its absence must not mark it internal");
+        var hidden = Assert.Single(type.Methods, m => m.Name == "hidden");
+        Assert.True(hidden.IsModuleInternal, "a non-operator member absent from the set stays internal");
+
+        static Node IntTypeNode()
+        {
+            var node = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+            node.PrintedName = "Swift.Int";
+            return node;
+        }
+    }
+
     /// <summary>
     /// Builds an ABI subscript node with an all-public <c>(Int) -&gt; Int</c> signature:
     /// child[0] is the return type, child[1] is the single index parameter.

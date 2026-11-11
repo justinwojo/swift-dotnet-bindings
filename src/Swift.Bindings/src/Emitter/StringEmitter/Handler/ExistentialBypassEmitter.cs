@@ -540,7 +540,9 @@ public static class ExistentialBypassEmitter
                 ModuleDecl = methodDecl.ModuleDecl,
                 Throws = false,
                 IsAsync = false,
-                IsSynthesizedAccessor = methodDecl.IsSynthesizedAccessor
+                IsSynthesizedAccessor = methodDecl.IsSynthesizedAccessor,
+                // The SBSW_ bypass wrapper is a top-level Swift function: no self register.
+                TargetsTopLevelFunction = true,
             };
 
             var reducedEnv = new MethodEnvironment(reducedMethodDecl, env.TypeDatabase, compositionCollector: env.CompositionCollector);

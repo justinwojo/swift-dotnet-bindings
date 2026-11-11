@@ -567,32 +567,73 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// True when a class allocating initializer is reached by a direct CallConvSwift P/Invoke
-        /// and therefore has to supply the hidden self register itself.
+        /// True when the native function a class member's P/Invoke reaches takes the class's thick
+        /// metatype in the self register, so the P/Invoke has to supply it.
         ///
-        /// Swift lowers <c>__allocating_init</c> on a class as <c>@convention(method)</c> over
-        /// <c>@thick Self.Type</c>: the emitted body calls <c>swift_allocObject</c> with the metadata
-        /// pointer taken straight out of the swiftself register. A P/Invoke that omits it allocates
-        /// the instance over whatever happens to be in that register — the object's header carries a
-        /// garbage isa, so construction and field reads appear to work while the eventual
-        /// <c>swift_release</c> jumps through a bogus metadata destructor and faults.
+        /// On a class, actor or ObjC-rooted Swift class, Swift lowers every metatype-receiving
+        /// member as <c>@convention(method)</c> over <c>@thick Self.Type</c>: the allocating
+        /// initializer (whose body calls <c>swift_allocObject</c> with the metadata taken from that
+        /// register), every <c>static</c> and <c>class</c> method, property accessor and subscript
+        /// accessor, and every operator (a static function). The callee reads the dynamic type, the
+        /// class's generic arguments and the witness tables the class declares out of that register.
+        /// A P/Invoke that leaves it undefined gets whatever the register last held: an allocation
+        /// with a garbage isa that faults on release, a <c>class func</c> that dispatches on a
+        /// stale type, or a generic body reading its metadata from a stray pointer.
         ///
-        /// Only the direct lane needs this. Every wrapper lane (<c>@_cdecl</c> wrapper, free-function
-        /// wrapper, native thunk, async bridge) reaches the initializer from Swift source, where the
-        /// compiler materialises the metatype at the call. Generic parents are excluded: their
-        /// allocating inits are reached through the specialized-metatype accessor path, which threads
-        /// metadata through its own argument list.
+        /// A struct or enum static has a thin metatype — no self register at all — and is not
+        /// covered here. Nor is any lane where Swift source performs the call: an
+        /// <c>@_cdecl</c> wrapper, native thunk, free-function wrapper or top-level bypass wrapper
+        /// is a function with no self, and Swift materialises the metatype at its call. Async
+        /// members reach the native code through an async-bridge free function. A Swift-convention
+        /// wrapper that is itself an extension member of the class (the default-argument and
+        /// debug-parameter shims, the <c>ArraySlice</c> normalisation wrapper) does read the
+        /// register, so it stays covered.
         /// </summary>
-        public static bool RequiresAllocatingInitMetatypeSelf(MethodEnvironment env)
+        public static bool RequiresClassMetatypeSelf(MethodEnvironment env)
         {
-            if (!env.MethodDecl.IsConstructor) return false;
-            if (env.ParentDecl is not ClassDecl { IsGeneric: false }) return false;
-            if (env.MethodDecl.IsAsync) return false;
-            if (env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.UsesCdeclMethodWrapper) return false;
-            if (env.MethodDecl.UsesFreeFunctionWrapper || env.MethodDecl.UsesNativeThunk) return false;
-            if (env.MethodDecl.UsesWrapperLibrary) return false;
+            var methodDecl = env.MethodDecl;
+            if (env.ParentDecl is not ClassDecl) return false;
+            if (!methodDecl.IsConstructor && methodDecl.MethodType != MethodType.Static) return false;
+            if (methodDecl.IsAsync) return false;
+            if (methodDecl.IsProtocolExtensionMethod) return false;
+            if (WrapperValidation.GetCallingConvention(methodDecl) != PInvokeCallingConvention.Swift) return false;
+            if (methodDecl.UsesFreeFunctionWrapper || methodDecl.TargetsTopLevelFunction) return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="genericParameterName"/> is a generic parameter of the class
+        /// that <see cref="RequiresClassMetatypeSelf"/> passes as self. Swift recovers such a
+        /// parameter's metadata from the metatype in the self register, so the native function
+        /// takes no metadata argument for it. A method's own generic parameter is not recovered
+        /// that way and is still passed.
+        /// </summary>
+        public static bool IsGenericParameterFulfilledByClassMetatypeSelf(
+            MethodEnvironment env, string genericParameterName)
+        {
+            if (!RequiresClassMetatypeSelf(env)) return false;
+            return env.ParentDecl is TypeDecl parent
+                && parent.GenericParameters.Any(p => string.Equals(p.TypeName, genericParameterName, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// True when the witness table for <paramref name="genericParameterName"/>'s conformance to
+        /// <paramref name="protocol"/> comes out of the class metatype in the self register — the
+        /// class itself declares that conformance on that parameter. A conformance a constrained
+        /// extension adds on top of the class's own signature is not stored in the class metadata,
+        /// so the native function still takes it as an argument.
+        /// </summary>
+        public static bool IsConformanceFulfilledByClassMetatypeSelf(
+            MethodEnvironment env, string genericParameterName, SwiftTypeName protocol)
+        {
+            if (!RequiresClassMetatypeSelf(env)) return false;
+            if (env.ParentDecl is not TypeDecl parent) return false;
+            var declared = parent.GenericParameters.FirstOrDefault(p =>
+                string.Equals(p.TypeName, genericParameterName, StringComparison.Ordinal));
+            if (declared is null) return false;
+            return declared.GenericConformances.Any(c => string.Equals(
+                c.ConformanceTarget.ModuleQualifiedName, protocol.ModuleQualifiedName, StringComparison.Ordinal));
         }
 
         /// <summary>

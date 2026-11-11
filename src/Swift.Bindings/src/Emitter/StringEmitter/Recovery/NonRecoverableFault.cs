@@ -46,6 +46,10 @@ internal static class NonRecoverableFault
         // wrong — and is never auto-resolved: it must escape the verify-recover loop untouched.
         AbiValidationInvariantException => true,
 
+        // A call that leaves the Swift self register unset. The self parameter is decided per member
+        // shape, so one omission indicts the rule rather than the member; it must fail the module.
+        SelfRegisterContractException => true,
+
         _ => false,
     };
 }

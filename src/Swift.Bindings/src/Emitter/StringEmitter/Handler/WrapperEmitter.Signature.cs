@@ -113,6 +113,20 @@ namespace BindingsGeneration
                     dispatchModifier = "virtual ";
                 }
             }
+            else if (_env.ParentDecl is ClassDecl staticParent
+                && _env.MethodDecl.MethodType == MethodType.Static
+                && _env.MethodDecl.IsOverride
+                && !_env.MethodDecl.IsConstructor
+                && !isAsyncConstructor
+                && !_env.MethodDecl.IsAccessor
+                && HasMethodInResolvedAncestors(staticParent, _env.MethodDecl, _env.CSharpMethodName, _env.TypeDatabase))
+            {
+                // An override of a `class` member projects to a static in each class. C# statics
+                // cannot override, so the derived one hides the ancestor's; `new` says that is
+                // intended (CS0108 otherwise). Calling it on the derived class passes the derived
+                // metatype, which reaches the Swift override.
+                dispatchModifier = "new ";
+            }
 
             var returnType = _wrapperSignature.ReturnType;
             if (_requiresSwiftAsync)

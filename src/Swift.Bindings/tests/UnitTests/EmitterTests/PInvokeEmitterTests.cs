@@ -1616,6 +1616,8 @@ public class PInvokeEmitterTests
             Name = name,
             MangledName = $"$s10TestModule{parentDecl.Name.Length}{parentDecl.Name}C{name.Length}{name}SiyF",
             MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            // A `static` member of a class is a final `class` member, and the ABI marks it so.
+            IsFinal = isStatic,
             IsConstructor = isConstructor,
             IsAccessor = isAccessor,
             CSSignature = new List<ArgumentDecl>
