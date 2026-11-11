@@ -480,7 +480,7 @@ namespace BindingsGeneration.Demangling
         bool IsObjCSymbol(string mangledName)
         {
             var nameWithoutPrefix = DropSwiftManglingPrefix(mangledName);
-            return nameWithoutPrefix.StartsWith("So", StringComparison.Ordinal) || nameWithoutPrefix.StartsWith("Sc", StringComparison.Ordinal);
+            return nameWithoutPrefix.StartsWith("So", StringComparison.Ordinal) || nameWithoutPrefix.StartsWith("SC", StringComparison.Ordinal);
         }
 
         static bool IsOldFunctionTypeMangling(string mangledName)
@@ -912,8 +912,11 @@ namespace BindingsGeneration.Demangling
                     var repeatCount = DemangleNatural();
                     if (repeatCount > kMaxRepeatCount)
                         return null;
+                    // 'Sc' opens the second-level table (the concurrency standard types), exactly
+                    // as upstream's demangleStandardSubstitution does with nextIf('c').
+                    var secondLevel = NextIf('c');
                     Node nd;
-                    if ((nd = CreateStandardSubstitution(NextChar())) != null)
+                    if ((nd = CreateStandardSubstitution(NextChar(), secondLevel)) != null)
                     {
                         while (repeatCount-- > 1)
                         {
@@ -925,8 +928,11 @@ namespace BindingsGeneration.Demangling
             }
         }
 
-        Node CreateStandardSubstitution(char subst)
+        Node CreateStandardSubstitution(char subst, bool secondLevel)
         {
+            if (secondLevel)
+                return CreateConcurrencyStandardSubstitution(subst);
+
             var kind = NodeKind.Structure;
             string name = null;
             switch (subst)
@@ -934,12 +940,11 @@ namespace BindingsGeneration.Demangling
                 case 'A': name = "AutoreleasingUnsafeMutablePointer"; break;
                 case 'a': name = "Array"; break;
                 case 'b': name = "Bool"; break;
-                case 'c': name = "UnicodeScalar"; break;
                 case 'D': name = "Dictionary"; break;
                 case 'd': name = "Double"; break;
                 case 'f': name = "Float"; break;
                 case 'h': name = "Set"; break;
-                case 'I': name = "DefaultIndicies"; break;
+                case 'I': name = "DefaultIndices"; break;
                 case 'i': name = "Int"; break;
                 case 'J': name = "Character"; break;
                 case 'N': name = "ClosedRange"; break;
@@ -982,6 +987,45 @@ namespace BindingsGeneration.Demangling
                 case 'y': name = "StringProtocol"; kind = NodeKind.Protocol; break;
                 case 'Z': name = "SignedInteger"; kind = NodeKind.Protocol; break;
                 case 'z': name = "BinaryInteger"; kind = NodeKind.Protocol; break;
+                default:
+                    return null;
+            }
+
+            return CreateSwiftType(kind, name);
+        }
+
+        /// <summary>
+        /// The second-level (<c>Sc</c>-prefixed) standard substitutions: upstream's
+        /// <c>STANDARD_TYPE_CONCURRENCY</c> entries in <c>StandardTypesMangling.def</c>. Like
+        /// upstream, the demangled module is <c>Swift</c> even though the types live in
+        /// <c>_Concurrency</c>. Any other letter is rejected rather than falling back to the
+        /// first-level table.
+        /// </summary>
+        Node CreateConcurrencyStandardSubstitution(char subst)
+        {
+            NodeKind kind;
+            string name;
+            switch (subst)
+            {
+                case 'A': name = "Actor"; kind = NodeKind.Protocol; break;
+                case 'C': name = "CheckedContinuation"; kind = NodeKind.Structure; break;
+                case 'c': name = "UnsafeContinuation"; kind = NodeKind.Structure; break;
+                case 'E': name = "CancellationError"; kind = NodeKind.Structure; break;
+                case 'e': name = "UnownedSerialExecutor"; kind = NodeKind.Structure; break;
+                case 'F': name = "Executor"; kind = NodeKind.Protocol; break;
+                case 'f': name = "SerialExecutor"; kind = NodeKind.Protocol; break;
+                case 'G': name = "TaskGroup"; kind = NodeKind.Structure; break;
+                case 'g': name = "ThrowingTaskGroup"; kind = NodeKind.Structure; break;
+                case 'h': name = "TaskExecutor"; kind = NodeKind.Protocol; break;
+                case 'I': name = "AsyncIteratorProtocol"; kind = NodeKind.Protocol; break;
+                case 'i': name = "AsyncSequence"; kind = NodeKind.Protocol; break;
+                case 'J': name = "UnownedJob"; kind = NodeKind.Structure; break;
+                case 'M': name = "MainActor"; kind = NodeKind.Class; break;
+                case 'P': name = "TaskPriority"; kind = NodeKind.Structure; break;
+                case 'S': name = "AsyncStream"; kind = NodeKind.Structure; break;
+                case 's': name = "AsyncThrowingStream"; kind = NodeKind.Structure; break;
+                case 'T': name = "Task"; kind = NodeKind.Structure; break;
+                case 't': name = "UnsafeCurrentTask"; kind = NodeKind.Structure; break;
                 default:
                     return null;
             }

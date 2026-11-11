@@ -19,9 +19,9 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// Regression tests for HandleConformance demangler robustness.
 ///
-/// The Swift demangler does not yet recognize every standard library short substitution
-/// (notably the `Sc*` family used by `_Concurrency` types — `$sSci` for AsyncSequence,
-/// `$sScI` for AsyncIteratorProtocol, etc.). Before the fix, an exception in the demangler
+/// A conformance's protocol mangled name may use a substitution the demangler does not
+/// recognize (the `Sc*` concurrency family once was; `$sScz` stands in for one here, since
+/// `z` is not in that table). Before the fix, an exception in the demangler
 /// would propagate up through CreateStructDecl's `node.Conformances.Select(...)` and kill
 /// the entire enclosing TypeDecl via HandleNode's catch-all — silently dropping nested
 /// types like `Transaction.Transactions` from real StoreKit bindings.
@@ -44,7 +44,7 @@ public class HandleConformanceRobustnessTests
             mangledName: "$s10TestModule5OuterCN");
         classNode.Conformances = new[]
         {
-            CreateConformanceNode("AsyncSequence", "$sSci"),
+            CreateConformanceNode("AsyncSequence", "$sScz"),
         };
 
         var logger = new CapturingLogger();
@@ -62,7 +62,7 @@ public class HandleConformanceRobustnessTests
         Assert.NotNull(conf.Protocol);
 
         // Demangler fallback must have actually fired — confirms my fix executed.
-        Assert.Contains(logger.Messages, m => m.Contains("Failed to demangle conformance") && m.Contains("$sSci"));
+        Assert.Contains(logger.Messages, m => m.Contains("Failed to demangle conformance") && m.Contains("$sScz"));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class HandleConformanceRobustnessTests
             mangledName: "$s10TestModule11TransactionC12TransactionsCN");
         nestedNode.Conformances = new[]
         {
-            CreateConformanceNode("AsyncSequence", "$sSci"),
+            CreateConformanceNode("AsyncSequence", "$sScz"),
         };
 
         var outerNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "Transaction",
@@ -101,14 +101,14 @@ public class HandleConformanceRobustnessTests
     public void ParseModule_ProtocolWithUnparseableInheritedProtocol_ProtocolStillEmitted()
     {
         // CreateProtocolDecl has its own demangler call (separate from HandleConformance) for
-        // building InheritedProtocols. Before the fix, an unsupported substitution like $sSci
+        // building InheritedProtocols. Before the fix, an unsupported substitution like $sScz
         // would throw, HandleNode's catch-all would swallow it, and the entire ProtocolDecl
         // would be silently dropped. Mirror coverage of the nominal-type fix for the protocol path.
         var protocolNode = CreateNode(kind: "TypeDecl", declKind: "Protocol", name: "MyProtocol",
             mangledName: "$s10TestModule10MyProtocolPN");
         protocolNode.Conformances = new[]
         {
-            CreateConformanceNode("AsyncSequence", "$sSci"),
+            CreateConformanceNode("AsyncSequence", "$sScz"),
         };
 
         var logger = new CapturingLogger();
@@ -122,7 +122,7 @@ public class HandleConformanceRobustnessTests
 
         // The fallback path must have actually fired in CreateProtocolDecl.
         Assert.Contains(logger.Messages, m =>
-            m.Contains("Failed to demangle inherited protocol") && m.Contains("$sSci"));
+            m.Contains("Failed to demangle inherited protocol") && m.Contains("$sScz"));
 
         // The inherited protocol must still be carried (with the fallback identity).
         Assert.Single(proto.InheritedProtocols);
@@ -136,7 +136,7 @@ public class HandleConformanceRobustnessTests
             mangledName: "$s10TestModule5OuterCN");
         classNode.Conformances = new[]
         {
-            CreateConformanceNode("AsyncSequence", "$sSci"),  // unparseable Sc-substitution
+            CreateConformanceNode("AsyncSequence", "$sScz"),  // unknown Sc-substitution
             CreateConformanceNode("Sendable", "$ss8SendableP"),
         };
 
