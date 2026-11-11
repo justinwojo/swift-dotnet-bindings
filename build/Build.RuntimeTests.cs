@@ -988,6 +988,8 @@ partial class Build
             // Step 2: Build RuntimeTestsApp (unless --skip-build)
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices("iOS Simulator", ApplePlatform.IOS.SimulatorSliceId);
+
                 // In-tree StoreKit 2 snapshot regeneration. Runs the generator against
                 // the active Xcode SDK and drops the output at
                 // BindingTests/obj/StoreKit2Snapshot/, which RuntimeTestsApp.csproj
@@ -1177,7 +1179,6 @@ partial class Build
             else
             {
                 AssertBindingsNotStale(expectedPlatform: ApplePlatform.IOS);
-                AssertDeviceSliceExists();
             }
 
             // Configuration is the lane separator: NativeAOT publishes Release, Mono full-AOT builds
@@ -1186,6 +1187,7 @@ partial class Build
 
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices(laneLabel, ApplePlatform.IOS.DeviceSliceId!);
                 if (monoAot || CoreClr)
                 {
                     // Mono full-AOT: a plain device BUILD with PublishAot suppressed. Property choice
@@ -1372,6 +1374,8 @@ partial class Build
 
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices(label, platform.SimulatorSliceId);
+
                 // Regenerate Apple-framework macOS snapshots before building.
                 // Same pattern as iOS (RunSimulatorPlatform) — the regen is
                 // gated on the same Enable*Smoke CLI parameters and uses the
@@ -1489,6 +1493,7 @@ partial class Build
 
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices(label, platform.SimulatorSliceId);
                 Log.Information("--- Building RuntimeTestsApp.MacCatalyst ---");
 
                 // Clean previous app bundle to avoid codesign "unsealed contents"
@@ -1647,6 +1652,7 @@ partial class Build
             // Step 2: Build RuntimeTestsApp.tvOS (unless --skip-build)
             if (!SkipBuild)
             {
+                AssertLaneNativeSlices("tvOS Simulator", platform.SimulatorSliceId);
                 if (EnableStoreKitSmoke)
                     RegenerateStoreKit2Snapshot(force: false, platform);
                 Log.Information("--- Building RuntimeTestsApp.tvOS ---");
@@ -3078,13 +3084,18 @@ partial class Build
         return raw.Replace("\n", ",");
     }
 
-    void AssertDeviceSliceExists()
+    /// <summary>
+    /// Fails before the app build when the lane's xcframework slice is missing from any native
+    /// input the app loads. The app projects and the injection helpers skip such an input rather
+    /// than fail, so without this a reused regen from another lane ships an app with no wrapper.
+    /// </summary>
+    void AssertLaneNativeSlices(string lane, string sliceId)
     {
-        var deviceSliceDir = BtXcframeworkDir / "ios-arm64";
-        if (!Directory.Exists(deviceSliceDir))
-            throw new InvalidOperationException(
-                "Device slice missing from SwiftBindingsTestLib.xcframework. " +
-                "Run without --skip-regen first.");
+        var required = LaneNativeSlices.Required(BindingTestsDir, sliceId, ModuleName, DepModuleName, WrapperModule);
+        var failure = LaneNativeSlices.Failure(lane, sliceId, LaneNativeSlices.Missing(required), reusedBindings: SkipRegen);
+        if (failure != null)
+            throw new InvalidOperationException(failure);
+        Log.Information("Native inputs carry the {Slice} slice for {Lane}.", sliceId, lane);
     }
 
     // ============================================================
