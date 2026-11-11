@@ -107,26 +107,54 @@ jobs:
           echo "Dry run:        $IS_DRYRUN"
           echo "Prerelease:     $IS_PRERELEASE"
 
-  # --- Validation (same structure as ci.yml) ---
+  # --- Toolchain profiles ---
+  # Every SDK, workload set, Xcode and runner label in this workflow comes from
+  # build/toolchains/*.json through this job; test_toolchain_ci.py fails on a hard-coded pin.
+
+  toolchains:
+    name: Resolve toolchain profiles
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      profiles: ${{ steps.resolve.outputs.profiles }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build/toolchains
+            build/scripts/ci
+
+      - name: Resolve profile pins
+        id: resolve
+        run: python3 -B build/scripts/ci/toolchain_ci.py resolve --github-output profiles
+
+  # --- Validation: net10-xcode26, the unprofiled workflow (global.json), as in ci.yml ---
 
   build-and-test:
     name: Build & Test
-    needs: [validate-branch]
-    runs-on: macos-26
+    needs: [validate-branch, toolchains]
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -173,22 +201,27 @@ jobs:
 
   bindingtests:
     name: BindingTests
-    needs: [validate-branch]
-    runs-on: macos-26
+    needs: [validate-branch, toolchains]
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -280,11 +313,15 @@ jobs:
   # Moved out of the publish job so packing runs alongside bindingtests
   # instead of after it. Publishing still gates on bindingtests passing,
   # but the 6+ minute pack no longer sits on the critical path tail.
+  # Packs once, on net10-xcode26, the oldest supported toolchain: the packages
+  # ship net10.0 assets that .NET 11 apps also consume, and native code built
+  # with the older Xcode links into apps built with either supported Xcode,
+  # where a build with the newer one would not serve the older lane.
 
   release-pack:
     name: Pack release packages
-    needs: [validate-branch]
-    runs-on: macos-26
+    needs: [validate-branch, toolchains]
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     outputs:
       lane: ${{ steps.version.outputs.lane }}
       sdk_version: ${{ steps.version.outputs.sdk_version }}
@@ -297,16 +334,21 @@ jobs:
         with:
           fetch-depth: 0  # Resolve versions falls back to latest sdk-v*/apple-v* tag
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -489,22 +531,27 @@ jobs:
 
   blast-radius:
     name: Validate blast radius
-    needs: [validate-branch]
-    runs-on: macos-26
+    needs: [validate-branch, toolchains]
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -520,6 +567,75 @@ jobs:
         timeout-minutes: 10
         run: dotnet nuke validate-blast-radius
 
+  # --- Validation: the newer-Xcode profiles (net10-xcode27, net11-xcode27) ---
+  # The same three gates per profile, run through the profile launcher, which pins the SDK,
+  # workload set and Xcode exactly: unit tests, the strict compile gate and the full iOS
+  # simulator suite. net10 runs Mono JIT (Debug); net11 runs CoreCLR in Release, the lane
+  # whose .NET 11 identity floor is seeded (Debug waits on the CoreCLR interpreter bridge).
+  # Packaging and publish run once, on net10-xcode26, but publish needs every leg here.
+
+  profile-gates:
+    name: Gates (${{ matrix.profile }})
+    needs: [validate-branch, toolchains]
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)[matrix.profile].runner }}
+    permissions:
+      contents: read
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [net10-xcode27, net11-xcode27]
+    env:
+      PROFILE: ${{ matrix.profile }}
+      SIM_CONFIGURATION: ${{ fromJSON(needs.toolchains.outputs.profiles)[matrix.profile].simulator_configuration }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain profile
+        uses: ./.github/actions/toolchain-profile
+        with:
+          profile: ${{ matrix.profile }}
+
+      - name: Create and boot iOS Simulator (background)
+        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
+
+      - name: Unit tests
+        run: >
+          bash build.sh --toolchain-profile "$PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- test
+
+      - name: Compile gate (strict)
+        run: >
+          bash build.sh --toolchain-profile "$PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --strict --compile-only --skip-surface
+
+      - name: Wait for simulator boot
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
+
+      - name: Run iOS Simulator tests
+        timeout-minutes: 40
+        run: >
+          python3 build/scripts/ci/ci_ios_test.py
+          --toolchain-profile "$PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          --binding-test-configuration "$SIM_CONFIGURATION"
+          --device-udid "$SIM_UDID" --skip-prepare --skip-build
+          --timeout 420 --skip-regen
+          --step-timeout 2100
+
+      - name: Upload simulator diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-diagnostics-${{ matrix.profile }}
+          path: /tmp/sim-diagnostics/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # --- PackGate: nupkg packaging regression gate (hosted-CI-safe) ---
   # Runs on the release lane (and dry-run branches, via publish-release's needs)
   # so a green pipeline actually proves the nupkg packaging the gate catalog
@@ -534,22 +650,27 @@ jobs:
 
   packgate:
     name: PackGate
-    needs: [validate-branch]
-    runs-on: macos-26
+    needs: [validate-branch, toolchains]
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -592,11 +713,13 @@ jobs:
 
   publish-release:
     name: Publish release
-    runs-on: macos-26
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     needs:
       - validate-branch
+      - toolchains
       - build-and-test
       - bindingtests
+      - profile-gates
       - blast-radius
       - packgate
       - release-pack
@@ -610,7 +733,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Download release packages
         uses: actions/download-artifact@v4

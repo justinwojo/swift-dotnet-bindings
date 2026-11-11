@@ -12,9 +12,28 @@ permissions:
   contents: read
 
 jobs:
+  # The SDK and runner label come from build/toolchains/net10-xcode26.json, the unprofiled lane.
+  toolchains:
+    name: Resolve toolchain profiles
+    runs-on: ubuntu-latest
+    outputs:
+      profiles: ${{ steps.resolve.outputs.profiles }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build/toolchains
+            build/scripts/ci
+
+      - name: Resolve profile pins
+        id: resolve
+        run: python3 -B build/scripts/ci/toolchain_ci.py resolve --github-output profiles
+
   analyze:
     name: Analyze C#
-    runs-on: macos-26
+    needs: toolchains
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +41,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore

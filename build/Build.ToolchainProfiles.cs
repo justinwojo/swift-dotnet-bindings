@@ -41,6 +41,11 @@ partial class Build
                     $"-B \"{RootDirectory / "build/scripts/test_run_toolchain.py"}\" -v",
                     workingDirectory: RootDirectory)
                 .AssertZeroExitCode();
+            // The workflows read every pin from build/toolchains; this fails on a hard-coded one.
+            ProcessTasks.StartProcess("python3",
+                    $"-B \"{RootDirectory / "build/scripts/ci/test_toolchain_ci.py"}\" -v",
+                    workingDirectory: RootDirectory)
+                .AssertZeroExitCode();
         });
 
     /// <summary>

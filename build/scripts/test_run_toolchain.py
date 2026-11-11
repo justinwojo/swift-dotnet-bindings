@@ -291,6 +291,23 @@ class ToolchainIsolationTests(unittest.TestCase):
                 self.assertEqual(selected.get("managedFramework", "net10.0"),
                                  "net11.0" if path.stem.startswith("net11-") else "net10.0")
 
+    def test_host_runtimes_must_be_installed_in_the_selected_root(self):
+        listing = ("Microsoft.AspNetCore.App 11.0.0 [/sdk/shared/Microsoft.AspNetCore.App]\n"
+                   "Microsoft.NETCore.App 10.0.15 [/sdk/shared/Microsoft.NETCore.App]\n"
+                   "Microsoft.NETCore.App 11.0.0 [/sdk/shared/Microsoft.NETCore.App]\n")
+        self.assertEqual(profile.missing_host_runtimes({"hostRuntimes": ["10.0.15"]}, listing), [])
+        self.assertEqual(profile.missing_host_runtimes({}, listing), [])
+        self.assertEqual(profile.missing_host_runtimes({"hostRuntimes": ["10.0.16"]}, listing), ["10.0.16"])
+        # An ASP.NET Core runtime of the pinned version does not satisfy the pin.
+        self.assertEqual(profile.missing_host_runtimes(
+            {"hostRuntimes": ["11.0.0"]}, listing.replace("NETCore.App 11.0.0", "NETCore.App 11.0.1")), ["11.0.0"])
+        with self.assertRaisesRegex(RuntimeError, "hostRuntimes must be a list"):
+            profile.missing_host_runtimes({"hostRuntimes": "10.0.15"}, listing)
+        # The net11 root keeps a .NET 10 runtime for the net10 Nuke global tool and generator.
+        manifests = Path(spec.origin).resolve().parents[1] / "toolchains"
+        net11 = json.loads((manifests / "net11-xcode27.json").read_text())
+        self.assertTrue(any(v.startswith("10.") for v in net11["hostRuntimes"]))
+
     def test_legacy_profile_keeps_net10_and_rejects_unknown_framework(self):
         selected = {"dotnetRoot": str(self.root / "sdk"),
                     "developerDirectory": str(self.root / "xcode"),

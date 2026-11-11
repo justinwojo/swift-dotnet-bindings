@@ -123,6 +123,19 @@ def audit_suppressions(profile):
     return urls
 
 
+def missing_host_runtimes(profile, listing):
+    """hostRuntimes a profile pins (Microsoft.NETCore.App versions) absent from `dotnet --list-runtimes`.
+
+    The net11 root carries a .NET 10 runtime for the net10 Nuke global tool and generator; CI
+    provisions exactly the versions listed here, so the launcher holds a local root to them too.
+    """
+    pinned = profile.get("hostRuntimes", [])
+    if not isinstance(pinned, list) or not all(isinstance(v, str) and v for v in pinned):
+        raise RuntimeError(f"hostRuntimes must be a list of runtime versions: {pinned!r}")
+    installed = set(re.findall(r"^Microsoft\.NETCore\.App (\S+) ", listing, re.M))
+    return [version for version in pinned if version not in installed]
+
+
 def temporary_root(state):
     return Path("/private/tmp") / f"swift-bindings-tc-{os.getuid()}-{digest(str(state.resolve()))[:16]}"
 
@@ -161,6 +174,9 @@ def toolchain_receipt(profile, state, env):
     for workload in ("ios", "tvos", "macos", "maccatalyst"):
         if f"[{workload}]" not in workloads:
             raise RuntimeError(f"Required workload is not installed: {workload}")
+    runtimes = execute([host, "--list-runtimes"], cwd=control, env=env)
+    if missing := missing_host_runtimes(profile, runtimes):
+        raise RuntimeError(f"Required host runtime is not installed: Microsoft.NETCore.App {', '.join(missing)}")
     # Include exact manifest identities, compiler build, paths and SDK versions, not mtimes.
     ref_packs = {}
     for family in sorted((Path(env["DOTNET_ROOT"]) / "packs").glob("Microsoft.*.Ref*")):
@@ -169,8 +185,7 @@ def toolchain_receipt(profile, state, env):
     return {"sdk": sdk, "workloads": workloads, "xcode": xcode, "referencePacks": ref_packs,
             # Preserve the legacy receipt shape/cache identity; the new profile additionally
             # records the distinct managed app target and its side-by-side build-host runtime.
-            **({"managedFramework": env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"],
-                "runtimes": execute([host, "--list-runtimes"], cwd=control, env=env)}
+            **({"managedFramework": env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"], "runtimes": runtimes}
                if env["SWIFT_BINDINGS_MANAGED_FRAMEWORK"] != "net10.0" else {}),
             "dotnetRoot": env["DOTNET_ROOT"], "developerDirectory": env["DEVELOPER_DIR"],
             "temporaryDirectory": env["TMPDIR"], "nugetPackages": env["NUGET_PACKAGES"],

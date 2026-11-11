@@ -51,7 +51,9 @@ SDK with Microsoft's
 (Apple workload manifests 27.2.11039). Both use Xcode 27.2 (27B52) from separate
 SDK roots, `~/.local/share/swift-bindings/toolchains/net10-xcode27.2/dotnet` and
 `~/.local/share/swift-bindings/toolchains/net11-xcode27.2/dotnet`; the .NET 11 root
-also carries a .NET 10 runtime (10.0.15) for the net10 build tools.
+also carries a .NET 10 runtime (10.0.15) for the net10 build tools. A profile lists such
+extra runtimes in `hostRuntimes`; the launcher refuses a root that lacks one, and CI
+installs them.
 
 Earlier receipts for these profile names used other pins: `net10-xcode27` used SDK
 10.0.401/workload 10.0.401.1 with Xcode 27.0 (and before that 10.0.402/10.0.402.1
@@ -91,6 +93,41 @@ device suite, but its full NativeAOT suite was blocked by upstream IL2037 for ex
 interface properties on NSObject subclasses. That record does not cover the current
 27.2 pin; do not treat the profile manifest as unrestricted NativeAOT support until
 the 27.2 pair passes the NativeAOT gates.
+
+## Continuous integration
+
+The workflows read every pin from these manifests. A `toolchains` job runs
+`build/scripts/ci/toolchain_ci.py resolve` and publishes each profile's SDK, workload set,
+Xcode path, hosted runner label and simulator configuration as a job output. Other jobs
+take their runner and SDK from that output. `build/scripts/ci/test_toolchain_ci.py` (part of
+`nuke test`) fails if a workflow or action hard-codes an SDK, workload, runtime, Xcode
+version, Xcode path or macOS runner label, or if a release profile stops gating publish.
+Bumping a pin is therefore a manifest edit alone.
+
+| Profile | How CI runs it | Hosted runner |
+| --- | --- | --- |
+| `net10-xcode26` | Unprofiled: `actions/setup-dotnet` installs the SDK, `global.json` selects it, and `toolchain_ci.py verify` checks SDK, workload set and Xcode against the manifest | `macos-26` |
+| `net10-xcode27`, `net11-xcode27` | Through the launcher: `.github/actions/toolchain-profile` installs the SDK, `hostRuntimes` and workload set into an isolated root with `dotnet-install.sh`, then prepares the launcher workspace | `xcode-27` |
+
+`global.json` serves only the unprofiled lane, which is `net10-xcode26`: its workload set
+must equal that manifest's, and its `latestPatch` SDK floor must stay in the same feature
+band, at or below the manifest SDK. Profiled runs never read it; the launcher writes an
+exact pin into its own workspace.
+
+Per pull request, the `net10-xcode26` jobs run as before and `net11-xcode27` runs the strict
+compile gate and a CoreCLR simulator canary (`CORECLR_CANARY_CLASSES` in `ci.yml`, Release
+until the interpreter bridge lands; `CORECLR_CANARY_CONFIGURATION` is the switch). A release
+runs `nuke test`, the strict compile gate and the full simulator suite on all three
+profiles, and publish needs every one. Packing runs once, on `net10-xcode26`.
+
+`toolchain_ci.py` can be run locally. Use `--developer-dir` where the Xcode path differs from
+the hosted `/Applications/Xcode_<version>.app`:
+
+```sh
+python3 -B build/scripts/ci/toolchain_ci.py resolve --profile net11-xcode27
+python3 -B build/scripts/ci/toolchain_ci.py verify --profile net11-xcode27 \
+  --dotnet-root /path/to/dotnet --developer-dir /path/to/Xcode.app/Contents/Developer
+```
 
 ## Isolation and reuse
 

@@ -66,6 +66,34 @@ class ManagedTargetTests(unittest.TestCase):
             self.assertIn("--allow-unqualified-runtime", command)
 
 
+    def test_profile_launch_runs_nuke_through_the_launcher_with_its_framework(self):
+        completed = subprocess.CompletedProcess([], 0, "TEST SUCCESS", "")
+        launch = ci_ios_test.ProfileLaunch("net11-xcode27", "/ci/dotnet", "/Applications/Xcode_27.2.app/Contents/Developer")
+        with patch.dict(ci_ios_test.os.environ, {}, clear=True), \
+                patch.object(ci_ios_test.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(ci_ios_test.run_tests("/fixture/BindingTests", "sim", binding_test_configuration="Release",
+                                                   profile_launch=launch), 0)
+            command = run.call_args.args[0]
+            separator = command.index("--")
+            self.assertEqual(command[:separator], [
+                "bash", "/fixture/build.sh", "--toolchain-profile", "net11-xcode27",
+                "--dotnet-root", "/ci/dotnet", "--developer-dir", "/Applications/Xcode_27.2.app/Contents/Developer"])
+            self.assertEqual(command[separator + 1], "binding-tests")
+            # The profile, not the caller's environment, decides the lane's framework.
+            self.assertEqual(command[command.index("--binding-test-framework") + 1], "net11.0")
+            self.assertEqual(run.call_args.kwargs["cwd"], "/fixture")
+        self.assertEqual(ci_ios_test.ProfileLaunch("net10-xcode27").framework, "net10.0")
+        with self.assertRaisesRegex(ValueError, "disagrees"):
+            ci_ios_test.run_tests("/fixture/BindingTests", "sim", binding_test_framework="net10.0", profile_launch=launch)
+        with self.assertRaisesRegex(ValueError, "Unknown toolchain profile"):
+            ci_ios_test.ProfileLaunch("net12-xcode28").framework
+
+    def test_profile_launch_never_builds_outside_the_launcher(self):
+        with self.assertRaisesRegex(ValueError, "requires --skip-build"):
+            ci_ios_test.run_pipeline("/fixture/BindingTests", skip_build=False,
+                                     profile_launch=ci_ios_test.ProfileLaunch("net11-xcode27"))
+
+
 class RunTestsAcceptanceTests(unittest.TestCase):
     def _run(self, side_effect, max_test_retries=1):
         calls = []

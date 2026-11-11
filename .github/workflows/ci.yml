@@ -13,24 +13,65 @@ permissions:
   contents: read
   checks: write
 
+env:
+  # .NET 11 CoreCLR canary (net11-coreclr job). Release until the CoreCLR interpreter bridge
+  # lands: Debug runs the interpreter, which cannot yet call Swift. Flip to Debug then.
+  CORECLR_CANARY_CONFIGURATION: Release
+  # One class per risk the CoreCLR Swift calling convention carries, small enough to run in
+  # seconds once the app is built:
+  #   BlittableRoundTripTests     scalar and frozen-struct arguments/returns (the tier-1 smoke)
+  #   MixedRegisterReturnTests    swiftcc field-wise struct returns across GPR/FPR files
+  #   StringMarshallingTests      Swift String ownership and value-witness copies
+  #   SiblingMethodDispatchTests  reverse dispatch: Swift calling C# protocol implementations
+  #   ClosureTests                closures in both directions, UnmanagedCallersOnly trampolines
+  CORECLR_CANARY_CLASSES: >-
+    BlittableRoundTripTests MixedRegisterReturnTests StringMarshallingTests
+    SiblingMethodDispatchTests ClosureTests
+
 jobs:
+  # Every SDK, workload set, Xcode and runner label below comes from build/toolchains/*.json.
+  toolchains:
+    name: Resolve toolchain profiles
+    runs-on: ubuntu-latest
+    outputs:
+      profiles: ${{ steps.resolve.outputs.profiles }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build/toolchains
+            build/scripts/ci
+
+      - name: Resolve profile pins
+        id: resolve
+        run: python3 -B build/scripts/ci/toolchain_ci.py resolve --github-output profiles
+
   build-and-test:
     name: Build & Test
-    runs-on: macos-26
+    needs: toolchains
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      # global.json rolls forward to the newest installed 10.0.1xx patch; fail if the image's
+      # preinstalled SDKs would select anything but the profile's pin.
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -78,21 +119,29 @@ jobs:
 
   bindingtests:
     name: BindingTests
-    runs-on: macos-26
+    needs: toolchains
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      # global.json rolls forward to the newest installed 10.0.1xx patch; fail if the image's
+      # preinstalled SDKs would select anything but the profile's pin.
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
@@ -185,10 +234,60 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # net11-xcode27: the compile gate plus a CoreCLR runtime canary on the iOS simulator.
+  # Runs through the profile launcher, which pins the SDK, workload set and Xcode exactly.
+  # Set the repository variable SKIP_XCODE27_CI to 'true' to pause it while the hosted image for
+  # that Xcode is unavailable; the release workflow has no such switch.
+  net11-coreclr:
+    name: BindingTests (.NET 11 CoreCLR)
+    needs: toolchains
+    if: vars.SKIP_XCODE27_CI != 'true'
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27'].runner }}
+    timeout-minutes: 150
+    env:
+      PROFILE: net11-xcode27
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain profile
+        uses: ./.github/actions/toolchain-profile
+        with:
+          profile: net11-xcode27
+
+      - name: Create and boot iOS Simulator (background)
+        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
+
+      - name: Compile gate (strict)
+        run: >
+          bash build.sh --toolchain-profile "$PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --strict --compile-only --skip-surface
+
+      - name: Wait for simulator boot
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
+
+      # The first class builds the app from the bindings the compile gate generated; the rest
+      # reuse it. A class name that matches nothing fails inside the app ("No test class matches").
+      - name: CoreCLR runtime canary (${{ env.CORECLR_CANARY_CONFIGURATION }})
+        timeout-minutes: 45
+        run: |
+          reuse=()
+          for class in $CORECLR_CANARY_CLASSES; do
+            echo "::group::$class"
+            bash build.sh --toolchain-profile "$PROFILE" \
+              --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" \
+              -- binding-tests --sim --device-udid "$SIM_UDID" --skip-regen "${reuse[@]}" \
+              --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION" --class-filter "$class"
+            echo "::endgroup::"
+            reuse=(--skip-build)
+          done
+
   package-smoke:
     name: Package Smoke Test
-    runs-on: macos-26
-    needs: build-and-test
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].runner }}
+    needs: [toolchains, build-and-test]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -211,16 +310,23 @@ jobs:
           echo "SWIFT_BINDINGS_API_COMPAT_BASELINE=$baseline" >> "$GITHUB_ENV"
           echo "Runtime API compatibility baseline: $baseline"
 
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+      - name: Select Xcode
+        env:
+          XCODE_APP: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].xcode_app }}
+        run: sudo xcode-select -s "$XCODE_APP"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.107
+          dotnet-version: ${{ fromJSON(needs.toolchains.outputs.profiles)['net10-xcode26'].sdk_version }}
 
       - name: Install workloads
         run: dotnet workload restore
+
+      # global.json rolls forward to the newest installed 10.0.1xx patch; fail if the image's
+      # preinstalled SDKs would select anything but the profile's pin.
+      - name: Verify toolchain
+        run: python3 -B build/scripts/ci/toolchain_ci.py verify --profile net10-xcode26
 
       - name: Restore Nuke tool
         run: dotnet tool restore
