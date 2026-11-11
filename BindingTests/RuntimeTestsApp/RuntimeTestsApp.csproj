@@ -27,8 +27,6 @@
          suppressed here — nothing in this app may call one. -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
-    <!-- CA1418: 'visionos' missing from the .NET 10.0.107 analyzer's KnownPlatforms list
-         on the plain net10.0-ios TFM. See the matching note in CompileCheck.csproj. -->
     <!-- IL2121: "unused UnconditionalSuppressMessage". The suppressions it names live in
          Swift.Runtime and are load-bearing for ILC, which analyses those generic reflection paths
          differently from ILLink. Only the Mono full-AOT device lane runs ILLink over this app, and
@@ -36,7 +34,7 @@
          product code that is correct for both, and the repo-wide TreatWarningsAsErrors would
          otherwise turn it into a build break on that lane alone. Deleting the suppressions to
          satisfy it would red the NativeAOT lane instead. -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104;IL2121</NoWarn>
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104;IL2121</NoWarn>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
