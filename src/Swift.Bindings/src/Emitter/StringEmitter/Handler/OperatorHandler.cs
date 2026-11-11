@@ -277,6 +277,20 @@ namespace BindingsGeneration
                 if (!usesCdeclWrapper && emissionContext != null)
                     TryRouteClassOperatorThroughNativeThunk(parentDecl, methodEnv, emissionContext);
 
+                // A typed throw leaves the raw error value in the error register, not a boxed
+                // `any Error`; only a Swift frame that catches and re-boxes it can hand it to the
+                // error helpers. The native thunk declines typed throws for that reason, and an
+                // operator off the @_cdecl wrapper has no such frame, so the call would compile and
+                // then read the raw value as an error box on the first throw.
+                if (!usesCdeclWrapper && methodDecl.HasTypedThrows)
+                {
+                    _logger.LogWarning($"Operator '{symbol}' uses typed throws, which needs a @_cdecl wrapper to box its error — skipping.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
+                        "Typed-throws operator: the error register holds the raw typed value, which only a @_cdecl wrapper can box, and this operator's parent has no operator wrapper.");
+                    RollbackOperator();
+                    return false;
+                }
+
                 var signatureHandler = new SignatureHandler(methodEnv);
 
                 // Check if signature is supported
@@ -334,9 +348,21 @@ namespace BindingsGeneration
                 }
                 var typeNameWithGenerics = $"{resolvedSimpleName}{GenericTypeEmitter.GetGenericParameterList(parentDecl)}";
 
+                // A body that calls the Swift symbol (directly or through the ownership-transparent
+                // native thunk) owes the callee what an ordinary member's body does: a +1 for every
+                // operand it consumes, and an error check before the result is read. Both come from
+                // the ordinary member emitter, so the operator cannot model either differently. The
+                // @_cdecl operator wrapper is a Swift frame that borrows and handles both itself.
+                var callSite = !usesCdeclWrapper && WrapperEmitter.CallSiteNeedsOwnershipOrErrorHalves(methodEnv)
+                    ? new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo: null, emissionContext)
+                    : null;
+
                 // Emit the operator wrapper and PInvoke
-                EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper);
+                EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper, callSite);
                 EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
+                // Last, after every step that can still refuse the operator: the error helpers are
+                // deduplicated per type, so they must not be claimed by an operator that rolls back.
+                callSite?.EmitCallSiteMemberDeclarations(csWriter);
                 ReportCollector.RecordMemberEmitted(operatorDecl);
                 csWriter.WriteLine();
                 return true;
@@ -366,7 +392,7 @@ namespace BindingsGeneration
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
         /// <param name="isReferenceType">Whether the containing type is a reference type.</param>
         /// <param name="methodEnv">The method environment for indirect result detection.</param>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv, bool usesCdeclWrapper = false)
+        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv, bool usesCdeclWrapper = false, WrapperEmitter? callSite = null)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
@@ -376,7 +402,9 @@ namespace BindingsGeneration
             // Bug #1: Detect if the operator return type requires indirect result allocation.
             // Non-frozen/class return types (BigUInt, BigInt) need SwiftIndirectResult.
             bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
-            bool needsUnsafeBody = requiresIndirectResult || MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv);
+            // The error check reads the error carrier's pointer, which needs an unsafe context.
+            bool needsUnsafeBody = requiresIndirectResult || MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv)
+                || callSite != null;
 
             // Bug #10: Build generic parameter remapping for operators on generic types.
             // Operators are static methods that may have method-own generic params shadowing the
@@ -466,7 +494,7 @@ namespace BindingsGeneration
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv.SyntheticLocals);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv);
 
                 if (usesCdeclWrapper)
                 {
@@ -480,7 +508,7 @@ namespace BindingsGeneration
                     if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
-                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
+                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite);
 
                     if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
                 }
@@ -515,7 +543,7 @@ namespace BindingsGeneration
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv.SyntheticLocals);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv);
 
                 if (usesCdeclWrapper)
                 {
@@ -529,7 +557,7 @@ namespace BindingsGeneration
                     if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
-                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
+                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite);
 
                     if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
                 }
@@ -560,11 +588,16 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the P/Invoke call and return statement for an operator.
         /// Handles both direct returns and indirect result allocation.
+        /// <para>When <paramref name="callSite"/> is supplied, the call is bracketed by the ordinary
+        /// member body's ownership and error halves: the consumed-operand leases before it, and their
+        /// completion plus the error check after it — before anything reads the result.</para>
         /// </summary>
-        private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv = null)
+        private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv = null, WrapperEmitter? callSite = null)
         {
             var pinvokeName = GetPInvokeMethodName(symbol);
             var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals);
+
+            callSite?.EmitCallSitePreamble(csWriter);
 
             if (requiresIndirectResult)
             {
@@ -615,6 +648,8 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"{pinvokeName}({callArgs});");
                 }
 
+                // A thrown error leaves the result buffer uninitialized: check before reading it.
+                callSite?.EmitCallSiteEpilogue(csWriter);
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr({indirectResultName}.Value));");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -649,10 +684,29 @@ namespace BindingsGeneration
                     call = $"{pinvokeName}({callArgs})";
                 }
 
+                if (callSite == null)
+                {
+                    if (returnType == "void")
+                        csWriter.WriteLine($"{call};");
+                    else
+                        EmitDirectOperatorReturn(csWriter, call, returnType, methodEnv);
+                    return;
+                }
+
+                // A thrown error leaves the result register undefined, so the raw result is held in a
+                // local until the error check has run, and only then interpreted.
                 if (returnType == "void")
+                {
                     csWriter.WriteLine($"{call};");
+                    callSite.EmitCallSiteEpilogue(csWriter);
+                }
                 else
-                    EmitDirectOperatorReturn(csWriter, call, returnType, methodEnv);
+                {
+                    var resultLocal = callSite.CallSiteResultLocalName;
+                    csWriter.WriteLine($"var {resultLocal} = {call};");
+                    callSite.EmitCallSiteEpilogue(csWriter);
+                    EmitDirectOperatorReturn(csWriter, resultLocal, returnType, methodEnv);
+                }
             }
         }
 
@@ -787,7 +841,7 @@ namespace BindingsGeneration
         /// site both mint the name through the body's scope, which answers the same for the same
         /// spelling — and answers with the plain spelling whenever no operand holds it.</para>
         /// </summary>
-        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, SyntheticLocalNames? bodyScope)
+        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, MethodEnvironment methodEnv)
         {
             foreach (var param in pInvokeSignature.Parameters)
             {
@@ -796,8 +850,14 @@ namespace BindingsGeneration
                     // The P/Invoke parameter name is the authoritative marshalling base. When it
                     // differs from the public operand, EmitMarshallingBaseAliases declared it just
                     // above, so both this handle local and CallArgumentsString read the same source.
-                    var handleName = Signature.ObjCHandleLocalName(param, bodyScope);
-                    csWriter.WriteLine($"IntPtr {handleName} = {param.Name}.Handle;");
+                    var handleName = Signature.ObjCHandleLocalName(param, methodEnv.SyntheticLocals);
+                    // An operand the callee consumes crosses at +1, exactly as an ordinary member's
+                    // ObjC argument does.
+                    var operand = methodEnv.MethodDecl.CSSignature.Skip(1)
+                        .FirstOrDefault(a => NameProvider.GetMarshallingBaseName(a) == param.Name);
+                    bool handedOver = operand != null
+                        && CalleeArgumentOwnership.IsHandedOverToCallee(methodEnv.MethodDecl, operand);
+                    csWriter.WriteLine($"IntPtr {handleName} = {WrapperEmitter.ObjCArgumentHandle($"{param.Name}.Handle", handedOver)};");
                 }
             }
         }
