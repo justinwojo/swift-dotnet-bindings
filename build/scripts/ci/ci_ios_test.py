@@ -24,6 +24,9 @@ Usage:
 
     # Just run tests with pre-booted sim
     python3 ci_ios_test.py --device-udid <UDID> --skip-prepare
+
+    # Install and run the app `binding-tests --build-only` built before the simulator booted
+    python3 ci_ios_test.py --device-udid <UDID> --skip-prepare --prebuilt-app
 """
 
 import argparse
@@ -220,6 +223,22 @@ def run_build(test_framework_dir: str, skip_regen: bool = True,
 # Test execution
 # ---------------------------------------------------------------------------
 
+# Seconds a Nuke attempt gets on top of the app's own --timeout. The build and the run are
+# budgeted apart: a prebuilt app's attempt has no build in it, so it gets no build allowance.
+BUILD_OVERHEAD = 900        # wrapper+bridge+app build (a cold CI dotnet build has been measured north of 9 min)
+INCREMENTAL_OVERHEAD = 120  # incremental rebuild after an attempt whose build completed
+PREBUILT_OVERHEAD = 180     # no build: Nuke start-up, build-receipt check, install, result retrieval
+
+
+def attempt_overhead(attempt: int, build_completed: bool, prebuilt_app: bool) -> int:
+    """The non-test allowance for one attempt (see the constants above)."""
+    if prebuilt_app:
+        return PREBUILT_OVERHEAD
+    if attempt > 1 and build_completed:
+        return INCREMENTAL_OVERHEAD
+    return BUILD_OVERHEAD
+
+
 def run_tests(
     test_framework_dir: str,
     device_udid: str,
@@ -231,8 +250,13 @@ def run_tests(
     binding_test_configuration: str = "Debug",
     allow_unqualified_runtime: bool = False,
     profile_launch: Optional[ProfileLaunch] = None,
+    prebuilt_app: bool = False,
 ) -> int:
     """Run runtime tests using dotnet nuke binding-tests --sim.
+
+    With prebuilt_app, Nuke reuses the app `binding-tests --build-only` built (--skip-build checks
+    its build receipt), so every attempt is budgeted for install and run only, and a retry never
+    deletes that build: nothing in this run could rebuild it.
 
     Retries an established pre-test launcher failure, but only if enough time
     remains before the deadline. Product/test evidence is immutable across the
@@ -271,12 +295,9 @@ def run_tests(
         cmd.append("--allow-unqualified-runtime")
     if skip_regen:
         cmd.append("--skip-regen")
+    if prebuilt_app:
+        cmd.append("--skip-build")
 
-    # First attempt: generous timeout (build + test).
-    # Retry overhead depends on whether the previous build completed.
-    FIRST_ATTEMPT_OVERHEAD = 900  # seconds for wrapper+bridge+app build (a cold CI dotnet build has been measured north of 9 min)
-    RETRY_OVERHEAD_CLEAN = 900    # full rebuild if build was interrupted
-    RETRY_OVERHEAD_CACHED = 120   # incremental rebuild if build completed
     APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
     last_output = ""  # Track output from previous attempt for smart cleanup
 
@@ -284,8 +305,8 @@ def run_tests(
         if attempt > 1:
             # Determine if we need a full rebuild or incremental
             # If simulator launch message appeared, build completed — artifacts are fine
-            build_completed = "Running on iOS Simulator" in last_output
-            retry_overhead = RETRY_OVERHEAD_CACHED if build_completed else RETRY_OVERHEAD_CLEAN
+            build_completed = prebuilt_app or "Running on iOS Simulator" in last_output
+            retry_overhead = attempt_overhead(attempt, build_completed, prebuilt_app)
 
             # Check if we have enough time for a retry
             min_retry_time = timeout + retry_overhead
@@ -322,10 +343,7 @@ def run_tests(
             gha_warning(f"Test retry attempt {attempt} after pre-test launcher failure")
 
         # Calculate subprocess timeout
-        if attempt == 1:
-            overhead = FIRST_ATTEMPT_OVERHEAD
-        else:
-            overhead = RETRY_OVERHEAD_CLEAN if not build_completed else RETRY_OVERHEAD_CACHED
+        overhead = attempt_overhead(attempt, attempt > 1 and build_completed, prebuilt_app)
         if deadline is not None:
             remaining = deadline - time.time()
             # Use the lesser of our standard timeout and remaining time (minus 30s safety margin)
@@ -457,6 +475,7 @@ def run_pipeline(
     binding_test_configuration: str = "Debug",
     allow_unqualified_runtime: bool = False,
     profile_launch: Optional[ProfileLaunch] = None,
+    prebuilt_app: bool = False,
 ) -> int:
     """Full CI pipeline: prepare simulator, build, test, cleanup.
 
@@ -464,10 +483,13 @@ def run_pipeline(
         step_timeout: Total wall-clock budget in seconds (matches the GHA
                       timeout-minutes value). Used to compute a deadline so
                       retries are skipped when insufficient time remains.
+        prebuilt_app: The app was built by `binding-tests --build-only`; nothing here builds.
 
     Returns:
         0 on success, non-zero on failure.
     """
+    if prebuilt_app:
+        skip_build = True
     if profile_launch:
         # The direct `dotnet build` bypasses the launcher's pinned toolchain; Nuke builds the app.
         if not skip_build:
@@ -573,6 +595,7 @@ def run_pipeline(
                 binding_test_configuration=binding_test_configuration,
                 allow_unqualified_runtime=allow_unqualified_runtime,
                 profile_launch=profile_launch,
+                prebuilt_app=prebuilt_app,
             )
             gha_endgroup()
 
@@ -670,7 +693,11 @@ Examples:
     test_group.add_argument("--skip-regen", action="store_true", default=True,
                            help="Skip binding regeneration (default: true)")
     test_group.add_argument("--skip-build", action="store_true",
-                           help="Skip dotnet build (app already built)")
+                           help="Skip this script's own dotnet build (Nuke still builds the app)")
+    test_group.add_argument("--prebuilt-app", action="store_true",
+                           help="Install and run the app `binding-tests --build-only` built: Nuke gets "
+                                "--skip-build, which checks that build's receipt, and each attempt is "
+                                "budgeted for install and run only. Implies --skip-build.")
 
     test_group.add_argument("--binding-test-framework", choices=("net10.0", "net11.0"), default=None,
                            help="Managed target (default: selected profile or net10.0)")
@@ -743,6 +770,7 @@ Examples:
         allow_unqualified_runtime=args.allow_unqualified_runtime,
         profile_launch=(ProfileLaunch(args.toolchain_profile, args.dotnet_root, args.developer_dir)
                         if args.toolchain_profile else None),
+        prebuilt_app=args.prebuilt_app,
     )
     sys.exit(exit_code)
 

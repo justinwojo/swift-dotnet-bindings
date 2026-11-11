@@ -215,10 +215,21 @@ jobs:
           --abi-json "$(find .build -path '*/SwiftBindingsTestLib.swiftmodule/*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
-      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
-      # runner busy for its whole life, which made the gate about twice as slow and its Swift
-      # builds up to three times slower. Booted in the foreground: a boot still in flight when
-      # bootstatus -b runs makes it send a second boot request, which fails once the first lands.
+      # Needs no simulator, so it runs before one boots (see below).
+      - name: Validate blast radius
+        timeout-minutes: 10
+        run: dotnet nuke validate-blast-radius
+
+      # Everything that builds runs before the simulator boots: a booted simulator keeps the
+      # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
+      # slow and the app build two to three times slower. The app is built here and only
+      # installed and run once the simulator is up; --skip-build checks it is this build.
+      - name: Build the simulator test app
+        timeout-minutes: 20
+        run: dotnet nuke binding-tests --sim --build-only --skip-regen
+
+      # Booted in the foreground: a boot still in flight when bootstatus -b runs makes it send a
+      # second boot request, which fails once the first lands.
       - name: Create and boot iOS Simulator
         timeout-minutes: 10
         run: |
@@ -232,17 +243,15 @@ jobs:
         timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
+      # Install and run only: each attempt gets --timeout plus a small non-build allowance, and
+      # the step budget leaves room for one retry of a launcher failure.
       - name: Run iOS Simulator tests
-        timeout-minutes: 40
+        timeout-minutes: 22
         run: >
           python3 build/scripts/ci/ci_ios_test.py
-          --device-udid "$SIM_UDID" --skip-prepare --skip-build
+          --device-udid "$SIM_UDID" --skip-prepare --prebuilt-app
           --timeout 420 --skip-regen
-          --step-timeout 2100
-
-      - name: Validate blast radius
-        timeout-minutes: 10
-        run: dotnet nuke validate-blast-radius
+          --step-timeout 1260
 
       - name: Upload simulator diagnostics
         if: failure()
@@ -294,9 +303,18 @@ jobs:
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- binding-tests --strict --compile-only --skip-surface
 
-      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
-      # runner busy for its whole life, which made the gate about twice as slow and its Swift
-      # builds up to three times slower.
+      # Everything that builds runs before the simulator boots: a booted simulator keeps the
+      # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
+      # slow and the app build two to three times slower. Built from the bindings the compile
+      # gate generated.
+      - name: Build the simulator test app (${{ env.CORECLR_CANARY_CONFIGURATION }})
+        timeout-minutes: 25
+        run: >
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --sim --build-only --skip-regen
+          --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION"
+
       - name: Create and boot iOS Simulator
         timeout-minutes: 10
         run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
@@ -305,20 +323,18 @@ jobs:
         timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
-      # The first class builds the app from the bindings the compile gate generated; the rest
-      # reuse it. A class name that matches nothing fails inside the app ("No test class matches").
+      # Every class installs and runs the app built above; --skip-build checks it is that build.
+      # A class name that matches nothing fails inside the app ("No test class matches").
       - name: CoreCLR runtime canary (${{ env.CORECLR_CANARY_CONFIGURATION }})
-        timeout-minutes: 45
+        timeout-minutes: 15
         run: |
-          reuse=()
           for class in $CORECLR_CANARY_CLASSES; do
             echo "::group::$class"
             bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE" \
               --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" \
-              -- binding-tests --sim --device-udid "$SIM_UDID" --skip-regen "${reuse[@]}" \
+              -- binding-tests --sim --device-udid "$SIM_UDID" --skip-build \
               --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION" --class-filter "$class"
             echo "::endgroup::"
-            reuse=(--skip-build)
           done
 
       - name: Save SwiftInterfaceParser cache
