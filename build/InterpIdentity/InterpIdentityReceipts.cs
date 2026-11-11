@@ -56,8 +56,9 @@ public static class ConsoleReceiptParser
         string? start = null, result = null;
         bool began = false, ended = false;
         var observations = new List<string>();
-        // Capture lines carry no fixture name (one fixture per process); keep the last capture
-        // made after the fixture began.
+        // Capture lines carry no fixture name: one fixture runs per process and only its calls
+        // capture. They arrive on stderr while the app's markers go to stdout, so their position
+        // relative to BEGIN and END is not meaningful; the serial says which capture came last.
         var captures = new SortedDictionary<int, List<FrameReceipt>>();
         foreach (var line in ProtocolLines(console))
         {
@@ -67,12 +68,9 @@ public static class ConsoleReceiptParser
             if (verb == "START") { start ??= line[10..]; continue; }
             if (verb == "CAPTURE")
             {
-                if (began && !ended)
-                {
-                    var (serial, frame) = ParseCapture(line);
-                    if (!captures.TryGetValue(serial, out var frames)) captures[serial] = frames = [];
-                    frames.Add(frame);
-                }
+                var (serial, frame) = ParseCapture(line);
+                if (!captures.TryGetValue(serial, out var frames)) captures[serial] = frames = [];
+                frames.Add(frame);
                 continue;
             }
             if (parts.Length < 3 || parts[2] != fixture) continue;

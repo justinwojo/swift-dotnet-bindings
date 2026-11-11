@@ -108,16 +108,19 @@ public class InterpIdentityHarnessTests
     }
 
     [Fact]
-    public void Parse_KeepsTheLastCaptureMadeAfterBegin()
+    public void Parse_KeepsTheHighestSerialCapture_WhereverItsLinesArrive()
     {
+        // Captures come from stderr and markers from stdout, read independently: a capture can
+        // land before BEGIN or after END, and serials can interleave.
         var console = string.Join("\n", new[] { "IIF START fixture=self-receiver x" }
-            .Concat(Capture(1, "InterpIdentityFixture early", "Stale.dylib before"))
+            .Concat(Capture(3, "InterpIdentityFixture capture"))
             .Append("IIF BEGIN self-receiver")
-            .Concat(Capture(2, "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetI8"))
-            .Concat(Capture(3, "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetVoid"))
+            .Concat(Capture(1, "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetI8"))
             .Append("IIF RESULT self-receiver PASS").Append("IIF END self-receiver")
-            .Concat(Capture(4, "InterpIdentityFixture late", "After.dylib end")));
+            .Append("IIF CAPTURE 3 1 0x2000 libcoreclr.dylib CallJittedMethodRetVoid")
+            .Concat(Capture(2, "InterpIdentityFixture capture", "Other.dylib earlier")));
         var r = ConsoleReceiptParser.Parse("self-receiver", console);
+        Assert.Equal(FixtureOutcome.Pass, r.Outcome);
         Assert.Equal(2, r.Frames.Count);
         Assert.Equal("CallJittedMethodRetVoid", ConsoleReceiptParser.Caller(r)!.Symbol);
     }
