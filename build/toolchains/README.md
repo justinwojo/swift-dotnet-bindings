@@ -120,6 +120,15 @@ until the interpreter bridge lands; `CORECLR_CANARY_CONFIGURATION` is the switch
 runs `nuke test`, the strict compile gate and the full simulator suite on all three
 profiles, and publish needs every one. Packing runs once, on `net10-xcode26`.
 
+Every job that runs simulator tests builds first and boots last. A booted simulator slows
+builds on the 3-core hosted runners two- to three-fold, so the compile gate and
+`binding-tests --build-only` both run before the simulator is created. Only then is the app
+installed and run, with `--skip-build`. That run checks the app's build receipt and is graded
+like a fresh build. `test_toolchain_ci.py` fails if a simulator job builds after its boot.
+The run step's budget covers install and test only: `--timeout` plus
+`PREBUILT_OVERHEAD` per attempt in `build/scripts/ci/ci_ios_test.py`. The build has its own
+step timeout.
+
 `toolchain_ci.py` can be run locally. Use `--developer-dir` where the Xcode path differs from
 the hosted `/Applications/Xcode_<version>.app`:
 

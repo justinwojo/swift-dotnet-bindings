@@ -279,10 +279,16 @@ jobs:
           --abi-json "$(find .build -path '*/SwiftBindingsTestLib.swiftmodule/*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
-      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
-      # runner busy for its whole life, which made the gate about twice as slow and its Swift
-      # builds up to three times slower. Booted in the foreground: a boot still in flight when
-      # bootstatus -b runs makes it send a second boot request, which fails once the first lands.
+      # Everything that builds runs before the simulator boots: a booted simulator keeps the
+      # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
+      # slow and the app build two to three times slower. The app is built here and only
+      # installed and run once the simulator is up; --skip-build checks it is this build.
+      - name: Build the simulator test app
+        timeout-minutes: 20
+        run: dotnet nuke binding-tests --sim --build-only --skip-regen
+
+      # Booted in the foreground: a boot still in flight when bootstatus -b runs makes it send a
+      # second boot request, which fails once the first lands.
       - name: Create and boot iOS Simulator
         timeout-minutes: 10
         run: |
@@ -296,13 +302,15 @@ jobs:
         timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
+      # Install and run only: each attempt gets --timeout plus a small non-build allowance, and
+      # the step budget leaves room for one retry of a launcher failure.
       - name: Run iOS Simulator tests
-        timeout-minutes: 40
+        timeout-minutes: 22
         run: >
           python3 build/scripts/ci/ci_ios_test.py
-          --device-udid "$SIM_UDID" --skip-prepare --skip-build
+          --device-udid "$SIM_UDID" --skip-prepare --prebuilt-app
           --timeout 420 --skip-regen
-          --step-timeout 2100
+          --step-timeout 1260
 
       - name: Upload simulator diagnostics
         if: failure()
@@ -616,9 +624,17 @@ jobs:
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- binding-tests --strict --compile-only --skip-surface
 
-      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
-      # runner busy for its whole life, which made the gate about twice as slow and its Swift
-      # builds up to three times slower.
+      # Everything that builds runs before the simulator boots: a booted simulator keeps the
+      # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
+      # slow and the app build two to three times slower.
+      - name: Build the simulator test app
+        timeout-minutes: 25
+        run: >
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --sim --build-only --skip-regen
+          --binding-test-configuration "$SIM_CONFIGURATION"
+
       - name: Create and boot iOS Simulator
         timeout-minutes: 10
         run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
@@ -627,16 +643,17 @@ jobs:
         timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
+      # Install and run only; --skip-build checks the app is the build above.
       - name: Run iOS Simulator tests
-        timeout-minutes: 40
+        timeout-minutes: 22
         run: >
           python3 build/scripts/ci/ci_ios_test.py
           --toolchain-profile "$TOOLCHAIN_PROFILE"
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           --binding-test-configuration "$SIM_CONFIGURATION"
-          --device-udid "$SIM_UDID" --skip-prepare --skip-build
+          --device-udid "$SIM_UDID" --skip-prepare --prebuilt-app
           --timeout 420 --skip-regen
-          --step-timeout 2100
+          --step-timeout 1260
 
       - name: Upload simulator diagnostics
         if: failure()

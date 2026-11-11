@@ -117,6 +117,28 @@ class WorkflowPinTests(unittest.TestCase):
             with self.subTest(test_class=name):
                 self.assertRegex(sources, rf"\bpublic\s+(sealed\s+)?class\s+{re.escape(name)}\s*:\s*TestBase\b")
 
+    # Every job that runs the simulator suite. A booted simulator slows builds on the hosted
+    # runner two- to three-fold, so each builds its app before it boots one and only installs
+    # and runs after.
+    SIMULATOR_JOBS = (("ci.yml", "bindingtests"), ("ci.yml", "net11-coreclr"),
+                      ("release.yml", "bindingtests"), ("release.yml", "profile-gates"))
+
+    def test_simulator_jobs_build_before_booting_and_only_run_after(self):
+        for workflow, job in self.SIMULATOR_JOBS:
+            with self.subTest(workflow=workflow, job=job):
+                steps = re.split(r"^      - name: ", job_block((GITHUB / "workflows" / workflow).read_text(), job),
+                                 flags=re.M)[1:]
+                boot = next(i for i, step in enumerate(steps) if "simctl boot" in step or "simulator --platform" in step)
+                build = [i for i, step in enumerate(steps) if "--build-only" in step]
+                self.assertEqual(len(build), 1, "exactly one --build-only step")
+                self.assertLess(build[0], boot, "the app is built before the simulator boots")
+                self.assertIn("--skip-regen", steps[build[0]], "the app builds from the compile gate's bindings")
+                runs = [step for step in steps[boot:] if NUKE_INVOCATION.search(step)]
+                self.assertTrue(runs, "the suite runs after the boot")
+                for step in runs:
+                    self.assertRegex(step, r"--skip-build\b|--prebuilt-app\b", "nothing builds once the simulator is up")
+                    self.assertNotIn("reuse=", step)
+
 
 def nuke_parameter_key(name):
     """How Nuke matches an environment variable to a parameter: letters and digits only, any

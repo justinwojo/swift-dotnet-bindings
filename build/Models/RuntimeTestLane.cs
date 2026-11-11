@@ -35,6 +35,15 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
         $"{Framework}_{platform}_{rid}_{Engine(device)}_{BuildConfiguration(device, false).ToLowerInvariant()}";
     public string AppBinDirectory(bool device) => IsNet11 ? $"bin/{Engine(device)}" : "bin";
 
+    /// <summary>
+    /// The lane a built test app belongs to, as its build receipt records it. .NET 11 names its
+    /// engine; a .NET 10 lane is fixed by its bundle path, whose configuration segment already
+    /// separates the NativeAOT (Release) and Mono full-AOT (Debug) device apps.
+    /// </summary>
+    public string AppIdentity(bool device, bool monoAot) => IsNet11
+        ? $"{Framework}/{Engine(device)}/{BuildConfiguration(device, monoAot)}"
+        : $"{Framework}/{BuildConfiguration(device, monoAot)}";
+
     /// <summary>The baseline file that owns this lane's runtime-identity floors.</summary>
     public string IdentityBaselineFile => IsNet11 ? "runtime-identity-net11-baseline.json" : "runtime-identity-baseline.json";
 

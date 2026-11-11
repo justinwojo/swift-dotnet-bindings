@@ -266,10 +266,12 @@ public static class SimCtl
     {
         try
         {
-            // Get the app's data container path
+            // Get the app's data container path. Shortly after a boot, on a loaded CI runner, this
+            // query has taken over 10 s; a timeout here loses the run's results, so it gets the
+            // same bound as the boot itself.
             var containerProcess = ProcessTasks.StartProcess(
                 "xcrun", $"simctl get_app_container {udid} {bundleId} data",
-                logOutput: false, timeout: 10000);
+                logOutput: false, timeout: 60_000);
             containerProcess.AssertWaitForExit();
             var containerPath = containerProcess.Output.StdToText().Trim();
 
