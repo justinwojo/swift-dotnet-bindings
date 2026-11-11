@@ -118,6 +118,7 @@
          scanner, report) so its rules run here over small compiled fixtures, each a seeded red.
          System.Reflection.Metadata only. -->
     <Compile Include="../../../../build/SwiftTransitionGate/*.cs" Link="SwiftTransitionGate/Engine/%(Filename)%(Extension)" />
+    <Compile Include="../../../../build/InterpIdentity/*.cs" Link="InterpIdentity/Engine/%(Filename)%(Extension)" />
     <!-- The same BCL-only attempt retention and recovery decision used by the sim/device loops. -->
     <Compile Include="../../../../build/Models/RuntimeTestAttempts.cs" Link="Models/RuntimeTestAttempts.cs" />
     <Compile Include="../../../../build/Models/TestResult.cs" Link="Models/TestResult.cs" />

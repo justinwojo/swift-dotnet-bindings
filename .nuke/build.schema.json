@@ -309,6 +309,14 @@
           "type": "boolean",
           "description": "Include device slice in xcframework build"
         },
+        "InterpIdentity": {
+          "type": "boolean",
+          "description": "Opt-in, .NET 11 only: run the lane-identity harness (generated InterpIdentityFixture binding on the iOS-simulator and Mac Catalyst x86_64 cells, interpreter and ReadyToRun). Never part of the default run or --compile-only"
+        },
+        "InterpIdentityCells": {
+          "type": "string",
+          "description": "Comma-separated subset of --interp-identity cells (M1,M2,M3,M4). Default: all four"
+        },
         "Jobs": {
           "type": "integer",
           "description": "Max parallel validation workers",

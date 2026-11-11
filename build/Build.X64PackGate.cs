@@ -295,35 +295,35 @@ partial class Build
     AbsolutePath BuildFatFrameworkSlice(
         AbsolutePath swiftRoot, string tag, IReadOnlyList<string> sources,
         string armTarget, string armSuffix, string x64Target, string x64Suffix,
-        string sdkName, string minOs, string plistPlatform)
+        string sdkName, string minOs, string plistPlatform, string module = X64PackModule)
     {
         var sdkPath = XcRun.GetSdkPath(sdkName);
-        var armFw = swiftRoot / tag / "arm64" / $"{X64PackModule}.framework";
-        var x64Fw = swiftRoot / tag / "x86_64" / $"{X64PackModule}.framework";
+        var armFw = swiftRoot / tag / "arm64" / $"{module}.framework";
+        var x64Fw = swiftRoot / tag / "x86_64" / $"{module}.framework";
         armFw.Parent.CreateDirectory();
         x64Fw.Parent.CreateDirectory();
 
         CompileModuleSlice(
-            moduleName: X64PackModule, target: armTarget, sdkPath: sdkPath,
+            moduleName: module, target: armTarget, sdkPath: sdkPath,
             moduleSuffix: armSuffix, minOs: minOs, plistPlatform: plistPlatform,
             frameworkDir: armFw, sourceFiles: sources, frameworkSearchPaths: null);
         CompileModuleSlice(
-            moduleName: X64PackModule, target: x64Target, sdkPath: sdkPath,
+            moduleName: module, target: x64Target, sdkPath: sdkPath,
             moduleSuffix: x64Suffix, minOs: minOs, plistPlatform: plistPlatform,
             frameworkDir: x64Fw, sourceFiles: sources, frameworkSearchPaths: null);
 
         // lipo can't write to one of its own inputs — merge to a temp, then replace.
-        var fatBin = armFw.Parent / $"{X64PackModule}.fat";
-        RunLipoCreate(new[] { armFw / X64PackModule, x64Fw / X64PackModule }, fatBin);
-        File.Delete(armFw / X64PackModule);
-        File.Move(fatBin, armFw / X64PackModule);
+        var fatBin = armFw.Parent / $"{module}.fat";
+        RunLipoCreate(new[] { armFw / module, x64Fw / module }, fatBin);
+        File.Delete(armFw / module);
+        File.Move(fatBin, armFw / module);
 
         // Fold the x86_64 swiftmodule artifacts in alongside the arm64 ones. Each
         // arch's files are suffix-named (e.g. x86_64-apple-macos.swiftmodule), so
         // they coexist; the per-arch .tbd shares a name, so keep only arm64's (the
         // fat binary carries both arches' symbols — the tbd is a secondary stub).
-        var armModules = armFw / "Modules" / $"{X64PackModule}.swiftmodule";
-        var x64Modules = x64Fw / "Modules" / $"{X64PackModule}.swiftmodule";
+        var armModules = armFw / "Modules" / $"{module}.swiftmodule";
+        var x64Modules = x64Fw / "Modules" / $"{module}.swiftmodule";
         foreach (var file in Directory.EnumerateFiles(x64Modules))
         {
             var name = Path.GetFileName(file);
