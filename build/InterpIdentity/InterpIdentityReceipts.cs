@@ -12,15 +12,15 @@ using System.Text;
 
 namespace SwiftBindings.InterpIdentity;
 
-/// <summary>One return address the fixture recorded, resolved by <c>dladdr</c> in the app.</summary>
+/// <summary>One return address the Swift fixture recorded and resolved with <c>dladdr</c>.</summary>
 public sealed record FrameReceipt(int Index, ulong Address, string Image, string? Symbol);
 
 /// <summary>What one fixture process reported.</summary>
 /// <param name="Fixture">The fixture name.</param>
-/// <param name="Outcome">Pass, fail, crash, or missing.</param>
+/// <param name="Outcome">Pass, fail, crash, indeterminate, or missing.</param>
 /// <param name="Detail">The app's reason text on a result line, or why the outcome was inferred.</param>
 /// <param name="Observations">Free-form measurements the fixture recorded.</param>
-/// <param name="Frames">The recorded return addresses of the last fixture call, innermost first.</param>
+/// <param name="Frames">The return addresses of the fixture's last capture, innermost first.</param>
 /// <param name="Start">The app's start line (framework, architecture, configuration), if it printed one.</param>
 public sealed record FixtureReceipt(
     string Fixture, FixtureOutcome Outcome, string Detail,
@@ -47,18 +47,34 @@ public static class ConsoleReceiptParser
         }
     }
 
-    public static FixtureReceipt Parse(string fixture, string console)
+    /// <summary>Reads one fixture process's console.</summary>
+    /// <param name="fixture">The fixture the process was asked to run.</param>
+    /// <param name="console">Everything the process wrote.</param>
+    /// <param name="timedOut">True when the harness gave up waiting and killed the process.</param>
+    public static FixtureReceipt Parse(string fixture, string console, bool timedOut = false)
     {
         string? start = null, result = null;
         bool began = false, ended = false;
         var observations = new List<string>();
-        var frames = new List<FrameReceipt>();
+        // Capture lines carry no fixture name (one fixture per process); keep the last capture
+        // made after the fixture began.
+        var captures = new SortedDictionary<int, List<FrameReceipt>>();
         foreach (var line in ProtocolLines(console))
         {
             var parts = line.Split(' ', 5, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2) continue;
             var verb = parts[1];
             if (verb == "START") { start ??= line[10..]; continue; }
+            if (verb == "CAPTURE")
+            {
+                if (began && !ended)
+                {
+                    var (serial, frame) = ParseCapture(line);
+                    if (!captures.TryGetValue(serial, out var frames)) captures[serial] = frames = [];
+                    frames.Add(frame);
+                }
+                continue;
+            }
             if (parts.Length < 3 || parts[2] != fixture) continue;
             var rest = parts.Length > 3 ? string.Join(' ', parts.Skip(3)) : "";
             switch (verb)
@@ -66,10 +82,10 @@ public static class ConsoleReceiptParser
                 case "BEGIN": began = true; break;
                 case "OBSERVE": observations.Add(rest); break;
                 case "RESULT": result ??= rest; break;
-                case "FRAME": frames.Add(ParseFrame(line)); break;
                 case "END": ended = true; break;
             }
         }
+        IReadOnlyList<FrameReceipt> last = captures.Count == 0 ? [] : captures.Last().Value;
 
         if (result != null)
         {
@@ -82,24 +98,33 @@ public static class ConsoleReceiptParser
                 "FAIL" => FixtureOutcome.Fail,
                 _ => throw new FormatException($"Unknown result verdict '{verdict}' for fixture {fixture}."),
             };
-            if (!ended) detail = (detail + " (process died after reporting)").Trim();
-            return new FixtureReceipt(fixture, outcome, detail, observations, frames, start);
+            if (!ended)
+            {
+                // A reported failure stands. A pass the process did not survive to finish is not a pass.
+                if (outcome == FixtureOutcome.Pass)
+                    return new FixtureReceipt(fixture, FixtureOutcome.Indeterminate,
+                        timedOut ? "reported PASS, then timed out" : "reported PASS, then the process died", observations, last, start);
+                detail = (detail + (timedOut ? " (timed out after reporting)" : " (process died after reporting)")).Trim();
+            }
+            return new FixtureReceipt(fixture, outcome, detail, observations, last, start);
         }
         if (began)
-            return new FixtureReceipt(fixture, FixtureOutcome.Crash, "process died before reporting", observations, frames, start);
+            return timedOut
+                ? new FixtureReceipt(fixture, FixtureOutcome.Indeterminate, "timed out before reporting", observations, last, start)
+                : new FixtureReceipt(fixture, FixtureOutcome.Crash, "process died before reporting", observations, last, start);
         return new FixtureReceipt(fixture, FixtureOutcome.Missing, start == null ? "app never started" : "fixture never began",
-            observations, frames, start);
+            observations, last, start);
     }
 
-    // IIF FRAME <fixture> <index> 0x<address> <image> <symbol|->
-    static FrameReceipt ParseFrame(string line)
+    // IIF CAPTURE <serial> <index> 0x<address> <image> <symbol|->
+    static (int Serial, FrameReceipt Frame) ParseCapture(string line)
     {
         var p = line.Split(' ', 7, StringSplitOptions.RemoveEmptyEntries);
         if (p.Length < 6 || !p[4].StartsWith("0x", StringComparison.Ordinal))
-            throw new FormatException($"Malformed frame line: {line}");
+            throw new FormatException($"Malformed capture line: {line}");
         var symbol = p.Length > 6 && p[6] != "-" ? p[6] : null;
-        return new FrameReceipt(int.Parse(p[3], CultureInfo.InvariantCulture),
-            ulong.Parse(p[4][2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture), p[5], symbol);
+        return (int.Parse(p[2], CultureInfo.InvariantCulture), new FrameReceipt(int.Parse(p[3], CultureInfo.InvariantCulture),
+            ulong.Parse(p[4][2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture), p[5], symbol));
     }
 
     /// <summary>The first recorded frame outside the fixture's own images, or null when there is none.</summary>

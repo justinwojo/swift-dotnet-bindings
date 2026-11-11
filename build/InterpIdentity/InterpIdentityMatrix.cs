@@ -33,6 +33,10 @@ public enum FixtureOutcome
     /// <summary>The fixture began but the process died before it reported.</summary>
     Crash,
 
+    /// <summary>The run proves nothing: the harness timed out waiting for it, or the process
+    /// reported a pass and then died. Satisfies no expectation.</summary>
+    Indeterminate,
+
     /// <summary>The fixture never began: the app did not start, or ran something else.</summary>
     Missing,
 }
@@ -45,10 +49,6 @@ public enum FixtureExpectation
 
     /// <summary>A negative control that must reproduce its defect: fail or crash.</summary>
     Reproduce,
-
-    /// <summary>A measurement of a shape with no settled outcome yet: any outcome is recorded,
-    /// but the fixture must have run.</summary>
-    Observe,
 }
 
 /// <summary>One cell of the lane-identity harness.</summary>
@@ -123,6 +123,20 @@ public static class InterpIdentityMatrix
     public static IdentityFixture Fixture(string name) =>
         Fixtures.FirstOrDefault(f => f.Name == name) ?? throw new ArgumentException($"Unknown fixture '{name}'.", nameof(name));
 
+    /// <summary>The cells a <c>--interp-identity-cells</c> value selects: every cell when it is
+    /// blank, otherwise each named cell once. A value that names no cell is an error, never an
+    /// empty run.</summary>
+    public static IReadOnlyList<IdentityCell> SelectCells(string? spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec))
+            return Cells;
+        var selected = spec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(Cell).Distinct().ToList();
+        if (selected.Count == 0)
+            throw new ArgumentException($"'{spec}' names no cell. Known: {string.Join(", ", Cells.Select(c => c.Id))}.", nameof(spec));
+        return selected;
+    }
+
     public static IdentityCell Cell(string id) =>
         Cells.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase))
         ?? throw new ArgumentException($"Unknown cell '{id}'. Known: {string.Join(", ", Cells.Select(c => c.Id))}.", nameof(id));
@@ -161,7 +175,6 @@ public static class InterpIdentityMatrix
     {
         FixtureExpectation.Pass => outcome == FixtureOutcome.Pass,
         FixtureExpectation.Reproduce => outcome is FixtureOutcome.Fail or FixtureOutcome.Crash,
-        FixtureExpectation.Observe => outcome is not FixtureOutcome.Missing,
         _ => false,
     };
 }

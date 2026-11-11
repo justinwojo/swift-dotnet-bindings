@@ -31,10 +31,9 @@ public class InterpIdentityHarnessTests
             "IIF BEGIN " + fixture,
             "IIF OBSERVE " + fixture + " receiver=0x1000 word0=0x2000",
         };
+        // The Swift fixture writes its capture during the call, before the app reports.
+        lines.AddRange(Capture(1, frames));
         if (verdict != null) lines.Add($"IIF RESULT {fixture} {verdict}");
-        lines.Add($"IIF FRAMES {fixture} serial=1 count={frames.Length}");
-        for (var i = 0; i < frames.Length; i++)
-            lines.Add($"IIF FRAME {fixture} {i} 0x{0x1000 + i:x} {frames[i]}");
         if (ended) lines.Add("IIF END " + fixture);
         lines.Add("RESULTS FLUSHED");
         return string.Join("\n", lines);
@@ -70,12 +69,64 @@ public class InterpIdentityHarnessTests
         Assert.Equal(FixtureOutcome.Crash, r.Outcome);
     }
 
+    static IEnumerable<string> Capture(int serial, params string[] frames) =>
+        frames.Select((f, i) => $"IIF CAPTURE {serial} {i} 0x{0x1000 + i:x} {f}");
+
     [Fact]
-    public void Parse_ResultWithoutEnd_IsTheReportedVerdictAndSaysTheProcessDied()
+    public void Parse_FailWithoutEnd_IsTheReportedVerdictAndSaysTheProcessDied()
     {
         var r = ConsoleReceiptParser.Parse("self-error", Console("self-error", "FAIL lost error", ended: false));
         Assert.Equal(FixtureOutcome.Fail, r.Outcome);
         Assert.Contains("process died after reporting", r.Detail);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Parse_PassWithoutEnd_IsIndeterminate(bool timedOut)
+    {
+        var r = ConsoleReceiptParser.Parse("primitive", Console("primitive", "PASS", ended: false), timedOut);
+        Assert.Equal(FixtureOutcome.Indeterminate, r.Outcome);
+    }
+
+    [Fact]
+    public void Parse_BeginThenTimeout_IsIndeterminateNotACrash()
+    {
+        // A hung control must not count as reproducing its defect.
+        var r = ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, ended: false), timedOut: true);
+        Assert.Equal(FixtureOutcome.Indeterminate, r.Outcome);
+        Assert.False(InterpIdentityMatrix.Satisfies(FixtureExpectation.Reproduce, r.Outcome));
+    }
+
+    [Fact]
+    public void Parse_ACrashAfterTheCaptureStillHasItsCaller()
+    {
+        var r = ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, false,
+            "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetVoid"));
+        Assert.Equal(FixtureOutcome.Crash, r.Outcome);
+        Assert.Equal("CallJittedMethodRetVoid", ConsoleReceiptParser.Caller(r)!.Symbol);
+    }
+
+    [Fact]
+    public void Parse_KeepsTheLastCaptureMadeAfterBegin()
+    {
+        var console = string.Join("\n", new[] { "IIF START fixture=self-receiver x" }
+            .Concat(Capture(1, "InterpIdentityFixture early", "Stale.dylib before"))
+            .Append("IIF BEGIN self-receiver")
+            .Concat(Capture(2, "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetI8"))
+            .Concat(Capture(3, "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetVoid"))
+            .Append("IIF RESULT self-receiver PASS").Append("IIF END self-receiver")
+            .Concat(Capture(4, "InterpIdentityFixture late", "After.dylib end")));
+        var r = ConsoleReceiptParser.Parse("self-receiver", console);
+        Assert.Equal(2, r.Frames.Count);
+        Assert.Equal("CallJittedMethodRetVoid", ConsoleReceiptParser.Caller(r)!.Symbol);
+    }
+
+    [Fact]
+    public void Parse_MalformedCapture_Throws()
+    {
+        Assert.Throws<FormatException>(() => ConsoleReceiptParser.Parse("primitive",
+            "IIF BEGIN primitive\nIIF CAPTURE 1 0 1000 image symbol\nIIF RESULT primitive PASS"));
     }
 
     [Theory]
@@ -347,6 +398,43 @@ public class InterpIdentityHarnessTests
     }
 
     [Fact]
+    public void ReadyToRun_ADeclaredGapWithNoCaller_IsNotExcusedVacuously()
+    {
+        // The gap fixture ran (it crashed, say) but left no frame: nothing shows it was interpreted.
+        var e = ReadyToRunEvidenceWithGap() with { Callers = ReadyToRunEvidence().Callers, Unattributed = ["indirect-result"] };
+        var v = LaneClassifier.Classify(ExecutionLane.ReadyToRun, e);
+        Assert.False(v.Accepted);
+        Assert.Contains(v.Problems, p => p.Contains("no caller frame shows the interpreter"));
+        Assert.Contains(v.Problems, p => p.Contains("recorded no caller frame, so its lane is unknown"));
+    }
+
+    [Theory]
+    [InlineData(ExecutionLane.Interpreter)]
+    [InlineData(ExecutionLane.ReadyToRun)]
+    public void AFixtureThatRanWithoutACaller_DisprovesEitherClaim(ExecutionLane claim)
+    {
+        var e = (claim == ExecutionLane.Interpreter ? InterpreterEvidence() : ReadyToRunEvidence()) with { Unattributed = ["reverse-error-mid"] };
+        var v = LaneClassifier.Classify(claim, e);
+        Assert.False(v.Accepted);
+        Assert.Null(v.Derived);
+    }
+
+    [Fact]
+    public void CellClassifier_ACrashWithoutCaptureLeavesTheLaneUnproven()
+    {
+        var receipts = new List<FixtureReceipt>
+        {
+            ConsoleReceiptParser.Parse("primitive", Console("primitive", "PASS", true,
+                "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetI8")),
+            ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, ended: false)),
+        };
+        var v = CellClassifier.Classify(InterpIdentityMatrix.M1, App, Binding, receipts,
+            Inventory("S_P_CoreLib_Interop__CheckIo_0"), Crossgen(bindingRooted: false));
+        Assert.Equal(["reverse-error-mid"], v.Evidence.Unattributed);
+        Assert.False(v.Lane.Accepted);
+    }
+
+    [Fact]
     public void ReadyToRun_OnlyGapCallers_ProveNothing()
     {
         var e = ReadyToRunEvidenceWithGap() with { Callers = [InterpretedGapCaller] };
@@ -433,12 +521,29 @@ public class InterpIdentityHarnessTests
     [InlineData(FixtureExpectation.Reproduce, FixtureOutcome.Crash, true)]
     [InlineData(FixtureExpectation.Reproduce, FixtureOutcome.Pass, false)]
     [InlineData(FixtureExpectation.Reproduce, FixtureOutcome.Missing, false)]
-    [InlineData(FixtureExpectation.Observe, FixtureOutcome.Pass, true)]
-    [InlineData(FixtureExpectation.Observe, FixtureOutcome.Crash, true)]
-    [InlineData(FixtureExpectation.Observe, FixtureOutcome.Missing, false)]
+    [InlineData(FixtureExpectation.Pass, FixtureOutcome.Indeterminate, false)]
+    [InlineData(FixtureExpectation.Reproduce, FixtureOutcome.Indeterminate, false)]
     public void Satisfies_MatchesTheExpectationTable(FixtureExpectation expectation, FixtureOutcome outcome, bool satisfied)
     {
         Assert.Equal(satisfied, InterpIdentityMatrix.Satisfies(expectation, outcome));
+    }
+
+    [Theory]
+    [InlineData(null, 4)]
+    [InlineData(" ", 4)]
+    [InlineData("M1, m1 ,M3", 2)]
+    public void SelectCells_BlankIsEveryCell_AndNamesAreDeduplicated(string? spec, int count)
+    {
+        Assert.Equal(count, InterpIdentityMatrix.SelectCells(spec).Count);
+    }
+
+    [Theory]
+    [InlineData(",")]
+    [InlineData(" , ")]
+    [InlineData("M1,M9")]
+    public void SelectCells_ASpecThatNamesNoKnownCell_Throws(string spec)
+    {
+        Assert.Throws<ArgumentException>(() => InterpIdentityMatrix.SelectCells(spec));
     }
 
     [Fact]

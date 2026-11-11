@@ -66,7 +66,7 @@ partial class Build
             throw new Exception("--interp-identity measures the .NET 11 CoreCLR interpreter and ReadyToRun lanes. " +
                 "Run it under the net11 toolchain profile: bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --interp-identity");
 
-        var cells = SelectInterpIdentityCells();
+        var cells = InterpIdentityMatrix.SelectCells(InterpIdentityCells);
         EnsureGeneratorBuilt();
         if (Directory.Exists(IifScratch)) IifScratch.DeleteDirectory();
         IifReceiptsDir.CreateDirectory();
@@ -99,11 +99,11 @@ partial class Build
             var receipts = new List<FixtureReceipt>();
             foreach (var fixture in InterpIdentityMatrix.Fixtures)
             {
-                var console = cell.Simulator
+                var (console, timedOut) = cell.Simulator
                     ? RunInterpIdentityOnSimulator(simulator!, fixture.Name)
                     : RunInterpIdentityOnHost(app, fixture.Name);
                 File.WriteAllText(IifReceiptsDir / $"{cell.Id}-{fixture.Name}.console.txt", console);
-                var receipt = ConsoleReceiptParser.Parse(fixture.Name, console);
+                var receipt = ConsoleReceiptParser.Parse(fixture.Name, console, timedOut);
                 receipts.Add(receipt);
                 Log.Information("  {Cell} {Fixture,-22} {Outcome} {Detail}", cell.Id, fixture.Name, receipt.Outcome, receipt.Detail);
             }
@@ -141,14 +141,6 @@ partial class Build
         }
         Log.Information("--interp-identity PASSED: {Cells} cell(s) proved their lane, every fixture met its expectation, " +
             "and every seeded mislabel was rejected. Receipts: {Dir}", verdicts.Count, IifReceiptsDir);
-    }
-
-    IReadOnlyList<IdentityCell> SelectInterpIdentityCells()
-    {
-        if (string.IsNullOrWhiteSpace(InterpIdentityCells))
-            return InterpIdentityMatrix.Cells;
-        return InterpIdentityCells.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(InterpIdentityMatrix.Cell).Distinct().ToList();
     }
 
     // MARK: - Fixture and generated binding
@@ -298,16 +290,16 @@ partial class Build
         File.WriteAllText(IifReceiptsDir / $"{cell.Id}-r2r-inventory.txt", sb.ToString());
     }
 
-    static string RunInterpIdentityOnSimulator(string udid, string fixture)
+    static (string Console, bool TimedOut) RunInterpIdentityOnSimulator(string udid, string fixture)
     {
         var result = LaunchUntilAppRuns(
             () => SimCtl.Launch(udid, IifBundleId, ["--iif-fixture", fixture], IifLaunchTimeout, IifAppName),
             $"--interp-identity ({fixture})");
-        return result.Output + $"\n[harness] launcher result={result.Result} exit={result.ExitCode?.ToString() ?? "-"} " +
-            $"crash-log={result.CrashLogPath ?? "-"}\n";
+        return (result.Output + $"\n[harness] launcher result={result.Result} exit={result.ExitCode?.ToString() ?? "-"} " +
+            $"crash-log={result.CrashLogPath ?? "-"}\n", result.Result == TestResult.Timeout);
     }
 
-    string RunInterpIdentityOnHost(AbsolutePath app, string fixture)
+    (string Console, bool TimedOut) RunInterpIdentityOnHost(AbsolutePath app, string fixture)
     {
         var exe = app / "Contents" / "MacOS" / IifAppName;
         using var process = new Process { StartInfo = BuildHostLaunchStartInfo(exe, ["--iif-fixture", fixture], underRosetta: true) };
@@ -324,7 +316,7 @@ partial class Build
         }
         process.WaitForExit();
         lock (output)
-            return output + $"\n[harness] exited={exited} exit={(exited ? process.ExitCode.ToString() : "timeout")}\n";
+            return (output + $"\n[harness] exited={exited} exit={(exited ? process.ExitCode.ToString() : "timeout")}\n", !exited);
     }
 
     // MARK: - Report

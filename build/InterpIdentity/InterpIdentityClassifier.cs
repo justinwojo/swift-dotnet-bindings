@@ -18,10 +18,12 @@ namespace SwiftBindings.InterpIdentity;
 /// <param name="Crossgen">The crossgen2 command the build ran.</param>
 /// <param name="Gaps">Fixtures whose Swift call crossgen2 leaves to the runtime, by fixture name.
 /// Under a ReadyToRun claim these must be interpreted, and their method absent from the map.</param>
+/// <param name="Unattributed">Fixtures that ran but recorded no caller frame. Each one is a call
+/// whose lane is unknown, so any entry disproves both claims.</param>
 public sealed record LaneEvidence(
     string AppName, string BindingAssembly, IReadOnlyList<CallerReceipt> Callers,
     ReadyToRunInventory Inventory, Crossgen2Invocation Crossgen,
-    IReadOnlyDictionary<string, ReadyToRunGap>? Gaps = null);
+    IReadOnlyDictionary<string, ReadyToRunGap>? Gaps = null, IReadOnlyList<string>? Unattributed = null);
 
 /// <summary>The lane the evidence proves, and every reason it disagrees with the claim.</summary>
 public sealed record LaneVerdict(ExecutionLane Claimed, ExecutionLane? Derived, IReadOnlyList<string> Problems)
@@ -47,6 +49,9 @@ public static class LaneClassifier
         var problems = new List<string>();
         if (evidence.Callers.Count == 0)
             problems.Add("no fixture recorded a caller frame");
+        var unattributed = evidence.Unattributed ?? [];
+        foreach (var f in unattributed)
+            problems.Add($"{f}: the fixture ran but recorded no caller frame, so its lane is unknown");
 
         var gaps = evidence.Gaps ?? new Dictionary<string, ReadyToRunGap>();
         var r2rImage = new Regex($"^{Regex.Escape(evidence.AppName)}\\.r2r(\\.dylib)?$", RegexOptions.CultureInvariant);
@@ -66,9 +71,11 @@ public static class LaneClassifier
         var gapCallers = evidence.Callers.Where(c => gaps.ContainsKey(c.Fixture)).ToList();
         var laneCallers = evidence.Callers.Except(gapCallers).ToList();
 
+        var gapsWithoutCaller = gaps.Keys.Where(f => !gapCallers.Any(c => c.Fixture == f)).ToList();
+
         var interpreterEvidence = evidence.Callers.Count > 0 && interpreted.Count == evidence.Callers.Count
-            && bindingBodies == 0 && !bindingRooted;
-        var r2rEvidence = laneCallers.Count > 0
+            && unattributed.Count == 0 && bindingBodies == 0 && !bindingRooted;
+        var r2rEvidence = laneCallers.Count > 0 && unattributed.Count == 0 && gapsWithoutCaller.Count == 0
             && laneCallers.All(c => precompiled.Contains(c) && InMap(c))
             && gapCallers.All(interpreted.Contains) && !gaps.Values.Any(GapPrecompiled)
             && bindingBodies > 0 && bindingRooted;
@@ -93,6 +100,8 @@ public static class LaneClassifier
                 problems.Add($"{c.Fixture}: caller {Describe(c)} is not a precompiled body in the composite map");
             foreach (var c in gapCallers.Where(precompiled.Contains))
                 problems.Add($"{c.Fixture}: the declared crossgen2 gap no longer holds: the caller is precompiled code {Describe(c)}");
+            foreach (var f in gapsWithoutCaller)
+                problems.Add($"{f}: a declared crossgen2 gap, but no caller frame shows the interpreter making its call");
             foreach (var (fixture, gap) in gaps.Where(g => GapPrecompiled(g.Value)))
                 problems.Add($"{fixture}: the declared crossgen2 gap no longer holds: {gap.Method} is precompiled in the composite map");
             if (bindingBodies == 0)
@@ -155,8 +164,11 @@ public static class CellClassifier
             fixtures.Add(new FixtureVerdict(fixture, expectation, receipt, InterpIdentityMatrix.Satisfies(expectation, receipt.Outcome)));
         }
         var callers = receipts.Select(ConsoleReceiptParser.Caller).Where(c => c != null).Select(c => c!).ToList();
+        // Missing fixtures already fail the cell; every fixture that ran must say who called it.
+        var unattributed = receipts.Where(r => r.Outcome != FixtureOutcome.Missing && ConsoleReceiptParser.Caller(r) == null)
+            .Select(r => r.Fixture).ToList();
         var gaps = InterpIdentityMatrix.Fixtures.Where(f => f.ReadyToRunGap != null).ToDictionary(f => f.Name, f => f.ReadyToRunGap!);
-        var evidence = new LaneEvidence(appName, bindingAssembly, callers, inventory, crossgen, gaps);
+        var evidence = new LaneEvidence(appName, bindingAssembly, callers, inventory, crossgen, gaps, unattributed);
         return new CellVerdict(cell, LaneClassifier.Classify(cell.ClaimedLane, evidence), fixtures, evidence);
     }
 }

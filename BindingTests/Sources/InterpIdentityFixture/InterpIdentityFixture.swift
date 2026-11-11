@@ -6,9 +6,10 @@
 // the iOS-simulator and Mac Catalyst cells. Two things are measured per call:
 //
 // - Which code made the managed-to-Swift transition. Every entry point below records the return
-//   addresses on its own stack (`backtrace`), and the app resolves them with `dladdr`. The first
-//   frame outside this module and its generated wrapper is the transition's caller: the
-//   interpreter's call stub in libcoreclr, or precompiled ReadyToRun code.
+//   addresses on its own stack (`backtrace`), resolves them with `dladdr` and writes them to
+//   stderr before doing anything else, so a call that later crashes still leaves its receipt.
+//   The first frame outside this module and its generated wrapper is the transition's caller:
+//   the interpreter's call stub in libcoreclr, or precompiled ReadyToRun code.
 // - Whether the transition delivered its arguments. Each shape below is one that today's
 //   emission binds as a direct Swift-convention transition, chosen because the interpreter is
 //   known (arm64) or suspected (x86_64) to mishandle it. They are negative controls: a cell that
@@ -24,25 +25,29 @@ import Darwin
 private let iifFrameCapacity: Int32 = 16
 nonisolated(unsafe) private let iifFrames =
     UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 16)
-nonisolated(unsafe) private var iifFrameTotal: Int32 = 0
 nonisolated(unsafe) private var iifCaptureSerial: Int32 = 0
 
+// Writes `IIF CAPTURE <serial> <index> 0x<address> <image> <symbol|->` per frame, innermost
+// first. Frame 0 lies inside this helper, so its image is this module.
 @inline(never)
 private func iifCapture() {
-    iifFrameTotal = backtrace(iifFrames, iifFrameCapacity)
+    let total = backtrace(iifFrames, iifFrameCapacity)
     iifCaptureSerial &+= 1
-}
-
-// Number of return addresses recorded by the most recent fixture call.
-public func iifCapturedFrameCount() -> Int32 { iifFrameTotal }
-
-// Incremented by every fixture call, so the app can tell a stale capture from a fresh one.
-public func iifCaptureSerialNumber() -> Int32 { iifCaptureSerial }
-
-// Return address `index`. Frame 0 lies inside the capture helper, so its image is this module.
-public func iifCapturedFrame(_ index: Int32) -> UInt {
-    guard index >= 0, index < iifFrameTotal, let frame = iifFrames[Int(index)] else { return 0 }
-    return UInt(bitPattern: frame)
+    for index in 0..<Int(total) {
+        guard let frame = iifFrames[index] else { continue }
+        var image = "?"
+        var symbol = "-"
+        var info = Dl_info()
+        // A return address can sit one past the end of its caller; resolve the byte before it.
+        if dladdr(frame - 1, &info) != 0 {
+            if let file = info.dli_fname {
+                image = String(cString: file).split(separator: "/").last.map(String.init) ?? "?"
+            }
+            if let name = info.dli_sname { symbol = String(cString: name) }
+        }
+        var line = "IIF CAPTURE \(iifCaptureSerial) \(index) 0x\(String(UInt(bitPattern: frame), radix: 16)) \(image) \(symbol)\n"
+        line.withUTF8 { _ = write(2, $0.baseAddress, $0.count) }
+    }
 }
 
 // MARK: - Positive controls (primitive and wrapper transitions)

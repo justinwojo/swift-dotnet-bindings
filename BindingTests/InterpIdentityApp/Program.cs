@@ -6,20 +6,19 @@
 //
 //   IIF START fixture=<name> framework=<description> arch=<arch> configuration=<Debug|Release>
 //   IIF BEGIN <name>
+//   IIF CAPTURE <serial> <index> 0x<address> <image> <symbol|->   (written by the Swift fixture)
 //   IIF OBSERVE <name> <measurement>
 //   IIF RESULT <name> PASS|FAIL <detail>
-//   IIF FRAMES <name> serial=<n> count=<k>
-//   IIF FRAME <name> <index> 0x<address> <image> <symbol|->
 //   IIF END <name>
 //
-// The frames are the return addresses the Swift fixture recorded on its own stack during the
-// last call, resolved here with dladdr. Interpretation (which frame is the caller, which lane it
-// proves) belongs to the harness. One fixture per process: a negative control can crash, and the
+// The capture lines are the return addresses the Swift fixture recorded on its own stack, resolved
+// with dladdr and written during the call itself, so a call that crashes afterwards still leaves
+// them. Interpretation (which frame is the caller, which lane it proves) belongs to the harness.
+// One fixture per process: a negative control can crash, and the
 // arm64 x20 defect leaves the thread in a state that poisons every later call.
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using InterpIdentityFixture;
@@ -65,7 +64,6 @@ static unsafe class Program
         }
 
         Emit($"IIF BEGIN {fixture}");
-        var serialBefore = Functions.GetIifCaptureSerialNumber();
         var issues = new List<string>();
         bool passed;
         try
@@ -78,7 +76,6 @@ static unsafe class Program
             passed = false;
         }
         Emit($"IIF RESULT {fixture} {(passed ? "PASS" : "FAIL")} {string.Join("; ", issues)}".TrimEnd());
-        EmitFrames(serialBefore);
         Emit($"IIF END {fixture}");
         return Finish(0);
     }
@@ -101,45 +98,6 @@ static unsafe class Program
     }
 
     static void Observe(string text) => Emit($"IIF OBSERVE {fixture} {text}");
-
-    // MARK: - Frames
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct DlInfo
-    {
-        public byte* FileName;
-        public void* FileBase;
-        public byte* SymbolName;
-        public void* SymbolAddress;
-    }
-
-    [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "dladdr")]
-    static extern int Dladdr(void* address, DlInfo* info);
-
-    static void EmitFrames(int serialBefore)
-    {
-        var serial = Functions.GetIifCaptureSerialNumber();
-        var count = Functions.GetIifCapturedFrameCount();
-        Emit($"IIF FRAMES {fixture} serial={serial} count={(serial == serialBefore ? 0 : count)}");
-        if (serial == serialBefore)
-            return;
-        for (var i = 0; i < count; i++)
-        {
-            var address = Functions.IifCapturedFrame(i);
-            // A return address can sit one past the end of its caller; resolve the byte before it.
-            DlInfo info;
-            var image = "?";
-            var symbol = "-";
-            if (address != 0 && Dladdr((void*)(address - 1), &info) != 0)
-            {
-                if (info.FileName != null)
-                    image = Path.GetFileName(Marshal.PtrToStringUTF8((IntPtr)info.FileName) ?? "?");
-                if (info.SymbolName != null)
-                    symbol = Marshal.PtrToStringUTF8((IntPtr)info.SymbolName) ?? "-";
-            }
-            Emit($"IIF FRAME {fixture} {i} 0x{(ulong)address:x} {image} {symbol}");
-        }
-    }
 
     // MARK: - Positive controls
 
