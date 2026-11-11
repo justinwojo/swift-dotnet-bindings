@@ -3410,10 +3410,7 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 Throws = accessor.throwing ?? false,
                 IsAsync = isAsync,
-                // Accessors mark mutation via the "Mutating" DeclAttribute (lazy-var getters, mutating get).
-                // Plain methods use funcSelfKind, but accessor nodes don't carry that — use either signal.
-                IsMutating = accessor.DeclAttributes?.Contains("Mutating") == true
-                    || accessor.funcSelfKind == "Mutating",
+                IsMutating = IsMutatingAccessor(accessor),
                 IsConsuming = accessor.funcSelfKind == "Consuming",
                 IsBorrowing = accessor.funcSelfKind == "Borrowing",
                 IsSynthesizedAccessor = true,
@@ -3945,6 +3942,16 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether an accessor node takes self inout. The ABI descriptor marks a `mutating get`
+        /// (property or subscript) with a <c>Mutating</c> declaration attribute and carries no
+        /// <c>funcSelfKind</c> on accessors, while a function node uses <c>funcSelfKind</c>; read
+        /// either. A <c>swift-api-digester -dump-sdk</c> dump carries neither on an accessor.
+        /// </summary>
+        internal static bool IsMutatingAccessor(Node accessor)
+            => accessor.DeclAttributes?.Contains("Mutating") == true
+                || accessor.funcSelfKind == "Mutating";
+
+        /// <summary>
         /// Creates a getter accessor for a subscript.
         /// </summary>
         private GetAccessorDecl CreateSubscriptGetAccessor(
@@ -4006,6 +4013,9 @@ namespace BindingsGeneration
                 // an ABI mismatch that compiles.
                 Throws = accessor.throwing ?? false,
                 IsAsync = isAsync,
+                // A `mutating get` takes self inout, exactly like a `mutating func`, so the wrapper
+                // and thunk have to hand it the caller's own storage rather than a borrowed copy.
+                IsMutating = IsMutatingAccessor(accessor),
                 IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
