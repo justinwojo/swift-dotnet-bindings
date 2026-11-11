@@ -121,6 +121,51 @@ public class AppleTypesCsEmitterTests
     }
 
     [Fact]
+    public void Emit_WritesATransitionLedgerListingEveryMetadataAccessorWithItsFacts()
+    {
+        var manifest = MakeManifest("Foundation",
+            MakeEntry("Foundation.Locale.Language", "Swift.Foundation", new[] { "Locale", "Language" }, "Foundation",
+                "$s10Foundation6LocaleV8LanguageVMa", availability: new Availability { Ios = "16.0", Macos = "13.0" }),
+            MakeEntry("Foundation.AttributedString", "Swift.Foundation", new[] { "AttributedString" }, "Foundation",
+                "$s10Foundation16AttributedStringVMa"));
+        var dir = Path.Combine(Path.GetTempPath(), "apple-cs-ledger-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var emitter = new AppleTypesCsEmitter(SequentialLayoutWhitelist.Empty(), NullLogger.Instance);
+            emitter.Emit(manifest, dir);
+
+            // Beside the C# and not among the emitted sources the project compiles.
+            var path = Path.Combine(dir, "SwiftBindings.Apple.swift-transition-ledger.json");
+            Assert.True(File.Exists(path));
+            Assert.DoesNotContain(emitter.EmittedFiles, f => f.EndsWith(".json", StringComparison.Ordinal));
+            Assert.Equal(File.ReadAllText(path), emitter.BuildTransitionLedger().ToJson());
+
+            var entries = emitter.BuildTransitionLedger().Entries;
+            Assert.Equal(2, entries.Length);
+            Assert.All(entries, e =>
+            {
+                Assert.Equal(SwiftTransitionKind.ForwardPInvoke, e.Transition);
+                Assert.Equal(SwiftTransitionLedgerStatus.Complete, e.Status);
+                Assert.Equal(SwiftTransitionCarriers.Primitive, e.Carriers);
+            });
+            var language = entries.Single(e => e.EntryPoint == "$s10Foundation6LocaleV8LanguageVMa");
+            Assert.Equal("Swift.Foundation.Locale+Language::PInvoke_GetMetadata", language.Member);
+
+            var facts = emitter.BuildTransitionLedger().Facts.Single(f => f.Id == "$s10Foundation6LocaleV8LanguageVMa");
+            Assert.Equal(SwiftCallTargetKind.MetadataAccessor, facts.Target.Kind);
+            Assert.Equal("Foundation.Locale.Language", facts.Target.DeclaringType);
+            Assert.Equal(
+                new[] { new SwiftAvailabilityFloor("iOS", "16.0"), new SwiftAvailabilityFloor("macOS", "13.0") },
+                facts.Target.Availability);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void VwtOpaque_EmitsMetadataAccessorPInvoke_WithCallConvSwift()
     {
         var entry = MakeEntry(

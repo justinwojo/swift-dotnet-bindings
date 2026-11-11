@@ -189,6 +189,75 @@ public class SwiftCallFactsTests
         Var("count", Box + "5counts5Int32V", Int32, settable: true),
     });
 
+    // ---- closures ----
+
+    private static ClosureTypeSpec Closure(string spelling) => Assert.IsType<ClosureTypeSpec>(TypeSpecParser.Parse(spelling));
+
+    [Fact]
+    public void Closure_TakesConventionsTypesAndEffectsFromItsFunctionType()
+    {
+        var (_, table, _) = Parse(PointDecl(), BoxDecl());
+
+        var facts = table.DescribeClosure(
+            Closure("(inout Swift.Int32, __owned TestModule.Box, TestModule.Point) throws -> TestModule.Point"),
+            "closure argument 'f' of $sOwner", [], M);
+
+        Assert.True(facts.IsComplete, string.Join("; ", facts.Unknowns));
+        Assert.Equal(SwiftCallTargetKind.ClosureInvocation, facts.Target.Kind);
+        Assert.Equal(SwiftEntryKind.FunctionPointer, facts.Target.Entry);
+        Assert.Equal("closure argument 'f' of $sOwner", facts.Id);
+        Assert.Equal(SwiftCallSelfKind.ClosureContext, facts.Self.Kind);
+        Assert.Equal(
+            new[] { SwiftParameterConvention.Inout, SwiftParameterConvention.Owned, SwiftParameterConvention.Guaranteed },
+            facts.Parameters.Select(p => p.Convention));
+        Assert.Equal(
+            new[] { SwiftConventionSource.Explicit, SwiftConventionSource.Explicit, SwiftConventionSource.Default },
+            facts.Parameters.Select(p => p.ConventionSource));
+        Assert.Equal(
+            new[] { SwiftTypeCategory.Struct, SwiftTypeCategory.Class, SwiftTypeCategory.Struct },
+            facts.Parameters.Select(p => p.Type.Category));
+        Assert.Equal(SwiftTypeCategory.Struct, facts.Result.Type.Category);
+        Assert.True(facts.Effects.Throws);
+        Assert.False(facts.Effects.IsAsync);
+    }
+
+    [Theory]
+    [InlineData("(borrowing TestModule.Box, Swift.Int32) -> Swift.Int32", SwiftParameterConvention.Guaranteed)]
+    [InlineData("(__shared TestModule.Box, Swift.Int32) -> Swift.Int32", SwiftParameterConvention.Guaranteed)]
+    [InlineData("(consuming TestModule.Box, Swift.Int32) -> Swift.Int32", SwiftParameterConvention.Owned)]
+    public void Closure_AnOwnershipModifierAppliesToTheParameterItPrecedes(string spelling, SwiftParameterConvention expected)
+    {
+        var (_, table, _) = Parse(BoxDecl());
+
+        var facts = table.DescribeClosure(Closure(spelling), "p", [], M);
+
+        Assert.True(facts.IsComplete, string.Join("; ", facts.Unknowns));
+        Assert.Equal(2, facts.Parameters.Length);
+        Assert.Equal((expected, SwiftConventionSource.Explicit), (facts.Parameters[0].Convention, facts.Parameters[0].ConventionSource));
+        Assert.Equal(SwiftTypeCategory.Class, facts.Parameters[0].Type.Category);
+        Assert.Equal((SwiftParameterConvention.Guaranteed, SwiftConventionSource.Default), (facts.Parameters[1].Convention, facts.Parameters[1].ConventionSource));
+    }
+
+    [Fact]
+    public void Closure_AGenericParameterResolvesOnlyWhereItIsInScope()
+    {
+        var (_, table, _) = Parse(PointDecl());
+        var closure = Closure("(T) -> Swift.Int32");
+
+        Assert.True(table.DescribeClosure(closure, "p", ["T"], M).IsComplete);
+        Assert.False(table.DescribeClosure(closure, "p", [], M).IsComplete);
+    }
+
+    [Fact]
+    public void Closure_ACFunctionPointerIsNotAClosureCall()
+    {
+        var (_, table, _) = Parse(PointDecl());
+
+        var facts = table.DescribeClosure(Closure("@convention[c] (Swift.Int32) -> ()"), "p", [], M);
+
+        Assert.Contains(facts.Unknowns, u => u.Contains("@convention(c)"));
+    }
+
     // ---- self ----
 
     [Fact]

@@ -348,14 +348,20 @@ public static class PInvokeEmitHelper
         info.EmissionContext?.RecordAbiCallPlan(BuildAbiCallPlan(info));
 
         // A forward Swift-convention transition records the facts of the function it binds, for the
-        // module's transition ledger. A declaration rendered without a context records nothing and is
-        // listed in the ledger as unplanned, which is how a missing context shows up.
-        if (resolvedCallingConvention == PInvokeCallingConvention.Swift && info.EmissionContext is { } context)
+        // module's transition ledger; so does an import of another convention whose signature names a
+        // Swift register type, which the ledger lists too. A declaration rendered without a context
+        // records nothing and is listed in the ledger as unplanned, which is how a missing context shows up.
+        if ((resolvedCallingConvention == PInvokeCallingConvention.Swift || NamesSwiftRegisterType(returnTypeStr, paramsStr))
+            && info.EmissionContext is { } context)
             context.RecordSwiftTransition(SwiftTransitionRecord.For(
                 info.MethodName, info.EntryPoint, info.LibraryPath, info.CallFacts, context));
 
         return lines;
     }
+
+    /// <summary>Whether a rendered signature names <c>SwiftSelf</c>, <c>SwiftSelf&lt;T&gt;</c> or <c>SwiftIndirectResult</c>.</summary>
+    private static bool NamesSwiftRegisterType(string returnType, string parameters) =>
+        System.Text.RegularExpressions.Regex.IsMatch(returnType + " " + parameters, @"\b(SwiftSelf|SwiftIndirectResult)\b");
 
     /// <summary>
     /// Builds the typed <see cref="AbiCallPlan"/> for a P/Invoke declaration without emitting it, from the

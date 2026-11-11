@@ -1657,7 +1657,45 @@ public sealed class ModuleEmissionContext
     private readonly Dictionary<string, SyntheticSwiftFunction> _syntheticSwiftFunctions = new(StringComparer.Ordinal);
     private readonly SortedSet<string> _syntheticSwiftFunctionConflicts = new(StringComparer.Ordinal);
     private readonly HashSet<SwiftTransitionRecord> _swiftTransitionRecords = new();
+    private readonly HashSet<SwiftCallbackRecord> _swiftCallbackRecords = new();
+    private readonly HashSet<SwiftCalliRecord> _swiftCalliRecords = new();
     private readonly object _swiftTransitionLock = new();
+
+    /// <summary>Records what the producer of one rendered Swift-convention reverse callback knew.</summary>
+    public void RecordSwiftCallback(SwiftCallbackRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        lock (_swiftTransitionLock)
+            _swiftCallbackRecords.Add(record);
+    }
+
+    /// <summary>Every recorded reverse callback, in no particular order.</summary>
+    public IReadOnlyList<SwiftCallbackRecord> SwiftCallbackRecords
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _swiftCallbackRecords.ToArray();
+        }
+    }
+
+    /// <summary>Records what the producer of one rendered forward <c>calli</c> through an <c>unmanaged[Swift]</c> pointer knew.</summary>
+    public void RecordSwiftCalli(SwiftCalliRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        lock (_swiftTransitionLock)
+            _swiftCalliRecords.Add(record);
+    }
+
+    /// <summary>Every recorded forward Swift-convention <c>calli</c>, in no particular order.</summary>
+    public IReadOnlyList<SwiftCalliRecord> SwiftCalliRecords
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _swiftCalliRecords.ToArray();
+        }
+    }
 
     /// <summary>
     /// Registers a Swift function a synthesizer wrote into the wrapper, so a declaration binding its

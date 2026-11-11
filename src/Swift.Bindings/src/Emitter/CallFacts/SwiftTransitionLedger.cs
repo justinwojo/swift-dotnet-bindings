@@ -19,6 +19,134 @@ public enum SwiftCallFactsSource
 
     /// <summary>The callee was synthesized into the wrapper: its producer described it.</summary>
     Synthesized,
+
+    /// <summary>The callee is a Swift closure: its facts come from the closure's function type.</summary>
+    ClosureType,
+}
+
+/// <summary>Which kind of managed↔Swift transition a ledger entry lists.</summary>
+public enum SwiftTransitionKind
+{
+    /// <summary>A forward <c>CallConvSwift</c> P/Invoke.</summary>
+    ForwardPInvoke,
+
+    /// <summary>
+    /// A P/Invoke of another convention whose signature carries <c>SwiftSelf</c>, <c>SwiftSelf&lt;T&gt;</c>
+    /// or <c>SwiftIndirectResult</c>: a C-convention wrapper call that names a Swift register type.
+    /// </summary>
+    CdeclSpecialPInvoke,
+
+    /// <summary>An <c>[UnmanagedCallersOnly]</c> method with the Swift convention: a reverse callback Swift calls as a closure.</summary>
+    ReverseCallback,
+
+    /// <summary>
+    /// Where managed code takes a reverse callback's address (<c>&amp;Callback</c>) to hand Swift as a
+    /// closure function: the start of its construction site.
+    /// </summary>
+    CallbackAddress,
+
+    /// <summary>A forward <c>calli</c> through an <c>unmanaged[Swift]</c> function pointer: a call of a closure Swift returned.</summary>
+    ForwardCalli,
+}
+
+/// <summary>
+/// Whether a forward transition's managed signature carries only primitive carriers (design invariant
+/// I1): integers, <c>nint</c>/<c>nuint</c>, <c>bool</c>, <c>char</c>, <c>float</c>, <c>double</c>,
+/// pointers, function pointers, enums and the allow-listed one-word runtime wrappers. A primitive-only
+/// transition is placed identically by every runtime and is not bridged.
+/// </summary>
+public enum SwiftTransitionCarriers
+{
+    Primitive,
+    NonPrimitive,
+}
+
+/// <summary>
+/// The forward call a reverse callback's closure is passed to, and how that callee takes it: the
+/// convention decides whether the caller keeps or hands over its reference to the closure context.
+/// </summary>
+/// <param name="Symbol">The symbol of the forward callee the closure is an argument of.</param>
+/// <param name="ParameterName">The closure parameter's name, as the producer knew it.</param>
+/// <param name="ParameterIndex">Its position among the callee's formal parameters, when the callee's facts name it.</param>
+public sealed record SwiftClosureOwner(
+    string Symbol,
+    string ParameterName,
+    int? ParameterIndex = null,
+    SwiftParameterConvention? Convention = null,
+    SwiftClosureKind? Closure = null);
+
+/// <summary>
+/// What the producer of a Swift-convention reverse callback knew when it rendered it: the callback's
+/// name, the facts of the closure Swift calls it as, and the forward callee its closure is passed to.
+/// </summary>
+public sealed record SwiftCallbackRecord
+{
+    /// <summary>The <c>[UnmanagedCallersOnly]</c> method's name.</summary>
+    public required string CallbackName { get; init; }
+
+    public required SwiftCallFacts Facts { get; init; }
+
+    /// <summary>The forward callee the closure is an argument of, or null when the producer does not know it.</summary>
+    public SwiftClosureOwner? Owner { get; init; }
+
+    /// <summary>Why the owner's parameter is not described, when it is not.</summary>
+    public string? OwnerReason { get; init; }
+
+    /// <summary>
+    /// The record a callback producer makes. The owner's facts are looked up by its symbol. Its
+    /// closure parameter is the owner's only closure parameter; among several, the one whose name the
+    /// producer wrote, when exactly one matches. Anything else leaves the owner's convention unknown.
+    /// </summary>
+    public static SwiftCallbackRecord For(
+        string callbackName, ClosureTypeSpec closure, string parameterName, string ownerSymbol,
+        ModuleEmissionContext context)
+    {
+        string? reason = null;
+        SwiftClosureOwner owner = new(ownerSymbol, parameterName);
+        var genericNames = new List<string>();
+        string? module = null;
+        if (context.TryResolveCallFacts(ownerSymbol, out var ownerFacts, out _))
+        {
+            module = ownerFacts.Target.Module;
+            genericNames.AddRange(ownerFacts.Generics.Parameters);
+            var closures = ownerFacts.Parameters.Where(p => p.Closure != SwiftClosureKind.NotClosure).ToList();
+            var named = closures.Where(p => string.Equals(p.Name, parameterName, StringComparison.Ordinal)).ToList();
+            var parameter = closures.Count == 1 ? closures[0] : named.Count == 1 ? named[0] : null;
+            if (parameter is not null)
+                owner = owner with { ParameterIndex = parameter.Index, Convention = parameter.Convention, Closure = parameter.Closure };
+            else if (closures.Count == 0)
+                reason = $"the facts of {ownerSymbol} list no closure parameter";
+            else
+                reason = $"{ownerSymbol} has {closures.Count} closure parameters and {named.Count} named '{parameterName}'";
+        }
+        else
+        {
+            reason = $"no facts are known for the owner {ownerSymbol}";
+        }
+
+        var facts = context.SwiftCallFacts.DescribeClosure(
+            closure, ClosurePointerSource(ownerSymbol, parameterName), genericNames, module);
+        return new SwiftCallbackRecord { CallbackName = callbackName, Facts = facts, Owner = owner, OwnerReason = reason };
+    }
+
+    /// <summary>The pointer source naming the closure passed as one parameter of a callee.</summary>
+    public static string ClosurePointerSource(string ownerSymbol, string parameterName) =>
+        $"closure argument '{parameterName}' of {ownerSymbol}";
+}
+
+/// <summary>
+/// What the producer of a forward <c>calli</c> through an <c>unmanaged[Swift]</c> pointer knew: the
+/// function-pointer type it cast to, and the facts of the closure it calls.
+/// </summary>
+public sealed record SwiftCalliRecord
+{
+    /// <summary>The function-pointer type the call goes through, as the producer wrote it.</summary>
+    public required string FunctionPointerType { get; init; }
+
+    public required SwiftCallFacts Facts { get; init; }
+
+    /// <summary>The pointer source naming a closure a callee returned.</summary>
+    public static string ClosurePointerSource(string closureSpelling) => $"closure of type {closureSpelling}";
 }
 
 /// <summary>
@@ -100,11 +228,14 @@ public enum SwiftTransitionLedgerStatus
     Unplanned,
 }
 
-/// <summary>One emitted forward Swift-convention P/Invoke and the facts its producer recorded.</summary>
+/// <summary>One emitted managed↔Swift transition and the facts its producer recorded.</summary>
 /// <param name="Member">
-/// The declaration as the IL names it: <c>Namespace.Outer+Inner::Method</c>, a generic type with its
-/// arity (<c>Box`1</c>). With <paramref name="EntryPoint"/> this is the key an IL inventory joins on.
+/// The IL member that holds the transition: <c>Namespace.Outer+Inner::Method</c>, a generic type with
+/// its arity (<c>Box`1</c>), a lambda as <c>Outer.&lt;lambda&gt;</c>. With the kind-specific part of
+/// <see cref="Key"/> this is what an IL inventory joins on.
 /// </param>
+/// <param name="EntryPoint">An import's bound symbol; empty for every other kind.</param>
+/// <param name="Library">An import's library; empty for every other kind.</param>
 public sealed record SwiftTransitionLedgerEntry(
     string Member,
     string EntryPoint,
@@ -115,32 +246,62 @@ public sealed record SwiftTransitionLedgerEntry(
     SwiftWrapperSynthesizer? Synthesizer,
     ImmutableArray<string> Reasons)
 {
-    /// <summary>The join key with an IL inventory site: the member and the entry point.</summary>
-    public string Key => SwiftTransitionLedger.KeyOf(Member, EntryPoint);
+    public SwiftTransitionKind Transition { get; init; } = SwiftTransitionKind.ForwardPInvoke;
+
+    /// <summary>For an import or a <c>calli</c>: whether its managed signature carries only primitives.</summary>
+    public SwiftTransitionCarriers? Carriers { get; init; }
+
+    /// <summary>For a callback address: the IL member of the callback whose address is taken.</summary>
+    public string? Target { get; init; }
+
+    /// <summary>For a reverse callback and its address: the forward callee its closure is passed to.</summary>
+    public SwiftClosureOwner? Owner { get; init; }
+
+    /// <summary>For a C-convention import: the Swift register types its signature names.</summary>
+    public ImmutableArray<string>? Specials { get; init; }
+
+    /// <summary>
+    /// For a <c>calli</c> whose pointer type several closures of different Swift types share: the facts
+    /// of each, by id. Which one the call is cannot be told from the C#, so no single facts id is cited.
+    /// </summary>
+    public ImmutableArray<string>? Candidates { get; init; }
+
+    /// <summary>
+    /// The join key with an IL inventory site of the same kind: an import's member and entry point; a
+    /// callback's member; a callback address's member and target; a <c>calli</c>'s member.
+    /// </summary>
+    public string Key => Transition switch
+    {
+        SwiftTransitionKind.ForwardPInvoke or SwiftTransitionKind.CdeclSpecialPInvoke => SwiftTransitionLedger.KeyOf(Member, EntryPoint),
+        SwiftTransitionKind.CallbackAddress => SwiftTransitionLedger.KeyOf(Member, Target ?? ""),
+        _ => Member,
+    };
 }
 
 /// <summary>
-/// The transition coverage ledger of one module: one entry per forward <c>CallConvSwift</c> P/Invoke in
-/// the module's emitted C#, with the facts its producer recorded, or why there are none.
+/// The transition coverage ledger of one module: one entry per managed↔Swift transition in the
+/// module's emitted C#, with the facts its producer recorded, or why there are none. A transition is a
+/// forward <c>CallConvSwift</c> P/Invoke, an import of another convention that names a Swift register
+/// type, a Swift-convention <c>[UnmanagedCallersOnly]</c> callback, a place a callback's address is
+/// taken to construct a closure, or a <c>calli</c> through an <c>unmanaged[Swift]</c> pointer.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The emitted set is read from the rendered C# itself, not from what producers recorded, so a
-/// producer that renders a Swift-convention declaration without recording it cannot drop out of the
-/// ledger: its declaration is listed <see cref="SwiftTransitionLedgerStatus.Unplanned"/> with the reason.
-/// A recorded declaration that did not reach the output (a member rolled back after it was
-/// rendered) is not listed.
+/// producer that renders a transition without recording it cannot drop out of the ledger: it is
+/// listed <see cref="SwiftTransitionLedgerStatus.Unplanned"/> with the reason. A recorded transition
+/// that did not reach the output (a member rolled back after it was rendered) is not listed.
 /// </para>
 /// <para>
 /// Entries carry the IL's own naming (<see cref="SwiftTransitionLedgerEntry.Member"/>), so a cross-check
-/// against the transition gate's IL inventory joins on <c>(member, entryPoint)</c> and can demand a
-/// bijection. Writing the ledger changes nothing that is emitted.
+/// against the transition gate's IL inventory joins on <see cref="SwiftTransitionLedgerEntry.Key"/> per
+/// kind and can demand a bijection. Writing the ledger changes nothing that is emitted.
 /// </para>
 /// </remarks>
 public sealed class SwiftTransitionLedger
 {
     /// <summary>The ledger schema. Bump it on any change to the ledger's shape.</summary>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     public required string Module { get; init; }
 
@@ -177,58 +338,62 @@ public sealed class SwiftTransitionLedger
         string csharpSource,
         IEnumerable<SwiftTransitionRecord> records,
         IEnumerable<string>? additionalIssues = null,
-        IEnumerable<SyntheticSwiftFunction>? registered = null)
+        IEnumerable<SyntheticSwiftFunction>? registered = null,
+        IEnumerable<SwiftCallbackRecord>? callbacks = null,
+        IEnumerable<SwiftCalliRecord>? callis = null) =>
+        Build(module, new[] { csharpSource }, records, additionalIssues, registered, callbacks, callis);
+
+    /// <summary>The ledger of C# split across several files, each a complete compilation unit.</summary>
+    public static SwiftTransitionLedger Build(
+        string module,
+        IEnumerable<string> csharpSources,
+        IEnumerable<SwiftTransitionRecord> records,
+        IEnumerable<string>? additionalIssues = null,
+        IEnumerable<SyntheticSwiftFunction>? registered = null,
+        IEnumerable<SwiftCallbackRecord>? callbacks = null,
+        IEnumerable<SwiftCalliRecord>? callis = null)
     {
         var issues = new List<string>(additionalIssues ?? Array.Empty<string>());
-        var declarations = FindSwiftDeclarations(csharpSource, issues);
+        var sites = csharpSources.SelectMany(source => SwiftTransitionSyntax.Scan(source, issues)).ToList();
 
-        var byKey = records
+        var importRecords = records
             .GroupBy(r => (r.MethodName, r.EntryPoint, r.Library))
             .ToDictionary(g => g.Key, g => g.ToList());
+        var callbackRecords = (callbacks ?? Array.Empty<SwiftCallbackRecord>())
+            .GroupBy(r => r.CallbackName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        var calliRecords = (callis ?? Array.Empty<SwiftCalliRecord>())
+            .GroupBy(r => SwiftTransitionSyntax.NormalizeFunctionPointerType(r.FunctionPointerType), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
-        var entries = ImmutableArray.CreateBuilder<SwiftTransitionLedgerEntry>(declarations.Count);
+        var entries = ImmutableArray.CreateBuilder<SwiftTransitionLedgerEntry>(sites.Count);
         var cited = new SortedDictionary<string, SwiftCallFacts>(StringComparer.Ordinal);
-        foreach (var declaration in declarations)
+        foreach (var site in sites)
         {
-            if (!byKey.TryGetValue((declaration.Method, declaration.EntryPoint, declaration.Library), out var matches))
+            var entry = site.Kind switch
             {
-                entries.Add(new SwiftTransitionLedgerEntry(
-                    declaration.Member, declaration.EntryPoint, declaration.Library,
-                    SwiftTransitionLedgerStatus.Unplanned, null, null, null,
-                    ImmutableArray.Create("no producer recorded this declaration")));
-                continue;
-            }
-
-            var withFacts = matches.Where(m => m.Facts is not null).ToList();
-            if (withFacts.Count == 0)
+                SwiftTransitionKind.ForwardPInvoke or SwiftTransitionKind.CdeclSpecialPInvoke => ImportEntry(site, importRecords, cited, issues),
+                SwiftTransitionKind.ReverseCallback or SwiftTransitionKind.CallbackAddress => CallbackEntry(site, callbackRecords, cited, issues),
+                _ => CalliEntry(site, calliRecords, cited),
+            };
+            entries.Add(entry with
             {
-                entries.Add(new SwiftTransitionLedgerEntry(
-                    declaration.Member, declaration.EntryPoint, declaration.Library,
-                    SwiftTransitionLedgerStatus.Unplanned, null, null, null,
-                    matches.Select(m => m.Reason ?? "the producer recorded no facts").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray()));
-                continue;
-            }
-
-            var distinctFacts = withFacts.Select(m => m.Facts!).Distinct().ToList();
-            if (distinctFacts.Count > 1)
-                issues.Add($"{declaration.Member} ({declaration.EntryPoint}): producers recorded {distinctFacts.Count} different facts; the first by id is cited");
-            var record = withFacts.OrderBy(m => m.Facts!.Id, StringComparer.Ordinal).ThenBy(m => (int)m.Source).First();
-            var facts = record.Facts!;
-            cited.TryAdd(facts.Id, facts);
-            entries.Add(new SwiftTransitionLedgerEntry(
-                declaration.Member, declaration.EntryPoint, declaration.Library,
-                facts.IsComplete ? SwiftTransitionLedgerStatus.Complete : SwiftTransitionLedgerStatus.Incomplete,
-                facts.Id, record.Source, facts.Target.Synthesizer,
-                facts.IsComplete ? ImmutableArray<string>.Empty : facts.Unknowns));
+                Transition = site.Kind,
+                Carriers = site.Carriers,
+                Target = site.Target,
+                Specials = site.Kind == SwiftTransitionKind.CdeclSpecialPInvoke ? site.Specials : null,
+            });
         }
 
         return new SwiftTransitionLedger
         {
             Module = module,
             Entries = entries
-                .OrderBy(e => e.Member, StringComparer.Ordinal)
+                .OrderBy(e => e.Transition)
+                .ThenBy(e => e.Member, StringComparer.Ordinal)
                 .ThenBy(e => e.EntryPoint, StringComparer.Ordinal)
                 .ThenBy(e => e.Library, StringComparer.Ordinal)
+                .ThenBy(e => e.Target, StringComparer.Ordinal)
                 .ToImmutableArray(),
             Facts = cited.Values.ToImmutableArray(),
             Issues = issues.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray(),
@@ -238,15 +403,86 @@ public sealed class SwiftTransitionLedger
         };
     }
 
+    private static SwiftTransitionLedgerEntry Unplanned(SwiftTransitionSite site, IEnumerable<string> reasons) => new(
+        site.Member, site.EntryPoint, site.Library, SwiftTransitionLedgerStatus.Unplanned, null, null, null,
+        reasons.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray());
+
+    private static SwiftTransitionLedgerEntry Cite(
+        SwiftTransitionSite site, SwiftCallFacts facts, SwiftCallFactsSource source,
+        SortedDictionary<string, SwiftCallFacts> cited, IEnumerable<string>? extraReasons = null)
+    {
+        cited.TryAdd(facts.Id, facts);
+        var reasons = facts.Unknowns.Concat(extraReasons ?? Array.Empty<string>()).ToImmutableArray();
+        return new SwiftTransitionLedgerEntry(
+            site.Member, site.EntryPoint, site.Library,
+            reasons.IsEmpty ? SwiftTransitionLedgerStatus.Complete : SwiftTransitionLedgerStatus.Incomplete,
+            facts.Id, source, facts.Target.Synthesizer, reasons);
+    }
+
+    private static SwiftTransitionLedgerEntry ImportEntry(
+        SwiftTransitionSite site, Dictionary<(string, string, string), List<SwiftTransitionRecord>> records,
+        SortedDictionary<string, SwiftCallFacts> cited, List<string> issues)
+    {
+        if (!records.TryGetValue((site.Method, site.EntryPoint, site.Library), out var matches))
+            return Unplanned(site, ["no producer recorded this declaration"]);
+        var withFacts = matches.Where(m => m.Facts is not null).ToList();
+        if (withFacts.Count == 0)
+            return Unplanned(site, matches.Select(m => m.Reason ?? "the producer recorded no facts"));
+
+        var distinctFacts = withFacts.Select(m => m.Facts!).Distinct().ToList();
+        if (distinctFacts.Count > 1)
+            issues.Add($"{site.Member} ({site.EntryPoint}): producers recorded {distinctFacts.Count} different facts; the first by id is cited");
+        var record = withFacts.OrderBy(m => m.Facts!.Id, StringComparer.Ordinal).ThenBy(m => (int)m.Source).First();
+        return Cite(site, record.Facts!, record.Source, cited);
+    }
+
+    private static SwiftTransitionLedgerEntry CallbackEntry(
+        SwiftTransitionSite site, Dictionary<string, List<SwiftCallbackRecord>> records,
+        SortedDictionary<string, SwiftCallFacts> cited, List<string> issues)
+    {
+        if (site.CallbackName is null || !records.TryGetValue(site.CallbackName, out var matches))
+            return Unplanned(site, ["no producer recorded this callback"]);
+        var distinct = matches.Distinct().ToList();
+        if (distinct.Count > 1 && site.Kind == SwiftTransitionKind.ReverseCallback)
+            issues.Add($"{site.Member}: producers recorded {distinct.Count} different descriptions of this callback; the first by id is cited");
+        var record = distinct.OrderBy(r => r.Facts.Id, StringComparer.Ordinal).First();
+        var ownerReasons = record.OwnerReason is { } reason ? new[] { "closure owner: " + reason } : null;
+        return Cite(site, record.Facts, SwiftCallFactsSource.ClosureType, cited, ownerReasons) with { Owner = record.Owner };
+    }
+
+    private static SwiftTransitionLedgerEntry CalliEntry(
+        SwiftTransitionSite site, Dictionary<string, List<SwiftCalliRecord>> records, SortedDictionary<string, SwiftCallFacts> cited)
+    {
+        var key = SwiftTransitionSyntax.NormalizeFunctionPointerType(site.FunctionPointerType ?? "");
+        if (!records.TryGetValue(key, out var matches))
+            return Unplanned(site, ["no producer recorded a call through this pointer type"]);
+        var distinct = matches.Select(m => m.Facts).Distinct().OrderBy(f => f.Id, StringComparer.Ordinal).ToList();
+        if (distinct.Count == 1)
+            return Cite(site, distinct[0], SwiftCallFactsSource.ClosureType, cited);
+
+        // A pointer type is what the call site shows; closures of different Swift types can share one.
+        // Then which closure this call is cannot be told from the C#: every candidate's facts are kept,
+        // and none is cited as the call's own.
+        foreach (var facts in distinct)
+            cited.TryAdd(facts.Id, facts);
+        return new SwiftTransitionLedgerEntry(
+            site.Member, site.EntryPoint, site.Library, SwiftTransitionLedgerStatus.Incomplete, null, SwiftCallFactsSource.ClosureType, null,
+            [$"{distinct.Count} closures of different Swift types are called through this pointer type"])
+        {
+            Candidates = distinct.Select(f => f.Id).ToImmutableArray(),
+        };
+    }
+
     /// <summary>
     /// The keys of <paramref name="sites"/> (member and entry point, as an IL inventory names them)
-    /// that have no ledger entry, and the ledger entries no site matches. Both empty is a bijection.
-    /// Multiplicity counts: a key the IL has twice needs two entries.
+    /// that have no forward Swift-convention P/Invoke entry, and the entries no site matches. Both
+    /// empty is a bijection. Multiplicity counts: a key the IL has twice needs two entries.
     /// </summary>
     public (ImmutableArray<string> MissingFromLedger, ImmutableArray<string> MissingFromSites) Compare(
         IEnumerable<(string Member, string EntryPoint)> sites)
     {
-        var remaining = Entries.GroupBy(e => e.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var remaining = Entries.Where(e => e.Transition == SwiftTransitionKind.ForwardPInvoke)
+            .GroupBy(e => e.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         var missing = new List<string>();
         foreach (var (member, entryPoint) in sites)
         {
@@ -261,106 +497,6 @@ public sealed class SwiftTransitionLedger
             .Order(StringComparer.Ordinal);
         return (missing.Order(StringComparer.Ordinal).ToImmutableArray(), extra.ToImmutableArray());
     }
-
-    // ---- reading the emitted C# ----
-
-    internal sealed record SwiftDeclaration(string Member, string Method, string EntryPoint, string Library);
-
-    /// <summary>
-    /// Every method in <paramref name="source"/> that is a native import (<c>[LibraryImport]</c> or
-    /// <c>[DllImport]</c>) declared <c>CallConvSwift</c> through <c>[UnmanagedCallConv]</c>, named the
-    /// way the IL names it.
-    /// </summary>
-    internal static List<SwiftDeclaration> FindSwiftDeclarations(string source, List<string> issues)
-    {
-        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
-        var root = tree.GetRoot();
-        var found = new List<SwiftDeclaration>();
-
-        foreach (var method in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
-        {
-            var attributes = method.AttributeLists.SelectMany(l => l.Attributes).ToList();
-            var import = attributes.FirstOrDefault(a => IsAttribute(a, "LibraryImport") || IsAttribute(a, "DllImport"));
-            if (import is null)
-                continue;
-            var callConv = attributes.FirstOrDefault(a => IsAttribute(a, "UnmanagedCallConv"));
-            if (callConv is null || !callConv.DescendantNodes().OfType<TypeOfExpressionSyntax>().Any(t => RightmostName(t.Type) == "CallConvSwift"))
-                continue;
-
-            var arguments = import.ArgumentList?.Arguments ?? default;
-            var library = arguments.FirstOrDefault(a => a.NameEquals is null && a.NameColon is null)?.Expression is LiteralExpressionSyntax lib
-                ? lib.Token.ValueText
-                : null;
-            var entryArgument = arguments.FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "EntryPoint");
-            var entryPoint = entryArgument?.Expression is LiteralExpressionSyntax ep ? ep.Token.ValueText : method.Identifier.ValueText;
-            if (library is null)
-            {
-                issues.Add($"{MemberOf(method)}: a Swift-convention import whose library is not a literal is not listed");
-                continue;
-            }
-            found.Add(new SwiftDeclaration(MemberOf(method), method.Identifier.ValueText, entryPoint, library));
-        }
-
-        // A declaration in an inactive region is not in the syntax tree; say so rather than miss it.
-        foreach (var trivia in root.DescendantTrivia().Where(t => t.IsKind(SyntaxKind.DisabledTextTrivia)))
-        {
-            var text = trivia.ToString();
-            if (text.Contains("CallConvSwift", StringComparison.Ordinal))
-                issues.Add($"a Swift-convention declaration sits in an inactive preprocessor region at line {trivia.GetLocation().GetLineSpan().StartLinePosition.Line + 1} and is not listed");
-        }
-
-        return found;
-    }
-
-    private static bool IsAttribute(AttributeSyntax attribute, string name)
-    {
-        var simple = RightmostName(attribute.Name);
-        return simple == name || simple == name + "Attribute";
-    }
-
-    private static string RightmostName(TypeSyntax type) => type switch
-    {
-        QualifiedNameSyntax q => q.Right.Identifier.ValueText,
-        AliasQualifiedNameSyntax a => a.Name.Identifier.ValueText,
-        SimpleNameSyntax s => s.Identifier.ValueText,
-        _ => type.ToString(),
-    };
-
-    private static string RightmostName(NameSyntax name) => RightmostName((TypeSyntax)name);
-
-    /// <summary><c>Namespace.Outer+Inner::Method</c>, generic types with their arity, as the IL spells it.</summary>
-    private static string MemberOf(MethodDeclarationSyntax method)
-    {
-        var types = new List<string>();
-        var namespaces = new List<string>();
-        for (SyntaxNode? node = method.Parent; node is not null; node = node.Parent)
-        {
-            switch (node)
-            {
-                case TypeDeclarationSyntax type:
-                    var arity = type.TypeParameterList?.Parameters.Count ?? 0;
-                    types.Add(arity > 0 ? $"{type.Identifier.ValueText}`{arity}" : type.Identifier.ValueText);
-                    break;
-                case BaseNamespaceDeclarationSyntax ns:
-                    namespaces.Add(NamespaceOf(ns.Name));
-                    break;
-            }
-        }
-        types.Reverse();
-        namespaces.Reverse();
-        var typePath = string.Join("+", types);
-        var qualified = namespaces.Count > 0 ? string.Join(".", namespaces) + "." + typePath : typePath;
-        return $"{qualified}::{method.Identifier.ValueText}";
-    }
-
-    /// <summary>A namespace name as metadata spells it: identifiers without their <c>@</c> escapes.</summary>
-    private static string NamespaceOf(NameSyntax name) => name switch
-    {
-        QualifiedNameSyntax q => NamespaceOf(q.Left) + "." + q.Right.Identifier.ValueText,
-        AliasQualifiedNameSyntax a => a.Name.Identifier.ValueText,
-        SimpleNameSyntax s => s.Identifier.ValueText,
-        _ => name.ToString(),
-    };
 
     // ---- the sidecar ----
 
@@ -389,6 +525,11 @@ public sealed class SwiftTransitionLedger
                 .GroupBy(k => k)
                 .ToImmutableSortedDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
             RegisteredBySynthesizer = Registered,
+            ByTransition = Entries.GroupBy(e => e.Transition.ToString())
+                .ToImmutableSortedDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
+            ByCarriers = Entries.Where(e => e.Carriers is not null)
+                .GroupBy(e => $"{e.Transition}/{e.Carriers}")
+                .ToImmutableSortedDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
         },
         Issues = Issues,
         Transitions = Entries,
@@ -410,7 +551,7 @@ public sealed class SwiftTransitionLedger
             var unplanned = Count(SwiftTransitionLedgerStatus.Unplanned);
             if (unplanned > 0 || Issues.Length > 0)
                 logger.LogInformation(
-                    "Swift transition ledger for {Module}: {Unplanned} of {Total} Swift-convention P/Invokes have no facts; {Issues} issue(s)",
+                    "Swift transition ledger for {Module}: {Unplanned} of {Total} transitions have no facts; {Issues} issue(s)",
                     Module, unplanned, Entries.Length, Issues.Length);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or JsonException)
@@ -443,6 +584,12 @@ public sealed record SwiftTransitionLedgerTotals
     public required ImmutableSortedDictionary<string, int> BySynthesizer { get; init; }
     public required ImmutableSortedDictionary<string, int> ByTargetKind { get; init; }
     public required ImmutableSortedDictionary<string, int> RegisteredBySynthesizer { get; init; }
+
+    /// <summary>Entries per transition kind.</summary>
+    public required ImmutableSortedDictionary<string, int> ByTransition { get; init; }
+
+    /// <summary>Entries per transition kind and carrier class (<c>ForwardPInvoke/Primitive</c>), for the kinds that have one.</summary>
+    public required ImmutableSortedDictionary<string, int> ByCarriers { get; init; }
 }
 
 /// <summary>Source-generated, trim-safe serialization of the ledger.</summary>

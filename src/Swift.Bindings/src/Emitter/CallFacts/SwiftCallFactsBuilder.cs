@@ -316,6 +316,108 @@ public sealed class SwiftCallFactsBuilder
     }
 
     /// <summary>
+    /// The facts of a call through a Swift closure's function pointer, read from the closure's
+    /// function type: what Swift passes to a reverse callback the generator hands it, or what a
+    /// forward <c>calli</c> passes to a closure Swift returned. Self is the closure context. The
+    /// arguments are borrowed unless the type spells <c>inout</c> or an ownership modifier, and the
+    /// result is owned. A closure invocation takes no generic arguments of its own (its context
+    /// captured them), so a generic parameter in its type is only a type fact.
+    /// </summary>
+    /// <param name="pointerSource">The stable name the facts are identified by.</param>
+    /// <param name="genericNames">The generic parameter names in scope where the closure type is spelled.</param>
+    /// <param name="module">The module the closure type is spelled in; its unqualified names resolve there first.</param>
+    internal SwiftCallFacts ForClosure(ClosureTypeSpec closure, string pointerSource, IEnumerable<string> genericNames, string? module)
+    {
+        ArgumentNullException.ThrowIfNull(closure);
+        var unknowns = new List<string>();
+        var names = new HashSet<string>(genericNames, StringComparer.Ordinal) { "Self" };
+        var writtenIn = new List<string>();
+        if (!string.IsNullOrEmpty(module))
+            writtenIn.Add(module);
+        writtenIn.AddRange(_moduleNames);
+
+        if (IsCFunctionPointer(closure))
+            unknowns.Add("closure: a @convention(c) function type has no context and is not a Swift closure call");
+
+        var parameters = ImmutableArray.CreateBuilder<SwiftParameterFacts>();
+        var index = 0;
+        string? modifier = null;
+        foreach (var argument in closure.EachArgument())
+        {
+            // The type-spec grammar has no field for an ownership modifier: `(borrowing T) -> U` arrives
+            // as two arguments, the bare modifier and then the type it applies to.
+            if (OwnershipModifierOf(argument) is { } spelled)
+            {
+                if (modifier is not null)
+                    unknowns.Add($"closure parameter {index}: ownership modifier '{modifier}' is followed by another modifier");
+                modifier = spelled;
+                continue;
+            }
+            var (convention, source) = ClosureArgumentConventionOf(argument, modifier);
+            modifier = null;
+            parameters.Add(new SwiftParameterFacts
+            {
+                Index = index,
+                Type = ResolveType(argument, names, unknowns, $"closure parameter {index}", writtenIn),
+                Convention = convention,
+                ConventionSource = source,
+                Closure = ClosureKindOf(argument),
+            });
+            index++;
+        }
+        if (modifier is not null)
+            unknowns.Add($"closure parameter {index}: ownership modifier '{modifier}' applies to no parameter");
+
+        var resultType = ResolveType(closure.ReturnType, names, unknowns, "closure result", writtenIn);
+        var result = resultType.Category == SwiftTypeCategory.Void ? SwiftResultFacts.Void : new SwiftResultFacts { Type = resultType };
+
+        return new SwiftCallFacts
+        {
+            Target = new SwiftCallTarget
+            {
+                Kind = SwiftCallTargetKind.ClosureInvocation,
+                Entry = SwiftEntryKind.FunctionPointer,
+                PointerSource = pointerSource,
+                Module = string.IsNullOrEmpty(module) ? null : module,
+            },
+            Self = new SwiftSelfFacts
+            {
+                Kind = SwiftCallSelfKind.ClosureContext,
+                Mutation = SwiftSelfMutation.NotApplicable,
+                Abstraction = SwiftSelfAbstraction.Concrete,
+            },
+            Parameters = parameters.ToImmutable(),
+            Result = result,
+            Effects = new SwiftCallEffects { Throws = closure.Throws, IsAsync = closure.IsAsync },
+            Unknowns = unknowns.ToImmutableArray(),
+        };
+    }
+
+    /// <summary>
+    /// A closure argument's convention. A function type's parameters are borrowed by default;
+    /// <c>inout</c> and an explicit ownership modifier are the only other spellings.
+    /// </summary>
+    private static (SwiftParameterConvention, SwiftConventionSource) ClosureArgumentConventionOf(TypeSpec argument, string? modifier)
+    {
+        if (argument.IsInOut)
+            return (SwiftParameterConvention.Inout, SwiftConventionSource.Explicit);
+        return modifier switch
+        {
+            "__owned" or "consuming" => (SwiftParameterConvention.Owned, SwiftConventionSource.Explicit),
+            "__shared" or "borrowing" => (SwiftParameterConvention.Guaranteed, SwiftConventionSource.Explicit),
+            _ => (SwiftParameterConvention.Guaranteed, SwiftConventionSource.Default),
+        };
+    }
+
+    private static readonly string[] OwnershipModifiers = { "__owned", "consuming", "__shared", "borrowing" };
+
+    /// <summary>The ownership modifier an argument is, when the type-spec parser split one off as a bare name.</summary>
+    private static string? OwnershipModifierOf(TypeSpec argument) =>
+        argument is NamedTypeSpec { GenericParameters.Count: 0 } named && !argument.IsInOut && argument.TypeLabel is null
+            ? OwnershipModifiers.FirstOrDefault(m => named.Name == m)
+            : null;
+
+    /// <summary>
     /// The convention a parameter takes when it does not spell one. An initializer's and a
     /// setter's parameters (a subscript setter's indices too) are consumed, every other function's
     /// are borrowed, and a non-escaping closure is always borrowed.
@@ -886,6 +988,14 @@ public sealed class SwiftCallFactsBuilder
                 .ToImmutableArray(),
         };
     }
+
+    /// <summary>
+    /// The facts of a non-generic type's metadata accessor known only by its symbol: one the
+    /// generator names from a manifest rather than from a parsed declaration.
+    /// </summary>
+    internal static SwiftCallFacts ForMetadataAccessorSymbol(
+        string symbol, string module, string type, ImmutableArray<SwiftAvailabilityFloor> availability) =>
+        MetadataAccessorFacts(symbol, module, type, SwiftGenericSignatureFacts.Empty, availability);
 
     private static SwiftCallFacts MetadataAccessorFacts(
         string symbol, string? module, string type, SwiftGenericSignatureFacts generics, ImmutableArray<SwiftAvailabilityFloor> availability) => new()

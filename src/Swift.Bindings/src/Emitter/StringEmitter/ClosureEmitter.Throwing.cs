@@ -34,6 +34,7 @@ public static partial class ClosureEmitter
         bool useBoxedContext = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
+        RecordSwiftCallback(closureHandler, callbackName, closureTypeSpec, parameterName, mangledName, useCdecl);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
         // Build parameter list: arguments..., SwiftError* errorOut, context
@@ -265,6 +266,7 @@ public static partial class ClosureEmitter
 
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerTypeWithError(closureTypeSpec);
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        RecordSwiftCalli(closureHandler, closureTypeSpec, funcPtrTypeWithContext);
 
         // Build lambda parameter list
         var parameters = new List<string>();

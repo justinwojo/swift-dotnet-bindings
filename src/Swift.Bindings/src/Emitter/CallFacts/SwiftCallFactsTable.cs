@@ -47,6 +47,16 @@ public sealed class SwiftCallFactsTable
         return _builder.ForSynthetic(function);
     }
 
+    /// <summary>
+    /// The facts of a call through a Swift closure's function pointer, from the closure's function
+    /// type, resolved against the same modules and databases as the declared symbols'.
+    /// </summary>
+    public SwiftCallFacts DescribeClosure(ClosureTypeSpec closure, string pointerSource, IEnumerable<string> genericNames, string? module)
+    {
+        ArgumentNullException.ThrowIfNull(closure);
+        return _builder.ForClosure(closure, pointerSource, genericNames, module);
+    }
+
     /// <summary>The number of symbols with facts, dispatch thunks excluded (they are derived on lookup).</summary>
     public int Count => _bySymbol.Count;
 

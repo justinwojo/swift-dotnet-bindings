@@ -10,6 +10,37 @@ namespace BindingsGeneration;
 public static partial class ClosureEmitter
 {
     /// <summary>
+    /// Records a Swift-convention reverse callback for the module's transition ledger: the facts of
+    /// the closure Swift calls it as, and the forward callee the closure is an argument of. A
+    /// C-convention callback is not a Swift transition and records nothing; neither does a callback
+    /// rendered without an emission context, which the ledger then lists as unplanned.
+    /// </summary>
+    private static void RecordSwiftCallback(
+        ClosureHandler closureHandler, string callbackName, ClosureTypeSpec closureTypeSpec,
+        string parameterName, string ownerSymbol, bool useCdecl)
+    {
+        if (useCdecl || closureHandler.EmissionContext is not { } context)
+            return;
+        context.RecordSwiftCallback(SwiftCallbackRecord.For(callbackName, closureTypeSpec, parameterName, ownerSymbol, context));
+    }
+
+    /// <summary>
+    /// Records a forward <c>calli</c> through an <c>unmanaged[Swift]</c> pointer for the module's
+    /// transition ledger: the pointer type rendered for the call and the facts of the closure it calls.
+    /// </summary>
+    private static void RecordSwiftCalli(ClosureHandler closureHandler, ClosureTypeSpec closureTypeSpec, string functionPointerType)
+    {
+        if (closureHandler.EmissionContext is not { } context)
+            return;
+        context.RecordSwiftCalli(new SwiftCalliRecord
+        {
+            FunctionPointerType = functionPointerType,
+            Facts = context.SwiftCallFacts.DescribeClosure(
+                closureTypeSpec, SwiftCalliRecord.ClosurePointerSource(closureTypeSpec.ToString(true)), [], module: null),
+        });
+    }
+
+    /// <summary>
     /// Finding 53: project the public existential type for <paramref name="typeSpec"/>, or — when
     /// the resolver can't (it returns <c>null</c> or the bare <c>object</c> fallback) — record a
     /// SWIFTBIND026 object-degradation and return <c>"object"</c>. Replaces the silent
@@ -48,6 +79,7 @@ public static partial class ClosureEmitter
         bool useBoxedContext = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
+        RecordSwiftCallback(closureHandler, callbackName, closureTypeSpec, parameterName, mangledName, useCdecl);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
         // Cdecl closures with indirect return: the Swift adapter passes a result buffer as
@@ -400,6 +432,7 @@ public static partial class ClosureEmitter
         // Fallback: direct delegate* unmanaged[Swift] invocation (for closures without invoke thunks)
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        RecordSwiftCalli(closureHandler, closureTypeSpec, funcPtrTypeWithContext);
 
         // Build argument list for invoking the Swift function
         // Need to convert C# types to Swift types (e.g., bool -> byte, AnyError -> EC1)
