@@ -1424,6 +1424,31 @@ public sealed class ModuleEmissionContext
         _simpleEnumMetadataRegistrations.Add((qualifiedName, metadataSymbol, wrapperLibName));
     }
 
+    private readonly List<(string TypeofExpr, string AccessorName, string MetadataSymbol, string WrapperLibName)> _importedValueTypeMetadataRegistrations = new();
+    private readonly HashSet<string> _importedValueTypeMetadataKeys = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Imported C structs projected as an existing .NET value type (CoreMedia.CMTime and the like)
+    /// whose metadata the module initializer registers through the wrapper's own @_cdecl accessor.
+    /// The managed type is neither an <c>ISwiftObject</c> nor one of the runtime's built-in
+    /// metadata lanes, so without this a generic over it (<c>[CMTime]</c>, <c>CMTime?</c>) has no
+    /// way to reach the Swift metadata it needs for layout.
+    /// </summary>
+    public IReadOnlyList<(string TypeofExpr, string AccessorName, string MetadataSymbol, string WrapperLibName)> ImportedValueTypeMetadataRegistrations
+        => _importedValueTypeMetadataRegistrations;
+
+    /// <summary>
+    /// Records an imported value type for metadata registration. Returns false when the type was
+    /// already recorded, so the caller emits its Swift accessor once.
+    /// </summary>
+    public bool RecordImportedValueTypeMetadata(string typeofExpr, string accessorName, string metadataSymbol, string wrapperLibName)
+    {
+        if (!_importedValueTypeMetadataKeys.Add(typeofExpr))
+            return false;
+        _importedValueTypeMetadataRegistrations.Add((typeofExpr, accessorName, metadataSymbol, wrapperLibName));
+        return true;
+    }
+
     private readonly List<(string CSharpTypeName, string ProtocolInterface, string ConformanceSymbol, string LibraryName)> _simpleEnumConformanceRegistrations = new();
     private readonly HashSet<(string, string)> _simpleEnumConformanceKeys = new();
 

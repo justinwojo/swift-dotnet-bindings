@@ -1,10 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="CoreMedia" modulePath="/System/Library/Frameworks/CoreMedia.framework/CoreMedia">
     <entities>
-        <!-- CMTime — opaque C struct, map to IntPtr for now -->
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
+        <!--
+            CMTime, CMTimeRange and CMTimeMapping are imported C structs, projected as the
+            blittable .NET CoreMedia structs of the same layout: CMTime is
+            {int64 value; int32 timescale; uint32 flags; int64 epoch} (24 bytes), CMTimeRange is
+            {CMTime start; CMTime duration} (48) and CMTimeMapping is
+            {CMTimeRange source; CMTimeRange target} (96). The managed types must match the native
+            size exactly: the generator sizes every by-value buffer from the managed type.
+        -->
+        <entity managedNameSpace="CoreMedia" managedTypeName="CMTime">
             <typedeclaration kind="struct" name="CMTime" module="CoreMedia"
-                             frozen="true" requiresMemoryManagement="false" />
+                             mangledName="$sSo6CMTimeV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="CoreMedia" managedTypeName="CMTimeRange">
+            <typedeclaration kind="struct" name="CMTimeRange" module="CoreMedia"
+                             mangledName="$sSo11CMTimeRangeV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="CoreMedia" managedTypeName="CMTimeMapping">
+            <typedeclaration kind="struct" name="CMTimeMapping" module="CoreMedia"
+                             mangledName="$sSo13CMTimeMappingV" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <!--
             CMSampleBuffer — Swift reference-type wrapper for the CoreMedia CMSampleBufferRef

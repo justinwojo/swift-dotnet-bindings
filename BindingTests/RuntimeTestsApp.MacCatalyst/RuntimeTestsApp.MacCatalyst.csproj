@@ -108,6 +108,9 @@
          PlatformNotSupportedException rather than fail in the loader. That assertion only
          means something when it actually runs on Catalyst, hence the single-file include. -->
     <Compile Include="../RuntimeTestsApp/Types/SwiftUIValueConstructionTests.cs" />
+    <!-- CMTime and its range/mapping structs project as the platform's own CoreMedia value types,
+         so their layout and marshalling are checked on every runtime that ships them. -->
+    <Compile Include="../RuntimeTestsApp/Types/CoreMediaTimeTests.cs" />
   </ItemGroup>
 
   <!-- Extract test manifest from source generator output into a host-visible file. -->

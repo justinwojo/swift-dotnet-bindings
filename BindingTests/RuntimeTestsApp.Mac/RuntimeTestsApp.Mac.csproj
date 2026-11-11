@@ -88,6 +88,9 @@
     <Compile Include="../RuntimeTestsApp/Collisions/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/EdgeCases/**/*.cs" />
+    <!-- Types/ is iOS-shaped and not compiled here; CMTime and its range/mapping structs project as
+         the platform's own CoreMedia value types, so their tests run on CoreCLR too. -->
+    <Compile Include="../RuntimeTestsApp/Types/CoreMediaTimeTests.cs" />
     <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
