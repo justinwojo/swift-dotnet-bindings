@@ -90,6 +90,13 @@ public record SwiftErrorSetup
 
     /// <summary>Post-call error check code.</summary>
     public required string ErrorCheckCode { get; init; }
+
+    /// <summary>
+    /// The pre-call declaration of the error carrier the call passes by <c>ref</c>, or null when the
+    /// call reports its error through an <c>out</c> pointer it declares inline (a <c>@_cdecl</c>
+    /// wrapper or native thunk). A direct Swift-convention call needs the carrier zero-initialized.
+    /// </summary>
+    public string? CarrierDeclaration { get; init; }
 }
 
 /// <summary>

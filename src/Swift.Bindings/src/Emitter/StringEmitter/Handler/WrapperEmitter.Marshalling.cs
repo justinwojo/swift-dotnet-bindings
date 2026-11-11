@@ -241,6 +241,18 @@ namespace BindingsGeneration
             => CalleeArgumentOwnership.IsHandedOverToCallee(_env.MethodDecl, argumentDecl);
 
         /// <summary>
+        /// The handle an ObjC-bridged or ObjC-rooted argument crosses as. The handle is read off an
+        /// object the managed side keeps owning, so when the callee consumes the argument it is
+        /// retained first — isa-dispatched (an NSObject-rooted payload needs <c>objc_retain</c>, not
+        /// <c>swift_retain</c>) and null-tolerant — or the callee's release would take a count
+        /// nobody transferred. Shared with the operator body, which extracts these handles itself.
+        /// </summary>
+        internal static string ObjCArgumentHandle(string handleExpression, bool handedOverToCallee)
+            => handedOverToCallee
+                ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({handleExpression})"
+                : handleExpression;
+
+        /// <summary>
         /// True when a consumed argument's <c>+1</c> may be minted by the value-witness transfer
         /// lease — i.e. the argument is handed over to the callee AND its value can be copied at all.
         ///
@@ -1834,17 +1846,11 @@ namespace BindingsGeneration
                     {
                         var typedEnum = new AppleTypedEnumAdapter(typeRecord.CSharpTypeName.FullyQualifiedName, typedEnumCarrier);
                         csWriter.WriteLine($"var {csName}Constant = {typedEnum.ToCarrier(csName)};");
-                        var constantHandle = handsOverObjCHandle
-                            ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}Constant.Handle)"
-                            : $"{csName}Constant.Handle";
-                        csWriter.WriteLine($"IntPtr {csName}Handle = {constantHandle};");
+                        csWriter.WriteLine($"IntPtr {csName}Handle = {ObjCArgumentHandle($"{csName}Constant.Handle", handsOverObjCHandle)};");
                         continue;
                     }
 
-                    var objCHandle = handsOverObjCHandle
-                        ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}?.Handle ?? IntPtr.Zero)"
-                        : $"{csName}?.Handle ?? IntPtr.Zero";
-                    csWriter.WriteLine($"IntPtr {csName}Handle = {objCHandle};");
+                    csWriter.WriteLine($"IntPtr {csName}Handle = {ObjCArgumentHandle($"{csName}?.Handle ?? IntPtr.Zero", handsOverObjCHandle)};");
                     continue;
                 }
 

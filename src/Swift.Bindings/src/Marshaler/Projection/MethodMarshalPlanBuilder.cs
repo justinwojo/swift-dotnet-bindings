@@ -445,10 +445,9 @@ internal class MethodMarshalPlanBuilder
             lines.Add($"IntPtr {payloadName} = IntPtr.Zero;");
         }
 
-        // Pre-declare SwiftError for 'ref' passing (caller must zero-initialize per Swift ABI).
-        // @_cdecl wrappers and native thunks use 'out IntPtr errorPtr' — no SwiftError needed.
-        if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
-            lines.Add("var swiftError = default(SwiftError);");
+        var swiftErrorCarrier = BuildSwiftErrorCarrierDeclaration();
+        if (swiftErrorCarrier != null)
+            lines.Add(swiftErrorCarrier);
 
         // Multi-element generic tuple non-cdecl returns split each element into its own @out
         // buffer. The first buffer reuses _cdeclBuf (declared by EmitCdeclPayloadDeclaration);
@@ -1541,9 +1540,20 @@ internal class MethodMarshalPlanBuilder
             TypedErrorTypeName = syncTypedErrorType,
             SwiftErrorTypeName = swiftErrorTypeName,
             TypedErrorSafeSuffix = typedErrorSafeSuffix,
-            ErrorCheckCode = errorCheckCode
+            ErrorCheckCode = errorCheckCode,
+            CarrierDeclaration = BuildSwiftErrorCarrierDeclaration()
         };
     }
+
+    /// <summary>
+    /// Pre-declares the SwiftError a direct Swift-convention call passes by <c>ref</c> (the caller
+    /// must zero-initialize it per the Swift ABI). <c>@_cdecl</c> wrappers and native thunks report
+    /// through an inline <c>out IntPtr errorPtr</c> instead, so they need no carrier.
+    /// </summary>
+    private string? BuildSwiftErrorCarrierDeclaration()
+        => _requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk
+            ? "var swiftError = default(SwiftError);"
+            : null;
 
     /// <summary>
     /// Builds the P/Invoke call statement.
