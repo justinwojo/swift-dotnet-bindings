@@ -55,6 +55,7 @@
         "SeedWrapperStripBaseline",
         "SmokeTest",
         "SurfaceAccounting",
+        "SwiftTransitionGate",
         "Test",
         "ToolchainProfileTests",
         "UnitTests",
@@ -446,6 +447,28 @@
           "type": "integer",
           "description": "Test timeout in seconds",
           "format": "int32"
+        },
+        "TransitionGateAssembly": {
+          "type": "array",
+          "description": "Swift transition gate: compiled assemblies to scan (default: the BindingTests compile-check assembly and the Swift.Runtime and SwiftBindings.Apple assemblies beside it)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "TransitionGateOutput": {
+          "type": "string",
+          "description": "Swift transition gate: directory the report, site inventory and summary are written to"
+        },
+        "TransitionGatePlanSource": {
+          "type": "string",
+          "description": "Swift transition gate: the build-tree binding-report.json holding the bridge plans (optional; the plan-dependent rules read it)"
+        },
+        "TransitionGateReferenceDir": {
+          "type": "array",
+          "description": "Swift transition gate: extra directories searched for assemblies the scanned ones reference",
+          "items": {
+            "type": "string"
+          }
         },
         "Tvos": {
           "type": "boolean",
