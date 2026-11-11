@@ -147,8 +147,13 @@ def nuke_visible_environment(text):
     that runs Nuke, and anything a step appends to $GITHUB_ENV (it persists into later steps)."""
     lines = text.splitlines()
     indent = lambda line: len(line) - len(line.lstrip())
-    names = set(re.findall(r"\b([A-Za-z_]\w*)=[^\n]*>>\s*\"?\$GITHUB_ENV", text))
+    names = set(re.findall(r"\b([A-Za-z_]\w*)=[^\n]*>>\s*\"?\$\{?GITHUB_ENV\b", text))
+    # A shell export reaches any Nuke command after it in the same step; counted wherever it is.
+    names.update(re.findall(r"\bexport\s+([A-Za-z_]\w*)=", text))
     for number, line in enumerate(lines):
+        if re.match(r"\s*env:\s*[^\s#]", line):
+            raise AssertionError(f"inline env mapping the check cannot read: {line.strip()!r}; "
+                                 "write it as a block mapping")
         if line.strip() != "env:":
             continue
         level = indent(line)
@@ -198,8 +203,13 @@ class NukeEnvironmentTests(unittest.TestCase):
             "env:\n  TOP: 1\njobs:\n  a:\n    env:\n      JOB_WIDE: 1\n    steps:\n"
             "      - name: x\n        env:\n          QUIET: 1\n        run: echo hi\n"
             "      - name: y\n        env:\n          LOUD: 1\n        run: >\n          dotnet nuke test\n"
-            "      - run: echo \"EXPORTED=1\" >> \"$GITHUB_ENV\"\n")
-        self.assertEqual(nuke_visible_environment(workflow), {"TOP", "JOB_WIDE", "LOUD", "EXPORTED"})
+            "      - run: echo \"EXPORTED=1\" >> \"$GITHUB_ENV\"\n"
+            "      - run: echo \"BRACED=1\" >> \"${GITHUB_ENV}\"\n"
+            "      - run: |\n          export SHELL_WIDE=1\n          dotnet nuke test\n")
+        self.assertEqual(nuke_visible_environment(workflow),
+                         {"TOP", "JOB_WIDE", "LOUD", "EXPORTED", "BRACED", "SHELL_WIDE"})
+        with self.assertRaises(AssertionError):
+            nuke_visible_environment("jobs:\n  a:\n    env: { PROFILE: x }\n")
         self.assertEqual(nuke_parameter_key("NUKE_SKIP_REGEN"), "skipregen")
 
 
