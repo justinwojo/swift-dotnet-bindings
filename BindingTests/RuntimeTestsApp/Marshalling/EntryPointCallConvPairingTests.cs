@@ -126,4 +126,54 @@ public class EntryPointCallConvPairingTests : TestBase
         TestLogger.Info(
             $"EntryPoint / CallConv audit: {auditedCount} P/Invokes inspected, 0 desynchronised.");
     }
+
+    /// <summary>
+    /// A Swift type metadata accessor (<c>$s…Ma</c>) reads the metadata request from its first
+    /// argument register. An import that declares no request leaves that register holding
+    /// whatever the caller left there, and a stray non-blocking or abstract-state bit makes the
+    /// accessor return metadata that is not yet complete.
+    /// </summary>
+    public void TestEveryMetadataAccessorImportPassesARequest()
+    {
+        var assembly = typeof(TestLibFunctions).Assembly;
+        var violations = new System.Collections.Generic.List<string>();
+        int accessorCount = 0;
+
+        foreach (var type in assembly.GetTypes())
+        {
+            foreach (var method in type.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic |
+                BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            {
+                var libImport = method.GetCustomAttribute<LibraryImportAttribute>();
+                var entryPoint = libImport?.EntryPoint ?? method.Name;
+                if (libImport is null ||
+                    !entryPoint.StartsWith("$s", StringComparison.Ordinal) ||
+                    !entryPoint.EndsWith("Ma", StringComparison.Ordinal))
+                    continue;
+
+                accessorCount++;
+                var parameters = method.GetParameters();
+                if (parameters.Length == 0 || parameters[0].ParameterType != typeof(Swift.Runtime.TypeMetadataRequest))
+                {
+                    violations.Add(
+                        $"{type.FullName}.{method.Name}: EntryPoint=\"{entryPoint}\" takes " +
+                        $"({string.Join(", ", parameters.Select(p => p.ParameterType.Name))})");
+                }
+            }
+        }
+
+        AssertTrue(accessorCount > 0,
+            "The audit must find at least one metadata accessor import in the generated assembly — " +
+            "zero matches means the test is mis-targeted, not that the surface is clean.");
+
+        if (violations.Count > 0)
+        {
+            throw new AssertionException(
+                $"Metadata accessor imports with no request parameter in {violations.Count} site(s):\n  " +
+                string.Join("\n  ", violations));
+        }
+
+        TestLogger.Info($"Metadata accessor audit: {accessorCount} accessor imports pass a request.");
+    }
 }

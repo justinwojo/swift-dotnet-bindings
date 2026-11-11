@@ -85,7 +85,7 @@ public sealed class Text : ISwiftObject, IDisposable
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return _cachedMetadata ??= PInvoke_GetMetadata();
+        return _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
     }
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -99,7 +99,7 @@ public sealed class Text : ISwiftObject, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
             throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -149,7 +149,7 @@ public sealed class Text : ISwiftObject, IDisposable
         if (OperatingSystem.IsMacCatalyst())
             throw new PlatformNotSupportedException("SwiftUI.Text construction is not available on Mac Catalyst (SBW_SwiftUI_Text_Create not exported in macabi dylib).");
 
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
 
         // NativeMemory rather than Marshal.AllocHGlobal: on the success path the buffer is
         // handed to SwiftSafeHandle, which always releases it with NativeMemory.Free, so the
@@ -185,7 +185,7 @@ public sealed class Text : ISwiftObject, IDisposable
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftUI, EntryPoint = "$s7SwiftUI4TextVMa")]
-    private static extern TypeMetadata PInvoke_GetMetadata();
+    private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);
 
     private static class NativeMethods
     {

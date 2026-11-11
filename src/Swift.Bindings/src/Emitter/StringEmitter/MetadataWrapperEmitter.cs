@@ -10,6 +10,35 @@ namespace BindingsGeneration;
 public static class MetadataWrapperEmitter
 {
     /// <summary>
+    /// Declares <paramref name="methodName"/>() over a type's own Swift metadata accessor
+    /// (<c>$s…Ma</c>). The accessor reads the metadata request from its first argument register,
+    /// so the import takes the request and the zero-argument method passes
+    /// <c>TypeMetadataRequest.Complete</c>; without it the accessor sees whatever the caller left in
+    /// that register, and a stray non-blocking or abstract-state bit returns incomplete metadata.
+    /// Callers keep the zero-argument spelling. The import is private, so it neither hides nor is
+    /// hidden by a base class's import, and <paramref name="hasNewModifier"/> applies only to the
+    /// zero-argument method, as it did when that method was the import itself.
+    /// </summary>
+    public static IEnumerable<string> FormatSwiftAccessorImportLines(
+        string libraryPath, string accessorSymbol, string methodName, bool hasNewModifier)
+    {
+        var newModifier = hasNewModifier ? "new " : "";
+        yield return $"internal static {newModifier}TypeMetadata {methodName}() => {methodName}(global::Swift.Runtime.TypeMetadataRequest.Complete);";
+        yield return "";
+        foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = libraryPath,
+            EntryPoint = accessorSymbol,
+            MethodName = methodName,
+            ReturnType = "TypeMetadata",
+            ParametersString = "global::Swift.Runtime.TypeMetadataRequest request",
+            Visibility = PInvokeVisibility.Private,
+            CallingConvention = PInvokeCallingConvention.Swift
+        }))
+            yield return line;
+    }
+
+    /// <summary>
     /// Gets the @_cdecl symbol name for a metadata wrapper.
     /// Uses the module-qualified type name to avoid collisions for nested types.
     /// </summary>

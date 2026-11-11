@@ -807,17 +807,8 @@ namespace BindingsGeneration
                     _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                     _writer.WriteLine();
 
-                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
-                    {
-                        LibraryPath = libPath,
-                        EntryPoint = metadataAccessor,
-                        MethodName = "PInvoke_getMetadata",
-                        ReturnType = "TypeMetadata",
-                        ParametersString = "",
-                        Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
-                        CallingConvention = PInvokeCallingConvention.Swift
-                    }))
+                    foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+                        libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl)))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                     _classDecl.EmittedMetadataPInvoke = true;
@@ -855,17 +846,8 @@ namespace BindingsGeneration
                     // catch around the wrapper-bound primary, i.e. exactly when the wrapper is
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
-                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
-                    {
-                        LibraryPath = _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name),
-                        EntryPoint = metadataAccessor,
-                        MethodName = "PInvoke_getMetadata_fallback",
-                        ReturnType = "TypeMetadata",
-                        ParametersString = "",
-                        Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = hasNew,
-                        CallingConvention = PInvokeCallingConvention.Swift
-                    }))
+                    foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), metadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: hasNew))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                     _classDecl.EmittedMetadataPInvoke = true;
@@ -877,17 +859,8 @@ namespace BindingsGeneration
                 _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                 _writer.WriteLine();
 
-                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
-                {
-                    LibraryPath = libPath,
-                    EntryPoint = metadataAccessor,
-                    MethodName = "PInvoke_getMetadata",
-                    ReturnType = "TypeMetadata",
-                    ParametersString = "",
-                    Visibility = PInvokeVisibility.Internal,
-                    HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
-                    CallingConvention = PInvokeCallingConvention.Swift
-                }))
+                foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+                    libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl)))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
                 _classDecl.EmittedMetadataPInvoke = true;

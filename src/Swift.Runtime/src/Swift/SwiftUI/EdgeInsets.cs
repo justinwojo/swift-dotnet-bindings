@@ -58,7 +58,7 @@ public sealed class EdgeInsets : ISwiftObject, IDisposable
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return _cachedMetadata ??= PInvoke_GetMetadata();
+        return _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
     }
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -72,7 +72,7 @@ public sealed class EdgeInsets : ISwiftObject, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
             throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -117,7 +117,7 @@ public sealed class EdgeInsets : ISwiftObject, IDisposable
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftUI, EntryPoint = "$s7SwiftUI10EdgeInsetsVMa")]
-    private static extern TypeMetadata PInvoke_GetMetadata();
+    private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);
 
     #endregion
 

@@ -141,7 +141,7 @@ public class AppleTypesCsEmitterTests
             "[global::System.Runtime.InteropServices.DllImport(\"Foundation\", EntryPoint = \"$s10Foundation6LocaleV8LanguageVMa\")]",
             contents);
         Assert.DoesNotContain("/System/Library/Frameworks/Foundation.framework/Foundation", contents);
-        Assert.Contains("private static extern global::Swift.Runtime.TypeMetadata PInvoke_GetMetadata();", contents);
+        Assert.Contains("private static extern global::Swift.Runtime.TypeMetadata PInvoke_GetMetadata(global::Swift.Runtime.TypeMetadataRequest request);", contents);
     }
 
     [Fact]

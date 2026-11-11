@@ -375,11 +375,11 @@ public sealed class AppleTypesCsEmitter
         sb.Append(bodyPad); sb.AppendLine(FinalizerSeamEmitter.SuppressPayloadFinalizerLine("_payload", qualifyGc: true));
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("static TypeMetadata ISwiftObject.GetTypeMetadata()");
-        sb.Append(bodyPad); sb.AppendLine("    => _cachedMetadata ??= PInvoke_GetMetadata();");
+        sb.Append(bodyPad); sb.AppendLine("    => _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);");
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)");
         sb.Append(bodyPad); sb.AppendLine("{");
-        sb.Append(bodyPad); sb.AppendLine("    var metadata = _cachedMetadata ??= PInvoke_GetMetadata();");
+        sb.Append(bodyPad); sb.AppendLine("    var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);");
         sb.Append(bodyPad); sb.AppendLine("    unsafe");
         sb.Append(bodyPad); sb.AppendLine("    {");
         sb.Append(bodyPad); sb.AppendLine("        var size = (int)metadata.Size;");
@@ -394,7 +394,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)");
         sb.Append(bodyPad); sb.AppendLine("{");
-        sb.Append(bodyPad); sb.AppendLine("    var metadata = _cachedMetadata ??= PInvoke_GetMetadata();");
+        sb.Append(bodyPad); sb.AppendLine("    var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);");
         sb.Append(bodyPad); sb.AppendLine("    if ((int)metadata.Size > swiftDestSpan.Length)");
         sb.Append(bodyPad); sb.AppendLine("        throw new ArgumentException($\"Span size mismatch: expected {(int)metadata.Size}, got {swiftDestSpan.Length}\");");
         sb.Append(bodyPad); sb.AppendLine("    unsafe");
@@ -423,7 +423,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
         sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
-        sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata();");
+        sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);");
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("public void Dispose()");
         sb.Append(bodyPad); sb.AppendLine("{");
@@ -489,11 +489,11 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("private static TypeMetadata? _cachedMetadata;");
         sb.AppendLine();
-        sb.Append(bodyPad); sb.AppendLine("public static TypeMetadata Metadata => _cachedMetadata ??= PInvoke_GetMetadata();");
+        sb.Append(bodyPad); sb.AppendLine("public static TypeMetadata Metadata => _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);");
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
         sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
-        sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata();");
+        sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);");
         sb.Append(pad); sb.AppendLine("}");
 
         for (var i = outer.Count - 1; i >= 0; i--)

@@ -129,8 +129,8 @@ public static class AppleTypesManifestValidator
             TypeMetadata metadata;
             unsafe
             {
-                var fnPtr = (delegate* unmanaged[Swift]<TypeMetadata>)symbolAddress;
-                metadata = fnPtr();
+                var fnPtr = (delegate* unmanaged[Swift]<TypeMetadataRequest, TypeMetadata>)symbolAddress;
+                metadata = fnPtr(TypeMetadataRequest.Complete);
             }
 
             if (!metadata.IsValid)

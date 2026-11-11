@@ -42,7 +42,7 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return _cachedMetadata ??= PInvoke_GetMetadata();
+        return _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
     }
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -57,7 +57,7 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
             throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -102,7 +102,7 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$ss6HasherVMa")]
-    private static extern TypeMetadata PInvoke_GetMetadata();
+    private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);
 
     #endregion
 

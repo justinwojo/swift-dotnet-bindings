@@ -31,14 +31,14 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     void ISwiftObject.SuppressPayloadFinalizer() => global::System.GC.SuppressFinalize(_payload);
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
-        => _cachedMetadata ??= PInvoke_GetMetadata();
+        => _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
         // handle may point to transient memory (stackalloc in SwiftResult, etc.).
         // Must heap-copy via InitializeWithCopy before wrapping in SwiftSafeHandle
         // (which calls NativeMemory.Free on dispose).
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         unsafe
         {
             var size = (int)metadata.Size;
@@ -54,7 +54,7 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);
         if ((int)metadata.Size > swiftDestSpan.Length)
             throw new ArgumentException($"Span size mismatch: expected {(int)metadata.Size}, got {swiftDestSpan.Length}");
         unsafe
@@ -83,7 +83,7 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation10URLRequestVMa")]
-    private static extern TypeMetadata PInvoke_GetMetadata();
+    private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);
 
     /// <summary>Releases the native Swift storage backing this URLRequest.</summary>
     public void Dispose()
