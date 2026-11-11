@@ -140,7 +140,7 @@ public partial class ProtocolProxyEmitter
             /// <summary>
             /// Finalizer — releases an adopted (<c>_ownsContainer</c>) existential container
             /// and, for a C#-impl-backed proxy, the EveryProtocol construction +1 (R0) via
-            /// <see cref="Swift.Runtime.ProxyLifetimeTracker.ReleaseHandle"/>, if the consumer
+            /// <see cref="global::Swift.Runtime.ProxyLifetimeTracker.ReleaseHandle"/>, if the consumer
             /// never called <see cref="Dispose"/>. Proxies that own neither suppress
             /// finalization in their constructor, so this only runs for owners.
             /// </summary>

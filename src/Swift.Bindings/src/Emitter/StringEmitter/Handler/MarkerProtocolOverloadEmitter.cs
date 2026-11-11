@@ -177,10 +177,10 @@ namespace BindingsGeneration
                 });
                 csWriter.WriteLine();
 
-                // --- Emit C# overload ---
+                // --- Emit C# overload --- (doc first: after an attribute it documents nothing, CS1587)
+                csWriter.WriteLine($"/// <summary>Convenience overload accepting <c>{XmlDocCommentEmitter.XmlEscape(csType)}</c> for marker protocol parameter.</summary>");
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
                     csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
-                csWriter.WriteLine($"/// <summary>Convenience overload accepting <c>{csType}</c> for marker protocol parameter.</summary>");
                 csWriter.WriteLine($"public {staticModifier}{csReturnType} {csMethodName}({csType} {paramName})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;

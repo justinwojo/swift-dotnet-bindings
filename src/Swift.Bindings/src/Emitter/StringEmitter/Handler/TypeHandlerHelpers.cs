@@ -673,15 +673,57 @@ namespace BindingsGeneration
     }
 
     /// <summary>
-    /// Shared helpers for emitting type-level XML doc annotations (disposal remarks, opaque type attributes).
-    /// Called after XmlDocCommentEmitter.EmitDocComment, before the type declaration.
+    /// Shared helpers for emitting the XML doc annotations and marker attributes that precede a type
+    /// or member declaration.
+    ///
+    /// <para>Every <c>///</c> line of a declaration is written before any of its attributes. A doc
+    /// comment only documents a declaration when it precedes the whole attribute list; one written
+    /// after an attribute is attached to nothing, so the compiler drops it from the documentation file
+    /// and reports CS1587, which fails a consumer's build under <c>TreatWarningsAsErrors</c>. The
+    /// annotations here therefore come as separate remark and attribute halves, and the
+    /// declaration-level entry points write all the remarks first.</para>
     /// </summary>
     internal static class TypeAnnotationHelper
     {
         /// <summary>
+        /// Writes everything that precedes a type declaration's own line: the symbol-graph doc
+        /// comment and the generated remarks first, then the availability, opaque-type, Sendable,
+        /// <c>@MainActor</c> and IntelliSense-hiding attributes.
+        /// </summary>
+        /// <param name="opaqueSkippedCount">The number of Swift members that could not be projected
+        /// when the type has none that could; null for a type with projectable members.</param>
+        /// <param name="emitDisposalRemarks">Whether a type with projectable members carries the
+        /// disposal remark (it does not apply to a frozen struct projected as a C# struct).</param>
+        internal static void EmitTypeDeclarationPreamble(
+            CSharpWriter csWriter, TypeDecl typeDecl, int? opaqueSkippedCount, bool emitDisposalRemarks)
+        {
+            var isSendable = IsSwiftSendable(typeDecl);
+
+            XmlDocCommentEmitter.EmitDocComment(csWriter, typeDecl);
+            if (opaqueSkippedCount is int skipped)
+                EmitOpaqueTypeRemarks(csWriter, skipped);
+            else if (emitDisposalRemarks)
+                EmitDisposalRemarks(csWriter, typeDecl);
+            if (isSendable)
+                EmitSwiftSendableRemarks(csWriter);
+            if (typeDecl.IsMainActorIsolated)
+                EmitSwiftMainActorRemarks(csWriter);
+
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, typeDecl, emitObsolete: true);
+            if (opaqueSkippedCount is int opaqueCount)
+                csWriter.WriteLine($"[global::Swift.OpaqueSwiftType({opaqueCount})]");
+            if (isSendable)
+                csWriter.WriteLine("[global::Swift.SwiftSendable]");
+            if (typeDecl.IsMainActorIsolated)
+                csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
+            if (typeDecl.Name.StartsWith("_"))
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+        }
+
+        /// <summary>
         /// Emits disposal remarks as XML doc comments for types that wrap Swift objects.
         /// </summary>
-        internal static void EmitDisposalRemarks(CSharpWriter csWriter, TypeDecl typeDecl)
+        private static void EmitDisposalRemarks(CSharpWriter csWriter, TypeDecl typeDecl)
         {
             // If the symbol graph already provided remarks, skip to avoid duplication
             if (typeDecl.Documentation != null && !typeDecl.Documentation.IsEmpty
@@ -713,58 +755,57 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits a Swift-Sendable XML doc remark and the <c>[SwiftSendable]</c> marker
-        /// attribute when the Swift type's conformance list contains <c>Swift.Sendable</c>.
-        /// .NET has no native equivalent of Sendable, so the projection is purely informational
-        /// — but losing the signal entirely (current 0.10.0 behaviour) forces consumers back
-        /// into the swiftinterface to decide whether locking is needed.
+        /// The Swift-Sendable remark that accompanies the <c>[SwiftSendable]</c> marker, written when
+        /// the Swift type's conformance list contains <c>Swift.Sendable</c>. .NET has no native
+        /// equivalent of Sendable, so the projection is purely informational, but losing the signal
+        /// entirely forces consumers back into the swiftinterface to decide whether locking is needed.
         /// </summary>
-        internal static void EmitSwiftSendableAnnotation(CSharpWriter csWriter, TypeDecl typeDecl)
+        private static void EmitSwiftSendableRemarks(CSharpWriter csWriter)
         {
-            if (!IsSwiftSendable(typeDecl))
-                return;
             csWriter.WriteLine("/// <remarks>");
             csWriter.WriteLine("/// The underlying Swift type conforms to <c>Sendable</c>; instances may be shared");
             csWriter.WriteLine("/// across .NET threads without external synchronization.");
             csWriter.WriteLine("/// </remarks>");
-            csWriter.WriteLine("[global::Swift.SwiftSendable]");
         }
 
         /// <summary>
-        /// Emits a <c>@MainActor</c> XML doc remark and the <c>[SwiftMainActor]</c> marker
-        /// attribute when the Swift type is <c>@MainActor</c>-isolated. The isolation is a
-        /// compile-time-only constraint on the Swift side (the <c>@_cdecl</c> wrapper carries
-        /// <c>@MainActor</c>), so without this the requirement that members be called on the
-        /// main thread is invisible to a C# consumer. The marker is purely informational; the
-        /// per-member <c>MainActorGuard.AssertMainThread()</c> call enforces it at runtime in
-        /// Debug builds.
+        /// The <c>@MainActor</c> remark that accompanies the type-level <c>[SwiftMainActor]</c>
+        /// marker. The isolation is a compile-time-only constraint on the Swift side (the
+        /// <c>@_cdecl</c> wrapper carries <c>@MainActor</c>), so without this the requirement that
+        /// members be called on the main thread is invisible to a C# consumer. The marker is purely
+        /// informational; the per-member <c>MainActorGuard.AssertMainThread()</c> call enforces it at
+        /// runtime in Debug builds.
         /// </summary>
-        internal static void EmitSwiftMainActorAnnotation(CSharpWriter csWriter, TypeDecl typeDecl)
+        private static void EmitSwiftMainActorRemarks(CSharpWriter csWriter)
         {
-            if (!typeDecl.IsMainActorIsolated)
-                return;
             csWriter.WriteLine("/// <remarks>");
             csWriter.WriteLine("/// The underlying Swift type is <c>@MainActor</c>-isolated; its members must be");
             csWriter.WriteLine("/// called on the platform main thread.");
             csWriter.WriteLine("/// </remarks>");
-            csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
         }
 
         /// <summary>
-        /// Emits the per-member <c>@MainActor</c> isolation <c>&lt;remarks&gt;</c> line and the
-        /// <c>[SwiftMainActor]</c> marker attribute. Surfaced on an individual member (in addition to any
-        /// type-level attribute) so the main-thread requirement is visible on that member's IntelliSense
-        /// and via reflection. Emission only — the caller decides whether the member is isolated via
-        /// <see cref="WrapperValidation.NeedsMainActorAnnotation"/> (the single isolation oracle). Must
-        /// run after the member's XML doc summary and before its signature/availability attributes.
+        /// The per-member <c>@MainActor</c> isolation <c>&lt;remarks&gt;</c> line. Surfaced on an
+        /// individual member (in addition to any type-level attribute) so the main-thread requirement
+        /// is visible on that member's IntelliSense. Emission only — the caller decides whether the
+        /// member is isolated via <see cref="WrapperValidation.NeedsMainActorAnnotation"/> (the single
+        /// isolation oracle). Write it with the member's other doc lines, before any of its attributes;
+        /// <see cref="EmitSwiftMainActorMemberAttribute"/> writes the matching marker.
         /// </summary>
-        internal static void EmitSwiftMainActorMemberAnnotation(CSharpWriter csWriter)
+        internal static void EmitSwiftMainActorMemberRemarks(CSharpWriter csWriter)
         {
             csWriter.WriteLine("/// <remarks>");
             csWriter.WriteLine("/// Maps to a Swift <c>@MainActor</c>-isolated declaration; call on the platform main thread.");
             csWriter.WriteLine("/// </remarks>");
-            csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
         }
+
+        /// <summary>
+        /// The per-member <c>[SwiftMainActor]</c> marker attribute, visible via reflection. Written
+        /// with the member's attributes, after its doc lines (see
+        /// <see cref="EmitSwiftMainActorMemberRemarks"/>).
+        /// </summary>
+        internal static void EmitSwiftMainActorMemberAttribute(CSharpWriter csWriter)
+            => csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
 
         private static bool IsSwiftSendable(TypeDecl typeDecl)
         {
@@ -788,16 +829,15 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits opaque type remarks and [OpaqueSwiftType] attribute for types with zero
+        /// The remark that accompanies the <c>[OpaqueSwiftType]</c> attribute on a type with zero
         /// projectable public members.
         /// </summary>
-        internal static void EmitOpaqueTypeAnnotation(CSharpWriter csWriter, int skippedCount)
+        private static void EmitOpaqueTypeRemarks(CSharpWriter csWriter, int skippedCount)
         {
             csWriter.WriteLine("/// <remarks>");
             csWriter.WriteLine($"/// This type has no projectable public members ({skippedCount} Swift member(s) could not be represented in C#).");
             csWriter.WriteLine("/// It can still be used as an opaque handle when passed to or returned from other Swift APIs.");
             csWriter.WriteLine("/// </remarks>");
-            csWriter.WriteLine($"[global::Swift.OpaqueSwiftType({skippedCount})]");
         }
     }
 

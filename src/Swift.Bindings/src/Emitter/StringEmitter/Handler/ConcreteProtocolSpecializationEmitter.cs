@@ -1730,7 +1730,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var staticStr = (isStatic || isExtension) ? "static " : "";
         var unsafeStr = needsUnsafe ? "unsafe " : "";
         var pairingDoc = string.Join(", ", pairing.Select(p => p.Conformer.CSharpType));
-        csWriter.WriteLine($"/// <summary>Concrete specialization for {pairingDoc}.</summary>");
+        csWriter.WriteLine($"/// <summary>Concrete specialization for {XmlDocCommentEmitter.XmlEscape(pairingDoc)}.</summary>");
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
         csWriter.WriteLine($"public {unsafeStr}{staticStr}{csReturnType} {methodName}({string.Join(", ", publicParams)})");

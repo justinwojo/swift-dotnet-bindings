@@ -895,7 +895,7 @@ public static class ForeignTypeExtensionEmitter
 
         csWriter.WriteLine();
         csWriter.WriteLine($"/// <summary>");
-        csWriter.WriteLine($"/// Extension methods for {foreignTypeName} defined in {moduleName}.");
+        csWriter.WriteLine($"/// Extension methods for {XmlDocCommentEmitter.XmlEscape(foreignTypeName)} defined in {moduleName}.");
         csWriter.WriteLine($"/// </summary>");
         csWriter.WriteLine($"public static partial class {className}");
         csWriter.WriteLine("{");

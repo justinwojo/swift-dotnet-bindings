@@ -148,7 +148,7 @@ namespace BindingsGeneration
             {
                 // Frozen enum: P/Invoke returns IntPtr directly, null check via IntPtr.Zero
                 csWriter.WriteLine("/// <summary>");
-                csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+                csWriter.WriteLine($"/// Creates a {XmlDocCommentEmitter.XmlEscape(enumTypeName)} from its raw value.");
                 csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
                 csWriter.WriteLine("/// </summary>");
 
@@ -243,7 +243,7 @@ namespace BindingsGeneration
                 // Non-frozen enum: failable initializer returns Optional<Self> via indirect return
                 // We allocate buffer for SwiftOptional<EnumType>, call P/Invoke, then check the tag
                 csWriter.WriteLine("/// <summary>");
-                csWriter.WriteLine($"/// Creates a {enumTypeName} from its raw value.");
+                csWriter.WriteLine($"/// Creates a {XmlDocCommentEmitter.XmlEscape(enumTypeName)} from its raw value.");
                 csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
                 csWriter.WriteLine("/// </summary>");
                 csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
@@ -495,7 +495,7 @@ namespace BindingsGeneration
                         csWriter.WriteLine("});");
 
                         csWriter.WriteLine("/// <summary>");
-                        csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                        csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                         csWriter.WriteLine("/// </summary>");
                         csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
                         csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
@@ -504,7 +504,7 @@ namespace BindingsGeneration
                     else
                     {
                         csWriter.WriteLine("/// <summary>");
-                        csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                        csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                         csWriter.WriteLine("/// </summary>");
                         csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                         csWriter.WriteLine("{");
@@ -542,7 +542,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("});");
 
                     csWriter.WriteLine("/// <summary>");
-                    csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                    csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                     csWriter.WriteLine("/// </summary>");
                     csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
                     csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
@@ -553,7 +553,7 @@ namespace BindingsGeneration
                     // Per-access construction: enum has mutating methods or writable properties,
                     // so caching would allow global mutation of a shared instance.
                     csWriter.WriteLine("/// <summary>");
-                    csWriter.WriteLine($"/// Gets the '{caseName}' case of {enumTypeName}.");
+                    csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                     csWriter.WriteLine("/// </summary>");
                     csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                     csWriter.WriteLine("{");

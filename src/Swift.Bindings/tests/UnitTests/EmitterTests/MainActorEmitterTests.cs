@@ -56,18 +56,22 @@ public class MainActorEmitterTests
     public void TypeAnnotation_MainActorType_EmitsAttributeAndRemarks()
     {
         var sw = new StringWriter();
-        TypeAnnotationHelper.EmitSwiftMainActorAnnotation(new CSharpWriter(sw), MakeStruct("Iso", isMainActor: true));
+        TypeAnnotationHelper.EmitTypeDeclarationPreamble(
+            new CSharpWriter(sw), MakeStruct("Iso", isMainActor: true), opaqueSkippedCount: null, emitDisposalRemarks: false);
         var output = sw.ToString();
         Assert.Contains(Attribute, output);
         Assert.Contains("@MainActor", output);
         Assert.Contains("main thread", output);
+        // The remark documents the type only when it precedes the attribute list (CS1587).
+        Assert.True(output.IndexOf("/// </remarks>", StringComparison.Ordinal) < output.IndexOf(Attribute, StringComparison.Ordinal));
     }
 
     [Fact]
     public void TypeAnnotation_NonIsolatedType_EmitsNothing()
     {
         var sw = new StringWriter();
-        TypeAnnotationHelper.EmitSwiftMainActorAnnotation(new CSharpWriter(sw), MakeStruct("Plain", isMainActor: false));
+        TypeAnnotationHelper.EmitTypeDeclarationPreamble(
+            new CSharpWriter(sw), MakeStruct("Plain", isMainActor: false), opaqueSkippedCount: null, emitDisposalRemarks: false);
         Assert.Equal(string.Empty, sw.ToString());
     }
 

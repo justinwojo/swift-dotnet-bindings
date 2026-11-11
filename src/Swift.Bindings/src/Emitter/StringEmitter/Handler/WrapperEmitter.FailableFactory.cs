@@ -60,6 +60,9 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
+            // The failable factory has never surfaced the per-member @MainActor marker, so it carries
+            // no matching remark either.
+            EmitMemberDocumentation(csWriter, isFailableFactory: true, includeMainActorRemarks: false);
             EmitFallbackAttribute(csWriter);
             // Capture ahead of the attributes and signature so a CONSUME-degraded parameter — discovered
             // only once the body's marshalling has been emitted — can still have its marker injected in
@@ -73,7 +76,6 @@ namespace BindingsGeneration
             // on members whose call route is unchanged.
             if (WrapperValidation.IsAbiFloorTombstoned(_env))
                 EmitSafetyObsolete(csWriter, _env.FailableFactoryName ?? "TryCreate");
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isFailableFactory: true);
             // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors

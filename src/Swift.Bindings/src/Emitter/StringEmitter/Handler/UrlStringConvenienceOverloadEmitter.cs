@@ -129,7 +129,8 @@ internal static class UrlStringConvenienceOverloadEmitter
         if (WrapperValidation.NeedsMainActorAnnotation(
                 methodEnv.ParentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated))
         {
-            TypeAnnotationHelper.EmitSwiftMainActorMemberAnnotation(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         }
 
         // Inherit [SupportedOSPlatform]/[ObsoletedOSPlatform] from the primary so CA1416 doesn't flag

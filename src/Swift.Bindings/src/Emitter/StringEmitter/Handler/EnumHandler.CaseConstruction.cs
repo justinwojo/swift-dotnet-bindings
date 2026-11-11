@@ -220,7 +220,7 @@ namespace BindingsGeneration
             else
             {
                 csWriter.WriteLine($"/// <summary>");
-                csWriter.WriteLine($"/// Creates the '{caseName}' case of {enumTypeName}.");
+                csWriter.WriteLine($"/// Creates the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                 csWriter.WriteLine($"/// </summary>");
             }
 

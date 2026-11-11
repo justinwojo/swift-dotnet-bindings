@@ -15,7 +15,14 @@
          legitimate Swift metadata — suppress here so the F-5 visionOS lowering compiles
          under the test harness's TFM. -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
-    <NoWarn>CS0169;CS0649;CA1418;CA1420</NoWarn>
+    <!-- Build the documentation file the way a packed binding does: the generated binding csproj
+         and the SDK both turn it on and suppress only CS1591, because not every generated member
+         carries a doc comment. Every other doc-comment warning then fails this gate under the
+         repository's TreatWarningsAsErrors, exactly as it fails a consumer who builds a binding
+         with warnings as errors: CS1587 for a /// block written after an attribute (it documents
+         nothing), malformed doc XML, a <param> that names no parameter. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>CS0169;CS0649;CA1418;CA1420;CS1591</NoWarn>
   </PropertyGroup>
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>

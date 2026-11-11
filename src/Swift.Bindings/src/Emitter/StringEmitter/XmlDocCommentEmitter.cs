@@ -34,7 +34,14 @@ namespace BindingsGeneration
         /// <param name="methodDecl">The method declaration.</param>
         /// <param name="isConstructor">True for constructors (suppresses returns tag).</param>
         /// <param name="isFailableFactory">True for failable init? → TryCreate (maps Returns to param "result").</param>
-        public static void EmitMethodDocComment(CSharpWriter csWriter, MethodDecl methodDecl, bool isConstructor = false, bool isFailableFactory = false)
+        /// <param name="cancellationTokenName">
+        /// The C# name of the trailing <c>CancellationToken</c> an async projection appends, or
+        /// <see langword="null"/> when the emitted signature has none. The Swift comment cannot
+        /// describe a parameter Swift never declared, and leaving it untagged beside tagged siblings
+        /// is CS1573, so it gets its own tag when any sibling has one. With none tagged it stays
+        /// untagged too: a lone tag would make every undescribed Swift parameter CS1573.
+        /// </param>
+        public static void EmitMethodDocComment(CSharpWriter csWriter, MethodDecl methodDecl, bool isConstructor = false, bool isFailableFactory = false, string? cancellationTokenName = null)
         {
             if (methodDecl.Documentation == null || methodDecl.Documentation.IsEmpty)
                 return;
@@ -43,6 +50,8 @@ namespace BindingsGeneration
 
             EmitSummary(csWriter, doc.Summary);
             var emittedParamNames = EmitParameterTags(csWriter, methodDecl, doc);
+            if (cancellationTokenName != null && emittedParamNames.Count > 0 && !emittedParamNames.Contains(cancellationTokenName))
+                csWriter.WriteLine(ParamTag(cancellationTokenName, CancellationTokenParamText));
 
             // Returns handling depends on context
             if (!string.IsNullOrWhiteSpace(doc.Returns))
@@ -84,8 +93,41 @@ namespace BindingsGeneration
         private static HashSet<string> EmitParameterTags(CSharpWriter csWriter, MethodDecl methodDecl, DocComment doc)
         {
             var emittedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (csParamName, text) in MapParameterDocs(methodDecl, doc))
+            {
+                csWriter.WriteLine(ParamTag(csParamName, text));
+                emittedNames.Add(csParamName);
+            }
+            return emittedNames;
+        }
+
+        /// <summary>The <c>&lt;param&gt;</c> text for an async projection's trailing token.</summary>
+        internal const string CancellationTokenParamText = "Requests cancellation of the asynchronous Swift call.";
+
+        /// <summary>
+        /// A <c>&lt;param&gt;</c> line for a C# parameter. The tag names the parameter without a
+        /// verbatim-identifier <c>@</c> (a Swift <c>base:</c> label becomes the C# <c>@base</c>), as
+        /// C# does: <c>name="@base"</c> names no parameter (CS1572). <paramref name="xmlText"/> is
+        /// already doc XML.
+        /// </summary>
+        internal static string ParamTag(string csParamName, string xmlText)
+            => $"/// <param name=\"{XmlEscape(NameProvider.StripVerbatimPrefix(csParamName))}\">{xmlText}</param>";
+
+        /// <summary>
+        /// The method's Swift parameter documentation keyed by C# parameter name, as doc XML, in
+        /// doc-comment order. Parameters the Swift comment does not describe are absent.
+        /// </summary>
+        internal static IReadOnlyList<(string CsName, string XmlText)> MapParameterDocs(MethodDecl methodDecl)
+            => methodDecl.Documentation is { IsEmpty: false } doc
+                ? MapParameterDocs(methodDecl, doc)
+                : Array.Empty<(string, string)>();
+
+        private static List<(string CsName, string XmlText)> MapParameterDocs(MethodDecl methodDecl, DocComment doc)
+        {
+            var mapped = new List<(string CsName, string XmlText)>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             if (doc.Parameters.Count == 0)
-                return emittedNames;
+                return mapped;
 
             // Build Swift label → C# parameter name mapping from CSSignature
             // CSSignature[0] is the return type, actual parameters start at index 1
@@ -123,14 +165,11 @@ namespace BindingsGeneration
                 }
 
                 // Only emit if we found a matching C# parameter name
-                if (csParamName != null)
-                {
-                    csWriter.WriteLine($"/// <param name=\"{XmlEscape(csParamName)}\">{FormatDocText(description)}</param>");
-                    emittedNames.Add(csParamName);
-                }
+                if (csParamName != null && seen.Add(csParamName))
+                    mapped.Add((csParamName, FormatDocText(description)));
             }
 
-            return emittedNames;
+            return mapped;
         }
 
         /// <summary>

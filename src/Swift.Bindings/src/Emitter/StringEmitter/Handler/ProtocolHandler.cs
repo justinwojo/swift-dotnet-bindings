@@ -1051,6 +1051,9 @@ namespace BindingsGeneration
             // downstream module would then re-choose the requirement's name for itself.
             propertyDecl.MarkEmittedCSharpName(propertyName);
 
+            // Doc lines precede every attribute of the requirement (CS1587).
+            XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
+
             // Emit [UnsupportedSwiftType] if the property type falls back to AnyType
             if (UnsupportedSwiftTypeSupport.TryFindFallbackInfo(typeDatabase, closureHandler, propertyDecl.SwiftTypeSpec, out var fallbackInfo))
             {
@@ -1064,7 +1067,6 @@ namespace BindingsGeneration
             UnsupportedSwiftTypeSupport.RecordExistentialDegradations(
                 emissionCtx, typeDatabase, closureHandler, new[] { propertyDecl.SwiftTypeSpec });
 
-            XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, protocolContext, emitObsolete: true);
             if (isStaticAbstract)
             {
@@ -1389,6 +1391,10 @@ namespace BindingsGeneration
                 parameters.Add($"global::System.Threading.CancellationToken {NameProvider.ResolveCancellationTokenName(methodDecl)} = default");
             }
 
+            // Doc lines precede every attribute of the requirement (CS1587).
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl,
+                cancellationTokenName: methodDecl.IsAsync ? NameProvider.ResolveCancellationTokenName(methodDecl) : null);
+
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType
             bool emittedAttribute = false;
             if (methodDecl.CSSignature.Count > 0)
@@ -1430,7 +1436,6 @@ namespace BindingsGeneration
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
                 isMutating: methodDecl.IsMutating);
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, methodDecl, protocolContext, emitObsolete: true);
             if (isStaticAbstract)
             {

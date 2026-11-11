@@ -224,20 +224,12 @@ namespace BindingsGeneration
                 if (classDecl.IsActor)
                     csWriter.WriteLine("// Swift actor type - methods are actor-isolated unless marked nonisolated");
 
-                XmlDocCommentEmitter.EmitDocComment(csWriter, classDecl);
-                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, classDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(classDecl, env.TypeDatabase);
-                if (opaqueEmittable == 0 && opaqueSkipped > 0)
-                {
-                    TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                var isOpaque = opaqueEmittable == 0 && opaqueSkipped > 0;
+                if (isOpaque)
                     context.GetEmissionContext()?.AddEmittedOpaqueType(classDecl.SwiftTypeName.ModuleQualifiedName);
-                }
-                else
-                    TypeAnnotationHelper.EmitDisposalRemarks(csWriter, classDecl);
-                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, classDecl);
-                TypeAnnotationHelper.EmitSwiftMainActorAnnotation(csWriter, classDecl);
-                if (classDecl.Name.StartsWith("_"))
-                    csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                TypeAnnotationHelper.EmitTypeDeclarationPreamble(
+                    csWriter, classDecl, isOpaque ? opaqueSkipped : null, emitDisposalRemarks: true);
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
                 if (!string.IsNullOrEmpty(whereClause))
                     classDeclaration += $" {whereClause}";
