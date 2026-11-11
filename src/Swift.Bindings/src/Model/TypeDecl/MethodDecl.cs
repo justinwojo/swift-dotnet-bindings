@@ -132,6 +132,22 @@ namespace BindingsGeneration
         public bool IsNonmutating { get; set; } = false;
 
         /// <summary>
+        /// True for a subscript getter declared <c>mutating get</c>, parsed from the accessor's
+        /// <c>Mutating</c> declaration attribute. Kept apart from <see cref="IsMutating"/>, which
+        /// emission reads and which the subscript getter path does not set, so recording what
+        /// Swift declared does not change what is emitted.
+        /// </summary>
+        public bool IsDeclaredMutatingSubscriptGetter { get; set; } = false;
+
+        /// <summary>
+        /// True when the parser set <see cref="IsAsync"/> because the call crosses an isolation
+        /// boundary (an actor-isolated instance method, an initializer of a custom-actor-isolated
+        /// type), not because the declaration is <c>async</c>. The Swift symbol itself is then
+        /// synchronous.
+        /// </summary>
+        public bool IsAsyncByIsolation { get; set; } = false;
+
+        /// <summary>
         /// Whether this method or accessor is declared as 'final'.
         /// Final members use direct dispatch even inside non-final classes
         /// (bare symbols exported, no Tj dispatch thunk needed).

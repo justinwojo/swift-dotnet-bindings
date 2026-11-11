@@ -2943,10 +2943,12 @@ namespace BindingsGeneration
                     (parentIsActor || methodDecl.IsActorIsolated))
                 {
                     methodDecl.IsAsync = true;
+                    methodDecl.IsAsyncByIsolation = true;
                 }
                 else if (methodDecl.IsConstructor && parentIsCustomActorIsolated)
                 {
                     methodDecl.IsAsync = true;
+                    methodDecl.IsAsyncByIsolation = true;
                 }
             }
 
@@ -4010,6 +4012,7 @@ namespace BindingsGeneration
                 IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
+                IsDeclaredMutatingSubscriptGetter = accessor.DeclAttributes?.Contains("Mutating") == true,
             };
 
             return new GetAccessorDecl { Method = methodDecl };

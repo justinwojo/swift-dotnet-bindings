@@ -48,7 +48,10 @@ public sealed class SwiftCallFactsCoverage
 
     public required ImmutableArray<SwiftCallFactsCoverageEntry> Entries { get; init; }
 
-    /// <summary>The facts the entries cite, one per id.</summary>
+    /// <summary>
+    /// The facts the entries cite, and those of every declared symbol whose facts are
+    /// incomplete, so each incomplete symbol carries its reasons. One per id.
+    /// </summary>
     public required ImmutableArray<SwiftCallFacts> Facts { get; init; }
 
     public ImmutableArray<string> Conflicts { get; init; } = ImmutableArray<string>.Empty;
@@ -112,6 +115,9 @@ public sealed class SwiftCallFactsCoverage
                 plan.MethodName, plan.EntryPoint, plan.Library, SwiftCallFactsStatus.Unknown, null,
                 ImmutableArray.Create(reason)));
         }
+
+        foreach (var facts in table.All.Where(f => !f.IsComplete))
+            cited.TryAdd(facts.Id, facts);
 
         return new SwiftCallFactsCoverage
         {

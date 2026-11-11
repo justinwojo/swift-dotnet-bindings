@@ -54,7 +54,7 @@ public sealed class SwiftCallFactsTable
         // class vtable or the protocol witness table. Only a member that has one answers.
         if (symbol.EndsWith("Tj", StringComparison.Ordinal)
             && _bySymbol.TryGetValue(symbol[..^2], out var implementation)
-            && HasDispatchThunk(implementation))
+            && implementation.Target.HasDispatchThunk)
         {
             facts = implementation with
             {
@@ -66,11 +66,6 @@ public sealed class SwiftCallFactsTable
         facts = null;
         return false;
     }
-
-    private static bool HasDispatchThunk(SwiftCallFacts facts) =>
-        facts.Self.Kind is SwiftCallSelfKind.Reference or SwiftCallSelfKind.ThickMetatype or SwiftCallSelfKind.Value
-        && facts.Target.Kind is SwiftCallTargetKind.Method or SwiftCallTargetKind.Accessor or SwiftCallTargetKind.Initializer
-        && (facts.Self.Abstraction == SwiftSelfAbstraction.ProtocolRequirement || facts.Self.Type?.Category == SwiftTypeCategory.Class);
 
     /// <summary>
     /// Builds the table for a module. Dependency modules the type database knows are walked too,

@@ -70,6 +70,17 @@ public interface ITypeDatabase
         => TryGetTypeRecord(swiftTypeName, out record);
 
     /// <summary>
+    /// Looks up the record a loaded database holds for a Swift identity without resolving it for
+    /// emission: no package reference is recorded, and no resolver strategy synthesizes a
+    /// fallback record. For a reader that describes declarations rather than emits them, such as
+    /// the Swift call facts, so describing a member never changes what the binding references.
+    /// Defaults to <see cref="TryGetTypeRecord(SwiftTypeName, out TypeRecord?)"/> for test mocks,
+    /// which record nothing; the real <see cref="TypeDatabase"/> overrides it.
+    /// </summary>
+    public bool TryPeekTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        => TryGetTypeRecord(swiftTypeName, out record);
+
+    /// <summary>
     /// Retrieves the library a P/Invoke against <paramref name="moduleName"/>'s symbols must bind:
     /// the module's own declared native, EXCEPT when that native is a static <c>ar</c> archive that
     /// was force-loaded into the companion wrapper (<see cref="StaticallyMergedModules"/>), in which

@@ -576,6 +576,228 @@ public class SwiftCallFactsTests
         Assert.Empty(first.Conflicts);
     }
 
+    // ---- review regressions: conventions, self, effects, types, thunks ----
+
+    private const string NonEscapingVoid = """
+        { "kind": "TypeFunc", "name": "Function", "printedName": "() -> ()", "typeAttributes": ["noescape"],
+          "children": [ { "kind": "TypeNominal", "name": "Void", "printedName": "()" }, { "kind": "TypeNominal", "name": "Void", "printedName": "()" } ] }
+        """;
+
+    private static string Subscript(string mangledBase, string result, string index, string[]? getterAttrs = null) => $$"""
+        { "kind": "Subscript", "name": "subscript", "printedName": "subscript(_:)", "children": [{{result}}, {{index}}],
+          "declKind": "Subscript", "mangledName": "{{mangledBase}}cip", "moduleName": "{{M}}", "declAttributes": ["AccessControl"],
+          "accessors": [{{Accessor("get", mangledBase + "cig", new[] { result, index }, getterAttrs)}},
+                        {{Accessor("set", mangledBase + "cis", new[] { Void, result, index })}}] }
+        """;
+
+    [Fact]
+    public void SetterAndInitializer_ConsumeTheirParameters_ExceptANonEscapingClosure()
+    {
+        var point = TypeDecl("Struct", "Point", Point, new[]
+        {
+            Subscript(Point + "ys5Int32VSS", Int32, StringT),
+            Func("init", "init(build:)", Point + "5buildACyyXE_tcfC", new[] { Nominal("TestModule.Point"), NonEscapingVoid },
+                declKind: "Constructor", kind: "Constructor"),
+        }, attrs: new[] { "AccessControl", "Frozen" });
+
+        var (_, table, _) = Parse(point);
+
+        // A subscript setter consumes its index as well as its new value; its getter borrows the index.
+        var setter = Facts(table, Point + "ys5Int32VSScis");
+        Assert.Equal(new[] { SwiftParameterConvention.Owned, SwiftParameterConvention.Owned }, setter.Parameters.Select(p => p.Convention));
+        Assert.Equal(SwiftParameterConvention.Guaranteed, Assert.Single(Facts(table, Point + "ys5Int32VSScig").Parameters).Convention);
+
+        // A non-escaping closure is borrowed even by an initializer.
+        var build = Assert.Single(Facts(table, Point + "5buildACyyXE_tcfC").Parameters);
+        Assert.Equal(SwiftClosureKind.NonEscaping, build.Closure);
+        Assert.Equal(SwiftParameterConvention.Guaranteed, build.Convention);
+        Assert.Equal(SwiftConventionSource.Default, build.ConventionSource);
+    }
+
+    [Fact]
+    public void MutatingSubscriptGetter_MutatesSelf_WithoutChangingTheEmissionFlag()
+    {
+        var point = TypeDecl("Struct", "Point", Point, new[]
+        {
+            Subscript(Point + "ys5Int32VSS", Int32, StringT, getterAttrs: new[] { "Mutating" }),
+        }, attrs: new[] { "AccessControl", "Frozen" });
+
+        var (module, table, _) = Parse(point);
+
+        Assert.Equal(SwiftSelfMutation.Mutating, Facts(table, Point + "ys5Int32VSScig").Self.Mutation);
+        var getter = Assert.Single(module.Types).Subscripts.Single().Accessors.OfType<GetAccessorDecl>().Single().Method;
+        Assert.True(getter.IsDeclaredMutatingSubscriptGetter);
+        Assert.False(getter.IsMutating);
+    }
+
+    [Fact]
+    public void ClassBoundProtocol_KeepsAnExplicitSelfConvention()
+    {
+        var node = TypeDecl("Protocol", "Node", "$s10TestModule4NodeP", new[]
+        {
+            Func("take", "take()", "$s10TestModule4NodeP4takeyyF", new[] { Void }, selfKind: "Consuming",
+                genericSig: "<τ_0_0 where τ_0_0 : TestModule.Node>", extra: "\"protocolReq\": true"),
+        }, genericSig: "<τ_0_0 where τ_0_0 : AnyObject>");
+
+        var (_, table, _) = Parse(node);
+
+        Assert.Equal(SwiftSelfMutation.Consuming, Facts(table, "$s10TestModule4NodeP4takeyyF").Self.Mutation);
+        Assert.Equal(SwiftSelfMutation.Consuming, Facts(table, "$s10TestModule4NodeP4takeyyFTj").Self.Mutation);
+    }
+
+    [Fact]
+    public void ActorIsolatedSyncMethod_IsNotAsync()
+    {
+        const string counter = "$s10TestModule7CounterC";
+        var decl = TypeDecl("Class", "Counter", counter, new[]
+        {
+            Func("increment", "increment()", counter + "9incrementyyF", new[] { Void }),
+        }, extra: """ "conformances": [ { "kind": "Conformance", "name": "Actor", "printedName": "Actor", "usr": "s:ScA", "mangledName": "$sScA" } ] """);
+
+        var (module, table, _) = Parse(decl);
+
+        // The parser marks it async so the binding awaits the hop; the symbol itself is synchronous.
+        Assert.True(Assert.Single(module.Types).Methods.Single(m => m.Name == "increment").IsAsync);
+        Assert.False(Facts(table, counter + "9incrementyyF").Effects.IsAsync);
+    }
+
+    [Fact]
+    public void TypeCategories_MetatypeOfAGenericOpaqueAndNestedBelowAGenericParent()
+    {
+        var shape = TypeDecl("Protocol", "Shape", "$s10TestModule5ShapeP", Array.Empty<string>());
+        var metatype = """
+            { "kind": "TypeNominal", "name": "Metatype", "printedName": "τ_0_0.Type",
+              "children": [ { "kind": "TypeNominal", "name": "GenericTypeParam", "printedName": "τ_0_0" } ] }
+            """;
+        var typeName = Func("typeName", "typeName(of:)", "$s10TestModule8typeName2ofSSxm_tlF", new[] { StringT, metatype }, genericSig: "<τ_0_0>");
+        var opaque = """
+            { "kind": "TypeNominal", "name": "OpaqueTypeArchetype", "printedName": "some TestModule.Shape",
+              "children": [ { "kind": "TypeNominal", "name": "Shape", "printedName": "TestModule.Shape" } ] }
+            """;
+        var make = Func("make", "make()", "$s10TestModule4makeQryF", new[] { opaque });
+        var host = TypeDecl("Class", "Host", "$s10TestModule4HostC", new[]
+        {
+            TypeDecl("Struct", "Tag", "$s10TestModule4HostC3TagV", new[]
+            {
+                Func("init", "init(label:)", "$s10TestModule4HostC3TagV5labelAEyx_GSS_tcfC",
+                    new[] { Nominal("TestModule.Host<τ_0_0>.Tag", name: "Tag"), StringT },
+                    declKind: "Constructor", kind: "Constructor", genericSig: "<τ_0_0>"),
+            }, attrs: new[] { "AccessControl", "Frozen" }),
+        }, genericSig: "<τ_0_0>");
+
+        var (_, table, _) = Parse(shape, typeName, make, host);
+
+        Assert.Equal(SwiftTypeCategory.Metatype, Assert.Single(Facts(table, "$s10TestModule8typeName2ofSSxm_tlF").Parameters).Type.Category);
+        Assert.Equal(SwiftTypeCategory.Opaque, Facts(table, "$s10TestModule4makeQryF").Result.Type.Category);
+        var tag = Facts(table, "$s10TestModule4HostC3TagV5labelAEyx_GSS_tcfC").Result.Type;
+        Assert.Equal(SwiftTypeCategory.Struct, tag.Category);
+        Assert.True(tag.IsFrozen);
+    }
+
+    [Fact]
+    public void VariadicParameter_IsMarked()
+    {
+        var array = $$"""{ "kind": "TypeNominal", "name": "Array", "printedName": "[Swift.Int32]", "children": [{{Int32}}] }""";
+        var (_, table, _) = Parse(Func("sum", "sum(_:)", "$s10TestModule3sumyys5Int32Vd_tF", new[] { Void, array }));
+
+        Assert.True(Assert.Single(Facts(table, "$s10TestModule3sumyys5Int32Vd_tF").Parameters).IsVariadic);
+    }
+
+    [Fact]
+    public void MetadataAccessor_ReturnsATwoWordResponse()
+    {
+        var (_, table, _) = Parse(PointDecl());
+
+        var response = Facts(table, Point + "Ma").Result.Type;
+        Assert.Equal(SwiftTypeCategory.Struct, response.Category);
+        Assert.True(response.IsFrozen);
+    }
+
+    [Fact]
+    public void DispatchThunk_IsNotDerivedForFinalExtensionStaticOrInitializerMembers()
+    {
+        const string sealedBox = "$s10TestModule9SealedBoxC";
+        var sealedDecl = TypeDecl("Class", "SealedBox", sealedBox, new[]
+        {
+            Func("open", "open()", sealedBox + "4openyyF", new[] { Void }),
+        }, attrs: new[] { "AccessControl", "Final" });
+        var box = TypeDecl("Class", "Box", Box, new[]
+        {
+            Func("open", "open()", Box + "4openyyF", new[] { Void }),
+            Func("pinned", "pinned()", Box + "6pinnedyyF", new[] { Void }, attrs: new[] { "AccessControl", "Final" }),
+            Func("extra", "extra()", Box + "5extrayyF", new[] { Void }, extra: "\"isFromExtension\": true"),
+            Func("make", "make()", Box + "4makeACyFZ", new[] { Nominal("TestModule.Box") }, isStatic: true),
+            Func("init", "init(seed:)", Box + "4seedACs5Int32V_tcfc", new[] { Nominal("TestModule.Box"), Int32 }, declKind: "Constructor", kind: "Constructor"),
+        });
+
+        var (_, table, _) = Parse(sealedDecl, box);
+
+        Assert.True(Facts(table, Box + "4openyyF").Target.HasDispatchThunk);
+        Assert.True(table.TryGet(Box + "4openyyFTj", out _));
+        foreach (var symbol in new[] { sealedBox + "4openyyF", Box + "6pinnedyyF", Box + "5extrayyF", Box + "4makeACyFZ", Box + "4seedACs5Int32V_tcfC" })
+        {
+            Assert.False(Facts(table, symbol).Target.HasDispatchThunk, symbol);
+            Assert.False(table.TryGet(symbol + "Tj", out _), symbol + "Tj");
+        }
+    }
+
+    [Fact]
+    public void BuildingFacts_RecordsNoPackageReference()
+    {
+        // A type a dependency's database knows, named by a member the binding may never emit.
+        var db = new TypeDatabase();
+        RegisterStandardTypes(db);
+        var thing = SwiftTypeName.FromModuleQualifiedName("Elsewhere.Thing");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (thing, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Elsewhere", "Thing"),
+                SwiftTypeName = thing,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+        var (module, _, _) = ParseInto(db, M, Func("use", "use(_:)", "$s10TestModule3useyy7Elsewhere5ThingVF", new[] { Void, Nominal("Elsewhere.Thing") }));
+
+        CrossModuleBindingReferences.Reset();
+        AppleSupplementReferences.Reset();
+        var table = SwiftCallFactsTable.Build(module, db);
+
+        Assert.True(Facts(table, "$s10TestModule3useyy7Elsewhere5ThingVF").IsComplete);
+        Assert.Empty(CrossModuleBindingReferences.Current);
+        Assert.False(AppleSupplementReferences.Any);
+    }
+
+    [Fact]
+    public void InjectedProtocolExtensionMember_HasNoDeclaredFacts()
+    {
+        var (module, _, db) = Parse(PointDecl());
+        var point = Assert.Single(module.Types);
+        point.Methods.Add(new MethodDecl
+        {
+            Name = "describe",
+            MangledName = "SBW_TestModule_Point_describe",
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = point, ModuleDecl = module },
+            },
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = point,
+            ModuleDecl = module,
+            IsProtocolExtensionMethod = true,
+        });
+
+        var table = SwiftCallFactsTable.Build(module, db);
+
+        Assert.False(table.TryGet("SBW_TestModule_Point_describe", out _));
+    }
+
     // ---- coverage ----
 
     private static AbiCallPlan Plan(string entryPoint, string library, PInvokeCallingConvention convention = PInvokeCallingConvention.Swift) => new()
@@ -632,6 +854,12 @@ public class SwiftCallFactsTests
         Assert.False(declared.TryGetProperty(Box + "4openyyFTj", out _));
         Assert.Equal(table.Count, root.GetProperty("totals").GetProperty("declaredSymbols").GetInt32());
         Assert.Equal(1, root.GetProperty("totals").GetProperty("declaredIncomplete").GetInt32());
+
+        // Every incomplete declared symbol carries its reasons, even when no plan cites it.
+        var uncited = SwiftCallFactsCoverage.Compute(M, Array.Empty<AbiCallPlan>(), table, wrapper);
+        var use = Assert.Single(uncited.Facts);
+        Assert.Equal("$s10TestModule3useyy7Elsewhere6ThingVF", use.Id);
+        Assert.NotEmpty(use.Unknowns);
 
         // Deterministic: the same inputs serialize identically.
         Assert.Equal(coverage.ToJson(), SwiftCallFactsCoverage.Compute(M, coverage.Entries.Select(e => Plan(e.EntryPoint, e.Library)), table, wrapper).ToJson());

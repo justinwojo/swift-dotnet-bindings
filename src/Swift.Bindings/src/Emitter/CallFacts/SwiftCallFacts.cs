@@ -186,15 +186,22 @@ public sealed record SwiftCallTarget
     /// </summary>
     public ImmutableArray<SwiftAvailabilityFloor> Availability { get; init; } = ImmutableArray<SwiftAvailabilityFloor>.Empty;
 
+    /// <summary>
+    /// True when the member is also reached through a dispatch thunk (<c>…Tj</c>): a protocol
+    /// requirement, or an overridable instance member of a non-final class.
+    /// </summary>
+    public bool HasDispatchThunk { get; init; }
+
     public bool Equals(SwiftCallTarget? other) =>
         other is not null
         && Kind == other.Kind && Accessor == other.Accessor && Entry == other.Entry
         && Symbol == other.Symbol && PointerSource == other.PointerSource && Module == other.Module
         && DeclaringType == other.DeclaringType && MemberName == other.MemberName
+        && HasDispatchThunk == other.HasDispatchThunk
         && Availability.AsSpan().SequenceEqual(other.Availability.AsSpan());
 
     public override int GetHashCode() =>
-        HashCode.Combine(Kind, Accessor, Entry, Symbol, PointerSource, Module, DeclaringType, MemberName);
+        HashCode.Combine(Kind, Accessor, Entry, Symbol, PointerSource, Module, DeclaringType, HashCode.Combine(MemberName, HasDispatchThunk));
 }
 
 /// <summary>What the callee receives as self, semantically.</summary>
@@ -290,7 +297,11 @@ public enum SwiftParameterConvention
 /// <summary>Where a parameter's convention came from.</summary>
 public enum SwiftConventionSource
 {
-    /// <summary>The declaration kind's default: owned for an initializer parameter and a setter's new value, guaranteed otherwise.</summary>
+    /// <summary>
+    /// The declaration kind's default: owned for an initializer's or a setter's parameters (a
+    /// subscript setter's indices included), guaranteed otherwise, and guaranteed for a
+    /// non-escaping closure everywhere.
+    /// </summary>
     Default,
 
     /// <summary>Spelled in the declaration: <c>inout</c>, <c>__owned</c>/<c>consuming</c>, <c>__shared</c>/<c>borrowing</c>.</summary>
@@ -365,6 +376,9 @@ public enum SwiftTypeCategory
 
     /// <summary>A raw machine word (a metadata request, a metadata or witness-table pointer, an enum tag).</summary>
     MachineWord,
+
+    /// <summary>An opaque type (<c>some P</c>): one concrete type the callee chooses, known to the caller only through its metadata.</summary>
+    Opaque,
 }
 
 /// <summary>A Swift type as the facts see it.</summary>

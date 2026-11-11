@@ -78,7 +78,13 @@ public sealed class SwiftCallFactsBuilder
         if (type is not ProtocolDecl && declaredHere && MetadataAccessorSymbol(type) is { } accessor)
             yield return ForMetadataAccessor(accessor, type, module);
         foreach (var method in type.Methods)
+        {
+            // A protocol-extension member the generator injected into a conforming type is its own
+            // wrapper function, not a Swift declaration of the type; its producer owes its facts.
+            if (method.IsProtocolExtensionMethod)
+                continue;
             yield return ForMethod(method, type, MemberContext.Plain);
+        }
         foreach (var op in type.Operators)
             yield return ForMethod(op.UnderlyingMethod, type, MemberContext.Plain);
         foreach (var property in type.Properties)
@@ -138,6 +144,7 @@ public sealed class SwiftCallFactsBuilder
             DeclaringType = parent?.SwiftTypeName.ModuleQualifiedName,
             MemberName = context.StorageName ?? method.GetSwiftName(),
             Availability = AvailabilityOf(method.AvailabilityAnnotations, context.StorageAvailability, parent),
+            HasDispatchThunk = HasDispatchThunk(method, parent, kind),
         };
 
         var self = SelfOf(method, parent, context, unknowns);
@@ -149,10 +156,8 @@ public sealed class SwiftCallFactsBuilder
         {
             var argument = method.CSSignature[i];
             var index = i - 1;
-            var defaultConvention = method.IsConstructor || (context.Accessor == SwiftAccessorKind.Set && index == 0)
-                ? SwiftParameterConvention.Owned
-                : SwiftParameterConvention.Guaranteed;
-            var (convention, source) = ConventionOf(argument, defaultConvention);
+            var closure = ClosureKindOf(argument.SwiftTypeSpec);
+            var (convention, source) = ConventionOf(argument, DefaultConventionOf(method, context, closure));
             parameters.Add(new SwiftParameterFacts
             {
                 Index = index,
@@ -160,8 +165,9 @@ public sealed class SwiftCallFactsBuilder
                 Type = ResolveType(argument.SwiftTypeSpec, genericNames, unknowns, $"parameter {index}"),
                 Convention = convention,
                 ConventionSource = source,
-                Closure = ClosureKindOf(argument.SwiftTypeSpec),
-                IsVariadic = argument.SwiftTypeSpec.IsVariadic,
+                Closure = closure,
+                // The parser lowers `T...` to an array whose element carries the variadic mark.
+                IsVariadic = SwiftABIParser.IsVariadicArraySpec(argument.SwiftTypeSpec),
             });
         }
 
@@ -178,7 +184,9 @@ public sealed class SwiftCallFactsBuilder
         {
             Throws = method.Throws || method.HasTypedThrows,
             TypedThrows = method.ThrownErrorType?.ToString(true),
-            IsAsync = method.IsAsync,
+            // The parser marks a synchronous actor-isolated member async so the binding awaits it;
+            // the symbol itself is synchronous.
+            IsAsync = method.IsAsync && !method.IsAsyncByIsolation,
             IsCoroutine = context.Accessor is SwiftAccessorKind.Modify or SwiftAccessorKind.Read,
             HasParameterPacks = HasParameterPacks(method, parent),
         };
@@ -195,6 +203,39 @@ public sealed class SwiftCallFactsBuilder
             Effects = effects,
             Generics = generics,
             Unknowns = unknowns.ToImmutableArray(),
+        };
+    }
+
+    /// <summary>
+    /// The convention a parameter takes when it does not spell one. An initializer's and a
+    /// setter's parameters (a subscript setter's indices too) are consumed, every other function's
+    /// are borrowed, and a non-escaping closure is always borrowed.
+    /// </summary>
+    private static SwiftParameterConvention DefaultConventionOf(MethodDecl method, MemberContext context, SwiftClosureKind closure)
+    {
+        if (closure == SwiftClosureKind.NonEscaping)
+            return SwiftParameterConvention.Guaranteed;
+        return method.IsConstructor || context.Accessor == SwiftAccessorKind.Set
+            ? SwiftParameterConvention.Owned
+            : SwiftParameterConvention.Guaranteed;
+    }
+
+    /// <summary>
+    /// Whether the member is reached through a dispatch thunk (<c>…Tj</c>): a protocol
+    /// requirement, or an overridable instance member of a class — not final, on a class that is
+    /// not final, and not declared in an extension. A class's static, <c>class</c> and initializer
+    /// entries are not derived: the model does not say which of them have a vtable entry.
+    /// </summary>
+    private bool HasDispatchThunk(MethodDecl method, TypeDecl? parent, SwiftCallTargetKind kind)
+    {
+        if (parent is null || kind is not (SwiftCallTargetKind.Method or SwiftCallTargetKind.Accessor or SwiftCallTargetKind.Initializer))
+            return false;
+        return Canonical(parent) switch
+        {
+            ProtocolDecl => !method.IsExtensionMethod || method.IsProtocolRequirement,
+            ClassDecl c => !c.IsFinal && !method.IsFinal && !method.IsExtensionMethod
+                && !method.IsConstructor && method.MethodType == MethodType.Instance,
+            _ => false,
         };
     }
 
@@ -232,9 +273,7 @@ public sealed class SwiftCallFactsBuilder
                 return new SwiftSelfFacts
                 {
                     Kind = SwiftCallSelfKind.Reference,
-                    Mutation = method.IsConsuming ? SwiftSelfMutation.Consuming
-                        : method.IsBorrowing ? SwiftSelfMutation.Borrowing
-                        : SwiftSelfMutation.Nonmutating,
+                    Mutation = ReferenceMutationOf(method),
                     Abstraction = abstraction,
                     Type = selfType,
                 };
@@ -258,7 +297,7 @@ public sealed class SwiftCallFactsBuilder
             {
                 // A protocol member's self is the generic Self: a requirement is reached through
                 // its dispatch thunk, an extension member is a generic function over Self.
-                var abstraction = method.IsProtocolExtensionMethod || !method.IsProtocolRequirement && method.IsExtensionMethod
+                var abstraction = !method.IsProtocolRequirement && method.IsExtensionMethod
                     ? SwiftSelfAbstraction.ProtocolExtension
                     : SwiftSelfAbstraction.ProtocolRequirement;
                 var genericSelf = new SwiftTypeFacts
@@ -272,7 +311,7 @@ public sealed class SwiftCallFactsBuilder
                 return new SwiftSelfFacts
                 {
                     Kind = protocol.IsClassBound ? SwiftCallSelfKind.Reference : SwiftCallSelfKind.Value,
-                    Mutation = protocol.IsClassBound ? SwiftSelfMutation.Nonmutating : ValueMutationOf(method, context),
+                    Mutation = protocol.IsClassBound ? ReferenceMutationOf(method) : ValueMutationOf(method, context),
                     Abstraction = abstraction,
                     Type = genericSelf,
                 };
@@ -308,12 +347,18 @@ public sealed class SwiftCallFactsBuilder
             return SwiftSelfMutation.Consuming;
         if (method.IsBorrowing)
             return SwiftSelfMutation.Borrowing;
-        if (method.IsMutating)
+        if (method.IsMutating || method.IsDeclaredMutatingSubscriptGetter)
             return SwiftSelfMutation.Mutating;
         if (context.Accessor == SwiftAccessorKind.Set && !method.IsNonmutating)
             return SwiftSelfMutation.Mutating;
         return SwiftSelfMutation.Nonmutating;
     }
+
+    /// <summary>A reference self is borrowed unless the member is <c>consuming</c>; it is never inout.</summary>
+    private static SwiftSelfMutation ReferenceMutationOf(MethodDecl method) =>
+        method.IsConsuming ? SwiftSelfMutation.Consuming
+        : method.IsBorrowing ? SwiftSelfMutation.Borrowing
+        : SwiftSelfMutation.Nonmutating;
 
     private SwiftTypeFacts SelfTypeOf(TypeDecl parent, List<string> unknowns) => parent switch
     {
@@ -470,8 +515,9 @@ public sealed class SwiftCallFactsBuilder
                 return new SwiftTypeFacts
                 {
                     Spelling = spelling,
-                    Category = SwiftTypeCategory.Existential,
-                    IsClassBound = list.Protocols.Keys.Any(p => p.Name is "AnyObject" or "Swift.AnyObject" || IsClassBoundProtocol(p.Name)),
+                    // `some P` is one concrete type the callee chooses, not a box.
+                    Category = list.IsOpaque ? SwiftTypeCategory.Opaque : SwiftTypeCategory.Existential,
+                    IsClassBound = list.Protocols.Keys.Any(p => p.Name is "AnyObject" or "Swift.AnyObject" || IsClassBoundProtocol(p)),
                 };
             case AssociatedTypeReferenceSpec:
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.GenericParameter };
@@ -484,18 +530,21 @@ public sealed class SwiftCallFactsBuilder
 
     private SwiftTypeFacts ResolveNamed(NamedTypeSpec named, string spelling, IReadOnlySet<string> genericNames)
     {
-        var name = named.Name;
+        // A nested type below a generic parent keeps its inner names in the InnerType chain
+        // (Module.Outer<T>.Inner), so the full name is rebuilt from it.
+        var name = FullNameOf(named);
 
         if (name is "Swift.Void" or "Void" or "()")
             return SwiftTypeFacts.Void;
+
+        // A metatype first: T.Type is a metatype even when T is a generic parameter.
+        if (name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal))
+            return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Metatype };
 
         // A generic parameter, or a dependent member of one (τ_0_0.Element, Self.Item).
         var root = name.Split('.')[0];
         if (genericNames.Contains(name) || genericNames.Contains(root) || name.StartsWith("τ_", StringComparison.Ordinal))
             return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.GenericParameter };
-
-        if (name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal))
-            return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Metatype };
 
         if (name is "Any" or "Swift.Any")
             return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Existential };
@@ -505,14 +554,40 @@ public sealed class SwiftCallFactsBuilder
         if (_typesByName.TryGetValue(name, out var entry))
             return FromDecl(entry.Decl, spelling);
 
-        if (_typeDatabase.TryGetTypeRecord(named, out var record))
+        if (TryPeekRecord(name, out var record))
             return FromRecord(record, spelling);
 
         return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved };
     }
 
-    private bool IsClassBoundProtocol(string name) =>
-        _typesByName.TryGetValue(name, out var entry) && entry.Decl is ProtocolDecl { IsClassBound: true };
+    /// <summary>The module-qualified name with the InnerType chain's names appended, without generic arguments.</summary>
+    private static string FullNameOf(NamedTypeSpec named)
+    {
+        var name = named.Name;
+        for (var inner = named.InnerType; inner is not null; inner = inner.InnerType)
+            name += "." + inner.Name;
+        return name;
+    }
+
+    /// <summary>
+    /// A record a loaded database holds, found without resolving the name for emission: the
+    /// facts describe declarations, so looking a type up must not record a package reference or
+    /// accept a resolver's fallback projection as what the type is.
+    /// </summary>
+    private bool TryPeekRecord(string name, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out TypeRecord? record)
+    {
+        record = null;
+        return SwiftTypeName.TryFromModuleQualifiedName(name, out var typeName)
+            && _typeDatabase.TryPeekTypeRecord(typeName, out record);
+    }
+
+    private bool IsClassBoundProtocol(NamedTypeSpec protocol)
+    {
+        var name = FullNameOf(protocol);
+        if (_typesByName.TryGetValue(name, out var entry))
+            return entry.Decl is ProtocolDecl { IsClassBound: true };
+        return TryPeekRecord(name, out var record) && (record.Flags & TypeRecordFlags.ClassBound) != 0;
+    }
 
     private static SwiftTypeFacts FromDecl(TypeDecl decl, string spelling) => decl switch
     {
@@ -531,7 +606,12 @@ public sealed class SwiftCallFactsBuilder
             TypeRecordKind.Class => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Class, IsClassBound = true },
             TypeRecordKind.Struct => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Struct, IsFrozen = frozen },
             TypeRecordKind.Enum => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Enum, IsFrozen = frozen },
-            TypeRecordKind.Protocol or TypeRecordKind.Existential => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Existential },
+            TypeRecordKind.Protocol or TypeRecordKind.Existential => new SwiftTypeFacts
+            {
+                Spelling = spelling,
+                Category = SwiftTypeCategory.Existential,
+                IsClassBound = (record.Flags & TypeRecordFlags.ClassBound) != 0,
+            },
             _ => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved },
         };
     }
@@ -602,7 +682,11 @@ public sealed class SwiftCallFactsBuilder
             Convention = SwiftParameterConvention.Guaranteed,
             ConventionSource = SwiftConventionSource.Default,
         }),
-        Result = new SwiftResultFacts { Type = SwiftTypeFacts.Word("MetadataResponse") },
+        // MetadataResponse is a two-word aggregate: the metadata and its state.
+        Result = new SwiftResultFacts
+        {
+            Type = new SwiftTypeFacts { Spelling = "MetadataResponse", Category = SwiftTypeCategory.Struct, IsFrozen = true },
+        },
         Effects = SwiftCallEffects.None,
         Generics = generics,
     };

@@ -810,6 +810,39 @@ namespace BindingsGeneration
             return false;
         }
 
+        /// <inheritdoc/>
+        public bool TryPeekTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
+            // The arms of TryGetTypeRecord that find a record a database already holds, in its
+            // order, through the primitives the cascade strategies call, and without the reference
+            // recording TryGetTypeRecord and its cascade adapter add on a hit.
+            if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplement))
+            {
+                record = supplement;
+                return true;
+            }
+            if (TryGetTypeRecordInternal(swiftTypeName, out record))
+                return true;
+            if (GetRefAliasVariant(swiftTypeName) is { } refVariant && TryGetTypeRecordInternal(refVariant, out record))
+                return true;
+            if (TryGetOutOfModuleType(swiftTypeName, out record))
+                return true;
+            if (TryResolveTypeAlias(swiftTypeName) is { } canonicalName)
+            {
+                var baseName = canonicalName.IndexOf('<') is var idx and >= 0 ? canonicalName[..idx] : canonicalName;
+                if (TryGetTypeRecordInternal(SwiftTypeName.FromModuleQualifiedName(baseName), out record))
+                    return true;
+            }
+            if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
+            {
+                record = TypeDatabaseExtensions.SwiftErrorType;
+                return true;
+            }
+
+            record = null;
+            return false;
+        }
+
         /// <summary>
         /// Resolves a cross-module type alias to its full canonical name, preserving generic
         /// type arguments. Returns null if the type is not an alias.
