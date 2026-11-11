@@ -257,6 +257,25 @@ def write_back_seeded_baseline(source, workspace, inventory):
     return True
 
 
+def reset_workspace_seed(source, workspace, inventory):
+    """Return the workspace copy of the seeded baseline to the snapshot the workspace was built from.
+
+    Nuke saves each lane's floor as soon as that lane passes, so a run that fails on a later lane
+    leaves the earlier floors in the reused workspace. The next run would then grade against an
+    unpublished floor, and a later successful seed would copy it back. Only a write-back publishes.
+    """
+    seeded = workspace / NET11_IDENTITY_BASELINE
+    if seeded.is_symlink() or seeded.exists():
+        seeded.unlink()
+    entry = next((entry for entry in inventory if entry[0] == NET11_IDENTITY_BASELINE), None)
+    origin = source / NET11_IDENTITY_BASELINE
+    # A checkout copy that changed since the snapshot changes the source identity, so the next
+    # invocation rebuilds the workspace and the missing copy is never read.
+    if (entry is not None and origin.is_file() and not origin.is_symlink()
+            and hashlib.sha256(origin.read_bytes()).hexdigest() == entry[2]):
+        shutil.copy2(origin, seeded)
+
+
 def parser_inputs(inventory):
     return [entry for entry in inventory
             if entry[0].startswith("tools/SwiftInterfaceParser/")
@@ -407,10 +426,15 @@ def main(argv=None):
         if options.prepare_only:
             return 0
         subprocess.run([env["DOTNET_HOST_PATH"], "tool", "restore"], cwd=workspace, env=env, check=True)
-        status = subprocess.call([env["DOTNET_HOST_PATH"], "nuke", *arguments], cwd=workspace, env=env)
-        # Nuke seeds only from a green run; a failed run leaves the checkout untouched.
-        if status == 0 and seeds_net11_identity(arguments, profile):
-            write_back_seeded_baseline(source, workspace, inventory)
+        seeding = seeds_net11_identity(arguments, profile)
+        try:
+            status = subprocess.call([env["DOTNET_HOST_PATH"], "nuke", *arguments], cwd=workspace, env=env)
+            # Nuke seeds only from a green run; a failed run leaves the checkout untouched.
+            if status == 0 and seeding:
+                write_back_seeded_baseline(source, workspace, inventory)
+        finally:
+            if seeding:
+                reset_workspace_seed(source, workspace, inventory)
         return status
 
 

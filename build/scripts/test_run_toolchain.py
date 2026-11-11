@@ -191,6 +191,20 @@ class ToolchainIsolationTests(unittest.TestCase):
             profile.write_back_seeded_baseline(self.source, workspace, inventory)
         self.assertIn("edited", (self.source / profile.NET11_IDENTITY_BASELINE).read_text())
 
+    def test_a_failed_seed_leaves_no_floor_in_the_reused_workspace(self):
+        for published in (None, '{"platforms": {"net11.0_ios": {}}}\n'):
+            with self.subTest(published=published):
+                # A multi-lane seed saved the macOS floor, then a later lane failed: no write-back.
+                workspace, inventory = self.seeded_workspace(published)
+                profile.reset_workspace_seed(self.source, workspace, inventory)
+                # The next run with unchanged source reuses this workspace and must see the checkout's floor.
+                self.assertEqual(self.prepare(), workspace)
+                seeded = workspace / profile.NET11_IDENTITY_BASELINE
+                if published is None:
+                    self.assertFalse(seeded.exists())
+                else:
+                    self.assertEqual(seeded.read_text(), published)
+
     def test_audit_suppression_is_scoped_to_the_legacy_profile(self):
         stray = {"SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"}
         for name in ("net10-xcode26", "net10-xcode27", "net11-xcode27"):
