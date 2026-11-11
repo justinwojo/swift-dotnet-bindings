@@ -1560,7 +1560,8 @@ public static class MethodClosureBridge
             csharpName: methodName,
             parameterPortion: ModuleEmissionContext.FormatParameterPortion(emittedParameterTypes));
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method,
+            passableNonClosureParams.Select(p => p.csName).Concat(closures.Select(c => c.ParamName)).ToList());
 
         csWriter.WriteLine($"public {staticKeyword}unsafe {returnType} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");

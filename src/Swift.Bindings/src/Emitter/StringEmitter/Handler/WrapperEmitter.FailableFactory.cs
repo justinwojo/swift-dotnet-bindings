@@ -60,26 +60,8 @@ namespace BindingsGeneration
                 EmitClosureCallbacks(csWriter);
             }
 
-            // The failable factory has never surfaced the per-member @MainActor marker, so it carries
-            // no matching remark either.
-            EmitMemberDocumentation(csWriter, isFailableFactory: true, includeMainActorRemarks: false);
-            EmitFallbackAttribute(csWriter);
-            // Capture ahead of the attributes and signature so a CONSUME-degraded parameter — discovered
-            // only once the body's marshalling has been emitted — can still have its marker injected in
-            // front of them. Same contract as the method and constructor paths.
-            var preSignatureCheckpoint = csWriter.Checkpoint();
-            // A factory that is about to become a throwing tombstone has to say so on the declaration,
-            // not only in the exception text — otherwise the one compile-time notice a consumer gets
-            // before calling something that cannot work is missing on this member kind alone. The marker
-            // is emitted ONLY for that case: this path has never carried the advisory direct-CallConvSwift
-            // marker, and turning it on for every failable factory would surface a new obsoletion warning
-            // on members whose call route is unchanged.
-            if (WrapperValidation.IsAbiFloorTombstoned(_env))
-                EmitSafetyObsolete(csWriter, _env.FailableFactoryName ?? "TryCreate");
-            // Emit signature: public static bool TryCreate(params, out TypeName result)
-            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
-            // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors
-            // Out-param name. On the indirect (struct / CallConvSwift class) path the P/Invoke writes into
+            // Out-param name, resolved ahead of the documentation, whose param tag has to name it.
+            // On the indirect (struct / CallConvSwift class) path the P/Invoke writes into
             // resultBuffer and ReturnLocalName is unused, so the out param can safely reuse it (and inherits
             // its collision-avoidance against any init? param projected as "result"). On the class-cdecl path
             // ReturnLocalName is the P/Invoke return local, so the out param MUST be a distinct identifier:
@@ -98,6 +80,26 @@ namespace BindingsGeneration
             {
                 resultName = ReturnLocalName;
             }
+
+            // The failable factory has never surfaced the per-member @MainActor marker, so it carries
+            // no matching remark either.
+            EmitMemberDocumentation(csWriter, failableResultName: resultName, includeMainActorRemarks: false);
+            EmitFallbackAttribute(csWriter);
+            // Capture ahead of the attributes and signature so a CONSUME-degraded parameter — discovered
+            // only once the body's marshalling has been emitted — can still have its marker injected in
+            // front of them. Same contract as the method and constructor paths.
+            var preSignatureCheckpoint = csWriter.Checkpoint();
+            // A factory that is about to become a throwing tombstone has to say so on the declaration,
+            // not only in the exception text — otherwise the one compile-time notice a consumer gets
+            // before calling something that cannot work is missing on this member kind alone. The marker
+            // is emitted ONLY for that case: this path has never carried the advisory direct-CallConvSwift
+            // marker, and turning it on for every failable factory would surface a new obsoletion warning
+            // on members whose call route is unchanged.
+            if (WrapperValidation.IsAbiFloorTombstoned(_env))
+                EmitSafetyObsolete(csWriter, _env.FailableFactoryName ?? "TryCreate");
+            // Emit signature: public static bool TryCreate(params, out TypeName result)
+            var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
+            // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors
             // FB-1b: a failable init whose projected TryCreate signature collided with an earlier sibling
             // is recovered under a distinguishing-label-suffixed factory name (e.g. TryCreateWithMessengerPageId);
             // the first-declared/no-collision case keeps the plain "TryCreate".

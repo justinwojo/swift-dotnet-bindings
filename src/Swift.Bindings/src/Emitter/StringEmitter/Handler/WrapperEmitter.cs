@@ -459,14 +459,18 @@ namespace BindingsGeneration
         /// <c>@MainActor</c>-isolated member, the isolation <c>&lt;remarks&gt;</c>. Must run before the
         /// member's first attribute, including the fallback marker and anything injected later at a
         /// pre-signature checkpoint: a doc comment written after an attribute documents nothing
-        /// (CS1587). Accessor backing methods carry no docs; their property surfaces them.
+        /// (CS1587). Accessor backing methods carry no docs; their property surfaces them. The param
+        /// tags name the wrapper signature's parameters, which every declaration this emitter writes
+        /// renders from, plus the synthetic trailing token or <c>out</c> result the caller names.
         /// </summary>
         private void EmitMemberDocumentation(
-            CSharpWriter csWriter, bool isConstructor = false, bool isFailableFactory = false, bool includeMainActorRemarks = true,
+            CSharpWriter csWriter, bool isConstructor = false, string? failableResultName = null, bool includeMainActorRemarks = true,
             string? cancellationTokenName = null)
         {
             if (!_env.MethodDecl.IsAccessor)
-                XmlDocCommentEmitter.EmitMethodDocComment(csWriter, _env.MethodDecl, isConstructor, isFailableFactory, cancellationTokenName);
+                XmlDocCommentEmitter.EmitMethodDocComment(
+                    csWriter, _env.MethodDecl, _wrapperSignature.Parameters.Select(p => p.Name).ToList(),
+                    isConstructor, cancellationTokenName, failableResultName);
             if (includeMainActorRemarks && NeedsMainActorSurfacing)
                 TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
         }

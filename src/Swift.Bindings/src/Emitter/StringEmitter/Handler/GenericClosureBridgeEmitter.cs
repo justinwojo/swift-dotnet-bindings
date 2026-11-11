@@ -768,11 +768,13 @@ public static class GenericClosureBridgeEmitter
 
         var publicParams = new List<string>();
         var publicParamTypes = new List<string>();
+        var publicParamNames = new List<string>();
         publicParams.Add($"{funcType} {csClosureName}");
         publicParamTypes.Add(funcType);
-        AddNonClosurePublicParams(publicParams, publicParamTypes, methodDecl, env);
+        publicParamNames.Add(csClosureName);
+        AddNonClosurePublicParams(publicParams, publicParamTypes, methodDecl, env, publicParamNames);
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, publicParamNames);
         env.EmissionContext?.RecordEmittedApiShape(
             methodDecl, methodName, ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
 
@@ -1091,7 +1093,8 @@ public static class GenericClosureBridgeEmitter
         List<string> publicParams,
         List<string> publicParamTypes,
         MethodDecl methodDecl,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        List<string>? publicParamNames = null)
     {
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -1103,6 +1106,7 @@ public static class GenericClosureBridgeEmitter
             var csType = IsGenericNonClosureParam(arg) ? "T" : GetPublicParamType(arg, env);
             publicParams.Add($"{csType} {csName}");
             publicParamTypes.Add(csType);
+            publicParamNames?.Add(csName);
         }
     }
 

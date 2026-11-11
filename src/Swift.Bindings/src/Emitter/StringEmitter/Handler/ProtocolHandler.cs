@@ -1352,6 +1352,7 @@ namespace BindingsGeneration
 
             // Build parameters (skip first which is return type)
             var parameters = new List<string>();
+            var parameterNames = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
@@ -1367,6 +1368,7 @@ namespace BindingsGeneration
                 var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{inoutModifier}{argTypeName} {argName}");
+                parameterNames.Add(argName);
             }
 
             // Capture hasReturnValue BEFORE async conversion turns void → Task
@@ -1392,7 +1394,7 @@ namespace BindingsGeneration
             }
 
             // Doc lines precede every attribute of the requirement (CS1587).
-            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl,
+            XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, parameterNames,
                 cancellationTokenName: methodDecl.IsAsync ? NameProvider.ResolveCancellationTokenName(methodDecl) : null);
 
             // Emit [UnsupportedSwiftType] if the return type or any parameter falls back to AnyType

@@ -2220,9 +2220,12 @@ namespace BindingsGeneration
             // Documentation precedes every attribute (after one it documents nothing, CS1587), and
             // documents every parameter: the cancellation token always has a tag, so a forwarded
             // parameter without one is CS1573. A forwarded parameter keeps the primary's Swift
-            // description, or else says where it goes.
+            // description, or else says where it goes. The primary is named in prose, not by a cref:
+            // a bare method-group cref is ambiguous whenever the name is overloaded (CS0419) — which
+            // the primary's own trailing-default overloads alone make it — and a disambiguating
+            // cref would have to respell every C# parameter type in cref syntax.
             csWriter.WriteLine("/// <summary>");
-            csWriter.WriteLine($"/// Task-returning overload for <see cref=\"{baseMethodName}\"/>.");
+            csWriter.WriteLine($"/// Task-returning overload for <c>{baseMethodName}</c>.");
             csWriter.WriteLine("/// </summary>");
             var primaryParamDocs = XmlDocCommentEmitter.MapParameterDocs(methodDecl)
                 .ToDictionary(p => p.CsName, p => p.XmlText, StringComparer.Ordinal);
@@ -2230,7 +2233,7 @@ namespace BindingsGeneration
             {
                 var csName = NameProvider.GetCSharpParameterName(p);
                 csWriter.WriteLine(XmlDocCommentEmitter.ParamTag(csName,
-                    primaryParamDocs.TryGetValue(csName, out var text) ? text : $"Passed to <see cref=\"{baseMethodName}\"/>."));
+                    primaryParamDocs.TryGetValue(csName, out var text) ? text : $"Passed to <c>{baseMethodName}</c>."));
             }
             csWriter.WriteLine(XmlDocCommentEmitter.ParamTag(ctName,
                 "Cancels the returned Task but does not cancel the underlying operation."));

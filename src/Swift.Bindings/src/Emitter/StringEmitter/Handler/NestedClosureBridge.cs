@@ -1337,7 +1337,9 @@ public static class NestedClosureBridge
         var isStatic = !isCtor && method.MethodType == MethodType.Static;
         var staticKeyword = isStatic ? "static " : "";
 
-        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method);
+        XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method,
+            passableNonClosureParams.Select(p => p.csName).Concat(nestedClosures.Select(nc => nc.ParamName)).ToList(),
+            isConstructor: isCtor);
 
         var declarator = isCtor
             ? $"public unsafe {ctorTypeName}"

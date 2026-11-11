@@ -56,7 +56,7 @@ public class DocCommentPlacementTests : IDisposable
         var malformed = MalformedDocComments(output);
 
         Assert.True(malformed.Count == 0,
-            $"{malformed.Count} doc comment(s) are malformed or misname their parameters (CS1570, CS1572, CS1573):{Environment.NewLine}" +
+            $"{malformed.Count} doc comment(s) are malformed, misname their parameters or cite an ambiguous cref (CS0419, CS1570, CS1572, CS1573):{Environment.NewLine}" +
             string.Join(Environment.NewLine, malformed));
     }
 
@@ -84,6 +84,34 @@ public class DocCommentPlacementTests : IDisposable
         Assert.Contains("LoadAsync(", combined);
         Assert.Contains("StoreAsync(", combined);
         Assert.Contains("<param name=\"key\">The key value.</param>", combined);
+    }
+
+    /// <summary>
+    /// The partially documented members reach the output in the shape the diagnostics test
+    /// relies on: an undescribed parameter beside a described one, and a failable factory's
+    /// <c>out</c> result, including the renamed one, each with a tag.
+    /// </summary>
+    [Fact]
+    public void DocumentedFixture_PartialDocsTagEveryEmittedParameter()
+    {
+        var combined = string.Concat(EmitDocumentedFixture()
+            .Where(f => f.Key.EndsWith(".cs", StringComparison.Ordinal))
+            .Select(f => f.Value));
+
+        Assert.Contains("/// Partially documented method shift.", combined);
+        Assert.Contains("/// <param name=\"dx\">The horizontal offset.</param>", combined);
+        Assert.Contains("/// <param name=\"dy\"></param>", combined);
+
+        Assert.Contains("/// Partially documented failable init seed.", combined);
+        Assert.Contains("/// <param name=\"seed\">The seed value.</param>", combined);
+        Assert.Contains($"{XmlDocCommentEmitter.FailableResultParamText}</param>", combined);
+
+        Assert.Contains("/// Documented failable init result.", combined);
+        Assert.Contains("/// <param name=\"result\">The Swift parameter named result.</param>", combined);
+        Assert.Matches("/// <param name=\"__resultOut\\d*\">The registry when result is valid.</param>", combined);
+
+        Assert.Contains("ObserveAsync(", combined);
+        Assert.Contains("/// <param name=\"key\">The observed key.</param>", combined);
     }
 
     /// <summary>
@@ -124,10 +152,10 @@ public class DocCommentPlacementTests : IDisposable
     /// <summary>
     /// CS1570, a doc comment that is not well-formed XML (an unescaped generic); CS1572, a
     /// <c>&lt;param&gt;</c> naming no parameter; CS1573, a parameter left without one while its
-    /// siblings have one.
+    /// siblings have one; CS0419, a <c>cref</c> naming a method group with more than one overload.
     /// </summary>
     internal static List<string> MalformedDocComments(IReadOnlyDictionary<string, string> output)
-        => new[] { "CS1570", "CS1572", "CS1573" }.SelectMany(id => DocDiagnostics(output, id)).ToList();
+        => new[] { "CS0419", "CS1570", "CS1572", "CS1573" }.SelectMany(id => DocDiagnostics(output, id)).ToList();
 
     private Dictionary<string, string> EmitDocumentedFixture()
     {
@@ -221,6 +249,87 @@ public class DocCommentPlacementTests : IDisposable
         }
 
         moduleDecl.Types.Add(GenericEnum(moduleDecl));
+        AddPartiallyDocumentedMembers(moduleDecl);
+    }
+
+    /// <summary>
+    /// Members whose Swift comment describes only some of what the C# declaration writes, added
+    /// after the blanket documentation so they keep their own:
+    /// <list type="bullet">
+    /// <item><c>func shift(dx: Double, dy: Double) -&gt; Double</c> describes <c>dx</c> only, so
+    /// <c>dy</c> needs an empty tag of its own (CS1573).</item>
+    /// <item><c>init?(seed: Int)</c> on the struct describes <c>seed</c> and has no
+    /// <c>Returns:</c>, yet its <c>TryCreate</c> appends an <c>out</c> result that needs a tag.</item>
+    /// <item><c>init?(result: Int)</c> on the class, a cdecl factory: the Swift parameter is
+    /// already called <c>result</c>, so the <c>out</c> parameter is renamed, and the
+    /// <c>Returns:</c> text must describe the renamed one rather than the Swift parameter.</item>
+    /// </list>
+    /// </summary>
+    private static void AddPartiallyDocumentedMembers(ModuleDecl moduleDecl)
+    {
+        var doubleSpec = new NamedTypeSpec("Swift.Double");
+        var intSpec = new NamedTypeSpec("Swift.Int");
+
+        var point = moduleDecl.Types.OfType<StructDecl>().Single(t => t.Name == "Point");
+        var shift = TestDecls.Method("shift",
+            parameters: new[] { TestDecls.Param("dx", doubleSpec), TestDecls.Param("dy", doubleSpec) },
+            returnType: doubleSpec, module: moduleDecl.Name) with { ParentDecl = point, ModuleDecl = moduleDecl };
+        shift.Documentation = new DocComment
+        {
+            Summary = "Partially documented method shift.",
+            Parameters = new Dictionary<string, string> { { "dx", "The horizontal offset." } },
+        };
+        point.Methods.Add(shift);
+
+        var seeded = FailableInit(point, moduleDecl, "seed", intSpec, cdecl: false);
+        seeded.Documentation = new DocComment
+        {
+            Summary = "Partially documented failable init seed.",
+            Parameters = new Dictionary<string, string> { { "seed", "The seed value." } },
+        };
+        point.Methods.Add(seeded);
+
+        var registry = moduleDecl.Types.OfType<ClassDecl>().Single(t => t.Name == "Registry");
+        var named = FailableInit(registry, moduleDecl, "result", intSpec, cdecl: true);
+        named.Documentation = new DocComment
+        {
+            Summary = "Documented failable init result.",
+            Parameters = new Dictionary<string, string> { { "result", "The Swift parameter named result." } },
+            Returns = "The registry when result is valid.",
+        };
+        registry.Methods.Add(named);
+
+        // `func observe(key: Int, completion: @escaping (Int) -> Void)` beside `func observe(name: String)`:
+        // the completion handler earns an `ObserveAsync` whose summary points back at its primary,
+        // and `Observe` names two methods, so a bare method-group cref is ambiguous (CS0419).
+        var completion = new ClosureTypeSpec(intSpec, TupleTypeSpec.Empty);
+        completion.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var observe = TestDecls.Method("observe",
+            parameters: new[] { TestDecls.Param("key", intSpec), TestDecls.Param("completion", completion) },
+            module: moduleDecl.Name) with { ParentDecl = registry, ModuleDecl = moduleDecl };
+        observe.Documentation = new DocComment
+        {
+            Summary = "Documented completion-handler method observe.",
+            Parameters = new Dictionary<string, string> { { "key", "The observed key." } },
+        };
+        registry.Methods.Add(observe);
+        var observeByName = TestDecls.Method("observe",
+            parameters: new[] { TestDecls.Param("name", new NamedTypeSpec("Swift.String")) },
+            module: moduleDecl.Name) with { ParentDecl = registry, ModuleDecl = moduleDecl };
+        observeByName.Documentation = new DocComment { Summary = "Documented overload observe by name." };
+        registry.Methods.Add(observeByName);
+    }
+
+    private static MethodDecl FailableInit(TypeDecl parent, ModuleDecl moduleDecl, string label, TypeSpec type, bool cdecl)
+    {
+        var init = TestDecls.Method("init", methodType: MethodType.Static, isConstructor: true,
+            parameters: new[] { TestDecls.Param(label, type) },
+            returnType: new NamedTypeSpec(parent.SwiftTypeName.ToString()), module: moduleDecl.Name)
+            with { ParentDecl = parent, ModuleDecl = moduleDecl, IsFailable = true };
+        init.UsesCdeclConstructorWrapper = cdecl;
+        foreach (var arg in init.CSSignature)
+            arg.ModuleDecl = moduleDecl;
+        return init;
     }
 
     /// <summary>
