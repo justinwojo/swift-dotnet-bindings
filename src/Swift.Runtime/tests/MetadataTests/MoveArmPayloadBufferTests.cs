@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
+using Swift.Runtime.Tests;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -172,6 +173,69 @@ public unsafe class MoveArmPayloadBufferTests
         {
             NativeMemory.Free((void*)source);
         }
+    }
+
+    /// <summary>
+    /// A test that simulates process exit must not change what the GC finalizer thread does
+    /// for anyone else. Every exit-guard unit test releases its handle synchronously on its own
+    /// thread, so the simulation has to stay on that thread. When the flag was process-global, a
+    /// parallel test class that held it set made THIS finalizer take the exit path, which frees
+    /// the buffer and skips the value-witness Destroy. That showed up as an intermittent
+    /// "Expected: 4, Actual: 3" in the finalizer test above under a loaded full-suite run. Here a
+    /// second thread holds the simulated exit for the whole collection, so the race is forced
+    /// every time.
+    /// </summary>
+    [Fact]
+    public void SimulatedProcessExitOnAnotherThread_DoesNotSuppressFinalizerDestroy()
+    {
+        NewFromPayloadDispatcher.Register(typeof(MoveBufferFake), h => MoveBufferFake.NewFromPayload(h));
+        var source = AllocSourceWords();
+        using var exitHeld = new ManualResetEventSlim();
+        using var releaseExit = new ManualResetEventSlim();
+        Exception? holderFailure = null;
+        var holder = new Thread(() =>
+        {
+            try
+            {
+                using (SwiftExitGuardTestScope.Enter(processExiting: true))
+                {
+                    exitHeld.Set();
+                    releaseExit.Wait();
+                }
+            }
+            catch (Exception ex)
+            {
+                holderFailure = ex;
+                exitHeld.Set();
+            }
+        });
+        holder.Start();
+        try
+        {
+            exitHeld.Wait();
+            Assert.Null(holderFailure);
+
+            int before = Volatile.Read(ref _destroyCount);
+            int copiesBefore = Volatile.Read(ref _copyCount);
+
+            CreateAndDropWrapper(source);
+            for (int i = 0; i < 4; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.Equal(copiesBefore + 1, Volatile.Read(ref _copyCount));
+            Assert.Equal(before + 1, Volatile.Read(ref _destroyCount));
+            Assert.Equal(0x1122334455667788, *(long*)source);
+        }
+        finally
+        {
+            releaseExit.Set();
+            holder.Join();
+            NativeMemory.Free((void*)source);
+        }
+        Assert.Null(holderFailure);
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]

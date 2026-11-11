@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Foundation;
 using Swift.Runtime;
@@ -329,6 +331,112 @@ public static class LifetimeTracker
     }
 
     /// <summary>
+    /// Runs a leak probe's allocation/churn phase on a dedicated thread and returns only after
+    /// that thread has exited.
+    /// <para>
+    /// Mono scans every live thread's stack and saved registers conservatively. A churn loop run
+    /// on the test thread leaves pointer-shaped stale values to the objects it just abandoned in
+    /// that thread's own frames, the frames of its callers and its callee-saved registers. The
+    /// drain in <see cref="AssertNoLeaks"/> can only overwrite stack below its own frame, so one
+    /// of those values can pin a dead wrapper past every collection. When the churn thread
+    /// exits, its stack and registers stop being roots. A genuine leak survives that: a
+    /// reachable reference or an orphaned native retain does not depend on any thread's stack.
+    /// </para>
+    /// <para>
+    /// The result crosses back to the test thread, so it must not reference a churned object.
+    /// Return counts, strings or weak observations. The churn must finish all asynchronous work
+    /// before it returns. Use <see cref="RunIsolated(Func{Task})"/> for an async churn. It must
+    /// not need the main thread: a call that has to run there deadlocks, because the test
+    /// thread is blocked in the join. CoreCLR and NativeAOT scan stacks precisely, so there
+    /// the isolation is inert and the probe keeps its meaning.
+    /// </para>
+    /// </summary>
+    public static T RunIsolated<T>(Func<T> churn)
+    {
+        if (typeof(Task).IsAssignableFrom(typeof(T)))
+            throw new InvalidOperationException(
+                "RunIsolated<T> was handed an async churn: the Task would escape the isolated thread unawaited. " +
+                "Use RunIsolated(Func<Task>) or RunIsolated(Func<Task<T>>).");
+
+        T result = default!;
+        ExceptionDispatchInfo? failure = null;
+        var thread = new Thread(() =>
+        {
+            try { result = churn(); }
+            catch (Exception ex) { failure = ExceptionDispatchInfo.Capture(ex); }
+        })
+        { Name = "LifetimeTracker.RunIsolated" };
+        thread.Start();
+        thread.Join();
+        failure?.Throw();
+        return result;
+    }
+
+    /// <inheritdoc cref="RunIsolated{T}(Func{T})"/>
+    public static void RunIsolated(Action churn)
+        => RunIsolated(() => { churn(); return true; });
+
+    /// <summary>
+    /// The async form of <see cref="RunIsolated{T}(Func{T})"/>. The churn runs on a dedicated
+    /// thread under a private single-thread <see cref="SynchronizationContext"/>, so every
+    /// continuation inside it also runs on that thread rather than on the main queue or the
+    /// thread pool. The call blocks until the churn's task has completed and the thread has
+    /// exited, then rethrows the churn's exception, if any. Swift completion callbacks still run
+    /// on Swift's own threads. Only the C# side of the churn is isolated.
+    /// </summary>
+    public static T RunIsolated<T>(Func<Task<T>> churn)
+        => RunIsolated(() => IsolatedPump.Run(churn));
+
+    /// <inheritdoc cref="RunIsolated{T}(Func{Task{T}})"/>
+    public static void RunIsolated(Func<Task> churn)
+        => RunIsolated(() => IsolatedPump.Run(async () => { await churn(); return true; }));
+
+    // A minimal single-thread synchronization context: the isolated thread drains posted
+    // continuations until the churn's task completes, so the whole async churn, continuations
+    // included, executes on the thread that is about to exit.
+    private sealed class IsolatedPump : SynchronizationContext
+    {
+        private readonly BlockingCollection<(SendOrPostCallback callback, object? state)> _queue = new();
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            // A continuation posted after the churn's task completed is stray work the churn did
+            // not await; it no longer has a pump to run on, so hand it to the thread pool.
+            try { _queue.Add((d, state)); }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                ThreadPool.QueueUserWorkItem(_ => d(state));
+            }
+        }
+
+        public override void Send(SendOrPostCallback d, object? state)
+            => throw new NotSupportedException("Synchronous Send onto an isolated leak-probe churn thread");
+
+        public override SynchronizationContext CreateCopy() => this;
+
+        internal static T Run<T>(Func<Task<T>> churn)
+        {
+            var previous = Current;
+            var pump = new IsolatedPump();
+            SetSynchronizationContext(pump);
+            try
+            {
+                var task = churn();
+                task.ContinueWith(_ => pump._queue.CompleteAdding(), CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                foreach (var (callback, state) in pump._queue.GetConsumingEnumerable())
+                    callback(state);
+                return task.GetAwaiter().GetResult();
+            }
+            finally
+            {
+                SetSynchronizationContext(previous);
+                pump._queue.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
     /// Tracks allocations during an action.
     /// </summary>
     public static (int allocsBefore, int allocsAfter, int newAllocs) TrackAllocations(Action action)
@@ -340,7 +448,8 @@ public static class LifetimeTracker
     }
 
     /// <summary>
-    /// Runs an action within a tracked scope that verifies cleanup.
+    /// Runs an action within a tracked scope that verifies cleanup. The action runs isolated
+    /// (see <see cref="RunIsolated(Action)"/>), so it must not need the main thread.
     /// </summary>
     public static void RunWithLeakCheck(Action action, string context = "")
     {
@@ -348,7 +457,7 @@ public static class LifetimeTracker
 
         try
         {
-            action();
+            RunIsolated(action);
         }
         finally
         {

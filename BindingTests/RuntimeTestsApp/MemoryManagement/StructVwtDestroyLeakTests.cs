@@ -43,9 +43,9 @@ public class StructVwtDestroyLeakTests : TestBase
         GC.Collect();
     }
 
-    // Create-and-abandon in a non-inlined helper so the wrappers do not stay
-    // GC-rooted on the calling test method's frame. NO Dispose — the whole point
-    // is to drive cleanup through the GC finalizer path.
+    // Create-and-abandon helpers, run on an isolated, joined thread so the wrappers
+    // do not stay GC-rooted by the test thread's stack or registers. NO Dispose — the
+    // whole point is to drive cleanup through the GC finalizer path.
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void CreateAndAbandonNonFrozen(int n)
     {
@@ -81,7 +81,7 @@ public class StructVwtDestroyLeakTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        CreateAndAbandonNonFrozen(500);
+        LifetimeTracker.RunIsolated(() => CreateAndAbandonNonFrozen(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("non-frozen struct-with-ref finalizer must run VWT Destroy");
@@ -98,7 +98,7 @@ public class StructVwtDestroyLeakTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        CreateAndAbandonFrozen(500);
+        LifetimeTracker.RunIsolated(() => CreateAndAbandonFrozen(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("frozen struct-with-ref finalizer must run VWT Destroy");
@@ -116,7 +116,7 @@ public class StructVwtDestroyLeakTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        CreateAndAbandonLargeFrozen(500);
+        LifetimeTracker.RunIsolated(() => CreateAndAbandonLargeFrozen(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("large frozen struct finalizer must VWT-destroy all 5 embedded refs");
@@ -143,13 +143,16 @@ public class StructVwtDestroyLeakTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        for (int i = 0; i < 200; i++)
+        LifetimeTracker.RunIsolated(() =>
         {
-            var made = TestLibFunctions.MakeLargeFrozenTrackedRefStruct(i);
-            var roundTripped = TestLibFunctions.PassThroughLargeFrozenTrackedRefStruct(made);
-            made.Dispose();
-            roundTripped.Dispose();
-        }
+            for (int i = 0; i < 200; i++)
+            {
+                var made = TestLibFunctions.MakeLargeFrozenTrackedRefStruct(i);
+                var roundTripped = TestLibFunctions.PassThroughLargeFrozenTrackedRefStruct(made);
+                made.Dispose();
+                roundTripped.Dispose();
+            }
+        });
 
         LifetimeTracker.AssertNoLeaks("IndirectResult passThrough must VWT-destroy the temp buffer so Dispose releases all 5 embedded refs");
         TestLogger.Info("Large frozen struct IndirectResult Dispose: 200 make+passThrough x 5 refs released");
@@ -165,13 +168,16 @@ public class StructVwtDestroyLeakTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        for (int i = 0; i < 200; i++)
+        LifetimeTracker.RunIsolated(() =>
         {
-            var nf = TestLibFunctions.MakeTrackedRefStruct(i);
-            var fr = TestLibFunctions.MakeFrozenTrackedRefStruct(i);
-            nf.Dispose();
-            fr.Dispose();
-        }
+            for (int i = 0; i < 200; i++)
+            {
+                var nf = TestLibFunctions.MakeTrackedRefStruct(i);
+                var fr = TestLibFunctions.MakeFrozenTrackedRefStruct(i);
+                nf.Dispose();
+                fr.Dispose();
+            }
+        });
 
         LifetimeTracker.AssertNoLeaks("explicit Dispose must release the embedded ref for both struct categories");
         TestLogger.Info("Struct-with-ref explicit Dispose: 200 of each category released their embedded ref");
@@ -182,14 +188,13 @@ public class StructVwtDestroyLeakTests : TestBase
     /// stays bounded throughout and returns to 0 at the end — the struct-category
     /// analogue of the class-instance SafeHandle/refcount stress loop.
     /// </summary>
-    // Churn both categories under periodic GC pressure in a non-inlined helper, for the
-    // same reason as the create-and-abandon helpers above: the final iteration's two
-    // wrappers must not stay GC-rooted on the calling test method's frame. Inline, Mono's
-    // conservative stack scan pins the last NonFrozen + last Frozen wrapper (their refs are
-    // still live in registers/temporaries because the assertion runs next in the same
-    // frame), and a reachable object survives any number of drain cycles — surfacing as a
-    // 2-object false leak. Running the loop in a separate frame that has returned clears
-    // those roots before the assertion.
+    // Churn both categories under periodic GC pressure, isolated for the same reason as
+    // the create-and-abandon helpers above: the final iteration's two wrappers must not
+    // stay GC-rooted by the test thread. On that thread Mono's conservative stack scan can
+    // pin the last NonFrozen + last Frozen wrapper (stale values in registers or spilled
+    // slots), and a reachable object survives any number of drain cycles — surfacing as a
+    // 2-object false leak. Running the loop on a thread that has exited before the
+    // assertion takes those roots away.
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void CreateAndAbandonBothCategoriesWithChurn(int iterations)
     {
@@ -210,7 +215,7 @@ public class StructVwtDestroyLeakTests : TestBase
         LifetimeTracker.Reset();
 
         const int iterations = 5_000;
-        CreateAndAbandonBothCategoriesWithChurn(iterations);
+        LifetimeTracker.RunIsolated(() => CreateAndAbandonBothCategoriesWithChurn(iterations));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks($"{iterations} create-and-abandon iterations of each struct-with-ref category must leave no live refs");

@@ -160,4 +160,115 @@ public class SandboxResultProbeTests
 
         Assert.Equal([IosPath], read);
     }
+
+    // ===================================================================
+    //  The app's announced results path (simctl container-lookup fallback)
+    // ===================================================================
+
+    const string Udid = "6FF5E5AE-C066-4C73-B1AE-D4927E7586BE";
+    const string AnnouncedContainer =
+        "/Users/runner/Library/Developer/CoreSimulator/Devices/" + Udid +
+        "/data/Containers/Data/Application/E82EE369-2159-4CAE-8A48-7B8DA4A7283E";
+    const string AnnouncedIosPath = AnnouncedContainer + "/Documents/test-results.jsonl";
+
+    /// <summary>The line exactly as the iOS RuntimeTestsApp logs it through NSLog.</summary>
+    static string AppOutputAnnouncing(string path) =>
+        "2026-11-11 18:11:12.600 RuntimeTestsApp[65866:169926] [0.001s] [INFO] Starting\n" +
+        $"2026-11-11 18:11:12.701 RuntimeTestsApp[65866:169926] [0.095s] [INFO] JSONL output: {path}\r\n" +
+        "2026-11-11 18:14:23.759 RuntimeTestsApp[65866:169926] RESULTS FLUSHED\n" +
+        "2026-11-11 18:14:23.759 RuntimeTestsApp[65866:169926] TEST SUCCESS\n";
+
+    [Fact]
+    public void TheAnnouncedPathIsParsedFromTheAppsLogLine()
+    {
+        Assert.Equal(AnnouncedIosPath,
+            SandboxResultProbe.ParseAnnouncedResultsPath(AppOutputAnnouncing(AnnouncedIosPath), Udid));
+    }
+
+    [Fact]
+    public void TheTvOSAnnouncedShapeIsAccepted()
+    {
+        var tvPath = AnnouncedContainer + "/Library/Caches/Documents/test-results.jsonl";
+        Assert.Equal(tvPath, SandboxResultProbe.ParseAnnouncedResultsPath(AppOutputAnnouncing(tvPath), Udid));
+    }
+
+    /// <summary>
+    /// The announcement is read off the app's console and then opened on the host, so only a path
+    /// inside THIS simulator's app data containers, naming the results file, is ever read.
+    /// </summary>
+    [Theory]
+    [InlineData("test-results.jsonl")] // relative
+    [InlineData("/Users/runner/Library/Developer/CoreSimulator/Devices/00000000-0000-0000-0000-000000000000/data/Containers/Data/Application/X/Documents/test-results.jsonl")] // another simulator
+    [InlineData("/var/mobile/Containers/Data/Application/X/Documents/test-results.jsonl")] // a physical device's path
+    [InlineData(AnnouncedContainer + "/Documents/other.jsonl")] // not the results file
+    [InlineData(AnnouncedContainer + "/../../../../../../etc/test-results.jsonl")] // climbs out
+    public void AnAnnouncementOutsideThisSimulatorsContainersIsIgnored(string path)
+    {
+        Assert.Null(SandboxResultProbe.ParseAnnouncedResultsPath(AppOutputAnnouncing(path), Udid));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("RESULTS FLUSHED\nTEST SUCCESS\n")]
+    public void OutputWithoutAnAnnouncementYieldsNoPath(string? output)
+    {
+        Assert.Null(SandboxResultProbe.ParseAnnouncedResultsPath(output, Udid));
+    }
+
+    [Fact]
+    public void ContainerCandidatesComeFirstAndTheAnnouncementIsNotDuplicated()
+    {
+        var both = SandboxResultProbe.SimulatorCandidates(AnnouncedContainer, AnnouncedIosPath);
+        Assert.Equal(
+            [AnnouncedIosPath, AnnouncedContainer + "/Library/Caches/Documents/test-results.jsonl"],
+            both);
+
+        var elsewhere = "/Users/runner/Library/Developer/CoreSimulator/Devices/" + Udid +
+            "/data/Containers/Data/Application/NEW/Documents/test-results.jsonl";
+        Assert.Equal(elsewhere, SandboxResultProbe.SimulatorCandidates(AnnouncedContainer, elsewhere)[^1]);
+        Assert.Equal(3, SandboxResultProbe.SimulatorCandidates(AnnouncedContainer, elsewhere).Count);
+    }
+
+    /// <summary>
+    /// The CI false red this fallback exists for: <c>get_app_container</c> returned nothing after a
+    /// completed run, so the announced path is the only candidate — and the run's file is recovered.
+    /// </summary>
+    [Fact]
+    public void AFailedContainerLookupStillRecoversTheAnnouncedFile()
+    {
+        var candidates = SandboxResultProbe.SimulatorCandidates(null, AnnouncedIosPath);
+
+        var outcome = SandboxResultProbe.Probe(candidates, Token, Sandbox(new()
+        {
+            [AnnouncedIosPath] = Jsonl(Token, "LiveThisRun"),
+        }));
+
+        Assert.Equal(AnnouncedIosPath, outcome.AcceptedPath);
+        Assert.Contains("LiveThisRun", outcome.Content);
+    }
+
+    /// <summary>
+    /// The fallback does not relax attribution: a stale file at the announced path (an earlier
+    /// launch's results in the surviving container) is still rejected and nothing is recovered.
+    /// </summary>
+    [Fact]
+    public void AStaleFileAtTheAnnouncedPathIsStillRejected()
+    {
+        var candidates = SandboxResultProbe.SimulatorCandidates(null, AnnouncedIosPath);
+
+        var outcome = SandboxResultProbe.Probe(candidates, Token, Sandbox(new()
+        {
+            [AnnouncedIosPath] = Jsonl(StaleToken, "StaleFromAnEarlierRun"),
+        }));
+
+        Assert.Null(outcome.Content);
+        Assert.Equal(StaleToken, Assert.Single(outcome.Rejected).ActualToken);
+    }
+
+    [Fact]
+    public void NoContainerAndNoAnnouncementMeansNoCandidates()
+    {
+        Assert.Empty(SandboxResultProbe.SimulatorCandidates(null, null));
+    }
 }

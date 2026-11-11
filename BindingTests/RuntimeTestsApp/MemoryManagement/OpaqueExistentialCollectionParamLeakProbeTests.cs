@@ -65,7 +65,7 @@ public class OpaqueExistentialCollectionParamLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int count = 5;
-        ProbeOpaqueArrayParam(count);
+        LifetimeTracker.RunIsolated(() => ProbeOpaqueArrayParam(count));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[any BugReproExistentialItem] param must release exactly the +1s it minted (source proxies disposed → 0)");
@@ -117,7 +117,7 @@ public class OpaqueExistentialCollectionParamLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int count = 5;
-        ProbeOpaqueMapParam(count);
+        LifetimeTracker.RunIsolated(() => ProbeOpaqueMapParam(count));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[String: any BugReproExistentialItem] param must release exactly the +1s it minted (source proxies disposed → 0)");

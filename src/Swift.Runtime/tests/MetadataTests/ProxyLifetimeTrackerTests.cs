@@ -16,11 +16,9 @@ namespace Swift.Runtime.Tests;
 /// <see cref="SwiftExitGuard"/> to short-circuit any native release path.
 /// </summary>
 /// <remarks>
-/// Uses xunit collection serialization (via <c>[Collection]</c>) AND a Monitor-lock scope
-/// (<see cref="SwiftExitGuardTestScope"/>) because <c>SwiftExitGuard.SetProcessExitingForTest</c>
-/// mutates a process-global flag. The Monitor lock is belt-and-suspenders on top of collection
-/// isolation — we've observed rare flakes under full-suite runs where the collection alone didn't
-/// serialize reliably, so every flag-touching test takes the lock explicitly.
+/// Uses xunit collection serialization (via <c>[Collection]</c>) because the tracker and
+/// <c>SwiftObjectRegistry</c> are process-global. The exit-path tests simulate process exit
+/// through <see cref="SwiftExitGuardTestScope"/>, which is thread-scoped, so they need no lock.
 /// </remarks>
 [Collection(SwiftExitGuardCollection.Name)]
 public class ProxyLifetimeTrackerTests
@@ -436,9 +434,7 @@ public class ProxyLifetimeTrackerTests
     [Fact]
     public void OnEveryProtocolDeinit_FreesImplRootAndDropsRegistry()
     {
-        // Hold the flag-sync lock for the whole test — this exercises the *non-exiting* code path,
-        // and without the lock a racing SwiftClassHandle test that toggles the flag could make
-        // OnEveryProtocolDeinitCore short-circuit.
+        // Pin this thread to the *non-exiting* code path for the whole test.
         using var scope = SwiftExitGuardTestScope.Enter(processExiting: false);
 
         var impl = new MockImpl();

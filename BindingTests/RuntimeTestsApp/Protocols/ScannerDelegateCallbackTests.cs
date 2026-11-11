@@ -157,7 +157,7 @@ public class ScannerDelegateCallbackTests : TestBase
         ComplexSlotParamDispatchTests.DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveDelegateCallbacks(100);
+        LifetimeTracker.RunIsolated(() => DriveDelegateCallbacks(100));
 
         var (allocations, _, _) = LifetimeTracker.GetStats();
         AssertTrue(allocations >= 2,

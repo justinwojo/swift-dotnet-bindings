@@ -75,7 +75,7 @@ public class OwnedReturnCleanupTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveClassParent(500);
+        LifetimeTracker.RunIsolated(() => DriveClassParent(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("class-parent indirect returns (instance, static, property) must balance the buffer's +1");
@@ -110,7 +110,7 @@ public class OwnedReturnCleanupTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveStructParent(500);
+        LifetimeTracker.RunIsolated(() => DriveStructParent(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("struct-parent indirect returns (method, property) must balance the buffer's +1");
@@ -148,7 +148,7 @@ public class OwnedReturnCleanupTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        int thrown = DriveThrowingProducer(500);
+        int thrown = LifetimeTracker.RunIsolated(() => DriveThrowingProducer(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("throwing producer's success arm must balance the buffer's +1");
@@ -196,7 +196,7 @@ public class OwnedReturnCleanupTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AbandonClassParentReturns(300);
+        LifetimeTracker.RunIsolated(() => AbandonClassParentReturns(300));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("abandoned owned returns must be released when the adopting handle finalizes");
@@ -235,7 +235,7 @@ public class OwnedReturnCleanupTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveGenericCopyCarrierReturns(500);
+        LifetimeTracker.RunIsolated(() => DriveGenericCopyCarrierReturns(500));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("generic return of a Copy-declaring carrier must destroy the wire buffer's orphaned +1");
@@ -272,7 +272,7 @@ public class OwnedReturnCleanupTests : TestBase
         LifetimeTracker.Reset();
 
         int expectedBytes = (int)TestLibFunctions.GetTrackedDataPayloadByteCount();
-        DriveConcreteSpecializationDataReturns(DataIterations, expectedBytes);
+        LifetimeTracker.RunIsolated(() => DriveConcreteSpecializationDataReturns(DataIterations, expectedBytes));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("CSM-specialized owned Data return must release the value's out-of-line storage");
@@ -325,7 +325,7 @@ public class OwnedReturnCleanupTests : TestBase
         LifetimeTracker.Reset();
 
         int expectedBytes = (int)TestLibFunctions.GetTrackedDataPayloadByteCount();
-        DriveOrdinaryCdeclDataReturns(DataIterations, expectedBytes);
+        LifetimeTracker.RunIsolated(() => DriveOrdinaryCdeclDataReturns(DataIterations, expectedBytes));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("ordinary @_cdecl owned Data return must release the value's out-of-line storage");

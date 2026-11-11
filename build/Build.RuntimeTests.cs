@@ -1993,7 +1993,7 @@ partial class Build
 
                 // Try to retrieve JSONL results from sandbox
                 JsonlTestResults? runResults = null;
-                var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
+                var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, result.Output);
                 RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
                     jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
                 if (jsonlContent != null)
@@ -2127,7 +2127,7 @@ partial class Build
 
         // Try to retrieve JSONL results from sandbox
         JsonlTestResults? jsonlResults = null;
-        var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken);
+        var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, result.Output);
         if (jsonlContent != null)
         {
             jsonlResults = JsonlTestResults.Parse(jsonlContent);

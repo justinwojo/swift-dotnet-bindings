@@ -180,7 +180,7 @@ public class RemainingLaneTypedErrorTests : TestBase
         AssertEqual(0, sink.Count, "the throw precedes any record, so the sink stays empty");
     }
 
-    public async Task TestAsyncGenericParentErrorBoxIsReleasedExactlyOnce()
+    public void TestAsyncGenericParentErrorBoxIsReleasedExactlyOnce()
     {
         using var sink = TestLibFunctions.MakeDonationSink();
         using var donator = TestLibFunctions.MakeStringDonator(sink);
@@ -192,15 +192,19 @@ public class RemainingLaneTypedErrorTests : TestBase
         LifetimeTracker.Reset();
         try
         {
-            for (int i = 0; i < 12; i++)
-                await ThrowAndDropAsyncTrackedError(donator);
+            // The churn runs on an isolated thread that exits before the assertion drains.
+            LifetimeTracker.RunIsolated(async () =>
+            {
+                for (int i = 0; i < 12; i++)
+                    await ThrowAndDropAsyncTrackedError(donator);
 
-            // Same displacement at the far end of the window: without it the final iteration's
-            // carrier is still reachable — from the lane itself and, on a conservatively scanned
-            // thread, from a spilled slot of the frames the churn just ran in — when the assertion
-            // drains. It only drops references and allocates nothing tracked, so a box that was
-            // never released still fails below.
-            await DisplaceResidualAsyncCarrierReferences(donator);
+                // Same displacement at the far end of the window: without it the final iteration's
+                // carrier is still reachable — from the lane itself and, on a conservatively scanned
+                // thread, from a spilled slot of the frames the churn just ran in — when the assertion
+                // drains. It only drops references and allocates nothing tracked, so a box that was
+                // never released still fails below.
+                await DisplaceResidualAsyncCarrierReferences(donator);
+            });
         }
         finally
         {
