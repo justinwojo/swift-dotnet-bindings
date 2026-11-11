@@ -225,6 +225,9 @@ partial class Build
             $"--xcframework \"{xcframework}\"",
             $"-o \"{outputDir}\"",
             $"--async-library {ResilienceWrapperModule}",
+            // The lane's framework, like the main regeneration: the verify-recover loop builds the
+            // emitted csproj, and that build must be the one the compile check below repeats.
+            $"--target-framework {ApplePlatform.IOS.GetTfm(BtFramework)}",
         };
 
         var proc = ProcessTasks.StartProcess("dotnet", string.Join(" ", genArgs),
@@ -246,7 +249,7 @@ partial class Build
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Library</OutputType>
-                <TargetFramework>net10.0-ios</TargetFramework>
+                <TargetFramework>{BtFramework}-ios</TargetFramework>
                 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
                 <Nullable>enable</Nullable>
                 <NoWarn>CS0169;CS0649;CA1418;CA1420</NoWarn>

@@ -175,6 +175,8 @@ partial class Build
             $"--xcframework \"{xcframework}\"",
             $"-o \"{outputDir}\"",
             $"--async-library {KitchenWrapperModule}",
+            // The lane's framework, matching the compile check below and the main regeneration.
+            $"--target-framework {ApplePlatform.IOS.GetTfm(BtFramework)}",
         };
 
         Log.Information("=== partial-success-kitchen: generating bindings ===");

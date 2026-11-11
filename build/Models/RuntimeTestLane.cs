@@ -64,6 +64,24 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
         return null;
     }
 
+    /// <summary>
+    /// Why this lane refuses the requested auxiliary gates, or null when it runs them.
+    /// </summary>
+    /// <remarks>
+    /// The compile-only gate needs no runtime and runs for either framework: it generates and
+    /// compile-checks for this lane's framework, and its baselines describe the generated surface.
+    /// The ABI grid grades results against the Mono JIT simulator and NativeAOT device runtimes its
+    /// manifest declares, and the Apple-framework smokes regenerate their snapshots for .NET 10, so
+    /// both keep .NET 10 policy, as do the Mono-only ActivityKit push-token and Catalyst x64 JIT arms.
+    /// </remarks>
+    public string? AuxiliaryGateRefusal(bool abiGrid, bool appleSmoke, bool activityKitPushToken, bool catalystX64Jit)
+    {
+        if (!IsNet11 || !(abiGrid || appleSmoke || activityKitPushToken || catalystX64Jit))
+            return null;
+        return "This auxiliary gate has not been migrated to .NET 11. " +
+               "ABI-grid, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.";
+    }
+
     /// <summary>Requires positive framework and engine evidence; dynamic-code support is irrelevant.</summary>
     public bool MatchesLiveIdentity(string? output, bool device)
     {

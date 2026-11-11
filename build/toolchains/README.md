@@ -231,9 +231,23 @@ and must regenerate.
 Debug lanes, which run the CoreCLR interpreter, are not seedable until the interpreter
 bridge work lands; Nuke rejects a seed request without `--binding-test-configuration Release`.
 
-Compile-only, ABI-grid and Apple smoke gates still retain net10 policy and reject net11
-selection. Partial-success kitchen, mixed-package, SDK-direct, Apple package consumer and
-App Store hygiene gates accept the net11 profile; the kitchen compiles its generated C# for
+`--compile-only` runs under the net11 profile. It starts no runtime, so it needs no identity
+entry. It generates for and compile-checks `net11.0-ios` (platform 27.2): the BindingTests
+library, the ObjC umbrella, and the resilience and ingestion kitchens. Generated C# does not
+depend on the target framework, so its sub-gates compare against the same checked-in
+baselines as net10: artifact parity, API manifest, skip surface and the kitchen reports. The
+overload-name and thunk weak-link gates are policy checks. Every comparison is read-only.
+
+ABI-grid, Apple smoke, ActivityKit push-token and Catalyst x64 JIT gates keep net10 policy
+and reject net11 selection:
+
+- The ABI grid grades against the Mono JIT simulator and NativeAOT device runtimes its
+  manifest declares. A net11 simulator runs CoreCLR, which has no cell there.
+- The Apple smokes regenerate snapshots for .NET 10, and several need credentials.
+- The other two exercise Mono-specific behavior.
+
+Partial-success kitchen, mixed-package, SDK-direct, Apple package consumer and App Store
+hygiene gates accept the net11 profile. The kitchen compiles its generated C# for
 `net11.0-ios` and compares against the same frozen report.
 
 Two focused Nuke gates provide separate evidence:

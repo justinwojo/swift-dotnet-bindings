@@ -61,10 +61,9 @@ partial class Build
     void ValidateRuntimeLaneSelection()
     {
         _ = RuntimeLane;
-        if (RuntimeLane.IsNet11 && (CompileOnly || AbiGrid || GetActiveSmokeFlags().Count > 0 ||
-            ActivityKitPushToken || CatalystX64Jit))
-            throw new InvalidOperationException("This auxiliary gate has not been migrated to .NET 11. " +
-                "Compile-only, ABI-grid, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.");
+        if (RuntimeLane.AuxiliaryGateRefusal(AbiGrid, GetActiveSmokeFlags().Count > 0,
+                ActivityKitPushToken, CatalystX64Jit) is { } refusal)
+            throw new InvalidOperationException(refusal);
         if (AllowUnqualifiedRuntime && !RuntimeLane.IsNet11)
             throw new InvalidOperationException("--allow-unqualified-runtime applies only to .NET 11 bring-up lanes.");
     }

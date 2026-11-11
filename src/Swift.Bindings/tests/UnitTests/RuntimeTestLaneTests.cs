@@ -132,6 +132,25 @@ public class RuntimeTestLaneTests
             Assert.Contains("Debug .NET 11 lanes", refusal);
     }
 
+    [Theory]
+    // No auxiliary gate requested: the plain compile-only gate (and every runtime lane) runs on net11.
+    [InlineData("net11.0", false, false, false, false, true)]
+    [InlineData("net11.0", true, false, false, false, false)]
+    [InlineData("net11.0", false, true, false, false, false)]
+    [InlineData("net11.0", false, false, true, false, false)]
+    [InlineData("net11.0", false, false, false, true, false)]
+    // .NET 10 owns every auxiliary gate.
+    [InlineData("net10.0", true, true, true, true, true)]
+    public void Net11RefusesOnlyTheGatesThatKeepNet10Policy(string framework, bool abiGrid, bool appleSmoke,
+        bool pushToken, bool catalystX64Jit, bool runs)
+    {
+        var lane = RuntimeTestLane.Create(framework, null, null, false, false, false);
+        var refusal = lane.AuxiliaryGateRefusal(abiGrid, appleSmoke, pushToken, catalystX64Jit);
+        Assert.Equal(runs, refusal == null);
+        if (refusal != null)
+            Assert.DoesNotContain("Compile-only", refusal, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void Net11RunLevelSeedCheckRejectsTheDefaultDebugRequest()
     {

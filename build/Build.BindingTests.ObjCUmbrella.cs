@@ -164,6 +164,9 @@ partial class Build
             "--objc",
             $"--xcframework \"{BtObjCXcframeworkDir}\"",
             $"-o \"{BtObjCOutputDir}\"",
+            // CompileCheck references the emitted ObjC binding project, so it targets the lane's
+            // framework like the Swift regeneration does.
+            $"--target-framework {platform.GetTfm(BtFramework)}",
         };
 
         var proc = ProcessTasks.StartProcess(
