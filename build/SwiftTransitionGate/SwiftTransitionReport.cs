@@ -160,6 +160,8 @@ public static class SwiftTransitionReport
                         writer.WriteString("library", site.Library);
                     if (site.IlOffset is { } offset)
                         writer.WriteNumber("ilOffset", offset);
+                    if (site.Target is not null)
+                        writer.WriteString("target", site.Target);
                     writer.WriteStartArray("rules");
                     foreach (var rule in site.Rules)
                         writer.WriteStringValue(rule.ToString());
@@ -193,6 +195,7 @@ public static class SwiftTransitionReport
         yield return ("swiftUnmanagedCallersOnly", i.SwiftUnmanagedCallersOnly);
         yield return ("nonSwiftUnmanagedCallersOnly", i.NonSwiftUnmanagedCallersOnly);
         yield return ("swiftCalliSites", i.SwiftCalliSites);
+        yield return ("swiftCallbackAddresses", i.SwiftCallbackAddresses);
         yield return ("nonSwiftUnmanagedCalliSites", i.NonSwiftUnmanagedCalliSites);
         yield return ("managedCalliSites", i.ManagedCalliSites);
         yield return ("methodBodies", i.MethodBodies);

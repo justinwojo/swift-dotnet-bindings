@@ -1281,6 +1281,13 @@ partial class Build
                 // older OS, before any managed guard can run. Fail-closed and unconditional.
                 RunThunkWeakLinkGate();
 
+                // Transition ledger cross-check: join the generator's per-module transition ledgers
+                // with the compiled assembly's IL transition sites and demand a bijection, kind by
+                // kind, with facts on every entry and agreeing primitive verdicts. A Swift transition
+                // a producer rendered without recording its facts fails here. Fail-closed and
+                // unconditional: policy, not baseline.
+                RunTransitionLedgerCrossCheck();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested

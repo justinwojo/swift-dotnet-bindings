@@ -47,6 +47,14 @@ public enum TransitionSiteKind
     UnmanagedCallersOnly,
     Calli,
     FunctionPointerType,
+
+    /// <summary>
+    /// An <c>ldftn</c> of a Swift-convention <c>[UnmanagedCallersOnly]</c> method of the same assembly:
+    /// where managed code takes a reverse callback's address to hand Swift as a closure function.
+    /// Not a transition itself and never a rule hit; listed so a ledger of construction sites can be
+    /// joined against the IL.
+    /// </summary>
+    CallbackAddress,
 }
 
 /// <summary>One rule violation: which rule, at which member, over which signature, and why.</summary>
@@ -77,7 +85,8 @@ public sealed record TransitionSite(
     string? EntryPoint,
     string? Library,
     int? IlOffset,
-    ImmutableArray<TransitionRule> Rules);
+    ImmutableArray<TransitionRule> Rules,
+    string? Target = null);
 
 /// <summary>An IL body or metadata blob the gate could not inspect. Any one fails the gate.</summary>
 public sealed record InspectionError(string Member, string Message);
@@ -103,6 +112,7 @@ public sealed class TransitionInventory
     public int SwiftUnmanagedCallersOnly { get; set; }
     public int NonSwiftUnmanagedCallersOnly { get; set; }
     public int SwiftCalliSites { get; set; }
+    public int SwiftCallbackAddresses { get; set; }
     public int NonSwiftUnmanagedCalliSites { get; set; }
     public int ManagedCalliSites { get; set; }
     public int MethodBodies { get; set; }
@@ -240,6 +250,7 @@ public static class SwiftTransitionScanner
         private readonly SwiftTransitionScanOptions _options;
         private readonly SigTypeProvider _provider;
         private readonly HashSet<(int MemberToken, string Signature)> _functionPointerTypesSeen = new();
+        private readonly Dictionary<MethodDefinitionHandle, (string Member, string Signature)?> _swiftCallbacks = new();
         private int _memberToken;
 
         public TransitionInventory Inventory { get; } = new();
@@ -302,9 +313,9 @@ public static class SwiftTransitionScanner
         }
 
         private SiteBuilder AddSite(TransitionSiteKind kind, string member, TransitionConvention convention, string signature,
-            string? entryPoint = null, string? library = null, int? ilOffset = null)
+            string? entryPoint = null, string? library = null, int? ilOffset = null, string? target = null)
         {
-            var site = new SiteBuilder(kind, member, _memberToken, convention, signature, entryPoint, library, ilOffset);
+            var site = new SiteBuilder(kind, member, _memberToken, convention, signature, entryPoint, library, ilOffset, target);
             Sites.Add(site);
             return site;
         }
@@ -469,6 +480,11 @@ public static class SwiftTransitionScanner
 
             foreach (var instruction in decoded.Instructions)
             {
+                if (instruction.OpCode == ILOpCode.Ldftn)
+                {
+                    ScanFunctionAddress(member, instruction.Offset, instruction.Token);
+                    continue;
+                }
                 if (instruction.OpCode != ILOpCode.Calli)
                     continue;
                 var token = MetadataTokens.EntityHandle(instruction.Token);
@@ -485,6 +501,42 @@ public static class SwiftTransitionScanner
                 // may appear nowhere else in metadata.
                 CheckFunctionPointerTypes(member, calliSignature.ParameterTypes.Prepend(calliSignature.ReturnType), "calli signature");
             }
+        }
+
+        /// <summary>
+        /// An <c>ldftn</c> of a method of this assembly that is a Swift-convention
+        /// <c>[UnmanagedCallersOnly]</c> callback is listed as a <see cref="TransitionSiteKind.CallbackAddress"/>
+        /// naming its target. Any other <c>ldftn</c> (a delegate's target, a C-convention callback, a
+        /// method of another assembly) is not a Swift transition and is not listed.
+        /// </summary>
+        private void ScanFunctionAddress(string member, int offset, int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return;
+            var target = (MethodDefinitionHandle)handle;
+            if (!_swiftCallbacks.TryGetValue(target, out var described))
+            {
+                described = DescribeSwiftCallback(target);
+                _swiftCallbacks[target] = described;
+            }
+            if (described is not { } callback)
+                return;
+            Inventory.SwiftCallbackAddresses++;
+            AddSite(TransitionSiteKind.CallbackAddress, member, TransitionConvention.Swift, callback.Signature,
+                ilOffset: offset, target: callback.Member);
+        }
+
+        /// <summary>The member name and signature of a Swift-convention UCO, or null for any other method.</summary>
+        private (string Member, string Signature)? DescribeSwiftCallback(MethodDefinitionHandle handle)
+        {
+            var method = _md.GetMethodDefinition(handle);
+            var member = TypeDisplayName(method.GetDeclaringType()) + "::" + DisplayMethodName(_md.GetString(method.Name));
+            if (ReadInteropAttributes(member, method).UnmanagedCallersOnly != TransitionConvention.Swift)
+                return null;
+            if (!TryDecode(member, () => _provider.DecodeMethod(method.Signature), out var signature))
+                return null;
+            return (member, TypeNames.Display(TransitionConvention.Swift, signature));
         }
 
         private void ScanCalli(string member, int offset, MethodSignature<SigType> signature)
@@ -668,12 +720,12 @@ public static class SwiftTransitionScanner
 
     /// <summary>A site under construction: the rules it violates accumulate as they are found.</summary>
     private sealed class SiteBuilder(TransitionSiteKind kind, string member, int memberToken, TransitionConvention convention,
-        string signature, string? entryPoint, string? library, int? ilOffset)
+        string signature, string? entryPoint, string? library, int? ilOffset, string? target)
     {
         public List<TransitionRule> Rules { get; } = new();
 
         public TransitionSite Build() => new(kind, member, memberToken, convention, signature, entryPoint, library, ilOffset,
-            Rules.Distinct().OrderBy(r => r).ToImmutableArray());
+            Rules.Distinct().OrderBy(r => r).ToImmutableArray(), target);
     }
 
     /// <summary>

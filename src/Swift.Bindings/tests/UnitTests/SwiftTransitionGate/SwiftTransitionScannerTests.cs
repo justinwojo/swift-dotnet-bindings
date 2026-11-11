@@ -554,7 +554,7 @@ public class SwiftTransitionScannerTests
 
     // ---- helpers ---------------------------------------------------------------------------------
 
-    private static SwiftTransitionScanOptions Options(IReadOnlyList<byte[]>? images = null, TransitionPlanSource? plan = null) => new()
+    internal static SwiftTransitionScanOptions Options(IReadOnlyList<byte[]>? images = null, TransitionPlanSource? plan = null) => new()
     {
         ReferenceDirectories = new[] { System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), AppContext.BaseDirectory },
         ReferenceImages = images ?? Array.Empty<byte[]>(),
@@ -569,7 +569,7 @@ public class SwiftTransitionScannerTests
             Options(giveScannerTheReferences ? references : null, plan));
     }
 
-    private static byte[] Compile(string source, string assemblyName, IReadOnlyList<byte[]>? references = null)
+    internal static byte[] Compile(string source, string assemblyName, IReadOnlyList<byte[]>? references = null)
     {
         // Framework assemblies only: the test's own Swift.Runtime must not shadow a fixture's.
         var frameworkDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();

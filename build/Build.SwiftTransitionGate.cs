@@ -29,6 +29,13 @@
 //
 // Writes swift-transition-report.json (verdict, counts, violations), swift-transition-inventory.json
 // (every transition site with the rules it violates) and swift-transition-summary.txt.
+//
+// The ledger cross-check (build/SwiftTransitionGate/LedgerCrossCheck.cs) joins the generator's
+// transition ledgers (one *.swift-transition-ledger.json per module, beside its C#) with the IL
+// inventory of the compile-check assembly, and the Apple supplement's ledger with the IL of
+// SwiftBindings.Apple: every Swift transition site in the IL must have exactly one ledger entry carrying
+// facts, and the reverse, with the two agreeing on which forward transitions are primitive-only. It runs, fail-closed, as a step of `nuke binding-tests --compile-only`, and its
+// verdict is reported by this target too (whose own verdict stays the rules above).
 
 using System;
 using System.Collections.Generic;
@@ -122,15 +129,96 @@ partial class Build
             Log.Information("Site inventory: {Inventory}", inventoryPath);
             Log.Information("Summary: {Summary}", summaryPath);
 
+            // The default inputs are the ledgered assemblies, in order, then the hand-written runtime.
+            bool? crossCheckPassed = null;
+            if (defaultInput)
+            {
+                crossCheckPassed = true;
+                foreach (var (name, ledgerDirectory, handWritten) in LedgeredAssemblies)
+                {
+                    var report = reports.Single(r => Path.GetFileName(r.Path) == name);
+                    var result = LedgerCrossCheck.CheckDirectory(report, ledgerDirectory, handWritten);
+                    WriteLedgerCrossCheck(result, output, Path.GetFileNameWithoutExtension(name));
+                    crossCheckPassed &= result.Passed;
+                }
+            }
+
             if (!reports.All(r => r.Passed))
             {
                 var totals = SwiftTransitionReport.CountByRule(reports.SelectMany(r => r.Violations));
                 var errors = reports.Sum(r => r.InspectionErrors.Length);
                 throw new Exception(
                     "Swift transition gate: " + string.Join(", ", totals.Select(kv => $"{kv.Key}={kv.Value}")) +
-                    $", inspection errors={errors}. Each listed transition is one the .NET 11 interpreter can " +
-                    "mis-place or crash on — see the lines above.");
+                    $", inspection errors={errors}" +
+                    (crossCheckPassed is null ? "" : $", ledger cross-check {(crossCheckPassed.Value ? "passed" : "FAILED")}") +
+                    ". Each listed transition is one the .NET 11 interpreter can mis-place or crash on — see the lines above.");
             }
+            if (crossCheckPassed == false)
+                throw new Exception("Swift transition gate: the transition ledger cross-check failed — see the lines above.");
             Log.Information("Swift transition gate: PASSED");
         });
+
+    /// <summary>
+    /// The generated C# whose ledgers describe each scanned assembly: the BindingTests modules compile
+    /// into the compile-check assembly, and the Apple supplement's emitted types into its own.
+    /// The Apple supplement also carries hand-written types (under its Sources/) that no generator
+    /// ledgers; their transitions are listed apart, and the cross-check fails if one of them no longer
+    /// has any, so the list stays exact.
+    /// </summary>
+    (string Assembly, AbsolutePath LedgerDirectory, string[] HandWrittenTypes)[] LedgeredAssemblies => new[]
+    {
+        ("CompileCheck.dll", BtOutputDir, Array.Empty<string>()),
+        ("SwiftBindings.Apple.dll", AppleSupplementDir / "obj" / "Debug" / $"{BtFramework}-ios" / "AppleTypes",
+            new[] { "Swift.Foundation.Data", "Swift.Foundation.URL", "Swift.Foundation.URLRequest", "Swift.SwiftUI.Text" }),
+    };
+
+    /// <summary>
+    /// The compile-only step: scans the compile-check assembly and the Apple supplement built beside
+    /// it, and cross-checks each against the transition ledgers the generator wrote for it.
+    /// Fail-closed and unconditional, with no baseline and no --permissive arm: a transition the
+    /// ledger does not list, or lists without facts, is a producer that bypassed recording.
+    /// </summary>
+    void RunTransitionLedgerCrossCheck()
+    {
+        Log.Information("=========================================");
+        Log.Information(" Transition ledger cross-check");
+        Log.Information("=========================================");
+        var output = BtOutputDir / ".swift-transition-gate";
+        output.CreateDirectory();
+        var failed = new List<string>();
+        foreach (var (name, ledgerDirectory, handWritten) in LedgeredAssemblies)
+        {
+            var assembly = CompileCheckOutputDir / name;
+            if (!File.Exists(assembly))
+                throw new Exception($"Transition ledger cross-check: {assembly} not found; the compile check did not produce it.");
+            var report = SwiftTransitionScanner.Scan(assembly, new SwiftTransitionScanOptions
+            {
+                ReferenceDirectories = new[]
+                {
+                    CompileCheckOutputDir.ToString(),
+                    System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
+                },
+            });
+            if (!report.InspectionErrors.IsEmpty)
+                throw new Exception($"Transition ledger cross-check: {report.InspectionErrors.Length} inspection error(s) reading {assembly}: " +
+                                    string.Join("; ", report.InspectionErrors.Take(5).Select(e => $"{e.Member}: {e.Message}")));
+            var result = LedgerCrossCheck.CheckDirectory(report, ledgerDirectory, handWritten);
+            WriteLedgerCrossCheck(result, output, Path.GetFileNameWithoutExtension(name));
+            if (!result.Passed)
+                failed.Add(name);
+        }
+        if (failed.Count > 0)
+            throw new Exception($"Transition ledger cross-check FAILED for {string.Join(", ", failed)} — see the lines above.");
+    }
+
+    static void WriteLedgerCrossCheck(LedgerCrossCheckResult result, AbsolutePath output, string assembly)
+    {
+        var summary = $"[{assembly}] " + LedgerCrossCheck.ToSummary(result);
+        var path = output / $"swift-transition-ledger-crosscheck.{assembly}.txt";
+        File.WriteAllText(path, summary);
+        foreach (var line in summary.Split('\n'))
+            if (line.Length > 0)
+                Log.Information("{Line}", line.TrimEnd('\r'));
+        Log.Information("Ledger cross-check: {Path}", path);
+    }
 }
