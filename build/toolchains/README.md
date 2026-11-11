@@ -8,37 +8,40 @@ the release gates.
 | --- | --- | --- | --- | --- |
 | `net10-xcode27` | .NET 10 release anchor | 10.0.404 | 10.0.404 | 27.2 |
 | `net11-xcode27` | .NET 11 release anchor | 11.0.100 | 11.0.100.1 | 27.2 |
-| `net10-xcode26` | Legacy compatibility (Xcode 26.3 consumers) | 10.0.107 | 10.0.107 | 26.3 |
+| `net10-xcode26` | Supported compatibility lane (.NET 10 on Xcode 26.3) | 10.0.107 | 10.0.107 | 26.3 |
 
 ## Roles and cadence
 
-The two Xcode 27.2 profiles are the release anchors. Each runs the full matrix before a
-release: the simulator, host, device and package gates its framework supports.
+The two Xcode 27.2 profiles are the release anchors, the newest toolchain for each .NET
+version. `net10-xcode26` is a fully supported compatibility lane: many consumers stay on
+.NET 10 and Xcode 26 for months, and some never move. All three profiles run the full
+release matrix for their framework: the simulator, host, device and package gates.
 
-`net10-xcode26` stays as a legacy compatibility lane for consumers still building with
-Xcode 26.3. It is not a release anchor, because no security-patched .NET 10 runtime pairs
-with Xcode 26.x. GHSA-p3jp-9v83-76w9 needs runtime 10.0.14 or later; the first workload
-set carrying it, 10.0.114, needs Xcode 27.1, and 10.0.115 needs Xcode 27.2. The newest
-Xcode 26 Apple workload in any 10.0.1xx set ships runtime 10.0.11, which is still affected.
-The lane runs the simulator, the host lanes, `--device --mono-aot` and `--device`
-(NativeAOT).
+The anchors differ from the compatibility lane in one respect: no security-patched .NET 10
+runtime pairs with Xcode 26.x. GHSA-p3jp-9v83-76w9 needs runtime 10.0.14 or later; the first
+workload set carrying it, 10.0.114, needs Xcode 27.1, and 10.0.115 needs Xcode 27.2. The
+newest Xcode 26 Apple workload in any 10.0.1xx set ships runtime 10.0.11, which is still
+affected.
 
-Its NativeAOT restore meets the affected `Microsoft.DotNet.ILCompiler` package, which the
-repository's `TreatWarningsAsErrors` turns into an NU1903 error. The profile manifest
-therefore suppresses exactly that advisory URL (`nugetAuditSuppress`, with its reason). The
-advisory concerns Microsoft's toolchain, not SwiftBindings code, and a consumer outside the
-repository still sees the warning. The launcher exports the URL and `Directory.Build.props`
-turns it into one `NuGetAuditSuppress` item. Outside this profile nothing is suppressed, and
-every other NU1901-NU1904 still fails. `nuke test` (ToolchainProfileTests) evaluates the
-NativeAOT device app under each profile and fails if a profile's suppressions differ from its
-manifest, if an unprofiled restore suppresses anything, or if audit or its error escalation
-is weakened. Mono AOT needs no suppression, because its runtime packs come from the workload
-rather than NuGet.
+`net10-xcode26`'s NativeAOT restore therefore meets the affected
+`Microsoft.DotNet.ILCompiler` package, which the repository's `TreatWarningsAsErrors` turns
+into an NU1903 error. The profile manifest suppresses exactly that advisory URL
+(`nugetAuditSuppress`, with its reason). The advisory concerns Microsoft's toolchain, not
+SwiftBindings code, and a consumer outside the repository still sees the warning. The
+launcher exports the URL and `Directory.Build.props` turns it into one `NuGetAuditSuppress`
+item. Outside this profile nothing is suppressed, and every other NU1901-NU1904 still fails.
+`nuke test` (ToolchainProfileTests) evaluates the NativeAOT device app under each profile and
+fails if a profile's suppressions differ from its manifest, if an unprofiled restore
+suppresses anything, or if audit or its error escalation is weakened. Mono AOT needs no
+suppression, because its runtime packs come from the workload rather than NuGet.
+
+Xcode 26 support ends once the App Store requires apps built with the iOS 27 SDK
+(date: _to be set by the owner_). Until then the lane stays in the release matrix.
 
 | When | What runs |
 | --- | --- |
 | Every change | .NET 10 on Xcode 26.3 with the global 10.0.107 install: `net10-xcode26`, or the unprofiled repository workflow with Xcode 26.3 selected. Run the gates the repository's gate table asks for. Add a `net11-xcode27` check when a change touches marshalling, calling conventions or runtime dispatch. |
-| Before a release | The full matrix on `net10-xcode27` and `net11-xcode27`, plus the legacy subset above on `net10-xcode26`. |
+| Before a release | The full matrix on all three profiles: `net10-xcode26`, `net10-xcode27` and `net11-xcode27`. |
 
 The .NET 10/Xcode 27.2 pair follows Microsoft's
 [27.2.10000 release](https://github.com/dotnet/macios/releases/tag/dotnet-10.0.1xx-xcode27.2.10000)

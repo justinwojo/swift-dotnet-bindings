@@ -205,11 +205,11 @@ class ToolchainIsolationTests(unittest.TestCase):
                 else:
                     self.assertEqual(seeded.read_text(), published)
 
-    def test_audit_suppression_is_scoped_to_the_legacy_profile(self):
+    def test_audit_suppression_is_scoped_to_the_xcode26_profile(self):
         stray = {"SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"}
         for name in ("net10-xcode26", "net10-xcode27", "net11-xcode27"):
             with self.subTest(profile=name):
-                # An inherited value never leaks into a profile; only the legacy pin declares one.
+                # An inherited value never leaks into a profile; only the Xcode 26.3 pin declares one.
                 env = profile.environment(self.committed_profile(name), self.state, stray)
                 if name == "net10-xcode26":
                     self.assertEqual(env["SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS"],
