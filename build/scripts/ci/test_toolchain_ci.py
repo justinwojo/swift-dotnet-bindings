@@ -118,6 +118,91 @@ class WorkflowPinTests(unittest.TestCase):
                 self.assertRegex(sources, rf"\bpublic\s+(sealed\s+)?class\s+{re.escape(name)}\s*:\s*TestBase\b")
 
 
+def nuke_parameter_key(name):
+    """How Nuke matches an environment variable to a parameter: letters and digits only, any
+    case, with or without a NUKE_ prefix."""
+    key = re.sub(r"[^a-z0-9]", "", name.lower())
+    return key[len("nuke"):] if key.startswith("nuke") else key
+
+
+def nuke_parameter_names():
+    # Nuke's own parameters, then every [Parameter] member (and its Name alias) of the build.
+    names = {"continue", "help", "host", "nologo", "plan", "profile", "root", "skip", "target", "verbosity"}
+    for path in (REPO / "build").glob("*.cs"):
+        text = path.read_text()
+        for match in re.finditer(r"\[Parameter\b(?:\((?:[^()\"]|\"(?:[^\"\\]|\\.)*\")*\))?\]", text):
+            names.update(re.findall(r"\bName\s*=\s*\"([^\"]+)\"", match.group(0)))
+            member = re.match(r"(?:\s*\[[^\]]*\])*\s*(?:(?:readonly|public|private|internal|protected|static)\s+)*"
+                              r"[\w<>\[\]?,. ]+?\s+(\w+)\s*[=;{]", text[match.end():])
+            if member:
+                names.add(member.group(1))
+    return {nuke_parameter_key(n) for n in names}
+
+
+NUKE_INVOCATION = re.compile(r"\bnuke\b|\bbuild\.sh\b|\bci_ios_test\.py\b")
+
+
+def nuke_visible_environment(text):
+    """Variables a step that runs Nuke can see: workflow- and job-level env, step env on a step
+    that runs Nuke, and anything a step appends to $GITHUB_ENV (it persists into later steps)."""
+    lines = text.splitlines()
+    indent = lambda line: len(line) - len(line.lstrip())
+    names = set(re.findall(r"\b([A-Za-z_]\w*)=[^\n]*>>\s*\"?\$GITHUB_ENV", text))
+    for number, line in enumerate(lines):
+        if line.strip() != "env:":
+            continue
+        level = indent(line)
+        keys = []
+        for child in lines[number + 1:]:
+            if not child.strip() or child.lstrip().startswith("#"):
+                continue
+            if indent(child) <= level:
+                break
+            key = re.match(r"\s*([A-Za-z_]\w*):", child)
+            if key and indent(child) == level + 2:
+                keys.append(key.group(1))
+        owner = next((i for i in range(number - 1, -1, -1)
+                      if lines[i].strip() and indent(lines[i]) < level), None)
+        if owner is not None and lines[owner].lstrip().startswith("- "):
+            # Step env: only what this step's own command sees.
+            step_indent, end = indent(lines[owner]), len(lines)
+            for i in range(owner + 1, len(lines)):
+                if lines[i].strip() and indent(lines[i]) <= step_indent:
+                    end = i
+                    break
+            if not NUKE_INVOCATION.search("\n".join(lines[owner:end])):
+                continue
+        names.update(keys)
+    return names
+
+
+class NukeEnvironmentTests(unittest.TestCase):
+    # Nuke binds any environment variable named after one of its parameters. A job-wide PROFILE
+    # once made every Nuke run in that job demand .nuke/parameters.<profile>.json.
+    def test_no_variable_a_nuke_step_sees_binds_a_nuke_parameter(self):
+        parameters = nuke_parameter_names()
+        self.assertGreater(len(parameters), 50, "found too few Nuke parameters to trust the check")
+        self.assertTrue({"profile", "skipregen", "deviceudid"} <= parameters)
+        exported = set(re.findall(r"\"([A-Za-z_]\w*)=", Path(toolchain_ci.__file__).read_text()))
+        self.assertIn("SIM_UDID", exported)
+        sources = [(path.name, nuke_visible_environment(path.read_text())) for path in workflow_files()]
+        sources.append(("toolchain_ci.py", exported))
+        for source, names in sources:
+            for name in sorted(names):
+                with self.subTest(file=source, variable=name):
+                    self.assertNotIn(nuke_parameter_key(name), parameters,
+                                     f"{source}: {name} would be read by Nuke as a parameter; rename it")
+
+    def test_the_check_sees_job_step_and_exported_variables(self):
+        workflow = (
+            "env:\n  TOP: 1\njobs:\n  a:\n    env:\n      JOB_WIDE: 1\n    steps:\n"
+            "      - name: x\n        env:\n          QUIET: 1\n        run: echo hi\n"
+            "      - name: y\n        env:\n          LOUD: 1\n        run: >\n          dotnet nuke test\n"
+            "      - run: echo \"EXPORTED=1\" >> \"$GITHUB_ENV\"\n")
+        self.assertEqual(nuke_visible_environment(workflow), {"TOP", "JOB_WIDE", "LOUD", "EXPORTED"})
+        self.assertEqual(nuke_parameter_key("NUKE_SKIP_REGEN"), "skipregen")
+
+
 class ProfileTests(unittest.TestCase):
     def test_global_json_is_the_unprofiled_lane(self):
         # The repository workflow (no --toolchain-profile) is net10-xcode26. A profile run reads

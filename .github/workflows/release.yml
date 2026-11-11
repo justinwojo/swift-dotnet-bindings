@@ -586,13 +586,16 @@ jobs:
       matrix:
         profile: [net10-xcode27, net11-xcode27]
     env:
-      PROFILE: ${{ matrix.profile }}
+      # Not PROFILE: Nuke binds any environment variable named after one of its parameters, and
+      # PROFILE is its own --profile (a parameters.<name>.json file).
+      TOOLCHAIN_PROFILE: ${{ matrix.profile }}
       SIM_CONFIGURATION: ${{ fromJSON(needs.toolchains.outputs.profiles)[matrix.profile].simulator_configuration }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Toolchain profile
+        id: toolchain
         uses: ./.github/actions/toolchain-profile
         with:
           profile: ${{ matrix.profile }}
@@ -602,13 +605,13 @@ jobs:
 
       - name: Unit tests
         run: >
-          bash build.sh --toolchain-profile "$PROFILE"
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- test
 
       - name: Compile gate (strict)
         run: >
-          bash build.sh --toolchain-profile "$PROFILE"
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- binding-tests --strict --compile-only --skip-surface
 
@@ -620,7 +623,7 @@ jobs:
         timeout-minutes: 40
         run: >
           python3 build/scripts/ci/ci_ios_test.py
-          --toolchain-profile "$PROFILE"
+          --toolchain-profile "$TOOLCHAIN_PROFILE"
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           --binding-test-configuration "$SIM_CONFIGURATION"
           --device-udid "$SIM_UDID" --skip-prepare --skip-build
@@ -635,6 +638,13 @@ jobs:
           path: /tmp/sim-diagnostics/
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.toolchain.outputs.parser-cache-hit != 'true' && hashFiles(steps.toolchain.outputs.parser-binary) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.toolchain.outputs.parser-cache-path }}
+          key: ${{ steps.toolchain.outputs.parser-cache-key }}
 
   # --- PackGate: nupkg packaging regression gate (hosted-CI-safe) ---
   # Runs on the release lane (and dry-run branches, via publish-release's needs)

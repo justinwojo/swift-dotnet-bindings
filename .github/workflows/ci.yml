@@ -94,16 +94,20 @@ jobs:
       - name: Resolve Swift toolchain key
         run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
 
-      - name: Cache SwiftInterfaceParser
-        uses: actions/cache@v4
+      - name: Restore SwiftInterfaceParser cache
+        id: sip-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/SwiftInterfaceParser/.build
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
+      # Measured on macos-26 with a cold parser cache: parser build ~9.5 min, solution build
+      # ~1.5 min, unit/analyzer/runtime/toolchain tests ~5 min. A warm cache takes the parser
+      # to seconds; the limit is for the cold case.
       - name: Build and run tests
-        timeout-minutes: 10
+        timeout-minutes: 25
         run: |
           python3 -B build/scripts/ci/test_ci_ios_test.py -v
           dotnet nuke test
@@ -116,6 +120,17 @@ jobs:
           path: |
             **/TestResults/*.trx
           retention-days: 7
+
+      # Saved even when a later step fails, so a red run does not leave the next one to rebuild
+      # swift-syntax from source. Only a staged parser proves the build finished.
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.sip-cache.outputs.cache-hit != 'true' && hashFiles('src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: ${{ steps.sip-cache.outputs.cache-primary-key }}
 
   bindingtests:
     name: BindingTests
@@ -164,8 +179,9 @@ jobs:
       - name: Resolve Swift toolchain key
         run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
 
-      - name: Cache SwiftInterfaceParser
-        uses: actions/cache@v4
+      - name: Restore SwiftInterfaceParser cache
+        id: sip-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/SwiftInterfaceParser/.build
@@ -234,6 +250,17 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # Saved even when a later step fails, so a red run does not leave the next one to rebuild
+      # swift-syntax from source. Only a staged parser proves the build finished.
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.sip-cache.outputs.cache-hit != 'true' && hashFiles('src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: ${{ steps.sip-cache.outputs.cache-primary-key }}
+
   # net11-xcode27: the compile gate plus a CoreCLR runtime canary on the iOS simulator.
   # Runs through the profile launcher, which pins the SDK, workload set and Xcode exactly.
   # Set the repository variable SKIP_XCODE27_CI to 'true' to pause it while the hosted image for
@@ -245,12 +272,15 @@ jobs:
     runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27'].runner }}
     timeout-minutes: 150
     env:
-      PROFILE: net11-xcode27
+      # Not PROFILE: Nuke binds any environment variable named after one of its parameters, and
+      # PROFILE is its own --profile (a parameters.<name>.json file).
+      TOOLCHAIN_PROFILE: net11-xcode27
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Toolchain profile
+        id: toolchain
         uses: ./.github/actions/toolchain-profile
         with:
           profile: net11-xcode27
@@ -260,7 +290,7 @@ jobs:
 
       - name: Compile gate (strict)
         run: >
-          bash build.sh --toolchain-profile "$PROFILE"
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- binding-tests --strict --compile-only --skip-surface
 
@@ -276,13 +306,20 @@ jobs:
           reuse=()
           for class in $CORECLR_CANARY_CLASSES; do
             echo "::group::$class"
-            bash build.sh --toolchain-profile "$PROFILE" \
+            bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE" \
               --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" \
               -- binding-tests --sim --device-udid "$SIM_UDID" --skip-regen "${reuse[@]}" \
               --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION" --class-filter "$class"
             echo "::endgroup::"
             reuse=(--skip-build)
           done
+
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.toolchain.outputs.parser-cache-hit != 'true' && hashFiles(steps.toolchain.outputs.parser-binary) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.toolchain.outputs.parser-cache-path }}
+          key: ${{ steps.toolchain.outputs.parser-cache-key }}
 
   package-smoke:
     name: Package Smoke Test
@@ -349,8 +386,9 @@ jobs:
       - name: Resolve Swift toolchain key
         run: echo "SWIFT_TOOLCHAIN_KEY=$(swiftc --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_ENV"
 
-      - name: Cache SwiftInterfaceParser
-        uses: actions/cache@v4
+      - name: Restore SwiftInterfaceParser cache
+        id: sip-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/SwiftInterfaceParser/.build
@@ -375,3 +413,14 @@ jobs:
           name: packages
           path: /tmp/swift-nuget/*.nupkg
           retention-days: 7
+
+      # Saved even when a later step fails, so a red run does not leave the next one to rebuild
+      # swift-syntax from source. Only a staged parser proves the build finished.
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.sip-cache.outputs.cache-hit != 'true' && hashFiles('src/Swift.Bindings.Sdk/tools/swift-interface-parser/SwiftInterfaceParser') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/SwiftInterfaceParser/.build
+            src/Swift.Bindings.Sdk/tools/swift-interface-parser
+          key: ${{ steps.sip-cache.outputs.cache-primary-key }}
