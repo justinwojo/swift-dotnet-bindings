@@ -216,15 +216,17 @@ jobs:
           --binding-report output/binding-report.json
 
       # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
-      # runner busy for its whole life, which tripled the gate's Swift and C# build times.
-      - name: Create and boot iOS Simulator (background)
+      # runner busy for its whole life, which tripled the gate's Swift and C# build times. Booted
+      # in the foreground: a boot still in flight when bootstatus -b runs makes it send a second
+      # boot request, which fails once the first one lands.
+      - name: Create and boot iOS Simulator
+        timeout-minutes: 10
         run: |
           UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
                  xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
           echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
           echo "Created simulator: $UDID"
-          xcrun simctl boot "$UDID" &
-          echo "Boot started in background"
+          xcrun simctl boot "$UDID"
 
       - name: Wait for simulator boot
         timeout-minutes: 10
@@ -294,7 +296,8 @@ jobs:
 
       # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
       # runner busy for its whole life, which tripled the gate's Swift and C# build times.
-      - name: Create and boot iOS Simulator (background)
+      - name: Create and boot iOS Simulator
+        timeout-minutes: 10
         run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
 
       - name: Wait for simulator boot

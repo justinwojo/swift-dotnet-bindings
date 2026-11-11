@@ -261,10 +261,10 @@ def simulator(platform, create=None, download_missing=False):
              f"device_type={device['identifier']}", f"device_name={device['name']}"]
     if create:
         udid = capture(["xcrun", "simctl", "create", create, device["identifier"], runtime["identifier"]])
-        # Boot in the background so it warms up while the bindings build; the job waits on
-        # `simctl bootstatus -b` before the first launch.
-        subprocess.Popen(["xcrun", "simctl", "boot", udid], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Booted in the foreground so the device is already Booted when the job's
+        # `simctl bootstatus -b` waits for it to be ready. A boot still in flight then makes
+        # bootstatus send a second boot request, which fails once the first one lands.
+        run(["xcrun", "simctl", "boot", udid])
         lines.append(f"udid={udid}")
         github_append("GITHUB_ENV", [f"SIM_UDID={udid}"])
     print("\n".join(lines))
@@ -288,7 +288,7 @@ def main(argv=None):
     verify_cmd.add_argument("--developer-dir", help="override the hosted image's Xcode path (local use)")
     simulator_cmd = commands.add_parser("simulator", help="simulator runtime and device type for the selected Xcode")
     simulator_cmd.add_argument("--platform", choices=("iOS", "tvOS"), default="iOS")
-    simulator_cmd.add_argument("--create", metavar="NAME", help="create a device, start booting it, export SIM_UDID")
+    simulator_cmd.add_argument("--create", metavar="NAME", help="create and boot a device, export SIM_UDID")
     simulator_cmd.add_argument("--download-missing", action="store_true",
                                help="xcodebuild -downloadPlatform when the runtime is not installed")
     options = parser.parse_args(argv)
