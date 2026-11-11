@@ -1577,17 +1577,17 @@ internal static class ProtocolConformanceHelper
                 continue;
 
             // Skip Self-requirement protocols — no proxy, no EveryProtocol, no runtime PWT lookup.
-            // EXCEPTION: Swift.Hashable is consumed at runtime by SwiftHashable.GetHashCode,
-            // which performs a PWT lookup keyed on typeof(ISwiftHashable). Without this entry
-            // the lookup falls back to a structural FNV hash over marshalled bytes, which is
-            // wrong for SafeHandle-backed reference types (the bytes are heap pointers, so
-            // two equal-by-content instances hash differently). Equatable's runtime path goes
-            // through the @_cdecl == wrapper, so it does not need a dict entry.
-            bool isHashable = conformance.Protocol.ModuleQualifiedName == "Swift.Hashable"
-                || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module));
-            if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
-                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) &&
-                !isHashable)
+            // EXCEPTIONS: the two stdlib protocols the runtime itself looks up by interface key.
+            // Swift.Hashable is consumed by SwiftHashable.GetHashCode (keyed on
+            // typeof(ISwiftHashable)); without the entry the lookup falls back to a structural
+            // FNV hash over marshalled bytes, which is wrong for SafeHandle-backed reference
+            // types. Swift.Equatable is consumed by SwiftEquatable.Equals (keyed on
+            // typeof(IEquatable<T>)), which is the C# equality path for every type that gets no
+            // per-type @_cdecl == wrapper — generic types above all, whose wrapper cannot be
+            // instantiated without the type argument. Without the entry `a == b` throws.
+            if (IsRuntimeLookedUpSelfRequirementProtocol(conformance) is false &&
+                typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
+                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
                 continue;
 
             var resolvedProtocolModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
@@ -1628,9 +1628,22 @@ internal static class ProtocolConformanceHelper
         return string.Join(",\n", entries);
     }
 
+    private static bool IsStdlibProtocol(TypeConformance conformance, string name)
+        => conformance.Protocol.ModuleQualifiedName == "Swift." + name
+            || (conformance.Protocol.Name == name && string.IsNullOrEmpty(conformance.Protocol.Module));
+
+    /// <summary>
+    /// Self-requirement protocols whose witness table the runtime looks up through the
+    /// conformance dictionary anyway: Hashable (SwiftHashable, SwiftSet, SwiftDictionary)
+    /// and Equatable (SwiftEquatable.Equals).
+    /// </summary>
+    private static bool IsRuntimeLookedUpSelfRequirementProtocol(TypeConformance conformance)
+        => IsStdlibProtocol(conformance, "Hashable") || IsStdlibProtocol(conformance, "Equatable");
+
     /// <summary>
     /// Returns the list of C# protocol interface names for a type's conformances,
-    /// using the same filtering as GenerateProtocolConformanceDictionaryEntries.
+    /// using the same filtering as GenerateProtocolConformanceDictionaryEntries — except
+    /// Equatable, which stays a lazy dictionary lookup (see the comment at its exclusion).
     /// Used by NativeAOT factory registration to pre-register conformance factories.
     /// </summary>
     public static List<string> GetConformanceProtocolNames(
@@ -1656,8 +1669,13 @@ internal static class ProtocolConformanceHelper
             // module-init pre-registration — leaving Set<ClassType>/[ClassKey: V] to fall
             // back to AOT-incompatible reflection on NativeAOT. The conformance dictionary
             // already keeps the entry via the same exception; this keeps the two consistent.
-            bool isHashable = conformance.Protocol.ModuleQualifiedName == "Swift.Hashable"
-                || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module));
+            //
+            // Equatable is deliberately NOT pre-registered even though the dictionary carries
+            // it: only types without a per-type @_cdecl == wrapper ever look it up, and nearly
+            // all of those are generic (which never reach this registration). Eagerly
+            // resolving a witness table for every non-generic Equatable type at module init
+            // would cost startup time for a lookup the wrapper makes unnecessary.
+            bool isHashable = IsStdlibProtocol(conformance, "Hashable");
             if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
                 protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) &&
                 !isHashable)
