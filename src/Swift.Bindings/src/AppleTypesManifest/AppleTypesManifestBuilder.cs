@@ -10,10 +10,14 @@ namespace BindingsGeneration.AppleTypesManifest;
 // set per included Swift identity. Intentionally reuses `ABIRootNode`/`RootNode`/`Node`
 // so the schema stays single-sourced with `SwiftABIParser`.
 //
-// Platform availability is picked up field-by-field from each ABI JSON's `intro_*`
-// properties. Because `swift-api-digester` only emits the intro_* keys that match its
-// own target, producing the full ios/maccatalyst/tvos/macos grid requires one dump per
-// platform — the builder unions them per swift_identity.
+// Platform availability comes from one dump per platform. A `swift-api-digester` dump
+// prints every platform's `intro_*` keys, but it leaves out declarations that are
+// unavailable on its own `-target`, and Swift 6.4's umbrella `intro_anyAppleOS` cannot be
+// placed without knowing which platforms that excludes. So each dump contributes only the
+// column of the platform it was dumped for: the version that platform resolves to (its
+// own record, the iOS record for Mac Catalyst, else the umbrella). The builder unions the
+// columns per swift_identity. A platform no dump covered stays null, which the emitter
+// treats as unsupported.
 //
 // Size/alignment/stride and conformance descriptor symbols require live-SDK probing and
 // are deliberately left unset here (null / empty). The live-SDK validation step fills them
@@ -54,9 +58,44 @@ public sealed class AppleTypesManifestBuilder
         var module = root.ABIRoot.Name;
         if (string.IsNullOrEmpty(module))
             throw new InvalidDataException($"ABI JSON at '{path}' has empty module name.");
+        // swift-api-digester exits 0 and writes this placeholder root when it cannot load the
+        // module for the target. Ingesting it would silently drop that platform's column.
+        if (string.Equals(module, "NO_MODULE", StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"ABI JSON at '{path}' is swift-api-digester's NO_MODULE placeholder: the module " +
+                "did not load for that target, so the dump describes nothing.");
+        var platform = ReadDumpPlatform(root.ABIRoot, path);
 
         foreach (var child in root.ABIRoot.Children)
-            Walk(child, module, declarationPath: new List<string>(), inherited: new Availability());
+            Walk(child, module, platform, declarationPath: new List<string>(), inherited: new Availability());
+    }
+
+    // The manifest column a dump fills, from the `-target` triple its digester invocation
+    // recorded. A dump without one cannot be placed, so ingestion fails rather than guess.
+    private static AbiApplePlatform ReadDumpPlatform(RootNode root, string path)
+    {
+        var args = root.tool_arguments;
+        string? triple = null;
+        if (args is not null)
+        {
+            var index = Array.IndexOf(args, "-target");
+            if (index >= 0 && index + 1 < args.Length)
+                triple = args[index + 1];
+        }
+        if (triple is null)
+            throw new InvalidDataException(
+                $"ABI JSON at '{path}' records no -target in tool_arguments, so the platform it " +
+                "describes is unknown. Produce it with `swift-api-digester -dump-sdk -target <triple>`.");
+
+        var platform = AbiIntroducedAvailability.FromTargetTriple(triple)
+            ?? throw new InvalidDataException(
+                $"ABI JSON at '{path}' was dumped for '{triple}', which names no Apple OS.");
+        if (platform is not (AbiApplePlatform.iOS or AbiApplePlatform.macCatalyst
+            or AbiApplePlatform.tvOS or AbiApplePlatform.macOS))
+            throw new InvalidDataException(
+                $"ABI JSON at '{path}' was dumped for '{triple}' ({platform}); the manifest has " +
+                "columns only for iOS, Mac Catalyst, tvOS and macOS.");
+        return platform;
     }
 
     public Manifest Build(ManifestOptions options)
@@ -104,7 +143,7 @@ public sealed class AppleTypesManifestBuilder
         return manifest;
     }
 
-    private void Walk(Node node, string module, List<string> declarationPath, Availability inherited)
+    private void Walk(Node node, string module, AbiApplePlatform platform, List<string> declarationPath, Availability inherited)
     {
         if (node.Kind != "TypeDecl")
             return;
@@ -116,12 +155,14 @@ public sealed class AppleTypesManifestBuilder
         var currentPath = new List<string>(declarationPath) { leafName };
         var swiftIdentity = module + "." + string.Join(".", currentPath);
 
-        // Effective availability = max(inherited parent minimums, this node's explicit
-        // intro_* fields). Nested Swift types inherit their parent's `@available` floor —
+        // Effective availability = max(inherited parent minimum, this node's own floor on
+        // the dump's platform). Nested Swift types inherit their parent's `@available` floor —
         // e.g., `CryptoKit.P256.Signing.ECDSASignature` is only reachable where P256 is
-        // (intro_iOS=13), even though the nested type has no intro_* of its own.
+        // (intro_iOS=13), even though the nested type has no intro_* of its own. Both an
+        // outer floor and an inner `anyAppleOS` umbrella constrain, so the umbrella is
+        // resolved per node before the max.
         var effective = Clone(inherited);
-        MaxMergeNodeAvailability(node, effective);
+        MaxMergeNodeAvailability(node, platform, effective);
 
         if (node.DeclKind == "TypeAlias")
         {
@@ -133,7 +174,7 @@ public sealed class AppleTypesManifestBuilder
         {
             // Still recurse — nested nominals may hang under non-nominal declarations.
             foreach (var child in node.Children ?? Enumerable.Empty<Node>())
-                Walk(child, module, currentPath, effective);
+                Walk(child, module, platform, currentPath, effective);
             return;
         }
 
@@ -141,7 +182,7 @@ public sealed class AppleTypesManifestBuilder
             RecordOrMergeType(node, module, swiftIdentity, currentPath, effective);
 
         foreach (var child in node.Children ?? Enumerable.Empty<Node>())
-            Walk(child, module, currentPath, effective);
+            Walk(child, module, platform, currentPath, effective);
     }
 
     private void RecordOrMergeType(Node node, string module, string swiftIdentity, List<string> declarationPath, Availability effectiveAvailability)
@@ -196,10 +237,10 @@ public sealed class AppleTypesManifestBuilder
             entry.Frozen |= HasAttribute(node.DeclAttributes, "Frozen");
         }
 
-        // Merge per-platform availability across ABI JSON inputs. Each input is typically
-        // a single-platform digester dump; unioning the intro_* fields yields the full grid.
-        // Within one input, `effectiveAvailability` already carries the ancestor-propagated
-        // floor. Between inputs, take the minimum known version per platform.
+        // Merge per-platform availability across ABI JSON inputs. Each input fills only its
+        // own platform's column; unioning the columns yields the full grid. Within one input,
+        // `effectiveAvailability` already carries the ancestor-propagated floor. Between
+        // inputs for the same platform, take the minimum known version.
         var mergedAvailability = entry.MetadataAccessor?.Availability ?? new Availability();
         MinMergeAvailability(effectiveAvailability, mergedAvailability);
         if (entry.MetadataAccessor is not null)
@@ -292,14 +333,19 @@ public sealed class AppleTypesManifestBuilder
         Macos = a.Macos,
     };
 
-    // Walk a child type. Its effective minimum for each platform is the MAXIMUM of its
-    // ancestors' minimums and its own explicit intro_* (Swift's @available inheritance).
-    private static void MaxMergeNodeAvailability(Node node, Availability target)
+    // Walk a child type. Its effective minimum on the dump's platform is the MAXIMUM of its
+    // ancestors' minimum and its own resolved floor (Swift's @available inheritance).
+    private static void MaxMergeNodeAvailability(Node node, AbiApplePlatform platform, Availability target)
     {
-        target.Ios = MaxVersion(target.Ios, node.intro_iOS);
-        target.Maccatalyst = MaxVersion(target.Maccatalyst, node.intro_macCatalyst);
-        target.Tvos = MaxVersion(target.Tvos, node.intro_tvOS);
-        target.Macos = MaxVersion(target.Macos, node.intro_Macosx);
+        var own = AbiIntroducedAvailability.Resolve(node, platform);
+        switch (platform)
+        {
+            case AbiApplePlatform.iOS: target.Ios = MaxVersion(target.Ios, own); break;
+            case AbiApplePlatform.macCatalyst: target.Maccatalyst = MaxVersion(target.Maccatalyst, own); break;
+            case AbiApplePlatform.tvOS: target.Tvos = MaxVersion(target.Tvos, own); break;
+            case AbiApplePlatform.macOS: target.Macos = MaxVersion(target.Macos, own); break;
+            default: throw new ArgumentOutOfRangeException(nameof(platform), platform, null);
+        }
     }
 
     // Cross-input merge: several ABI JSON dumps may each see the same type. When both set

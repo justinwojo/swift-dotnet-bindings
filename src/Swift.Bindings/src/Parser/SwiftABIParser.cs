@@ -91,6 +91,12 @@ namespace BindingsGeneration
         /// </summary>
         public int? json_format_version { get; set; }
 
+        /// <summary>
+        /// The swift-api-digester command line that produced the dump (<c>-dump-sdk -module M
+        /// -target T -sdk S ...</c>). Its <c>-target</c> names the platform the dump describes.
+        /// </summary>
+        public string[]? tool_arguments { get; set; }
+
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
     }
 
@@ -648,28 +654,28 @@ namespace BindingsGeneration
         private static List<AvailabilityAnnotation>? ExtractAccessorAvailability(Node accessorNode)
         {
             List<AvailabilityAnnotation>? result = null;
-            // `anyAppleOS` fills each platform the descriptor does not name. A named platform
-            // keeps its own version, earlier or later, as Swift does. visionOS inherits a named
-            // iOS record instead, and Mac Catalyst always inherits the iOS one. A platform record
-            // without an introduced version (deprecated or unavailable only) leaves no key in
-            // the descriptor, so the umbrella floors that platform: stricter than Swift, never
-            // looser.
-            void Add(string? platform, string? version, bool coveredByAnyAppleOS)
+            // Each platform takes its named record, else the `anyAppleOS` umbrella (see
+            // AbiIntroducedAvailability for the resolution rules). visionOS does not take the
+            // umbrella when iOS is named, since it follows the iOS record. Mac Catalyst takes
+            // only its own record here: it inherits the iOS annotation downstream, and that
+            // annotation already carries the umbrella when iOS is not named.
+            void Add(string platform, string? version)
             {
-                if (string.IsNullOrEmpty(version) && coveredByAnyAppleOS)
-                    version = accessorNode.intro_anyAppleOS;
-                if (string.IsNullOrEmpty(platform) || string.IsNullOrEmpty(version))
+                if (string.IsNullOrEmpty(version))
                     return;
                 result ??= new List<AvailabilityAnnotation>();
                 result.Add(new AvailabilityAnnotation(platform, version, null, null, false, false, null, null));
             }
-            Add("iOS", accessorNode.intro_iOS, coveredByAnyAppleOS: true);
-            Add("macOS", accessorNode.intro_Macosx, coveredByAnyAppleOS: true);
-            Add("tvOS", accessorNode.intro_tvOS, coveredByAnyAppleOS: true);
-            Add("watchOS", accessorNode.intro_watchOS, coveredByAnyAppleOS: true);
-            Add("visionOS", accessorNode.intro_visionOS,
-                coveredByAnyAppleOS: string.IsNullOrEmpty(accessorNode.intro_iOS));
-            Add("macCatalyst", accessorNode.intro_macCatalyst, coveredByAnyAppleOS: false);
+            void AddResolved(string platform, AbiApplePlatform abiPlatform)
+                => Add(platform,
+                    AbiIntroducedAvailability.Named(accessorNode, abiPlatform)
+                    ?? AbiIntroducedAvailability.FromAnyAppleOS(accessorNode, abiPlatform));
+            AddResolved("iOS", AbiApplePlatform.iOS);
+            AddResolved("macOS", AbiApplePlatform.macOS);
+            AddResolved("tvOS", AbiApplePlatform.tvOS);
+            AddResolved("watchOS", AbiApplePlatform.watchOS);
+            AddResolved("visionOS", AbiApplePlatform.visionOS);
+            Add("macCatalyst", AbiIntroducedAvailability.Named(accessorNode, AbiApplePlatform.macCatalyst));
             return result;
         }
 

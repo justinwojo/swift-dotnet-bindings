@@ -15,17 +15,29 @@ public class AppleTypesManifestBuilderTests
     // Minimal ABI JSON factory. Only the fields the builder reads are populated; the rest
     // use default empty sentinels so deserialization succeeds. Intentionally hand-built
     // rather than loaded from a fixture file to keep test intent localized.
-    private static string MakeAbi(string moduleName, string typesJsonArray) =>
-        $$"""
+    // Each dump records the digester's `-target`, which names the one manifest column it fills.
+    private const string IosTarget = "arm64-apple-ios26.0-simulator";
+    private const string CatalystTarget = "arm64-apple-ios26.0-macabi";
+    private const string TvosTarget = "arm64-apple-tvos26.0-simulator";
+    private const string MacosTarget = "arm64-apple-macos26.0";
+
+    private static string MakeAbi(string moduleName, string typesJsonArray, string? target = IosTarget)
+    {
+        var toolArguments = target is null
+            ? ""
+            : $", \"tool_arguments\": [\"-dump-sdk\", \"-module\", \"{moduleName}\", \"-target\", \"{target}\", \"-sdk\", \"/sdk\"]";
+        return $$"""
         {
           "ABIRoot": {
             "kind": "Root",
             "name": "{{moduleName}}",
             "printedName": "{{moduleName}}",
-            "children": {{typesJsonArray}}
+            "children": {{typesJsonArray}},
+            "json_format_version": 8{{toolArguments}}
           }
         }
         """;
+    }
 
     // The ABI dump's marker conformances, as a `conformances` array: since Swift 6 the digester
     // lists `Copyable` explicitly on every copyable nominal, so its ABSENCE alongside `Escapable`
@@ -34,7 +46,7 @@ public class AppleTypesManifestBuilderTests
         "[" + string.Join(",", protocolNames.Select(p =>
             $$"""{"kind":"Conformance","name":"{{p}}","printedName":"{{p}}","usr":"s:s{{p}}P","mangledName":"$ss{{p}}P"}""")) + "]";
 
-    private static string TypeDecl(string declKind, string name, string mangled, string? introIos = null, string? introMacosx = null, string? introTvos = null, string? introMaccat = null, string[]? attrs = null, string? childrenJson = null, string? conformancesJson = null)
+    private static string TypeDecl(string declKind, string name, string mangled, string? introIos = null, string? introMacosx = null, string? introTvos = null, string? introMaccat = null, string[]? attrs = null, string? childrenJson = null, string? conformancesJson = null, string? introAnyAppleOS = null)
     {
         string attrsJson = attrs is null ? "[]" : "[" + string.Join(",", attrs.Select(a => $"\"{a}\"")) + "]";
         string intros = string.Join(",", new[]
@@ -43,6 +55,7 @@ public class AppleTypesManifestBuilderTests
             introMacosx is null ? null : $"\"intro_Macosx\": \"{introMacosx}\"",
             introTvos  is null ? null : $"\"intro_tvOS\": \"{introTvos}\"",
             introMaccat is null ? null : $"\"intro_macCatalyst\": \"{introMaccat}\"",
+            introAnyAppleOS is null ? null : $"\"intro_anyAppleOS\": \"{introAnyAppleOS}\"",
         }.Where(s => s is not null));
         if (!string.IsNullOrEmpty(intros))
             intros = "," + intros;
@@ -170,10 +183,10 @@ public class AppleTypesManifestBuilderTests
         var child = TypeDecl("Struct", "ECDSASignature", "$s9CryptoKit4P256O7SigningO14ECDSASignatureV");
         var signing = TypeDecl("Enum", "Signing", "$s9CryptoKit4P256O7SigningO", childrenJson: "[" + child + "]");
         var p256 = TypeDecl("Enum", "P256", "$s9CryptoKit4P256O", introIos: "13.0", introMacosx: "10.15", introTvos: "13.0", childrenJson: "[" + signing + "]");
-        var abi = MakeAbi("CryptoKit", "[" + p256 + "]");
 
         var builder = NewBuilder("CryptoKit.P256.Signing.ECDSASignature");
-        IngestString(builder, abi);
+        foreach (var target in new[] { IosTarget, TvosTarget, MacosTarget })
+            IngestString(builder, MakeAbi("CryptoKit", "[" + p256 + "]", target));
         var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
 
         var entry = Assert.Single(manifest.Modules["CryptoKit"].Types);
@@ -194,7 +207,7 @@ public class AppleTypesManifestBuilderTests
             "]");
         var macAbi = MakeAbi("ManagedSettings", "[" +
             TypeDecl("Struct", "Application", "$s15ManagedSettings11ApplicationV", introMacosx: "14.0") +
-            "]");
+            "]", MacosTarget);
 
         var builder = NewBuilder("ManagedSettings.Application");
         IngestString(builder, iosAbi);
@@ -205,6 +218,130 @@ public class AppleTypesManifestBuilderTests
         Assert.Equal("15.0", entry.MetadataAccessor?.Availability.Ios);
         Assert.Equal("14.0", entry.MetadataAccessor?.Availability.Macos);
         Assert.Null(entry.MetadataAccessor?.Availability.Tvos);
+    }
+
+    private static Availability BuildAcrossDumps(string include, Func<string, string?> typesForTarget)
+    {
+        var builder = NewBuilder(include);
+        var module = include.Substring(0, include.IndexOf('.'));
+        foreach (var target in new[] { IosTarget, CatalystTarget, TvosTarget, MacosTarget })
+        {
+            var types = typesForTarget(target);
+            if (types is not null)
+                IngestString(builder, MakeAbi(module, "[" + types + "]", target));
+        }
+        var entry = Assert.Single(builder.Build(new ManifestOptions { SdkTrainMajor = 27 }).Modules[module].Types);
+        Assert.NotNull(entry.MetadataAccessor);
+        return entry.MetadataAccessor!.Availability;
+    }
+
+    [Fact]
+    public void AnyAppleOS_floors_each_platform_whose_dump_contains_the_type()
+    {
+        // Swift 6.4 SDK shape: `@available(anyAppleOS 27.0, *) @available(tvOS, unavailable)`.
+        // Every dump prints only `intro_anyAppleOS`; the tvOS dump leaves the type out. Each
+        // platform that has it must floor at 27.0 and weak-link the accessor, or the
+        // supplement strong-links a symbol that is missing on the 26.x OSes it supports.
+        var availability = BuildAcrossDumps("StoreKit.RedeemOption", target => target == TvosTarget
+            ? null
+            : TypeDecl("Struct", "RedeemOption", "$s8StoreKit12RedeemOptionV", introAnyAppleOS: "27.0"));
+
+        Assert.Equal("27.0", availability.Ios);
+        Assert.Equal("27.0", availability.Maccatalyst);
+        Assert.Equal("27.0", availability.Macos);
+        Assert.Null(availability.Tvos);
+    }
+
+    [Fact]
+    public void Named_platform_replaces_anyAppleOS_and_Catalyst_follows_named_iOS()
+    {
+        // `@available(iOS 18.0, *) @available(anyAppleOS 27.0, *)`: the iOS record replaces
+        // the umbrella on iOS even though it is earlier, Mac Catalyst follows the iOS record,
+        // and tvOS and macOS take the umbrella.
+        var availability = BuildAcrossDumps("StoreKit.Offer", _ =>
+            TypeDecl("Struct", "Offer", "$s8StoreKit5OfferV", introIos: "18.0", introAnyAppleOS: "27.0"));
+
+        Assert.Equal("18.0", availability.Ios);
+        Assert.Equal("18.0", availability.Maccatalyst);
+        Assert.Equal("27.0", availability.Tvos);
+        Assert.Equal("27.0", availability.Macos);
+    }
+
+    [Theory]
+    // An outer umbrella floors a nested type whose own iOS record is earlier.
+    [InlineData(null, "27.0", "18.0", null, "27.0", "27.0")]
+    // An inner umbrella floors a nested type above its parent's named records.
+    [InlineData("15.0", null, null, "27.2", "27.2", "27.2")]
+    public void Outer_floor_and_inner_anyAppleOS_both_constrain_a_nested_type(
+        string? outerIos, string? outerAnyAppleOS, string? innerIos, string? innerAnyAppleOS,
+        string expectedIos, string expectedTvos)
+    {
+        var inner = TypeDecl("Enum", "TokenType", "$s8StoreKit4LinkV9TokenTypeO",
+            introIos: innerIos, introAnyAppleOS: innerAnyAppleOS);
+        var outer = TypeDecl("Struct", "Link", "$s8StoreKit4LinkV",
+            introIos: outerIos, introTvos: outerIos, introAnyAppleOS: outerAnyAppleOS,
+            childrenJson: "[" + inner + "]");
+
+        var availability = BuildAcrossDumps("StoreKit.Link.TokenType", _ => outer);
+
+        Assert.Equal(expectedIos, availability.Ios);
+        Assert.Equal(expectedIos, availability.Maccatalyst);
+        Assert.Equal(expectedTvos, availability.Tvos);
+    }
+
+    [Fact]
+    public void A_dump_fills_only_the_column_of_its_own_platform()
+    {
+        // Each dump prints every platform's intro_* keys. A type the tvOS dump leaves out is
+        // unavailable there, even though the iOS dump shows an intro_tvOS for it.
+        var availability = BuildAcrossDumps("Kit.Widget", target => target == TvosTarget
+            ? null
+            : TypeDecl("Struct", "Widget", "$s3Kit6WidgetV", introIos: "16.0", introTvos: "16.0", introMacosx: "13.0"));
+
+        Assert.Equal("16.0", availability.Ios);
+        Assert.Equal("16.0", availability.Maccatalyst);
+        Assert.Equal("13.0", availability.Macos);
+        Assert.Null(availability.Tvos);
+    }
+
+    [Theory]
+    [InlineData(null, "records no -target")]
+    [InlineData("arm64-apple-watchos11.0-simulator", "columns only for")]
+    [InlineData("arm64-unknown-linux-gnu", "names no Apple OS")]
+    public void Dump_whose_platform_has_no_manifest_column_is_rejected(string? target, string message)
+    {
+        var builder = NewBuilder("Kit.Widget");
+        var abi = MakeAbi("Kit", "[" + TypeDecl("Struct", "Widget", "$s3Kit6WidgetV", introIos: "16.0") + "]", target);
+
+        var ex = Assert.Throws<InvalidDataException>(() => IngestString(builder, abi));
+        Assert.Contains(message, ex.Message);
+    }
+
+    [Fact]
+    public void Digester_NO_MODULE_placeholder_is_rejected()
+    {
+        // The digester exits 0 with this root when the module fails to load for the target.
+        var builder = NewBuilder("StoreKit.Product");
+        var abi = MakeAbi("NO_MODULE", "[]", CatalystTarget);
+
+        var ex = Assert.Throws<InvalidDataException>(() => IngestString(builder, abi));
+        Assert.Contains("NO_MODULE", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("arm64-apple-ios27.0-simulator", AbiApplePlatform.iOS)]
+    [InlineData("arm64-apple-ios27.0", AbiApplePlatform.iOS)]
+    [InlineData("arm64-apple-ios27.0-macabi", AbiApplePlatform.macCatalyst)]
+    [InlineData("x86_64-apple-macosx10.15", AbiApplePlatform.macOS)]
+    [InlineData("arm64-apple-macos27.0", AbiApplePlatform.macOS)]
+    [InlineData("arm64-apple-tvos27.0-simulator", AbiApplePlatform.tvOS)]
+    [InlineData("arm64_32-apple-watchos11.0", AbiApplePlatform.watchOS)]
+    [InlineData("arm64-apple-xros2.0-simulator", AbiApplePlatform.visionOS)]
+    [InlineData("arm64-unknown-linux-gnu", null)]
+    [InlineData("", null)]
+    public void Target_triple_names_the_dump_platform(string triple, AbiApplePlatform? expected)
+    {
+        Assert.Equal(expected, AbiIntroducedAvailability.FromTargetTriple(triple));
     }
 
     [Fact]
