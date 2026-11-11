@@ -171,19 +171,6 @@ internal static class GenericDispatchEmitter
         if (MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(parentTypeDecl, typeDatabase))
             return true;
 
-        // Nested-in-generic-outer parents: the GSF render emits
-        // `Module.Outer.Inner<T, U>(...)`, but Swift wants `Module.Outer<T>.Inner<U>(...)`.
-        // Until the renderer can place generic args on the correct path segment, refuse
-        // these parents from both Constructor and Method/Property/Subscript dispatch.
-        // A method or property accessor is the exception when the nested type declares no
-        // generic parameters of its own: its dispatch is an extension on the nested type reached
-        // through `Self`, and its metadata comes from the nested type's own accessor, which takes
-        // exactly the enclosing type's arguments — neither step spells a generic argument list.
-        if (HasGenericOuterAncestor(parentTypeDecl)
-            && !(kind is GenericDispatchKind.PropertyGetter or GenericDispatchKind.PropertySetter or GenericDispatchKind.Method
-                 && WrapperValidation.IsInheritedGenericContext(parentTypeDecl)))
-            return true;
-
         bool supportsDescriptorPwt = kind == GenericDispatchKind.Constructor ||
             (parentTypeDecl is StructDecl &&
              kind is GenericDispatchKind.PropertyGetter or GenericDispatchKind.PropertySetter);
@@ -252,21 +239,6 @@ internal static class GenericDispatchEmitter
             return true;
         }
 
-        return false;
-    }
-
-    // True when any ancestor type in the ParentDecl chain is generic. Used to refuse the
-    // GSF render path for nested types whose outer is generic — the dotted construction
-    // expression places generic args on the wrong segment.
-    internal static bool HasGenericOuterAncestor(TypeDecl parentTypeDecl)
-    {
-        var ancestor = parentTypeDecl.ParentDecl;
-        while (ancestor is TypeDecl outerType)
-        {
-            if (outerType.IsGeneric)
-                return true;
-            ancestor = outerType.ParentDecl;
-        }
         return false;
     }
 

@@ -176,22 +176,7 @@ public class PInvokeHelperContext
     /// <returns>A new context for generic types, null otherwise.</returns>
     public static PInvokeHelperContext? CreateIfGeneric(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
-        // Two-axis signature:
-        //   - ownParams: what the C# class declares (after subtracting ancestor-inherited
-        //     params — see GenericTypeEmitter.GetTypeDeclOwnGenericParams). Drives the
-        //     declaration-site header.
-        //   - abiParams: what Swift's metadata accessor expects at the ABI boundary. Swift
-        //     ships a dedicated Ma symbol for every nested type inside a generic outer;
-        //     that symbol takes the outer's generic args (metadata + PWTs), so the ABI
-        //     list is the FULL typeDecl.GenericParameters — inherited included.
-        // A nested type on a generic outer has ownParams.Count == 0 but still needs its
-        // own helper class so GetTypeMetadata() can call the nested Ma symbol with the
-        // inherited type arg(s). Returning null here would fall back to the outer's
-        // helper (wrong Ma symbol → VWT destroy walks the wrong layout → SIGSEGV).
-        var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(typeDecl);
-        var abiParams = (ownParams.Count > 0 || !typeDecl.IsGeneric)
-            ? ownParams
-            : typeDecl.GenericParameters.ToList();
+        var abiParams = GetMetadataAccessorGenericParams(typeDecl);
         if (abiParams.Count == 0)
             return null;
 
@@ -219,10 +204,7 @@ public class PInvokeHelperContext
     /// </summary>
     public static PInvokeHelperContext? CreateIfGeneric(TypeDecl typeDecl)
     {
-        var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(typeDecl);
-        var abiParams = (ownParams.Count > 0 || !typeDecl.IsGeneric)
-            ? ownParams
-            : typeDecl.GenericParameters.ToList();
+        var abiParams = GetMetadataAccessorGenericParams(typeDecl);
         if (abiParams.Count == 0)
             return null;
 
@@ -234,21 +216,39 @@ public class PInvokeHelperContext
     }
 
     /// <summary>
+    /// The generic parameters Swift's metadata accessor (<c>…Ma</c>) takes, in order. A type
+    /// nested in a generic outer has its own accessor, and that accessor takes every parameter in
+    /// the nested type's generic signature: the enclosing types' arguments first, then the nested
+    /// type's own. That is <c>typeDecl.GenericParameters</c> whole, inherited included, and it is
+    /// deliberately NOT the own-parameter list the C# class header declares
+    /// (<see cref="GenericTypeEmitter.GetTypeDeclOwnGenericParams"/>): for
+    /// <c>Outer&lt;Value&gt;.Inner&lt;Element&gt;</c> the accessor is
+    /// <c>(request, Value, Element)</c>, and passing only <c>Element</c> leaves the runtime
+    /// reading a garbage pointer as the second argument. A nested type that declares no
+    /// parameters of its own still needs its own helper for the same reason — falling back to the
+    /// outer's helper would call the outer's accessor, and the value-witness table of the wrong
+    /// layout. In C# both levels' parameters are in scope inside the nested class, so every name
+    /// here resolves at the call site.
+    /// </summary>
+    internal static IReadOnlyList<GenericArgumentDecl> GetMetadataAccessorGenericParams(TypeDecl typeDecl)
+        => typeDecl.IsGeneric ? typeDecl.GenericParameters : Array.Empty<GenericArgumentDecl>();
+
+    /// <summary>
     /// Pre-flattens per-parameter conformances in the order Swift's metadata accessor
     /// expects: walk generic params in declaration order, and for each param walk its
     /// conformances sorted lex by ConformanceTarget.ModuleQualifiedName.
     /// </summary>
     private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold,
             IReadOnlyList<UnresolvedPwtConstraint> unresolved)
-        FlattenConformances(TypeDecl typeDecl, IReadOnlyList<GenericArgumentDecl> ownParams,
+        FlattenConformances(TypeDecl typeDecl, IReadOnlyList<GenericArgumentDecl> abiParams,
             IReadOnlyList<string> typeParams, ITypeDatabase typeDatabase)
     {
         var entries = new List<HelperPwtEntry>();
         var unresolved = new List<UnresolvedPwtConstraint>();
 
-        for (int i = 0; i < ownParams.Count; i++)
+        for (int i = 0; i < abiParams.Count; i++)
         {
-            var gp = ownParams[i];
+            var gp = abiParams[i];
             var csName = typeParams[i];
 
             // Sort lexicographically by module-qualified protocol name per the doc.
