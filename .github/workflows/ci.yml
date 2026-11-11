@@ -103,9 +103,9 @@ jobs:
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
-      # Measured on macos-26 with a cold parser cache: parser build ~9.5 min, solution build
-      # ~1.5 min, unit/analyzer/runtime/toolchain tests ~5 min. A warm cache takes the parser
-      # to seconds; the limit is for the cold case.
+      # Measured on macos-26 with a cold parser cache (18 min): parser build ~9 min, solution
+      # build ~2.5 min, unit/analyzer/runtime/toolchain tests ~6.5 min. A warm cache takes the
+      # parser to seconds; the limit is for the cold case.
       - name: Build and run tests
         timeout-minutes: 25
         run: |
@@ -188,16 +188,6 @@ jobs:
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
-      - name: Create and boot iOS Simulator (background)
-        run: |
-          # Create sim and kick off boot in background so it warms up during binding-tests
-          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
-                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
-          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          echo "Created simulator: $UDID"
-          xcrun simctl boot "$UDID" &
-          echo "Boot started in background"
-
       - name: Build and test bindings (strict + coverage + baselines)
         # --skip-surface runs the Layer B skip-surface trend gate against
         # build/baselines/skip-surface-baseline.json in the same compile-only
@@ -225,8 +215,19 @@ jobs:
           --abi-json "$(find .build -path '*/SwiftBindingsTestLib.swiftmodule/*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
+      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
+      # runner busy for its whole life, which tripled the gate's Swift and C# build times.
+      - name: Create and boot iOS Simulator (background)
+        run: |
+          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
+                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "Created simulator: $UDID"
+          xcrun simctl boot "$UDID" &
+          echo "Boot started in background"
+
       - name: Wait for simulator boot
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       - name: Run iOS Simulator tests
@@ -285,17 +286,19 @@ jobs:
         with:
           profile: net11-xcode27
 
-      - name: Create and boot iOS Simulator (background)
-        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
-
       - name: Compile gate (strict)
         run: >
           bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- binding-tests --strict --compile-only --skip-surface
 
+      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
+      # runner busy for its whole life, which tripled the gate's Swift and C# build times.
+      - name: Create and boot iOS Simulator (background)
+        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
+
       - name: Wait for simulator boot
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       # The first class builds the app from the bindings the compile gate generated; the rest

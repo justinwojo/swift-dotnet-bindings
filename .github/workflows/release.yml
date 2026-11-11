@@ -252,15 +252,6 @@ jobs:
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: sip-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('tools/SwiftInterfaceParser/Package.swift', 'tools/SwiftInterfaceParser/Package.resolved', 'tools/SwiftInterfaceParser/Sources/**') }}
 
-      - name: Create and boot iOS Simulator (background)
-        run: |
-          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
-                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
-          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          echo "Created simulator: $UDID"
-          xcrun simctl boot "$UDID" &
-          echo "Boot started in background"
-
       - name: Build and test bindings (strict + coverage + baselines)
         # --skip-surface runs the Layer B skip-surface trend gate against
         # build/baselines/skip-surface-baseline.json in the same compile-only
@@ -288,8 +279,19 @@ jobs:
           --abi-json "$(find .build -path '*/SwiftBindingsTestLib.swiftmodule/*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
+      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
+      # runner busy for its whole life, which tripled the gate's Swift and C# build times.
+      - name: Create and boot iOS Simulator (background)
+        run: |
+          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
+                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "Created simulator: $UDID"
+          xcrun simctl boot "$UDID" &
+          echo "Boot started in background"
+
       - name: Wait for simulator boot
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       - name: Run iOS Simulator tests
@@ -600,9 +602,6 @@ jobs:
         with:
           profile: ${{ matrix.profile }}
 
-      - name: Create and boot iOS Simulator (background)
-        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
-
       - name: Unit tests
         run: >
           bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
@@ -615,8 +614,13 @@ jobs:
           --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
           -- binding-tests --strict --compile-only --skip-surface
 
+      # Booted only once the compile gate is done: a booted simulator keeps the 3-core hosted
+      # runner busy for its whole life, which tripled the gate's Swift and C# build times.
+      - name: Create and boot iOS Simulator (background)
+        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform iOS --create ci-sim --download-missing
+
       - name: Wait for simulator boot
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       - name: Run iOS Simulator tests
