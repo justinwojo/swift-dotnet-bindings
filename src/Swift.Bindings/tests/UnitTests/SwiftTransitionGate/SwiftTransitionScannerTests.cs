@@ -209,6 +209,69 @@ public class SwiftTransitionScannerTests
     }
 
     [Fact]
+    public void R2_ManagedCalliWithSwiftSelf_Fires()
+    {
+        var report = Scan("""
+            public static unsafe class C
+            {
+                public static void Call(nint p, SwiftSelf self) => ((delegate*<SwiftSelf, void>)p)(self);
+            }
+            """);
+        var calli = Assert.Single(report.Violations, v => v.Site == TransitionSiteKind.Calli);
+        Assert.Equal(TransitionRule.R2, calli.Rule);
+        Assert.Contains(report.Sites, s => s.Kind == TransitionSiteKind.Calli && s.Convention == TransitionConvention.Managed
+                                           && s.Rules.SequenceEqual(new[] { TransitionRule.R2 }));
+    }
+
+    [Fact]
+    public void R2_FunctionPointerTypeOnlyInACalliSignature_Fires()
+    {
+        // The returned pointer is discarded, so its type lives only in the call site's signature.
+        var report = Scan("""
+            public static unsafe class C
+            {
+                public static void Call(nint p) => _ = ((delegate* unmanaged[Cdecl]<delegate* unmanaged[Cdecl]<SwiftSelf, void>>)p)();
+            }
+            """);
+        Assert.Contains(report.Violations, v => v.Rule == TransitionRule.R2 && v.Site == TransitionSiteKind.FunctionPointerType
+                                                && v.Reason.Contains("calli signature"));
+    }
+
+    [Fact]
+    public void R2_FunctionPointerTypes_AreReportedPerOverload()
+    {
+        var report = Scan("""
+            public static unsafe class C
+            {
+                public static void M(delegate* unmanaged[Cdecl]<SwiftSelf, void> f) { }
+                public static void M(int n, delegate* unmanaged[Cdecl]<SwiftSelf, void> f) { }
+            }
+            """);
+        Assert.Equal(2, report.Violations.Count(v => v.Rule == TransitionRule.R2 && v.Member == "C::M"));
+        Assert.Equal(2, report.Sites.Select(s => s.MemberToken).Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData(0x7F000001u)] // not a metadata table
+    [InlineData(0x110000FFu)] // a StandAloneSig row that does not exist
+    public void CalliWithABadSignatureToken_IsAnInspectionError(uint badToken)
+    {
+        var image = Compile(Preamble + """
+            public static unsafe class C
+            {
+                public static long Call(nint p, long a) => ((delegate* unmanaged[Cdecl]<long, long>)p)(a);
+            }
+            """, "Fixture");
+        // Patch the one calli's StandAloneSig token (0x29 then 11xxxxxx little-endian).
+        var at = Enumerable.Range(0, image.Length - 5).Single(i => image[i] == 0x29 && image[i + 4] == 0x11 && image[i + 3] == 0x00);
+        BitConverter.GetBytes(badToken).CopyTo(image, at + 1);
+        var report = SwiftTransitionScanner.Scan(image, "Fixture.dll", Options());
+        Assert.False(report.Passed);
+        var error = Assert.Single(report.InspectionErrors);
+        Assert.StartsWith("C::Call", error.Member);
+    }
+
+    [Fact]
     public void R2_CdeclUnmanagedCallersOnlyWithSwiftSelf_Fires()
     {
         var report = Scan("""

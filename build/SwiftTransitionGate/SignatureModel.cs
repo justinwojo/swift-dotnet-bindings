@@ -231,22 +231,36 @@ public sealed class SigTypeProvider : ISignatureTypeProvider<SigType, object?>
     public SigType GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind) =>
         reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
 
+    // Each decode must consume its whole blob: trailing bytes mean the blob is not the signature
+    // it was read as, so it fails rather than being judged on a prefix.
     public MethodSignature<SigType> DecodeMethod(BlobHandle blob)
     {
         var reader = _reader.GetBlobReader(blob);
-        return new SignatureDecoder<SigType, object?>(this, _reader, null).DecodeMethodSignature(ref reader);
+        var signature = new SignatureDecoder<SigType, object?>(this, _reader, null).DecodeMethodSignature(ref reader);
+        RequireConsumed(reader);
+        return signature;
     }
 
     public SigType DecodeField(BlobHandle blob)
     {
         var reader = _reader.GetBlobReader(blob);
-        return new SignatureDecoder<SigType, object?>(this, _reader, null).DecodeFieldSignature(ref reader);
+        var type = new SignatureDecoder<SigType, object?>(this, _reader, null).DecodeFieldSignature(ref reader);
+        RequireConsumed(reader);
+        return type;
     }
 
     public ImmutableArray<SigType> DecodeLocals(StandaloneSignatureHandle handle)
     {
         var reader = _reader.GetBlobReader(_reader.GetStandaloneSignature(handle).Signature);
-        return new SignatureDecoder<SigType, object?>(this, _reader, null).DecodeLocalSignature(ref reader);
+        var locals = new SignatureDecoder<SigType, object?>(this, _reader, null).DecodeLocalSignature(ref reader);
+        RequireConsumed(reader);
+        return locals;
+    }
+
+    private static void RequireConsumed(BlobReader reader)
+    {
+        if (reader.RemainingBytes != 0)
+            throw new BadImageFormatException($"signature blob has {reader.RemainingBytes} trailing byte(s)");
     }
 }
 

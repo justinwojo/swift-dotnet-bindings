@@ -63,8 +63,8 @@ public sealed record TransitionViolation(
 
 /// <summary>
 /// One transition site, for the machine-readable inventory: every P/Invoke declaration, every
-/// <c>UnmanagedCallersOnly</c> method and every unmanaged <c>calli</c>, plus each function-pointer
-/// type a rule flagged. <see cref="Rules"/> lists the rules it violates (empty when it is safe).
+/// <c>UnmanagedCallersOnly</c> method and every unmanaged <c>calli</c>, plus each managed
+/// <c>calli</c> and function-pointer type a rule flagged. <see cref="Rules"/> lists the rules it violates (empty when it is safe).
 /// <see cref="MemberToken"/> is the metadata token of the method (or, for a field's function-pointer
 /// type, the field) the site belongs to, so overloads that share a display name stay distinct.
 /// </summary>
@@ -239,7 +239,7 @@ public static class SwiftTransitionScanner
         private readonly CarrierClassifier _classifier;
         private readonly SwiftTransitionScanOptions _options;
         private readonly SigTypeProvider _provider;
-        private readonly HashSet<(string Member, string Signature)> _functionPointerTypesSeen = new();
+        private readonly HashSet<(int MemberToken, string Signature)> _functionPointerTypesSeen = new();
         private int _memberToken;
 
         public TransitionInventory Inventory { get; } = new();
@@ -271,11 +271,33 @@ public static class SwiftTransitionScanner
                     _memberToken = MetadataTokens.GetToken(fieldHandle);
                     var field = _md.GetFieldDefinition(fieldHandle);
                     var member = typeName + "::" + _md.GetString(field.Name);
-                    if (TryDecode(member, () => _provider.DecodeField(field.Signature), out var fieldType))
-                        CheckFunctionPointerTypes(member, new[] { fieldType }, "field type");
+                    Guarded(member, () =>
+                    {
+                        if (TryDecode(member, () => _provider.DecodeField(field.Signature), out var fieldType))
+                            CheckFunctionPointerTypes(member, new[] { fieldType }, "field type");
+                    });
                 }
                 foreach (var methodHandle in type.GetMethods())
-                    ScanMethod(typeName, methodHandle);
+                {
+                    var name = typeName + "::" + _md.GetString(_md.GetMethodDefinition(methodHandle).Name);
+                    Guarded(name, () => ScanMethod(typeName, methodHandle));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Malformed metadata a member's scan trips over (a bad token, an out-of-range row, an
+        /// unreadable blob) is an inspection error on that member, never an aborted scan.
+        /// </summary>
+        private void Guarded(string member, Action scan)
+        {
+            try
+            {
+                scan();
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                Errors.Add(new InspectionError(member, "metadata unreadable: " + ex.Message));
             }
         }
 
@@ -459,20 +481,29 @@ public static class SwiftTransitionScanner
                 if (!TryDecode(member, () => _provider.DecodeMethod(sigBlob), out var calliSignature))
                     continue;
                 ScanCalli(member, instruction.Offset, calliSignature);
+                // The call site's own signature is judged above; the function-pointer types it carries
+                // may appear nowhere else in metadata.
+                CheckFunctionPointerTypes(member, calliSignature.ParameterTypes.Prepend(calliSignature.ReturnType), "calli signature");
             }
         }
 
         private void ScanCalli(string member, int offset, MethodSignature<SigType> signature)
         {
             var convention = Conventions.OfFunctionPointer(signature);
-            if (convention == TransitionConvention.Managed)
-            {
-                // A managed calli is not a transition: counted, not listed.
-                Inventory.ManagedCalliSites++;
-                return;
-            }
             var sigText = TypeNames.Display(convention, signature);
             var carriers = Carriers(signature);
+            if (convention == TransitionConvention.Managed)
+            {
+                // A managed calli is not a transition: counted, and listed only when R2 flags it.
+                Inventory.ManagedCalliSites++;
+                var special = carriers.Where(c => IsForbiddenOutsideSwift(c.Verdict.Kind)).ToList();
+                if (special.Count > 0)
+                    Report(AddSite(TransitionSiteKind.Calli, member, convention, sigText, ilOffset: offset),
+                        new TransitionViolation(TransitionRule.R2, TransitionSiteKind.Calli, member, sigText,
+                            "managed calli carries a Swift special type: " + Describe(special),
+                            IlOffset: offset, Classes: ClassesOf(special)));
+                return;
+            }
             var site = AddSite(TransitionSiteKind.Calli, member, convention, sigText, ilOffset: offset);
             switch (convention)
             {
@@ -502,7 +533,7 @@ public static class SwiftTransitionScanner
         /// <summary>
         /// R2 over function-pointer types nested anywhere in <paramref name="types"/>: a non-Swift
         /// function-pointer type (managed or unmanaged) must not carry a Swift special value type.
-        /// Each distinct type is reported once per member, at its first location.
+        /// Each distinct type is reported once per member (by metadata token), at its first location.
         /// </summary>
         private void CheckFunctionPointerTypes(string member, IEnumerable<SigType> types, string location)
         {
@@ -516,7 +547,7 @@ public static class SwiftTransitionScanner
                     if (forbidden.Count == 0)
                         continue;
                     var sigText = TypeNames.Display(type);
-                    if (!_functionPointerTypesSeen.Add((member, sigText)))
+                    if (!_functionPointerTypesSeen.Add((_memberToken, sigText)))
                         continue;
                     var site = AddSite(TransitionSiteKind.FunctionPointerType, member, fnptr.Convention, sigText);
                     Report(site, new TransitionViolation(TransitionRule.R2, TransitionSiteKind.FunctionPointerType, member, sigText,
