@@ -58,6 +58,9 @@ public enum CarrierKind
 /// </summary>
 public sealed record CarrierVerdict(CarrierKind Kind, string Display, string? Detail = null, string? Canonical = null)
 {
+    /// <summary>For a <see cref="CarrierKind.SwiftSelfGeneric"/>, where CoreCLR places it (<see cref="LegacySwiftSelfPhysical"/>).</summary>
+    public LegacySelfPhysical? SelfPhysical { get; init; }
+
     public bool IsPrimitiveOrVoid => Kind is CarrierKind.Primitive or CarrierKind.Void;
 
     public bool IsSwiftSpecial => Kind is CarrierKind.SwiftSelf or CarrierKind.SwiftSelfGeneric
@@ -220,7 +223,13 @@ public sealed class CarrierClassifier
             case CarrierKind.SwiftSelf:
                 return new(CarrierKind.SwiftSelf, display, "SwiftSelf (self register)");
             case CarrierKind.SwiftSelfGeneric:
-                return new(CarrierKind.SwiftSelfGeneric, display, "SwiftSelf<T> (typed self)");
+            {
+                var physical = LegacySwiftSelfPhysical.Classify(named, _resolver);
+                return new(CarrierKind.SwiftSelfGeneric, display, $"SwiftSelf<T> (typed self, {physical.Describe()})")
+                {
+                    SelfPhysical = physical,
+                };
+            }
             case CarrierKind.SwiftIndirectResult:
                 return new(CarrierKind.SwiftIndirectResult, display, "SwiftIndirectResult (indirect-result register)");
             case CarrierKind.SwiftError:

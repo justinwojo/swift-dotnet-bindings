@@ -103,6 +103,15 @@ public sealed class TransitionInventory
     public int SwiftPInvokesAggregateOnly { get; set; }
     public int SwiftPInvokesWithSwiftSelf { get; set; }
     public int SwiftPInvokesWithSwiftSelfGeneric { get; set; }
+
+    /// <summary>Of the forward Swift P/Invokes' <c>SwiftSelf&lt;T&gt;</c> carriers, those CoreCLR lowers into ordinary registers.</summary>
+    public int SwiftSelfGenericLowered { get; set; }
+
+    /// <summary>… those CoreCLR passes by address in the self register, which the arm64 interpreter corrupts.</summary>
+    public int SwiftSelfGenericByAddress { get; set; }
+
+    /// <summary>… those whose placement could not be read with certainty.</summary>
+    public int SwiftSelfGenericPlacementUnknown { get; set; }
     public int SwiftPInvokesWithSwiftError { get; set; }
     public int SwiftPInvokesWithSwiftIndirectResult { get; set; }
     public int NonSwiftPInvokes { get; set; }
@@ -380,6 +389,15 @@ public static class SwiftTransitionScanner
                 var specials = carriers.Where(c => c.Verdict.IsSwiftSpecial).Select(c => c.Verdict.Kind).ToHashSet();
                 if (specials.Contains(CarrierKind.SwiftSelf)) Inventory.SwiftPInvokesWithSwiftSelf++;
                 if (specials.Contains(CarrierKind.SwiftSelfGeneric)) Inventory.SwiftPInvokesWithSwiftSelfGeneric++;
+                foreach (var (_, verdict) in carriers)
+                {
+                    switch (verdict.SelfPhysical?.Placement)
+                    {
+                        case LegacySelfPlacement.Lowered: Inventory.SwiftSelfGenericLowered++; break;
+                        case LegacySelfPlacement.ByAddressInSelfRegister: Inventory.SwiftSelfGenericByAddress++; break;
+                        case LegacySelfPlacement.Unknown: Inventory.SwiftSelfGenericPlacementUnknown++; break;
+                    }
+                }
                 if (specials.Contains(CarrierKind.SwiftError)) Inventory.SwiftPInvokesWithSwiftError++;
                 if (specials.Contains(CarrierKind.SwiftIndirectResult)) Inventory.SwiftPInvokesWithSwiftIndirectResult++;
                 var offending = carriers.Where(c => !c.Verdict.IsPrimitiveOrVoid).ToList();
