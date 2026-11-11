@@ -186,6 +186,9 @@ public static class SwiftTransitionReport
         yield return ("swiftPInvokesAggregateOnly", i.SwiftPInvokesAggregateOnly);
         yield return ("swiftPInvokesWithSwiftSelf", i.SwiftPInvokesWithSwiftSelf);
         yield return ("swiftPInvokesWithSwiftSelfGeneric", i.SwiftPInvokesWithSwiftSelfGeneric);
+        yield return ("swiftSelfGenericLowered", i.SwiftSelfGenericLowered);
+        yield return ("swiftSelfGenericByAddress", i.SwiftSelfGenericByAddress);
+        yield return ("swiftSelfGenericPlacementUnknown", i.SwiftSelfGenericPlacementUnknown);
         yield return ("swiftPInvokesWithSwiftError", i.SwiftPInvokesWithSwiftError);
         yield return ("swiftPInvokesWithSwiftIndirectResult", i.SwiftPInvokesWithSwiftIndirectResult);
         yield return ("nonSwiftPInvokes", i.NonSwiftPInvokes);

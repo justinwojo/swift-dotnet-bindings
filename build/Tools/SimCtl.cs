@@ -262,21 +262,35 @@ public static class SimCtl
     /// never started the process (or a resume attempt that died before writing) would otherwise
     /// recover the previous run's results and have them scored as this run's.
     /// </param>
-    public static string? CopyResultsFromSandbox(string udid, string bundleId, string expectedRunToken)
+    /// <param name="appOutput">
+    /// This launch's captured console output. The app announces its results path there
+    /// (<c>JSONL output: …</c>), which is used as an extra candidate when the container lookup fails
+    /// — still subject to the same run-token check. See
+    /// <see cref="SandboxResultProbe.ParseAnnouncedResultsPath"/>.
+    /// </param>
+    public static string? CopyResultsFromSandbox(string udid, string bundleId, string expectedRunToken, string? appOutput)
     {
         try
         {
-            // Get the app's data container path. Shortly after a boot, on a loaded CI runner, this
-            // query has taken over 10 s; a timeout here loses the run's results, so it gets the
-            // same bound as the boot itself.
-            var containerProcess = ProcessTasks.StartProcess(
-                "xcrun", $"simctl get_app_container {udid} {bundleId} data",
-                logOutput: false, timeout: 60_000);
-            containerProcess.AssertWaitForExit();
-            var containerPath = containerProcess.Output.StdToText().Trim();
+            // Retry the container lookup only when the app announced no path: an announcement names
+            // the file this same launch wrote, in the same container, so a retried lookup could only
+            // delay its recovery.
+            var announcedPath = SandboxResultProbe.ParseAnnouncedResultsPath(appOutput, udid);
+            var containerPath = GetAppDataContainer(udid, bundleId,
+                maxAttempts: announcedPath == null ? ContainerLookupAttempts : 1);
 
             if (string.IsNullOrEmpty(containerPath))
-                return null;
+            {
+                if (announcedPath == null)
+                {
+                    Log.Warning(
+                        "Cannot locate simulator JSONL: the app data container lookup failed (see above) " +
+                        "and the app announced no readable results path in its output.");
+                    return null;
+                }
+
+                Log.Warning("Falling back to the results path the app announced: {Path}", announcedPath);
+            }
 
             // The runners write to Environment.SpecialFolder.MyDocuments, which does NOT
             // resolve to <container>/Documents on every Apple platform. tvOS has no
@@ -286,12 +300,8 @@ public static class SimCtl
             // certify a green run that had no results file. Probe both shapes rather than
             // branching on platform: the names are distinct, so the first hit carrying THIS
             // launch's token is unambiguous, and an iOS container is unaffected by the
-            // extra check.
-            string[] candidates =
-            [
-                Path.Combine(containerPath, "Documents", "test-results.jsonl"),
-                Path.Combine(containerPath, "Library", "Caches", "Documents", "test-results.jsonl"),
-            ];
+            // extra check. The app's announced path follows as a further candidate.
+            var candidates = SandboxResultProbe.SimulatorCandidates(containerPath, announcedPath);
 
             // Fail closed per candidate: no token, or a token from an earlier launch, means THAT file
             // cannot be attributed to this launch — but it says nothing about the other shape, which
@@ -345,9 +355,62 @@ public static class SimCtl
         }
         catch (Exception ex)
         {
-            Log.Debug("Failed to copy JSONL from sandbox: {Message}", ex.Message);
+            Log.Warning("Failed to copy JSONL from sandbox: {Message}", ex.Message);
             return null;
         }
+    }
+
+    const int ContainerLookupAttempts = 3;
+
+    /// <summary>
+    /// <c>simctl get_app_container … data</c>, retried a bounded number of times. Returns null when
+    /// every attempt failed, after logging each failure's exit code and stderr: on a loaded CI runner
+    /// this query has come back empty right after a completed run, and a silent null there lost a
+    /// green run's results with nothing in the log to say why.
+    /// </summary>
+    static string? GetAppDataContainer(string udid, string bundleId, int maxAttempts)
+    {
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            string failure;
+            try
+            {
+                // Shortly after a boot, on a loaded CI runner, this query has taken over 10 s; a
+                // timeout here loses the run's results, so it gets the same bound as the boot itself.
+                var process = ProcessTasks.StartProcess(
+                    "xcrun", $"simctl get_app_container {udid} {bundleId} data",
+                    logOutput: false, timeout: 60_000);
+                if (!process.WaitForExit())
+                {
+                    failure = "timed out after 60 s";
+                }
+                else
+                {
+                    var stdout = process.Output.Where(o => o.Type == OutputType.Std)
+                        .Select(o => o.Text).LastOrDefault(t => !string.IsNullOrWhiteSpace(t))?.Trim();
+                    if (process.ExitCode == 0 && !string.IsNullOrEmpty(stdout))
+                        return stdout;
+
+                    var stderr = string.Join(" | ", process.Output
+                        .Where(o => o.Type == OutputType.Err && !string.IsNullOrWhiteSpace(o.Text))
+                        .Select(o => o.Text.Trim()));
+                    failure = $"exit code {process.ExitCode}, " +
+                        (string.IsNullOrEmpty(stdout) ? "no stdout" : $"stdout '{stdout}'") +
+                        $", stderr: {(stderr.Length > 0 ? stderr : "<empty>")}";
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = $"{ex.GetType().Name}: {ex.Message}";
+            }
+
+            Log.Warning("simctl get_app_container for {BundleId} failed (attempt {Attempt}/{Max}): {Failure}",
+                bundleId, attempt, maxAttempts, failure);
+            if (attempt < maxAttempts)
+                Thread.Sleep(TimeSpan.FromSeconds(2 * attempt));
+        }
+
+        return null;
     }
 
     /// <summary>

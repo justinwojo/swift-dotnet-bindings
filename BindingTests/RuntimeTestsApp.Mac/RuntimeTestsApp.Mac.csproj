@@ -73,6 +73,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MallocProbe.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/ConservativeRootProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MainQueueSynchronizationContext.cs" />
   </ItemGroup>
 
@@ -101,6 +102,9 @@
     <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Properties/ZeroWitnessExistentialPropertyTests.cs" />
+    <!-- Self and argument passing per (member, type), with exact destruction counts: the calling
+         convention is the runtime's, so it is checked on CoreCLR as well as Mono and NativeAOT. -->
+    <Compile Include="../RuntimeTestsApp/Parameters/SelfAndParameterPassingTests.cs" />
     <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
     <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />

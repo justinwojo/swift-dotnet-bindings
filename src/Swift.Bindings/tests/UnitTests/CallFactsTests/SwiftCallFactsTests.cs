@@ -573,6 +573,35 @@ public class SwiftCallFactsTests
     }
 
     [Fact]
+    public void TypedPointer_IsAFrozenWord_EvenWhereTheDatabaseListsItAsResilient()
+    {
+        // The shipped standard-library database records UnsafePointer and UnsafeMutablePointer
+        // without the frozen flag; every pointer shape is still one direct word.
+        var db = new TypeDatabase();
+        RegisterStandardTypes(db);
+        var pointerName = SwiftTypeName.FromModuleQualifiedName("Swift.UnsafePointer");
+        db.AddOutOfModuleTypes(new[]
+        {
+            (pointerName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Ns", "UnsafePointer"),
+                SwiftTypeName = pointerName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+        const string symbol = "$s10TestModule3useyySPySiGF";
+        var fn = Func("use", "use(_:)", symbol, new[] { Void, Nominal("Swift.UnsafePointer<Swift.Int>", name: "UnsafePointer") });
+
+        var (_, table, _) = ParseInto(db, M, fn);
+
+        var parameter = Assert.Single(Facts(table, symbol).Parameters).Type;
+        Assert.Equal(SwiftTypeCategory.Struct, parameter.Category);
+        Assert.True(parameter.IsFrozen);
+    }
+
+    [Fact]
     public void ExtensionOfADependencyType_DefersToTheOwningModulesDeclaration()
     {
         const string depPoint = "$s3Dep5PointV";

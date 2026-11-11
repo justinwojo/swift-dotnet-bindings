@@ -557,11 +557,12 @@ internal class AutoWrappedDelegateImplForLifetime : IAutoWrappedMonitorDelegate
 /// <summary>
 /// Thin wrapper around the internal <c>SwiftExitGuard</c> so the runtime test
 /// project can toggle the process-exit flag for the shutdown smoke test.
-/// <c>SwiftExitGuard</c> is internal to <c>Swift.Runtime</c> and
-/// <c>SetProcessExitingForTest</c> is only visible via
-/// <c>InternalsVisibleTo("Swift.Runtime.Tests")</c>; we replicate the same
-/// pattern through reflection so the runtime tests project does not need an
-/// additional InternalsVisibleTo entry.
+/// <c>SwiftExitGuard</c> is internal to <c>Swift.Runtime</c> and its test hooks
+/// are only visible via <c>InternalsVisibleTo("Swift.Runtime.Tests")</c>; we
+/// replicate the same pattern through reflection so the runtime tests project
+/// does not need an additional InternalsVisibleTo entry. The smoke needs the
+/// PROCESS-WIDE hook: the point is to drive the finalizer thread under the guard,
+/// and the thread-scoped <c>SetProcessExitingForTest</c> never reaches that thread.
 /// </summary>
 internal static class SwiftExitGuardHelper
 {
@@ -569,7 +570,7 @@ internal static class SwiftExitGuardHelper
         typeof(Swift.Runtime.SwiftFrameworkResolver).Assembly
             .GetType("Swift.Runtime.SwiftExitGuard")
             ?.GetMethod(
-                "SetProcessExitingForTest",
+                "SetProcessExitingProcessWideForTest",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
 
     public static void MarkExiting() => s_setter?.Invoke(null, new object[] { true });

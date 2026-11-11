@@ -59,8 +59,9 @@ public class AsyncOpaqueReturnTests : TestBase
     // container, ARC-releasing the inline `TrackedRenderable` payload. Without the async
     // ownsContainer wiring each call orphans the payload's +1 (a leaked instance per call). These
     // mirror the SYNC probes in ExistentialReturnLeakProbeTests on the async-harness path. The
-    // dispose loops live in `[MethodImpl(NoInlining)]` async helpers so the completed state machine
-    // (which holds the awaited proxy local) is collectible before the leak assertion. Each call is
+    // dispose loops are async helpers run on an isolated, joined thread, so neither the completed
+    // state machine (which holds the awaited proxy local) nor a stale stack slot of the test thread
+    // can keep a proxy rooted past the leak assertion. Each call is
     // bounded by `WithTimeout(DefaultAsyncTimeout)` — matching the single-call async tests above —
     // so a regressed completion callback fails the probe bounded instead of hanging the run, and
     // the loop stops on the first timeout rather than leaving the remaining iterations in flight.
@@ -80,13 +81,13 @@ public class AsyncOpaqueReturnTests : TestBase
     /// <c>any Renderable</c> at +1 and the completion callback adopts it (<c>ownsContainer</c>).
     /// Disposing each awaited proxy must release the inline tracked class payload.
     /// </summary>
-    public async Task TestAsyncOpaqueReturnReleasesInlinePayload()
+    public void TestAsyncOpaqueReturnReleasesInlinePayload()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         var worker = new AsyncOpaqueWorker();
-        await AllocAndDisposeTrackedRenderablesAsync(worker, 100);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeTrackedRenderablesAsync(worker, 100));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("async -> some Renderable must not orphan the existential payload's retain");
@@ -108,13 +109,13 @@ public class AsyncOpaqueReturnTests : TestBase
     /// async arm of the owned-return path. Same adopt-and-release contract on the proxy as the
     /// non-throwing async return.
     /// </summary>
-    public async Task TestAsyncThrowingOpaqueReturnReleasesInlinePayload()
+    public void TestAsyncThrowingOpaqueReturnReleasesInlinePayload()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         var worker = new AsyncOpaqueWorker();
-        await AllocAndDisposeTrackedRenderablesThrowingAsync(worker, 100);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeTrackedRenderablesThrowingAsync(worker, 100));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("async throws -> some Renderable must not orphan the existential payload's retain");

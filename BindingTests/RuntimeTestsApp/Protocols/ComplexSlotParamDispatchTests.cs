@@ -277,7 +277,7 @@ public class TrackedSlotLeakTests : TestBase
         ComplexSlotParamDispatchTests.DrainFinalizers();
         LifetimeTracker.Reset();
 
-        var summary = DriveOneTrackedBox();
+        var summary = LifetimeTracker.RunIsolated(() => DriveOneTrackedBox());
 
         AssertEqual("solo#11", summary, "tracked box arrived intact and Swift's original still describes correctly");
 
@@ -303,7 +303,7 @@ public class TrackedSlotLeakTests : TestBase
 
     private static void AssertBothSidesAgree(TrackedSlotReceiverImpl impl, string originalAfter)
     {
-        // Deliberately not a TestBase assertion: this runs inside the NoInlining frame so the
+        // Deliberately not a TestBase assertion: this runs inside the isolated churn so the
         // wrapper stays collectible; the caller re-asserts the value.
         if (impl.LastBoxSummary != originalAfter)
         {
@@ -322,7 +322,7 @@ public class TrackedSlotLeakTests : TestBase
         ComplexSlotParamDispatchTests.DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DriveTrackedBoxCallbacks(200);
+        LifetimeTracker.RunIsolated(() => DriveTrackedBoxCallbacks(200));
         ComplexSlotParamDispatchTests.DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(

@@ -18,8 +18,8 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// Each fixture embeds a <see cref="LifetimeTracker"/>-counted instance inside the
 /// existential, so a leaked retain shows up as a non-zero live count after the proxy is
 /// disposed and the GC has drained — not merely as "does not crash". The dispose loops
-/// run in a <c>[MethodImpl(NoInlining)]</c> helper so no stale stack slot keeps a proxy
-/// alive past its <c>Dispose</c>.
+/// run on an isolated, joined thread (<see cref="LifetimeTracker.RunIsolated(Action)"/>) so
+/// no stale stack slot or register keeps a proxy alive past its <c>Dispose</c>.
 ///
 /// The <c>(any Error)?</c> path uses a different wrapper than the proxy paths: <c>any Error</c>
 /// is a single boxed reference wrapped in the <c>AnyError</c> reference type, which adopts the
@@ -53,7 +53,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeOptionalRenderables(200);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeOptionalRenderables(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("(any Renderable)? return must not orphan the existential payload's retain");
@@ -80,7 +80,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeRenderables(200);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeRenderables(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Renderable return must not orphan the existential payload's retain");
@@ -113,7 +113,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        ReadAndDisposePropertyGetter(50);
+        LifetimeTracker.RunIsolated(() => ReadAndDisposePropertyGetter(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("(any Renderable)? property getter must release each returned existential's +1");
@@ -144,7 +144,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeBoxedRenderables(50);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeBoxedRenderables(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("(any Renderable)? boxed-payload return must not orphan the box's retains");
@@ -174,7 +174,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeNameableAgeable(200);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNameableAgeable(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) return must not orphan the composition existential payload's retain");
@@ -201,7 +201,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeNameableAgeableOptional(200);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNameableAgeableOptional(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("(any Nameable & Ageable)? (EC2) return must not orphan the composition existential payload's retain");
@@ -233,7 +233,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeBoxedNameableAgeable(50);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeBoxedNameableAgeable(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) boxed-payload return must not orphan the box's retains");
@@ -262,7 +262,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeOptionalErrors(200);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeOptionalErrors(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("(any Error)? return must not orphan the error box's retain");
@@ -294,7 +294,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        ExtractAndDisposeErrorPayload(50);
+        LifetimeTracker.RunIsolated(() => ExtractAndDisposeErrorPayload(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("TryGetFailed(out AnyError) must release each extracted error payload's +1");
@@ -326,7 +326,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AllocAndDisposeErrors(200);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeErrors(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("non-optional any Error return must not orphan the error box's retain");
@@ -358,7 +358,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        ExtractAndDisposeRenderablePayload(50);
+        LifetimeTracker.RunIsolated(() => ExtractAndDisposeRenderablePayload(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("TryGetShown(out IRenderable) must release each extracted existential payload's +1");
@@ -394,8 +394,8 @@ public class ExistentialReturnLeakProbeTests : TestBase
     // the assertion — and the boxed case forces a real value-witness-table walk
     // (heap box), the strongest exercise of the finalizer-thread hazard.
     //
-    // create-and-abandon runs in a [MethodImpl(NoInlining)] helper so the last
-    // proxy is not left GC-rooted on the test method's frame under Mono's
+    // create-and-abandon runs on an isolated, joined thread so the last proxy
+    // is not left GC-rooted by a stale stack slot or register under Mono's
     // conservative stack scan.
 
     /// <summary>
@@ -411,7 +411,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AbandonNameableAgeable(200);
+        LifetimeTracker.RunIsolated(() => AbandonNameableAgeable(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) finalizer-driven release must not crash or orphan the payload's retain");
@@ -438,7 +438,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AbandonBoxedNameableAgeable(50);
+        LifetimeTracker.RunIsolated(() => AbandonBoxedNameableAgeable(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) boxed-payload finalizer-driven release must not crash or orphan the box's retains");
@@ -463,7 +463,7 @@ public class ExistentialReturnLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        AbandonNameableAgeableOptional(200);
+        LifetimeTracker.RunIsolated(() => AbandonNameableAgeableOptional(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("(any Nameable & Ageable)? (EC2) finalizer-driven release must not crash or orphan the payload's retain");

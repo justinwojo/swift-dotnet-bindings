@@ -1,8 +1,8 @@
 {
-  "git_sha": "9484c19e0",
+  "git_sha": "9d0f7d2f0",
   "platforms": {
     "net11.0_macos_osx-arm64_coreclr_release": {
-      "pass_count": 3378,
+      "pass_count": 3473,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -41,11 +41,6 @@
         },
         {
           "class": "NestedOfParentTests",
-          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
@@ -53,36 +48,6 @@
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
           "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorAdd",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorSubtract",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OwnershipGCStressTests",
@@ -123,7 +88,7 @@
       "known_fails": []
     },
     "net11.0_maccatalyst_maccatalyst-arm64_coreclr_release": {
-      "pass_count": 3378,
+      "pass_count": 3473,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -162,11 +127,6 @@
         },
         {
           "class": "NestedOfParentTests",
-          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
@@ -174,36 +134,6 @@
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
           "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorAdd",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorSubtract",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OwnershipGCStressTests",
@@ -244,7 +174,7 @@
       "known_fails": []
     },
     "net11.0_simulator_iossimulator-arm64_coreclr_release": {
-      "pass_count": 4294,
+      "pass_count": 4395,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -303,11 +233,6 @@
         },
         {
           "class": "NestedOfParentTests",
-          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
@@ -315,36 +240,6 @@
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
           "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorAdd",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorSubtract",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OwnershipGCStressTests",
@@ -526,7 +421,7 @@
       "known_fails": []
     },
     "net11.0_device_ios-arm64_nativeaot_release": {
-      "pass_count": 4293,
+      "pass_count": 4394,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -590,11 +485,6 @@
         },
         {
           "class": "NestedOfParentTests",
-          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
@@ -602,36 +492,6 @@
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
           "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorAdd",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorSubtract",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OwnershipGCStressTests",
@@ -672,7 +532,7 @@
       "known_fails": []
     },
     "net11.0_tvos_simulator_tvossimulator-arm64_coreclr_release": {
-      "pass_count": 3486,
+      "pass_count": 3561,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -711,11 +571,6 @@
         },
         {
           "class": "NestedOfParentTests",
-          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
-          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
         },
@@ -723,36 +578,6 @@
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
           "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorAdd",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorScalarMultiply",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operand passes as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestClassReturningOperatorSubtract",
-          "reason": "Class-parent operators get no @_cdecl wrapper (ShouldEmitOperatorWrapper only wraps frozen-struct parents), so the class operands pass as SafeHandle under CallConvSwift. Both Mono and NativeAOT reject that non-blittable shape with InvalidProgramException before return marshalling runs (Issue 2). The CS0029 return-marshalling fix and the compile gate are proven by the Vector2D fixture; the runtime round-trip needs CallConvCdecl operator wrappers for class parents."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestHeterogeneousClassOperatorUsesMarshallingAlias",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorPreservesNullAndDisposedOperandFailures",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
-        },
-        {
-          "class": "OperatorTests",
-          "method": "TestNumberBoxOperatorUsesMarshallingAliasAndReturnsOwnedResult",
-          "reason": "Class-parent operator SafeHandle operands are unsupported under CallConvSwift on CoreCLR, Mono, and NativeAOT (Issue 2). Activate when class-parent operators receive CallConvCdecl wrappers with IntPtr operands."
         },
         {
           "class": "OwnershipGCStressTests",

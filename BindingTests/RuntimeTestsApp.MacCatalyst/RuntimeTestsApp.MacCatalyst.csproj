@@ -75,6 +75,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MallocProbe.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/ConservativeRootProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MainQueueSynchronizationContext.cs" />
   </ItemGroup>
 
@@ -111,6 +112,9 @@
     <!-- CMTime and its range/mapping structs project as the platform's own CoreMedia value types,
          so their layout and marshalling are checked on every runtime that ships them. -->
     <Compile Include="../RuntimeTestsApp/Types/CoreMediaTimeTests.cs" />
+    <!-- Self and argument passing per (member, type), with exact destruction counts, on every
+         runtime that makes the calls. -->
+    <Compile Include="../RuntimeTestsApp/Parameters/SelfAndParameterPassingTests.cs" />
   </ItemGroup>
 
   <!-- Extract test manifest from source generator output into a host-visible file. -->

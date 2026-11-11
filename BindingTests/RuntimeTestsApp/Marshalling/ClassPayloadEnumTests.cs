@@ -224,7 +224,7 @@ public class ClassPayloadEnumTests : TestBase
         DrainObjCFinalizers();
         LifetimeTracker.Reset();
 
-        ExtractObjCEnumPayloads(150);
+        LifetimeTracker.RunIsolated(() => ExtractObjCEnumPayloads(150));
         DrainObjCFinalizers();
 
         LifetimeTracker.AssertNoLeaks("@objc enum-payload extraction (E1/E2/E3) must balance ARC (UnknownObjectRetain)");

@@ -75,7 +75,7 @@ public class ObjCShapeReceiverTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        ExerciseOwnedGetter(32);
+        LifetimeTracker.RunIsolated(() => ExerciseOwnedGetter(32));
 
         DrainFinalizers();
         LifetimeTracker.AssertLiveCount(0,
@@ -87,8 +87,8 @@ public class ObjCShapeReceiverTests : TestBase
 
     /// <summary>
     /// Creates a receiver over a lifetime-tracked conformer and drives the owned getter-return
-    /// path <paramref name="reads"/> times. Kept out-of-line so the receiver and its shape wrapper
-    /// are unrooted on return, letting the subsequent GC drain finalize them.
+    /// path <paramref name="reads"/> times. Run on an isolated thread so the receiver and its shape
+    /// wrapper are unrooted once that thread exits, letting the subsequent GC drain finalize them.
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void ExerciseOwnedGetter(int reads)

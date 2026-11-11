@@ -158,6 +158,7 @@
       "SwiftOptionalCarrier9",
       "SwiftProxyImplCollectedEventArgs",
       "SwiftProxyImplCollectedException",
+      "SwiftReverseContext",
       "SwiftRuntimeContractMismatchException",
       "SwiftRuntimeException",
       "SwiftRuntimeInfo",

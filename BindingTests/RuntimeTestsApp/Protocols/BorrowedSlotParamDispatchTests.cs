@@ -209,8 +209,10 @@ public class BorrowedSlotParamDispatchTests : TestBase
     /// storage the Swift original still owns, which the driver's post-callback read would have
     /// caught above. Either way the live count must return to zero.
     /// </summary>
-    public void TestBorrowedSlotParamRepeatedDispatchDoesNotLeak()
+    public unsafe void TestBorrowedSlotParamRepeatedDispatchDoesNotLeak()
     {
+        int stackAnchor = 0;
+        nint scanFrom = (nint)(&stackAnchor);
         DrainFinalizers();
         LifetimeTracker.Reset();
 
@@ -244,7 +246,8 @@ public class BorrowedSlotParamDispatchTests : TestBase
         catch (AssertionException ex)
         {
             throw new AssertionException(
-                $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)}", ex);
+                $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)} "
+                + DescribeMainStackHits(observed.observations, scanFrom), ex);
         }
 
         var stats = LifetimeTracker.GetStats();
@@ -266,8 +269,10 @@ public class BorrowedSlotParamDispatchTests : TestBase
     /// "no owner" or "the observation cannot see an owner". Releasing the root then has to drain
     /// the payload, so the control is not merely asserting that a rooted object stays alive.
     /// </summary>
-    public void TestBorrowedSlotLeakObservationSeesADeliberatelyRootedPayload()
+    public unsafe void TestBorrowedSlotLeakObservationSeesADeliberatelyRootedPayload()
     {
+        int stackAnchor = 0;
+        nint scanFrom = (nint)(&stackAnchor);
         DrainFinalizers();
         LifetimeTracker.Reset();
         s_deliberateRoot = null;
@@ -305,7 +310,8 @@ public class BorrowedSlotParamDispatchTests : TestBase
             catch (AssertionException ex)
             {
                 throw new AssertionException(
-                    $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)}", ex);
+                    $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)} "
+                    + DescribeMainStackHits(observed.observations, scanFrom, skip: rootedIteration), ex);
             }
 
             // The Swift registry must NAME that survivor, not just count it: allocation order is
@@ -416,6 +422,16 @@ public class BorrowedSlotParamDispatchTests : TestBase
     // Collapse the per-callback weak observations into one line: how many wrappers and handles are
     // still alive and, when few, which iterations they were. Called only after the collections, and
     // it never holds a resolved target across one.
+    // DIAGNOSTIC: main-thread stack hits for every still-live observation except `skip`.
+    private static string DescribeMainStackHits(List<BorrowedSlotObservation> observations, nint scanFrom, int skip = -1)
+    {
+        var lines = new List<string>();
+        foreach (var observation in observations)
+            if (observation.Index != skip && (observation.WrapperAlive || observation.HandleAlive))
+                lines.Add(observation.DescribeStackHits(scanFrom));
+        return lines.Count == 0 ? "stack hits: none live" : "stack hits: " + string.Join(" | ", lines);
+    }
+
     private static string SummarizeObservations(List<BorrowedSlotObservation> observations, string scopeState)
     {
         var liveWrappers = new List<int>();
@@ -471,6 +487,24 @@ internal sealed class BorrowedSlotObservation
     internal bool WrapperAlive => _wrapper.TryGetTarget(out _);
 
     internal bool HandleAlive => _handle.TryGetTarget(out _);
+
+    // DIAGNOSTIC: for a still-live wrapper/handle, look for words on this thread's stack at or
+    // above scanFrom that point into it — the conservative root that would pin it. Only meaningful
+    // on Mono, where the conservatively scanned local holding the target also pins it in place.
+    // The span is an upper bound on the object's size, so each hit carries its offset: +0 is an
+    // exact reference, a large offset may belong to a neighbouring allocation.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal string DescribeStackHits(nint scanFrom)
+    {
+        var parts = new List<string>();
+        if (_wrapper.TryGetTarget(out var w))
+            parts.Add($"wrapper@0x{ConservativeRootProbe.AddressOf(w):X}: "
+                + ConservativeRootProbe.FindHits(scanFrom, ConservativeRootProbe.AddressOf(w), 64));
+        if (_handle.TryGetTarget(out var h))
+            parts.Add($"handle@0x{ConservativeRootProbe.AddressOf(h):X}: "
+                + ConservativeRootProbe.FindHits(scanFrom, ConservativeRootProbe.AddressOf(h), 96));
+        return $"#{Index} " + string.Join("; ", parts);
+    }
 }
 
 /// <summary>

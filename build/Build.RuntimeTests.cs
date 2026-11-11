@@ -1923,7 +1923,7 @@ partial class Build
                 return SimCtl.Launch(device.Udid, RuntimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout),
                     appName: "RuntimeTestsApp");
             },
-            CopyResults: runToken => SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken),
+            CopyResults: (runToken, appOutput) => SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, appOutput),
             AfterAppStarted: result => HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp")));
     }
 
@@ -1989,7 +1989,7 @@ partial class Build
                 return SimCtl.Launch(device.Udid, RuntimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout),
                     appName: "RuntimeTestsApp.tvOS");
             },
-            CopyResults: runToken => SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken),
+            CopyResults: (runToken, appOutput) => SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, appOutput),
             AfterAppStarted: result => HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp.tvOS")));
     }
 
@@ -2031,7 +2031,7 @@ partial class Build
                 Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
                 return DeviceCtl.Launch(device.Udid, runtimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout));
             },
-            CopyResults: runToken => DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken),
+            CopyResults: (runToken, _) => DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken),
             // The app got far enough to print its banner — cross-check the runtime it actually
             // resolved against the lane we asked for. The structural bundle check
             // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
@@ -2048,11 +2048,12 @@ partial class Build
     /// <param name="AppName">The app's assembly and executable name.</param>
     /// <param name="PlatformArgs">The leading app arguments (<c>--platform</c> and anything platform-specific).</param>
     /// <param name="Launch">Installs and launches the app with the full argument list.</param>
-    /// <param name="CopyResults">Retrieves the JSONL results carrying the given run token, or null.</param>
+    /// <param name="CopyResults">Retrieves the JSONL results carrying the given run token, or null. The app's
+    /// output is passed so the simulator lane can recover results from the path the app announced.</param>
     /// <param name="AfterAppStarted">Platform checks on a launch that started the app.</param>
     sealed record RecoveringSuite(
         string LaneLabel, string Project, string AppName, string RuntimeIdentifier, bool Device,
-        string[] PlatformArgs, Func<string[], LaunchResult> Launch, Func<string, string?> CopyResults,
+        string[] PlatformArgs, Func<string[], LaunchResult> Launch, Func<string, string, string?> CopyResults,
         Action<LaunchResult> AfterAppStarted);
 
     /// <summary>
@@ -2137,7 +2138,7 @@ partial class Build
 
                 // Try to retrieve JSONL results from the app's sandbox
                 JsonlTestResults? runResults = null;
-                var jsonlContent = suite.CopyResults(runToken);
+                var jsonlContent = suite.CopyResults(runToken, result.Output);
                 RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
                     jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
                 if (jsonlContent != null)

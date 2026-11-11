@@ -247,7 +247,7 @@ public class ClassParamCallbackTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        DrivePureSwiftCallbacks(200);
+        LifetimeTracker.RunIsolated(() => DrivePureSwiftCallbacks(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("pure-Swift class reverse-callback must not leak the copied-out payload");
@@ -274,7 +274,7 @@ public class ClassParamCallbackTests : TestBase
         DrainObjCFinalizers();
         LifetimeTracker.Reset();
 
-        DriveObjCCallbacks(200);
+        LifetimeTracker.RunIsolated(() => DriveObjCCallbacks(200));
         // The impl reads scalars but does NOT Dispose the payloads, so each peer is released by
         // finalization — deferred to the main-thread queue for an NSObject peer. Pump the runloop.
         DrainObjCFinalizers();
@@ -400,7 +400,7 @@ public class ClassParamCallbackTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        int lastCode = AllocOptionalObjCPayloads(100);
+        int lastCode = LifetimeTracker.RunIsolated(() => AllocOptionalObjCPayloads(100));
         AssertEqual(99, lastCode, "read .Code off @objc payload from Optional return");
 
         DrainFinalizers();
@@ -436,7 +436,7 @@ public class ClassParamCallbackTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        int lastCode = AllocObjCPayloadCodeTuples(100);
+        int lastCode = LifetimeTracker.RunIsolated(() => AllocObjCPayloadCodeTuples(100));
         AssertEqual(99, lastCode, "read .Item1.Code off @objc payload from unrolled tuple return");
 
         DrainFinalizers();
@@ -469,7 +469,7 @@ public class ClassParamCallbackTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        int seen = AllocAndReadObjCPayloadArrays(50, 5);
+        int seen = LifetimeTracker.RunIsolated(() => AllocAndReadObjCPayloadArrays(50, 5));
         AssertEqual(50 * 5, seen, "read .Code off every @objc array element (SwiftArray.Get path)");
 
         DrainFinalizers();

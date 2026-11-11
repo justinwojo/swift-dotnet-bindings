@@ -842,16 +842,17 @@ public sealed class SwiftCallFactsBuilder
         if (name is "AnyObject" or "Swift.AnyObject")
             return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Existential, IsClassBound = true };
 
+        // Every Swift pointer shape is a frozen one-word struct: the projection the type
+        // database's pointer strategy makes on purpose, not a guess. It is checked before the
+        // database's own records, which list the typed pointers as resilient.
+        if (TypeDatabaseExtensions.IsPointerType(named))
+            return FromRecord(TypeDatabaseExtensions.IntPtrType, spelling);
+
         if (_typesByName.TryGetValue(name, out var entry))
             return FromDecl(entry.Decl, spelling);
 
         if (TryPeekRecord(name, out var record))
             return FromRecord(record, spelling);
-
-        // Every Swift pointer shape is a frozen one-word struct: the projection the type
-        // database's pointer strategy makes on purpose, not a guess.
-        if (TypeDatabaseExtensions.IsPointerType(named))
-            return FromRecord(TypeDatabaseExtensions.IntPtrType, spelling);
 
         // Source the generator wrote may name a type the way the module it imports sees it.
         // The function's own module is the one the name means; another module is taken only
