@@ -228,9 +228,10 @@ and must regenerate.
 Debug lanes, which run the CoreCLR interpreter, are not seedable until the interpreter
 bridge work lands; Nuke rejects a seed request without `--binding-test-configuration Release`.
 
-Compile-only, partial-success kitchen, ABI-grid and Apple smoke gates still retain
-net10 policy and reject net11 selection. Mixed-package, SDK-direct, Apple package
-consumer and App Store hygiene gates accept the net11 profile.
+Compile-only, ABI-grid and Apple smoke gates still retain net10 policy and reject net11
+selection. Partial-success kitchen, mixed-package, SDK-direct, Apple package consumer and
+App Store hygiene gates accept the net11 profile; the kitchen compiles its generated C# for
+`net11.0-ios` and compares against the same frozen report.
 
 Two focused Nuke gates provide separate evidence:
 
