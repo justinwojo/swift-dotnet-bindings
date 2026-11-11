@@ -1054,6 +1054,9 @@ namespace BindingsGeneration
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
+            int normalized = GenericParameterDialectNormalizer.Normalize(_moduleRoot.ABIRoot);
+            if (normalized > 0)
+                _logger.LogDebug("Respelled the source-named generic parameters of {Count} declaration(s) by depth and index", normalized);
         }
 
         /// <summary>

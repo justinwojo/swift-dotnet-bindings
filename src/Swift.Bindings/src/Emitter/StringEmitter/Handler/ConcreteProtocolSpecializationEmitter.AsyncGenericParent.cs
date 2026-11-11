@@ -453,10 +453,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         var current = returnSpec;
+        var declaredNames = DeclaredGenericNames(pairing, method);
         for (int i = 0; i < pairing.Count; i++)
         {
             var genericName = pairing[i].Param.GenericParam.TypeName;
-            var altGenericName = GetAlternateDepthName(genericName);
+            var altGenericName = GetAlternateDepthName(genericName, declaredNames);
             bool substitutionOk = true;
             current = SubstituteTypeSpec(
                 current, genericName, altGenericName,

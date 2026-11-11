@@ -314,7 +314,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
         bool returnsGenericParam = !isVoidReturn &&
-            TryMatchGenericParam(returnTypeSpec, pairing, out _, out _);
+            TryMatchGenericParam(returnTypeSpec, pairing, method, out _, out _);
         bool isStringReturn = !isVoidReturn && !returnsGenericParam && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
         if (isConstructor)
@@ -456,10 +456,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Bail on any unresolved associated-type reference so we never emit a trim shim
         // whose Swift body would reference a placeholder type.
         var substitutedSignature = new List<ArgumentDecl>(method.CSSignature);
+        var declaredNames = DeclaredGenericNames(pairing, method);
         for (int i = 0; i < pairing.Length; i++)
         {
             var genericName = pairing[i].Param.GenericParam.TypeName;
-            var altGenericName = GetAlternateDepthName(genericName);
+            var altGenericName = GetAlternateDepthName(genericName, declaredNames);
             bool substitutionOk = true;
 
             for (int j = 0; j < substitutedSignature.Count; j++)
@@ -538,6 +539,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     private static bool TryMatchGenericParam(
         TypeSpec typeSpec,
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        MethodDecl method,
         out ConcreteSpecializationEngine.SpecializableParam? matchedParam,
         out ConcreteSpecializationEngine.ConcreteConformer? matchedConformer)
     {
@@ -550,9 +552,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 return true;
             }
         }
+        var declaredNames = DeclaredGenericNames(pairing, method);
         foreach (var entry in pairing)
         {
-            var alt = GetAlternateDepthName(entry.Param.GenericParam.TypeName);
+            var alt = GetAlternateDepthName(entry.Param.GenericParam.TypeName, declaredNames);
             if (alt != entry.Param.GenericParam.TypeName && IsGenericParamType(typeSpec, alt))
             {
                 matchedParam = entry.Param;
@@ -576,15 +579,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// </summary>
     internal static TypeSpec SubstitutePairingGenericsInTypeSpec(
         TypeSpec typeSpec,
-        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        MethodDecl? method)
     {
         var current = typeSpec;
+        var declaredNames = DeclaredGenericNames(pairing, method);
         foreach (var (param, conformer) in pairing)
         {
             if (!TryBuildConformerTypeSpec(conformer, out var conformerSpec))
                 continue;
             var genericName = param.GenericParam.TypeName;
-            var altGenericName = GetAlternateDepthName(genericName);
+            var altGenericName = GetAlternateDepthName(genericName, declaredNames);
             bool ok = true;
             current = SubstituteTypeSpec(current, genericName, altGenericName, conformerSpec, conformer, ref ok);
             if (!ok)
@@ -607,12 +612,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
     internal static TypeSpec SubstituteSelfAndPairingGenericsInTypeSpec(
         TypeSpec typeSpec,
         TypeDecl parentTypeDecl,
-        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        MethodDecl? method)
     {
         var current = typeSpec;
         if (BuildClosedParentTypeSpec(parentTypeDecl, pairing) is { } closedParent)
             current = SubstituteSelfInTypeSpec(current, closedParent);
-        return SubstitutePairingGenericsInTypeSpec(current, pairing);
+        return SubstitutePairingGenericsInTypeSpec(current, pairing, method);
     }
 
     /// <summary>
@@ -721,11 +727,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple && !isConstructor;
         bool returnsGenericParam = !isVoidReturn && !isConstructor &&
-            TryMatchGenericParam(returnTypeSpec, pairing, out _, out _);
+            TryMatchGenericParam(returnTypeSpec, pairing, method, out _, out _);
         ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
         if (returnsGenericParam)
         {
-            TryMatchGenericParam(returnTypeSpec, pairing, out _, out var rc);
+            TryMatchGenericParam(returnTypeSpec, pairing, method, out _, out var rc);
             returnConformer = rc;
         }
         // Swift concrete return type: if return matches a generic, use that conformer.
@@ -764,7 +770,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // substituted spec so the indirect-result decision here matches the
                 // CanEmit gate and the substituted body render below (one oracle).
                 var classifyReturnSpec = method.IsExtensionPropertyGetter
-                    ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+                    ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing, method)
                     : returnTypeSpec;
                 var (mapping, _) = CdeclReturnMapping.Classify(classifyReturnSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
@@ -797,7 +803,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var b = NameProvider.EscapeReservedSwiftWrapperLabel("_" + label, siblings);
             var argLabel = ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
 
-            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out var matchedConformerObj))
             {
                 var matchedConformer = matchedConformerObj!;
                 var concreteSwiftType = matchedConformer.SwiftLiteral ?? matchedConformer.SwiftQualifiedName;
@@ -1104,7 +1110,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // with the concrete conformer so the rendered type doesn't leak an unresolved `H`
                 // or `Self` into `initializeMemory(as:)`. Falls back to the unsubstituted render on
                 // failure (matches previous behavior — no regression for shapes we couldn't handle).
-                var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing);
+                var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing, method);
                 returnTypeStr = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(substitutedReturn);
             }
             // Explicit type annotation on _result — needed when the callee is a generic
@@ -1226,7 +1232,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (returnsGenericParam)
         {
             var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
-            TryMatchGenericParam(returnTypeSpec, pairing, out _, out returnConformer);
+            TryMatchGenericParam(returnTypeSpec, pairing, method, out _, out returnConformer);
         }
 
         // Build public parameter list and P/Invoke parameter list
@@ -1296,7 +1302,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // container; classify on the substituted spec so the indirect-result
                 // decision matches the CanEmit gate and the Swift wrapper (one oracle).
                 var classifyReturnSpec = method.IsExtensionPropertyGetter
-                    ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+                    ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing, method)
                     : returnTypeSpec;
                 var (mapping, _) = CdeclReturnMapping.Classify(classifyReturnSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
@@ -1315,7 +1321,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
             var csName = NameProvider.GetCSharpParameterName(arg);
 
-            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out var matchedConformerObj))
             {
                 var matchedConformer = matchedConformerObj!;
                 var conformerCsType = ResolveConformerCSharpTypeRef(matchedConformer, typeDatabase);
@@ -1595,7 +1601,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // signature and Roslyn reports CS0246. Mirrors the Swift-side substitution used
                 // for `initializeMemory(as:)` at the result-pointer path.
                 var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
-                var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing);
+                var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing, method);
                 csReturnType = ResolvePublicCSharpType(substitutedReturn, typeDatabase);
             }
         }
@@ -1613,7 +1619,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!isVoidReturn && !isConstructor && !returnsGenericParam && !isStringReturn)
         {
             var inlineReturnSpec = SubstituteSelfAndPairingGenericsInTypeSpec(
-                method.CSSignature.First().SwiftTypeSpec, parentTypeDecl, pairing);
+                method.CSSignature.First().SwiftTypeSpec, parentTypeDecl, pairing, method);
             if (inlineReturnSpec is NamedTypeSpec inlineReturnNamed
                 && InlineSwiftStructAllowlist.TryGetValue(inlineReturnNamed.Name, out var inlineReturnInfo)
                 && inlineReturnInfo.IdiomaticPublicType is { } idiomaticReturnType)
@@ -1826,7 +1832,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else
             {
-                var lookupSpec = SubstitutePairingGenericsInTypeSpec(method.CSSignature.First().SwiftTypeSpec, pairing);
+                var lookupSpec = SubstitutePairingGenericsInTypeSpec(method.CSSignature.First().SwiftTypeSpec, pairing, method);
                 typeDatabase.TryGetTypeRecord(lookupSpec, out returnRecord);
             }
             if (returnRecord != null)
@@ -2533,10 +2539,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
         bool returnsGenericParam = !isVoidReturn &&
-            TryMatchGenericParam(returnTypeSpec, pairing, out _, out _);
+            TryMatchGenericParam(returnTypeSpec, pairing, method, out _, out _);
         ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
         if (returnsGenericParam)
-            TryMatchGenericParam(returnTypeSpec, pairing, out _, out returnConformer);
+            TryMatchGenericParam(returnTypeSpec, pairing, method, out _, out returnConformer);
         bool isStringReturn = !isVoidReturn && !returnsGenericParam && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
         // A member can project a bound generic that mentions a parent parameter
@@ -2561,10 +2567,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // widening can only add. Lifting the instance restriction means fixing the suppression side
         // first — it is not a conservatism that can simply be dropped.
         //
+        // The one instance method admitted is one whose open-generic form is never bound at all,
+        // because a parent constraint on a protocol with associated types or Self requirements
+        // drops it (`HMAC<H: HashFunction>.finalize() -> HashedAuthenticationCode<H>`). There is
+        // no open surface left to suppress, so here too the widening can only add.
+        //
         // returnsGenericParam and the string/Self checks above still key off the RAW spec.
         var effectiveReturnTypeSpec =
-            method.IsExtensionPropertyGetter || method.MethodType == MethodType.Static
-                ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing)
+            method.IsExtensionPropertyGetter
+            || method.MethodType == MethodType.Static
+            || MethodValidationGates.HasUnsupportedProtocolConstraints(method, typeDatabase)
+                ? SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing, method)
                 : returnTypeSpec;
 
         // Self return: @_cdecl global functions can't return Self.
@@ -3102,7 +3115,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
             if (arg.HasDefaultArg) continue;
-            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out _)) continue;
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out _)) continue;
 
             // CSM has dedicated KeyPathFamily switch arms (see the param-render switches in
             // both the C# bridge and the Swift @_cdecl wrapper below), so it admits a
@@ -3173,17 +3186,51 @@ public static partial class ConcreteProtocolSpecializationEmitter
     }
 
     /// <summary>
-    /// Returns the alternate depth variant of a generic param name.
-    /// Method-level generics can appear as τ_0_0 (on non-generic parents) or τ_1_0
-    /// (on generic parents). We need to check both variants.
+    /// Returns the alternate depth variant of a generic param name, or the name itself when
+    /// there is none. Method-level generics can appear as τ_0_0 (on non-generic parents) or
+    /// τ_1_0 (on generic parents), so a mention under either spelling is accepted.
+    /// <para>
+    /// The twin is withheld when it is itself one of the <paramref name="declaredNames"/>: on a
+    /// generic parent, τ_0_0 is the parent's first parameter and τ_1_0 the method's first, two
+    /// different parameters, so a mention of one never stands for the other.
+    /// </para>
     /// </summary>
-    private static string GetAlternateDepthName(string genericParamName)
+    private static string GetAlternateDepthName(string genericParamName, IReadOnlySet<string> declaredNames)
     {
+        string twin;
         if (genericParamName.StartsWith("τ_1_"))
-            return "τ_0_" + genericParamName.Substring(4);
-        if (genericParamName.StartsWith("τ_0_"))
-            return "τ_1_" + genericParamName.Substring(4);
-        return genericParamName;
+            twin = "τ_0_" + genericParamName.Substring(4);
+        else if (genericParamName.StartsWith("τ_0_"))
+            twin = "τ_1_" + genericParamName.Substring(4);
+        else
+            return genericParamName;
+        return declaredNames.Contains(twin) ? genericParamName : twin;
+    }
+
+    /// <summary>
+    /// The generic parameter names in scope for a specialization: every parameter the pairing
+    /// binds, plus the method's own generic signature and its parent's parameters. The method
+    /// matters: a pairing binds only the constrained parameters, and an unconstrained one it
+    /// leaves out is still a parameter in scope whose name must not be read as a twin.
+    /// </summary>
+    private static IReadOnlySet<string> DeclaredGenericNames(
+        IEnumerable<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing,
+        MethodDecl? method)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (param, _) in pairing)
+            names.Add(param.GenericParam.TypeName);
+        if (method is not null)
+        {
+            foreach (var generic in method.GenericParameters)
+                names.Add(generic.TypeName);
+            if (method.ParentDecl is TypeDecl parent)
+            {
+                foreach (var generic in parent.GenericParameters)
+                    names.Add(generic.TypeName);
+            }
+        }
+        return names;
     }
 
     private static bool IsSelfReturn(TypeSpec returnTypeSpec)
@@ -3228,11 +3275,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
     {
         // Collect every generic name (and its alternate-depth twin) covered by the pairing.
+        var declaredNames = DeclaredGenericNames(pairing, method);
         var names = new List<string>();
         foreach (var (p, _) in pairing)
         {
             names.Add(p.GenericParam.TypeName);
-            names.Add(GetAlternateDepthName(p.GenericParam.TypeName));
+            names.Add(GetAlternateDepthName(p.GenericParam.TypeName, declaredNames));
         }
 
         foreach (var arg in method.CSSignature.Skip(1))
@@ -3240,7 +3288,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
             if (arg.HasDefaultArg) continue;
-            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out _)) continue;
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out _)) continue;
 
             // This non-generic param must not reference any of the pairing generics.
             foreach (var name in names)
@@ -3256,7 +3304,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             foreach (var (p, _) in pairing)
             {
-                var altName = GetAlternateDepthName(p.GenericParam.TypeName);
+                var altName = GetAlternateDepthName(p.GenericParam.TypeName, declaredNames);
                 if (altName != p.GenericParam.TypeName && ContainsGenericParam(returnTypeSpec, altName)) return true;
             }
         }
@@ -3331,7 +3379,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
             if (arg.HasDefaultArg) continue;
 
-            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformer))
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out var matchedConformer))
             {
                 // Key off the emitted form so two pairings that produce identical C#
                 // signatures (after SCREAMING_CASE canonicalization) collide here and
