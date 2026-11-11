@@ -62,9 +62,9 @@ partial class Build
     {
         _ = RuntimeLane;
         if (RuntimeLane.IsNet11 && (CompileOnly || PartialSuccessKitchen || AbiGrid || GetActiveSmokeFlags().Count > 0 ||
-            ActivityKitPushToken || CatalystX64Jit || SeedRuntimeIdentityBaseline))
+            ActivityKitPushToken || CatalystX64Jit))
             throw new InvalidOperationException("This auxiliary gate has not been migrated to .NET 11. " +
-                "Compile-only, kitchen/ABI-grid, baseline seeding, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.");
+                "Compile-only, kitchen/ABI-grid, Apple smoke and Mono-specific auxiliary gates retain their .NET 10 policy.");
         if (AllowUnqualifiedRuntime && !RuntimeLane.IsNet11)
             throw new InvalidOperationException("--allow-unqualified-runtime applies only to .NET 11 bring-up lanes.");
     }
@@ -2696,12 +2696,17 @@ partial class Build
             _ => throw new InvalidOperationException($"Unknown .NET 11 runtime lane: {platform}.")
         };
         var key = RuntimeLane.BaselineKey(platformKey, rid, device);
+        var path = BaselinesDir / RuntimeLane.IdentityBaselineFile;
+        if (SeedRuntimeIdentityBaseline)
+        {
+            SeedNet11RuntimeBaseline(platform, key, path, results, device);
+            return;
+        }
         if (SkipBuild || !string.IsNullOrEmpty(ClassFilter))
         {
             Log.Warning("UNQUALIFIED runtime lane {Key}: partial or reused-app run; no runtime baseline was graded.", key);
             return;
         }
-        var path = BaselinesDir / "runtime-identity-net11-baseline.json";
         var baseline = RuntimeIdentityBaseline.Load(path);
         if (!baseline.Platforms.ContainsKey(key))
         {
@@ -2718,6 +2723,29 @@ partial class Build
         if (comparison.Regressions.Count > 0)
             throw new InvalidOperationException($".NET 11 runtime identity regression for {key}: {string.Join("; ", comparison.Regressions)}");
         Log.Information("Qualified runtime baseline matched: {Key} (read-only).", key);
+    }
+
+    /// <summary>
+    /// Writes one .NET 11 lane's identity floor from a full, freshly built, green run. Same
+    /// replacement semantics as the .NET 10 seed: the entry is the lane's whole count and skip set.
+    /// The profile launcher copies the file back to the checkout once Nuke succeeds.
+    /// </summary>
+    void SeedNet11RuntimeBaseline(string platform, string key, AbsolutePath path, JsonlTestResults results, bool device)
+    {
+        if (RuntimeLane.IdentitySeedRefusal(ProfileContext.IsIsolated, RuntimeLane.BuildConfiguration(device, MonoAot)) is { } refusal)
+            throw new InvalidOperationException($"Cannot seed {key}: {refusal}");
+        if (SkipBuild || !string.IsNullOrEmpty(ClassFilter))
+            throw new InvalidOperationException(
+                $"Cannot seed {key} from a partial or reused-app run; drop --class-filter and --skip-build.");
+        if (results.CrashCount != 0 || results.FailCount != 0)
+            throw new InvalidOperationException($"Cannot seed runtime identity baseline for {platform} from a failing run.");
+        var seeded = RuntimeIdentityBaseline.Load(path)
+            .WithPlatform(key, RuntimeIdentityBaseline.FromResults(results.Tests
+                .Select(t => new RuntimeIdentityBaseline.TestRecord(t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+                .ToList())) with { GitSha = ReadHeadShaShort() };
+        seeded.Save(path);
+        Log.Information("Seeded .NET 11 runtime identity baseline {Key}: pass={Pass}, {Skips} skip(s).",
+            key, seeded.Platforms[key].PassCount, seeded.Platforms[key].Skips.Count);
     }
 
     void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)

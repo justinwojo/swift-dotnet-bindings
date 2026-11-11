@@ -4,11 +4,41 @@ The profiles pin a complete SDK, workload and Xcode pairing. They are qualificat
 configurations; adding a manifest does not declare that the configuration has passed
 the release gates.
 
-| Profile | .NET SDK | Workload set | Xcode |
-| --- | --- | --- | --- |
-| `net10-xcode26` | 10.0.107 | 10.0.107 | 26.3 |
-| `net10-xcode27` | 10.0.404 | 10.0.404 | 27.2 |
-| `net11-xcode27` | 11.0.100 | 11.0.100.1 | 27.2 |
+| Profile | Role | .NET SDK | Workload set | Xcode |
+| --- | --- | --- | --- | --- |
+| `net10-xcode27` | .NET 10 release anchor | 10.0.404 | 10.0.404 | 27.2 |
+| `net11-xcode27` | .NET 11 release anchor | 11.0.100 | 11.0.100.1 | 27.2 |
+| `net10-xcode26` | Legacy compatibility (Xcode 26.3 consumers) | 10.0.107 | 10.0.107 | 26.3 |
+
+## Roles and cadence
+
+The two Xcode 27.2 profiles are the release anchors. Each runs the full matrix before a
+release: the simulator, host, device and package gates its framework supports.
+
+`net10-xcode26` stays as a legacy compatibility lane for consumers still building with
+Xcode 26.3. It is not a release anchor, because no security-patched .NET 10 runtime pairs
+with Xcode 26.x. GHSA-p3jp-9v83-76w9 needs runtime 10.0.14 or later; the first workload
+set carrying it, 10.0.114, needs Xcode 27.1, and 10.0.115 needs Xcode 27.2. The newest
+Xcode 26 Apple workload in any 10.0.1xx set ships runtime 10.0.11, which is still affected.
+The lane runs the simulator, the host lanes, `--device --mono-aot` and `--device`
+(NativeAOT).
+
+Its NativeAOT restore meets the affected `Microsoft.DotNet.ILCompiler` package, which the
+repository's `TreatWarningsAsErrors` turns into an NU1903 error. The profile manifest
+therefore suppresses exactly that advisory URL (`nugetAuditSuppress`, with its reason). The
+advisory concerns Microsoft's toolchain, not SwiftBindings code, and a consumer outside the
+repository still sees the warning. The launcher exports the URL and `Directory.Build.props`
+turns it into one `NuGetAuditSuppress` item. Outside this profile nothing is suppressed, and
+every other NU1901-NU1904 still fails. `nuke test` (ToolchainProfileTests) evaluates the
+NativeAOT device app under each profile and fails if a profile's suppressions differ from its
+manifest, if an unprofiled restore suppresses anything, or if audit or its error escalation
+is weakened. Mono AOT needs no suppression, because its runtime packs come from the workload
+rather than NuGet.
+
+| When | What runs |
+| --- | --- |
+| Every change | .NET 10 on Xcode 26.3 with the global 10.0.107 install: `net10-xcode26`, or the unprofiled repository workflow with Xcode 26.3 selected. Run the gates the repository's gate table asks for. Add a `net11-xcode27` check when a change touches marshalling, calling conventions or runtime dispatch. |
+| Before a release | The full matrix on `net10-xcode27` and `net11-xcode27`, plus the legacy subset above on `net10-xcode26`. |
 
 The .NET 10/Xcode 27.2 pair follows Microsoft's
 [27.2.10000 release](https://github.com/dotnet/macios/releases/tag/dotnet-10.0.1xx-xcode27.2.10000)
@@ -93,7 +123,8 @@ than reusing incompatible artifacts. Save any evidence needed from `workspace/`
 before changing source and running the profile again.
 
 Qualification runs compare canonical baselines but cannot seed, promote or
-automatically update them. Each profile permits one invocation at a time. Different
+automatically update them, with one exception: `net11-xcode27` seeds its own .NET 11
+runtime-identity floors (below). Each profile permits one invocation at a time. Different
 profiles can build concurrently, but runtime tests must use distinct simulator
 UDIDs, or run sequentially on a shared simulator/device: app bundle identities are
 shared across profiles.
@@ -173,10 +204,31 @@ repository checks in or the gates generate declares a manifest. Apps that start
 never start it declare a manifest with no scene configuration. None disables
 `ValidateSceneManifest`. AppKit macOS apps are outside MT7199.
 
-New lanes require their own reviewed `runtime-identity-net11-baseline.json` entries.
-Until those exist, full bring-up runs require `--allow-unqualified-runtime` and report
-UNQUALIFIED even when functional assertions pass. The legacy identity floors are
-never reused or seeded by this profile. Compile-only, partial-success kitchen, ABI-grid and Apple smoke gates still retain
+Each .NET 11 lane is graded against its own entry in
+`build/baselines/runtime-identity-net11-baseline.json`, keyed by framework, platform, RID,
+engine and configuration. A lane without an entry needs `--allow-unqualified-runtime` and
+reports UNQUALIFIED even when its functional assertions pass. The .NET 10 identity floors
+are never reused or written by this profile.
+
+Seed a Release lane's entry from a fresh, full, green run:
+
+```sh
+bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --macos \
+  --binding-test-configuration Release --seed-runtime-identity-baseline
+```
+
+`--skip-regen` is allowed; `--skip-build` and `--class-filter` are not, and a failing run
+writes nothing. `--seed-runtime-identity-baseline` is the only baseline write the launcher
+accepts, only on this profile and only for `binding-tests`. Nuke writes the entry in the
+disposable workspace. Once Nuke exits successfully, the launcher copies that single file
+back to the checkout. It refuses if any other baseline changed in the workspace or if the
+checkout's copy changed during the run. Review and commit the result like any other baseline.
+A write-back changes the source identity, so the next profile run refreshes the workspace
+and must regenerate.
+Debug lanes, which run the CoreCLR interpreter, are not seedable until the interpreter
+bridge work lands; Nuke rejects a seed request without `--binding-test-configuration Release`.
+
+Compile-only, partial-success kitchen, ABI-grid and Apple smoke gates still retain
 net10 policy and reject net11 selection. Mixed-package, SDK-direct, Apple package
 consumer and App Store hygiene gates accept the net11 profile.
 

@@ -129,6 +129,91 @@ class ToolchainIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "escape"):
             profile.validate_arguments(["test", "--root=/another/checkout"])
 
+    def committed_profile(self, name):
+        return json.loads((Path(spec.origin).resolve().parents[1] / "toolchains" / (name + ".json")).read_text())
+
+    def test_only_the_net11_profile_may_seed_its_runtime_identity_floor(self):
+        net11 = self.committed_profile("net11-xcode27")
+        for arguments in (["binding-tests", "--sim", "--seed-runtime-identity-baseline"],
+                          ["BindingTests", "--seed-runtime-identity-baseline=true"]):
+            profile.validate_arguments(arguments, net11)
+            self.assertTrue(profile.seeds_net11_identity(arguments, net11))
+        self.assertFalse(profile.seeds_net11_identity(
+            ["binding-tests", "--seed-runtime-identity-baseline=false"], net11))
+        # Every other mutation stays refused on the net11 profile, and the seed flag stays refused
+        # on a non-BindingTests target and on every .NET 10 profile.
+        for arguments in (["seed-parity-baseline"], ["seed-runtime-identity-baseline"],
+                          ["binding-tests", "--seed-runtime-identity-baseline", "--seed-skip-surface-baseline"],
+                          ["test", "--seed-runtime-identity-baseline"]):
+            with self.subTest(arguments=arguments), self.assertRaisesRegex(RuntimeError, "Baseline mutation"):
+                profile.validate_arguments(arguments, net11)
+        for name in ("net10-xcode26", "net10-xcode27"):
+            with self.subTest(profile=name), self.assertRaisesRegex(RuntimeError, "Baseline mutation"):
+                profile.validate_arguments(["binding-tests", "--seed-runtime-identity-baseline"],
+                                           self.committed_profile(name))
+
+    def seeded_workspace(self, baseline=None):
+        baselines = self.source / "build/baselines"
+        baselines.mkdir(parents=True, exist_ok=True)
+        (baselines / "runtime-identity-baseline.json").write_text('{"platforms": {"device": {}}}\n')
+        if baseline is not None:
+            (self.source / profile.NET11_IDENTITY_BASELINE).write_text(baseline)
+        workspace = self.prepare()
+        inventory = profile.source_inventory(self.source)
+        (workspace / profile.NET11_IDENTITY_BASELINE).write_text('{"platforms": {"net11.0_macos": {}}}\n')
+        return workspace, inventory
+
+    def test_seed_write_back_copies_only_the_net11_identity_baseline(self):
+        workspace, inventory = self.seeded_workspace()
+        self.assertTrue(profile.write_back_seeded_baseline(self.source, workspace, inventory))
+        self.assertEqual((self.source / profile.NET11_IDENTITY_BASELINE).read_text(),
+                         '{"platforms": {"net11.0_macos": {}}}\n')
+        # A second run that seeds identical content leaves the checkout alone.
+        workspace, inventory = self.seeded_workspace('{"platforms": {"net11.0_macos": {}}}\n')
+        self.assertFalse(profile.write_back_seeded_baseline(self.source, workspace, inventory))
+
+    def test_seed_write_back_refuses_any_other_baseline_change(self):
+        for mutate in (lambda w: (w / "build/baselines/runtime-identity-baseline.json").write_text("{}"),
+                       lambda w: (w / "build/baselines/skip-surface-baseline.json").write_text("{}"),
+                       lambda w: (w / "build/baselines/runtime-identity-baseline.json").unlink()):
+            with self.subTest(mutate=mutate):
+                workspace, inventory = self.seeded_workspace()
+                mutate(workspace)
+                with self.assertRaisesRegex(RuntimeError, "only .*may be written back|removed"):
+                    profile.write_back_seeded_baseline(self.source, workspace, inventory)
+                self.assertFalse((self.source / profile.NET11_IDENTITY_BASELINE).exists())
+                self.assertFalse((self.source / "build/baselines/skip-surface-baseline.json").exists())
+
+    def test_seed_write_back_refuses_a_checkout_change_during_the_run(self):
+        workspace, inventory = self.seeded_workspace('{"platforms": {}}\n')
+        (self.source / profile.NET11_IDENTITY_BASELINE).write_text('{"platforms": {"edited": {}}}\n')
+        with self.assertRaisesRegex(RuntimeError, "changed in the checkout"):
+            profile.write_back_seeded_baseline(self.source, workspace, inventory)
+        self.assertIn("edited", (self.source / profile.NET11_IDENTITY_BASELINE).read_text())
+
+    def test_audit_suppression_is_scoped_to_the_legacy_profile(self):
+        stray = {"SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS": "https://github.com/advisories/GHSA-aaaa-bbbb-cccc"}
+        for name in ("net10-xcode26", "net10-xcode27", "net11-xcode27"):
+            with self.subTest(profile=name):
+                # An inherited value never leaks into a profile; only the legacy pin declares one.
+                env = profile.environment(self.committed_profile(name), self.state, stray)
+                if name == "net10-xcode26":
+                    self.assertEqual(env["SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS"],
+                                     "https://github.com/advisories/GHSA-p3jp-9v83-76w9")
+                else:
+                    self.assertNotIn("SWIFT_BINDINGS_NUGET_AUDIT_SUPPRESS", env)
+
+    def test_audit_suppression_requires_an_exact_advisory_and_a_reason(self):
+        base = {"dotnetRoot": str(self.root / "sdk"), "developerDirectory": str(self.root / "xcode")}
+        url = "https://github.com/advisories/GHSA-p3jp-9v83-76w9"
+        for entries in ([{"advisory": url}], [{"advisory": url, "reason": " "}],
+                        [{"advisory": "NU1903", "reason": "all audit warnings"}],
+                        [{"advisory": url + "*", "reason": "wildcard"}],
+                        [{"advisory": url, "reason": "x"}, {"advisory": url, "reason": "y"}],
+                        [{"advisory": url, "reason": "x", "noWarn": "NU1903"}], {"advisory": url}):
+            with self.subTest(entries=entries), self.assertRaisesRegex(RuntimeError, "nugetAuditSuppress"):
+                profile.environment(dict(base, nugetAuditSuppress=entries), self.state, {})
+
     def test_environment_selects_child_tools_and_clears_foreign_overrides(self):
         old = {"PATH": "/usr/bin:/bin", "DOTNET_ROOT": "/wrong", "DOTNET_HOST_PATH": "/wrong/dotnet",
                "GIT_DIR": "/wrong/git", "SDKROOT": "/wrong/sdk", "MSBuildSDKsPath": "/wrong/msbuild",
