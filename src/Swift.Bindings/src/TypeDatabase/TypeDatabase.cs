@@ -823,14 +823,18 @@ namespace BindingsGeneration
             }
             if (TryGetTypeRecordInternal(swiftTypeName, out record))
                 return true;
-            if (GetRefAliasVariant(swiftTypeName) is { } refVariant && TryGetTypeRecordInternal(refVariant, out record))
+            // A peek never throws: a name that does not parse is looked up no further.
+            if (RefAliasVariantName(swiftTypeName) is { } refName
+                && SwiftTypeName.TryFromModuleQualifiedName(refName, out var refVariant)
+                && TryGetTypeRecordInternal(refVariant, out record))
                 return true;
             if (TryGetOutOfModuleType(swiftTypeName, out record))
                 return true;
             if (TryResolveTypeAlias(swiftTypeName) is { } canonicalName)
             {
                 var baseName = canonicalName.IndexOf('<') is var idx and >= 0 ? canonicalName[..idx] : canonicalName;
-                if (TryGetTypeRecordInternal(SwiftTypeName.FromModuleQualifiedName(baseName), out record))
+                if (SwiftTypeName.TryFromModuleQualifiedName(baseName, out var aliasTarget)
+                    && TryGetTypeRecordInternal(aliasTarget, out record))
                     return true;
             }
             if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
@@ -1151,18 +1155,17 @@ namespace BindingsGeneration
         // arbitrary module's "…Ref"-suffixed type is a distinct real identity, not an alias of
         // a sibling. Returning null for non-family modules stops both arm 3 and IsTypeRegistered
         // from synthesizing a bogus sibling lookup — both call sites already guard the null.
-        internal static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName)
+        internal static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName) =>
+            RefAliasVariantName(swiftTypeName) is { } name ? SwiftTypeName.FromModuleQualifiedName(name) : null;
+
+        /// <summary>The Foo/FooRef sibling's module-qualified name, unparsed; null outside the family.</summary>
+        private static string? RefAliasVariantName(SwiftTypeName swiftTypeName)
         {
             if (!_refAliasModules.Contains(swiftTypeName.Module))
                 return null;
 
             var fullName = swiftTypeName.ModuleQualifiedName;
-            if (fullName.EndsWith("Ref", StringComparison.Ordinal))
-            {
-                return SwiftTypeName.FromModuleQualifiedName(fullName[..^3]);
-            }
-
-            return SwiftTypeName.FromModuleQualifiedName($"{fullName}Ref");
+            return fullName.EndsWith("Ref", StringComparison.Ordinal) ? fullName[..^3] : $"{fullName}Ref";
         }
     }
 }

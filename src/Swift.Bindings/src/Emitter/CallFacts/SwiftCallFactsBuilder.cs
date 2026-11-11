@@ -170,6 +170,9 @@ public sealed class SwiftCallFactsBuilder
                 IsVariadic = SwiftABIParser.IsVariadicArraySpec(argument.SwiftTypeSpec),
             });
         }
+        // The parser marks the element only where it can tell which parameter is `T...`.
+        if (method.HasVariadicParameter && !parameters.Any(p => p.IsVariadic))
+            unknowns.Add("parameters: the member is variadic, but the parser could not tell which parameter");
 
         var resultSpec = method.CSSignature.Count > 0 ? method.CSSignature[0].SwiftTypeSpec : null;
         var result = context.Accessor == SwiftAccessorKind.Set || resultSpec is null
@@ -512,13 +515,21 @@ public sealed class SwiftCallFactsBuilder
             case ClosureTypeSpec:
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Closure };
             case ProtocolListTypeSpec list:
+            {
+                // A composition is class-bound when any member is: AnyObject, a class-bound
+                // protocol, or a superclass constraint. A member neither database knows leaves
+                // that open, so the composition is not described at all.
+                var members = list.Protocols.Keys.Select(ClassBoundnessOf).ToList();
+                if (members.Any(m => m is null))
+                    return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved };
                 return new SwiftTypeFacts
                 {
                     Spelling = spelling,
                     // `some P` is one concrete type the callee chooses, not a box.
                     Category = list.IsOpaque ? SwiftTypeCategory.Opaque : SwiftTypeCategory.Existential,
-                    IsClassBound = list.Protocols.Keys.Any(p => p.Name is "AnyObject" or "Swift.AnyObject" || IsClassBoundProtocol(p)),
+                    IsClassBound = members.Any(m => m == true),
                 };
+            }
             case AssociatedTypeReferenceSpec:
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.GenericParameter };
             case NamedTypeSpec named:
@@ -581,12 +592,21 @@ public sealed class SwiftCallFactsBuilder
             && _typeDatabase.TryPeekTypeRecord(typeName, out record);
     }
 
-    private bool IsClassBoundProtocol(NamedTypeSpec protocol)
+    /// <summary>Whether a composition member forces a class-bound composition; null when the member is not known.</summary>
+    private bool? ClassBoundnessOf(NamedTypeSpec member)
     {
-        var name = FullNameOf(protocol);
-        if (_typesByName.TryGetValue(name, out var entry))
-            return entry.Decl is ProtocolDecl { IsClassBound: true };
-        return TryPeekRecord(name, out var record) && (record.Flags & TypeRecordFlags.ClassBound) != 0;
+        var name = FullNameOf(member);
+        if (name is "AnyObject" or "Swift.AnyObject")
+            return true;
+        var facts = _typesByName.TryGetValue(name, out var entry) ? FromDecl(entry.Decl, name)
+            : TryPeekRecord(name, out var record) ? FromRecord(record, name)
+            : null;
+        return facts?.Category switch
+        {
+            SwiftTypeCategory.Class => true,
+            SwiftTypeCategory.Existential => facts.IsClassBound,
+            _ => null,
+        };
     }
 
     private static SwiftTypeFacts FromDecl(TypeDecl decl, string spelling) => decl switch

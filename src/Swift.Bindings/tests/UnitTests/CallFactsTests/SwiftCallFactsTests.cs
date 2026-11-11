@@ -704,6 +704,61 @@ public class SwiftCallFactsTests
     }
 
     [Fact]
+    public void VariadicParameter_ThatCannotBePlaced_IsRecordedNotGuessed()
+    {
+        var strings = $$"""{ "kind": "TypeNominal", "name": "Array", "printedName": "[Swift.String]", "children": [{{StringT}}] }""";
+        const string symbol = Point + "6prefix6valuesACSaySSG_SSdtcfC";
+        var (_, table, _) = Parse(TypeDecl("Struct", "Point", Point, new[]
+        {
+            Func("init", "init(prefix:values:)", symbol, new[] { Nominal("TestModule.Point"), strings, strings },
+                declKind: "Constructor", kind: "Constructor"),
+        }, attrs: new[] { "AccessControl", "Frozen" }));
+
+        // An initializer has no reduced parameter list, and both of its parameters print as
+        // `[String]`, so the parser knows only that one of them is `String...`.
+        var facts = Facts(table, symbol);
+        Assert.All(facts.Parameters, p => Assert.False(p.IsVariadic));
+        Assert.False(facts.IsComplete);
+        Assert.Contains(facts.Unknowns, u => u.Contains("variadic", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Composition_IsClassBoundByASuperclass_AndUndescribedWithAnUnknownMember()
+    {
+        var baseClass = TypeDecl("Class", "Base", "$s10TestModule4BaseC", Array.Empty<string>());
+        var marker = TypeDecl("Protocol", "Marker", "$s10TestModule6MarkerP", Array.Empty<string>());
+        static string Composition(string members) =>
+            $$"""{ "kind": "TypeNominal", "name": "ProtocolComposition", "printedName": "any {{members}}" }""";
+        var useBase = Func("useBase", "useBase(_:)", "$s10TestModule7useBaseyyAA0C0CAA6MarkerpF",
+            new[] { Void, Composition("TestModule.Base & TestModule.Marker") });
+        var useMarker = Func("useMarker", "useMarker(_:)", "$s10TestModule9useMarkeryyAA0C0_pF",
+            new[] { Void, Composition("TestModule.Marker & Swift.Error") });
+        var useUnknown = Func("useUnknown", "useUnknown(_:)", "$s10TestModule10useUnknownyyAA6Marker_7Elsewhere5ThingpF",
+            new[] { Void, Composition("TestModule.Marker & Elsewhere.Thing") });
+
+        var (_, table, _) = Parse(baseClass, marker, useBase, useMarker, useUnknown);
+
+        var withBase = Assert.Single(Facts(table, "$s10TestModule7useBaseyyAA0C0CAA6MarkerpF").Parameters).Type;
+        Assert.Equal(SwiftTypeCategory.Existential, withBase.Category);
+        Assert.True(withBase.IsClassBound);
+        var protocolsOnly = Assert.Single(Facts(table, "$s10TestModule9useMarkeryyAA0C0_pF").Parameters).Type;
+        Assert.Equal(SwiftTypeCategory.Existential, protocolsOnly.Category);
+        Assert.False(protocolsOnly.IsClassBound);
+        var unknown = Facts(table, "$s10TestModule10useUnknownyyAA6Marker_7Elsewhere5ThingpF");
+        Assert.Equal(SwiftTypeCategory.Unresolved, Assert.Single(unknown.Parameters).Type.Category);
+        Assert.False(unknown.IsComplete);
+    }
+
+    [Fact]
+    public void PeekingATypeRecord_NeverThrows()
+    {
+        var db = new TypeDatabase();
+
+        // Stripping the Foo/FooRef suffix leaves no type name.
+        Assert.False(db.TryPeekTypeRecord(SwiftTypeName.FromModuleQualifiedName("CoreFoundation.Ref"), out _));
+    }
+
+    [Fact]
     public void MetadataAccessor_ReturnsATwoWordResponse()
     {
         var (_, table, _) = Parse(PointDecl());
