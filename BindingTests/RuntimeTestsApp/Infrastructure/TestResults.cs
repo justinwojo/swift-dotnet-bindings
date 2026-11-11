@@ -75,6 +75,19 @@ public class TestResults
     }
 
     /// <summary>
+    /// Records which code made the class's lane-witness Swift call (<c>--lane-identity</c>). The
+    /// host checks it against the execution lane it built; see <c>RuntimeLaneIdentity</c>.
+    /// </summary>
+    public void RecordLaneWitness(string className, string image, string? symbol, ulong address, ulong imageBase)
+    {
+        lock (_lock)
+        {
+            WriteJsonlRaw($"{{\"lane_class\":{JsonEscape(className)},\"image\":{JsonEscape(image)}," +
+                $"\"symbol\":{JsonEscape(symbol)},\"address\":\"0x{address:x}\",\"image_base\":\"0x{imageBase:x}\"}}");
+        }
+    }
+
+    /// <summary>
     /// Emits a class_done record for the current class. Called automatically by BeginClass
     /// for the previous class, and must be called after the last class finishes.
     /// </summary>

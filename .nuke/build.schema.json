@@ -233,6 +233,10 @@
           "type": "string",
           "description": "Exact SwiftBindings.Runtime package version for the CoreCLR canary"
         },
+        "CoreClrInterp": {
+          "type": "boolean",
+          "description": "Run the RuntimeTestsApp as the ordinary Debug .NET 11 app on the CoreCLR interpreter (simulator, tvOS and device)"
+        },
         "Device": {
           "type": "boolean",
           "description": "Run on physical iOS device (NativeAOT)"

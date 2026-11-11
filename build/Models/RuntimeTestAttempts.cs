@@ -106,7 +106,9 @@ public sealed class RuntimeTestAttempts
             return new(false, null, Array.Empty<string>(), "App JSONL contains a final summary; stop.");
 
         var active = FindActiveTest(launch.Output, inventory);
-        if (active == null || !eligible.Contains(active.ClassName) || excluded.Contains(active.ClassName))
+        if (active == null)
+            return PlanClassLevelRecovery(launch, results, inventory, eligible, excluded, attempt, maxRetries, launcherAborts);
+        if (!eligible.Contains(active.ClassName) || excluded.Contains(active.ClassName))
             return new(false, null, Array.Empty<string>(), "No eligible, inventory-validated unfinished invocation; stop without guessing.");
 
         // A flushed terminal result/class_done contradicts an apparently unfinished console
@@ -129,6 +131,66 @@ public sealed class RuntimeTestAttempts
         if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launcherAborts))
             return new(false, active, ordered, "Crash-recovery budget exhausted.");
         return new(true, active, ordered, "Continue independent classes; the original product failure remains sticky.");
+    }
+
+    /// <summary>The test name a class-level interruption reports: the class marker printed, no test started.</summary>
+    public const string ClassSetup = "<class setup>";
+
+    /// <summary>
+    /// The fallback when the console shows no unfinished test. A crash can land outside every test:
+    /// in a class's setup (its lane probe, static initialization or constructor, after its
+    /// <c>=== Class ===</c> marker and before its first test) or between tests. The plan excludes
+    /// every eligible class that started in this attempt, so nothing that ran is rerun and replaced;
+    /// it names the interrupted class only when that class's marker is the last thing the console
+    /// shows. A launch that started no new class stops, so every resume makes progress.
+    /// </summary>
+    static RecoveryPlan PlanClassLevelRecovery(LaunchResult launch, JsonlTestResults? results,
+        TestClassInventory inventory, IReadOnlySet<string> eligible, IReadOnlySet<string> excluded,
+        int attempt, int maxRetries, int launcherAborts)
+    {
+        var (started, setup) = FindStartedClasses(launch.Output, inventory);
+        var classes = new HashSet<string>(started.Where(c => eligible.Contains(c) && !excluded.Contains(c)), StringComparer.Ordinal);
+        if (classes.Count == 0)
+            return new(false, null, Array.Empty<string>(), "No eligible, inventory-validated unfinished invocation; stop without guessing.");
+        TestIdentity? interrupted = null;
+        if (setup != null && classes.Contains(setup) && results?.CompletedClasses.Contains(setup) != true)
+            interrupted = new(setup, ClassSetup);
+        var ordered = classes.OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        if (!eligible.Except(excluded).Except(classes).Any())
+            return new(false, interrupted, ordered, "No independent classes remain.");
+        if (CrashRecoveryBudget.IsExhausted(attempt, maxRetries, launcherAborts))
+            return new(false, interrupted, ordered, "Crash-recovery budget exhausted.");
+        return new(true, interrupted, ordered, interrupted != null
+            ? "Interrupted in class setup; exclude every class this attempt started and continue; the original product failure remains sticky."
+            : "Interrupted outside any test; exclude every class this attempt started and continue; the original product failure remains sticky.");
+    }
+
+    static readonly Regex ClassStart = new(@"\[INFO\] === ([^\s.]+) ===\s*$", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Every inventory class whose marker this attempt printed, and the class whose marker is the
+    /// last event before the output ends (no test started, no final summary after it), if any.
+    /// </summary>
+    static (IReadOnlyList<string> Started, string? Setup) FindStartedClasses(string output, TestClassInventory inventory)
+    {
+        var started = new List<string>();
+        string? setup = null;
+        foreach (var line in output.Split('\n'))
+        {
+            if (line.Contains("RESULTS FLUSHED", StringComparison.Ordinal))
+                break;
+            if (line.Contains("[TEST] --- ", StringComparison.Ordinal))
+            {
+                setup = null;
+                continue;
+            }
+            var marker = ClassStart.Match(line);
+            if (!marker.Success || !inventory.ClassNames.Contains(marker.Groups[1].Value))
+                continue;
+            setup = marker.Groups[1].Value;
+            if (!started.Contains(setup)) started.Add(setup);
+        }
+        return (started, setup);
     }
 
     static readonly Regex Start = new(

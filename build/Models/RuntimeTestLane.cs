@@ -5,17 +5,28 @@
 using System;
 
 /// <summary>Validated managed target and execution identity for the BindingTests harness.</summary>
-public sealed record RuntimeTestLane(string Framework, string Configuration, bool DeviceCoreClr)
+/// <param name="CoreClrInterpreter">Set by <c>--coreclr-interp</c>: the run is the ordinary Debug .NET 11
+/// app on the CoreCLR interpreter, on every platform it names (the device included).</param>
+public sealed record RuntimeTestLane(string Framework, string Configuration, bool DeviceCoreClr, bool CoreClrInterpreter = false)
 {
     public bool IsNet11 => Framework == "net11.0";
     public static RuntimeTestLane Create(string? requestedFramework, string? profileFramework,
-        string? configuration, bool deviceCoreClr, bool device, bool monoAot)
+        string? configuration, bool deviceCoreClr, bool device, bool monoAot, bool coreClrInterp = false)
     {
         var framework = requestedFramework ?? profileFramework ?? "net10.0";
         if (framework is not ("net10.0" or "net11.0"))
             throw new ArgumentException("--binding-test-framework must be net10.0 or net11.0.");
         if (profileFramework != null && framework != profileFramework)
             throw new ArgumentException($"Requested framework {framework} disagrees with the selected toolchain profile ({profileFramework}).");
+        if (coreClrInterp)
+        {
+            if (framework != "net11.0")
+                throw new ArgumentException("--coreclr-interp selects the .NET 11 CoreCLR interpreter; run it under the net11 toolchain profile.");
+            if (configuration is not (null or "Debug"))
+                throw new ArgumentException("--coreclr-interp is the Debug interpreter lane; the matching ReadyToRun leg is --binding-test-configuration Release.");
+            // A device build has no JIT: the ordinary Debug CoreCLR app runs the interpreter there too.
+            deviceCoreClr |= device;
+        }
         var config = configuration ?? "Debug";
         if (config is not ("Debug" or "Release"))
             throw new ArgumentException("--binding-test-configuration must be Debug or Release.");
@@ -25,10 +36,27 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
             throw new ArgumentException("--mono-aot requires --device, .NET 10, and no --core-clr; .NET 11 does not support Mono.");
         if (deviceCoreClr && (!device || framework != "net11.0"))
             throw new ArgumentException("--core-clr selects the .NET 11 physical-device runtime and requires --device --binding-test-framework net11.0.");
-        return new(framework, config, deviceCoreClr);
+        return new(framework, config, deviceCoreClr, coreClrInterp);
     }
 
     public string Engine(bool device) => device && !DeviceCoreClr ? "nativeaot" : "coreclr";
+
+    /// <summary>
+    /// How this lane's app must execute, proven per test class by <see cref="RuntimeLaneIdentity"/>.
+    /// Null for .NET 10, whose Mono lanes the banner already identifies.
+    /// </summary>
+    public RuntimeExecutionLane? ExecutionLane(bool device) =>
+        IsNet11 ? RuntimeLaneIdentity.Expected(Engine(device), BuildConfiguration(device, false)) : null;
+
+    /// <summary>
+    /// How many crash-recovery relaunches a run may make. The .NET 11 lanes are measured on emission
+    /// the interpreter is known to mishandle, so a crash must not hide the classes after it: each
+    /// relaunch excludes at least one class, and the budget lets every eligible class run. .NET 10
+    /// keeps its fixed budget.
+    /// </summary>
+    public int CrashRecoveryRetries(int eligibleClasses) => IsNet11 ? Math.Max(DefaultCrashRecoveryRetries, eligibleClasses) : DefaultCrashRecoveryRetries;
+
+    public const int DefaultCrashRecoveryRetries = 5;
     public string BuildConfiguration(bool device, bool monoAot) =>
         device && !monoAot && !DeviceCoreClr ? "Release" : Configuration;
     public string BaselineKey(string platform, string rid, bool device) =>

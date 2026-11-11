@@ -68,6 +68,7 @@
          compiles AOT-clean under this project's IsAotCompatible + warnings-as-errors.
          TestClassInventory rides along because JsonlTestResults names it as a parameter type. -->
     <Compile Include="../../../../build/Models/JsonlTestResults.cs" Link="Models/JsonlTestResults.cs" />
+    <Compile Include="../../../../build/Models/RuntimeLaneIdentity.cs" Link="Models/RuntimeLaneIdentity.cs" />
     <Compile Include="../../../../build/Models/TestClassInventory.cs" Link="Models/TestClassInventory.cs" />
     <!-- Link-compile the MSBuild command-line property escaper so its pure Escape (the MSB1006
          comma/semicolon/percent hazard for the [X.Y.Z,) version floor range) is unit-tested here
