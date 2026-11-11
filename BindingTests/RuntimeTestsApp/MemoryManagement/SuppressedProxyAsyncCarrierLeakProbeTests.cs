@@ -41,8 +41,9 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// </para>
 ///
 /// <para>
-/// The dispose loops run in <c>[MethodImpl(NoInlining)]</c> async helpers so the completed (faulted)
-/// state machines are collectible before the leak assertion, and each awaited call is bounded by
+/// The dispose loops run in async helpers on an isolated, joined thread
+/// (<see cref="LifetimeTracker.RunIsolated(Func{Task})"/>) so neither the completed (faulted) state
+/// machines nor a stale stack slot pin anything past the leak assertion, and each awaited call is bounded by
 /// <c>WithTimeout(DefaultAsyncTimeout)</c> so a regressed completion callback fails the probe bounded
 /// instead of hanging the run.
 /// </para>
@@ -95,12 +96,12 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
     /// value-witness-Destroy the <c>ExistentialContainer1</c> carrier so the embedded TrackedRef's +1
     /// is released. A leak pins one ref per faulted call.
     /// </summary>
-    public async Task TestAsyncScalarExistentialFaultReleasesCarrier()
+    public void TestAsyncScalarExistentialFaultReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        await FaultScalarAsync(50);
+        LifetimeTracker.RunIsolated(() => FaultScalarAsync(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
@@ -134,13 +135,13 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
     /// value-witness-Destroy the <c>SwiftArray&lt;ExistentialContainer1&gt;</c> carrier, or the storage —
     /// and every embedded TrackedRef — leaks per faulted call.
     /// </summary>
-    public async Task TestAsyncCollectionExistentialFaultReleasesCarrier()
+    public void TestAsyncCollectionExistentialFaultReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int elementsPerCall = 5;
-        await FaultArrayAsync(50, elementsPerCall);
+        LifetimeTracker.RunIsolated(() => FaultArrayAsync(50, elementsPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
@@ -176,13 +177,13 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
     /// (<c>BuildCollectionCarrierMarshalLines</c>) on a dictionary shape, not just an array; a
     /// <c>Set&lt;any Boxable&gt;</c> twin is infeasible since <c>Boxable</c> is not <c>Hashable</c>.
     /// </summary>
-    public async Task TestAsyncDictionaryExistentialFaultReleasesCarrier()
+    public void TestAsyncDictionaryExistentialFaultReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        await FaultDictionaryAsync(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => FaultDictionaryAsync(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
@@ -215,13 +216,13 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
     /// suppressed arm, kept as a regression guard. Same carrier +1 on the inner array's CoW storage;
     /// the faulting callback must Destroy the carrier before faulting.
     /// </summary>
-    public async Task TestAsyncOptionalCollectionExistentialFaultReleasesCarrier()
+    public void TestAsyncOptionalCollectionExistentialFaultReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         const int elementsPerCall = 5;
-        await FaultOptionalArrayAsync(50, elementsPerCall);
+        LifetimeTracker.RunIsolated(() => FaultOptionalArrayAsync(50, elementsPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
@@ -256,12 +257,12 @@ public class SuppressedProxyAsyncCarrierLeakProbeTests : TestBase
     /// distinct from the opaque value-witness Destroy), deallocating the cell and its embedded
     /// TrackedRef. A leak pins one ref per faulted call.
     /// </summary>
-    public async Task TestAsyncClassBoundExistentialFaultReleasesCarrier()
+    public void TestAsyncClassBoundExistentialFaultReleasesCarrier()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        await FaultClassBoundScalarAsync(50);
+        LifetimeTracker.RunIsolated(() => FaultClassBoundScalarAsync(50));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(

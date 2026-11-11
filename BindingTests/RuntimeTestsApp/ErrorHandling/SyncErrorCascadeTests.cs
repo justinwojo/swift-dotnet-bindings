@@ -230,11 +230,11 @@ public class SyncErrorCascadeTests : TestBase
         // rather than merely "did not crash". Two independent +1s exist on this path — the
         // error box owned by the exception, and the retained class pointer owned by the
         // marshalled payload — so this also gates them not collapsing into a double free.
-        LifetimeTracker.RunWithLeakCheck(() => RunOnFinishedThread(() =>
+        LifetimeTracker.RunWithLeakCheck(() =>
         {
             for (int i = 0; i < 25; i++)
                 ThrowAndDropTrackedClassError(i);
-        }), "sync typed throw, class-shaped error");
+        }, "sync typed throw, class-shaped error");
         var stats = LifetimeTracker.GetStats();
         AssertEqual(25, stats.allocations, "all class-error throws allocated a tracked payload");
         AssertEqual(25, stats.deallocations, "all class-error payloads were released exactly once");
@@ -244,11 +244,11 @@ public class SyncErrorCascadeTests : TestBase
     {
         // Same probe for the SafeHandle-owned carrier shape: the wire buffer holds a +1 on the
         // embedded ref, which only balances if the carrier is released exactly once.
-        LifetimeTracker.RunWithLeakCheck(() => RunOnFinishedThread(() =>
+        LifetimeTracker.RunWithLeakCheck(() =>
         {
             for (int i = 0; i < 25; i++)
                 ThrowAndDropTrackedStructError(i);
-        }), "sync typed throw, struct-shaped error");
+        }, "sync typed throw, struct-shaped error");
         var stats = LifetimeTracker.GetStats();
         AssertEqual(25, stats.allocations, "all struct-error throws allocated a tracked payload");
         AssertEqual(25, stats.deallocations, "all struct-error payloads were released exactly once");

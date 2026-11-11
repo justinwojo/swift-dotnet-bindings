@@ -37,7 +37,13 @@ internal static class SwiftExitGuard
     /// ensuring coverage even if ProcessExit fires after finalization starts (NativeAOT/iOS)
     /// or doesn't fire at all (signal-based termination).
     /// </summary>
-    internal static bool IsProcessExiting => s_processExiting || Environment.HasShutdownStarted;
+    internal static bool IsProcessExiting =>
+        s_processExiting || t_processExitingForTest || Environment.HasShutdownStarted;
+
+    // Test-only simulated exit, visible only on the thread that set it (see
+    // SetProcessExitingForTest).
+    [ThreadStatic]
+    private static bool t_processExitingForTest;
 
     /// <summary>
     /// Static constructor — registers the ProcessExit handler on first type access.
@@ -61,11 +67,27 @@ internal static class SwiftExitGuard
     }
 
     /// <summary>
-    /// For testing: allows setting the process-exiting flag directly.
+    /// For testing: simulates process exit for the CALLING THREAD only, so a test that releases
+    /// a handle synchronously (Close, an explicit deinit/release core) takes the exit path.
+    /// The GC finalizer thread and every other thread keep the real state. A process-wide
+    /// simulation leaks into the finalizer thread: every handle finalized in that window,
+    /// including handles that belong to tests running in parallel, takes the exit path and
+    /// skips its release.
     /// Note: <see cref="Environment.HasShutdownStarted"/> cannot be overridden,
     /// but it is always false during test execution.
     /// </summary>
     internal static void SetProcessExitingForTest(bool value)
+    {
+        t_processExitingForTest = value;
+    }
+
+    /// <summary>
+    /// For testing: simulates process exit for EVERY thread, the GC finalizer thread included.
+    /// Only for a test that must drive the finalizer path under the guard and that runs with
+    /// nothing else in flight (the sequential runtime test app's shutdown smoke). Never use it
+    /// from a parallel test runner. Use <see cref="SetProcessExitingForTest"/> there.
+    /// </summary>
+    internal static void SetProcessExitingProcessWideForTest(bool value)
     {
         s_processExiting = value;
     }

@@ -36,8 +36,9 @@ namespace RuntimeTestsApp.MemoryManagement;
 ///    fault needs a finalizer to land inside the borrow window), so the assertion is
 ///    no-crash / no-leak / correct round-trip under induced GC pressure.
 ///
-/// Dispose loops run in <c>[MethodImpl(NoInlining)]</c> helpers so no stale stack slot keeps a
-/// proxy alive past its Dispose under Mono's conservative stack scan.
+/// Dispose loops run on an isolated, joined thread (<see cref="LifetimeTracker.RunIsolated(Action)"/>)
+/// so no stale stack slot or register keeps a proxy alive past its Dispose under Mono's conservative
+/// stack scan.
 /// </summary>
 public class CompositionArgLifetimeProbeTests : TestBase
 {
@@ -69,7 +70,7 @@ public class CompositionArgLifetimeProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        HoldCallClosureReturnAndDispose();
+        LifetimeTracker.RunIsolated(() => HoldCallClosureReturnAndDispose());
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("closure-return owned EC2: proxy must deinit cleanly after Dispose");
@@ -109,7 +110,7 @@ public class CompositionArgLifetimeProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        HoldCallReverseDispatchGetterAndDispose();
+        LifetimeTracker.RunIsolated(() => HoldCallReverseDispatchGetterAndDispose());
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("reverse-dispatch getter owned EC2: proxy must deinit cleanly after Dispose");
@@ -170,7 +171,7 @@ public class CompositionArgLifetimeProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        PassBorrowedCompositionArgsUnderGcPressure(200);
+        LifetimeTracker.RunIsolated(() => PassBorrowedCompositionArgsUnderGcPressure(200));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("borrowed EC2 arg: each proxy must deinit after Dispose; no UAF, no leak");

@@ -27,8 +27,8 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// the balance is asserted directly: after every materialized proxy AND the source carrier are disposed,
 /// the live count must return to 0. A non-owning proxy orphans one element retain per materialization
 /// (leak shows up as a non-zero live count); a double-adopt double-frees on Dispose (crash inside the
-/// loop). The loop runs in a <c>[MethodImpl(NoInlining)]</c> helper so no stale stack slot keeps a proxy
-/// or the carrier alive past its <c>Dispose</c>.
+/// loop). The loop runs on an isolated, joined thread (<see cref="LifetimeTracker.RunIsolated(Action)"/>)
+/// so no stale stack slot or register keeps a proxy or the carrier alive past its <c>Dispose</c>.
 ///
 /// The carrier (the projection over the SwiftArray / SwiftDictionary) is disposed in a <c>finally</c>:
 /// it holds its own +1 on the CoW storage backing every element, distinct from the per-element extraction
@@ -61,7 +61,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int elementsPerCall = 5;
-        AllocAndDisposeExistentialArrays(50, elementsPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeExistentialArrays(50, elementsPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[any Marker] return must adopt+release each element cell's +1 (and the carrier's CoW retain)");
@@ -103,7 +103,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        AllocAndDisposeExistentialMaps(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeExistentialMaps(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[String: any Marker] return must adopt+release each value cell's +1 (and the carrier's CoW retain)");
@@ -145,7 +145,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
 
         const int outerPerCall = 4;
         const int innerPerOuter = 3;
-        AllocAndDisposeNestedExistentialArrays(40, outerPerCall, innerPerOuter);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNestedExistentialArrays(40, outerPerCall, innerPerOuter));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[[any Marker]] return must recurse owns:true adoption to the buried existential leaf (every inner-array element cell's +1 and every carrier's CoW retain)");
@@ -200,7 +200,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
 
         const int outerPerCall = 4;
         const int innerPerOuter = 3;
-        AllocAndDisposeNestedExistentialMaps(40, outerPerCall, innerPerOuter);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNestedExistentialMaps(40, outerPerCall, innerPerOuter));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[String: [any Marker]] return must recurse owns:true adoption to the buried existential leaf (every value-array element cell's +1 and every carrier's CoW retain)");
@@ -254,7 +254,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
 
         const int outerPerCall = 4;
         const int innerPerOuter = 3;
-        AllocAndDisposeNestedExistentialArrayOfMaps(40, outerPerCall, innerPerOuter);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNestedExistentialArrayOfMaps(40, outerPerCall, innerPerOuter));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[[String: any Marker]] return must recurse owns:true adoption through the buried Dictionary layer to the existential leaf (every value cell's +1 and every carrier's CoW retain)");
@@ -307,7 +307,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
 
         const int outerPerCall = 4;
         const int innerPerOuter = 3;
-        AllocAndDisposeNestedExistentialMapOfMaps(40, outerPerCall, innerPerOuter);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNestedExistentialMapOfMaps(40, outerPerCall, innerPerOuter));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[String: [String: any Marker]] return must recurse owns:true adoption through the buried Dictionary layer to the existential leaf (every value cell's +1 and every carrier's CoW retain)");
@@ -364,7 +364,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
         const int outerPerCall = 3;
         const int midPerOuter = 2;
         const int innerPerMid = 3;
-        AllocAndDisposeNestedExistentialMapOfArrayOfMaps(40, outerPerCall, midPerOuter, innerPerMid);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNestedExistentialMapOfArrayOfMaps(40, outerPerCall, midPerOuter, innerPerMid));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[String: [[String: any Marker]]] return must recurse owns:true adoption through the buried Array and Dictionary layers to the existential leaf (every value cell's +1 and every carrier's CoW retain)");
@@ -452,7 +452,7 @@ public class ClassBoundExistentialCollectionLeakProbeTests : TestBase
 
         const int outerPerCall = 3;
         const int innerPerOuter = 2;
-        DriveNestedMarkerMapConsumerRepeatedly(50, outerPerCall, innerPerOuter);
+        LifetimeTracker.RunIsolated(() => DriveNestedMarkerMapConsumerRepeatedly(50, outerPerCall, innerPerOuter));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("reverse-dispatch [[String: any Marker]] method param must adopt+release each moved-out value cell's +1 (receiver value proxy needs ownsContainer:true so its finalizer releases the orphaned MarkerImpl retain)");

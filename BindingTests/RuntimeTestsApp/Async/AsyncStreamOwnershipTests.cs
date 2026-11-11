@@ -53,23 +53,17 @@ public class AsyncStreamOwnershipTests : TestBase
     /// is the real object (not the slot address); the post-drain live-count of zero asserts the retain is
     /// balanced by the wrapper's dispose with no leak and no over-release.
     /// </summary>
-    public async Task TestAsyncStreamClassElement_DerefsAndRetains()
+    public void TestAsyncStreamClassElement_DerefsAndRetains()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         using (var source = new TrackedRefStreamSource())
         {
-            var tags = await WithTimeout(Task.Run(async () =>
-            {
-                var collected = new List<int>();
-                await foreach (var item in source.TrackedRefs)
-                {
-                    collected.Add(item.Tag);
-                    item.Dispose();
-                }
-                return collected;
-            }), DefaultAsyncTimeout);
+            // Drained on an isolated thread that exits before the leak assertion, so a stale stack
+            // slot of the draining thread cannot pin a dead element wrapper.
+            var tags = LifetimeTracker.RunIsolated(() =>
+                WithTimeout(DrainTrackedRefTagsAsync(source), DefaultAsyncTimeout));
 
             AssertEqual(3, tags.Count, "AsyncStream<TrackedRef> must yield 3 class elements");
             AssertTrue(tags[0] == 1 && tags[1] == 2 && tags[2] == 3,
@@ -88,23 +82,16 @@ public class AsyncStreamOwnershipTests : TestBase
     /// <c>.Value</c> exercises the adopted buffer; the post-drain live-count of zero asserts the embedded
     /// <c>TrackedRef</c> is released exactly once (a borrowed-slot adopt would UAF or double-free).
     /// </summary>
-    public async Task TestAsyncStreamNonFrozenStructElement_DoesNotAdoptBorrowedSlot()
+    public void TestAsyncStreamNonFrozenStructElement_DoesNotAdoptBorrowedSlot()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
         using (var source = new TrackedRefStreamSource())
         {
-            var values = await WithTimeout(Task.Run(async () =>
-            {
-                var collected = new List<int>();
-                await foreach (var item in source.TrackedStructs)
-                {
-                    collected.Add(item.Value);
-                    item.Dispose();
-                }
-                return collected;
-            }), DefaultAsyncTimeout);
+            // Drained on an isolated thread that exits before the leak assertion (see the class-element test).
+            var values = LifetimeTracker.RunIsolated(() =>
+                WithTimeout(DrainTrackedStructValuesAsync(source), DefaultAsyncTimeout));
 
             AssertEqual(3, values.Count, "AsyncStream<TrackedRefStruct> must yield 3 struct elements");
             AssertTrue(values[0] == 1 && values[1] == 2 && values[2] == 3,
@@ -327,6 +314,28 @@ public class AsyncStreamOwnershipTests : TestBase
             "rooting GCHandle; without it a parked producer never completes and the stream leaks one " +
             "handle per read");
         TestLogger.Info("Suspended stream: Cancel() woke the parked producer to completion; context handle freed (no leak)");
+    }
+
+    private static async Task<List<int>> DrainTrackedRefTagsAsync(TrackedRefStreamSource source)
+    {
+        var collected = new List<int>();
+        await foreach (var item in source.TrackedRefs)
+        {
+            collected.Add(item.Tag);
+            item.Dispose();
+        }
+        return collected;
+    }
+
+    private static async Task<List<int>> DrainTrackedStructValuesAsync(TrackedRefStreamSource source)
+    {
+        var collected = new List<int>();
+        await foreach (var item in source.TrackedStructs)
+        {
+            collected.Add(item.Value);
+            item.Dispose();
+        }
+        return collected;
     }
 
     // Drains the concrete stream via await foreach — which disposes only the generated enumerator, never

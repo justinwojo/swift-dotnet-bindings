@@ -38,8 +38,9 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// reports <c>owns == false</c> and must NOT be destroyed (would over-release);
 /// the value-conformer probes here drive the owning (<c>owns == true</c>) branch.
 ///
-/// The alloc/dispose loops run in <c>[MethodImpl(NoInlining)]</c> helpers so no stale stack slot
-/// keeps a conformer or box alive past its <c>Dispose</c>.
+/// The alloc/dispose loops run on an isolated, joined thread
+/// (<see cref="LifetimeTracker.RunIsolated(Action)"/>) so no stale stack slot or register keeps a
+/// conformer or box alive past its <c>Dispose</c>.
 /// </summary>
 public class ExistentialParamLeakProbeTests : TestBase
 {
@@ -69,7 +70,7 @@ public class ExistentialParamLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        PassToSyncConsumer(Iterations);
+        LifetimeTracker.RunIsolated(() => PassToSyncConsumer(Iterations));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Renderable sync param must release each per-call boxed +1");
@@ -95,17 +96,17 @@ public class ExistentialParamLeakProbeTests : TestBase
     /// continuation has finished reading the <c>@in_guaranteed</c> buffer. A leaked box pins the
     /// owner's refs after disposal.
     /// </summary>
-    public async Task TestAsyncExistentialParamReleasesBox()
+    public void TestAsyncExistentialParamReleasesBox()
     {
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        // Await the async Swift calls — never block with .GetAwaiter().GetResult(): the
-        // discovery runner awaits this Task while pumping the iOS run loop, and the Swift
-        // async continuation completes on that same loop. Synchronously blocking the test
-        // thread on the continuation deadlocks (the loop can never run it). WithTimeout keeps
-        // a future regression a fast TimeoutException rather than a 90s launch hang.
-        await WithTimeout(PassToAsyncConsumer(Iterations), TimeSpan.FromSeconds(30));
+        // Never block on the Swift calls with .GetAwaiter().GetResult() from the test thread: its
+        // continuations would be posted to the run loop that thread pumps. The isolated churn
+        // thread runs its own pump for every continuation, so blocking the test thread in the
+        // join is safe here. WithTimeout keeps a future regression a fast TimeoutException rather
+        // than a 90s launch hang.
+        LifetimeTracker.RunIsolated(() => WithTimeout(PassToAsyncConsumer(Iterations), TimeSpan.FromSeconds(30)));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("any Renderable async param must release each per-call boxed +1");
@@ -136,7 +137,7 @@ public class ExistentialParamLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        ConstructAndDisposeEnumCases(Iterations);
+        LifetimeTracker.RunIsolated(() => ConstructAndDisposeEnumCases(Iterations));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("TrackedRenderableBox.Shown(...) must release each factory's boxed +1");
@@ -168,7 +169,7 @@ public class ExistentialParamLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        SetAndDisposeHolder(Iterations);
+        LifetimeTracker.RunIsolated(() => SetAndDisposeHolder(Iterations));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("RenderableHolder.Primary setter must release each set's boxed +1");

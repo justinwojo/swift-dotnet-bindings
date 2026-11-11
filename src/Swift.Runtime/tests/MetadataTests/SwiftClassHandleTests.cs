@@ -17,12 +17,10 @@ namespace Swift.Runtime.Tests;
 /// Real Swift object ARC verification happens in BindingTests runtime tests.
 /// </summary>
 /// <remarks>
-/// Uses xunit collection serialization (via <c>[Collection]</c>) AND a Monitor-lock
-/// scope (<see cref="SwiftExitGuardTestScope"/>) because many tests toggle
-/// <c>SwiftExitGuard.SetProcessExitingForTest</c>, a process-global flag. The
-/// Monitor lock is belt-and-suspenders on top of collection isolation — rare
-/// flakes were observed under full-suite runs where collection alone didn't
-/// serialize reliably.
+/// Many tests simulate process exit through <see cref="SwiftExitGuardTestScope"/> so that
+/// closing a mock pointer takes the exit path instead of calling into Swift. That flag is
+/// thread-scoped: each test closes its handle synchronously inside the scope, and nothing
+/// leaks to other tests or to the GC finalizer thread.
 /// </remarks>
 [Collection(SwiftExitGuardCollection.Name)]
 public class SwiftClassHandleTests

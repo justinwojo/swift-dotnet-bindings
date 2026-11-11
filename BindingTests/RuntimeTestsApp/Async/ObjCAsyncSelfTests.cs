@@ -86,12 +86,12 @@ public class ObjCAsyncSelfTests : TestBase
     /// without weakening detection of a real ARC imbalance.
     /// </para>
     /// </summary>
-    public async Task TestObjCAsyncSelf_SelfRetainBalancesArc_NoLeak()
+    public void TestObjCAsyncSelf_SelfRetainBalancesArc_NoLeak()
     {
         DrainObjCFinalizers();
         LifetimeTracker.Reset();
 
-        await RunSelfIterationsAsync(40);
+        LifetimeTracker.RunIsolated(() => RunSelfIterationsAsync(40));
 
         DrainObjCFinalizers();
         LifetimeTracker.AssertNoLeaks(
@@ -100,9 +100,9 @@ public class ObjCAsyncSelfTests : TestBase
     }
 
     /// <summary>
-    /// Runs the iteration loop in its own async frame (kept out-of-line via
-    /// <see cref="MethodImplOptions.NoInlining"/> so the JIT can't fold it back into the asserting
-    /// caller's still-live frame) and disposes each <c>self</c> at the end of its iteration. The
+    /// Runs the iteration loop in its own async frame, on an isolated thread that exits before the
+    /// leak assertion (see <see cref="LifetimeTracker.RunIsolated(Func{Task})"/>), and disposes each
+    /// <c>self</c> at the end of its iteration. The
     /// per-call self-retain is already balanced (<c>UnknownObjectRetain</c>/<c>UnknownObjectRelease</c>);
     /// the explicit <c>Dispose</c> is what guarantees deterministic teardown — see
     /// <see cref="TestObjCAsyncSelf_SelfRetainBalancesArc_NoLeak"/> for why finalization is unreliable

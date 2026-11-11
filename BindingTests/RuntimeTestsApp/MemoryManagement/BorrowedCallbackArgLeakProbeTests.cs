@@ -25,8 +25,8 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// <c>TrackedRef</c>, so a suppressed Destroy is a non-zero live count after a GC drain — a deterministic
 /// leak (the pinned ref is never released regardless of GC timing), not a flaky "does not crash".
 ///
-/// The single Swift call runs in a <c>[MethodImpl(NoInlining)]</c> helper so no stale stack slot keeps
-/// the last borrowed wrapper rooted past the drain.
+/// The single Swift call runs on an isolated, joined thread (<see cref="LifetimeTracker.RunIsolated{T}(Func{T})"/>)
+/// so no stale stack slot or register keeps the last borrowed wrapper rooted past the drain.
 /// </summary>
 public class BorrowedCallbackArgLeakProbeTests : TestBase
 {
@@ -52,7 +52,7 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        int successes = InvokeBorrowedResults(1000);
+        int successes = LifetimeTracker.RunIsolated(() => InvokeBorrowedResults(1000));
         DrainFinalizers();
 
         // The leak assertion is only worth anything if the wrapper was built over the real value:
@@ -90,7 +90,7 @@ public class BorrowedCallbackArgLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        long observedElements = InvokeBorrowedArrays(1000);
+        long observedElements = LifetimeTracker.RunIsolated(() => InvokeBorrowedArrays(1000));
         DrainFinalizers();
 
         // Swift sends a one-element array each time. Counting the elements out of every borrowed

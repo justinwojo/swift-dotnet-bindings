@@ -366,7 +366,7 @@ public class SetStructElementTests : TestBase
 
         const int membersPerSet = 5;
         const int iterations = 50;
-        InsertAndDisposeTrackedSets(iterations, membersPerSet);
+        LifetimeTracker.RunIsolated(() => InsertAndDisposeTrackedSets(iterations, membersPerSet));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks(
@@ -375,8 +375,8 @@ public class SetStructElementTests : TestBase
             $"Set<TrackedRef> insert: {iterations} sets x {membersPerSet} members x 2 arms all released");
     }
 
-    // Runs in a non-inlined helper so no stale stack slot keeps the last set or
-    // member alive past its Dispose and shows up as a false residual.
+    // Runs on an isolated thread (see the caller) so no stale stack slot keeps the
+    // last set or member alive past its Dispose and shows up as a false residual.
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void InsertAndDisposeTrackedSets(int iterations, int membersPerSet)
     {

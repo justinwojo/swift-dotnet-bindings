@@ -29,8 +29,9 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// Swift copy-on-write storage deterministically. Disposing the extracted element wrappers alone
 /// is not enough — the carrier holds its own +1 on the CoW storage that backs every element, and
 /// relying on GC finalization for that retain leaves the last iteration's carrier rooted (a false
-/// "N leaked" residual). The loop still runs in a <c>[MethodImpl(NoInlining)]</c> helper so no
-/// stale stack slot keeps a carrier alive past its <c>Dispose</c>.
+/// "N leaked" residual). The loop still runs on an isolated, joined thread
+/// (<see cref="LifetimeTracker.RunIsolated(Action)"/>) so no stale stack slot or register keeps a
+/// carrier alive past its <c>Dispose</c>.
 /// </summary>
 public class WireCarrierLeakProbeTests : TestBase
 {
@@ -56,11 +57,14 @@ public class WireCarrierLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        for (int i = 0; i < 200; i++)
+        LifetimeTracker.RunIsolated(() =>
         {
-            var opt = TestLibFunctions.MakeOptionalFrozenTrackedRefStruct(true, i);
-            opt?.Dispose();
-        }
+            for (int i = 0; i < 200; i++)
+            {
+                var opt = TestLibFunctions.MakeOptionalFrozenTrackedRefStruct(true, i);
+                opt?.Dispose();
+            }
+        });
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Optional<frozen-with-ref> return must not orphan the wire-buffer copy's retain");
@@ -79,11 +83,14 @@ public class WireCarrierLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        for (int i = 0; i < 200; i++)
+        LifetimeTracker.RunIsolated(() =>
         {
-            var opt = TestLibFunctions.MakeOptionalLargeFrozenTrackedRefStruct(true, i);
-            opt?.Dispose();
-        }
+            for (int i = 0; i < 200; i++)
+            {
+                var opt = TestLibFunctions.MakeOptionalLargeFrozenTrackedRefStruct(true, i);
+                opt?.Dispose();
+            }
+        });
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Optional<large-frozen-with-5-refs> indirect return must not orphan the wire-buffer copy's retains");
@@ -101,7 +108,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int elementsPerCall = 5;
-        AllocAndDisposeArrays(50, elementsPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeArrays(50, elementsPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[TrackedRef] return must not orphan the SwiftArray carrier's retain on the CoW storage");
@@ -142,7 +149,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        AllocAndDisposeDicts(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeDicts(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[Int32: TrackedRef] return must not orphan the SwiftDictionary carrier's retain");
@@ -178,7 +185,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int membersPerCall = 5;
-        AllocAndDisposeSets(50, membersPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeSets(50, membersPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Set<TrackedRef> return must not orphan the SwiftSet carrier's retain");
@@ -214,15 +221,18 @@ public class WireCarrierLeakProbeTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        for (int i = 0; i < 200; i++)
+        LifetimeTracker.RunIsolated(() =>
         {
-            // The SwiftResult carrier copies the success payload (+1 on the embedded ref) and
-            // owns it independently of the extracted .Success wrapper — dispose BOTH: the carrier
-            // (via using) to release its copied retain, and the extracted Success wrapper.
-            using var result = TestLibFunctions.MakeTrackedRefResult(true, i);
-            if (result.IsSuccess)
-                result.Success?.Dispose();
-        }
+            for (int i = 0; i < 200; i++)
+            {
+                // The SwiftResult carrier copies the success payload (+1 on the embedded ref) and
+                // owns it independently of the extracted .Success wrapper — dispose BOTH: the carrier
+                // (via using) to release its copied retain, and the extracted Success wrapper.
+                using var result = TestLibFunctions.MakeTrackedRefResult(true, i);
+                if (result.IsSuccess)
+                    result.Success?.Dispose();
+            }
+        });
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Result<TrackedRef,_> success return must not orphan the SwiftResult carrier's retain");
@@ -250,7 +260,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        AllocAndDisposeFrozenRefValueDicts(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeFrozenRefValueDicts(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[Int32: FrozenTrackedRefStruct] enumeration must value-witness-Destroy each moved COPY-shape value's slot +1");
@@ -287,7 +297,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        AllocAndDisposeNonFrozenRefValueDicts(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeNonFrozenRefValueDicts(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("[Int32: TrackedRefStruct] enumeration must copy each moved ADOPT-shape value into a stable buffer (no slot adopt + raw free → UAF)");
@@ -323,7 +333,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int membersPerCall = 5;
-        AllocAndDisposeFrozenRefValueSets(50, membersPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndDisposeFrozenRefValueSets(50, membersPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("Set<HashableFrozenTrackedRefStruct> enumeration must value-witness-Destroy each moved COPY-shape element's slot +1");
@@ -361,7 +371,7 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.Reset();
 
         const int entriesPerCall = 5;
-        AllocAndTryGetFrozenRefValueDicts(50, entriesPerCall);
+        LifetimeTracker.RunIsolated(() => AllocAndTryGetFrozenRefValueDicts(50, entriesPerCall));
         DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks("TryGetValue of a COPY-shape value must value-witness-Destroy the moved slot's +1");
