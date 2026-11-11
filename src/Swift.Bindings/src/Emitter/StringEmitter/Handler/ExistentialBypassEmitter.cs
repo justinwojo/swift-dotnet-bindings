@@ -762,8 +762,9 @@ public static class ExistentialBypassEmitter
         // self and may pass non-@objc class types in passthroughArgs — neither is C-representable
         // under @_cdecl. Symbol uses the SBSW_ prefix so PInvokeEmitHelper.SelectCallingConvention
         // routes the matching P/Invoke to CallConvSwift instead of throwing on SBW_+Swift.
-        swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) {{");
+        WriteDeclaration(swiftWriter, env, forwards: methodDecl, methodAvailability,
+            $"@_silgen_name(\"{wrapperSymbol}\")",
+            $"public func {wrapperSymbol}({swiftParamString}) {{");
         swiftWriter.Indent++;
 
         var methodCallName = NameProvider.ParserNameToSwift(methodDecl);
@@ -1129,8 +1130,9 @@ public static class ExistentialBypassEmitter
         // @_silgen_name keeps Swift CC because passthroughArgs may carry non-@objc class
         // types that swiftc rejects under @_cdecl. Symbol uses the SBSW_ prefix so
         // PInvokeEmitHelper.SelectCallingConvention routes the P/Invoke to CallConvSwift.
-        swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> Swift.UnsafeMutableRawPointer {{");
+        WriteDeclaration(swiftWriter, env, forwards: env.MethodDecl, availability,
+            $"@_silgen_name(\"{wrapperSymbol}\")",
+            $"public func {wrapperSymbol}({swiftParamString}) -> Swift.UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
         swiftWriter.WriteLine($"let result = {swiftTypeName}({callArgString})");
         swiftWriter.WriteLine($"let ptr = Swift.UnsafeMutablePointer<{swiftTypeName}>.allocate(capacity: 1)");
@@ -1142,14 +1144,33 @@ public static class ExistentialBypassEmitter
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         // Free wrapper takes UnsafeMutableRawPointer — kept on @_silgen_name to share the
         // SBSW_ Swift-CC convention with the init wrapper above.
-        swiftWriter.WriteLine($"@_silgen_name(\"{freeSymbol}\")");
-        swiftWriter.WriteLine($"public func {freeSymbol}(_ ptr: Swift.UnsafeMutableRawPointer) {{");
+        WriteDeclaration(swiftWriter, env, forwards: null, availability,
+            $"@_silgen_name(\"{freeSymbol}\")",
+            $"public func {freeSymbol}(_ ptr: Swift.UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;
         swiftWriter.WriteLine($"let typedPtr = ptr.assumingMemoryBound(to: {swiftTypeName}.self)");
         swiftWriter.WriteLine("typedPtr.deinitialize(count: 1)");
         swiftWriter.WriteLine("typedPtr.deallocate()");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Writes a @_silgen_name wrapper's declaration lines and describes the wrapper from them, so
+    /// the binding's Swift-convention transition carries its facts.
+    /// </summary>
+    private static void WriteDeclaration(
+        SwiftWriter swiftWriter, MethodEnvironment env, MethodDecl? forwards,
+        IReadOnlyList<AvailabilityAnnotation>? availability, params string[] declarationLines)
+    {
+        foreach (var line in declarationLines)
+            swiftWriter.WriteLine(line);
+        env.EmissionContext?.RegisterSyntheticSwiftDeclaration(
+            declarationLines,
+            SwiftWrapperSynthesizer.ExistentialBypass,
+            PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+            forwards: forwards?.MangledName,
+            availability: SyntheticSwiftFunction.FloorsOf(availability));
     }
 
     private static void EmitCSharpFactory(

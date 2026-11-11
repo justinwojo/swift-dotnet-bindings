@@ -22,14 +22,29 @@ namespace BindingsGeneration;
 public sealed class SwiftCallFactsTable
 {
     /// <summary>A table that knows no symbol.</summary>
-    public static readonly SwiftCallFactsTable Empty = new(new Dictionary<string, SwiftCallFacts>(StringComparer.Ordinal), ImmutableArray<string>.Empty);
+    public static readonly SwiftCallFactsTable Empty = new(
+        new Dictionary<string, SwiftCallFacts>(StringComparer.Ordinal), ImmutableArray<string>.Empty,
+        new SwiftCallFactsBuilder(Array.Empty<ModuleDecl>(), typeDatabase: null));
 
     private readonly Dictionary<string, SwiftCallFacts> _bySymbol;
+    private readonly SwiftCallFactsBuilder _builder;
 
-    private SwiftCallFactsTable(Dictionary<string, SwiftCallFacts> bySymbol, ImmutableArray<string> conflicts)
+    private SwiftCallFactsTable(Dictionary<string, SwiftCallFacts> bySymbol, ImmutableArray<string> conflicts, SwiftCallFactsBuilder builder)
     {
         _bySymbol = bySymbol;
         Conflicts = conflicts;
+        _builder = builder;
+    }
+
+    /// <summary>
+    /// The facts of a function the generator synthesized into its wrapper, from the declaration its
+    /// producer wrote. Its types resolve against the same modules and databases as the declared
+    /// symbols', so a synthesized function and the member it wraps describe a type the same way.
+    /// </summary>
+    public SwiftCallFacts Describe(SyntheticSwiftFunction function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        return _builder.ForSynthetic(function);
     }
 
     /// <summary>The number of symbols with facts, dispatch thunks excluded (they are derived on lookup).</summary>
@@ -102,6 +117,6 @@ public sealed class SwiftCallFactsTable
         foreach (var facts in SwiftCallFactsBuilder.StandardLibraryMetadataAccessors())
             Add(facts);
 
-        return new SwiftCallFactsTable(bySymbol, conflicts.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray());
+        return new SwiftCallFactsTable(bySymbol, conflicts.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray(), builder);
     }
 }

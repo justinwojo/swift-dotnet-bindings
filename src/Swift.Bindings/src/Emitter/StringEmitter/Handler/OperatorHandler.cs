@@ -318,7 +318,7 @@ namespace BindingsGeneration
 
                 // Emit the operator wrapper and PInvoke
                 EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper);
-                EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
+                EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper, emissionContext);
                 ReportCollector.RecordMemberEmitted(operatorDecl);
                 csWriter.WriteLine();
                 return true;
@@ -791,7 +791,8 @@ namespace BindingsGeneration
         /// and SwiftIndirectResult for struct returns.
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext, bool usesCdeclWrapper = false)
+        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext, bool usesCdeclWrapper = false,
+            ModuleEmissionContext? emissionContext = null)
         {
             var methodDecl = operatorDecl.UnderlyingMethod;
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
@@ -870,7 +871,8 @@ namespace BindingsGeneration
                     ParametersString = parametersString,
                     CallingConvention = callingConvention,
                     IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
+                    EmissionContext = emissionContext ?? methodEnv.EmissionContext
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }
@@ -885,7 +887,8 @@ namespace BindingsGeneration
                     ReturnType = returnType,
                     ParametersString = parametersString,
                     CallingConvention = callingConvention,
-                    IsUnsafe = usesCdeclWrapper
+                    IsUnsafe = usesCdeclWrapper,
+                    EmissionContext = emissionContext ?? methodEnv.EmissionContext
                 });
             }
         }

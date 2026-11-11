@@ -36,6 +36,32 @@ public class WrapperEmitterReturnTests
     }
 
     [Fact]
+    public void OpaqueReturn_SilgenAlias_IsDescribedWithTheExistentialItReturns()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "shape",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Drawable") }) { IsOpaque = true },
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        var ctx = new ModuleEmissionContext();
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase, ctx);
+
+        // The alias is written in an extension of the class and returns the boxed existential.
+        var alias = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.OpaqueReturnAlias));
+        Assert.Equal(SwiftCallSelfKind.Reference, alias.Self.Kind);
+        Assert.Equal("TestModule.Container", alias.DeclaringType);
+        Assert.Equal("any TestModule.Drawable", alias.ResultType);
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.OpaqueReturnAlias);
+    }
+
+    [Fact]
     public void IndirectReturn_FoundationURL_UsesObjCBridge()
     {
         var typeDatabase = CreateTypeDatabaseWithURL();
@@ -1272,7 +1298,8 @@ public class WrapperEmitterReturnTests
 
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
-        TypeDatabase typeDatabase)
+        TypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -1282,7 +1309,8 @@ public class WrapperEmitterReturnTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null ? TypeHandlerContext.Empty : TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

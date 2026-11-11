@@ -604,7 +604,7 @@ public static class DefaultParameterOverloadEmitter
                     overloadEnv.PromoteSymbol(silgenSymbolForMethodCdecl!);
 
                 // Emit Swift @_silgen_name wrapper
-                EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim);
+                EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim, emissionContext ?? env.EmissionContext);
 
                 // Promote the env's emission symbol to the cdecl symbol — the value P/Invoke routing reads.
                 // (overloadDecl.MangledName is immutable; EmitSwiftWrapper read it directly for the @_silgen_name.)
@@ -1085,7 +1085,8 @@ public static class DefaultParameterOverloadEmitter
         MethodDecl originalMethodDecl,
         MethodDecl overloadDecl,
         MethodEnvironment env,
-        int trim)
+        int trim,
+        ModuleEmissionContext? emissionContext)
     {
         var wrapperSymbol = overloadDecl.MangledName;
         var parentTypeDecl = originalMethodDecl.ParentDecl as TypeDecl;
@@ -1260,8 +1261,9 @@ public static class DefaultParameterOverloadEmitter
             var callPrefix = !string.IsNullOrEmpty(moduleName) ? $"{moduleName}." : "";
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause}{methodOwnWhereClause} {{");
+            WriteShimDeclaration(swiftWriter, env, emissionContext, SwiftWrapperSynthesizer.DefaultParameterOverload, originalMethodDecl, mergedAvailability, declaringType: null,
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause}{methodOwnWhereClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -1303,8 +1305,9 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
 
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public static func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause}{methodOwnWhereClause} {{");
+            WriteShimDeclaration(swiftWriter, env, emissionContext, SwiftWrapperSynthesizer.DefaultParameterOverload, originalMethodDecl, mergedAvailability, parentTypeDecl,
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public static func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause}{methodOwnWhereClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -1346,8 +1349,9 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
 
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}{mutatingKeyword}func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause}{methodOwnWhereClause} {{");
+            WriteShimDeclaration(swiftWriter, env, emissionContext, SwiftWrapperSynthesizer.DefaultParameterOverload, originalMethodDecl, mergedAvailability, parentTypeDecl,
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public {staticKeyword}{mutatingKeyword}func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause}{methodOwnWhereClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -1370,6 +1374,33 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
         }
+    }
+
+    /// <summary>
+    /// Writes a shim's declaration lines and describes the function they declare, so a binding
+    /// that reaches the shim with the Swift convention carries its facts.
+    /// </summary>
+    private static void WriteShimDeclaration(
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ModuleEmissionContext? emissionContext,
+        SwiftWrapperSynthesizer synthesizer,
+        MethodDecl forwards,
+        IReadOnlyList<AvailabilityAnnotation>? availability,
+        TypeDecl? declaringType,
+        params string[] declarationLines)
+    {
+        foreach (var line in declarationLines)
+            swiftWriter.WriteLine(line);
+        emissionContext?.RegisterSyntheticSwiftDeclaration(
+            declarationLines,
+            synthesizer,
+            PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+            forwards: forwards.MangledName,
+            declaringType: declaringType is null
+                ? null
+                : SyntheticSwiftDeclaringType.Of(declaringType),
+            availability: SyntheticSwiftFunction.FloorsOf(availability));
     }
 
     /// <summary>
@@ -1644,8 +1675,9 @@ public static class DefaultParameterOverloadEmitter
         {
             var moduleName = ArraySliceNormalizationEmitter.UnescapeModuleName(methodDecl.ModuleDecl?.Name ?? "");
             var callPrefix = !string.IsNullOrEmpty(moduleName) ? $"{moduleName}." : "";
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            WriteShimDeclaration(swiftWriter, env, env.EmissionContext, SwiftWrapperSynthesizer.DebugParameterStrip, methodDecl, availability: null, declaringType: null,
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
             foreach (var line in derefLines) swiftWriter.WriteLine(line);
             var escapedMethodName = NameProvider.ParserNameToSwift(methodDecl);
@@ -1673,8 +1705,9 @@ public static class DefaultParameterOverloadEmitter
             OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(methodDecl).Artifact);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
+            WriteShimDeclaration(swiftWriter, env, env.EmissionContext, SwiftWrapperSynthesizer.DebugParameterStrip, methodDecl, availability: null, parentTypeDecl,
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
             swiftWriter.Indent++;
             foreach (var line in derefLines) swiftWriter.WriteLine(line);
             var callExpr = $"{tryPrefix}{awaitPrefix}{swiftModuleQualifiedName}({callArgString})";
@@ -1702,8 +1735,9 @@ public static class DefaultParameterOverloadEmitter
             OriginAnchorEmitter.Write(swiftWriter, FragmentOwners.ForDeclWrapper(methodDecl).Artifact);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}{dbgMutatingKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            WriteShimDeclaration(swiftWriter, env, env.EmissionContext, SwiftWrapperSynthesizer.DebugParameterStrip, methodDecl, availability: null, parentTypeDecl,
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public {staticKeyword}{dbgMutatingKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
             foreach (var line in derefLines) swiftWriter.WriteLine(line);
             var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})";

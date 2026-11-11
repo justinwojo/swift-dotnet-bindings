@@ -727,6 +727,17 @@ public static class ArraySliceNormalizationEmitter
         var availability = WrapperEmitterHelpers.MergeAvailability(
             originalMethodDecl.AvailabilityAnnotations, parentTypeDecl);
 
+        // A @_silgen_name wrapper is bound from C# with the Swift convention: describe it from the
+        // declaration written below, so the binding's transition carries its facts.
+        void Describe(string[] declarationLines, TypeDecl? declaringType) =>
+            emissionContext?.RegisterSyntheticSwiftDeclaration(
+                declarationLines,
+                SwiftWrapperSynthesizer.ArraySliceNormalization,
+                PInvokeEmitHelper.ResolveWrapperLibrary(normalizedEnv.TypeDatabase),
+                forwards: originalMethodDecl.MangledName,
+                declaringType: declaringType is null ? null : SyntheticSwiftDeclaringType.Of(declaringType),
+                availability: SyntheticSwiftFunction.FloorsOf(availability));
+
         swiftWriter.WriteLine();
 
         if (isFreeFunction || (useCdecl && !isFreeFunction))
@@ -761,8 +772,15 @@ public static class ArraySliceNormalizationEmitter
             }
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
-            swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
+            string[] declarationLines =
+            [
+                $"{annotation}(\"{wrapperSymbol}\")",
+                $"public func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{",
+            ];
+            foreach (var line in declarationLines)
+                swiftWriter.WriteLine(line);
+            if (!useCdecl)
+                Describe(declarationLines, declaringType: null);
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -833,8 +851,14 @@ public static class ArraySliceNormalizationEmitter
             swiftWriter.Indent++;
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
+            string[] declarationLines =
+            [
+                $"@_silgen_name(\"{wrapperSymbol}\")",
+                $"public {staticKeyword}func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{",
+            ];
+            foreach (var line in declarationLines)
+                swiftWriter.WriteLine(line);
+            Describe(declarationLines, parentTypeDecl);
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)

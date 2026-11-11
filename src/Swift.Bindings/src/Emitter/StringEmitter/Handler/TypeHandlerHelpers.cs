@@ -115,7 +115,7 @@ namespace BindingsGeneration
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
-                pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor);
+                pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor, _emissionCtx);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
                      WrapperValidation.IsXCFrameworkMode(_typeDatabase))
@@ -143,7 +143,8 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = _emissionCtx
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -188,7 +189,8 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = _emissionCtx
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -208,7 +210,8 @@ namespace BindingsGeneration
                     ReturnType = "TypeMetadata",
                     ParametersString = "",
                     Visibility = PInvokeVisibility.Internal,
-                    CallingConvention = PInvokeCallingConvention.Swift
+                    CallingConvention = PInvokeCallingConvention.Swift,
+                    EmissionContext = _emissionCtx
                 }))
                     _writer.WriteLine(line);
                 _writer.WriteLine();

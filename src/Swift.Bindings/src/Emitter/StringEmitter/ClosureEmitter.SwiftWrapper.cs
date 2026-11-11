@@ -1455,10 +1455,24 @@ public static partial class ClosureEmitter
         var (genericParams, genericWhere) = useCdecl
             ? (string.Empty, string.Empty)
             : WrapperEmitterHelpers.BuildRawMethodGenericSignature(methodDecl);
-        swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}{genericParams}(");
-        swiftWriter.WriteLine($"    {paramsStr}");
-        swiftWriter.WriteLine($"){throwsStr}{returnTypeStr}{genericWhere} {{");
+        string[] declarationLines =
+        [
+            $"{annotation}(\"{wrapperSymbol}\")",
+            $"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}{genericParams}(",
+            $"    {paramsStr}",
+            $"){throwsStr}{returnTypeStr}{genericWhere} {{",
+        ];
+        foreach (var line in declarationLines)
+            swiftWriter.WriteLine(line);
+        // A @_silgen_name wrapper is bound from C# with the Swift convention: describe it from the
+        // declaration just written, so the binding's transition carries its facts.
+        if (!useCdecl)
+            emissionContext?.RegisterSyntheticSwiftDeclaration(
+                declarationLines,
+                SwiftWrapperSynthesizer.ClosureParameterBridge,
+                PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+                forwards: env.EmissionSymbol,
+                availability: SyntheticSwiftFunction.FloorsOf(availability));
 
         // Emit self conversion for instance methods
         if (!string.IsNullOrEmpty(selfConversion))

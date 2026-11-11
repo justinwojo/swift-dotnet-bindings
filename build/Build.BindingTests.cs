@@ -605,11 +605,14 @@ partial class Build
                 Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
             }
 
-            // The dependency module's Swift call facts sidecar travels with its C# for the same
-            // reason: it describes transitions that are compiled from BtOutputDir.
-            var depCallFacts = depOutputDir / $"{DepModuleName}.swift-call-facts.json";
-            if (File.Exists(depCallFacts))
-                File.Move(depCallFacts, BtOutputDir / $"{DepModuleName}.swift-call-facts.json", overwrite: true);
+            // The dependency module's Swift call facts sidecar and transition ledger travel with its
+            // C# for the same reason: they describe transitions that are compiled from BtOutputDir.
+            foreach (var sidecar in new[] { $"{DepModuleName}.swift-call-facts.json", $"{DepModuleName}.swift-transition-ledger.json" })
+            {
+                var depSidecar = depOutputDir / sidecar;
+                if (File.Exists(depSidecar))
+                    File.Move(depSidecar, BtOutputDir / sidecar, overwrite: true);
+            }
 
             // Preserve the dependency wrapper xcframework for runtime linking
             var depWrapperXcf = depOutputDir / $"{DepModuleName}SwiftBindings.xcframework";

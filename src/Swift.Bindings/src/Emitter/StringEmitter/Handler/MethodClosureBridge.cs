@@ -593,10 +593,24 @@ public static class MethodClosureBridge
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");
             swiftWriter.WriteLine($"extension {typeName} {{");
-            swiftWriter.WriteLine($"@_silgen_name(\"{silgenName}\")");
-            swiftWriter.WriteLine($"func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
-            swiftWriter.WriteLine(string.Join(",\n", swiftParams));
-            swiftWriter.WriteLine($"){swiftReturnType} {{");
+            string[] declarationLines =
+            [
+                $"@_silgen_name(\"{silgenName}\")",
+                $"func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(",
+                string.Join(",\n", swiftParams),
+                $"){swiftReturnType} {{",
+            ];
+            foreach (var line in declarationLines)
+                swiftWriter.WriteLine(line);
+            // The C# side binds this extension method with the Swift convention, self in the
+            // context register: describe it from the declaration just written.
+            ctx.RegisterSyntheticSwiftDeclaration(
+                declarationLines,
+                SwiftWrapperSynthesizer.MethodClosureBridge,
+                PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+                forwards: method.MangledName,
+                declaringType: SyntheticSwiftDeclaringType.Of(parentDecl!),
+                availability: SyntheticSwiftFunction.FloorsOf(availability));
         }
         else if (reroutesToCdecl)
         {

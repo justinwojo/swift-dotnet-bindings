@@ -304,7 +304,8 @@ namespace BindingsGeneration
                             operatorDecl,
                             RecoveryScope.LeafApi,
                             structDecl,
-                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext));
+                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext,
+                                emissionContext: context.GetEmissionContext()));
                         if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);

@@ -47,6 +47,30 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
+    public void TryEmit_BypassFactory_DescribesEveryWrapperItWritesAndBindsThemWithFacts()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl, parameters: new List<ArgumentDecl>
+        {
+            CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+        });
+        var ctx = new ModuleEmissionContext();
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase, ctx);
+
+        // The factory (init) and its paired free function are both written with @_silgen_name.
+        var wrappers = SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.ExistentialBypass);
+        SyntheticRegistration.AssertEveryWrittenIsRegistered(ctx, swiftOutput, "SBSW_");
+        Assert.Contains(wrappers, w => w.Symbol.StartsWith("SBSW_Config_init_", System.StringComparison.Ordinal));
+        Assert.Contains(wrappers, w => w.Symbol.StartsWith("SBSW_Config_free_", System.StringComparison.Ordinal));
+        Assert.All(wrappers, w => Assert.Equal(SwiftCallSelfKind.None, w.Self.Kind));
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.ExistentialBypass);
+    }
+
+    [Fact]
     public void TryEmit_KeywordStringParam_DerivedMarshallingLocalsAreValidIdentifiers()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -1091,7 +1115,8 @@ public class ExistentialBypassEmitterTests
         };
     }
 
-    private static (string csOutput, string swiftOutput) EmitConstructor(MethodDecl methodDecl, TypeDatabase typeDatabase)
+    private static (string csOutput, string swiftOutput) EmitConstructor(
+        MethodDecl methodDecl, TypeDatabase typeDatabase, ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -1103,7 +1128,7 @@ public class ExistentialBypassEmitterTests
         var conductor = new Conductor(new NullLoggerFactory());
         // An explicit per-test ModuleEmissionContext, so the structural-claim guard in
         // ExistentialBypassEmitter sees this test's wrapper-symbol claims and no one else's.
-        var context = TypeHandlerContext.Empty with { EmissionContext = new ModuleEmissionContext() };
+        var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext ?? new ModuleEmissionContext() };
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());

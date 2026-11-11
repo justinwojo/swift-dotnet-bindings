@@ -199,6 +199,13 @@ namespace BindingsGeneration
                     .Compute(moduleDecl.Name, emissionContext.AbiCallPlans, emissionContext.SwiftCallFacts, _typeDatabase.AsyncLibraryName)
                     .Write(_outputDirectory, @namespace, _logger);
 
+                // The transition ledger: every forward Swift-convention P/Invoke the module's C# declares,
+                // read from that C#, with the facts its producer recorded or why there are none.
+                SwiftTransitionLedger
+                    .Build(moduleDecl.Name, wholeOutput, emissionContext.SwiftTransitionRecords, emissionContext.SyntheticSwiftFunctionConflicts,
+                        emissionContext.SyntheticSwiftFunctions)
+                    .Write(_outputDirectory, @namespace, _logger);
+
                 // Split the combined output into one file per top-level type (prelude keeps the
                 // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —
                 // zero public-API change; the union of all files is exactly wholeOutput.

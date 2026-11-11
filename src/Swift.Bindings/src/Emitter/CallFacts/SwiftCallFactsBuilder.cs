@@ -12,14 +12,16 @@ namespace BindingsGeneration;
 /// </summary>
 public sealed class SwiftCallFactsBuilder
 {
-    private readonly ITypeDatabase _typeDatabase;
+    private readonly ITypeDatabase? _typeDatabase;
     private readonly Dictionary<string, (TypeDecl Decl, bool IsOwn)> _typesByName = new(StringComparer.Ordinal);
+    private readonly List<string> _moduleNames = new();
 
-    public SwiftCallFactsBuilder(IEnumerable<ModuleDecl> modules, ITypeDatabase typeDatabase)
+    public SwiftCallFactsBuilder(IEnumerable<ModuleDecl> modules, ITypeDatabase? typeDatabase)
     {
         _typeDatabase = typeDatabase;
         foreach (var module in modules)
         {
+            _moduleNames.Add(module.Name);
             foreach (var type in module.Types)
                 IndexType(type, IsOwnDeclaration(type, module.Name));
             foreach (var protocol in module.Protocols)
@@ -210,6 +212,110 @@ public sealed class SwiftCallFactsBuilder
     }
 
     /// <summary>
+    /// Builds the facts of a function the generator synthesized into its wrapper, from the
+    /// declaration its producer wrote. The types resolve exactly as a declared member's do.
+    /// </summary>
+    internal SwiftCallFacts ForSynthetic(SyntheticSwiftFunction function)
+    {
+        var unknowns = new List<string>();
+        // A function in an extension of a generic type is generic over the type's parameters too.
+        var generics = MergeGenerics(
+            string.IsNullOrWhiteSpace(function.DeclaringTypeGenericSignature) ? SwiftGenericSignatureFacts.Empty : GenericsOf(function.DeclaringTypeGenericSignature),
+            string.IsNullOrWhiteSpace(function.GenericSignature) ? SwiftGenericSignatureFacts.Empty : GenericsOf(function.GenericSignature));
+        var genericNames = new HashSet<string>(StringComparer.Ordinal) { "Self" };
+        foreach (var p in generics.Parameters)
+            genericNames.Add(p);
+        foreach (var p in function.DeclaringTypeGenericParameters)
+            genericNames.Add(p);
+        var genericParent = !string.IsNullOrWhiteSpace(function.DeclaringTypeGenericSignature)
+            || function.DeclaringTypeGenericParameters.Length > 0;
+        // Without the parent's signature the metadata and witness tables the callee takes are not known.
+        if (genericParent && string.IsNullOrWhiteSpace(function.DeclaringTypeGenericSignature))
+            unknowns.Add($"self: '{function.DeclaringType}' is generic but its generic signature is not known");
+
+        var writtenIn = new List<string> { function.Module };
+        writtenIn.AddRange(_moduleNames);
+
+        (SwiftTypeFacts Facts, TypeSpec? Spec) Written(string text, string where)
+        {
+            TypeSpec? spec;
+            try
+            {
+                spec = TypeSpecParser.Parse(BracketAttributeArguments(text));
+            }
+            catch (TypeSpecParseException)
+            {
+                spec = null;
+            }
+            if (spec is null)
+            {
+                unknowns.Add($"{where}: the written type '{text}' does not parse");
+                return (new SwiftTypeFacts { Spelling = text, Category = SwiftTypeCategory.Unresolved }, null);
+            }
+            return (ResolveType(spec, genericNames, unknowns, where, writtenIn), spec);
+        }
+
+        var self = function.Self.Kind == SwiftCallSelfKind.None
+            ? SwiftSelfFacts.None
+            : new SwiftSelfFacts
+            {
+                Kind = function.Self.Kind,
+                Mutation = function.Self.Mutation,
+                Abstraction = genericParent ? SwiftSelfAbstraction.GenericParent : SwiftSelfAbstraction.Concrete,
+                Type = function.Self.Type is { } selfType ? Written(selfType, "self").Facts : null,
+            };
+
+        var parameters = ImmutableArray.CreateBuilder<SwiftParameterFacts>(function.Parameters.Length);
+        for (int i = 0; i < function.Parameters.Length; i++)
+        {
+            var written = function.Parameters[i];
+            var (type, spec) = Written(written.SwiftType, $"parameter {i}");
+            var inout = spec?.IsInOut == true;
+            var convention = written.Convention
+                ?? (inout ? SwiftParameterConvention.Inout : SwiftParameterConvention.Guaranteed);
+            parameters.Add(new SwiftParameterFacts
+            {
+                Index = i,
+                Name = NullIfEmpty(written.Name),
+                Type = type,
+                Convention = convention,
+                ConventionSource = written.Convention is not null || inout ? SwiftConventionSource.Explicit : SwiftConventionSource.Default,
+                Closure = spec is null ? SwiftClosureKind.NotClosure : ClosureKindOf(spec),
+            });
+        }
+
+        var result = function.ResultType is { } resultType
+            ? new SwiftResultFacts { Type = Written(resultType, "result").Facts }
+            : SwiftResultFacts.Void;
+        if (result.Type.Category == SwiftTypeCategory.Void)
+            result = SwiftResultFacts.Void;
+
+        if (string.IsNullOrEmpty(function.Symbol))
+            unknowns.Add("symbol: the synthesized function has no symbol");
+
+        return new SwiftCallFacts
+        {
+            Target = new SwiftCallTarget
+            {
+                Kind = SwiftCallTargetKind.SyntheticWrapper,
+                Symbol = function.Symbol,
+                Module = function.Module,
+                DeclaringType = function.DeclaringType,
+                MemberName = function.MemberName,
+                Availability = function.Availability.IsDefault ? ImmutableArray<SwiftAvailabilityFloor>.Empty : function.Availability,
+                Synthesizer = function.Synthesizer,
+                Forwards = function.Forwards,
+            },
+            Self = self,
+            Parameters = parameters.ToImmutable(),
+            Result = result,
+            Effects = new SwiftCallEffects { Throws = function.Throws, IsAsync = function.IsAsync },
+            Generics = generics,
+            Unknowns = unknowns.ToImmutableArray(),
+        };
+    }
+
+    /// <summary>
     /// The convention a parameter takes when it does not spell one. An initializer's and a
     /// setter's parameters (a subscript setter's indices too) are consumed, every other function's
     /// are borrowed, and a non-escaping closure is always borrowed.
@@ -386,6 +492,8 @@ public sealed class SwiftCallFactsBuilder
 
     private static SwiftClosureKind ClosureKindOf(TypeSpec spec) => spec switch
     {
+        // A C function pointer carries no context, so nothing escapes with it.
+        ClosureTypeSpec closure when IsCFunctionPointer(closure) => SwiftClosureKind.NotClosure,
         ClosureTypeSpec closure => closure.IsEscaping ? SwiftClosureKind.Escaping : SwiftClosureKind.NonEscaping,
         // An optional closure is always escaping: it is stored in an Optional.
         NamedTypeSpec { Name: "Swift.Optional" } optional when optional.GenericParameters.Count == 1
@@ -394,6 +502,42 @@ public sealed class SwiftCallFactsBuilder
     };
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
+
+    /// <summary>
+    /// Rewrites a Swift source attribute's arguments, <c>@convention(c)</c>, into the bracketed
+    /// form the type-spec grammar reads, <c>@convention[c]</c>. Parentheses that do not follow an
+    /// attribute name directly are left alone.
+    /// </summary>
+    internal static string BracketAttributeArguments(string text)
+    {
+        if (!text.Contains('@'))
+            return text;
+        var sb = new System.Text.StringBuilder(text.Length);
+        int i = 0;
+        while (i < text.Length)
+        {
+            char c = text[i];
+            sb.Append(c);
+            i++;
+            if (c != '@')
+                continue;
+            while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
+                sb.Append(text[i++]);
+            if (i >= text.Length || text[i] != '(')
+                continue;
+            int depth = 0, start = i;
+            for (; i < text.Length; i++)
+            {
+                if (text[i] == '(') depth++;
+                else if (text[i] == ')' && --depth == 0) break;
+            }
+            if (i >= text.Length)
+                return text; // unbalanced: leave it for the parser to reject
+            sb.Append('[').Append(text, start + 1, i - start - 1).Append(']');
+            i++;
+        }
+        return sb.ToString();
+    }
 
     // ---- generics ----
 
@@ -407,7 +551,21 @@ public sealed class SwiftCallFactsBuilder
         return GenericsOf(raw);
     }
 
-    private static string? RawSignatureOf(TypeDecl? type)
+    /// <summary>An outer context's signature followed by a member's own: parameters outermost first.</summary>
+    private static SwiftGenericSignatureFacts MergeGenerics(SwiftGenericSignatureFacts outer, SwiftGenericSignatureFacts own)
+    {
+        if (outer.IsEmpty && outer.Requirements.IsDefaultOrEmpty)
+            return own;
+        if (own.IsEmpty && own.Requirements.IsDefaultOrEmpty)
+            return outer;
+        return new SwiftGenericSignatureFacts
+        {
+            Parameters = outer.Parameters.Concat(own.Parameters).Distinct(StringComparer.Ordinal).ToImmutableArray(),
+            Requirements = outer.Requirements.Concat(own.Requirements).Distinct().ToImmutableArray(),
+        };
+    }
+
+    internal static string? RawSignatureOf(TypeDecl? type)
     {
         for (var current = type; current is not null; current = current.ParentDecl as TypeDecl)
         {
@@ -448,7 +606,7 @@ public sealed class SwiftCallFactsBuilder
 
     // ---- availability ----
 
-    private static ImmutableArray<SwiftAvailabilityFloor> AvailabilityOf(
+    internal static ImmutableArray<SwiftAvailabilityFloor> AvailabilityOf(
         IReadOnlyList<AvailabilityAnnotation>? own,
         IReadOnlyList<AvailabilityAnnotation>? storage,
         TypeDecl? parent)
@@ -493,15 +651,21 @@ public sealed class SwiftCallFactsBuilder
     // ---- types ----
 
     /// <summary>Resolves a Swift type to its category, recording an unknown if it cannot.</summary>
-    internal SwiftTypeFacts ResolveType(TypeSpec spec, IReadOnlySet<string> genericNames, List<string> unknowns, string where)
+    /// <param name="writtenIn">
+    /// For a type a producer wrote into Swift source, the modules whose names that source sees
+    /// unqualified, the function's own first. Null for a declared type, which the ABI JSON always
+    /// spells module-qualified.
+    /// </param>
+    internal SwiftTypeFacts ResolveType(TypeSpec spec, IReadOnlySet<string> genericNames, List<string> unknowns, string where,
+        IReadOnlyList<string>? writtenIn = null)
     {
-        var facts = Resolve(spec, genericNames);
+        var facts = Resolve(spec, genericNames, writtenIn);
         if (facts.Category == SwiftTypeCategory.Unresolved)
             unknowns.Add($"{where}: type '{facts.Spelling}' is not known to the module or the type database");
         return facts;
     }
 
-    private SwiftTypeFacts Resolve(TypeSpec spec, IReadOnlySet<string> genericNames)
+    private SwiftTypeFacts Resolve(TypeSpec spec, IReadOnlySet<string> genericNames, IReadOnlyList<string>? writtenIn)
     {
         var spelling = spec.ToString(true);
         switch (spec)
@@ -510,8 +674,10 @@ public sealed class SwiftCallFactsBuilder
                 if (tuple.IsEmptyTuple)
                     return SwiftTypeFacts.Void;
                 if (tuple.Elements.Count == 1)
-                    return Resolve(tuple.Elements[0], genericNames);
+                    return Resolve(tuple.Elements[0], genericNames, writtenIn);
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Tuple };
+            case ClosureTypeSpec closure when IsCFunctionPointer(closure):
+                return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.CFunctionPointer };
             case ClosureTypeSpec:
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Closure };
             case ProtocolListTypeSpec list:
@@ -533,13 +699,23 @@ public sealed class SwiftCallFactsBuilder
             case AssociatedTypeReferenceSpec:
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.GenericParameter };
             case NamedTypeSpec named:
-                return ResolveNamed(named, spelling, genericNames);
+                return ResolveNamed(named, spelling, genericNames, writtenIn);
             default:
                 return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved };
         }
     }
 
-    private SwiftTypeFacts ResolveNamed(NamedTypeSpec named, string spelling, IReadOnlySet<string> genericNames)
+    /// <summary>
+    /// A <c>@convention(c)</c> function type: a bare C function pointer, one word with no context.
+    /// The demangler marks it on the spec; a written type carries it as its attribute.
+    /// </summary>
+    private static bool IsCFunctionPointer(ClosureTypeSpec closure) =>
+        closure.IsConventionC
+        || (closure.HasAttributes && closure.Attributes.Exists(a =>
+            a.Name == "convention" && a.Parameters.Count == 1 && a.Parameters[0] == "c"));
+
+    private SwiftTypeFacts ResolveNamed(NamedTypeSpec named, string spelling, IReadOnlySet<string> genericNames,
+        IReadOnlyList<string>? writtenIn)
     {
         // A nested type below a generic parent keeps its inner names in the InnerType chain
         // (Module.Outer<T>.Inner), so the full name is rebuilt from it.
@@ -568,7 +744,35 @@ public sealed class SwiftCallFactsBuilder
         if (TryPeekRecord(name, out var record))
             return FromRecord(record, spelling);
 
+        // Every Swift pointer shape is a frozen one-word struct: the projection the type
+        // database's pointer strategy makes on purpose, not a guess.
+        if (TypeDatabaseExtensions.IsPointerType(named))
+            return FromRecord(TypeDatabaseExtensions.IntPtrType, spelling);
+
+        // Source the generator wrote may name a type the way the module it imports sees it.
+        // The function's own module is the one the name means; another module is taken only
+        // when exactly one of them declares the name.
+        if (writtenIn is { Count: > 0 } && !name.Contains('.'))
+        {
+            if (TryResolveIn(writtenIn[0], name, spelling) is { } own)
+                return own;
+            var others = writtenIn.Skip(1).Distinct(StringComparer.Ordinal)
+                .Select(module => TryResolveIn(module, name, spelling))
+                .OfType<SwiftTypeFacts>()
+                .ToList();
+            if (others.Count == 1)
+                return others[0];
+        }
+
         return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved };
+    }
+
+    private SwiftTypeFacts? TryResolveIn(string module, string name, string spelling)
+    {
+        var qualified = module + "." + name;
+        if (_typesByName.TryGetValue(qualified, out var entry))
+            return FromDecl(entry.Decl, spelling);
+        return TryPeekRecord(qualified, out var record) ? FromRecord(record, spelling) : null;
     }
 
     /// <summary>The module-qualified name with the InnerType chain's names appended, without generic arguments.</summary>
@@ -589,6 +793,7 @@ public sealed class SwiftCallFactsBuilder
     {
         record = null;
         return SwiftTypeName.TryFromModuleQualifiedName(name, out var typeName)
+            && _typeDatabase is not null
             && _typeDatabase.TryPeekTypeRecord(typeName, out record);
     }
 

@@ -25,7 +25,7 @@ public sealed record SwiftCallFacts
     /// The facts schema version. Bump it on any change to the shape or meaning of a field, so a
     /// serialized record is never read under a different schema than the one that wrote it.
     /// </summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     /// <summary>The schema version this record was produced under.</summary>
     public int FactsVersion { get; init; } = CurrentVersion;
@@ -192,16 +192,79 @@ public sealed record SwiftCallTarget
     /// </summary>
     public bool HasDispatchThunk { get; init; }
 
+    /// <summary>
+    /// For a <see cref="SwiftCallTargetKind.SyntheticWrapper"/>, the generator component that wrote the
+    /// function into the wrapper and supplied these facts. Null for a declared callee.
+    /// </summary>
+    public SwiftWrapperSynthesizer? Synthesizer { get; init; }
+
+    /// <summary>
+    /// For a synthesized function, the declared symbol its body calls, when it forwards to exactly one.
+    /// Provenance only: the synthesized function's own signature is what the facts describe.
+    /// </summary>
+    public string? Forwards { get; init; }
+
     public bool Equals(SwiftCallTarget? other) =>
         other is not null
         && Kind == other.Kind && Accessor == other.Accessor && Entry == other.Entry
         && Symbol == other.Symbol && PointerSource == other.PointerSource && Module == other.Module
         && DeclaringType == other.DeclaringType && MemberName == other.MemberName
         && HasDispatchThunk == other.HasDispatchThunk
+        && Synthesizer == other.Synthesizer && Forwards == other.Forwards
         && Availability.AsSpan().SequenceEqual(other.Availability.AsSpan());
 
     public override int GetHashCode() =>
-        HashCode.Combine(Kind, Accessor, Entry, Symbol, PointerSource, Module, DeclaringType, HashCode.Combine(MemberName, HasDispatchThunk));
+        HashCode.Combine(Kind, Accessor, Entry, Symbol, PointerSource, Module, DeclaringType, HashCode.Combine(MemberName, HasDispatchThunk, Synthesizer, Forwards));
+}
+
+/// <summary>
+/// The generator components that synthesize a Swift function into the wrapper library and bind it
+/// from C# with the Swift calling convention. Each one supplies the facts of what it writes, because
+/// a synthesized function has no ABI JSON entry.
+/// </summary>
+public enum SwiftWrapperSynthesizer
+{
+    /// <summary>The async bridge (<c>…_async</c>): a synchronous entry that starts the task and reports through callbacks.</summary>
+    AsyncBridge,
+
+    /// <summary>The optional-pointer wrapper (<c>…_optbuf</c>): an optional existential or closure passed through a buffer.</summary>
+    OptionalBuffer,
+
+    /// <summary>The closure-parameter generic wrapper (<c>…_cdecl</c>): a generic member's closure arguments passed as a function and context pointer.</summary>
+    ClosureParameterBridge,
+
+    /// <summary>The generic closure bridge (<c>…_XC</c>, <c>…_XC_void</c>): a closure whose generic result travels through a buffer.</summary>
+    GenericClosureBridge,
+
+    /// <summary>The existential bypass (<c>SBSW_…</c>): a member whose existential parameters or result travel through caller buffers.</summary>
+    ExistentialBypass,
+
+    /// <summary>The foreign-type extension wrapper (<c>SBSW_…</c>): a module's extension member on another module's type.</summary>
+    ForeignTypeExtension,
+
+    /// <summary>The <c>ArraySlice</c> normalization wrapper: the member re-declared over <c>Array</c>.</summary>
+    ArraySliceNormalization,
+
+    /// <summary>The default-parameter overload (<c>DBW_…</c>): the member with trailing defaulted parameters trimmed.</summary>
+    DefaultParameterOverload,
+
+    /// <summary>The debug-parameter shim (<c>DBG_…</c>): the member with its <c>#file</c>/<c>#line</c>-style parameters left to their defaults.</summary>
+    DebugParameterStrip,
+
+    /// <summary>The marker-protocol overload (<c>…_MP_…</c>): the member re-declared over a concrete type in place of a marker-protocol existential.</summary>
+    MarkerProtocolOverload,
+
+    /// <summary>The method closure bridge on a generic parent (<c>SBSW_…</c>): an extension method taking the closure as a function and context pointer.</summary>
+    MethodClosureBridge,
+
+    /// <summary>The protocol-extension wrapper (<c>SBSW_…</c>): a protocol extension member called on an opened existential.</summary>
+    ProtocolExtension,
+
+    /// <summary>The Objective-C override property accessor (<c>SBSW_…</c>): an accessor of a Swift property overriding an Objective-C one.</summary>
+    ObjCOverrideProperty,
+
+    /// <summary>The opaque-return alias (<c>…_opaque</c>): the member re-declared to return its opaque result as an existential.</summary>
+    OpaqueReturnAlias,
 }
 
 /// <summary>What the callee receives as self, semantically.</summary>
@@ -379,6 +442,9 @@ public enum SwiftTypeCategory
 
     /// <summary>An opaque type (<c>some P</c>): one concrete type the callee chooses, known to the caller only through its metadata.</summary>
     Opaque,
+
+    /// <summary>A <c>@convention(c)</c> function type: a bare C function pointer, one word with no context.</summary>
+    CFunctionPointer,
 }
 
 /// <summary>A Swift type as the facts see it.</summary>

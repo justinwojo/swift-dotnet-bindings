@@ -647,6 +647,30 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void Emit_SilgenClosureWrapper_IsDescribedAndItsPInvokeCarriesTheFacts()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var closureType = new ClosureTypeSpec(new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+        var ctx = new ModuleEmissionContext();
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase, emissionContext: ctx);
+
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.ClosureParameterBridge));
+        // The Swift closure is replaced by a function pointer plus its context, and the instance is a parameter.
+        Assert.Equal(new[] { "callbackFuncPtr", "callbackContext", "_self" }, wrapper.Parameters.Select(p => p.Name));
+        Assert.DoesNotContain(wrapper.Parameters, p => p.SwiftType.Contains("->"));
+        Assert.Equal(SwiftCallSelfKind.None, wrapper.Self.Kind);
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.ClosureParameterBridge);
+    }
+
+    [Fact]
     public void Emit_CdeclClosureWithBoolParam_UsesBoolToUInt8Conversion()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -2269,7 +2293,8 @@ public class ClosureCdeclEmitterTests
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
         TypeDatabase typeDatabase,
-        bool emitDefaults = false)
+        bool emitDefaults = false,
+        ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -2279,7 +2304,8 @@ public class ClosureCdeclEmitterTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null ? TypeHandlerContext.Empty : TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
         if (emitDefaults)
             DefaultParameterOverloadEmitter.TryEmitOverloads(csWriter, swiftWriter, env, NullLogger.Instance);
 

@@ -1735,16 +1735,15 @@ public static class ProtocolExtensionEmitter
                 ctx.AddProtocolExtWrapperLine("@MainActor");
             }
             ctx.AddProtocolExtWrapperLine($"@_cdecl(\"{symbolName}\")");
+            ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
         }
         else
         {
-            ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-            if (needsMainActor)
-            {
-                ctx.AddProtocolExtWrapperLine("@MainActor");
-            }
+            WriteSilgenWrapperDeclaration(ctx, conformingType, protocolAvailability, typeDatabase,
+                $"@_silgen_name(\"{symbolName}\")",
+                needsMainActor ? "@MainActor" : null,
+                $"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
         }
-        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
 
         var isStructConformer = conformingType is StructDecl;
 
@@ -1988,16 +1987,15 @@ public static class ProtocolExtensionEmitter
                 ctx.AddProtocolExtWrapperLine("@MainActor");
             }
             ctx.AddProtocolExtWrapperLine($"@_cdecl(\"{symbolName}\")");
+            ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
         }
         else
         {
-            ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-            if (needsMainActorClosure)
-            {
-                ctx.AddProtocolExtWrapperLine("@MainActor");
-            }
+            WriteSilgenWrapperDeclaration(ctx, conformingType, protocolAvailability, typeDatabase,
+                $"@_silgen_name(\"{symbolName}\")",
+                needsMainActorClosure ? "@MainActor" : null,
+                $"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
         }
-        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
 
         var isStructConformer = conformingType is StructDecl;
 
@@ -2648,6 +2646,33 @@ public static class ProtocolExtensionEmitter
     /// Entity.ChildCollection.insert(_:beforeIndex:) inherited from EntityCollection at iOS 18)
     /// would carry only the conforming type's lower floor and fail wrapper compile.
     /// </summary>
+    /// <summary>
+    /// Writes a Swift-convention wrapper's attributes and declaration line, and describes the
+    /// wrapper from them so the binding's transition carries its facts. The wrapper takes the
+    /// conforming instance as an explicit raw pointer, so it is a top-level function with no self.
+    /// </summary>
+    private static void WriteSilgenWrapperDeclaration(
+        ModuleEmissionContext ctx,
+        TypeDecl conformingType,
+        IReadOnlyList<AvailabilityAnnotation>? protocolAvailability,
+        ITypeDatabase typeDatabase,
+        string silgenLine,
+        string? mainActorLine,
+        string declarationLine)
+    {
+        var lines = mainActorLine is null
+            ? new[] { silgenLine, declarationLine }
+            : new[] { silgenLine, mainActorLine, declarationLine };
+        foreach (var line in lines)
+            ctx.AddProtocolExtWrapperLine(line);
+        ctx.RegisterSyntheticSwiftDeclaration(
+            lines,
+            SwiftWrapperSynthesizer.ProtocolExtension,
+            PInvokeEmitHelper.ResolveWrapperLibrary(typeDatabase),
+            availability: SyntheticSwiftFunction.FloorsOf(
+                WrapperEmitterHelpers.MergeAvailability(memberAnnotations: protocolAvailability, parentDecl: conformingType)));
+    }
+
     private static void EmitProtocolExtAvailabilityLines(
         TypeDecl conformingType,
         ModuleEmissionContext ctx,

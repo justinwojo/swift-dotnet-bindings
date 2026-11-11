@@ -93,6 +93,14 @@ public record PInvokeEmissionInfo
     /// null-owner plan is still validated, but a violation on it fails closed rather than recovering.
     /// </summary>
     public ArtifactId? Owner { get; init; }
+
+    /// <summary>
+    /// The facts of the Swift function this declaration binds, when the producer has them in hand.
+    /// Null lets the declaration resolve them from <see cref="EmissionContext"/> by
+    /// <see cref="EntryPoint"/>: a function a synthesizer registered, then a declared symbol. Only read
+    /// for a Swift-convention declaration; it never changes the rendered text.
+    /// </summary>
+    public SwiftCallFacts? CallFacts { get; init; }
 }
 
 /// <summary>
@@ -338,6 +346,13 @@ public static class PInvokeEmitHelper
         // returned lines, so text output is unchanged wherever a context is present. Nothing reads the
         // plans yet — this is the foundation for typed call-plan validation.
         info.EmissionContext?.RecordAbiCallPlan(BuildAbiCallPlan(info));
+
+        // A forward Swift-convention transition records the facts of the function it binds, for the
+        // module's transition ledger. A declaration rendered without a context records nothing and is
+        // listed in the ledger as unplanned, which is how a missing context shows up.
+        if (resolvedCallingConvention == PInvokeCallingConvention.Swift && info.EmissionContext is { } context)
+            context.RecordSwiftTransition(SwiftTransitionRecord.For(
+                info.MethodName, info.EntryPoint, info.LibraryPath, info.CallFacts, context));
 
         return lines;
     }

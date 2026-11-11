@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -212,6 +213,49 @@ public class GenericClosureBridgeEmitterTests
         Assert.Contains("@_silgen_name", swResult);
         Assert.Contains("@_cdecl", swResult);
         Assert.Contains("SBW_CreateError", swResult);
+    }
+
+    [Fact]
+    public void TryEmit_EligibleGenericClosure_DescribesTheBridgeItBindsWithTheSwiftConvention()
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+        var closureSpec = new ClosureTypeSpec(new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0")) { Throws = true };
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s11RecordStore8Database4readyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                CreateArg("block", closureSpec, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl> { new GenericArgumentDecl("τ_0_0", "T", new(), new()) },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
+        var ctx = new ModuleEmissionContext();
+
+        Assert.True(GenericClosureBridgeEmitter.TryEmit(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), new MethodEnvironment(method, typeDatabase), parentDecl, ctx));
+
+        var swift = swiftOutput.ToString();
+        var bridges = SyntheticRegistration.AssertRegistered(ctx, swift, SwiftWrapperSynthesizer.GenericClosureBridge);
+        Assert.All(bridges, b => Assert.Equal(method.MangledName, b.Forwards));
+        // The bridge receives the instance as a parameter, and the closure it adapts crosses as a
+        // function pointer and its context, never as a Swift closure.
+        Assert.All(bridges, b => Assert.Equal(SwiftCallSelfKind.None, b.Self.Kind));
+        Assert.Contains(bridges.SelectMany(b => b.Parameters), p => p.Name == "blockFuncPtr");
+        Assert.DoesNotContain(bridges.SelectMany(b => b.Parameters), p => p.SwiftType.Contains("->"));
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput.ToString(), SwiftWrapperSynthesizer.GenericClosureBridge);
     }
 
     [Fact]

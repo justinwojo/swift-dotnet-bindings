@@ -377,7 +377,8 @@ namespace BindingsGeneration
                             operatorDecl,
                             RecoveryScope.LeafApi,
                             classDecl,
-                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext));
+                            () => emitted = operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext,
+                                emissionContext: context.GetEmissionContext()));
                         if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
@@ -797,7 +798,7 @@ namespace BindingsGeneration
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
-                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, metadataAccessor);
+                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, metadataAccessor, _emissionCtx);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
                      WrapperValidation.IsXCFrameworkMode(_typeDatabase))
@@ -824,7 +825,8 @@ namespace BindingsGeneration
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
                         HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = _emissionCtx
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -872,7 +874,8 @@ namespace BindingsGeneration
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
                         HasNewModifier = hasNew,
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = _emissionCtx
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -894,7 +897,8 @@ namespace BindingsGeneration
                     ParametersString = "",
                     Visibility = PInvokeVisibility.Internal,
                     HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
-                    CallingConvention = PInvokeCallingConvention.Swift
+                    CallingConvention = PInvokeCallingConvention.Swift,
+                    EmissionContext = _emissionCtx
                 }))
                     _writer.WriteLine(line);
                 _writer.WriteLine();

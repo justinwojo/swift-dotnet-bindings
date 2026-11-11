@@ -164,7 +164,7 @@ public static class ForeignTypeExtensionEmitter
         // Ordinal for reproducible emission order independent of the host culture.
         foreach (var (foreignTypeQualifiedName, classInfo) in ctx.ForeignExtClasses.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
-            EmitExtensionClass(csWriter, classInfo, typeDatabase, moduleName);
+            EmitExtensionClass(csWriter, classInfo, typeDatabase, moduleName, ctx);
         }
     }
 
@@ -424,7 +424,7 @@ public static class ForeignTypeExtensionEmitter
                 if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, setterSourceKey, setterSymbol))
                     return;
 
-                EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx, availabilityAnnotations);
+                EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, typeDatabase, ctx, availabilityAnnotations);
 
                 classInfo.Members.Add(new ForeignExtensionMemberInfo
                 {
@@ -653,12 +653,8 @@ public static class ForeignTypeExtensionEmitter
 
         ctx.AddForeignExtWrapperLine("");
         EmitForeignExtAvailabilityLines(ctx, availabilityAnnotations);
-        ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-        if (extMethod.IsMainActorIsolated)
-        {
-            ctx.AddForeignExtWrapperLine("@MainActor");
-        }
-        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: Swift.UnsafeMutableRawPointer){returnArrow} {{");
+        WriteWrapperDeclaration(ctx, extMethod, symbolName, typeDatabase, availabilityAnnotations,
+            $"public func {symbolName}(_ self_: Swift.UnsafeMutableRawPointer){returnArrow} {{");
         ctx.AddForeignExtWrapperLine($"    let instance = Swift.Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
 
         if (wrapAsOpaque)
@@ -685,6 +681,32 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
+    /// Writes a wrapper's attributes and declaration line, and describes the wrapper from them so the
+    /// binding's Swift-convention transition carries its facts. The wrapper takes the foreign
+    /// instance as an explicit raw pointer, so it is a top-level function with no self.
+    /// </summary>
+    private static void WriteWrapperDeclaration(
+        ModuleEmissionContext ctx,
+        ProtocolExtensionMethodDecl extMethod,
+        string symbolName,
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations,
+        string declarationLine)
+    {
+        var lines = new List<string> { $"@_silgen_name(\"{symbolName}\")" };
+        if (extMethod.IsMainActorIsolated)
+            lines.Add("@MainActor");
+        lines.Add(declarationLine);
+        foreach (var line in lines)
+            ctx.AddForeignExtWrapperLine(line);
+        ctx.RegisterSyntheticSwiftDeclaration(
+            lines,
+            SwiftWrapperSynthesizer.ForeignTypeExtension,
+            PInvokeEmitHelper.ResolveWrapperLibrary(typeDatabase),
+            availability: SyntheticSwiftFunction.FloorsOf(availabilityAnnotations));
+    }
+
+    /// <summary>
     /// Emits a Swift property setter wrapper (primitives only).
     /// </summary>
     private static void EmitSwiftPropertySetter(
@@ -693,6 +715,7 @@ public static class ForeignTypeExtensionEmitter
         TypeSpec propertyTypeSpec,
         string symbolName,
         string swiftTypeName,
+        ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx,
         IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
@@ -700,12 +723,8 @@ public static class ForeignTypeExtensionEmitter
 
         ctx.AddForeignExtWrapperLine("");
         EmitForeignExtAvailabilityLines(ctx, availabilityAnnotations);
-        ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-        if (extMethod.IsMainActorIsolated)
-        {
-            ctx.AddForeignExtWrapperLine("@MainActor");
-        }
-        ctx.AddForeignExtWrapperLine($"public func {symbolName}(_ self_: Swift.UnsafeMutableRawPointer, _ value: {renderedType}) {{");
+        WriteWrapperDeclaration(ctx, extMethod, symbolName, typeDatabase, availabilityAnnotations,
+            $"public func {symbolName}(_ self_: Swift.UnsafeMutableRawPointer, _ value: {renderedType}) {{");
         ctx.AddForeignExtWrapperLine($"    let instance = Swift.Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
         ctx.AddForeignExtWrapperLine($"    instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)} = value");
         ctx.AddForeignExtWrapperLine("}");
@@ -793,12 +812,8 @@ public static class ForeignTypeExtensionEmitter
 
         ctx.AddForeignExtWrapperLine("");
         EmitForeignExtAvailabilityLines(ctx, availabilityAnnotations);
-        ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-        if (extMethod.IsMainActorIsolated)
-        {
-            ctx.AddForeignExtWrapperLine("@MainActor");
-        }
-        ctx.AddForeignExtWrapperLine($"public func {symbolName}({string.Join(", ", swiftParams)}){returnArrow} {{");
+        WriteWrapperDeclaration(ctx, extMethod, symbolName, typeDatabase, availabilityAnnotations,
+            $"public func {symbolName}({string.Join(", ", swiftParams)}){returnArrow} {{");
         ctx.AddForeignExtWrapperLine($"    let instance = Swift.Unmanaged<{foreignTypeQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
 
         // Build call arguments — map compatible params into call, skip incompatible (use Swift defaults)
@@ -881,7 +896,7 @@ public static class ForeignTypeExtensionEmitter
     /// Emits a single C# static extension class for a foreign type.
     /// </summary>
     private static void EmitExtensionClass(CSharpWriter csWriter, ForeignExtensionClassInfo classInfo,
-        ITypeDatabase typeDatabase, string moduleName)
+        ITypeDatabase typeDatabase, string moduleName, ModuleEmissionContext ctx)
     {
         var foreignTypeName = classInfo.ForeignTypeQualifiedName;
         var dotIdx = foreignTypeName.LastIndexOf('.');
@@ -918,7 +933,7 @@ public static class ForeignTypeExtensionEmitter
 
         foreach (var member in classInfo.Members)
         {
-            EmitNativeMethod(csWriter, member, wrapperLibPath, typeDatabase);
+            EmitNativeMethod(csWriter, member, wrapperLibPath, typeDatabase, ctx);
         }
 
         csWriter.Indent--;
@@ -1162,7 +1177,7 @@ public static class ForeignTypeExtensionEmitter
     /// Emits a P/Invoke declaration in the NativeMethods nested class.
     /// </summary>
     private static void EmitNativeMethod(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
-        string wrapperLibPath, ITypeDatabase typeDatabase)
+        string wrapperLibPath, ITypeDatabase typeDatabase, ModuleEmissionContext ctx)
     {
         var pinvokeParams = new List<string>();
 
@@ -1226,7 +1241,8 @@ public static class ForeignTypeExtensionEmitter
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
             CallingConvention = PInvokeCallingConvention.Swift,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = ctx
         });
         csWriter.WriteLine();
     }
