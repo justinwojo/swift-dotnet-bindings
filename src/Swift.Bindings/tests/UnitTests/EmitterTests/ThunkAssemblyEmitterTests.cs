@@ -1028,15 +1028,345 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Resolve_StaticMethod_NoTj()
+        public void Resolve_StaticMethodOfClass_NoTj()
         {
+            // A `static` member of a class is a final `class` member; the ABI marks it Final.
             var classDecl = CreateClassDecl("Counter", isFinal: false);
             var method = CreateMethod("create", "$s4Test7CounterC6createACyFZ",
+                methodType: MethodType.Static, parentDecl: classDecl, isFinal: true);
+
+            var symbol = SwiftCallTargetResolver.Resolve(method, classDecl);
+
+            Assert.Equal("$s4Test7CounterC6createACyFZ", symbol);
+        }
+
+        [Fact]
+        public void Resolve_ClassFuncOnNonFinalClass_AppendsTj()
+        {
+            // An overridable `class func` has a vtable entry; only its dispatch thunk is exported.
+            var classDecl = CreateClassDecl("Counter", isFinal: false);
+            var method = CreateMethod("report", "$s4Test7CounterC6reportSiyFZ",
                 methodType: MethodType.Static, parentDecl: classDecl);
 
             var symbol = SwiftCallTargetResolver.Resolve(method, classDecl);
 
-            Assert.DoesNotContain("Tj", symbol);
+            Assert.Equal("$s4Test7CounterC6reportSiyFZTj", symbol);
+        }
+
+        [Fact]
+        public void Resolve_ClassFuncOnFinalClass_NoTj()
+        {
+            var classDecl = CreateClassDecl("Counter", isFinal: true);
+            var method = CreateMethod("report", "$s4Test7CounterC6reportSiyFZ",
+                methodType: MethodType.Static, parentDecl: classDecl);
+
+            var symbol = SwiftCallTargetResolver.Resolve(method, classDecl);
+
+            Assert.Equal("$s4Test7CounterC6reportSiyFZ", symbol);
+        }
+
+        [Fact]
+        public void Resolve_ExportedImplementationWithoutThunk_BindsImplementation()
+        {
+            // The library's exports outrank the declaration's attributes.
+            var module = CreateModule("$s4Test7CounterC6reportSiyFZ");
+            var classDecl = CreateClassDecl("Counter", isFinal: false);
+            var method = CreateMethod("report", "$s4Test7CounterC6reportSiyFZ",
+                methodType: MethodType.Static, parentDecl: classDecl);
+            method.ModuleDecl = module;
+
+            Assert.Equal("$s4Test7CounterC6reportSiyFZ", SwiftCallTargetResolver.Resolve(method, classDecl));
+        }
+
+        [Theory]
+        [InlineData(MethodType.Static, "$s4Test4BaseC6reportSiyFZ", "$s4Test7DerivedC6reportSiyFZ")]
+        [InlineData(MethodType.Instance, "$s4Test4BaseC6reportSiyF", "$s4Test7DerivedC6reportSiyF")]
+        public void Resolve_OverrideWithoutThunkOfItsOwn_BindsTheIntroducersThunk(
+            MethodType methodType, string baseSymbol, string derivedSymbol)
+        {
+            // An override with the overridden member's ABI reuses its vtable entry and gets no
+            // dispatch thunk; the introducer's thunk dispatches on the derived self.
+            var module = CreateModule(baseSymbol + "Tj");
+            var (baseMethod, derivedMethod, derivedClass) = CreateOverridePair(methodType, baseSymbol, derivedSymbol, module);
+
+            Assert.Equal(baseSymbol + "Tj", SwiftCallTargetResolver.Resolve(derivedMethod, derivedClass));
+            Assert.Equal(baseSymbol + "Tj", SwiftCallTargetResolver.Resolve(baseMethod, baseMethod.ParentDecl));
+        }
+
+        [Fact]
+        public void Resolve_OverrideWithThunkOfItsOwn_BindsItsOwnThunk()
+        {
+            var module = CreateModule("$s4Test4BaseC6reportSiyFZTj", "$s4Test7DerivedC6reportSiyFZTj");
+            var (_, derivedMethod, derivedClass) = CreateOverridePair(
+                MethodType.Static, "$s4Test4BaseC6reportSiyFZ", "$s4Test7DerivedC6reportSiyFZ", module);
+
+            Assert.Equal("$s4Test7DerivedC6reportSiyFZTj", SwiftCallTargetResolver.Resolve(derivedMethod, derivedClass));
+        }
+
+        [Fact]
+        public void Resolve_OverrideChain_BindsTheThunkOfTheMemberThatIntroducedTheEntry()
+        {
+            var module = CreateModule("$s4Test4BaseC6reportSiyFZTj");
+            var (_, middleMethod, middleClass) = CreateOverridePair(
+                MethodType.Static, "$s4Test4BaseC6reportSiyFZ", "$s4Test7DerivedC6reportSiyFZ", module);
+            var leafClass = CreateClassDecl("Leaf", isFinal: false);
+            leafClass.ResolvedSuperclass = middleClass;
+            var leafMethod = CreateMethod("report", "$s4Test4LeafC6reportSiyFZ",
+                methodType: MethodType.Static, parentDecl: leafClass);
+            leafMethod.IsOverride = true;
+            leafMethod.ModuleDecl = module;
+            leafMethod.CSSignature.Add(IntReturn());
+            leafClass.Methods.Add(leafMethod);
+
+            Assert.True(middleMethod.IsOverride);
+            Assert.Equal("$s4Test4BaseC6reportSiyFZTj", SwiftCallTargetResolver.Resolve(leafMethod, leafClass));
+        }
+
+        [Theory]
+        [InlineData("Swift.Int", "$s4Test4BaseC6reportSiyFZTj")]
+        [InlineData("Swift.String", "$s4Test7DerivedC6reportSSyFZTj")]
+        public void Resolve_OverrideWithUnknownExports_RedirectsOnlyAnIdenticalSignature(string derivedReturn, string expected)
+        {
+            // Without the export list only an identical signature is certain to share the entry.
+            var (_, derivedMethod, derivedClass) = CreateOverridePair(
+                MethodType.Static, "$s4Test4BaseC6reportSiyFZ",
+                derivedReturn == "Swift.Int" ? "$s4Test7DerivedC6reportSiyFZ" : "$s4Test7DerivedC6reportSSyFZ",
+                module: null!, derivedReturn: derivedReturn);
+
+            Assert.Equal(expected, SwiftCallTargetResolver.Resolve(derivedMethod, derivedClass));
+        }
+
+        [Fact]
+        public void Resolve_OverrideOfOneOfTwoSameLabelOverloads_BindsTheOverloadWithItsTypes()
+        {
+            // `transform(_: Box)` and `transform(_: Box?)` share a name and labels. An override of the
+            // optional one must bind the optional one's entry; the other's dispatches to another body.
+            const string plainSymbol = "$s4Test4BaseC9transformySiAA3BoxCF";
+            const string optionalSymbol = "$s4Test4BaseC9transformySiAA3BoxCSgF";
+            var module = CreateModule(plainSymbol + "Tj", optionalSymbol + "Tj");
+            var (baseClass, derivedClass) = CreateTransformOverloads(module, "Test.Box", "Swift.Optional<Test.Box>", plainSymbol, optionalSymbol);
+            var derivedMethod = AddTransform(derivedClass, "$s4Test7DerivedC9transformySiAA3BoxCSgF", "Swift.Optional<Test.Box>", module);
+            derivedMethod.IsOverride = true;
+
+            Assert.Equal(optionalSymbol + "Tj", SwiftCallTargetResolver.Resolve(derivedMethod, derivedClass));
+            Assert.Equal(2, baseClass.Methods.Count);
+        }
+
+        [Theory]
+        [InlineData("Swift.Double", false)]
+        [InlineData("Test.Box", true)]
+        public void Resolve_OverrideBelowAnUnrelatedSameLabelOverload_BindsTheFartherExactMatch(string midType, bool midIsInOut)
+        {
+            // Mid adds `transform(_: Double)`, or `transform(_: inout Box)`, beside the inherited
+            // `transform(_: Box)`; Leaf overrides the inherited one. Binding Mid's thunk would call
+            // another body with another argument (an inout one takes a pointer). Swift picks the exact
+            // match wherever in the chain it is declared.
+            const string baseSymbol = "$s4Test4BaseC9transformySiAA3BoxCF";
+            const string midSymbol = "$s4Test3MidC9transformySiSdF";
+            var module = CreateModule(baseSymbol + "Tj", midSymbol + "Tj");
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddTransform(baseClass, baseSymbol, "Test.Box", module);
+            var midClass = CreateClassDecl("Mid", isFinal: false);
+            midClass.ResolvedSuperclass = baseClass;
+            AddTransform(midClass, midSymbol, midType, module, isInOut: midIsInOut);
+            var leafClass = CreateClassDecl("Leaf", isFinal: false);
+            leafClass.ResolvedSuperclass = midClass;
+            var leafMethod = AddTransform(leafClass, "$s4Test4LeafC9transformySiAA3BoxCF", "Test.Box", module);
+            leafMethod.IsOverride = true;
+
+            Assert.Equal(baseSymbol + "Tj", SwiftCallTargetResolver.Resolve(leafMethod, leafClass));
+        }
+
+        [Fact]
+        public void Resolve_OverrideBelowAMoreConstrainedGenericOverload_BindsTheFartherExactMatch()
+        {
+            // Base declares `transform<T>(_: T)`, Mid adds `transform<T: P>(_: T)`, and Leaf overrides
+            // Base's. The parameter types read the same, but Mid's member is another entry and its thunk
+            // takes a witness table Leaf's call does not pass.
+            const string baseSymbol = "$s4Test4BaseC9transformySixlF";
+            const string midSymbol = "$s4Test3MidC9transformySixAA1PRzlF";
+            var module = CreateModule(baseSymbol + "Tj", midSymbol + "Tj");
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddTransform(baseClass, baseSymbol, "τ_0_0", module, genericSignature: "<τ_0_0>");
+            var midClass = CreateClassDecl("Mid", isFinal: false);
+            midClass.ResolvedSuperclass = baseClass;
+            AddTransform(midClass, midSymbol, "τ_0_0", module, genericSignature: "<τ_0_0 where τ_0_0 : Test.P>");
+            var leafClass = CreateClassDecl("Leaf", isFinal: false);
+            leafClass.ResolvedSuperclass = midClass;
+            var leafMethod = AddTransform(leafClass, "$s4Test4LeafC9transformySixlF", "τ_0_0", module, genericSignature: "<τ_0_0>");
+            leafMethod.IsOverride = true;
+
+            Assert.Equal(baseSymbol + "Tj", SwiftCallTargetResolver.Resolve(leafMethod, leafClass));
+        }
+
+        [Fact]
+        public void Resolve_OverrideBelowANearerVarianceMatch_BindsTheFartherExactMatch()
+        {
+            // Base declares `transform(_: Box?)`, Mid adds the unrelated `transform(_: Box)`, and Leaf
+            // overrides Base's. Mid's member matches Leaf by Optional variance, but an exact match
+            // outranks it, as in Swift's own override matching.
+            const string baseSymbol = "$s4Test4BaseC9transformySiAA3BoxCSgF";
+            const string midSymbol = "$s4Test3MidC9transformySiAA3BoxCF";
+            var module = CreateModule(baseSymbol + "Tj", midSymbol + "Tj");
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddTransform(baseClass, baseSymbol, "Swift.Optional<Test.Box>", module);
+            var midClass = CreateClassDecl("Mid", isFinal: false);
+            midClass.ResolvedSuperclass = baseClass;
+            AddTransform(midClass, midSymbol, "Test.Box", module);
+            var leafClass = CreateClassDecl("Leaf", isFinal: false);
+            leafClass.ResolvedSuperclass = midClass;
+            var leafMethod = AddTransform(leafClass, "$s4Test4LeafC9transformySiAA3BoxCSgF", "Swift.Optional<Test.Box>", module);
+            leafMethod.IsOverride = true;
+
+            Assert.Equal(baseSymbol + "Tj", SwiftCallTargetResolver.Resolve(leafMethod, leafClass));
+        }
+
+        [Fact]
+        public void Resolve_VarianceOverrideAmongSeveralCandidates_KeepsItsOwnThunk()
+        {
+            // Leaf widens `transform(_: Box)` to `Box?` with Mid's unrelated `transform(_: Double)` also
+            // in view. Without an exact match, a candidate that matches neither way might still be the
+            // overridden one through a variance not modelled here, so Leaf keeps its own symbol and the
+            // export check decides the route.
+            const string baseSymbol = "$s4Test4BaseC9transformySiAA3BoxCF";
+            const string midSymbol = "$s4Test3MidC9transformySiSdF";
+            var module = CreateModule(baseSymbol + "Tj", midSymbol + "Tj");
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddTransform(baseClass, baseSymbol, "Test.Box", module);
+            var midClass = CreateClassDecl("Mid", isFinal: false);
+            midClass.ResolvedSuperclass = baseClass;
+            AddTransform(midClass, midSymbol, "Swift.Double", module);
+            var leafClass = CreateClassDecl("Leaf", isFinal: false);
+            leafClass.ResolvedSuperclass = midClass;
+            var leafMethod = AddTransform(leafClass, "$s4Test4LeafC9transformySiAA3BoxCSgF", "Swift.Optional<Test.Box>", module);
+            leafMethod.IsOverride = true;
+
+            Assert.Equal("$s4Test4LeafC9transformySiAA3BoxCSgFTj", SwiftCallTargetResolver.Resolve(leafMethod, leafClass));
+        }
+
+        [Fact]
+        public void Resolve_OverrideOfAnOverrideThatOwnsAnEntry_BindsThatOverridesThunk()
+        {
+            // Mid narrows the result from `Box?` to `Box`, gets an entry and thunk of its own, and Leaf
+            // repeats Mid's signature without one. Leaf's entry is Mid's, not Base's older one.
+            const string baseSymbol = "$s4Test4BaseC9transformAA3BoxCSgyF";
+            const string midSymbol = "$s4Test3MidC9transformAA3BoxCyF";
+            var module = CreateModule(baseSymbol + "Tj", midSymbol + "Tj");
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddNullary(baseClass, baseSymbol, "Swift.Optional<Test.Box>", module);
+            var midClass = CreateClassDecl("Mid", isFinal: false);
+            midClass.ResolvedSuperclass = baseClass;
+            AddNullary(midClass, midSymbol, "Test.Box", module).IsOverride = true;
+            var leafClass = CreateClassDecl("Leaf", isFinal: false);
+            leafClass.ResolvedSuperclass = midClass;
+            var leafMethod = AddNullary(leafClass, "$s4Test4LeafC9transformAA3BoxCyF", "Test.Box", module);
+            leafMethod.IsOverride = true;
+
+            Assert.Equal(midSymbol + "Tj", SwiftCallTargetResolver.Resolve(leafMethod, leafClass));
+        }
+
+        [Fact]
+        public void Resolve_OverrideWideningItsOnlyCandidatesParameter_BindsThatCandidatesThunk()
+        {
+            // A lone same-selector ancestor member is the overridden one even when the override widens
+            // a parameter to its Optional, which keeps the ABI and so the entry.
+            const string plainSymbol = "$s4Test4BaseC9transformySiAA3BoxCF";
+            var module = CreateModule(plainSymbol + "Tj");
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddTransform(baseClass, plainSymbol, "Test.Box", module);
+            var derivedClass = CreateClassDecl("Derived", isFinal: false);
+            derivedClass.ResolvedSuperclass = baseClass;
+            var derivedMethod = AddTransform(derivedClass, "$s4Test7DerivedC9transformySiAA3BoxCSgF", "Swift.Optional<Test.Box>", module);
+            derivedMethod.IsOverride = true;
+
+            Assert.Equal(plainSymbol + "Tj", SwiftCallTargetResolver.Resolve(derivedMethod, derivedClass));
+        }
+
+        private static (ClassDecl Base, ClassDecl Derived) CreateTransformOverloads(
+            ModuleDecl module, string firstType, string secondType, string firstSymbol, string secondSymbol)
+        {
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            AddTransform(baseClass, firstSymbol, firstType, module);
+            AddTransform(baseClass, secondSymbol, secondType, module);
+            var derivedClass = CreateClassDecl("Derived", isFinal: false);
+            derivedClass.ResolvedSuperclass = baseClass;
+            return (baseClass, derivedClass);
+        }
+
+        private static MethodDecl AddNullary(ClassDecl parent, string symbol, string resultType, ModuleDecl module)
+        {
+            var method = CreateMethod("transform", symbol, methodType: MethodType.Instance, parentDecl: parent);
+            method.ModuleDecl = module;
+            var result = IntReturn();
+            result.SwiftTypeSpec = TypeSpecParser.Parse(resultType)!;
+            method.CSSignature.Add(result);
+            parent.Methods.Add(method);
+            return method;
+        }
+
+        private static MethodDecl AddTransform(ClassDecl parent, string symbol, string parameterType, ModuleDecl module,
+            bool isInOut = false, string genericSignature = null)
+        {
+            var method = CreateMethod("transform", symbol, methodType: MethodType.Instance, parentDecl: parent);
+            method.ModuleDecl = module;
+            method.RawGenericSig = genericSignature;
+            method.CSSignature.Add(IntReturn());
+            method.CSSignature.Add(new ArgumentDecl
+            {
+                SwiftTypeSpec = TypeSpecParser.Parse(parameterType)!,
+                Name = "_",
+                PrivateName = "w",
+                IsInOut = isInOut,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null,
+            });
+            parent.Methods.Add(method);
+            return method;
+        }
+
+        private static ModuleDecl CreateModule(params string[] exportedSymbols) => new()
+        {
+            Name = "Test",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            ExportedSymbols = new HashSet<string>(exportedSymbols),
+        };
+
+        private static ArgumentDecl IntReturn(string type = "Swift.Int") => new()
+        {
+            SwiftTypeSpec = new NamedTypeSpec(type),
+            Name = string.Empty,
+            PrivateName = string.Empty,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        private static (MethodDecl Base, MethodDecl Derived, ClassDecl DerivedClass) CreateOverridePair(
+            MethodType methodType, string baseSymbol, string derivedSymbol, ModuleDecl module,
+            string derivedReturn = "Swift.Int")
+        {
+            var baseClass = CreateClassDecl("Base", isFinal: false);
+            var baseMethod = CreateMethod("report", baseSymbol, methodType: methodType, parentDecl: baseClass);
+            baseMethod.ModuleDecl = module;
+            baseMethod.CSSignature.Add(IntReturn());
+            baseClass.Methods.Add(baseMethod);
+
+            var derivedClass = CreateClassDecl("Derived", isFinal: false);
+            derivedClass.ResolvedSuperclass = baseClass;
+            var derivedMethod = CreateMethod("report", derivedSymbol, methodType: methodType, parentDecl: derivedClass);
+            derivedMethod.IsOverride = true;
+            derivedMethod.ModuleDecl = module;
+            derivedMethod.CSSignature.Add(IntReturn(derivedReturn));
+            derivedClass.Methods.Add(derivedMethod);
+            return (baseMethod, derivedMethod, derivedClass);
         }
 
         [Fact]

@@ -555,6 +555,17 @@ namespace BindingsGeneration
         /// value itself.
         /// </summary>
         public bool CallsDefaultArgumentShim { get; init; } = false;
+
+        /// <summary>
+        /// True when the native function this decl's P/Invoke reaches is a top-level Swift function,
+        /// although the decl still models a member of its parent type — a bypass wrapper that rebuilds
+        /// the member call from Swift source and takes every input as an ordinary argument. A
+        /// top-level function has no self register, so
+        /// <see cref="MarshallingHelpers.RequiresClassMetatypeSelf"/> must not supply the parent's
+        /// metatype there. Unlike <see cref="UsesFreeFunctionWrapper"/> it changes nothing else about
+        /// how the signature is lowered.
+        /// </summary>
+        public bool TargetsTopLevelFunction { get; init; } = false;
     }
 
     /// <summary>

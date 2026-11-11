@@ -934,6 +934,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 dispatchModifier = "virtual ";
             }
         }
+        else if (propertyDecl.ParentDecl is ClassDecl staticParent && propertyDecl.IsStatic && propertyDecl.IsOverride
+            && WrapperEmitter.HasPropertyInResolvedAncestors(staticParent, propertyDecl.Name))
+        {
+            // An override of a `class` property projects to a static in each class; the derived one
+            // hides the ancestor's (CS0108 without `new`). Reading it on the derived class passes the
+            // derived metatype, which reaches the Swift override.
+            dispatchModifier = "new ";
+        }
 
         // Then emit the property: every doc line first, then the attributes. A doc comment written
         // after any attribute documents nothing (CS1587).
@@ -1040,7 +1048,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
             }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
-            csWriter.WriteLine($"public {staticModifier}{nativePropertyType} {nativeCompanionName}");
+            // A hiding static override hides the ancestor's companion too.
+            var companionHiding = dispatchModifier == "new " ? "new " : string.Empty;
+            csWriter.WriteLine($"public {staticModifier}{companionHiding}{nativePropertyType} {nativeCompanionName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             // Re-emitted through the same accessor bodies with narrowing switched off, so the

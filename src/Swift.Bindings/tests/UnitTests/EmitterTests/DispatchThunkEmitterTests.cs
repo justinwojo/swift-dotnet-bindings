@@ -143,9 +143,10 @@ public class DispatchThunkEmitterTests
     {
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
+        // A `static` member of a class is a final `class` member, and the ABI marks it so.
         var method = CreateMethodDecl("createDefault", classDecl, moduleDecl,
             returnType: new NamedTypeSpec("Swift.Int"),
-            methodType: MethodType.Static, isFinal: false,
+            methodType: MethodType.Static, isFinal: true,
             mangledName: "$s10TestModule6AnimalC13createDefaultSiyFZ");
 
         var (csOutput, _) = EmitMethod(method, CreateTypeDatabase());

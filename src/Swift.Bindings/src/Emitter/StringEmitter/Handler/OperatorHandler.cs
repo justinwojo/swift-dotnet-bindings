@@ -235,12 +235,23 @@ namespace BindingsGeneration
             // predicates) the state of an emission that did not happen.
             var savedEmissionSymbol = methodEnv.EmissionSymbol;
             var savedUsesWrapperLibrary = methodDecl.UsesWrapperLibrary;
+            var savedWrapperStrategy = methodDecl.WrapperStrategy;
+            // The native thunk is appended to the module's assembly, which the transaction does not
+            // cover; a skip after the thunk was written truncates it back so no orphan thunk ships.
+            int savedAssemblyLength = emissionContext?.AssemblyBuilder.Length ?? 0;
+            int savedX64AssemblyLength = emissionContext?.X64AssemblyBuilder.Length ?? 0;
 
             void RollbackOperator()
             {
                 operatorTransaction.Rollback();
                 methodEnv.PromoteSymbol(savedEmissionSymbol);
                 methodDecl.UsesWrapperLibrary = savedUsesWrapperLibrary;
+                methodDecl.WrapperStrategy = savedWrapperStrategy;
+                if (emissionContext != null)
+                {
+                    emissionContext.AssemblyBuilder.Length = savedAssemblyLength;
+                    emissionContext.X64AssemblyBuilder.Length = savedX64AssemblyLength;
+                }
             }
 
             try
@@ -261,6 +272,10 @@ namespace BindingsGeneration
                         usesCdeclWrapper = false;
                     }
                 }
+
+                // Before the signature is built: the route decides its convention and parameters.
+                if (!usesCdeclWrapper && emissionContext != null)
+                    TryRouteClassOperatorThroughNativeThunk(parentDecl, methodEnv, emissionContext);
 
                 var signatureHandler = new SignatureHandler(methodEnv);
 
@@ -294,7 +309,10 @@ namespace BindingsGeneration
                     var availableNames = new HashSet<string>(wrapperSig.Parameters.Select(p => p.Name));
                     if (requiresIndirectResult)
                         availableNames.Add(methodEnv.SyntheticLocals.SwiftIndirectResult);
-                    bool hasUndeclaredRefs = pInvokeSig.Parameters.Any(p => !availableNames.Contains(p.Name));
+                    // A parameter that carries its own call expression (the class metatype self)
+                    // references no local, so it needs nothing declared in the operator body.
+                    bool hasUndeclaredRefs = pInvokeSig.Parameters.Any(p =>
+                        p.CallExpression is null && !availableNames.Contains(p.Name));
                     if (hasUndeclaredRefs)
                     {
                         _logger.LogWarning($"Operator '{symbol}' on generic type requires buffer marshalling preamble — skipping.");
@@ -358,6 +376,7 @@ namespace BindingsGeneration
             // Bug #1: Detect if the operator return type requires indirect result allocation.
             // Non-frozen/class return types (BigUInt, BigInt) need SwiftIndirectResult.
             bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
+            bool needsUnsafeBody = requiresIndirectResult || MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv);
 
             // Bug #10: Build generic parameter remapping for operators on generic types.
             // Operators are static methods that may have method-own generic params shadowing the
@@ -456,13 +475,14 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // Wrap in unsafe block when indirect result uses pointer operations
-                    if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
+                    // Wrap in unsafe block when indirect result uses pointer operations or the
+                    // class metatype self is built as `new SwiftSelf((void*)…)`.
+                    if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
                     EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
 
-                    if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
+                    if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
                 }
 
                 csWriter.Indent--;
@@ -504,13 +524,14 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // Wrap in unsafe block when indirect result uses pointer operations
-                    if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
+                    // Wrap in unsafe block when indirect result uses pointer operations or the
+                    // class metatype self is built as `new SwiftSelf((void*)…)`.
+                    if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
                     EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
 
-                    if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
+                    if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
                 }
 
                 csWriter.Indent--;
@@ -585,8 +606,8 @@ namespace BindingsGeneration
                 // Call P/Invoke (void return — writes through SwiftIndirectResult)
                 if (pinvokeHelperContext != null)
                 {
-                    var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                    var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
+                    var metadataArgs = OperatorTrailingMetadataArguments(pinvokeHelperContext, methodEnv);
+                    var fullArgs = string.IsNullOrEmpty(metadataArgs) ? callArgs : string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
                     csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs});");
                 }
                 else
@@ -619,8 +640,8 @@ namespace BindingsGeneration
                 string call;
                 if (pinvokeHelperContext != null)
                 {
-                    var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                    var fullArgs = string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
+                    var metadataArgs = OperatorTrailingMetadataArguments(pinvokeHelperContext, methodEnv);
+                    var fullArgs = string.IsNullOrEmpty(metadataArgs) ? callArgs : string.IsNullOrEmpty(callArgs) ? metadataArgs : $"{callArgs}, {metadataArgs}";
                     call = $"{pinvokeHelperContext.HelperClassName}.{pinvokeName}({fullArgs})";
                 }
                 else
@@ -634,6 +655,16 @@ namespace BindingsGeneration
                     EmitDirectOperatorReturn(csWriter, call, returnType, methodEnv);
             }
         }
+
+        /// <summary>
+        /// The trailing per-parameter metadata a generic parent's operator P/Invoke takes. None for a
+        /// class operator, which reads the class's generic arguments from the metatype in its self
+        /// register — must agree with the <c>MetadataParameters</c> of its declaration.
+        /// </summary>
+        private static string OperatorTrailingMetadataArguments(PInvokeHelperContext pinvokeHelperContext, MethodEnvironment? methodEnv)
+            => methodEnv is not null && MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv)
+                ? string.Empty
+                : string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
 
         /// <summary>
         /// Emits the return statement for an operator's direct-call path. A Swift class, non-simple enum,
@@ -815,16 +846,11 @@ namespace BindingsGeneration
                 throw new UnbridgeableAsyncClosureException(pinvokeName);
             }
 
-            // For @_cdecl wrappers, adjust calling convention and parameter types.
-            // When the operator @_cdecl wrapper was NOT emitted (e.g. operator on a
-            // class / non-frozen struct parent — see ShouldEmitOperatorWrapper guards),
-            // the EntryPoint stays the original Swift-mangled `$s…` symbol, which
-            // Swift compiles with the Swift calling convention. Pairing that symbol
-            // with CallConvCdecl (the previous hardcoded value) reads return values
-            // and self/parameters from the wrong registers — see
-            // Pairing a Swift-mangled symbol with CallConvCdecl reads return values
-            // and self/parameters from the wrong registers. Use Cdecl iff the wrapper actually emitted.
-            var callingConvention = usesCdeclWrapper
+            // The EntryPoint is a C entry point only when the operator's @_cdecl wrapper or its
+            // native thunk carries the call. Otherwise it is the Swift-mangled `$s…` symbol, which
+            // Swift compiles with the Swift calling convention; pairing that symbol with
+            // CallConvCdecl reads return values and self/parameters from the wrong registers.
+            var callingConvention = usesCdeclWrapper || methodDecl.UsesNativeThunk
                 ? PInvokeCallingConvention.Cdecl
                 : PInvokeCallingConvention.Swift;
             string returnType;
@@ -870,7 +896,11 @@ namespace BindingsGeneration
                     ParametersString = parametersString,
                     CallingConvention = callingConvention,
                     IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    // A class operator reads the class's generic arguments from the metatype in
+                    // the self register; it takes no trailing metadata.
+                    MetadataParameters = MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv)
+                        ? Array.Empty<string>()
+                        : pinvokeHelperContext.GetMetadataParameterDeclarations()
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }
@@ -1088,6 +1118,40 @@ namespace BindingsGeneration
         /// <returns>True if != operator will be present in the generated code.</returns>
         public static bool WillHaveInequalityOperator(List<OperatorDecl> operators) =>
             HasExplicitInequalityOperator(operators) || HasExplicitEqualityOperator(operators);
+
+        // ==================== Operator native thunk ====================
+
+        /// <summary>
+        /// Routes an operator of a non-generic class through a native thunk, the way a class's other
+        /// static methods already go. An operator is a static member, so Swift takes the class
+        /// metatype in the self register. A direct Swift-convention P/Invoke can only supply it as an
+        /// untyped <c>SwiftSelf</c>, and Mono's managed-to-native wrapper may keep its GC-safe-region
+        /// cookie in that same register: the post-call transition then writes thread state through
+        /// the class metadata. The thunk loads the metatype itself from the class's metadata
+        /// accessor and restores the register before returning, so the managed side makes a plain C
+        /// call with no self. A generic class has no unspecialized metatype a thunk could load, and a
+        /// shape the thunk cannot lower stays on the direct route.
+        /// </summary>
+        /// <returns>True when the thunk was written and the operator now targets it.</returns>
+        private static bool TryRouteClassOperatorThroughNativeThunk(TypeDecl parentDecl, MethodEnvironment methodEnv,
+            ModuleEmissionContext emissionContext)
+        {
+            if (parentDecl is not ClassDecl || parentDecl.IsGeneric)
+                return false;
+            if (!NativeThunkEmitter.ShouldEmitThunk(methodEnv))
+                return false;
+
+            var methodDecl = methodEnv.MethodDecl;
+            var moduleName = parentDecl.SwiftTypeName.Module;
+            if (!NativeThunkEmitter.EmitThunk(methodEnv, moduleName, emissionContext.AssemblyBuilder,
+                    methodDecl.MangledName, emissionContext.X64AssemblyBuilder))
+                return false;
+
+            methodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
+            methodDecl.UsesWrapperLibrary = true;
+            methodEnv.PromoteSymbol(NativeThunkEmitter.GetThunkSymbol(methodDecl, moduleName));
+            return true;
+        }
 
         // ==================== Operator @_cdecl Wrapper ====================
 

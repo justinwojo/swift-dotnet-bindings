@@ -783,6 +783,115 @@ public class OperatorHandlerOutputTests
         Assert.Contains("EntryPoint = \"$s10TestModule16AnyMusicPropertyC2eeoiySbAC_ACtFZ\"", output);
         Assert.Contains("CallConvSwift", output);
         Assert.DoesNotContain("CallConvCdecl", output);
+        // An operator is a static member: the callee reads the class metatype from the self register.
+        Assert.Contains("SwiftSelf", output);
+    }
+
+    /// <summary>
+    /// A class operator is a static member, so Swift reads the class metatype from the self
+    /// register. With a wrapper library available it goes through a native thunk that loads the
+    /// metatype from the class's metadata accessor itself; the managed call is then a plain C call
+    /// that passes no self, so no managed-to-native transition has to carry that register.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassParentWithWrapperLibrary_ThunkLoadsTheMetatype()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+        var operatorSymbol = op.UnderlyingMethod.MangledName;
+        var thunkSymbol = ThunkAssemblyEmitter.GenerateThunkSymbol("TestModule", operatorSymbol);
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.True(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
+        Assert.Contains("\"TestModuleSwiftBindings\"", output);
+        Assert.Contains("CallConvCdecl", output);
+        Assert.DoesNotContain("CallConvSwift", output);
+        Assert.DoesNotContain("SwiftSelf", output);
+
+        var asm = emissionContext.AssemblyBuilder.ToString();
+        Assert.Contains(thunkSymbol, asm);
+        Assert.Contains("$s10TestModule4SizeCMa", asm);
+        Assert.Matches(@"mov\s+x20,\s*x0", asm);
+        Assert.Contains(operatorSymbol, asm);
+    }
+
+    /// <summary>
+    /// An operator the thunk declines stays on the direct Swift-convention call, which must still
+    /// hand the callee the class metatype in the self register.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassOperatorTheThunkDeclines_PassesTheMetatypeDirectly()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        // A module export list without the operator: the thunk has no call target to branch to.
+        moduleDecl.ExportedSymbols = new HashSet<string>();
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+        var operatorSymbol = op.UnderlyingMethod.MangledName;
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.False(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Contains($"EntryPoint = \"{operatorSymbol}\"", output);
+        Assert.Contains("CallConvSwift", output);
+        Assert.Contains("SwiftSelf", output);
+        Assert.Equal(0, emissionContext.AssemblyBuilder.Length);
+    }
+
+    /// <summary>
+    /// The thunk is appended to the module's assembly before the operand gates run. An operator a
+    /// later gate refuses must take its thunk back out, or the wrapper library ships a thunk no
+    /// P/Invoke calls, and the decl must not keep the thunk route it never used.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassOperatorRefusedAfterThunkWritten_RollsBackThunkAndDeclState()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "TestModule.Size");
+        var methodDecl = op.UnderlyingMethod;
+        var originalSymbol = methodDecl.MangledName;
+        // A generic operand is refused only after the route was chosen.
+        methodDecl.CSSignature[2].IsGeneric = true;
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.AssemblyBuilder.Append("// earlier thunk\n");
+        var asmBefore = emissionContext.AssemblyBuilder.ToString();
+        var x64Before = emissionContext.X64AssemblyBuilder.ToString();
+        var csOutput = new StringWriter();
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var emitted = handler.EmitOperator(
+            new CSharpWriter(csOutput), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(new StringWriter()), emissionContext: emissionContext);
+
+        Assert.False(emitted);
+        Assert.DoesNotContain("operator +", csOutput.ToString());
+        Assert.Equal(asmBefore, emissionContext.AssemblyBuilder.ToString());
+        Assert.Equal(x64Before, emissionContext.X64AssemblyBuilder.ToString());
+        Assert.False(methodDecl.UsesNativeThunk);
+        Assert.False(methodDecl.UsesWrapperLibrary);
+        Assert.Equal(originalSymbol, methodDecl.MangledName);
+    }
+
+    private static string EmitOperator(OperatorDecl op, TypeDatabase typeDatabase, ModuleEmissionContext emissionContext)
+    {
+        var writer = new StringWriter();
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        handler.EmitOperator(new CSharpWriter(writer), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(new StringWriter()), emissionContext: emissionContext);
+        return writer.ToString();
     }
 
     [Fact]
