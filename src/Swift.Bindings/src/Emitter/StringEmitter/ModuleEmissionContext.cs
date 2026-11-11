@@ -76,6 +76,14 @@ public sealed class ModuleEmissionContext
 
     private ModuleEmissionContext(bool implicitFallback) => IsImplicitFallback = implicitFallback;
 
+    /// <summary>
+    /// The Swift-side facts of every symbol this module's declarations name. Set once, before any
+    /// member is emitted, from the module's parsed model; read-only after that. An emitter binding a
+    /// Swift-convention symbol asks it for the symbol's facts instead of reconstructing them from
+    /// rendered strings. <see cref="SwiftCallFactsTable.Empty"/> until the module emitter sets it.
+    /// </summary>
+    public SwiftCallFactsTable SwiftCallFacts { get; set; } = SwiftCallFactsTable.Empty;
+
     // ==================== Module / Type Name Collision ====================
 
     /// <summary>

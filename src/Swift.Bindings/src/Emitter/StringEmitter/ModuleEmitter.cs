@@ -56,6 +56,11 @@ namespace BindingsGeneration
             emissionContext ??= ModuleEmissionContext.CreateImplicitFallback();
             emissionContext.BeginFragmentRender();
 
+            // The Swift-side facts of every declared symbol, from the parsed model. Built before
+            // any member is emitted so an emitter can ask for the facts of what it binds; building
+            // them reads the model and the type database and changes neither.
+            emissionContext.SwiftCallFacts = SwiftCallFactsTable.Build(moduleDecl, _typeDatabase);
+
             if (_conductor.TryGetModuleHandler(moduleDecl, out var moduleHandler))
             {
                 var csStringWriter = new StringWriter();
@@ -187,6 +192,12 @@ namespace BindingsGeneration
                     _typeDatabase.AsyncLibraryName, _typeDatabase.StaticallyMergedModules);
                 if (!abiResult.IsClean)
                     throw new AbiContractViolationException(moduleDecl.Name, abiResult.Attributed);
+
+                // Facts coverage of every emitted Swift-convention transition, written beside the C#.
+                // It reads the plans the ABI check just validated and writes only its own sidecar.
+                SwiftCallFactsCoverage
+                    .Compute(moduleDecl.Name, emissionContext.AbiCallPlans, emissionContext.SwiftCallFacts, _typeDatabase.AsyncLibraryName)
+                    .Write(_outputDirectory, @namespace, _logger);
 
                 // Split the combined output into one file per top-level type (prelude keeps the
                 // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —

@@ -3484,6 +3484,7 @@ namespace BindingsGeneration
                 IsAsync = false,
                 IsSynthesizedAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
+                IsNonmutating = accessor.DeclAttributes?.Contains("NonMutating") == true,
             };
 
             // Apply member-level actor isolation to accessor methods
@@ -4082,6 +4083,7 @@ namespace BindingsGeneration
                 IsSynthesizedAccessor = true,
                 IsAccessor = true,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
+                IsNonmutating = accessor.DeclAttributes?.Contains("NonMutating") == true,
             };
 
             return new SetAccessorDecl { Method = methodDecl };

@@ -124,6 +124,14 @@ namespace BindingsGeneration
         public bool IsBorrowing { get; set; } = false;
 
         /// <summary>
+        /// True for a setter declared <c>nonmutating set</c>: it takes a value self borrowed
+        /// rather than inout. Parsed from the accessor's <c>NonMutating</c> declaration attribute.
+        /// Only a setter carries it; every other value-type member already says how it takes self
+        /// through <see cref="IsMutating"/>, <see cref="IsConsuming"/> and <see cref="IsBorrowing"/>.
+        /// </summary>
+        public bool IsNonmutating { get; set; } = false;
+
+        /// <summary>
         /// Whether this method or accessor is declared as 'final'.
         /// Final members use direct dispatch even inside non-final classes
         /// (bare symbols exported, no Tj dispatch thunk needed).
