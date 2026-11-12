@@ -22,9 +22,24 @@ public sealed record SwiftOracleTarget(string Triple, string Sdk)
     public static readonly SwiftOracleTarget SimulatorArm64 = new("arm64-apple-ios15.0-simulator", "iphonesimulator");
     public static readonly SwiftOracleTarget SimulatorX64 = new("x86_64-apple-ios15.0-simulator", "iphonesimulator");
 
+    /// <summary>The iOS device and simulator targets the probe modules and the qualification corpus compile for.</summary>
     public static readonly ImmutableArray<SwiftOracleTarget> All = ImmutableArray.Create(DeviceArm64, SimulatorArm64, SimulatorX64);
 
-    public static SwiftOracleTarget ByTriple(string triple) => All.Single(t => t.Triple == triple);
+    /// <summary>
+    /// Every slice a hand-written table may claim: the iOS, tvOS, Mac Catalyst and macOS triples the
+    /// runtime's native code is built for, each compiled against its own SDK.
+    /// </summary>
+    public static readonly ImmutableArray<SwiftOracleTarget> Every = ImmutableArray.Create(
+        DeviceArm64, SimulatorArm64, SimulatorX64,
+        new SwiftOracleTarget("arm64-apple-tvos15.0", "appletvos"),
+        new SwiftOracleTarget("arm64-apple-tvos15.0-simulator", "appletvsimulator"),
+        new SwiftOracleTarget("x86_64-apple-tvos15.0-simulator", "appletvsimulator"),
+        new SwiftOracleTarget("arm64-apple-ios15.0-macabi", "macosx"),
+        new SwiftOracleTarget("x86_64-apple-ios15.0-macabi", "macosx"),
+        new SwiftOracleTarget("arm64-apple-macosx12.0", "macosx"),
+        new SwiftOracleTarget("x86_64-apple-macosx12.0", "macosx"));
+
+    public static SwiftOracleTarget ByTriple(string triple) => Every.Single(t => t.Triple == triple);
 
     public override string ToString() => Triple;
 }
@@ -163,6 +178,12 @@ public static class SwiftLoweringOracle
         }
     }
 
+    /// <summary>The swiftc flags <see cref="Compile"/> compiles a module's definition with, as an evidence source records them.</summary>
+    public static readonly ImmutableArray<string> DefinitionFlags = ["-swift-version", "5", "-wmo", "-parse-as-library", "-enable-library-evolution"];
+
+    /// <summary>The swiftc flags <see cref="CompileIr"/> compiles a wrapper or probe with, as an evidence source records them.</summary>
+    public static readonly ImmutableArray<string> IrFlags = ["-wmo", "-parse-as-library", "-strict-concurrency=minimal"];
+
     /// <summary>
     /// The directory of a module's public textual interface, alone: what a binary framework gives a
     /// consumer, and so what a generated wrapper compiles against (no SPI, no accessor-level
@@ -183,9 +204,10 @@ public static class SwiftLoweringOracle
         var modulePath = Path.Combine(outputDirectory, moduleName + ".swiftmodule");
         var irPath = Path.Combine(outputDirectory, moduleName + ".ll");
         var tbdPath = Path.Combine(outputDirectory, moduleName + ".tbd");
-        var arguments = new List<string>
+        var arguments = new List<string> { "swiftc" };
+        arguments.AddRange(DefinitionFlags);
+        arguments.AddRange(new[]
         {
-            "swiftc", "-swift-version", "5", "-wmo", "-parse-as-library", "-enable-library-evolution",
             "-target", target.Triple, "-sdk", sdk, "-module-name", moduleName,
             "-emit-module", "-emit-module-path", modulePath, "-emit-ir", "-o", irPath,
             "-emit-tbd", "-emit-tbd-path", tbdPath, "-Xfrontend", "-tbd-install_name", "-Xfrontend", $"@rpath/{moduleName}.framework/{moduleName}",
@@ -193,7 +215,7 @@ public static class SwiftLoweringOracle
             // interface's directory, where an importer would prefer it.
             "-emit-module-interface-path", Path.Combine(InterfaceDirectory(outputDirectory), moduleName + ".swiftinterface"),
             "-emit-private-module-interface-path", Path.Combine(outputDirectory, moduleName + ".private.swiftinterface"),
-        };
+        });
         if (extraArguments is not null)
             arguments.AddRange(extraArguments);
         arguments.AddRange(sources);
@@ -218,12 +240,13 @@ public static class SwiftLoweringOracle
         Directory.CreateDirectory(outputDirectory);
         var sdk = SdkPath(target.Sdk) ?? throw new InvalidOperationException($"no {target.Sdk} SDK");
         var irPath = Path.Combine(outputDirectory, moduleName + ".ll");
-        var arguments = new List<string>
+        var arguments = new List<string> { "swiftc" };
+        arguments.AddRange(IrFlags);
+        arguments.AddRange(new[]
         {
-            "swiftc", "-wmo", "-parse-as-library", "-strict-concurrency=minimal",
             "-target", target.Triple, "-sdk", sdk, "-module-name", moduleName, "-emit-ir", "-o", irPath,
             "-module-cache-path", Path.Combine(outputDirectory, "module-cache"),
-        };
+        });
         if (extraArguments is not null)
             arguments.AddRange(extraArguments);
         arguments.AddRange(sources);

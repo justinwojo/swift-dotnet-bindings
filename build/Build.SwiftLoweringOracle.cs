@@ -4,9 +4,12 @@
 // Opt-in, host-only: the swiftc lowering oracle over the BindingTests corpus. Compiles the dependency
 // and main modules with swiftc for the device and both simulator triples, emits their LLVM IR, and
 // compares every callee's predicted physical signature and every frozen struct's layout with what
-// swiftc produced. Writes one report per triple, toolchain included, under artifacts/; touches no
-// BindingTests output or baseline. The probe and fixture modules run in the unit tests on every
-// `nuke test`; this target adds the whole corpus.
+// swiftc produced. Writes one report per triple, toolchain included, under artifacts/. It also
+// records this toolchain's lowering receipts into the SDK's qualification record
+// (build/baselines/swift-lowering-evidence.json): one per corpus module on the iOS triples, and one
+// per hand-written transition table on every slice its table claims. The record holds one receipt
+// per qualified compiler family, so it is rerun under each toolchain profile. The probe and fixture
+// modules run in the unit tests on every `nuke test`; this target adds the whole corpus.
 
 using System;
 using System.IO;
@@ -37,15 +40,22 @@ partial class Build
         scratch.CreateDirectory();
         var reports = scratch / "reports";
         var manifest = scratch / "corpus.json";
-        // The evidence covers every plan target: the corpus sidecars of the regenerated BindingTests
-        // output and the committed products of the hand-written tables.
+        // A receipt per artifact: each corpus module of the regenerated BindingTests output, and each
+        // hand-written table, whose committed product names its plan targets.
         var wrappers = new System.Collections.Generic.Dictionary<string, string>
         {
             [$"{ModuleName}SwiftBindings"] = BtOutputDir / $"{ModuleName}.Wrapper.swift",
             [$"{DepModuleName}SwiftBindings"] = BtOutputDir / "dep-swift" / $"{DepModuleName}.Wrapper.swift",
         };
-        var plans = SwiftBridgePlanFiles();
-        foreach (var required in wrappers.Values.Concat(plans).Where(p => !File.Exists(p)))
+        var artifacts = SwiftBridgeCorpusPlanFiles();
+        var handWritten = HandWrittenTransitionTables
+            .Select(t => new
+            {
+                table = t.Table.ToString(),
+                plans = (SwiftBridgeProductsDir / $"{JsonDocument.Parse(File.ReadAllText(t.Table)).RootElement.GetProperty("assembly").GetString()}.swift-call-plans.json").ToString(),
+            })
+            .ToArray();
+        foreach (var required in wrappers.Values.Concat(artifacts).Concat(handWritten.Select(h => h.plans)).Where(p => !File.Exists(p)))
             Assert.Fail($"{required} is missing: run `nuke binding-tests --compile-only` (and `nuke swift-bridge-products`) first");
         File.WriteAllText(manifest, JsonSerializer.Serialize(new
         {
@@ -57,7 +67,8 @@ partial class Build
             scratch = (scratch / "compile").ToString(),
             wrappers,
             probe = (SourceDir / "Swift.Bindings" / "tests" / "UnitTests" / "LoweringOracle" / "Evidence" / "HandWrittenTargets.swift").ToString(),
-            plans,
+            artifacts,
+            handWritten,
             evidence = SwiftLoweringEvidencePath.ToString(),
         }));
 

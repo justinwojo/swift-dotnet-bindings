@@ -5,8 +5,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 
 namespace BindingsGeneration.Tests;
 
@@ -47,13 +49,39 @@ public static class SwiftLoweringEvidenceCollector
 
     private static string Text(SwiftIrFunction function) => $"{function.CallingConvention} {function.Signature}";
 
+    /// <summary>The reason a target no evidence source showed is recorded as unobserved.</summary>
+    public const string UnseenReason = "no evidence source defines or declares it";
+
     /// <summary>
-    /// Records <paramref name="symbols"/> as this toolchain's evidence on <paramref name="triple"/> in
-    /// the evidence file at <paramref name="path"/>, keeping every other toolchain and triple.
+    /// The slice of evidence the compile showed: <paramref name="symbols"/> for the targets it saw,
+    /// every other of <paramref name="targets"/> as unobserved, and the SDK and sources it read.
     /// </summary>
-    public static void Record(string path, string toolchain, string triple, IReadOnlyDictionary<string, string> symbols)
+    public static SwiftLoweringSlice Slice(
+        string sdk, IEnumerable<SwiftEvidenceSource> sources, IEnumerable<string> targets, IReadOnlyDictionary<string, string> symbols)
+    {
+        var unseen = targets.Where(t => !symbols.ContainsKey(t)).ToImmutableSortedDictionary(t => t, _ => UnseenReason, StringComparer.Ordinal);
+        return new SwiftLoweringSlice
+        {
+            Sdk = sdk,
+            Sources = sources.ToImmutableArray(),
+            Symbols = symbols.ToImmutableSortedDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
+            Unobserved = unseen.IsEmpty ? null : unseen,
+        };
+    }
+
+    /// <summary>The generator that records the evidence, by name and version, without build metadata.</summary>
+    public static string Generator =>
+        "Swift.Bindings " + (typeof(SwiftLoweringEvidence).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? typeof(SwiftLoweringEvidence).Assembly.GetName().Version?.ToString() ?? "unknown").Split('+')[0];
+
+    /// <summary>
+    /// Records <paramref name="slice"/> as <paramref name="artifact"/>'s evidence on
+    /// <paramref name="triple"/> under <paramref name="compiler"/> in the evidence file at
+    /// <paramref name="path"/>, keeping every other artifact, compiler family and slice.
+    /// </summary>
+    public static void Record(string path, string artifact, string compiler, string triple, SwiftLoweringSlice slice)
     {
         var evidence = File.Exists(path) ? SwiftLoweringEvidence.Load(path) : SwiftLoweringEvidence.Empty;
-        File.WriteAllText(path, evidence.WithTriple(toolchain, triple, symbols).ToJson());
+        File.WriteAllText(path, evidence.WithSlice(artifact, compiler, SwiftLoweringContract.Current, Generator, triple, slice).ToJson());
     }
 }

@@ -460,10 +460,12 @@ partial class Build
         // redundant per-regen dotnet build of the binding csproj.
         genArgs.Add("--no-verify-csharp");
 
-        // Route every transition the committed swiftc evidence proves through its native bridge.
-        // The evidence covers the iOS triples only, so the other platforms keep their direct imports.
+        // Route every transition the SDK's lowering qualification record qualifies through its native
+        // bridge: the corpus is the SDK's qualification corpus, judged under every qualified compiler
+        // family whichever toolchain regenerates it. The record covers the iOS triples only, so the
+        // other platforms keep their direct imports.
         if (BridgeEvidenceApplies(platformOverride))
-            genArgs.Add($"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"");
+            genArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
 
         // In strict mode (explicit --strict or --compile-only's fail-closed default), make the
         // generator fail-closed on a degraded input edge — a device→sim slice fallback, a missing
@@ -547,7 +549,7 @@ partial class Build
                 depArgs.Add("--strict-inputs");
             depArgs.Add("--no-verify-csharp");
             if (BridgeEvidenceApplies(platformOverride))
-                depArgs.Add($"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"");
+                depArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),

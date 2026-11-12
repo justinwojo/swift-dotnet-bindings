@@ -1,6 +1,18 @@
 {
   "schema": 1,
   "assembly": "SwiftBindings.Apple",
+  "slices": [
+    "arm64-apple-ios15.0",
+    "arm64-apple-ios15.0-macabi",
+    "arm64-apple-ios15.0-simulator",
+    "arm64-apple-macosx12.0",
+    "arm64-apple-tvos15.0",
+    "arm64-apple-tvos15.0-simulator",
+    "x86_64-apple-ios15.0-macabi",
+    "x86_64-apple-ios15.0-simulator",
+    "x86_64-apple-macosx12.0",
+    "x86_64-apple-tvos15.0-simulator"
+  ],
   "lowering": [
     {
       "type": "Foundation.Data",

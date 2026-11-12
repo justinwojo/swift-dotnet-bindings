@@ -208,7 +208,7 @@ partial class Build
             scratch = (BcfScratch / "oracle-compile").ToString(),
             wrappers = new Dictionary<string, string> { [BcfWrapperModule] = wrapper },
             probe = (SourceDir / "Swift.Bindings" / "tests" / "UnitTests" / "LoweringOracle" / "Evidence" / "HandWrittenTargets.swift").ToString(),
-            plans = new[] { sidecar.ToString() },
+            artifacts = new[] { sidecar.ToString() },
             evidence = evidence.ToString(),
         }));
 

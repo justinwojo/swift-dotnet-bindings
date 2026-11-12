@@ -2,6 +2,22 @@
   "planVersion": 1,
   "factsVersion": 3,
   "module": "Swift.Runtime",
+  "evidenceScope": {
+    "artifact": "Swift.Runtime",
+    "slices": [
+      "arm64-apple-ios15.0",
+      "arm64-apple-ios15.0-macabi",
+      "arm64-apple-ios15.0-simulator",
+      "arm64-apple-macosx12.0",
+      "arm64-apple-tvos15.0",
+      "arm64-apple-tvos15.0-simulator",
+      "x86_64-apple-ios15.0-macabi",
+      "x86_64-apple-ios15.0-simulator",
+      "x86_64-apple-macosx12.0",
+      "x86_64-apple-tvos15.0-simulator"
+    ],
+    "basis": "qualification"
+  },
   "totals": {
     "transitions": 32,
     "planned": 4,
@@ -85,7 +101,7 @@
       "refusals": [],
       "callee": "void (ptr noalias sret, i64, ptr, ptr)",
       "executable": true,
-      "evidence": "swiftc gives swiftcc void (ptr noalias sret, i64, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, i64, ptr, ptr) on 10 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -157,7 +173,7 @@
       "refusals": [],
       "callee": "void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
       "executable": true,
-      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr) on 10 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -201,7 +217,7 @@
       "refusals": [],
       "callee": "void (ptr noalias sret, ptr, ptr, ptr, ptr)",
       "executable": true,
-      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr) on 10 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -340,7 +356,7 @@
       "refusals": [],
       "callee": "void (ptr noalias sret, ptr, ptr, ptr)",
       "executable": true,
-      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr, ptr, ptr) on 10 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",

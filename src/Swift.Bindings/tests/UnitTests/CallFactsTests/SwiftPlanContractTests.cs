@@ -20,15 +20,13 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class SwiftPlanContractTests
 {
-    private const string Triple0 = "arm64-apple-ios15.0";
+    private static SwiftArtifactScope Scope => SwiftArtifactScope.ForPlatform("M", "ios");
 
-    private static SwiftLoweringEvidence Evidence(string symbol, string signature, string toolchain = "Swift version 6.2")
-    {
-        var evidence = SwiftLoweringEvidence.Empty;
-        foreach (var triple in SwiftLoweringEvidence.RequiredTriples)
-            evidence = evidence.WithTriple(toolchain, triple, new Dictionary<string, string> { [symbol] = signature });
-        return evidence;
-    }
+    /// <summary>A qualification record whose every qualified family shows <paramref name="symbol"/> as <paramref name="signature"/> on every iOS slice.</summary>
+    private static SwiftLoweringEvidence Qualified(string symbol, string signature) =>
+        SwiftLoweringEvidenceTests.Record("M", SwiftLoweringEvidenceTests.QualifiedCompilers, Scope.Slices, new Dictionary<string, string> { [symbol] = signature });
+
+    private static SwiftLoweringJudgement Qualify(SwiftLoweringEvidence record) => SwiftLoweringQualification.Qualify(record, Scope);
 
     private static SwiftCallPlanSet Set(SwiftCallFacts facts, SwiftManagedSignature managed, string target)
     {
@@ -54,31 +52,35 @@ public class SwiftPlanContractTests
 
         Assert.False(Assert.Single(set.Coverage).Executable);
         Assert.Equal(SwiftCallPlanSet.NoEvidenceReason, set.Coverage[0].Evidence);
-        Assert.False(Assert.Single(set.WithEvidence(SwiftLoweringEvidence.Empty).Coverage).Executable);
+        Assert.Null(set.EvidenceScope);
+        var judged = set.WithEvidence(Qualify(SwiftLoweringEvidence.Empty));
+        Assert.False(Assert.Single(judged.Coverage).Executable);
+        Assert.Contains("no receipt of M", judged.Coverage[0].Evidence);
     }
 
     [Fact]
-    public void APlanIsExecutable_OnlyWhenSwiftcAgreesOnEveryTripleUnderEveryToolchain()
+    public void APlanIsExecutable_OnlyWhenSwiftcAgreesOnEveryClaimedSliceUnderEveryQualifiedFamily()
     {
         var set = Set(Free("Swift.Int", "Swift.Int"), Signature("long", "long"), "$s1M1fyS2iF");
         var callee = set.Coverage[0].Callee!;
-        var agreeing = Evidence("$s1M1fyS2iF", "swiftcc " + callee);
+        var agreeing = Qualified("$s1M1fyS2iF", "swiftcc " + callee);
 
-        var joined = Assert.Single(set.WithEvidence(agreeing).Coverage);
+        var judged = set.WithEvidence(Qualify(agreeing));
+        var joined = Assert.Single(judged.Coverage);
         Assert.True(joined.Executable, joined.Evidence);
+        Assert.Equal($"swiftc gives swiftcc {callee} on 3 triple(s) under 2 toolchain(s)", joined.Evidence);
+        Assert.Equal(new SwiftPlanEvidenceScope("M", Scope.Slices, SwiftLoweringJudgement.QualificationBasis), judged.EvidenceScope);
 
-        // Another toolchain that disagrees on one triple.
-        var split = agreeing.WithTriple("Swift version 6.3", Triple0, new Dictionary<string, string> { ["$s1M1fyS2iF"] = "swiftcc i64 (i64, i64)" });
-        var disagreed = Assert.Single(set.WithEvidence(split).Coverage);
+        // One qualified family that disagrees on one slice.
+        var split = agreeing.WithSlice("M", SwiftLoweringEvidenceTests.QualifiedCompilers[1], SwiftLoweringContract.Current, null, Scope.Slices[0],
+            SwiftLoweringEvidenceTests.Slice(Scope.Slices[0], new Dictionary<string, string> { ["$s1M1fyS2iF"] = "swiftcc i64 (i64, i64)" }));
+        var disagreed = Assert.Single(set.WithEvidence(Qualify(split)).Coverage);
         Assert.False(disagreed.Executable);
         Assert.Contains("the plan predicts", disagreed.Evidence);
 
-        // A triple with no evidence, and a symbol swiftc never showed.
-        var partial = SwiftLoweringEvidence.Empty.WithTriple("Swift version 6.2", Triple0, new Dictionary<string, string> { ["$s1M1fyS2iF"] = "swiftcc " + callee });
-        Assert.False(Assert.Single(set.WithEvidence(partial).Coverage).Executable);
-        Assert.Contains("shows no", Assert.Single(set.WithEvidence(Evidence("$s1M1other", "swiftcc " + callee)).Coverage).Evidence);
-        // A different convention is not agreement.
-        Assert.False(Assert.Single(set.WithEvidence(Evidence("$s1M1fyS2iF", "ccc " + callee)).Coverage).Executable);
+        // A symbol swiftc never showed, and a different convention.
+        Assert.Contains("shows no", Assert.Single(set.WithEvidence(Qualify(Qualified("$s1M1other", "swiftcc " + callee))).Coverage).Evidence);
+        Assert.False(Assert.Single(set.WithEvidence(Qualify(Qualified("$s1M1fyS2iF", "ccc " + callee))).Coverage).Executable);
     }
 
     [Fact]
@@ -87,58 +89,12 @@ public class SwiftPlanContractTests
         var thick = Planned(Planner().PlanForward(Closure("Swift.Int", "Swift.Int"), Signature(SwiftManagedMarshalling.None, "long", "long", "SwiftSelf"), null));
         var entry = new SwiftPlanCoverageEntry(SwiftTransitionKind.ForwardPInvoke, "M::g", "g", SwiftPlanStatus.Planned) { Symbol = thick.Symbol, Callee = "i64 (i64, ptr swiftself)" };
 
-        var joined = Assert.Single(SwiftLoweringEvidence.Empty.WithTriple("t", Triple0, new Dictionary<string, string>()).Join([entry], [thick]));
+        var joined = Assert.Single(Qualify(Qualified("g", "swiftcc i64 (i64, ptr swiftself)")).Join([entry], [thick]));
         Assert.False(joined.Executable);
         Assert.Equal(SwiftLoweringEvidence.ClosureReason, joined.Evidence);
 
         var refused = new SwiftPlanCoverageEntry(SwiftTransitionKind.ForwardPInvoke, "M::h", "h", SwiftPlanStatus.Refused);
-        Assert.Null(Assert.Single(Evidence("h", "swiftcc void ()").Join([refused], [])).Evidence);
-    }
-
-    [Fact]
-    public void Evidence_RoundTripsInOrdinalOrder_AndAToolchainSectionIsReplacedWhole()
-    {
-        var evidence = Evidence("$sB", "swiftcc void ()").WithTriple("Swift version 6.2", Triple0, new Dictionary<string, string> { ["$sZ"] = "swiftcc void ()", ["$sA"] = "swiftcc i64 ()" });
-        var path = Path.Combine(Path.GetTempPath(), $"evidence-{Guid.NewGuid():N}.json");
-        try
-        {
-            File.WriteAllText(path, evidence.ToJson());
-            var read = SwiftLoweringEvidence.Load(path);
-            Assert.Equal(evidence.ToJson(), read.ToJson());
-            var device = read.Toolchains.Single().Triples[Triple0];
-            Assert.Equal(new[] { "$sA", "$sZ" }, device.Keys);
-            Assert.True(read.Judge("$sA", "i64 ()").Executable is false); // not on the simulators
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-        Assert.Throws<InvalidDataException>(() =>
-        {
-            var bad = Path.Combine(Path.GetTempPath(), $"evidence-{Guid.NewGuid():N}.json");
-            File.WriteAllText(bad, "{\"schema\": 99, \"triples\": [\"x\"], \"toolchains\": []}");
-            try { SwiftLoweringEvidence.Load(bad); } finally { File.Delete(bad); }
-        });
-    }
-
-    [Fact]
-    public void TheRequiredTriples_AreTheGenerators_NotTheEvidenceFiles()
-    {
-        // Device-only evidence that names only the device triple: neither the judge nor the loader trusts its list.
-        var deviceOnly = SwiftLoweringEvidence.Empty.WithTriple("Swift version 6.2", Triple0, new Dictionary<string, string> { ["$sA"] = "swiftcc void ()" })
-            with { Triples = [Triple0] };
-        Assert.False(deviceOnly.Judge("$sA", "void ()").Executable);
-
-        var path = Path.Combine(Path.GetTempPath(), $"evidence-{Guid.NewGuid():N}.json");
-        try
-        {
-            File.WriteAllText(path, deviceOnly.ToJson());
-            Assert.Contains("requires", Assert.Throws<InvalidDataException>(() => SwiftLoweringEvidence.Load(path)).Message);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.Null(Assert.Single(Qualify(Qualified("h", "swiftcc void ()")).Join([refused], [])).Evidence);
     }
 
     // ---- the sidecar ----
@@ -147,6 +103,7 @@ public class SwiftPlanContractTests
     public void ASidecar_ReadsBack_AndAnEditedPlanIsRejected()
     {
         var set = Set(Free("Swift.Int", "Swift.Int"), Signature("long", "long"), "$s1M1fyS2iF");
+        set = set.WithEvidence(Qualify(Qualified("$s1M1fyS2iF", "swiftcc " + set.Coverage[0].Callee)));
         var path = Path.Combine(Path.GetTempPath(), $"plans-{Guid.NewGuid():N}.json");
         try
         {

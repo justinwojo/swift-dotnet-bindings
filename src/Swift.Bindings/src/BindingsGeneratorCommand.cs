@@ -101,6 +101,7 @@ public static class BindingsGeneratorCommand
         var swiftRoutedCallPlans = parseResult.GetValueForOption(options.SwiftRoutedCallPlans) ?? Array.Empty<string>();
         var validateLinkedBridges = parseResult.GetValueForOption(options.ValidateLinkedBridges) ?? Array.Empty<string>();
         var swiftLoweringEvidence = parseResult.GetValueForOption(options.SwiftLoweringEvidence);
+        var swiftLoweringQualification = parseResult.GetValueForOption(options.SwiftLoweringQualification);
         var emitHandWrittenPlans = parseResult.GetValueForOption(options.EmitHandWrittenPlans);
         var transitionFacts = parseResult.GetValueForOption(options.TransitionFacts);
         var planSources = parseResult.GetValueForOption(options.PlanSources) ?? Array.Empty<string>();
@@ -283,6 +284,12 @@ public static class BindingsGeneratorCommand
         // bridge gate, the plan sidecars of the hand-written transition tables, and the linked check
         // of an image's bridges. Out-of-tree from binding generation, so
         // they run before --platform validation, like the Apple-types modes.
+        if (!string.IsNullOrWhiteSpace(swiftLoweringEvidence) && !string.IsNullOrWhiteSpace(swiftLoweringQualification))
+        {
+            logger.LogError("Error: --swift-lowering-evidence (a build's own receipt) and --swift-lowering-qualification (the SDK's qualification record) are exclusive.");
+            context.ExitCode = 1;
+            return;
+        }
         if (swiftBridges || emitHandWrittenPlans || validateLinkedBridges.Length > 0)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
@@ -292,33 +299,66 @@ public static class BindingsGeneratorCommand
                 context.ExitCode = 1;
                 return;
             }
-            context.ExitCode = swiftBridges
-                ? SwiftBridgeGate.Run(swiftCallPlans, swiftRoutedCallPlans, swiftLoweringEvidence, outputDirectory!, logger)
-                : validateLinkedBridges.Length > 0
-                ? SwiftBridgeLinkedCheck.Run(validateLinkedBridges, swiftCallPlans, outputDirectory!, logger)
-                : SwiftHandWrittenPlans.Run(transitionFacts ?? string.Empty, planSources, outputDirectory!,
-                    string.IsNullOrWhiteSpace(swiftLoweringEvidence) ? null : swiftLoweringEvidence, logger);
-            return;
-        }
-
-        // In binding generation, --swift-lowering-evidence routes every transition whose call plan
-        // the evidence makes executable through its native bridge. Without it nothing is executable
-        // and the emitted imports are the direct ones.
-        SwiftLoweringEvidence? bridgeEvidence = null;
-        if (!string.IsNullOrWhiteSpace(swiftLoweringEvidence))
-        {
-            try
+            if ((swiftBridges || emitHandWrittenPlans) && !string.IsNullOrWhiteSpace(swiftLoweringEvidence))
             {
-                bridgeEvidence = SwiftLoweringEvidence.Load(swiftLoweringEvidence);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
-            {
-                logger.LogError("Error: --swift-lowering-evidence '{Path}' could not be read: {Message}", swiftLoweringEvidence, ex.Message);
+                // The gate and the hand-written products are SDK qualification: they are judged by the
+                // qualification record under every qualified compiler, never by one build's receipt.
+                logger.LogError("Error: {Mode} is judged by --swift-lowering-qualification, not --swift-lowering-evidence.",
+                    swiftBridges ? "--swift-bridges" : "--emit-hand-written-plans");
                 context.ExitCode = 1;
                 return;
             }
+            var qualification = string.IsNullOrWhiteSpace(swiftLoweringQualification) ? null : swiftLoweringQualification;
+            context.ExitCode = swiftBridges
+                ? SwiftBridgeGate.Run(swiftCallPlans, swiftRoutedCallPlans, qualification, outputDirectory!, logger)
+                : validateLinkedBridges.Length > 0
+                ? SwiftBridgeLinkedCheck.Run(validateLinkedBridges, swiftCallPlans, outputDirectory!, logger)
+                : SwiftHandWrittenPlans.Run(transitionFacts ?? string.Empty, planSources, outputDirectory!, qualification, logger);
+            return;
         }
-        using var bridgeEvidenceScope = bridgeEvidence is null ? null : SwiftBridgeEvidence.Use(bridgeEvidence);
+
+        // In binding generation, each module's plans are judged over the slices --platform claims:
+        // by its own receipt (--swift-lowering-evidence), which must have been collected by this
+        // build's compiler and SDKs, or by the SDK's qualification record (--swift-lowering-qualification).
+        // Every transition whose plan the judgement makes executable is routed through its native
+        // bridge. Without either, nothing is executable and the emitted imports are the direct ones.
+        Func<string, SwiftLoweringJudgement>? bridgeJudge = null;
+        var evidencePath = !string.IsNullOrWhiteSpace(swiftLoweringEvidence) ? swiftLoweringEvidence : swiftLoweringQualification;
+        if (!string.IsNullOrWhiteSpace(evidencePath))
+        {
+            var evidenceOption = evidencePath == swiftLoweringEvidence ? "--swift-lowering-evidence" : "--swift-lowering-qualification";
+            SwiftLoweringEvidence evidence;
+            try
+            {
+                evidence = SwiftLoweringEvidence.Load(evidencePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+            {
+                logger.LogError("Error: {Option} '{Path}' could not be read: {Message}", evidenceOption, evidencePath, ex.Message);
+                context.ExitCode = 1;
+                return;
+            }
+            var evidencePlatform = (platformStr ?? "ios").ToLowerInvariant();
+            if (evidencePath == swiftLoweringQualification)
+            {
+                bridgeJudge = module => SwiftLoweringQualification.Qualify(evidence, SwiftArtifactScope.ForPlatform(module, evidencePlatform));
+            }
+            else
+            {
+                // The selected toolchain is identified once; each module's receipt must name it.
+                var toolchain = new Lazy<(SwiftEvidenceExpectation? Expected, string? Why)>(() =>
+                    (SwiftToolchainProbe.Expect(SwiftArtifactScope.ForPlatform("toolchain", evidencePlatform), out var why), why));
+                bridgeJudge = module =>
+                {
+                    var scope = SwiftArtifactScope.ForPlatform(module, evidencePlatform);
+                    var (expected, why) = toolchain.Value;
+                    return expected is null
+                        ? SwiftLoweringJudgement.Refused(scope, SwiftLoweringJudgement.AuthorizationBasis, why!)
+                        : SwiftLoweringAuthorization.Authorize(expected with { Scope = scope }, evidence);
+                };
+            }
+        }
+        using var bridgeEvidenceScope = bridgeJudge is null ? null : SwiftBridgeEvidence.Use(bridgeJudge);
 
         // Handle --validate-apple-types-manifest: live-SDK CI validator.
         // Probes every manifest entry advertised on the host platform via dlsym +
@@ -3374,10 +3414,12 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
         Console.WriteLine();
         Console.WriteLine("Swift bridges — ignore binding-generation options:");
-        Console.WriteLine("  --swift-bridges            Emit and validate the native bridges of --swift-call-plans sidecars (repeatable), joined with --swift-lowering-evidence, into -o.");
+        Console.WriteLine("  --swift-bridges            Emit and validate the native bridges of --swift-call-plans sidecars (repeatable), judged by --swift-lowering-qualification, into -o.");
         Console.WriteLine("  --swift-routed-call-plans  A sidecar of a generation given the evidence; --swift-bridges also checks its routing agrees.");
         Console.WriteLine("  --validate-linked-bridges  Validate the SBSR_ bridges a linked image exports against --swift-call-plans sidecars (scratch in -o).");
         Console.WriteLine("  --emit-hand-written-plans  Plan --transition-facts over --plan-sources directories (repeatable) and write the plan sidecar into -o.");
+        Console.WriteLine("  --swift-lowering-qualification  The SDK's qualification record: judges --swift-bridges, --emit-hand-written-plans and the qualification corpus.");
+        Console.WriteLine("  --swift-lowering-evidence  A generated module's own lowering receipt: routes the plans it authorizes for this compiler, SDK and --platform.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
         Console.WriteLine("  --interface-facts-producer  'auto' (default) or 'swift-syntax'. Both shell out to the SwiftInterfaceParser host binary (macOS-only); the legacy 'regex' producer was removed.");

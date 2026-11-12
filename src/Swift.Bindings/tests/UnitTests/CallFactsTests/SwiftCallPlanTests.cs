@@ -854,8 +854,8 @@ public class SwiftCallPlanTests
 
     internal static string LoweringEvidencePath => Path.Combine(RepoRoot, "build", "baselines", "swift-lowering-evidence.json");
 
-    internal static SwiftHandWrittenProducts ProduceHandWritten(string table, string sources, SwiftLoweringEvidence? evidence) =>
-        SwiftHandWrittenPlans.Produce(Path.Combine(RepoRoot, table), [Path.Combine(RepoRoot, sources)], StandardLibraryDatabase(), evidence);
+    internal static SwiftHandWrittenProducts ProduceHandWritten(string table, string sources, SwiftLoweringEvidence? qualification) =>
+        SwiftHandWrittenPlans.Produce(Path.Combine(RepoRoot, table), [Path.Combine(RepoRoot, sources)], StandardLibraryDatabase(), qualification);
 
     private static void AssertCurrent(string path, string expected)
     {
@@ -902,6 +902,12 @@ public class SwiftCallPlanTests
         var planned = products.Plans.Coverage.Where(e => e.Status == SwiftPlanStatus.Planned).ToList();
         Assert.Equal(4, planned.Count);
         Assert.All(planned, e => Assert.True(e.Bridged == true, $"{e.Member} {e.EntryPoint}: {e.BridgeRefusal ?? e.Evidence}"));
+        // Qualified on every slice the runtime's native code is built for, under every qualified compiler family.
+        var scope = Assert.IsType<SwiftPlanEvidenceScope>(products.Plans.EvidenceScope);
+        Assert.Equal(products.Table.Scope, scope.Scope);
+        Assert.Equal(SwiftLoweringJudgement.QualificationBasis, scope.Basis);
+        Assert.All(planned, e => Assert.EndsWith(
+            $"on {products.Table.Slices.Length} triple(s) under {SwiftLoweringQualification.Families.Length} toolchain(s)", e.Evidence));
         var managed = Assert.IsType<string>(products.Managed);
         Assert.DoesNotContain("CallConvSwift", managed);
         Assert.DoesNotContain("extern ", managed);
@@ -916,8 +922,9 @@ public class SwiftCallPlanTests
     }
 
     /// <summary>
-    /// Fail-closed: with evidence that proves nothing, every runtime import is compiled exactly as
-    /// declared (a Swift-convention DllImport), no bridge is emitted, and the sidecar says why.
+    /// Fail-closed: with a qualification record that holds no receipt of the runtime, every runtime
+    /// import is compiled exactly as declared (a Swift-convention DllImport), no bridge is emitted,
+    /// and the sidecar says why.
     /// </summary>
     [Fact]
     public void RuntimeTable_WithoutProof_KeepsEveryDirectImport()
@@ -926,6 +933,8 @@ public class SwiftCallPlanTests
 
         Assert.False(products.Routing.BridgesAny);
         Assert.All(products.Plans.Coverage, e => Assert.False(e.Executable));
+        Assert.All(products.Plans.Coverage.Where(e => e.Status == SwiftPlanStatus.Planned),
+            e => Assert.Contains("the qualification record has no receipt of Swift.Runtime", e.Evidence));
         var managed = Assert.IsType<string>(products.Managed);
         Assert.Equal(4, managed.Split("CallConvSwift").Length - 1);
         Assert.Equal(4, managed.Split("public static extern void").Length - 1);
@@ -940,7 +949,7 @@ public class SwiftCallPlanTests
         try
         {
             var code = SwiftHandWrittenPlans.Run(Path.Combine(RepoRoot, "src", "Swift.Runtime", "src", "transition-facts.json"),
-                [Path.Combine(RepoRoot, "src", "Swift.Runtime", "src")], output, evidencePath: null,
+                [Path.Combine(RepoRoot, "src", "Swift.Runtime", "src")], output, qualificationPath: null,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
 
             Assert.Equal(1, code);
@@ -948,6 +957,29 @@ public class SwiftCallPlanTests
         }
         finally
         {
+            if (Directory.Exists(output))
+                Directory.Delete(output, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RoutingTable_WithARecordThatDoesNotQualifyIt_IsRefused_RatherThanWrittenUnrouted()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"hand-written-{Guid.NewGuid():N}");
+        var record = Path.Combine(Path.GetTempPath(), $"record-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(record, SwiftLoweringEvidence.Empty.ToJson());
+            var code = SwiftHandWrittenPlans.Run(Path.Combine(RepoRoot, "src", "Swift.Runtime", "src", "transition-facts.json"),
+                [Path.Combine(RepoRoot, "src", "Swift.Runtime", "src")], output, record,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+            Assert.Equal(1, code);
+            Assert.False(Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any());
+        }
+        finally
+        {
+            File.Delete(record);
             if (Directory.Exists(output))
                 Directory.Delete(output, recursive: true);
         }
@@ -987,6 +1019,25 @@ public class SwiftCallPlanTests
         var init = set.Plans.Single(p => p.Body.Target == "$s10Foundation4DataV5bytes5countACSV_SitcfC");
         Assert.Equal(SwiftResultKind.Direct, init.Body.Managed.Result.Kind);
         Assert.Equal(2, init.Body.Managed.Result.Pieces.Length);
+    }
+
+    /// <summary>
+    /// The Apple table routes nothing through a bridge, so the record does not judge its plans even
+    /// though it holds the supplement's receipts: a plan judged executable that nothing routes would be
+    /// a transition left on its direct import.
+    /// </summary>
+    [Fact]
+    public void AppleTable_RoutesNothing_SoItsPlansAreNotJudged()
+    {
+        var record = SwiftLoweringEvidence.Load(LoweringEvidencePath);
+        Assert.Contains(record.Receipts, r => r.Artifact == "SwiftBindings.Apple");
+
+        var products = ProduceHandWritten("src/Swift.Bindings.Apple/transition-facts.json", "src/Swift.Bindings.Apple/Sources", record);
+
+        Assert.Null(products.Table.Bridges);
+        Assert.Null(products.Plans.EvidenceScope);
+        Assert.False(products.Routing.BridgesAny);
+        Assert.All(products.Plans.Coverage, e => Assert.False(e.Executable));
     }
 
     [Fact]

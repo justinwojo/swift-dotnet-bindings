@@ -661,6 +661,8 @@ done; true"
       4. Optional supplementary inputs: SymbolGraph, BridgeHints, SwiftInterface files
       5. All generation-affecting properties (SDK version, platform, architecture, namespace, package ID)
       6. Dependency xcframework contents (Info.plist + binaries)
+      7. With a lowering receipt (SwiftLoweringEvidence): the selected swiftc and SDK identities,
+         which the receipt must match to authorize bridges, so switching Xcode regenerates
       Shell pipeline because framework binaries have no extension (*.dylib glob misses them).
       Sorted for deterministic output regardless of filesystem traversal order.
     -->
@@ -696,6 +698,12 @@ done; true"
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
       if [ -f &quot;$(_SwiftManagedReferencesFile)&quot; ]; then shasum -a 256 &quot;$(_SwiftManagedReferencesFile)&quot;; fi ; \
+      if [ -n &quot;$(SwiftLoweringEvidence)&quot; ]; then \
+        echo &quot;swiftc %24(xcrun swiftc --version 2>/dev/null | head -1)&quot;; \
+        for sdk in iphoneos iphonesimulator appletvos appletvsimulator macosx; do \
+          echo &quot;sdk %24sdk %24(xcrun --sdk %24sdk --show-sdk-version 2>/dev/null) %24(xcrun --sdk %24sdk --show-sdk-build-version 2>/dev/null)&quot;; \
+        done; \
+      fi; \
       echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) $(SwiftLoweringEvidence) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
@@ -1908,10 +1916,12 @@ done; true"
       <_SwiftGenCmd Condition="'$(SwiftFrameworkType)' == 'ObjC'">$(_SwiftGenCmd) --objc</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementVersion)' != ''">$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
-      <!-- Opt-in swiftc lowering evidence (swift-lowering-evidence.json): every Swift-convention
-           transition it proves is called through a native bridge (SBSR_) the generator writes beside
-           the wrapper thunks, which _CompileSwiftWrapper links into the wrapper framework. Without
-           it every transition keeps its direct import. -->
+      <!-- Opt-in swiftc lowering receipt of this binding's module (swift-lowering-evidence.json): when it
+           was collected by the compiler and SDKs this build selects, under the generator's contract, on
+           every slice the platform claims, each Swift-convention transition it proves is called through a
+           native bridge (SBSR_) the generator writes beside the wrapper thunks, which _CompileSwiftWrapper
+           links into the wrapper framework. Otherwise, and without it, every transition keeps its
+           direct import. -->
       <_SwiftGenCmd Condition="'$(SwiftLoweringEvidence)' != ''">$(_SwiftGenCmd) --swift-lowering-evidence "$(SwiftLoweringEvidence)"</_SwiftGenCmd>
       <!-- Skip wrapper compilation — deferred to _CompileSwiftWrapper after ResolveProjectReferences -->
       <_SwiftGenCmd>$(_SwiftGenCmd) --skip-wrapper-compilation</_SwiftGenCmd>

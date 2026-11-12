@@ -10,26 +10,28 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace BindingsGeneration;
 
 /// <summary>
-/// The swiftc lowering evidence binding generation joins into its plans. Generation reads it from
-/// here rather than from a parameter: it is set once per run by the command that was given
-/// <c>--swift-lowering-evidence</c>, and with none set no plan is executable, so nothing is bridged and
-/// the emission is what it would be without bridges.
+/// How binding generation judges each module's plans against swiftc lowering evidence: a function
+/// from the module's name to its <see cref="SwiftLoweringJudgement"/>. Generation reads it from here
+/// rather than from a parameter: it is set once per run by the command that was given
+/// <c>--swift-lowering-evidence</c> (authorization by the module's own receipt) or
+/// <c>--swift-lowering-qualification</c> (the SDK's qualification record), and with none set no plan
+/// is executable, so nothing is bridged and the emission is what it would be without bridges.
 /// </summary>
 public static class SwiftBridgeEvidence
 {
-    private static readonly AsyncLocal<SwiftLoweringEvidence?> s_current = new();
+    private static readonly AsyncLocal<Func<string, SwiftLoweringJudgement>?> s_current = new();
 
-    public static SwiftLoweringEvidence? Current => s_current.Value;
+    public static Func<string, SwiftLoweringJudgement>? Current => s_current.Value;
 
-    /// <summary>Makes <paramref name="evidence"/> current until the returned scope is disposed.</summary>
-    public static IDisposable Use(SwiftLoweringEvidence? evidence)
+    /// <summary>Makes <paramref name="judge"/> current until the returned scope is disposed.</summary>
+    public static IDisposable Use(Func<string, SwiftLoweringJudgement>? judge)
     {
         var prior = s_current.Value;
-        s_current.Value = evidence;
+        s_current.Value = judge;
         return new Scope(prior);
     }
 
-    private sealed class Scope(SwiftLoweringEvidence? prior) : IDisposable
+    private sealed class Scope(Func<string, SwiftLoweringJudgement>? prior) : IDisposable
     {
         private bool _disposed;
 
@@ -234,6 +236,7 @@ public sealed class SwiftBridgeRouting
         return new SwiftCallPlanSet
         {
             Module = plans.Module,
+            EvidenceScope = plans.EvidenceScope,
             Coverage = plans.Coverage.Select(e =>
                     e.Transition == SwiftTransitionKind.ForwardPInvoke && byKey.TryGetValue(SwiftTransitionLedger.KeyOf(e.Member, e.EntryPoint), out var route)
                         ? e with { Bridged = route.IsBridged, Twin = route.Twin, BridgeRefusal = route.Refusal }
