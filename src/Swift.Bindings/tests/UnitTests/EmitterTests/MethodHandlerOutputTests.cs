@@ -1811,25 +1811,24 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_MethodWithOptionalConventionCClosure_SkipsThreadStaticAndUsesMarshalGetFunctionPointer()
+    public void Emit_MethodWithOptionalConventionCClosure_UsesThreadStaticSlotWithNullArm()
     {
-        // Optional @convention(c) closures are effectively escaping — Swift may store and invoke
-        // the function pointer later on any thread. ThreadStatic is unsound for this case, so
-        // optional convention-c closures use Marshal.GetFunctionPointerForDelegate (escaping path).
-        // Non-optional convention-c closures use [UnmanagedCallersOnly] + [ThreadStatic] instead.
+        // An Optional @convention(c) closure takes the same [UnmanagedCallersOnly] + [ThreadStatic]
+        // slot as a bare one, and passes a null pointer for nil. It used to take
+        // Marshal.GetFunctionPointerForDelegate, which cannot marshal the generic Action/Func
+        // delegate the public signature uses (ArgumentException on every call) and needs a JIT
+        // trampoline Mono's AOT-only modes do not have.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        // Create Optional<@convention(c) (Int) -> Void>
+        // Optional<@convention(c) (Int) -> Void>
         var innerClosure = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
             TupleTypeSpec.Empty);
-        // Mark as @convention(c) — this is what IsConventionC checks via attribute
         var conventionAttr = new TypeSpecAttribute("convention");
         conventionAttr.Parameters.Add("c");
         innerClosure.Attributes.Add(conventionAttr);
-        Assert.False(innerClosure.IsEscaping, "Inner closure is not marked @escaping");
         var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
 
         var method = CreateMethodDecl(
@@ -1844,14 +1843,13 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Optional convention-c: no ThreadStatic (escaping → unsafe for ThreadStatic)
-        Assert.DoesNotContain("[ThreadStatic]", csOutput);
-
-        // Optional convention-c: uses Marshal.GetFunctionPointerForDelegate (escaping path)
-        Assert.Contains("Marshal.GetFunctionPointerForDelegate", csOutput);
-
-        // Cleanup should NOT free the GCHandle
-        Assert.DoesNotContain(".Free()", csOutput);
+        Assert.Contains("[ThreadStatic]", csOutput);
+        Assert.Contains("UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })", csOutput);
+        Assert.Contains("_delSaved = ", csOutput);
+        Assert.Contains("_del = callback;", csOutput);
+        // nil reaches Swift as a null function pointer, which is Optional<@convention(c)>'s nil.
+        Assert.Matches(@"callbackFuncPtr = callback != null \? \([^)]*\)\w+_ptr : null;", csOutput);
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
     }
 
     [Fact]

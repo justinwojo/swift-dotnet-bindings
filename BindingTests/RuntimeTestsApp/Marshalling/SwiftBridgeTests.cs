@@ -23,8 +23,10 @@ namespace RuntimeTestsApp.Marshalling;
 /// </summary>
 /// <remarks>
 /// The bridges are generated from swiftc lowering evidence, which only the iOS regeneration passes
-/// today; the other platforms bind the same members with their direct import, so every behavioral
-/// test here runs everywhere and only the routing test is iOS-only.
+/// today, and that regeneration asks for these members' bridges by symbol. The other platforms
+/// regenerate without evidence and bind the same members through their <c>@_cdecl</c> wrapper,
+/// which takes a C callback like any other parameter. Every behavioral test here runs everywhere;
+/// the routing test asserts whichever route the platform's regeneration takes.
 /// <see cref="SretSelfProbeTests"/> keeps the raw Swift-convention probes of the same register
 /// shapes as negative controls: they make the runtime's own transition on purpose, and the
 /// generated-bridge tests below are their counterparts.
@@ -35,11 +37,20 @@ public class SwiftBridgeTests : TestBase
 
     private static bool BridgesApply => OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst();
 
+    /// <summary>
+    /// On iOS each probe member reaches Swift through exactly one native bridge twin and keeps no
+    /// Swift-convention import. Elsewhere no bridge is generated, and each member must take its
+    /// <c>@_cdecl</c> wrapper rather than a direct import that carries self in the Swift self register.
+    /// </summary>
     [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(SwiftBridgeProbe))]
     public void TestProbeMembersAreRoutedThroughNativeBridges()
     {
         if (!BridgesApply)
-            throw new TestSkippedException("lowering evidence is applied to the iOS regeneration only");
+        {
+            foreach (var member in new[] { "accumulate", "combine", "derive" })
+                ImportRoutes.AssertCdeclWrapper(typeof(SwiftBridgeProbe), member);
+            return;
+        }
 
         var imports = typeof(SwiftBridgeProbe).GetMethods(BindingFlags.NonPublic | BindingFlags.Static);
         foreach (var member in new[] { "accumulate", "combine", "derive" })

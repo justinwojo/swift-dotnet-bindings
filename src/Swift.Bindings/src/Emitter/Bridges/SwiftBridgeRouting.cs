@@ -46,6 +46,109 @@ public static class SwiftBridgeEvidence
 }
 
 /// <summary>
+/// The members a generation was asked to route through their native bridges
+/// (<c>--swift-bridge-route</c>), each named by its declaration's Swift symbol; its import calls that
+/// symbol or, for a class member dispatched through the vtable, its dispatch thunk. A requested member keeps its
+/// Swift-convention import instead of a <c>@_cdecl</c> closure wrapper, so the lowering qualification
+/// routes it: this is how the SDK's bridge qualification fixture stays on the bridge route when a
+/// wrapper could otherwise carry it. Set once per run by the command, like
+/// <see cref="SwiftBridgeEvidence"/>. The closure-wrapper gate reads it, and module emission records
+/// what became of each requested import so the command can fail a request that did not take.
+/// </summary>
+public static class SwiftBridgeRouteRequests
+{
+    private static readonly AsyncLocal<Requests?> s_current = new();
+
+    /// <summary>Whether the member whose Swift symbol is <paramref name="swiftSymbol"/> was requested.</summary>
+    public static bool IsRequested(string? swiftSymbol) =>
+        swiftSymbol is not null && s_current.Value?.Symbols.Contains(swiftSymbol) == true;
+
+    /// <summary>
+    /// Records <paramref name="module"/>'s requested imports from its annotated plans. A later
+    /// emission of the same module replaces what an earlier one recorded, so a member a later
+    /// verify-recover iteration withdrew is not reported from the iteration before.
+    /// </summary>
+    public static void Record(string module, SwiftCallPlanSet annotated)
+    {
+        if (s_current.Value is not { } requests)
+            return;
+        requests.ByModule[module] = annotated.Coverage
+            .Where(e => e.Transition == SwiftTransitionKind.ForwardPInvoke && RequestedMember(requests, e.EntryPoint) is not null)
+            .ToImmutableArray();
+    }
+
+    // The requested member an import's entry point calls: the member's own symbol, or its dispatch thunk.
+    private static string? RequestedMember(Requests requests, string entryPoint)
+    {
+        if (requests.Symbols.Contains(entryPoint))
+            return entryPoint;
+        return entryPoint.EndsWith(ManglingProbes.DispatchThunkSuffix, StringComparison.Ordinal)
+            && requests.Symbols.Contains(entryPoint[..^ManglingProbes.DispatchThunkSuffix.Length])
+            ? entryPoint[..^ManglingProbes.DispatchThunkSuffix.Length]
+            : null;
+    }
+
+    /// <summary>
+    /// Why each requested member is not routed through its bridge, in symbol order; empty when every
+    /// one is. A member is routed when it has a Swift-convention import and every such import of its
+    /// symbol is bridged.
+    /// </summary>
+    public static ImmutableArray<string> Unsatisfied()
+    {
+        if (s_current.Value is not { } requests)
+            return ImmutableArray<string>.Empty;
+        var imports = requests.ByModule.Values.SelectMany(v => v).ToLookup(e => RequestedMember(requests, e.EntryPoint)!, StringComparer.Ordinal);
+        var failures = ImmutableArray.CreateBuilder<string>();
+        foreach (var symbol in requests.Symbols.Order(StringComparer.Ordinal))
+        {
+            if (!imports[symbol].Any())
+                failures.Add($"{symbol}: no Swift-convention import calls it, so another route took the member or it is not bound");
+            foreach (var entry in imports[symbol].Where(e => e.Bridged != true))
+                failures.Add($"{symbol}: {entry.Member} keeps its Swift-convention import ({WhyNotBridged(entry)})");
+        }
+        return failures.ToImmutable();
+    }
+
+    private static string WhyNotBridged(SwiftPlanCoverageEntry entry)
+    {
+        if (entry.BridgeRefusal is { Length: > 0 } refusal)
+            return refusal;
+        if (!entry.Refusals.IsEmpty)
+            return string.Join("; ", entry.Refusals);
+        return entry.Evidence ?? entry.Reason ?? entry.Status.ToString();
+    }
+
+    /// <summary>Makes <paramref name="swiftSymbols"/> the requested members until the returned scope is disposed.</summary>
+    public static IDisposable Use(IEnumerable<string> swiftSymbols)
+    {
+        var prior = s_current.Value;
+        s_current.Value = new Requests(swiftSymbols.ToImmutableHashSet(StringComparer.Ordinal));
+        return new Scope(prior);
+    }
+
+    private sealed class Requests(ImmutableHashSet<string> symbols)
+    {
+        public ImmutableHashSet<string> Symbols { get; } = symbols;
+
+        public System.Collections.Concurrent.ConcurrentDictionary<string, ImmutableArray<SwiftPlanCoverageEntry>> ByModule { get; } =
+            new(StringComparer.Ordinal);
+    }
+
+    private sealed class Scope(Requests? prior) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            s_current.Value = prior;
+        }
+    }
+}
+
+/// <summary>
 /// How one executable forward transition is emitted: through its bridge (the twin <see cref="Twin"/>
 /// calls <see cref="Symbol"/>), or, when <see cref="Refusal"/> says why it cannot be, as the
 /// Swift-convention import it was.

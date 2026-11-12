@@ -74,6 +74,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MallocProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/ConservativeRootProbe.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/ImportRoutes.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MainQueueSynchronizationContext.cs" />
   </ItemGroup>
 

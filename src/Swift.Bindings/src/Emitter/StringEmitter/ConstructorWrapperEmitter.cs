@@ -431,6 +431,22 @@ public static class ConstructorWrapperEmitter
                             continue;
                         }
 
+                        // A C function pointer: one word with no context, declared with its own
+                        // @convention(c) type and handed to the initializer unchanged — no adapter.
+                        if (ClosureEmitter.IsConventionCPassThrough(arg, env.ClosureHandler, methodDecl.MangledName, closureParamCount))
+                        {
+                            var rawName = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+                            var bindingName = CdeclParamMapper.BuildSwiftBindingName(
+                                string.IsNullOrEmpty(rawName) || rawName == "_" ? $"arg{i}" : rawName, siblings);
+                            var (passParam, passArg) = ClosureEmitter.MapConventionCPassThrough(
+                                arg, bindingName,
+                                omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg),
+                                methodDecl.ModuleDecl?.Name);
+                            swiftParams.Add(passParam);
+                            callArgs.Add(passArg);
+                            continue;
+                        }
+
                         // Closure parameters: two @_cdecl params (funcPtr + context) + adapter code
                         var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
                         if (closureTypeSpec != null &&

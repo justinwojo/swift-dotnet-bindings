@@ -38,16 +38,13 @@ public func applyConventionCTwice(_ fn: @escaping @convention(c) (Int32) -> Int3
     return first &+ second
 }
 
-// MARK: - Constructor taking a non-optional @convention(c) closure (skip-regression guard)
+// MARK: - Constructors taking a non-optional @convention(c) closure
 
-/// A type whose initializer takes a non-optional `@convention(c)` closure. This combination has no
-/// ABI-correct binding surface: the closure parameter denies the init a native thunk and blocks the
-/// `@_cdecl` constructor wrapper, leaving only a direct CallConvSwift call against the raw init
-/// symbol — which cannot deliver an allocating class init's hidden metatype nor decode a failable
-/// `Optional<Self>` return. The generator must therefore SKIP this member (emit an Unsupported
-/// comment, not a callable factory) so the rest of the binding still compiles; emitting it would
-/// produce code that compiles but faults at runtime. This fixture is the end-to-end regression guard
-/// for that skip: a real compiled-Swift init of this shape must not break the generated binding.
+/// A failable initializer that takes a non-optional `@convention(c)` closure. A direct
+/// Swift-convention call cannot deliver an allocating class init's hidden metatype nor decode a
+/// failable `Optional<Self>` return, so the binding must reach it through the `@_cdecl` constructor
+/// wrapper, which takes the C function pointer under its own type and keeps the init ABI on the
+/// Swift side. Returns nil when the callback maps the seed to a negative value.
 public class ConventionCValidatedLoader {
     public let value: Int32
 
@@ -58,12 +55,10 @@ public class ConventionCValidatedLoader {
     }
 }
 
-/// Same broken shape as `ConventionCValidatedLoader`, but with a trailing compiler-injected debug
-/// parameter (`file: StaticString = #fileID`). The debug parameter drives the generator's debug-param
-/// wrapper, which marks the constructor as wrapper-backed; the conv-c skip must still fire (it runs
-/// before the debug-param wrapper and does not depend on the wrapper flag), so a `#file`/`#line`
-/// default cannot route the broken init around the skip. End-to-end guard: a real init of this shape
-/// must keep the generated binding compiling rather than emitting a slot restore with no matching save.
+/// The same shape as `ConventionCValidatedLoader` with a trailing debug parameter
+/// (`file: StaticString = #fileID`). The constructor wrapper leaves the debug parameter out of its
+/// own signature and its call, so Swift fills in the default at the wrapper, and the binding takes
+/// only the callback and the seed.
 public class ConventionCDebugParamLoader {
     public let value: Int32
 
@@ -74,10 +69,11 @@ public class ConventionCDebugParamLoader {
     }
 }
 
-/// Same broken shape, but the constructor takes TWO closures — one non-optional `@convention(c)` and
-/// one ordinary Swift closure. ABI JSON omits the convention attribute, so the only conv-c signal is
-/// the demangled CFunctionPointer node, which the parser reads per parameter. End-to-end guard that
-/// a multi-closure init of this shape is still skipped rather than emitted as a broken direct call.
+/// The same shape with TWO closures — one non-optional `@convention(c)` and one ordinary Swift
+/// closure. ABI JSON omits the convention attribute, so the only conv-c signal is the demangled
+/// CFunctionPointer node, which the parser reads per parameter. The constructor wrapper passes the C
+/// function pointer through and adapts the Swift closure, which the initializer calls with the
+/// validated value before it returns.
 public class ConventionCMultiClosureLoader {
     public let value: Int32
 

@@ -232,7 +232,9 @@ namespace BindingsGeneration
                         "{Code}: {Member} ({EntryPoint}) has an executable bridge plan ({Symbol}) but keeps its Swift-convention import: {Reason}",
                         SwiftBridgeRouting.RefusedCode, refused.Member, refused.EntryPoint, refused.Symbol, refused.Refusal);
                 ledger.WithBridges(routing.Routes).Write(_outputDirectory, @namespace, _logger);
-                routing.Annotate(planSet).Write(_outputDirectory, @namespace, _logger);
+                var annotatedPlans = routing.Annotate(planSet);
+                annotatedPlans.Write(_outputDirectory, @namespace, _logger);
+                SwiftBridgeRouteRequests.Record(moduleDecl.Name, annotatedPlans);
                 wholeOutput = routing.Rewrite(wholeOutput);
 
                 // The bridge rewrite runs after qualification, over the same text, so a file's journal

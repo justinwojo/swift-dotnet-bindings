@@ -362,14 +362,15 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_FailableClassConstructorWithConventionCClosure_IsSkippedAsUnsupported()
     {
-        // A constructor taking a non-optional @convention(c) closure has no ABI-correct surface: the
-        // closure parameter denies it a native thunk AND blocks the @_cdecl constructor wrapper, so
-        // the only path left is a direct CallConvSwift call against the raw init symbol — which cannot
-        // deliver an allocating class init's hidden metatype nor decode a failable Optional<Self>
-        // return. Emitting it would compile but fault at runtime (class: nil/SIGSEGV; frozen struct:
-        // uninitialized read), so the generator must SKIP the member with an Unsupported comment and
-        // emit no factory. This pins that skip — it is the root-cause fix for the whole-binding
-        // compile break (CS0103) and the runtime ABI fault alike.
+        // Direct mode (no companion wrapper library): a constructor taking a non-optional
+        // @convention(c) closure has no ABI-correct surface. No wrapper exists to pass the C function
+        // pointer through and the closure denies it a native thunk, so the only path left is a direct
+        // CallConvSwift call against the raw init symbol — which cannot deliver an allocating class
+        // init's hidden metatype nor decode a failable Optional<Self> return. Emitting it would
+        // compile but fault at runtime (class: nil/SIGSEGV; frozen struct: uninitialized read), so
+        // the generator must SKIP the member with an Unsupported comment and emit no factory. In
+        // xcframework mode the constructor wrapper claims the same shape (see
+        // Emit_ConventionCConstructor_XCFrameworkMode_PassesPointerThroughWrapper).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
@@ -405,12 +406,12 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_NonFailableClassConstructorWithConventionCClosure_IsSkipped()
     {
-        // The skip is keyed on the unbindable @convention(c)-closure shape, NOT on failability: an
-        // allocating class init's hidden metatype cannot be delivered over the direct CallConvSwift
-        // call regardless of whether the init returns Self or Optional<Self>. A non-failable init of
-        // this shape is therefore just as broken and must be skipped too. This pins that the skip is
-        // not accidentally gated on init? (failable) — a plain `init` with a non-optional conv-c
-        // closure is skipped the same way.
+        // Direct mode. The skip is keyed on the unbindable @convention(c)-closure shape, NOT on
+        // failability: an allocating class init's hidden metatype cannot be delivered over the direct
+        // CallConvSwift call regardless of whether the init returns Self or Optional<Self>. A
+        // non-failable init of this shape is therefore just as broken and must be skipped too. This
+        // pins that the skip is not accidentally gated on init? (failable) — a plain `init` with a
+        // non-optional conv-c closure is skipped the same way.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("EagerLoader", moduleDecl, typeDatabase);
@@ -446,7 +447,7 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_ConstructorWithConventionCClosureAndDebugParam_IsStillSkipped()
     {
-        // A #file/#line debug parameter triggers EmitDebugParamWrapper, which sets
+        // Direct mode. A #file/#line debug parameter triggers EmitDebugParamWrapper, which sets
         // UsesWrapperLibrary on the constructor. The conv-c skip must run BEFORE that wrapper and
         // must NOT gate on UsesWrapperLibrary — otherwise a constructor that pairs a non-optional
         // @convention(c) closure with a defaulted debug parameter would slip past the skip, emit a
@@ -502,8 +503,8 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_MultiClosureConstructorWithConventionCClosure_AbiJsonSourced_IsSkipped()
     {
-        // ABI-JSON-sourced closure specs do NOT carry the @convention(c) attribute, so the only
-        // signal is the demangled CFunctionPointer node. The per-parameter classifier disables that
+        // Direct mode. ABI-JSON-sourced closure specs do NOT carry the @convention(c) attribute, so
+        // the only signal is the demangled CFunctionPointer node. The per-parameter classifier disables that
         // mangled fallback when a method has >1 closure (the node could belong to a different
         // parameter), so a constructor with TWO closures where one is non-optional @convention(c)
         // would slip past a count-limited check. The skip instead uses the whole-method
@@ -549,6 +550,252 @@ public class ConstructorHandlerOutputTests
         Assert.Contains("// Unsupported:", csOutput);
         Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
         Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+    }
+
+    [Theory]
+    [InlineData("class")]
+    [InlineData("failable-class")]
+    [InlineData("frozen-struct")]
+    public void Emit_ConventionCConstructor_XCFrameworkMode_PassesPointerThroughWrapper(string shape)
+    {
+        // With the companion wrapper library the constructor wrapper claims the initializer and
+        // takes the C function pointer under its own @convention(c) type, so the init ABI (the
+        // allocating metatype, a failable Optional<Self>) stays on the Swift side of the wrapper.
+        // The slot's prior occupant is captured before the try on every constructor shape, so the
+        // finally's restore never names an undeclared local (CS0103).
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var constructor = CreateConventionCConstructor(shape, moduleDecl, typeDatabase);
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.DoesNotContain("// Unsupported:", csOutput);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_", swiftOutput);
+        Assert.Contains("_ callback: @convention(c) (Swift.Int) -> Swift.", swiftOutput);
+        Assert.Contains("callback: callback)", swiftOutput);
+        Assert.Contains("EntryPoint = \"SBW_TestModule_", csOutput);
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+        Assert.Matches(@"var (_convC_init_[0-9A-F]{8}_callback)_delSaved = \1_del;", csOutput);
+        Assert.Matches(@"(_convC_init_[0-9A-F]{8}_callback)_del = \1_delSaved;", csOutput);
+        // Declared before the try, so the finally's restore is in scope.
+        Assert.Matches(@"var (_convC_init_[0-9A-F]{8}_callback)_delSaved = \1_del;\s+try\s*\{", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConventionCConstructorOverloads_EachKeepsItsOwnCallbackSlot()
+    {
+        // Two initializers of one class that both take a C callback under the same label. Each
+        // emits its own thread-static slot and thunk into the class, so the names must differ or
+        // the class declares the same members twice.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var slots = new[] { "class", "failable-class" }
+            .Select(shape => EmitConstructor(CreateConventionCConstructor(shape, moduleDecl, typeDatabase), typeDatabase).csOutput)
+            .Select(cs => System.Text.RegularExpressions.Regex.Match(cs, @"\[ThreadStatic\] private static .+? (\w+)_del;"))
+            .ToArray();
+
+        Assert.All(slots, slot => Assert.True(slot.Success, "each overload declares a callback slot"));
+        Assert.NotEqual(slots[0].Groups[1].Value, slots[1].Groups[1].Value);
+    }
+
+    [Fact]
+    public void Emit_ConventionCConstructor_ObjCRootedClass_InstallsTheSlotInsideTheTry()
+    {
+        // An NSObject-derived class runs the Swift init in a static helper. The helper installs this
+        // call's delegate in the callback slot, so the install must sit inside the try whose finally
+        // restores the slot: an exception thrown while marshalling a later argument would otherwise
+        // leave this call's delegate in the slot for the caller.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var constructor = CreateConventionCConstructor("class", moduleDecl, typeDatabase);
+        ((ClassDecl)constructor.ParentDecl!).IsObjCRooted = true;
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("CreateSwiftInstance_", csOutput);
+        var slot = System.Text.RegularExpressions.Regex.Match(csOutput, @"\[ThreadStatic\] private static .+? (\w+)_del;").Groups[1].Value;
+        Assert.NotEmpty(slot);
+        Assert.Matches($@"var {slot}_delSaved = {slot}_del;\s+try\s*\{{[^}}]*?{slot}_del = callback;", csOutput);
+        Assert.Contains($"{slot}_del = {slot}_delSaved;", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConventionCConstructor_XCFrameworkMode_WithDebugParameter_WrapperLeavesItToItsDefault()
+    {
+        // A #file debug parameter does not keep the constructor wrapper from claiming a C callback:
+        // the wrapper passes the C function pointer through and leaves the debug parameter out of
+        // both its own signature and its call, so Swift fills in the default at the wrapper.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var constructor = CreateConventionCConstructor("debug-param", moduleDecl, typeDatabase);
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.DoesNotContain("// Unsupported:", csOutput);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Logger_init_", swiftOutput);
+        Assert.Contains("_ callback: @convention(c) (Swift.Int) -> Swift.Int", swiftOutput);
+        Assert.Contains("Logger(callback: callback)", swiftOutput);
+        Assert.Matches(@"public static bool TryCreate\([^)]*out Logger result\)", csOutput);
+        Assert.DoesNotMatch(@"TryCreate\([^)]*\bfile\b", csOutput);
+        Assert.Contains("EntryPoint = \"SBW_TestModule_Logger_init_", csOutput);
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+        Assert.Matches(@"var (_convC_init_[0-9A-F]{8}_callback)_delSaved = \1_del;\s+try\s*\{", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConventionCConstructor_XCFrameworkMode_UnrecordedCFunctionPointer_IsStillSkipped()
+    {
+        // The mangled name records a C function pointer but no parameter spec carries the convention
+        // (an ABI-JSON-sourced signature whose flags were unreadable), so the wrapper has no type to
+        // spell it with and declines. The constructor stays skipped rather than fall to the direct
+        // init call.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var constructor = CreateConventionCConstructor("unrecorded-multi-closure", moduleDecl, typeDatabase);
+        var env = new MethodEnvironment(constructor, typeDatabase);
+        // Every closure is one the wrapper could otherwise carry, so the missing record is the only
+        // reason it declines; without this the skip could come from an unresolvable closure type.
+        Assert.All(constructor.CSSignature.Skip(1),
+            arg => Assert.True(env.ClosureHandler.IsSupportedClosure(env.ClosureHandler.GetClosureTypeSpec(arg)!)));
+        Assert.False(env.ClosureHandler.ConventionCPointersAreMarkedParameters(constructor));
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+        Assert.DoesNotContain("_delSaved", csOutput);
+    }
+
+    [Theory]
+    [InlineData("class")]
+    [InlineData("struct")]
+    [InlineData("frozen-struct")]
+    public void Emit_ConventionCConstructor_GenericParent_IsSkippedWithoutAWrapper(string parentKind)
+    {
+        // An initializer of a generic type that takes a C callback has no wrapper to take it: the
+        // constructor wrapper arms do not spell the parent's type arguments for one. Without a
+        // wrapper the direct init call cannot deliver the result, so the initializer is skipped,
+        // and no wrapper is emitted for it.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var genericParameter = new GenericArgumentDecl(
+            "τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>());
+        var callback = CreateArgument("callback",
+            new ClosureTypeSpec(new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }), new NamedTypeSpec("Swift.Int"))
+            { IsConventionC = true },
+            moduleDecl);
+        MethodDecl constructor;
+        if (parentKind == "class")
+        {
+            var box = CreateClassDecl("Box", moduleDecl, typeDatabase);
+            box.GenericParameters.Add(genericParameter);
+            constructor = CreateConstructorDeclForClass("init", box, moduleDecl,
+                parameters: new List<ArgumentDecl> { callback },
+                mangledName: "$s10TestModule3BoxC8callbackACyxGS2iXC_tcfC");
+        }
+        else
+        {
+            var pair = CreateFrozenStructDecl("Pair", moduleDecl);
+            pair.IsFrozen = parentKind == "frozen-struct";
+            pair.GenericParameters.Add(genericParameter);
+            constructor = CreateConstructorDecl("init", pair, moduleDecl,
+                parameters: new List<ArgumentDecl> { callback },
+                mangledName: "$s10TestModule4PairV8callbackACyxGS2iXC_tcfC");
+        }
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        Assert.DoesNotContain("_delSaved", csOutput);
+        Assert.DoesNotContain("@convention(c)", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ConventionCConstructor_FrozenStructWithConstParameter_IsSkippedWithoutAWrapper()
+    {
+        // A `_const` parameter needs a literal at the call site, so neither wrapper can forward it:
+        // the constructor wrapper declines it, and the closure wrapper's frozen-struct arm would call
+        // the initializer with a runtime value. The initializer stays skipped.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var swiftInt = new NamedTypeSpec("Swift.Int");
+        var label = CreateArgument("label", swiftInt, moduleDecl);
+        label.IsConstLiteral = true;
+        var constructor = CreateConstructorDecl("init", CreateFrozenStructDecl("Point", moduleDecl), moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("callback",
+                    new ClosureTypeSpec(new TupleTypeSpec(new List<TypeSpec> { swiftInt }), swiftInt) { IsConventionC = true },
+                    moduleDecl),
+                label
+            },
+            mangledName: "$s10TestModule5PointV8callback5labelACS2iXC_SitcfC");
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        Assert.Contains("@convention(c) closure parameter cannot be ABI-correctly bound in a constructor", csOutput);
+        Assert.DoesNotContain("@convention(c)", swiftOutput);
+    }
+
+    // Real allocating-init symbols swiftc emits for these initializers in module TestModule.
+    private static MethodDecl CreateConventionCConstructor(string shape, ModuleDecl moduleDecl, TypeDatabase typeDatabase)
+    {
+        static ClosureTypeSpec ConventionC(TypeSpec argument, TypeSpec result) =>
+            new(new TupleTypeSpec(new List<TypeSpec> { argument }), result) { IsConventionC = true };
+        var swiftInt = new NamedTypeSpec("Swift.Int");
+        switch (shape)
+        {
+            case "class":
+                return CreateConstructorDeclForClass("init", CreateClassDecl("Loader", moduleDecl, typeDatabase), moduleDecl,
+                    parameters: new List<ArgumentDecl> { CreateArgument("callback", ConventionC(swiftInt, TupleTypeSpec.Empty), moduleDecl) },
+                    mangledName: "$s10TestModule6LoaderC8callbackACySiXC_tcfC");
+            case "failable-class":
+                return CreateConstructorDeclForClass("init", CreateClassDecl("Loader", moduleDecl, typeDatabase), moduleDecl,
+                    isFailable: true,
+                    parameters: new List<ArgumentDecl>
+                    {
+                        CreateArgument("seed", swiftInt, moduleDecl),
+                        CreateArgument("callback", ConventionC(swiftInt, swiftInt), moduleDecl)
+                    },
+                    mangledName: "$s10TestModule6LoaderC4seed8callbackACSgSi_S2iXCtcfC");
+            case "frozen-struct":
+                return CreateConstructorDecl("init", CreateFrozenStructDecl("Point", moduleDecl), moduleDecl,
+                    parameters: new List<ArgumentDecl> { CreateArgument("callback", ConventionC(swiftInt, swiftInt), moduleDecl) },
+                    mangledName: "$s10TestModule5PointV8callbackACS2iXC_tcfC");
+            case "debug-param":
+                var debugArg = new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.StaticString"),
+                    Name = "file",
+                    PrivateName = "file",
+                    HasDefaultArg = true,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                };
+                return CreateConstructorDeclForClass("init", CreateClassDecl("Logger", moduleDecl, typeDatabase), moduleDecl,
+                    isFailable: true,
+                    parameters: new List<ArgumentDecl> { CreateArgument("callback", ConventionC(swiftInt, swiftInt), moduleDecl), debugArg },
+                    mangledName: "$s10TestModule6LoggerC8callback4fileACSgS2iXC_s12StaticStringVtcfC");
+            default:
+                return CreateConstructorDeclForClass("init", CreateClassDecl("MultiClosureLoader", moduleDecl, typeDatabase), moduleDecl,
+                    isFailable: true,
+                    parameters: new List<ArgumentDecl>
+                    {
+                        CreateArgument("validate", new ClosureTypeSpec(new TupleTypeSpec(new List<TypeSpec> { swiftInt }), swiftInt), moduleDecl),
+                        CreateArgument("done", new ClosureTypeSpec(new TupleTypeSpec(new List<TypeSpec> { swiftInt }), TupleTypeSpec.Empty), moduleDecl)
+                    },
+                    mangledName: "$s2mc18MultiClosureLoaderC_6onDoneACSgS2iXC_ySiXEtcfC");
+        }
     }
 
     [Fact]
@@ -1124,7 +1371,8 @@ public class ConstructorHandlerOutputTests
         ModuleDecl moduleDecl,
         bool throws = false,
         List<ArgumentDecl>? parameters = null,
-        List<GenericArgumentDecl>? genericParameters = null)
+        List<GenericArgumentDecl>? genericParameters = null,
+        string? mangledName = null)
     {
         var signature = new List<ArgumentDecl>
         {
@@ -1138,7 +1386,7 @@ public class ConstructorHandlerOutputTests
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule5PointV{name}yACyF",
+            MangledName = mangledName ?? $"$s10TestModule5PointV{name}yACyF",
             MethodType = MethodType.Static,
             IsConstructor = true,
             CSSignature = signature,

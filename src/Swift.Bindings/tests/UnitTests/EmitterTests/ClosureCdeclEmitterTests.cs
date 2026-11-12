@@ -158,27 +158,22 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void NeedsClosureCdeclWrapper_ConventionCClosureOnly_ReturnsFalse()
+    public void NeedsClosureCdeclWrapper_ConventionCClosureOnly_ReturnsTrue()
     {
+        // A C function pointer is one word with no context, so the closure wrapper passes it
+        // through under its own @convention(c) type; a member whose only closure is one still
+        // needs the wrapper, because the wrapper is what takes SwiftSelf out of the call.
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        var closureType = new ClosureTypeSpec(
-            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
-            TupleTypeSpec.Empty);
-        // @convention(c) closures don't need thunks — no CallConvSwift callback
-        var convAttr = new TypeSpecAttribute("convention");
-        convAttr.Parameters.Add("c");
-        closureType.Attributes.Add(convAttr);
-
         var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
             returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
-            methodType: MethodType.Instance);
-        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+            methodType: MethodType.Instance, mangledName: ConventionCOnlyHandle);
+        method.CSSignature.Add(CreateArgument("callback", ConventionCClosure(new NamedTypeSpec("Swift.Int")), moduleDecl));
 
-        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
     }
 
     [Fact]
@@ -817,34 +812,242 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void Emit_ConventionCClosure_UnchangedByStrategy()
+    public void Emit_ConventionCClosure_PassesThroughSilgenWrapper()
     {
+        // Without the companion wrapper library the closure wrapper is a @_silgen_name function the
+        // binding calls under the Swift convention, with self as a plain pointer rather than
+        // SwiftSelf. The C function pointer crosses as one pointer-sized argument and reaches the
+        // member under its own @convention(c) type: no adapter, no context word.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        var closureType = new ClosureTypeSpec(
-            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
-            TupleTypeSpec.Empty);
-        var convAttr2 = new TypeSpecAttribute("convention");
-        convAttr2.Parameters.Add("c");
-        closureType.Attributes.Add(convAttr2);
-
         var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
             returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
-            methodType: MethodType.Instance);
-        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+            methodType: MethodType.Instance, mangledName: ConventionCOnlyHandle);
+        method.CSSignature.Add(CreateArgument("callback", ConventionCClosure(new NamedTypeSpec("Swift.Int")), moduleDecl));
 
-        // @convention(c) closures are already safe — no Cdecl wrapper needed
-        EmitMethod(method, typeDatabase);
-        Assert.False(method.HasClosureCdeclWrapper);
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.True(method.HasClosureCdeclWrapper);
+        Assert.Contains("@_silgen_name", swiftOutput);
+        Assert.Contains("_ callback: @convention(c) (Swift.Int) -> Swift.Void", swiftOutput);
+        Assert.Contains(".handle(callback: callback)", swiftOutput);
+        Assert.DoesNotContain("callbackContext", swiftOutput);
+        Assert.DoesNotContain("unsafeBitCast(callback", swiftOutput);
+        Assert.DoesNotContain("SwiftSelf", csOutput);
+        Assert.DoesNotContain("callbackContext", csOutput);
+        Assert.Matches(@"_convC_handle_[0-9A-F]{8}_callback_ptr", csOutput);
     }
 
     [Fact]
-    public void Detect_ConventionCFromMangledName_SkipsCdeclWrapper()
+    public void Emit_ConventionCClosure_XCFrameworkMode_RoutesThroughCdeclWrapper()
     {
-        // Mangled names with XC indicate @convention(c) closures.
-        // ABI JSON doesn't include convention attributes, so mangled name is the only signal.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: ConventionCOnlyHandle);
+        method.CSSignature.Add(CreateArgument("callback", ConventionCClosure(new NamedTypeSpec("Swift.Int")), moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("@_cdecl(\"SBW_", swiftOutput);
+        Assert.Contains("@convention(c) (Swift.Int) -> Swift.Void", swiftOutput);
+        Assert.Contains("EntryPoint = \"SBW_", csOutput);
+        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]\n[global::System.Runtime.InteropServices.LibraryImport", csOutput);
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+        Assert.DoesNotContain("SwiftSelf", csOutput);
+        Assert.DoesNotContain("callbackContext", csOutput);
+    }
+
+    [Theory]
+    [InlineData("class", "$s10TestModule3BoxC6handleyyySiXCF")]
+    [InlineData("struct", "$s10TestModule4PairV6handleyyySiXCF")]
+    [InlineData("frozen-struct", "$s10TestModule4PairV6handleyyySiXCF")]
+    public void Emit_ConventionCClosure_GenericParent_StaysOffTheWrapper(string parentKind, string mangledName)
+    {
+        // A member of a generic type that takes a C callback has no wrapper to pass it through: the
+        // wrapper arms do not spell the parent's type arguments for one, so a wrapper emitted for it
+        // would not compile. The member keeps the import it has without a wrapper.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        TypeDecl parentDecl = parentKind == "class"
+            ? CreateClassDecl("Box", moduleDecl)
+            : CreateStructDecl("Pair", moduleDecl, isFrozen: parentKind == "frozen-struct");
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: parentDecl.SwiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", parentDecl.Name),
+                SwiftTypeName = parentDecl.SwiftTypeName,
+                MetadataAccessor = parentKind == "class" ? "$s10TestModule3BoxCMa" : "$s10TestModule4PairVMa",
+                Flags = parentKind switch
+                {
+                    "class" => TypeRecordFlags.RequiresMemoryManagement,
+                    "frozen-struct" => TypeRecordFlags.Frozen,
+                    _ => TypeRecordFlags.RequiresMemoryManagement
+                },
+                Kind = parentKind == "class" ? TypeRecordKind.Class : TypeRecordKind.Struct
+            })
+        });
+        parentDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+        var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: mangledName);
+        method.CSSignature.Add(CreateArgument("callback", ConventionCClosure(new NamedTypeSpec("Swift.Int")), moduleDecl));
+
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+        Assert.DoesNotContain("@convention(c)", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ConventionCClosure_BridgeRouteRequested_KeepsItsSwiftConventionImport()
+    {
+        // A generation that asks for a member's native bridge keeps it off the closure wrapper, so
+        // the member keeps the Swift-convention import the bridge routing replaces. The request
+        // names the member by symbol and touches nothing else.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: ConventionCOnlyHandle);
+        method.CSSignature.Add(CreateArgument("callback", ConventionCClosure(new NamedTypeSpec("Swift.Int")), moduleDecl));
+
+        using (SwiftBridgeRouteRequests.Use(["$s10TestModule6LoaderC5otheryyF"]))
+            Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+
+        using (SwiftBridgeRouteRequests.Use([ConventionCOnlyHandle]))
+        {
+            Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+            var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+            Assert.DoesNotContain("SBW_", csOutput);
+            Assert.DoesNotContain("@_cdecl", swiftOutput);
+            // The class member is called through its dispatch thunk.
+            Assert.Contains($"EntryPoint = \"{ConventionCOnlyHandle}Tj\"", csOutput);
+            Assert.Contains("CallConvSwift", csOutput);
+        }
+
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+    }
+
+    [Fact]
+    public void Emit_OptionalConventionCClosure_PassesThroughAsOptionalPointer()
+    {
+        // Optional<@convention(c) …> is one nullable pointer. The wrapper keeps the Optional and
+        // drops @escaping, which Swift does not allow inside a generic argument; the binding passes
+        // null for nil.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl("observe", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: OptionalConventionCObserve);
+        var inner = ConventionCClosure(new NamedTypeSpec("Swift.Int"));
+        inner.Attributes.Add(new TypeSpecAttribute("escaping"));
+        method.CSSignature.Add(CreateArgument("callback", new NamedTypeSpec("Swift.Optional", inner), moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.True(method.HasClosureCdeclWrapper);
+        Assert.Contains("_ callback: Swift.Optional<@convention(c) (Swift.Int) -> Swift.Void>", swiftOutput);
+        Assert.DoesNotContain("@escaping", swiftOutput);
+        Assert.Contains(".observe(callback: callback)", swiftOutput);
+        Assert.Matches(@"callbackFuncPtr = callback != null \? \([^)]*\)_convC_observe_[0-9A-F]{8}_callback_ptr : null;", csOutput);
+        Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SwiftClosureAndConventionCClosure_AdaptsOneAndPassesTheOther()
+    {
+        // The Swift closure crosses as a (function pointer, context) pair the wrapper adapts back
+        // into a Swift closure; the C function pointer beside it crosses as one pointer and is
+        // passed through. Each takes exactly its own lane.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl("mix", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: SwiftClosureThenConventionCMix);
+        var adjust = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Int32"));
+        method.CSSignature.Add(CreateArgument("adjust", adjust, moduleDecl));
+        var through = CreateArgument("through",
+            ConventionCClosure(new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Int32")), moduleDecl);
+        through.PrivateName = "f";
+        method.CSSignature.Add(through);
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.True(method.HasClosureCdeclWrapper);
+        Assert.Contains("_ adjustFuncPtr: Swift.UnsafeMutableRawPointer?", swiftOutput);
+        Assert.Contains("_ adjustContext: Swift.UnsafeMutableRawPointer?", swiftOutput);
+        Assert.Contains("_ f: @convention(c) (Swift.Int32) -> Swift.Int32", swiftOutput);
+        Assert.Contains(".mix(adjust: _adapted_adjust, through: f)", swiftOutput);
+        Assert.DoesNotContain("fContext", swiftOutput);
+        Assert.Matches(@"_convC_mix_[0-9A-F]{8}_f_ptr", csOutput);
+        Assert.Contains("GCHandle.Alloc(adjust)", csOutput);
+    }
+
+    [Fact]
+    public void NeedsClosureCdeclWrapper_ConventionCInsideSwiftClosure_ReturnsFalse()
+    {
+        // A C function pointer inside a Swift closure's own signature is not a parameter of the
+        // member, so nothing records its convention for the wrapper to spell; the member stays off
+        // the closure wrapper rather than receive an adapter of the wrong convention.
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: ConventionCInsideSwiftClosureHandle);
+        var g = new ClosureTypeSpec(
+            ConventionCClosure(new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Int32")), TupleTypeSpec.Empty);
+        method.CSSignature.Add(CreateArgument("g", g, moduleDecl));
+
+        Assert.True(closureHandler.MethodHasConventionCClosure(method.MangledName));
+        Assert.False(closureHandler.ConventionCPointersAreMarkedParameters(method));
+        Assert.False(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+    }
+
+    [Theory]
+    [InlineData(ConventionCOnlyHandle)]
+    [InlineData(OptionalConventionCObserve)]
+    public void ConventionCPointersAreMarkedParameters_EveryPointerIsAMarkedParameter_ReturnsTrue(string mangledName)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl("handle", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance, mangledName: mangledName);
+        TypeSpec callback = ConventionCClosure(new NamedTypeSpec("Swift.Int"));
+        if (mangledName == OptionalConventionCObserve)
+            callback = new NamedTypeSpec("Swift.Optional", callback);
+        method.CSSignature.Add(CreateArgument("callback", callback, moduleDecl));
+
+        Assert.True(closureHandler.ConventionCPointersAreMarkedParameters(method));
+    }
+
+    [Fact]
+    public void Detect_ConventionCFromMangledName_UnrecordedSpec_SkipsCdeclWrapper()
+    {
+        // Mangled names with XC indicate @convention(c) closures. ABI JSON doesn't include convention
+        // attributes, so the parser records the convention on the parameter's spec from the mangled
+        // name. When that record is missing (the per-parameter flags could not be read), the wrapper
+        // has no way to spell the parameter's type, so the member stays off it.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -864,7 +1067,7 @@ public class ClosureCdeclEmitterTests
 
         EmitMethod(method, typeDatabase);
 
-        // XC in mangled name → @convention(c) detected → no Cdecl wrapper
+        // XC in mangled name, but no per-parameter record → no Cdecl wrapper
         Assert.False(method.HasClosureCdeclWrapper);
     }
 
@@ -1077,13 +1280,14 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void ConventionC_RealCFunctionPointer_SuppressesCdeclWrapper()
+    public void ConventionC_RealCFunctionPointer_UnrecordedSpec_SuppressesCdeclWrapper()
     {
         // The mangled name carries a genuine @convention(c) closure — XC (CFunctionPointer) in the
-        // function-type section. Finding 17: detection now walks the demangled node tree
+        // function-type section. Finding 17: detection walks the demangled node tree
         // (MethodHasConventionCClosure) instead of the "XC" substring, and a real CFunctionPointer
-        // node is found, so the Cdecl-wrapper path is correctly suppressed (our adapter Swift closure
-        // can't be passed where a raw C function pointer is expected).
+        // node is found. The parameter's spec does not record the convention here, so the wrapper
+        // could only treat it as a Swift closure and build an adapter where the C pointer is
+        // expected; the Cdecl-wrapper path is suppressed instead.
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -1955,6 +2159,19 @@ public class ClosureCdeclEmitterTests
     #endregion
 
     #region Test Helpers
+
+    // Real symbols swiftc emits for these shapes on `public class Loader` in module TestModule.
+    private const string ConventionCOnlyHandle = "$s10TestModule6LoaderC6handleyyySiXCF";
+    private const string OptionalConventionCObserve = "$s10TestModule6LoaderC7observeyyySiXCSgF";
+    private const string SwiftClosureThenConventionCMix = "$s10TestModule6LoaderC3mix_7throughys5Int32VAGXE_A2GXCtF";
+    private const string ConventionCInsideSwiftClosureHandle = "$s10TestModule6LoaderC6handleyyys5Int32VAFXCXEF";
+
+    private static ClosureTypeSpec ConventionCClosure(TypeSpec argument, TypeSpec? result = null)
+    {
+        var closure = new ClosureTypeSpec(argument, result ?? TupleTypeSpec.Empty) { IsConventionC = true };
+        return closure;
+    }
+
 
     private static TypeDatabase CreateTypeDatabase()
     {

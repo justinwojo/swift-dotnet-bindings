@@ -242,7 +242,7 @@ namespace BindingsGeneration
                         closureTypeSpec, arg.SwiftTypeSpec, _env.ClosureHandler, _env.MethodDecl))
                     continue;
                 var csName = NameProvider.GetMarshallingBaseName(arg);
-                if (UsesConventionCThreadStaticSlot(arg, closureTypeSpec, closureParamCount))
+                if (UsesConventionCThreadStaticSlot(closureTypeSpec, closureParamCount))
                     continue;
                 csWriter.WriteLine($"if (!{csName}Transferred && {csName}Handle.IsAllocated) {csName}Handle.Free();");
             }

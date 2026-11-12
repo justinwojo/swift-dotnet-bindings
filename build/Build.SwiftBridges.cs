@@ -35,6 +35,21 @@ partial class Build
     static bool BridgeEvidenceApplies(ApplePlatform? platformOverride) =>
         platformOverride == null || platformOverride.Name == "ios";
 
+    /// <summary>
+    /// The members of <c>SwiftBridgeProbe</c> that the qualification regeneration asks to route through
+    /// their native bridges (<c>--swift-bridge-route</c>). Each takes a C callback, so by default it
+    /// would take the closure <c>@_cdecl</c> wrapper; the request keeps it on its Swift-convention import
+    /// so the corpus exercises a bridge with self, a Swift error, an indirect result and an owned class
+    /// argument. The generator fails the regeneration when one of them is not routed. Other platforms
+    /// regenerate without evidence and leave them on the wrapper.
+    /// </summary>
+    static readonly string[] SwiftBridgeProbeRoutes =
+    [
+        "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF",
+        "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF",
+        "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF",
+    ];
+
     AbsolutePath SwiftBridgeGateScratch => RootDirectory / "artifacts" / "swift-bridges";
 
     /// <summary>The hand-written tables and the source directories of the assembly each belongs to.</summary>

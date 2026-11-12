@@ -1266,6 +1266,20 @@ public class ExistentialBypassEmitterTests
 public class ExistentialBypassEmitterRenderWrapperSignatureTests
 {
     [Fact]
+    public void RenderForWrapperSignature_ConventionCClosure_KeepsItsConvention()
+    {
+        // A C function pointer and the Swift closure with the same signature are different types;
+        // a wrapper parameter spelled without the convention would take the thick closure.
+        var spec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty) { IsConventionC = true };
+        Assert.Equal("@convention(c) (Swift.Int) -> Swift.Void",
+            ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(spec, "MyMod"));
+        Assert.Equal("Swift.Optional<@convention(c) (Swift.Int) -> Swift.Void>",
+            ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(new NamedTypeSpec("Swift.Optional", spec), "MyMod"));
+        var swiftClosure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+        Assert.DoesNotContain("@convention", ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(swiftClosure, "MyMod"));
+    }
+
+    [Fact]
     public void RenderForWrapperSignature_BoundModuleType_KeepsQualifiedName()
     {
         var spec = new NamedTypeSpec("MyMod.Thing");
