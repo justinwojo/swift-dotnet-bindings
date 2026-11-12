@@ -632,6 +632,27 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_LoweringEvidence_FingerprintsTheSelectedCompilerAndSdks()
+        {
+            // A receipt authorizes only under the compiler and SDKs that collected it, so with one set,
+            // switching Xcode must regenerate rather than reuse bridges routed under the old toolchain.
+            var fingerprint = XDocument.Parse(TargetsContent).Descendants()
+                .Single(e => e.Name.LocalName == "Target" && (string?)e.Attribute("Name") == "_ComputeSwiftFingerprint")
+                .Descendants().Single(e => e.Name.LocalName == "Exec" && ((string?)e.Attribute("Condition"))?.Contains("!= 'AppleFramework'") == true)
+                .Attribute("Command")!.Value;
+            var guarded = fingerprint[fingerprint.IndexOf("if [ -n \"$(SwiftLoweringEvidence)\" ]; then", StringComparison.Ordinal)..];
+            guarded = guarded[..guarded.IndexOf("fi;", StringComparison.Ordinal)];
+
+            Assert.Contains("xcrun swiftc --version", guarded);
+            foreach (var sdk in new[] { "iphoneos", "iphonesimulator", "appletvos", "appletvsimulator", "macosx" })
+                Assert.Contains(sdk, guarded);
+            Assert.Contains("--show-sdk-version", guarded);
+            Assert.Contains("--show-sdk-build-version", guarded);
+            // Before the pipeline's sort and hash.
+            Assert.True(fingerprint.IndexOf("--show-sdk-build-version", StringComparison.Ordinal) < fingerprint.IndexOf("| sort | shasum", StringComparison.Ordinal));
+        }
+
+        [Fact]
         public void Targets_SecondSliceCommitIsAtomicAndRecoverable()
         {
             // The wrapper and bridge second-slice commits must NOT be the old non-atomic

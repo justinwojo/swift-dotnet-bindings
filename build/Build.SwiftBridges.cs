@@ -3,11 +3,14 @@
 //
 // The Swift bridges' host-only targets. `swift-bridge-products` writes the plan sidecars of the
 // hand-written transition tables (the runtime's and the Apple supplement's) under
-// build/baselines/swift-call-plans/; a unit test fails when they are stale. `swift-bridge-gate`
-// reads those and the corpus sidecars of the regenerated BindingTests output, joins the swiftc
-// lowering evidence `swift-lowering-oracle` records, and emits and validates every bridge on arm64
-// and x86_64. The same evidence file is what an iOS BindingTests regeneration passes the generator,
-// which routes every transition it proves through that transition's bridge.
+// build/baselines/swift-call-plans/; a unit test fails when they are stale. A table that routes
+// through bridges has its plans judged by the SDK's lowering qualification record over the slices
+// the table claims. `swift-bridge-gate` reads those and the corpus sidecars of the regenerated
+// BindingTests output, re-judges each by the record over the artifact scope it records, and emits
+// and validates every bridge on arm64 and x86_64. The same record (which `swift-lowering-oracle`
+// writes, one receipt per artifact and qualified compiler family) is what an iOS BindingTests
+// regeneration passes the generator, which routes every transition it qualifies through that
+// transition's bridge.
 
 using System;
 using System.Collections.Generic;
@@ -26,8 +29,8 @@ partial class Build
 
     /// <summary>
     /// Whether a BindingTests regeneration for <paramref name="platformOverride"/> (null: iOS) routes
-    /// through native bridges. The lowering evidence is recorded for the iOS device and simulator
-    /// triples only; a platform it does not name keeps its direct Swift imports.
+    /// through native bridges. The qualification record holds the corpus's receipts for the iOS
+    /// device and simulator triples only; a platform it does not cover keeps its direct Swift imports.
     /// </summary>
     static bool BridgeEvidenceApplies(ApplePlatform? platformOverride) =>
         platformOverride == null || platformOverride.Name == "ios";
@@ -89,7 +92,7 @@ partial class Build
                 };
                 arguments.AddRange(sources.Select(s => $"--plan-sources \"{s}\""));
                 if (HandWrittenTableRoutes(table))
-                    arguments.Add($"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"");
+                    arguments.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
                 RunGenerator(arguments, $"hand-written plans of {table}");
             }
         });
@@ -111,7 +114,7 @@ partial class Build
             var arguments = new List<string>
             {
                 $"\"{GeneratorDll}\"", "--swift-bridges",
-                $"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"", $"-o \"{SwiftBridgeGateScratch}\"",
+                $"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"", $"-o \"{SwiftBridgeGateScratch}\"",
             };
             // The corpus was regenerated with this evidence, and a routing table's products were written
             // from it, so their routing must agree with it.

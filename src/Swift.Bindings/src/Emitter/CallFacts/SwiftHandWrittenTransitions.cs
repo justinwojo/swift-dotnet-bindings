@@ -60,6 +60,16 @@ public sealed record SwiftHandWrittenTransitionTable
     /// <summary>The assembly whose sources declare the imports.</summary>
     public required string Assembly { get; init; }
 
+    /// <summary>
+    /// The target triples the assembly's native code is built for: the slices its transitions run on,
+    /// every one of which the lowering evidence must cover before any transition is executable.
+    /// </summary>
+    public required ImmutableArray<string> Slices { get; init; }
+
+    /// <summary>The artifact scope the table's plans are judged over.</summary>
+    [JsonIgnore]
+    public SwiftArtifactScope Scope => new(Assembly, Slices);
+
     /// <summary>How Swift passes the types the facts name that the resolver does not derive.</summary>
     public ImmutableArray<SwiftLoweringOverride> Lowering { get; init; } = ImmutableArray<SwiftLoweringOverride>.Empty;
 
@@ -77,6 +87,16 @@ public sealed record SwiftHandWrittenTransitionTable
             ?? throw new InvalidDataException($"{path} holds no transition table");
         if (table.Schema != CurrentSchema)
             throw new InvalidDataException($"{path} has schema {table.Schema}; this generator reads {CurrentSchema}");
+        if (table.Slices.IsDefaultOrEmpty)
+            throw new InvalidDataException($"{path} names no slice its native code is built for");
+        try
+        {
+            _ = table.Scope;
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidDataException($"{path}: {ex.Message}", ex);
+        }
         if (table.Transitions.IsDefault || table.Transitions.Any(t => t.Facts is null))
             throw new InvalidDataException($"{path} lists a transition with no facts");
         if (table.Transitions.Any(t => t.Facts.FactsVersion != SwiftCallFacts.CurrentVersion))

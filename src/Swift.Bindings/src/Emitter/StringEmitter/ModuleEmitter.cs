@@ -217,8 +217,15 @@ namespace BindingsGeneration
                     new[] { moduleDecl }.Concat(_typeDatabase.GetDependencyModuleDecls().Where(d => !ReferenceEquals(d, moduleDecl) && d.Name != moduleDecl.Name)),
                     _typeDatabase);
                 var planSet = SwiftCallPlanSet.Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(lowering)));
-                if (SwiftBridgeEvidence.Current is { } evidence)
-                    planSet = planSet.WithEvidence(evidence);
+                if (SwiftBridgeEvidence.Current is { } judge)
+                {
+                    var judgement = judge(moduleDecl.Name);
+                    if (judgement.Refusal is { } refusal && planSet.Count(SwiftPlanStatus.Planned) > 0)
+                        _logger.LogWarning(
+                            "The swiftc lowering evidence does not authorize {Module}'s bridge plans ({Basis} of {Scope}); its Swift-convention imports are emitted as declared: {Refusal}",
+                            moduleDecl.Name, judgement.Basis, judgement.Scope, refusal);
+                    planSet = planSet.WithEvidence(judgement);
+                }
                 var routing = SwiftBridgeRouting.Plan(planSet, wholeOutput, PInvokeEmitHelper.ResolveWrapperLibrary(_typeDatabase));
                 foreach (var refused in routing.Routes.Where(r => !r.IsBridged))
                     _logger.LogWarning(

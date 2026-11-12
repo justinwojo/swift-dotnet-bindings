@@ -58,26 +58,28 @@ public static class SwiftHandWrittenPlans
 
     /// <summary>
     /// Everything a table produces: its plan sidecar and, when the table routes through bridges
-    /// (<see cref="SwiftHandWrittenTransitionTable.Bridges"/>) and <paramref name="evidence"/> is given,
-    /// the routing over its declarations, the compiled C# and each architecture's bridge assembly.
-    /// A table without bridges is planned exactly as before, with no evidence joined.
+    /// (<see cref="SwiftHandWrittenTransitionTable.Bridges"/>) and the qualification record
+    /// <paramref name="qualification"/> is given, the plans judged by that record over the table's
+    /// slices, the routing over its declarations, the compiled C# and each architecture's bridge
+    /// assembly. A table without bridges routes nothing, so its plans are not judged: a plan judged
+    /// executable that nothing routes would be a transition left on its direct import.
     /// </summary>
     public static SwiftHandWrittenProducts Produce(
-        string tablePath, IEnumerable<string> sourceDirectories, TypeDatabase standardLibrary, SwiftLoweringEvidence? evidence)
+        string tablePath, IEnumerable<string> sourceDirectories, TypeDatabase standardLibrary, SwiftLoweringEvidence? qualification)
     {
         var table = SwiftHandWrittenTransitionTable.Load(tablePath);
         var directory = Path.GetDirectoryName(Path.GetFullPath(tablePath))!;
         var bridges = table.Bridges;
         var excluded = bridges is null ? [] : new[] { Path.Combine(directory, bridges.Managed) };
         var set = Plan(table, Sources(sourceDirectories, excluded), standardLibrary);
-        if (bridges is null || evidence is null)
+        if (bridges is null || qualification is null)
             return new SwiftHandWrittenProducts(table, set, SwiftBridgeRouting.None, null, ImmutableDictionary<SwiftArchitecture, string>.Empty);
 
         var declarationsPath = Path.Combine(directory, bridges.Declarations);
         if (!File.Exists(declarationsPath))
             throw new FileNotFoundException($"{tablePath} routes through bridges declared in {declarationsPath}, which does not exist", declarationsPath);
         var declarations = File.ReadAllText(declarationsPath);
-        set = set.WithEvidence(evidence);
+        set = set.WithEvidence(SwiftLoweringQualification.Qualify(qualification, table.Scope));
         var routing = SwiftBridgeRouting.Plan(set, declarations, bridges.Library);
         var managed = ManagedHeader(table, bridges) + WithoutLeadComment(routing.Rewrite(declarations));
         var native = SwiftBridgeRouting.Architectures.ToImmutableDictionary(
@@ -113,28 +115,36 @@ public static class SwiftHandWrittenPlans
         $"/* No transition of this assembly is routed through a bridge on {architecture}. */\n";
 
     /// <summary><c>--emit-hand-written-plans</c>: writes the table's plan sidecar into <paramref name="outputDirectory"/>, and its bridge products beside the table.</summary>
-    public static int Run(string tablePath, IReadOnlyList<string> sourceDirectories, string outputDirectory, string? evidencePath, ILogger logger)
+    public static int Run(string tablePath, IReadOnlyList<string> sourceDirectories, string outputDirectory, string? qualificationPath, ILogger logger)
     {
         if (!File.Exists(tablePath) || sourceDirectories.Count == 0 || sourceDirectories.Any(d => !Directory.Exists(d)))
         {
             logger.LogError("--emit-hand-written-plans needs an existing --transition-facts table and at least one existing --plan-sources directory");
             return 1;
         }
-        if (evidencePath is not null && !File.Exists(evidencePath))
+        if (qualificationPath is not null && !File.Exists(qualificationPath))
         {
-            logger.LogError("the lowering evidence {Path} does not exist: the swift-lowering-oracle target records it", evidencePath);
+            logger.LogError("the lowering qualification record {Path} does not exist: the swift-lowering-oracle target records it", qualificationPath);
             return 1;
         }
         var probe = SwiftHandWrittenTransitionTable.Load(tablePath);
-        if (probe.Bridges is not null && evidencePath is null)
+        if (probe.Bridges is not null && qualificationPath is null)
         {
             // Without evidence nothing is executable, so the products would route nothing: writing them
             // would silently put every bridged transition back on its direct import.
-            logger.LogError("{Table} routes through bridges; --emit-hand-written-plans needs --swift-lowering-evidence for it", tablePath);
+            logger.LogError("{Table} routes through bridges; --emit-hand-written-plans needs --swift-lowering-qualification for it", tablePath);
             return 1;
         }
-        var evidence = evidencePath is null ? null : SwiftLoweringEvidence.Load(evidencePath);
-        var products = Produce(tablePath, sourceDirectories, StandardLibrary(), evidence);
+        var qualification = qualificationPath is null ? null : SwiftLoweringEvidence.Load(qualificationPath);
+        if (probe.Bridges is not null && SwiftLoweringQualification.Qualify(qualification!, probe.Scope).Refusal is { } refusal)
+        {
+            // The same reason as above: products written from a record that qualifies nothing would
+            // route nothing.
+            logger.LogError("{Table} routes through bridges, but the qualification record does not qualify {Assembly}: {Refusal}",
+                tablePath, probe.Assembly, refusal);
+            return 1;
+        }
+        var products = Produce(tablePath, sourceDirectories, StandardLibrary(), qualification);
         var (table, set) = (products.Table, products.Plans);
         Directory.CreateDirectory(outputDirectory);
         var path = Path.Combine(outputDirectory, SwiftCallPlanSet.FileName(table.Assembly));
@@ -182,23 +192,59 @@ public sealed record SwiftHandWrittenProducts(
     ImmutableDictionary<SwiftArchitecture, string> Native);
 
 /// <summary>
-/// The bridge gate (<c>--swift-bridges</c>): reads plan sidecars, joins the swiftc lowering evidence,
-/// emits every forward plan's bridge on arm64 and x86_64, and validates each assembly. It fails when
-/// an executable plan has no bridge, when any bridge's frame or unwind information is wrong or a
-/// reference is strong, and when nothing is executable at all (an empty gate proves nothing).
+/// The bridge gate (<c>--swift-bridges</c>): reads plan sidecars, re-judges each by the SDK's
+/// qualification record over the artifact scope it records, emits every forward plan's bridge on
+/// arm64 and x86_64, and validates each assembly. It fails when a sidecar's artifact does not
+/// qualify, when an executable plan has no bridge, when any bridge's frame or unwind information is
+/// wrong or a reference is strong, and when nothing is executable at all (an empty gate proves nothing).
 /// </summary>
 public static class SwiftBridgeGate
 {
-    /// <summary>The joined plan sets of the sidecars and the plans of all of them, one per symbol.</summary>
-    public static (ImmutableArray<SwiftCallPlanSet> Sets, ImmutableArray<SwiftCallPlan> Plans, ImmutableHashSet<string> Executable) Load(
-        IEnumerable<string> planFiles, SwiftLoweringEvidence evidence)
+    /// <summary>
+    /// The plan sets of the sidecars (<paramref name="planFiles"/>, then the routed generations'
+    /// <paramref name="routedPlanFiles"/>), each re-judged by <paramref name="qualification"/> over the
+    /// scope it records, the plans of all of them (one per symbol), the executable symbols, and why any
+    /// sidecar's artifact does not qualify. A sidecar recording no qualification scope of its own
+    /// module is not judged: none of its plans is executable. A sidecar that records no scope at all
+    /// was planned without being judged, which only a generation that routes nothing may be.
+    /// </summary>
+    public static (ImmutableArray<SwiftCallPlanSet> Sets, ImmutableArray<SwiftCallPlan> Plans, ImmutableHashSet<string> Executable, ImmutableArray<string> Unqualified) Load(
+        IEnumerable<string> planFiles, IEnumerable<string> routedPlanFiles, SwiftLoweringEvidence qualification)
     {
-        var sets = planFiles.Select(f => SwiftCallPlanSet.From(SwiftCallPlanSet.Read(f)).WithEvidence(evidence)).ToImmutableArray();
+        var unqualified = new List<string>();
+        var sets = planFiles.Select(f => (File: f, Routed: false)).Concat(routedPlanFiles.Select(f => (File: f, Routed: true))).Select(file =>
+        {
+            var (f, routed) = file;
+            var set = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(f));
+            if (set.EvidenceScope is not { Basis: SwiftLoweringJudgement.QualificationBasis } recorded || recorded.Artifact != set.Module)
+            {
+                var finding = set.EvidenceScope switch
+                {
+                    null when routed => $"{set.Module}: {f} records no evidence scope; regenerate it with --swift-lowering-qualification",
+                    null => null,
+                    { Basis: not SwiftLoweringJudgement.QualificationBasis } => $"{set.Module}: {f} was judged by {set.EvidenceScope.Basis}, not by the qualification record",
+                    _ => $"{set.Module}: {f} records the evidence scope of {set.EvidenceScope.Artifact}, not of its own module",
+                };
+                if (finding is not null)
+                    unqualified.Add(finding);
+                return new SwiftCallPlanSet
+                {
+                    Module = set.Module,
+                    EvidenceScope = set.EvidenceScope,
+                    Coverage = set.Coverage.Select(e => e with { Executable = false }).ToImmutableArray(),
+                    Plans = set.Plans,
+                };
+            }
+            var judgement = SwiftLoweringQualification.Qualify(qualification, recorded.Scope);
+            if (judgement.Refusal is { } refusal)
+                unqualified.Add($"{set.Module}: {refusal}");
+            return set.WithEvidence(judgement);
+        }).ToImmutableArray();
         var plans = sets.SelectMany(s => s.Plans).GroupBy(p => p.Symbol, StringComparer.Ordinal).Select(g => g.First())
             .OrderBy(p => p.Symbol, StringComparer.Ordinal).ToImmutableArray();
         var executable = sets.SelectMany(s => s.Coverage).Where(e => e.Executable && e.Symbol is not null)
             .Select(e => e.Symbol!).ToImmutableHashSet(StringComparer.Ordinal);
-        return (sets, plans, executable);
+        return (sets, plans, executable, unqualified.ToImmutableArray());
     }
 
     /// <summary>
@@ -237,24 +283,24 @@ public static class SwiftBridgeGate
             yield return "no routed generation calls any transition through a bridge: the routing check checked nothing";
     }
 
-    public static int Run(IReadOnlyList<string> planFiles, IReadOnlyList<string> routedPlanFiles, string? evidencePath, string outputDirectory, ILogger logger)
+    public static int Run(IReadOnlyList<string> planFiles, IReadOnlyList<string> routedPlanFiles, string? qualificationPath, string outputDirectory, ILogger logger)
     {
         var routedCount = routedPlanFiles.Count;
-        planFiles = planFiles.Concat(routedPlanFiles).ToList();
-        if (planFiles.Count == 0 || planFiles.Any(f => !File.Exists(f)))
+        var allPlanFiles = planFiles.Concat(routedPlanFiles).ToList();
+        if (allPlanFiles.Count == 0 || allPlanFiles.Any(f => !File.Exists(f)))
         {
             logger.LogError("--swift-bridges needs at least one existing --swift-call-plans sidecar; missing: {Missing}",
-                string.Join(", ", planFiles.Where(f => !File.Exists(f))));
+                string.Join(", ", allPlanFiles.Where(f => !File.Exists(f))));
             return 1;
         }
-        if (evidencePath is null)
+        if (qualificationPath is null)
         {
-            logger.LogError("--swift-bridges needs --swift-lowering-evidence <file>; without it no plan is executable");
+            logger.LogError("--swift-bridges needs --swift-lowering-qualification <file>; without it no plan is executable");
             return 1;
         }
-        if (!File.Exists(evidencePath))
+        if (!File.Exists(qualificationPath))
         {
-            logger.LogError("the lowering evidence {Path} does not exist: the swift-lowering-oracle target records it", evidencePath);
+            logger.LogError("the lowering qualification record {Path} does not exist: the swift-lowering-oracle target records it", qualificationPath);
             return 1;
         }
         var toolchain = SwiftBridgeToolchain.Locate();
@@ -264,14 +310,14 @@ public static class SwiftBridgeGate
             return 1;
         }
 
-        var evidence = SwiftLoweringEvidence.Load(evidencePath);
-        var (sets, plans, executable) = Load(planFiles, evidence);
+        var qualification = SwiftLoweringEvidence.Load(qualificationPath);
+        var (sets, plans, executable, unqualified) = Load(planFiles, routedPlanFiles, qualification);
         Directory.CreateDirectory(outputDirectory);
         var report = new StringBuilder();
-        var failures = new List<string>();
+        var failures = new List<string>(unqualified);
 
         // Load keeps the files' order, one set per file, so the routed sets are the trailing ones.
-        var routedSets = sets.Skip(planFiles.Count - routedCount).ToList();
+        var routedSets = sets.Skip(allPlanFiles.Count - routedCount).ToList();
         foreach (var routed in routedSets)
             report.AppendLine($"{routed.Module}: routed generation, {routed.Coverage.Count(e => e.Bridged == true)} transition(s) called through a bridge");
         failures.AddRange(RoutedFindings(routedSets));
@@ -279,7 +325,8 @@ public static class SwiftBridgeGate
         foreach (var set in sets)
         {
             var planned = set.Coverage.Count(e => e.Status == SwiftPlanStatus.Planned);
-            var line = $"{set.Module}: {set.Coverage.Length} transition(s), {planned} planned, {set.Coverage.Count(e => e.Executable)} executable";
+            var scope = set.EvidenceScope is { } recorded ? $" over {recorded.Slices.Length} slice(s)" : ", not judged (no evidence scope)";
+            var line = $"{set.Module}: {set.Coverage.Length} transition(s), {planned} planned, {set.Coverage.Count(e => e.Executable)} executable{scope}";
             report.AppendLine(line);
             logger.LogInformation("{Line}", line);
             foreach (var group in set.Coverage.Where(e => e.Status == SwiftPlanStatus.Planned && !e.Executable)

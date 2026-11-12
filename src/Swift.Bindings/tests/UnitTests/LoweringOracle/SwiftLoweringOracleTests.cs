@@ -238,11 +238,10 @@ public class SwiftLoweringOracleTests
                 SwiftLoweringOracle.Compare(main, triple, new[] { dependency }),
             };
 
-        Directory.CreateDirectory(reportDirectory);
-        var text = new System.Text.StringBuilder($"toolchain: {SwiftLoweringOracle.ToolchainVersion}\ntarget: {triple}\n");
+        var text = new System.Text.StringBuilder();
         foreach (var report in reports)
             text.AppendLine().Append(report.Describe());
-        File.WriteAllText(Path.Combine(reportDirectory, triple + ".txt"), text.ToString());
+        AppendReport(reportDirectory, triple, text.ToString());
         _output.WriteLine(text.ToString());
 
         foreach (var report in reports)
@@ -252,8 +251,9 @@ public class SwiftLoweringOracleTests
             Assert.True(report.Count(SwiftOracleOutcome.Match) > 0, report.Summary);
         }
 
-        // The lowering evidence of every plan target: the modules, the generated wrappers that
-        // define the wrapper targets, and a probe that calls the hand-written tables' targets.
+        // The lowering receipt of each artifact the manifest names, read from the modules' definitions,
+        // the generated wrappers (which define the wrapper targets and declare the library symbols they
+        // call) and the probe that calls the hand-written tables' targets.
         if (manifest.TryGetProperty("evidence", out var evidenceProperty))
         {
             var wrappers = manifest.GetProperty("wrappers");
@@ -262,26 +262,111 @@ public class SwiftLoweringOracleTests
             if (dependency is not null)
                 includes.InsertRange(0, new[] { "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "dependency")) });
             var modules = new List<SwiftIrModule> { main.Ir };
+            var sources = new List<SwiftEvidenceSource>
+            {
+                Source(SwiftEvidenceSource.DefinitionRole, main.Name, Strings("main"), SwiftLoweringOracle.DefinitionFlags),
+            };
             if (dependency is not null)
+            {
                 modules.Insert(0, dependency.Ir);
+                sources.Add(Source(SwiftEvidenceSource.DefinitionRole, dependency.Name, Strings("dependency"), SwiftLoweringOracle.DefinitionFlags));
+            }
             foreach (var wrapper in wrappers.EnumerateObject().OrderBy(w => w.Name, StringComparer.Ordinal))
+            {
                 modules.Add(SwiftLoweringOracle.CompileIr(wrapper.Name, new[] { wrapper.Value.GetString()! }, target,
                     Path.Combine(scratch, "wrapper-" + wrapper.Name), includes));
-            modules.Add(SwiftLoweringOracle.CompileIr("HandWrittenTargets", new[] { manifest.GetProperty("probe").GetString()! }, target,
-                Path.Combine(scratch, "probe")));
+                sources.Add(Source(SwiftEvidenceSource.WrapperRole, wrapper.Name, new[] { wrapper.Value.GetString()! }, SwiftLoweringOracle.IrFlags));
+            }
+            var probe = manifest.GetProperty("probe").GetString()!;
+            modules.Add(SwiftLoweringOracle.CompileIr(ProbeModule, new[] { probe }, target, Path.Combine(scratch, "probe")));
+            sources.Add(Source(SwiftEvidenceSource.ProbeRole, ProbeModule, new[] { probe }, SwiftLoweringOracle.IrFlags));
 
-            var targets = SwiftLoweringEvidenceCollector.Targets(Strings("plans"));
+            var findings = RecordArtifacts(evidenceProperty.GetString()!, triple, target, Strings("artifacts"), modules, sources, reportDirectory);
+            Assert.True(findings.Count == 0, string.Join("\n", findings));
+        }
+    }
+
+    /// <summary>Every slice a hand-written table may claim.</summary>
+    public static IEnumerable<object[]> EverySlice => SwiftOracleTarget.Every.Select(t => new object[] { t.Triple });
+
+    /// <summary>
+    /// The lowering receipts of the hand-written tables (the runtime's and the Apple supplement's), on
+    /// each slice its table claims: their targets are standard-library and Foundation functions, which
+    /// the probe calls the way a client does. Runs only from the <c>swift-lowering-oracle</c> build
+    /// target; a target the probe does not show fails.
+    /// </summary>
+    [SkippableTheory]
+    [MemberData(nameof(EverySlice))]
+    public void HandWrittenTables_RecordEvidence(string triple)
+    {
+        var manifestPath = Environment.GetEnvironmentVariable(CorpusManifestVariable);
+        Skip.If(string.IsNullOrEmpty(manifestPath), $"{CorpusManifestVariable} is not set; the swift-lowering-oracle target runs this");
+        Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
+        var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifestPath!)).RootElement;
+        Skip.IfNot(manifest.TryGetProperty("handWritten", out var handWritten), "the manifest names no hand-written table");
+        var claimed = handWritten.EnumerateArray()
+            .Select(t => (Table: SwiftHandWrittenTransitionTable.Load(t.GetProperty("table").GetString()!), Plans: t.GetProperty("plans").GetString()!))
+            .Where(t => t.Table.Slices.Contains(triple))
+            .Select(t => t.Plans)
+            .ToArray();
+        Skip.If(claimed.Length == 0, $"no hand-written table claims {triple}");
+        var target = SwiftOracleTarget.ByTriple(triple);
+        var scratch = Path.Combine(manifest.GetProperty("scratch").GetString()!, "hand-written", triple);
+        var probe = manifest.GetProperty("probe").GetString()!;
+        var modules = new List<SwiftIrModule> { SwiftLoweringOracle.CompileIr(ProbeModule, new[] { probe }, target, scratch) };
+        var sources = new List<SwiftEvidenceSource> { Source(SwiftEvidenceSource.ProbeRole, ProbeModule, new[] { probe }, SwiftLoweringOracle.IrFlags) };
+        var findings = RecordArtifacts(manifest.GetProperty("evidence").GetString()!, triple, target, claimed, modules, sources,
+            manifest.GetProperty("reports").GetString()!);
+        Assert.True(findings.Count == 0, string.Join("\n", findings));
+    }
+
+    private const string ProbeModule = "HandWrittenTargets";
+
+    private static SwiftEvidenceSource Source(string role, string name, IEnumerable<string> files, System.Collections.Immutable.ImmutableArray<string> flags) =>
+        new(role, name, SwiftEvidenceSource.DigestOf(files), flags);
+
+    /// <summary>
+    /// Records, for each plan sidecar in <paramref name="planFiles"/>, its artifact's receipt on
+    /// <paramref name="triple"/> under this toolchain, read from <paramref name="modules"/>; appends one
+    /// line per artifact to the triple's report, and returns every target not shown or shown in conflict.
+    /// </summary>
+    private List<string> RecordArtifacts(
+        string evidencePath, string triple, SwiftOracleTarget target, IEnumerable<string> planFiles,
+        IReadOnlyList<SwiftIrModule> modules, IReadOnlyList<SwiftEvidenceSource> sources, string reportDirectory)
+    {
+        var sdk = SwiftToolchainProbe.SdkIdentity(target.Sdk) ?? throw new InvalidOperationException($"the {target.Sdk} SDK could not be identified");
+        var findings = new List<string>();
+        var report = new System.Text.StringBuilder();
+        foreach (var planFile in planFiles)
+        {
+            var artifact = SwiftCallPlanSet.Read(planFile).Module;
+            var targets = SwiftLoweringEvidenceCollector.Targets(new[] { planFile });
             var symbols = SwiftLoweringEvidenceCollector.Signatures(targets, modules);
-            SwiftLoweringEvidenceCollector.Record(evidenceProperty.GetString()!, SwiftLoweringOracle.ToolchainVersion, triple, symbols);
+            SwiftLoweringEvidenceCollector.Record(evidencePath, artifact, SwiftLoweringOracle.ToolchainVersion, triple,
+                SwiftLoweringEvidenceCollector.Slice(sdk, sources, targets, symbols));
             var unseen = targets.Where(t => !symbols.ContainsKey(t)).ToList();
             var conflicts = symbols.Where(s => s.Value.StartsWith("conflict: ", StringComparison.Ordinal)).Select(s => $"{s.Key}: {s.Value}").ToList();
-            var line = $"evidence: {symbols.Count} of {targets.Count} plan target(s) shown by swiftc, {conflicts.Count} conflict(s)";
-            File.AppendAllText(Path.Combine(reportDirectory, triple + ".txt"),
-                $"\n{line}\n" + string.Concat(unseen.Select(u => $"  unseen: {u}\n")) + string.Concat(conflicts.Select(c => $"  {c}\n")));
+            var line = $"evidence: {artifact}: {symbols.Count} of {targets.Count} plan target(s) shown by swiftc, {conflicts.Count} conflict(s)";
+            report.Append($"\n{line}\n").Append(string.Concat(unseen.Select(u => $"  unseen: {u}\n"))).Append(string.Concat(conflicts.Select(c => $"  {c}\n")));
             _output.WriteLine(line);
-            Assert.True(unseen.Count == 0 && conflicts.Count == 0,
-                $"{line}\n" + string.Join("\n", unseen.Select(u => "unseen: " + u).Concat(conflicts)));
+            findings.AddRange(unseen.Select(u => $"{artifact} on {triple}: unseen: {u}"));
+            findings.AddRange(conflicts.Select(c => $"{artifact} on {triple}: {c}"));
         }
+        AppendReport(reportDirectory, triple, report.ToString());
+        return findings;
+    }
+
+    /// <summary>
+    /// Appends <paramref name="text"/> to the triple's report, which the corpus and the hand-written
+    /// tables both write to (the build target clears the reports before a run).
+    /// </summary>
+    private static void AppendReport(string reportDirectory, string triple, string text)
+    {
+        Directory.CreateDirectory(reportDirectory);
+        var reportPath = Path.Combine(reportDirectory, triple + ".txt");
+        if (!File.Exists(reportPath))
+            text = $"toolchain: {SwiftLoweringOracle.ToolchainVersion}\ntarget: {triple}\n" + text;
+        File.AppendAllText(reportPath, text);
     }
 
     /// <summary>

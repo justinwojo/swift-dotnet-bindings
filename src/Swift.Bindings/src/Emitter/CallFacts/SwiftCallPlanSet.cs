@@ -109,6 +109,9 @@ public sealed class SwiftCallPlanSet
 
     public required string Module { get; init; }
 
+    /// <summary>The artifact scope and basis the coverage was judged under; null until evidence is joined.</summary>
+    public SwiftPlanEvidenceScope? EvidenceScope { get; init; }
+
     public required ImmutableArray<SwiftPlanCoverageEntry> Coverage { get; init; }
 
     /// <summary>The distinct plans, by symbol.</summary>
@@ -256,13 +259,23 @@ public sealed class SwiftCallPlanSet
         };
     }
 
-    /// <summary>This plan set with <paramref name="evidence"/> joined: each planned entry's executable flag and why.</summary>
-    public SwiftCallPlanSet WithEvidence(SwiftLoweringEvidence evidence) => new()
+    /// <summary>
+    /// This plan set judged by <paramref name="judgement"/>: each planned entry's executable flag and
+    /// why, and the scope and basis it was judged under. Only a judgement of this set's own module
+    /// applies: another artifact's receipts say nothing about these plans.
+    /// </summary>
+    public SwiftCallPlanSet WithEvidence(SwiftLoweringJudgement judgement)
     {
-        Module = Module,
-        Coverage = evidence.Join(Coverage, Plans),
-        Plans = Plans,
-    };
+        if (judgement.Scope.Artifact != Module)
+            throw new ArgumentException($"a judgement of {judgement.Scope.Artifact} cannot judge the plans of {Module}", nameof(judgement));
+        return new()
+        {
+            Module = Module,
+            EvidenceScope = judgement.Record,
+            Coverage = judgement.Join(Coverage, Plans),
+            Plans = Plans,
+        };
+    }
 
     // ---- the sidecar ----
 
@@ -286,6 +299,7 @@ public sealed class SwiftCallPlanSet
     public static SwiftCallPlanSet From(SwiftCallPlanDocument document) => new()
     {
         Module = document.Module,
+        EvidenceScope = document.EvidenceScope,
         Coverage = document.Coverage,
         Plans = document.Plans,
     };
@@ -297,6 +311,7 @@ public sealed class SwiftCallPlanSet
         PlanVersion = SwiftCallPlan.Version,
         FactsVersion = SwiftCallFacts.CurrentVersion,
         Module = Module,
+        EvidenceScope = EvidenceScope,
         Totals = new SwiftCallPlanTotals
         {
             Transitions = Coverage.Length,
@@ -349,6 +364,10 @@ public sealed record SwiftCallPlanDocument
     public required int PlanVersion { get; init; }
     public required int FactsVersion { get; init; }
     public required string Module { get; init; }
+
+    /// <summary>The artifact scope and basis the coverage was judged under; absent when no evidence was joined.</summary>
+    public SwiftPlanEvidenceScope? EvidenceScope { get; init; }
+
     public required SwiftCallPlanTotals Totals { get; init; }
     public required ImmutableArray<SwiftPlanCoverageEntry> Coverage { get; init; }
     public required ImmutableArray<SwiftCallPlan> Plans { get; init; }

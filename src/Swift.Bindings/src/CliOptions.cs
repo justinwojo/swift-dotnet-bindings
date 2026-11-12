@@ -369,7 +369,7 @@ public class CliOptions
 
     public Option<bool> SwiftBridges { get; } = new(
         aliases: new[] { "--swift-bridges" },
-        description: "Swift bridge gate: read --swift-call-plans sidecars, join --swift-lowering-evidence, emit every " +
+        description: "Swift bridge gate: read --swift-call-plans sidecars, re-judge each by --swift-lowering-qualification over the scope it records, emit every " +
                      "forward plan's bridge for arm64 and x86_64 into -o and validate each frame and its unwind " +
                      "information. Fails when an executable plan has no bridge, a bridge is wrong, or nothing is executable.",
         getDefaultValue: () => false);
@@ -393,8 +393,17 @@ public class CliOptions
 
     public Option<string?> SwiftLoweringEvidence { get; } = new(
         aliases: new[] { "--swift-lowering-evidence" },
-        description: "The swiftc lowering evidence (swift-lowering-evidence.json) a plan must agree with to be executable. With --swift-bridges, the gate joins it; " +
-                     "in binding generation, every transition whose plan it makes executable is routed through a native bridge (SBSR_) instead of its direct import.");
+        description: "A swiftc lowering receipt of the module being generated, collected by the compiler and SDKs this build uses. " +
+                     "In binding generation, a transition is routed through its native bridge (SBSR_) instead of its direct import only " +
+                     "when the receipt is current for this compiler, SDKs and contract, covers every slice --platform claims, and shows " +
+                     "the plan's exact target and signature on each. Exclusive with --swift-lowering-qualification.");
+
+    public Option<string?> SwiftLoweringQualification { get; } = new(
+        aliases: new[] { "--swift-lowering-qualification" },
+        description: "The SDK's swiftc lowering qualification record (build/baselines/swift-lowering-evidence.json): one receipt per " +
+                     "qualified compiler family for each artifact the SDK qualifies. With --swift-bridges and --emit-hand-written-plans " +
+                     "it is the evidence the plans are judged by; in binding generation it routes the SDK's own qualification corpus. " +
+                     "Exclusive with --swift-lowering-evidence.");
 
     public Option<string[]> ValidateLinkedBridges { get; } = new(
         aliases: new[] { "--validate-linked-bridges" },
@@ -409,8 +418,8 @@ public class CliOptions
     public Option<bool> EmitHandWrittenPlans { get; } = new(
         aliases: new[] { "--emit-hand-written-plans" },
         description: "Plan a hand-written transition table (--transition-facts) over its assembly's C# (--plan-sources) " +
-                     "and write {Assembly}.swift-call-plans.json into -o. A table with a bridges section is also routed: " +
-                     "with --swift-lowering-evidence, every transition the evidence proves is called through its bridge, and " +
+                     "and write {Assembly}.swift-call-plans.json into -o, judged by --swift-lowering-qualification over the table's slices. " +
+                     "A table with a bridges section is also routed: every transition the record qualifies is called through its bridge, and " +
                      "the table's managed shims and per-architecture bridge assemblies are written beside it.",
         getDefaultValue: () => false);
 
@@ -583,6 +592,7 @@ public class CliOptions
             SwiftRoutedCallPlans,
             ValidateLinkedBridges,
             SwiftLoweringEvidence,
+            SwiftLoweringQualification,
             EmitHandWrittenPlans,
             TransitionFacts,
             PlanSources,
