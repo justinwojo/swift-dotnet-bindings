@@ -595,6 +595,64 @@ public class SwiftTransitionScannerTests
             Assert.Contains(gap, Assert.Single(plans.RoutingGaps));
     }
 
+    public static TheoryData<string, bool, string?, bool> EvidenceGapCases => new()
+    {
+        // A forward plan the evidence does not name (the evidence predates its code) is a gap.
+        { "Forward", false, "swiftc shows no $sTarget on arm64-apple-ios15.0 under Apple Swift version 6.2.4", true },
+        // So is one the evidence contradicts.
+        { "Forward", false, "swiftc gives swiftcc i64 (ptr) on arm64-apple-ios15.0 under X; the plan predicts swiftcc void (ptr)", true },
+        // A generation given no evidence at all (a lane that does not bridge) is not.
+        { "Forward", false, BridgeTwinPlans.NoEvidenceReason, false },
+        // Neither is an executable plan, nor a reverse or thick one, which swiftc never defines.
+        { "Forward", true, "swiftc gives swiftcc void (ptr) on 3 triple(s) under 2 toolchain(s)", false },
+        { "Reverse", false, "a closure invocation has no swiftc definition to compare: its plan has no evidence", false },
+        { "ForwardThick", false, "a closure invocation has no swiftc definition to compare: its plan has no evidence", false },
+        // A planned entry with no recorded evidence is not judged.
+        { "Forward", false, null, false },
+    };
+
+    [Theory]
+    [MemberData(nameof(EvidenceGapCases))]
+    public void BridgeTwinPlans_EvidenceGaps_ArePlannedForwardTransitionsTheEvidenceDidNotMakeExecutable(
+        string kind, bool executable, string? evidence, bool gap)
+    {
+        var sidecar = JsonNode.Parse(Sidecar(SelfErrorPlan("SBSR_1") with { Kind = kind }))!.AsObject();
+        var entry = new JsonObject
+        {
+            ["member"] = "M::PInvoke_f", ["status"] = "Planned", ["symbol"] = "SBSR_1",
+            ["executable"] = executable, ["bridged"] = executable,
+        };
+        if (evidence is not null)
+            entry["evidence"] = evidence;
+        sidecar["coverage"] = new JsonArray(entry);
+
+        var plans = BridgeTwinPlans.FromSidecars(new[] { ("A" + BridgeTwinPlans.SidecarSuffix, sidecar.ToJsonString()) });
+
+        Assert.Empty(plans.Problems);
+        Assert.Empty(plans.RoutingGaps);
+        if (gap)
+            Assert.Contains(evidence!, Assert.Single(plans.EvidenceGaps));
+        else
+            Assert.Empty(plans.EvidenceGaps);
+    }
+
+    [Fact]
+    public void BridgeTwinPlans_EvidenceGaps_IgnoreTransitionsThatWereNotPlanned()
+    {
+        var sidecar = JsonNode.Parse(Sidecar(SelfErrorPlan("SBSR_1")))!.AsObject();
+        sidecar["coverage"] = new JsonArray(
+            new JsonObject { ["member"] = "M::PInvoke_r", ["status"] = "Refused", ["executable"] = false, ["evidence"] = "anything" },
+            new JsonObject { ["member"] = "M::PInvoke_n", ["status"] = "NotBridged", ["executable"] = false });
+
+        var plans = BridgeTwinPlans.FromSidecars(new[] { ("A" + BridgeTwinPlans.SidecarSuffix, sidecar.ToJsonString()) });
+
+        Assert.Empty(plans.EvidenceGaps);
+    }
+
+    [Fact]
+    public void BridgeTwinPlans_NoEvidenceReason_IsTheOneTheGeneratorRecords() =>
+        Assert.Equal(SwiftCallPlanSet.NoEvidenceReason, BridgeTwinPlans.NoEvidenceReason);
+
     [Theory]
     [InlineData("General", 8, false, "isize", true)]
     [InlineData("General", 8, false, "ptr", true)]

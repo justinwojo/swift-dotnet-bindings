@@ -312,8 +312,10 @@ public sealed class SwiftCallFactsBuilder
             });
         }
 
+        // In an extension of a class, a written Self is the dynamic class type, as for the member
+        // the function forwards to: one reference, not an address-only generic value.
         var result = function.ResultType is { } resultType
-            ? new SwiftResultFacts { Type = Written(resultType, "result").Facts }
+            ? new SwiftResultFacts { Type = DynamicSelfOf(Written(resultType, "result").Facts, function.DeclaringTypeIsClass) }
             : SwiftResultFacts.Void;
         if (result.Type.Category == SwiftTypeCategory.Void)
             result = SwiftResultFacts.Void;
@@ -576,7 +578,10 @@ public sealed class SwiftCallFactsBuilder
     /// a generic parameter bound to the class.
     /// </summary>
     private SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, TypeDecl? parent) =>
-        type is { Category: SwiftTypeCategory.GenericParameter, Spelling: "Self" } && parent is not null && Canonical(parent) is ClassDecl
+        DynamicSelfOf(type, parent is not null && Canonical(parent) is ClassDecl);
+
+    private static SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, bool inClass) =>
+        type is { Category: SwiftTypeCategory.GenericParameter, Spelling: "Self" } && inClass
             ? type with { IsClassBound = true }
             : type;
 

@@ -264,6 +264,17 @@ partial class Build
                 Log.Error("  routing {Gap}", gap);
             if (routing.RoutingGaps.Length > 0)
                 failed.Add($"{name} (routing)");
+
+            // A forward plan the evidence cannot judge executable stays a direct Swift-convention
+            // import, and nothing above sees it: no twin exists and the coverage agrees with itself.
+            foreach (var gap in routing.EvidenceGaps)
+                Log.Error("  evidence {Gap}", gap);
+            if (routing.EvidenceGaps.Length > 0)
+            {
+                Log.Error("  the lowering evidence is stale or contradicts these plans: rerun `swift-lowering-oracle` under each " +
+                          "toolchain profile after a compile-only regeneration, or correct the plan");
+                failed.Add($"{name} (evidence)");
+            }
         }
         failed.AddRange(CheckRuntimeBridgeTwins());
         if (failed.Count > 0)
@@ -310,10 +321,16 @@ partial class Build
                       "rerun `nuke swift-bridge-products` and rebuild", report.Inventory.BridgeTwins, routed);
             yield return "Swift.Runtime.dll (twins)";
         }
-        foreach (var gap in BridgeTwinPlans.Load(source).RoutingGaps)
+        var plans = BridgeTwinPlans.Load(source);
+        foreach (var gap in plans.RoutingGaps)
         {
             Log.Error("  routing {Gap}", gap);
             yield return $"Swift.Runtime.dll (routing: {gap})";
+        }
+        foreach (var gap in plans.EvidenceGaps)
+        {
+            Log.Error("  evidence {Gap}", gap);
+            yield return $"Swift.Runtime.dll (evidence: {gap})";
         }
     }
 

@@ -34,6 +34,16 @@ namespace RuntimeTestsApp.Marshalling;
 /// <see cref="SwiftBridgeTests"/> drives the same register shapes (self with an indirect result and
 /// arguments) through generated bridges. They stay hand-marshalled and running so a divergence
 /// between the two names the runtime transition rather than the bridge.
+///
+/// On the .NET 11 CoreCLR interpreter the direct sret + self + argument probes fail (the callee's
+/// write through self does not land, dotnet/runtime#136521). On the interpreter lanes the recovering
+/// harness runs (simulator, tvOS simulator, device) it runs this class alone, in its own process
+/// after the suite, and grades every test against the outcome its negative-control registry
+/// records for it, so the expected failures neither count against the suite nor leave state behind
+/// for another class. The Mac Catalyst launcher runs one process with no such split, so a .NET 11
+/// Debug Catalyst run, which interprets, still fails here. JIT, Mono and NativeAOT lanes run it as
+/// an ordinary class, where all four tests pass. A test added here needs an expected outcome in
+/// that registry.
 /// </summary>
 public class SretSelfProbeTests : TestBase
 {

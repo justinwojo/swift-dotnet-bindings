@@ -42,6 +42,12 @@ public sealed record SyntheticSwiftFunction
     /// <summary>The extended type's generic parameter names as source spells them, which the written types may use.</summary>
     public ImmutableArray<string> DeclaringTypeGenericParameters { get; init; } = ImmutableArray<string>.Empty;
 
+    /// <summary>
+    /// Whether the extended type is a class, whose <c>Self</c> is the dynamic type of one class
+    /// instance: a <c>Self</c> result is then one reference, as it is for the declared member.
+    /// </summary>
+    public bool DeclaringTypeIsClass { get; init; }
+
     /// <summary>The Swift name of the function as written.</summary>
     public string? MemberName { get; init; }
 
@@ -70,7 +76,8 @@ public sealed record SyntheticSwiftFunction
     public bool Equals(SyntheticSwiftFunction? other) =>
         other is not null
         && Symbol == other.Symbol && Synthesizer == other.Synthesizer && Module == other.Module
-        && Forwards == other.Forwards && DeclaringType == other.DeclaringType && MemberName == other.MemberName
+        && Forwards == other.Forwards && DeclaringType == other.DeclaringType && DeclaringTypeIsClass == other.DeclaringTypeIsClass
+        && MemberName == other.MemberName
         && Self == other.Self && ResultType == other.ResultType && Throws == other.Throws && IsAsync == other.IsAsync
         && GenericSignature == other.GenericSignature
         && DeclaringTypeGenericSignature == other.DeclaringTypeGenericSignature
@@ -116,6 +123,7 @@ public sealed record SyntheticSwiftFunction
             DeclaringTypeGenericParameters = declaringType?.GenericParameters.IsDefault == false
                 ? declaringType.GenericParameters
                 : ImmutableArray<string>.Empty,
+            DeclaringTypeIsClass = declaringType?.IsClass == true,
             MemberName = header.Name,
             Self = SelfOf(header, declaringType),
             Parameters = header.Parameters,

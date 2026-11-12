@@ -255,6 +255,33 @@ public class SyntheticSwiftFunctionTests
         Assert.Equal(SwiftTypeCategory.GenericParameter, facts.Parameters[0].Type.Category);
     }
 
+    [Theory]
+    [InlineData("@_silgen_name(\"S\") public func f(_ tag: Swift.Int) -> Self {")]
+    [InlineData("@_silgen_name(\"S\") public static func make(_ tag: Swift.Int) -> Self {")]
+    public void Facts_ASelfResultInAClassExtensionIsOneReferenceReturnedDirectly(string declaration)
+    {
+        // A wrapper written in an extension of a class returns Self, the dynamic class type, as the
+        // member it forwards to does: one reference in a register, never an indirect result.
+        var facts = Describe(declaration, new SyntheticSwiftDeclaringType("TestModule.Box", IsClass: true));
+
+        var result = SwiftPassingClassifier.PhysicalResult(facts.Result.Type, facts.Generics, UnknownSwiftValueLowering.Instance);
+
+        Assert.Equal(SwiftLoweringOutcome.Direct, result.Outcome);
+        Assert.Equal(1, result.Pieces);
+    }
+
+    [Fact]
+    public void Facts_ASelfResultInAValueTypeExtensionIsNotTakenForAReference()
+    {
+        var facts = Describe(
+            "@_silgen_name(\"S\") public func f(_ tag: Swift.Int) -> Self {",
+            new SyntheticSwiftDeclaringType("TestModule.Point", IsClass: false));
+
+        var result = SwiftPassingClassifier.PhysicalResult(facts.Result.Type, facts.Generics, UnknownSwiftValueLowering.Instance);
+
+        Assert.NotEqual(SwiftLoweringOutcome.Direct, result.Outcome);
+    }
+
     [Fact]
     public void Facts_AGenericParentWithoutItsSignatureIsAnUnknown()
     {
