@@ -35,6 +35,11 @@ public sealed class SwiftIrModule
         @"^define\s+(?<head>[^@]*?)\s*@(?<symbol>""[^""]+""|[-\w$.]+)\((?<parameters>.*)\)[^(]*\{\s*$",
         RegexOptions.Compiled);
 
+    // A declaration: a function another module defines, as this module calls it.
+    private static readonly Regex Declare = new(
+        @"^declare\s+(?<head>[^@]*?)\s*@(?<symbol>""[^""]+""|[-\w$.]+)\((?<parameters>.*)\)[^(]*$",
+        RegexOptions.Compiled);
+
     private static readonly Regex NamedType = new(@"^(?<name>%[-\w$.""<> ]+?)\s*=\s*type\s+(?<body>.+)$", RegexOptions.Compiled);
 
     private static readonly HashSet<string> Linkages = new(StringComparer.Ordinal)
@@ -54,11 +59,15 @@ public sealed class SwiftIrModule
     };
 
     private readonly Dictionary<string, SwiftIrFunction> _functions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SwiftIrFunction> _declarations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _types = new(StringComparer.Ordinal);
 
     private SwiftIrModule() { }
 
     public IReadOnlyDictionary<string, SwiftIrFunction> Functions => _functions;
+
+    /// <summary>The functions the module calls without defining, as it declares them (never exported).</summary>
+    public IReadOnlyDictionary<string, SwiftIrFunction> Declarations => _declarations;
 
     public IReadOnlyCollection<string> TypeNames => _types.Keys;
 
@@ -70,9 +79,15 @@ public sealed class SwiftIrModule
             var line = raw.TrimEnd('\r');
             if (line.StartsWith("define ", StringComparison.Ordinal))
             {
-                var function = ParseDefine(line);
+                var function = ParseFunction(Define.Match(line), exportedByDefault: true);
                 if (function is not null)
                     module._functions[function.Symbol] = function;
+            }
+            else if (line.StartsWith("declare ", StringComparison.Ordinal))
+            {
+                var function = ParseFunction(Declare.Match(line), exportedByDefault: false);
+                if (function is not null)
+                    module._declarations[function.Symbol] = function;
             }
             else if (line.StartsWith('%'))
             {
@@ -84,14 +99,13 @@ public sealed class SwiftIrModule
         return module;
     }
 
-    private static SwiftIrFunction? ParseDefine(string line)
+    private static SwiftIrFunction? ParseFunction(Match match, bool exportedByDefault)
     {
-        var match = Define.Match(line);
         if (!match.Success)
             return null;
         var symbol = match.Groups["symbol"].Value.Trim('"');
         var head = Tokens(match.Groups["head"].Value);
-        bool exported = true, sawConvention = false;
+        bool exported = exportedByDefault, sawConvention = false;
         string convention = "ccc";
         var result = new List<string>();
         foreach (var token in head)

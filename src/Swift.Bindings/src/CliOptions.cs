@@ -367,6 +367,41 @@ public class CliOptions
                      "--apple-types-sequential-layout-whitelist gates sequential-layout emission.",
         getDefaultValue: () => false);
 
+    public Option<bool> SwiftBridges { get; } = new(
+        aliases: new[] { "--swift-bridges" },
+        description: "Swift bridge gate: read --swift-call-plans sidecars, join --swift-lowering-evidence, emit every " +
+                     "forward plan's bridge for arm64 and x86_64 into -o and validate each frame and its unwind " +
+                     "information. Fails when an executable plan has no bridge, a bridge is wrong, or nothing is executable.",
+        getDefaultValue: () => false);
+
+    public Option<string[]> SwiftCallPlans { get; } = new(
+        aliases: new[] { "--swift-call-plans" },
+        description: "A {Module}.swift-call-plans.json sidecar. Repeatable. Used by --swift-bridges.")
+    {
+        AllowMultipleArgumentsPerToken = false,
+    };
+
+    public Option<string?> SwiftLoweringEvidence { get; } = new(
+        aliases: new[] { "--swift-lowering-evidence" },
+        description: "The swiftc lowering evidence (swift-lowering-evidence.json) a plan must agree with to be executable. Used by --swift-bridges.");
+
+    public Option<bool> EmitHandWrittenPlans { get; } = new(
+        aliases: new[] { "--emit-hand-written-plans" },
+        description: "Plan a hand-written transition table (--transition-facts) over its assembly's C# (--plan-sources) " +
+                     "and write {Assembly}.swift-call-plans.json into -o.",
+        getDefaultValue: () => false);
+
+    public Option<string?> TransitionFacts { get; } = new(
+        aliases: new[] { "--transition-facts" },
+        description: "A hand-written transition-facts.json table. Used by --emit-hand-written-plans.");
+
+    public Option<string[]> PlanSources { get; } = new(
+        aliases: new[] { "--plan-sources" },
+        description: "A directory of the table's assembly C# sources. Repeatable. Used by --emit-hand-written-plans.")
+    {
+        AllowMultipleArgumentsPerToken = false,
+    };
+
     public Option<string?> AppleTypesManifest { get; } = new(
         aliases: new[] { "--apple-types-manifest" },
         description: "Path to the Apple types manifest.json (produced by --emit-apple-types-manifest).");
@@ -520,6 +555,12 @@ public class CliOptions
             AppleSdkMinTvos,
             AppleSdkMinMacos,
             EmitAppleTypesCs,
+            SwiftBridges,
+            SwiftCallPlans,
+            SwiftLoweringEvidence,
+            EmitHandWrittenPlans,
+            TransitionFacts,
+            PlanSources,
             AppleTypesManifest,
             AppleTypesSequentialLayoutWhitelist,
             AllowPartialAppleTypesManifest,

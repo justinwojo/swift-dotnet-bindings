@@ -246,6 +246,64 @@ public class SwiftLoweringOracleTests
                 report.Describe());
             Assert.True(report.Count(SwiftOracleOutcome.Match) > 0, report.Summary);
         }
+
+        // The lowering evidence of every plan target: the modules, the generated wrappers that
+        // define the wrapper targets, and a probe that calls the hand-written tables' targets.
+        if (manifest.TryGetProperty("evidence", out var evidenceProperty))
+        {
+            var wrappers = manifest.GetProperty("wrappers");
+            // The wrappers import the modules' public interfaces, as they do a shipped framework's.
+            var includes = new[]
+            {
+                "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "dependency")),
+                "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "main")),
+            };
+            var modules = new List<SwiftIrModule> { dependency.Ir, main.Ir };
+            foreach (var wrapper in wrappers.EnumerateObject().OrderBy(w => w.Name, StringComparer.Ordinal))
+                modules.Add(SwiftLoweringOracle.CompileIr(wrapper.Name, new[] { wrapper.Value.GetString()! }, target,
+                    Path.Combine(scratch, "wrapper-" + wrapper.Name), includes));
+            modules.Add(SwiftLoweringOracle.CompileIr("HandWrittenTargets", new[] { manifest.GetProperty("probe").GetString()! }, target,
+                Path.Combine(scratch, "probe")));
+
+            var targets = SwiftLoweringEvidenceCollector.Targets(Strings("plans"));
+            var symbols = SwiftLoweringEvidenceCollector.Signatures(targets, modules);
+            SwiftLoweringEvidenceCollector.Record(evidenceProperty.GetString()!, SwiftLoweringOracle.ToolchainVersion, triple, symbols);
+            var unseen = targets.Where(t => !symbols.ContainsKey(t)).ToList();
+            var conflicts = symbols.Where(s => s.Value.StartsWith("conflict: ", StringComparison.Ordinal)).Select(s => $"{s.Key}: {s.Value}").ToList();
+            var line = $"evidence: {symbols.Count} of {targets.Count} plan target(s) shown by swiftc, {conflicts.Count} conflict(s)";
+            File.AppendAllText(Path.Combine(reportDirectory, triple + ".txt"),
+                $"\n{line}\n" + string.Concat(unseen.Select(u => $"  unseen: {u}\n")) + string.Concat(conflicts.Select(c => $"  {c}\n")));
+            _output.WriteLine(line);
+            Assert.True(unseen.Count == 0 && conflicts.Count == 0,
+                $"{line}\n" + string.Join("\n", unseen.Select(u => "unseen: " + u).Concat(conflicts)));
+        }
+    }
+
+    /// <summary>
+    /// The hand-written tables' targets probe calls every target of the committed plan products, so
+    /// the oracle has evidence for each: a target added to a table without a call fails here.
+    /// </summary>
+    [SkippableFact]
+    public void HandWrittenTargetsProbe_DeclaresEveryProductTarget()
+    {
+        Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
+        var products = Directory.GetFiles(Path.Combine(RepoRoot, "build", "baselines", "swift-call-plans"), "*.swift-call-plans.json");
+        var targets = SwiftLoweringEvidenceCollector.Targets(products);
+        var scratch = Path.Combine(Path.GetTempPath(), "swift-lowering-oracle", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var probe = SwiftLoweringOracle.CompileIr("HandWrittenTargets",
+                new[] { Path.Combine(RepoRoot, "src", "Swift.Bindings", "tests", "UnitTests", "LoweringOracle", "Evidence", "HandWrittenTargets.swift") },
+                SwiftOracleTarget.SimulatorArm64, scratch);
+            var shown = SwiftLoweringEvidenceCollector.Signatures(targets, new[] { probe });
+            Assert.NotEmpty(targets);
+            Assert.Equal(targets, shown.Keys);
+            Assert.All(shown.Values, v => Assert.StartsWith("swiftcc ", v));
+        }
+        finally
+        {
+            try { Directory.Delete(scratch, recursive: true); } catch (IOException) { }
+        }
     }
 
     private static (SwiftOracleReport Probe, SwiftOracleReport Fixture) Report(string triple)

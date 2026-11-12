@@ -1,0 +1,1504 @@
+{
+  "planVersion": 1,
+  "factsVersion": 3,
+  "module": "Swift.Runtime",
+  "totals": {
+    "transitions": 32,
+    "planned": 4,
+    "refused": 0,
+    "notBridged": 28,
+    "plans": 4,
+    "executable": 0,
+    "byTransition": {
+      "ForwardPInvoke/NotBridged": 28,
+      "ForwardPInvoke/Planned": 4
+    },
+    "byPlanKind": {
+      "Forward": 4
+    },
+    "byRefusal": {}
+  },
+  "coverage": [
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.Hasher::PInvoke_GetMetadata",
+      "entryPoint": "$ss6HasherVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.PInvokesForSwiftResult::_MetadataAccessor",
+      "entryPoint": "$ss6ResultOMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.PInvokesForSwiftResult::_getExistentialTypeMetadata",
+      "entryPoint": "swift_getExistentialTypeMetadata",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.Runtime.TypeMetadata\u002BSwiftCoreNativeMethods::GetExistentialTypeMetadata",
+      "entryPoint": "swift_getExistentialTypeMetadata",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftArrayPInvokes::Count",
+      "entryPoint": "$sSa5countSivg",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftArrayPInvokes::Get",
+      "entryPoint": "$sSayxSicig",
+      "status": "Planned",
+      "factsId": "$sSayxSicig",
+      "symbol": "SBSR_75d1175a25994336",
+      "hash": "75d1175a259943368176238c37c81d8d92142bfb9f6ece5d8006b8db4ec32596",
+      "semantics": {
+        "self": "Lowered",
+        "selfOwnership": "Borrowed",
+        "parameters": [
+          "Direct/Borrowed"
+        ],
+        "throws": false,
+        "result": "Indirect"
+      },
+      "refusals": [],
+      "callee": "void (ptr noalias sret, i64, ptr, ptr)",
+      "executable": false,
+      "evidence": "no swiftc lowering evidence was joined",
+      "obligations": [
+        {
+          "kind": "IndirectResultAddress",
+          "parameter": 0,
+          "detail": "pass SwiftIndirectResult.Value: uninitialized storage of the result\u0027s size the callee initializes"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 3,
+          "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
+        }
+      ]
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftArrayPInvokes::Init",
+      "entryPoint": "$sS2ayxGycfC",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftArrayPInvokes::PInvoke_getMetadata",
+      "entryPoint": "$sSaMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftClosedRangePInvokes::PInvoke_getMetadata",
+      "entryPoint": "$sSNMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftDictionaryPInvokes::Count",
+      "entryPoint": "$sSD5countSivg",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftDictionaryPInvokes::Get",
+      "entryPoint": "$sSDyq_Sgxcig",
+      "status": "Planned",
+      "factsId": "$sSDyq_Sgxcig",
+      "symbol": "SBSR_a621bc11d6484c3d",
+      "hash": "a621bc11d6484c3d9b1bb6c5914f651fa1dcfd3133f101b102deb5581b9c1786",
+      "semantics": {
+        "self": "Lowered",
+        "selfOwnership": "Borrowed",
+        "parameters": [
+          "IndirectBorrowed/Borrowed"
+        ],
+        "throws": false,
+        "result": "Indirect"
+      },
+      "refusals": [],
+      "callee": "void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+      "executable": false,
+      "evidence": "no swiftc lowering evidence was joined",
+      "obligations": [
+        {
+          "kind": "IndirectResultAddress",
+          "parameter": 0,
+          "detail": "pass SwiftIndirectResult.Value: uninitialized storage of the result\u0027s size the callee initializes"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 3,
+          "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 4,
+          "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 5,
+          "detail": "Swift.Runtime.ProtocolWitnessTable: pass its bytes at 0:8"
+        }
+      ]
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftDictionaryPInvokes::MakeIterator",
+      "entryPoint": "$sSD12makeIteratorSD0B0Vyxq__GyF",
+      "status": "Planned",
+      "factsId": "$sSD12makeIteratorSD0B0Vyxq__GyF",
+      "symbol": "SBSR_095f1975a3d846a5",
+      "hash": "095f1975a3d846a5a369376288edc751be355ef80515f0986675b0f6ac8a1f9d",
+      "semantics": {
+        "self": "Lowered",
+        "selfOwnership": "Consumed",
+        "parameters": [],
+        "throws": false,
+        "result": "Indirect"
+      },
+      "refusals": [],
+      "callee": "void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+      "executable": false,
+      "evidence": "no swiftc lowering evidence was joined",
+      "obligations": [
+        {
+          "kind": "IndirectResultAddress",
+          "parameter": 0,
+          "detail": "pass SwiftIndirectResult.Value: uninitialized storage of the result\u0027s size the callee initializes"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 2,
+          "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 3,
+          "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 4,
+          "detail": "Swift.Runtime.ProtocolWitnessTable: pass its bytes at 0:8"
+        },
+        {
+          "kind": "OwnedTransfer",
+          "detail": "the callee consumes self (\u002B1)",
+          "formal": -1
+        }
+      ]
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftDictionaryPInvokes::PInvoke_getIteratorMetadata",
+      "entryPoint": "$sSD8IteratorVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftDictionaryPInvokes::PInvoke_getMetadata",
+      "entryPoint": "$sSDMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftKeyPathRuntime::AnyKeyPathMetadata",
+      "entryPoint": "$ss10AnyKeyPathCMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftKeyPathRuntime::KeyPathMetadata",
+      "entryPoint": "$ss7KeyPathCMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftKeyPathRuntime::PartialKeyPathMetadata",
+      "entryPoint": "$ss14PartialKeyPathCMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftKeyPathRuntime::ReferenceWritableKeyPathMetadata",
+      "entryPoint": "$ss24ReferenceWritableKeyPathCMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftKeyPathRuntime::WritableKeyPathMetadata",
+      "entryPoint": "$ss15WritableKeyPathCMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftSetPInvokes::Contains",
+      "entryPoint": "$sSh8containsySbxF",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftSetPInvokes::Count",
+      "entryPoint": "$sSh5countSivg",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftSetPInvokes::Init",
+      "entryPoint": "$sS2hyxGycfC",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftSetPInvokes::MakeIterator",
+      "entryPoint": "$sSh12makeIteratorSh0B0Vyx_GyF",
+      "status": "Planned",
+      "factsId": "$sSh12makeIteratorSh0B0Vyx_GyF",
+      "symbol": "SBSR_e16d2038b2c21336",
+      "hash": "e16d2038b2c213366f75d38e46ef790296944cd227ed4a2aa66f820af041021e",
+      "semantics": {
+        "self": "Lowered",
+        "selfOwnership": "Consumed",
+        "parameters": [],
+        "throws": false,
+        "result": "Indirect"
+      },
+      "refusals": [],
+      "callee": "void (ptr noalias sret, ptr, ptr, ptr)",
+      "executable": false,
+      "evidence": "no swiftc lowering evidence was joined",
+      "obligations": [
+        {
+          "kind": "IndirectResultAddress",
+          "parameter": 0,
+          "detail": "pass SwiftIndirectResult.Value: uninitialized storage of the result\u0027s size the callee initializes"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 2,
+          "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
+        },
+        {
+          "kind": "AggregatePieces",
+          "parameter": 3,
+          "detail": "Swift.Runtime.ProtocolWitnessTable: pass its bytes at 0:8"
+        },
+        {
+          "kind": "OwnedTransfer",
+          "detail": "the callee consumes self (\u002B1)",
+          "formal": -1
+        }
+      ]
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftSetPInvokes::PInvoke_getIteratorMetadata",
+      "entryPoint": "$sSh8IteratorVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "Swift.SwiftSetPInvokes::PInvoke_getMetadata",
+      "entryPoint": "$sShMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.Animation::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI9AnimationVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.AnyView::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI7AnyViewVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.Color::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI5ColorVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.EdgeInsets::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI10EdgeInsetsVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.Font::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI4FontVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.Image::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI5ImageVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    },
+    {
+      "transition": "ForwardPInvoke",
+      "member": "SwiftUI.Text::PInvoke_GetMetadata",
+      "entryPoint": "$s7SwiftUI4TextVMa",
+      "status": "NotBridged",
+      "reason": "primitive-only: every runtime places it identically (I1)",
+      "refusals": [],
+      "executable": false
+    }
+  ],
+  "plans": [
+    {
+      "hash": "095f1975a3d846a5a369376288edc751be355ef80515f0986675b0f6ac8a1f9d",
+      "symbol": "SBSR_095f1975a3d846a5",
+      "body": {
+        "kind": "Forward",
+        "target": "$sSD12makeIteratorSD0B0Vyxq__GyF",
+        "managed": {
+          "arguments": [
+            {
+              "role": "Ordinary",
+              "parameter": 1,
+              "managedType": "nint",
+              "source": "Value",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 2,
+              "managedType": "Swift.Runtime.TypeMetadata",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 3,
+              "managedType": "Swift.Runtime.TypeMetadata",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 4,
+              "managedType": "Swift.Runtime.ProtocolWitnessTable",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "IndirectResult",
+              "parameter": 0,
+              "managedType": "SwiftIndirectResult",
+              "source": "Trailing",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            }
+          ],
+          "result": {
+            "kind": "Indirect",
+            "managedType": "SwiftIndirectResult",
+            "size": 0,
+            "signed": false,
+            "pieces": []
+          }
+        },
+        "architectures": [
+          {
+            "architecture": "Arm64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x3",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x4",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x3",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "x4",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "x8",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "x29",
+                "x30"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          },
+          {
+            "architecture": "X86_64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rcx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "r8",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rcx",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "r8",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "rax",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "rbp"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          }
+        ]
+      },
+      "planVersion": 1,
+      "twin": {
+        "parameters": [
+          "nint",
+          "nint",
+          "nint",
+          "nint",
+          "nint"
+        ],
+        "return": "void"
+      }
+    },
+    {
+      "hash": "75d1175a259943368176238c37c81d8d92142bfb9f6ece5d8006b8db4ec32596",
+      "symbol": "SBSR_75d1175a25994336",
+      "body": {
+        "kind": "Forward",
+        "target": "$sSayxSicig",
+        "managed": {
+          "arguments": [
+            {
+              "role": "Ordinary",
+              "parameter": 1,
+              "managedType": "nint",
+              "source": "Value",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 2,
+              "managedType": "nint",
+              "source": "Value",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 3,
+              "managedType": "Swift.Runtime.TypeMetadata",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "IndirectResult",
+              "parameter": 0,
+              "managedType": "SwiftIndirectResult",
+              "source": "Trailing",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            }
+          ],
+          "result": {
+            "kind": "Indirect",
+            "managedType": "SwiftIndirectResult",
+            "size": 0,
+            "signed": false,
+            "pieces": []
+          }
+        },
+        "architectures": [
+          {
+            "architecture": "Arm64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x3",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "x3",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "x8",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "x29",
+                "x30"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          },
+          {
+            "architecture": "X86_64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rcx",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "rcx",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "rax",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "rbp"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          }
+        ]
+      },
+      "planVersion": 1,
+      "twin": {
+        "parameters": [
+          "nint",
+          "nint",
+          "nint",
+          "nint"
+        ],
+        "return": "void"
+      }
+    },
+    {
+      "hash": "a621bc11d6484c3d9b1bb6c5914f651fa1dcfd3133f101b102deb5581b9c1786",
+      "symbol": "SBSR_a621bc11d6484c3d",
+      "body": {
+        "kind": "Forward",
+        "target": "$sSDyq_Sgxcig",
+        "managed": {
+          "arguments": [
+            {
+              "role": "Ordinary",
+              "parameter": 1,
+              "managedType": "nint",
+              "source": "Value",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 2,
+              "managedType": "nint",
+              "source": "Value",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 3,
+              "managedType": "Swift.Runtime.TypeMetadata",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 4,
+              "managedType": "Swift.Runtime.TypeMetadata",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 5,
+              "managedType": "Swift.Runtime.ProtocolWitnessTable",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "IndirectResult",
+              "parameter": 0,
+              "managedType": "SwiftIndirectResult",
+              "source": "Trailing",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            }
+          ],
+          "result": {
+            "kind": "Indirect",
+            "managedType": "SwiftIndirectResult",
+            "size": 0,
+            "signed": false,
+            "pieces": []
+          }
+        },
+        "architectures": [
+          {
+            "architecture": "Arm64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x3",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x4",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x5",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x3",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x4",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "x5",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "x8",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "x29",
+                "x30"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          },
+          {
+            "architecture": "X86_64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rcx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "r8",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "r9",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rcx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "r8",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "r9",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "rax",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "rbp"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          }
+        ]
+      },
+      "planVersion": 1,
+      "twin": {
+        "parameters": [
+          "nint",
+          "nint",
+          "nint",
+          "nint",
+          "nint",
+          "nint"
+        ],
+        "return": "void"
+      }
+    },
+    {
+      "hash": "e16d2038b2c213366f75d38e46ef790296944cd227ed4a2aa66f820af041021e",
+      "symbol": "SBSR_e16d2038b2c21336",
+      "body": {
+        "kind": "Forward",
+        "target": "$sSh12makeIteratorSh0B0Vyx_GyF",
+        "managed": {
+          "arguments": [
+            {
+              "role": "Ordinary",
+              "parameter": 1,
+              "managedType": "nint",
+              "source": "Value",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 2,
+              "managedType": "Swift.Runtime.TypeMetadata",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "Ordinary",
+              "parameter": 3,
+              "managedType": "Swift.Runtime.ProtocolWitnessTable",
+              "source": "Piece",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            },
+            {
+              "role": "IndirectResult",
+              "parameter": 0,
+              "managedType": "SwiftIndirectResult",
+              "source": "Trailing",
+              "offset": 0,
+              "size": 8,
+              "class": "General",
+              "signed": false,
+              "unread": false
+            }
+          ],
+          "result": {
+            "kind": "Indirect",
+            "managedType": "SwiftIndirectResult",
+            "size": 0,
+            "signed": false,
+            "pieces": []
+          }
+        },
+        "architectures": [
+          {
+            "architecture": "Arm64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x3",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "x0",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x1",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "x2",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "x3",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "x8",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "x29",
+                "x30"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          },
+          {
+            "architecture": "X86_64",
+            "incoming": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rcx",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "outgoing": [
+              {
+                "kind": "Register",
+                "register": "rdi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rsi",
+                "offset": 0,
+                "size": 8
+              },
+              {
+                "kind": "Register",
+                "register": "rdx",
+                "offset": 0,
+                "size": 8
+              }
+            ],
+            "stackPrefixBytes": 0,
+            "moves": [
+              {
+                "role": "IndirectResult",
+                "from": {
+                  "kind": "Register",
+                  "register": "rcx",
+                  "offset": 0,
+                  "size": 8
+                },
+                "to": {
+                  "kind": "Register",
+                  "register": "rax",
+                  "offset": 0,
+                  "size": 8
+                }
+              }
+            ],
+            "zeroError": false,
+            "result": {
+              "kind": "Indirect",
+              "moves": []
+            },
+            "afterCall": [],
+            "frame": {
+              "savedRegisters": [
+                "rbp"
+              ],
+              "localBytes": 0,
+              "outgoingStackBytes": 0,
+              "locals": []
+            }
+          }
+        ]
+      },
+      "planVersion": 1,
+      "twin": {
+        "parameters": [
+          "nint",
+          "nint",
+          "nint",
+          "nint"
+        ],
+        "return": "void"
+      }
+    }
+  ]
+}

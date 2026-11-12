@@ -49,6 +49,22 @@ public sealed record SwiftPlanCoverageEntry(
     public string? Reason { get; init; }
 
     public ImmutableArray<SwiftPlanRefusal> Refusals { get; init; } = ImmutableArray<SwiftPlanRefusal>.Empty;
+
+    /// <summary>When planned, the callee's predicted physical signature (normalized IR), which the evidence is judged against.</summary>
+    public string? Callee { get; init; }
+
+    /// <summary>
+    /// True only when the plan's target is shown, by swiftc evidence, to take exactly the predicted
+    /// signature on every triple, and every argument it passes is read or shown benign. False by
+    /// default: a plan nothing has checked against swiftc is never executed.
+    /// </summary>
+    public bool Executable { get; init; }
+
+    /// <summary>When planned, why it is or is not executable.</summary>
+    public string? Evidence { get; init; }
+
+    /// <summary>When planned, what the managed caller of the twin must preserve around the call.</summary>
+    public ImmutableArray<SwiftMarshallingObligation>? Obligations { get; init; }
 }
 
 /// <summary>
@@ -75,6 +91,9 @@ public sealed class SwiftCallPlanSet
     public const string PrimitiveOnlyReason = "primitive-only: every runtime places it identically (I1)";
 
     public const string CdeclSpecialReason = "a C-convention import that names a Swift register type: normalized, not bridged";
+
+    /// <summary>Why a plan is not executable before any evidence is joined.</summary>
+    public const string NoEvidenceReason = "no swiftc lowering evidence was joined";
 
     public required string Module { get; init; }
 
@@ -170,7 +189,11 @@ public sealed class SwiftCallPlanSet
             else if (outcome.Plan is { } planned)
             {
                 plans.TryAdd(planned.Symbol, planned);
-                covered = Covered(entry, SwiftPlanStatus.Planned) with { Symbol = planned.Symbol, Hash = planned.Hash, Semantics = outcome.Semantics };
+                covered = Covered(entry, SwiftPlanStatus.Planned) with
+                {
+                    Symbol = planned.Symbol, Hash = planned.Hash, Semantics = outcome.Semantics,
+                    Callee = outcome.Callee, Evidence = NoEvidenceReason, Obligations = outcome.Obligations,
+                };
             }
             else
             {
@@ -196,6 +219,7 @@ public sealed class SwiftCallPlanSet
                 coverage.Add(Covered(entry, callback.Status) with
                 {
                     Symbol = callback.Symbol, Hash = callback.Hash, Semantics = callback.Semantics, Refusals = callback.Refusals,
+                    Callee = callback.Callee, Evidence = callback.Evidence, Obligations = callback.Obligations,
                 });
             }
             else
@@ -220,7 +244,39 @@ public sealed class SwiftCallPlanSet
         };
     }
 
+    /// <summary>This plan set with <paramref name="evidence"/> joined: each planned entry's executable flag and why.</summary>
+    public SwiftCallPlanSet WithEvidence(SwiftLoweringEvidence evidence) => new()
+    {
+        Module = Module,
+        Coverage = evidence.Join(Coverage, Plans),
+        Plans = Plans,
+    };
+
     // ---- the sidecar ----
+
+    /// <summary>Reads a plan sidecar back; every plan's hash is checked against its body.</summary>
+    public static SwiftCallPlanDocument Read(string path)
+    {
+        var document = JsonSerializer.Deserialize(File.ReadAllText(path), SwiftCallPlanJsonContext.Default.SwiftCallPlanDocument)
+            ?? throw new InvalidDataException($"{path} holds no plan set");
+        if (document.PlanVersion != SwiftCallPlan.Version)
+            throw new InvalidDataException($"{path} has plan version {document.PlanVersion}; this generator reads {SwiftCallPlan.Version}");
+        foreach (var plan in document.Plans)
+        {
+            var again = SwiftCallPlan.Of(plan.Body);
+            if (again.Hash != plan.Hash || again.Symbol != plan.Symbol)
+                throw new InvalidDataException($"{path}: the plan {plan.Symbol} does not hash to its name ({again.Symbol}); the sidecar was edited or is of another schema");
+        }
+        return document;
+    }
+
+    /// <summary>A read plan sidecar as a plan set.</summary>
+    public static SwiftCallPlanSet From(SwiftCallPlanDocument document) => new()
+    {
+        Module = document.Module,
+        Coverage = document.Coverage,
+        Plans = document.Plans,
+    };
 
     public static string FileName(string @namespace) => $"{@namespace}.swift-call-plans.json";
 
@@ -236,6 +292,7 @@ public sealed class SwiftCallPlanSet
             Refused = Count(SwiftPlanStatus.Refused),
             NotBridged = Count(SwiftPlanStatus.NotBridged),
             Plans = Plans.Length,
+            Executable = Coverage.Count(e => e.Executable),
             ByTransition = Coverage.GroupBy(e => $"{e.Transition}/{e.Status}")
                 .ToImmutableSortedDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
             ByPlanKind = Plans.GroupBy(p => p.Body.Kind.ToString())
@@ -294,6 +351,9 @@ public sealed record SwiftCallPlanTotals
 
     /// <summary>Distinct plans: one per bridge.</summary>
     public required int Plans { get; init; }
+
+    /// <summary>Planned entries whose evidence makes them executable.</summary>
+    public int Executable { get; init; }
 
     /// <summary>Coverage entries per transition kind and status (<c>ForwardPInvoke/Planned</c>).</summary>
     public required ImmutableSortedDictionary<string, int> ByTransition { get; init; }

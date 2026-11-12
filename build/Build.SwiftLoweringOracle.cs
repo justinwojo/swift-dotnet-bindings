@@ -37,6 +37,16 @@ partial class Build
         scratch.CreateDirectory();
         var reports = scratch / "reports";
         var manifest = scratch / "corpus.json";
+        // The evidence covers every plan target: the corpus sidecars of the regenerated BindingTests
+        // output and the committed products of the hand-written tables.
+        var wrappers = new System.Collections.Generic.Dictionary<string, string>
+        {
+            [$"{ModuleName}SwiftBindings"] = BtOutputDir / $"{ModuleName}.Wrapper.swift",
+            [$"{DepModuleName}SwiftBindings"] = BtOutputDir / "dep-swift" / $"{DepModuleName}.Wrapper.swift",
+        };
+        var plans = SwiftBridgePlanFiles();
+        foreach (var required in wrappers.Values.Concat(plans).Where(p => !File.Exists(p)))
+            Assert.Fail($"{required} is missing: run `nuke binding-tests --compile-only` (and `nuke swift-bridge-products`) first");
         File.WriteAllText(manifest, JsonSerializer.Serialize(new
         {
             dependencyModule = DepModuleName,
@@ -45,6 +55,10 @@ partial class Build
             main = GetMainSourceFiles().OrderBy(f => f, StringComparer.Ordinal),
             reports = reports.ToString(),
             scratch = (scratch / "compile").ToString(),
+            wrappers,
+            probe = (SourceDir / "Swift.Bindings" / "tests" / "UnitTests" / "LoweringOracle" / "Evidence" / "HandWrittenTargets.swift").ToString(),
+            plans,
+            evidence = SwiftLoweringEvidencePath.ToString(),
         }));
 
         Log.Information("=== Swift lowering oracle over {Main} and {Dependency} ===", ModuleName, DepModuleName);
@@ -65,7 +79,8 @@ partial class Build
             foreach (var report in Directory.Exists(reports) ? Directory.GetFiles(reports, "*.txt").OrderBy(f => f, StringComparer.Ordinal) : Enumerable.Empty<string>())
             {
                 var lines = File.ReadAllLines(report);
-                foreach (var line in lines.Where(l => l.StartsWith("toolchain:", StringComparison.Ordinal) || l.Contains(" match, ", StringComparison.Ordinal)))
+                foreach (var line in lines.Where(l => l.StartsWith("toolchain:", StringComparison.Ordinal) || l.StartsWith("evidence:", StringComparison.Ordinal)
+                    || l.Contains(" match, ", StringComparison.Ordinal)))
                     Log.Information("{Report}: {Line}", Path.GetFileNameWithoutExtension(report), line);
             }
             // The IR is large; the reports are what the run leaves behind.
@@ -73,6 +88,6 @@ partial class Build
             if (Directory.Exists(compiled))
                 compiled.DeleteDirectory();
         }
-        Log.Information("Reports: {Reports}", reports);
+        Log.Information("Reports: {Reports}; evidence: {Evidence}", reports, SwiftLoweringEvidencePath);
     }
 }

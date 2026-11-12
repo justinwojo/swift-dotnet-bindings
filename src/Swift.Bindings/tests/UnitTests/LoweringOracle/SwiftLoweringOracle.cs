@@ -163,12 +163,22 @@ public static class SwiftLoweringOracle
         }
     }
 
-    /// <summary>Compiles <paramref name="sources"/> into one library-evolution module and its IR.</summary>
+    /// <summary>
+    /// The directory of a module's public textual interface, alone: what a binary framework gives a
+    /// consumer, and so what a generated wrapper compiles against (no SPI, no accessor-level
+    /// availability).
+    /// </summary>
+    public static string InterfaceDirectory(string outputDirectory) => Path.Combine(outputDirectory, "interface");
+
+    /// <summary>
+    /// Compiles <paramref name="sources"/> into one library-evolution module and its IR, and writes
+    /// its public interface under <see cref="InterfaceDirectory"/>.
+    /// </summary>
     public static SwiftOracleModule Compile(
         string moduleName, IEnumerable<string> sources, SwiftOracleTarget target, string outputDirectory,
         IEnumerable<string>? extraArguments = null)
     {
-        Directory.CreateDirectory(outputDirectory);
+        Directory.CreateDirectory(InterfaceDirectory(outputDirectory));
         var sdk = SdkPath(target.Sdk) ?? throw new InvalidOperationException($"no {target.Sdk} SDK");
         var modulePath = Path.Combine(outputDirectory, moduleName + ".swiftmodule");
         var irPath = Path.Combine(outputDirectory, moduleName + ".ll");
@@ -179,6 +189,10 @@ public static class SwiftLoweringOracle
             "-target", target.Triple, "-sdk", sdk, "-module-name", moduleName,
             "-emit-module", "-emit-module-path", modulePath, "-emit-ir", "-o", irPath,
             "-emit-tbd", "-emit-tbd-path", tbdPath, "-Xfrontend", "-tbd-install_name", "-Xfrontend", $"@rpath/{moduleName}.framework/{moduleName}",
+            // The private interface (SPI included) goes beside the module, never into the public
+            // interface's directory, where an importer would prefer it.
+            "-emit-module-interface-path", Path.Combine(InterfaceDirectory(outputDirectory), moduleName + ".swiftinterface"),
+            "-emit-private-module-interface-path", Path.Combine(outputDirectory, moduleName + ".private.swiftinterface"),
         };
         if (extraArguments is not null)
             arguments.AddRange(extraArguments);
@@ -190,6 +204,33 @@ public static class SwiftLoweringOracle
         if (!File.Exists(abiJson))
             throw new InvalidOperationException($"swiftc wrote no ABI descriptor for {moduleName} ({target})");
         return new SwiftOracleModule(moduleName, abiJson, tbdPath, SwiftIrModule.Parse(File.ReadAllText(irPath)));
+    }
+
+    /// <summary>
+    /// Compiles <paramref name="sources"/> to LLVM IR only, the way the generator compiles a wrapper
+    /// (no library evolution, minimal concurrency checking, imports through public interfaces): for
+    /// the signatures of the functions it defines and of the functions it calls in other modules.
+    /// </summary>
+    public static SwiftIrModule CompileIr(
+        string moduleName, IEnumerable<string> sources, SwiftOracleTarget target, string outputDirectory,
+        IEnumerable<string>? extraArguments = null)
+    {
+        Directory.CreateDirectory(outputDirectory);
+        var sdk = SdkPath(target.Sdk) ?? throw new InvalidOperationException($"no {target.Sdk} SDK");
+        var irPath = Path.Combine(outputDirectory, moduleName + ".ll");
+        var arguments = new List<string>
+        {
+            "swiftc", "-wmo", "-parse-as-library", "-strict-concurrency=minimal",
+            "-target", target.Triple, "-sdk", sdk, "-module-name", moduleName, "-emit-ir", "-o", irPath,
+            "-module-cache-path", Path.Combine(outputDirectory, "module-cache"),
+        };
+        if (extraArguments is not null)
+            arguments.AddRange(extraArguments);
+        arguments.AddRange(sources);
+        var result = Run(XcrunPath.Value!, arguments, outputDirectory);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"swiftc failed for {moduleName} ({target}):\n{result.Output}");
+        return SwiftIrModule.Parse(File.ReadAllText(irPath));
     }
 
     /// <summary>

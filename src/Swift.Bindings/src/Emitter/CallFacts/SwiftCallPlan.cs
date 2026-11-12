@@ -69,6 +69,7 @@ public enum SwiftPieceSource
 /// <summary>One argument of the twin: what it carries, which managed parameter it comes from, and its class and size.</summary>
 /// <param name="Parameter">The managed declaration's parameter it comes from; null for a trailing pointer with none.</param>
 /// <param name="Unread">True for an ordinary argument the callee takes nothing at: the managed declaration passes more than the callee reads.</param>
+/// <param name="UnreadReason">For an unread argument of a forward plan, why passing it is benign: what the callee takes instead.</param>
 public sealed record SwiftTwinArgument(
     SwiftTwinRole Role,
     int? Parameter,
@@ -78,7 +79,8 @@ public sealed record SwiftTwinArgument(
     int Size,
     SwiftRegisterClass Class,
     bool Signed = false,
-    bool Unread = false)
+    bool Unread = false,
+    string? UnreadReason = null)
 {
     [JsonIgnore]
     public SwiftArgumentSlot Slot => new(Class, Size);
@@ -272,6 +274,9 @@ public sealed record SwiftCallPlan(string Hash, string Symbol, SwiftCallPlanBody
         };
         return new SwiftCallPlan(hash, prefix + hash[..SymbolHashLength], body);
     }
+
+    /// <summary>The twin's canonical parameter and return types, from the managed view (layout, not spelling).</summary>
+    public SwiftTwinSignature Twin => SwiftTwinSignature.Of(Body.Managed);
 }
 
 /// <summary>The semantic conventions a plan was made under, from the facts: kept on each use, not in the shared plan.</summary>
@@ -293,6 +298,15 @@ public sealed record SwiftPlanSemantics(
 public sealed record SwiftPlanOutcome(SwiftCallPlan? Plan, ImmutableArray<SwiftPlanRefusal> Refusals, SwiftPlanSemantics? Semantics)
 {
     public bool IsPlanned => Plan is not null;
+
+    /// <summary>
+    /// When planned, the callee's predicted physical signature (normalized LLVM IR, the form the
+    /// lowering oracle reads swiftc's definitions in): what the plan's evidence must show swiftc gives.
+    /// </summary>
+    public string? Callee { get; init; }
+
+    /// <summary>When planned, what the managed caller of the twin must preserve around the call.</summary>
+    public ImmutableArray<SwiftMarshallingObligation> Obligations { get; init; } = ImmutableArray<SwiftMarshallingObligation>.Empty;
 
     public static SwiftPlanOutcome Refused(params SwiftPlanRefusal[] refusals) =>
         new(null, refusals.ToImmutableArray(), null);
@@ -380,9 +394,10 @@ public sealed class SwiftCallPlanner
         var views = new List<(SwiftArchitecture Architecture, SwiftManagedView View)>();
         var natives = ImmutableArray.CreateBuilder<SwiftNativePlan>();
         SwiftPlanSemantics? semantics = null;
+        string? callee = null;
         foreach (var model in _architectures.Where(a => a.Architecture != SwiftArchitecture.Arm64e))
         {
-            var attempt = PlanArchitecture(kind, facts, parameters, returned, model);
+            var attempt = PlanArchitecture(kind, facts, managed, parameters, returned, model);
             if (attempt.Refusal is { } refusal)
             {
                 refusals.Add(refusal with { Architecture = model.Architecture });
@@ -391,6 +406,7 @@ public sealed class SwiftCallPlanner
             views.Add((model.Architecture, attempt.View!));
             natives.Add(attempt.Native!);
             semantics ??= attempt.Semantics;
+            callee ??= attempt.Callee;
         }
 
         // I6: the managed view is the IL, which every architecture shares.
@@ -408,7 +424,12 @@ public sealed class SwiftCallPlanner
             return Refuse(refusals);
 
         var body = new SwiftCallPlanBody(kind, kind == SwiftPlanKind.Forward ? target : null, views[0].View, natives.ToImmutable());
-        return new SwiftPlanOutcome(SwiftCallPlan.Of(body), ImmutableArray<SwiftPlanRefusal>.Empty, semantics);
+        var lowering = _architectures.First(a => a.Architecture != SwiftArchitecture.Arm64e).Lowering;
+        return new SwiftPlanOutcome(SwiftCallPlan.Of(body), ImmutableArray<SwiftPlanRefusal>.Empty, semantics)
+        {
+            Callee = callee,
+            Obligations = SwiftMarshallingObligations.Of(kind, facts, managed, parameters, returned, views[0].View, lowering),
+        };
     }
 
     private static SwiftPlanOutcome Refuse(List<SwiftPlanRefusal> refusals) =>
@@ -420,12 +441,14 @@ public sealed class SwiftCallPlanner
 
     private sealed record ArchitectureAttempt(SwiftManagedView? View, SwiftNativePlan? Native, SwiftPlanSemantics? Semantics, SwiftPlanRefusal? Refusal)
     {
+        public string? Callee { get; init; }
+
         public static ArchitectureAttempt Fail(SwiftPlanRefusalKind kind, string reason) => new(null, null, null, new SwiftPlanRefusal(kind, reason));
     }
 
     /// <summary>Steps 2–5 on one architecture.</summary>
     private ArchitectureAttempt PlanArchitecture(
-        SwiftPlanKind kind, SwiftCallFacts facts, ImmutableArray<SwiftManagedValue> parameters, SwiftManagedValue returned, SwiftArchitectureModel model)
+        SwiftPlanKind kind, SwiftCallFacts facts, SwiftManagedSignature managed, ImmutableArray<SwiftManagedValue> parameters, SwiftManagedValue returned, SwiftArchitectureModel model)
     {
         var convention = SwiftCallingConvention.For(model.Architecture);
 
@@ -569,13 +592,66 @@ public sealed class SwiftCallPlanner
                 return ArchitectureAttempt.Fail(SwiftPlanRefusalKind.PrefixMismatch,
                     $"argument {i}: the managed {mine.ManagedType} piece is at offset {mine.Offset}; the callee's is at {swiftPiece.Offset}");
         }
-        for (int i = swiftOrdinary.Count; i < ordinary.Count; i++)
-            ordinary[i] = ordinary[i] with { Unread = true };
+        // The managed declaration may pass more than the callee reads. A forward plan carries the
+        // surplus only when the facts show what the callee takes in its place; anything else is a
+        // misbinding that happens to fit.
+        if (ordinary.Count > swiftOrdinary.Count)
+        {
+            var surplus = ordinary.Skip(swiftOrdinary.Count).ToList();
+            string? why = null;
+            if (kind != SwiftPlanKind.Reverse)
+            {
+                why = UnreadReason(facts, managed, surplus);
+                if (why is null)
+                    return ArchitectureAttempt.Fail(SwiftPlanRefusalKind.PrefixMismatch,
+                        $"the managed signature passes {surplus.Count} ordinary argument(s) past the {swiftOrdinary.Count} the callee takes "
+                        + $"({string.Join(", ", surplus.Select(a => a.Parameter is { } p ? managed.Parameters[p].Name : a.ManagedType).Distinct())}), "
+                        + $"and the facts do not show them benign ({physical.Normalized})");
+            }
+            for (int i = swiftOrdinary.Count; i < ordinary.Count; i++)
+                ordinary[i] = ordinary[i] with { Unread = true, UnreadReason = why };
+        }
 
         var semantics = Semantics(facts, model.Lowering);
-        return kind == SwiftPlanKind.Reverse
+        var attempt = kind == SwiftPlanKind.Reverse
             ? Reverse(convention, ordinary, swiftSlots, resultView, errorParameter, parameters, semantics)
             : Forward(kind, convention, ordinary, swiftSlots, resultView, indirectParameter, selfParameter, errorParameter, parameters, semantics);
+        return attempt with { Callee = physical.Normalized };
+    }
+
+    /// <summary>The reason a self that is a thin metatype makes a trailing metatype argument benign.</summary>
+    public const string ThinMetatypeReason =
+        "the callee's self is a thin metatype, which occupies no register: the managed declaration's trailing metatype is not read";
+
+    /// <summary>The reason a self that carries its type's metadata makes trailing type-metadata arguments benign.</summary>
+    public const string FulfilledMetadataReason =
+        "the callee recovers its type's generic arguments from self: the managed declaration's trailing type-metadata arguments are not read";
+
+    /// <summary>
+    /// Why the ordinary arguments the callee does not take are benign to pass, or null. Each must be a
+    /// whole pointer-sized value, and the facts must show what the callee reads instead: a thin
+    /// metatype self, which takes no register (the managed declaration passes it as a trailing
+    /// <c>metatype</c>); or a self that carries the type's metadata (a class instance's isa, or the
+    /// self-type metadata a generic value's member takes), which fulfils the type-level generic
+    /// arguments the managed declaration passes as <c>…Metadata</c>. The names only corroborate the
+    /// structure; neither is enough alone.
+    /// </summary>
+    internal static string? UnreadReason(SwiftCallFacts facts, SwiftManagedSignature managed, IReadOnlyList<SwiftTwinArgument> surplus)
+    {
+        if (surplus.Count == 0)
+            return null;
+        if (surplus.Any(a => a.Source != SwiftPieceSource.Value || a.Class != SwiftRegisterClass.General || a.Size != 8
+                || a.Parameter is not { } p || p < 0 || p >= managed.Parameters.Length || managed.Parameters[p].RefKind != SwiftManagedRefKind.None))
+            return null;
+        var names = surplus.Select(a => managed.Parameters[a.Parameter!.Value].Name).ToList();
+        if (facts.Self.Kind == SwiftCallSelfKind.ThinMetatype && surplus.Count == 1 && names[0] == "metatype")
+            return ThinMetatypeReason;
+        int typeLevel = facts.Generics.IsEmpty ? 0 : facts.Generics.Parameters.Length - facts.Generics.OwnParameters.Length;
+        if (facts.Self.Kind is SwiftCallSelfKind.Reference or SwiftCallSelfKind.Value
+            && typeLevel > 0 && surplus.Count <= typeLevel
+            && names.All(n => n.Length > "Metadata".Length && n.EndsWith("Metadata", StringComparison.Ordinal)))
+            return FulfilledMetadataReason;
+        return null;
     }
 
     /// <summary>

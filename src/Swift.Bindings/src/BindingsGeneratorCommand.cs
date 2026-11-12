@@ -96,6 +96,12 @@ public static class BindingsGeneratorCommand
         var appleSdkMinTvos = parseResult.GetValueForOption(options.AppleSdkMinTvos);
         var appleSdkMinMacos = parseResult.GetValueForOption(options.AppleSdkMinMacos);
         var emitAppleTypesCs = parseResult.GetValueForOption(options.EmitAppleTypesCs);
+        var swiftBridges = parseResult.GetValueForOption(options.SwiftBridges);
+        var swiftCallPlans = parseResult.GetValueForOption(options.SwiftCallPlans) ?? Array.Empty<string>();
+        var swiftLoweringEvidence = parseResult.GetValueForOption(options.SwiftLoweringEvidence);
+        var emitHandWrittenPlans = parseResult.GetValueForOption(options.EmitHandWrittenPlans);
+        var transitionFacts = parseResult.GetValueForOption(options.TransitionFacts);
+        var planSources = parseResult.GetValueForOption(options.PlanSources) ?? Array.Empty<string>();
         var appleTypesManifestPath = parseResult.GetValueForOption(options.AppleTypesManifest);
         var appleTypesSequentialLayoutWhitelistPath = parseResult.GetValueForOption(options.AppleTypesSequentialLayoutWhitelist);
         var allowPartialAppleTypesManifest = parseResult.GetValueForOption(options.AllowPartialAppleTypesManifest);
@@ -268,6 +274,23 @@ public static class BindingsGeneratorCommand
                 appleTypesSequentialLayoutWhitelistPath,
                 outputDirectory!,
                 logger);
+            return;
+        }
+
+        // Handle --swift-bridges and --emit-hand-written-plans: the Swift bridge gate and the plan
+        // sidecars of the hand-written transition tables. Out-of-tree from binding generation, so
+        // they run before --platform validation, like the Apple-types modes.
+        if (swiftBridges || emitHandWrittenPlans)
+        {
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                logger.LogError("Error: {Mode} requires -o <output-dir>.", swiftBridges ? "--swift-bridges" : "--emit-hand-written-plans");
+                context.ExitCode = 1;
+                return;
+            }
+            context.ExitCode = swiftBridges
+                ? SwiftBridgeGate.Run(swiftCallPlans, swiftLoweringEvidence, outputDirectory!, logger)
+                : SwiftHandWrittenPlans.Run(transitionFacts ?? string.Empty, planSources, outputDirectory!, logger);
             return;
         }
 
@@ -3323,6 +3346,10 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --apple-sdk-train-major  Optional override for sdk_train.major. Derived from --apple-version when omitted.");
         Console.WriteLine("  --apple-sdk-train-label  Optional. Human-readable SDK train label (e.g. 'Xcode 26 / iOS 26').");
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
+        Console.WriteLine();
+        Console.WriteLine("Swift bridges — ignore binding-generation options:");
+        Console.WriteLine("  --swift-bridges            Emit and validate the native bridges of --swift-call-plans sidecars (repeatable), joined with --swift-lowering-evidence, into -o.");
+        Console.WriteLine("  --emit-hand-written-plans  Plan --transition-facts over --plan-sources directories (repeatable) and write the plan sidecar into -o.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
         Console.WriteLine("  --interface-facts-producer  'auto' (default) or 'swift-syntax'. Both shell out to the SwiftInterfaceParser host binary (macOS-only); the legacy 'regex' producer was removed.");

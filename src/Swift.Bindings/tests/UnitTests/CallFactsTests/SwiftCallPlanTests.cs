@@ -27,12 +27,12 @@ public class SwiftCallPlanTests
 {
     // ---- helpers ----
 
-    private static readonly ISwiftValueLowering Layout = new SwiftLayoutValueLowering(Array.Empty<ModuleDecl>(), new TypeDatabase());
+    internal static readonly ISwiftValueLowering Layout = new SwiftLayoutValueLowering(Array.Empty<ModuleDecl>(), new TypeDatabase());
 
-    private static SwiftTypeFacts Type(string spelling, SwiftTypeCategory category = SwiftTypeCategory.Struct) =>
+    internal static SwiftTypeFacts Type(string spelling, SwiftTypeCategory category = SwiftTypeCategory.Struct) =>
         new() { Spelling = spelling, Category = category, IsFrozen = true, IsClassBound = category == SwiftTypeCategory.Class };
 
-    private static SwiftParameterFacts Param(int index, string spelling) => new()
+    internal static SwiftParameterFacts Param(int index, string spelling) => new()
     {
         Index = index,
         Type = Type(spelling),
@@ -40,10 +40,10 @@ public class SwiftCallPlanTests
         ConventionSource = SwiftConventionSource.Default,
     };
 
-    private static SwiftResultFacts Returns(string? spelling) =>
+    internal static SwiftResultFacts Returns(string? spelling) =>
         spelling is null ? SwiftResultFacts.Void : new SwiftResultFacts { Type = Type(spelling) };
 
-    private static SwiftCallFacts Free(string? result, params string[] parameters) => new()
+    internal static SwiftCallFacts Free(string? result, params string[] parameters) => new()
     {
         Target = new SwiftCallTarget { Kind = SwiftCallTargetKind.FreeFunction, Symbol = "$s1M1fyyF" },
         Self = SwiftSelfFacts.None,
@@ -52,10 +52,10 @@ public class SwiftCallPlanTests
         Effects = SwiftCallEffects.None,
     };
 
-    private static SwiftCallFacts Throwing(SwiftCallFacts facts) => facts with { Effects = new SwiftCallEffects { Throws = true } };
+    internal static SwiftCallFacts Throwing(SwiftCallFacts facts) => facts with { Effects = new SwiftCallEffects { Throws = true } };
 
     /// <summary>An instance method of the class <c>M.C</c>: self is a reference in the self register.</summary>
-    private static SwiftCallFacts ClassMethod(string? result, params string[] parameters) => Free(result, parameters) with
+    internal static SwiftCallFacts ClassMethod(string? result, params string[] parameters) => Free(result, parameters) with
     {
         Target = new SwiftCallTarget { Kind = SwiftCallTargetKind.Method, Symbol = "$s1M1CC1fyyF", DeclaringType = "M.C" },
         Self = new SwiftSelfFacts
@@ -68,7 +68,7 @@ public class SwiftCallPlanTests
     };
 
     /// <summary>A thick closure: its function takes the formals, then its context in the self register.</summary>
-    private static SwiftCallFacts Closure(string? result, params string[] parameters) => Free(result, parameters) with
+    internal static SwiftCallFacts Closure(string? result, params string[] parameters) => Free(result, parameters) with
     {
         Target = new SwiftCallTarget
         {
@@ -84,13 +84,13 @@ public class SwiftCallPlanTests
         },
     };
 
-    private static SwiftManagedSignature Signature(string returns, params string[] parameters) =>
+    internal static SwiftManagedSignature Signature(string returns, params string[] parameters) =>
         Signature(SwiftManagedMarshalling.SourceGenerated, returns, parameters);
 
-    private static SwiftManagedSignature Signature(SwiftManagedMarshalling marshalling, string returns, params string[] parameters) => new(
+    internal static SwiftManagedSignature Signature(SwiftManagedMarshalling marshalling, string returns, params string[] parameters) => new(
         parameters.Select((p, i) => new SwiftManagedParameter($"p{i}", p)).ToImmutableArray(), returns, null, marshalling);
 
-    private static SwiftManagedTypeIndex Index(string? source)
+    internal static SwiftManagedTypeIndex Index(string? source)
     {
         var index = new SwiftManagedTypeIndex();
         if (source is not null)
@@ -98,21 +98,21 @@ public class SwiftCallPlanTests
         return index;
     }
 
-    private static SwiftCallPlanner Planner(string? source = null, ISwiftValueLowering? lowering = null) =>
+    internal static SwiftCallPlanner Planner(string? source = null, ISwiftValueLowering? lowering = null) =>
         new(Index(source), SwiftArchitectureModel.Default(lowering ?? Layout));
 
     /// <summary>The layout lowering, with some types answered by hand.</summary>
-    private static ISwiftValueLowering With(params (string Type, SwiftLoweringAnswer Answer)[] answers) =>
+    internal static ISwiftValueLowering With(params (string Type, SwiftLoweringAnswer Answer)[] answers) =>
         new SwiftOverriddenLowering(Layout, answers.ToDictionary(a => a.Type, a => a.Answer, StringComparer.Ordinal));
 
-    private static SwiftCallPlan Planned(SwiftPlanOutcome outcome)
+    internal static SwiftCallPlan Planned(SwiftPlanOutcome outcome)
     {
         Assert.True(outcome.IsPlanned, string.Join("; ", outcome.Refusals));
         Assert.Empty(outcome.Refusals);
         return outcome.Plan!;
     }
 
-    private static SwiftNativePlan On(SwiftCallPlan plan, SwiftArchitecture architecture) =>
+    internal static SwiftNativePlan On(SwiftCallPlan plan, SwiftArchitecture architecture) =>
         plan.Body.Architectures.Single(a => a.Architecture == architecture);
 
     private static string Registers(IEnumerable<SwiftOperand> operands) => string.Join(" ", operands);
@@ -259,12 +259,55 @@ public class SwiftCallPlanTests
     }
 
     [Fact]
-    public void ExtraTrailingManagedArgument_IsPlannedAsUnread()
+    public void ExtraTrailingManagedArgument_TheFactsDoNotExplain_IsRefused()
     {
-        var plan = Planned(Planner().PlanForward(Free(null, "Swift.Int"), Signature("void", "long", "nint"), "$s1M1f"));
+        var refusal = Refused(Planner().PlanForward(Free(null, "Swift.Int"), Signature("void", "long", "nint"), "$s1M1f"), SwiftPlanRefusalKind.PrefixMismatch);
 
-        Assert.Equal(new[] { false, true }, plan.Body.Managed.Arguments.Select(a => a.Unread));
-        Assert.Single(On(plan, SwiftArchitecture.Arm64).Outgoing);
+        Assert.Contains("benign", refusal.Reason);
+    }
+
+    private static SwiftManagedSignature Named(string returns, params (string Name, string Type)[] parameters) => new(
+        parameters.Select(p => new SwiftManagedParameter(p.Name, p.Type)).ToImmutableArray(), returns, null, SwiftManagedMarshalling.SourceGenerated);
+
+    [Fact]
+    public void AThinMetatypeArgument_IsUnread_BecauseSwiftTakesNoMetatypeForAConcreteType()
+    {
+        var facts = Free("Swift.Int") with
+        {
+            Self = new SwiftSelfFacts { Kind = SwiftCallSelfKind.ThinMetatype, Mutation = SwiftSelfMutation.NotApplicable, Abstraction = SwiftSelfAbstraction.Concrete, Type = Type("M.S") },
+        };
+        var plan = Planned(Planner().PlanForward(facts, Named("long", ("metatype", "nint")), "$s1M1SVACycfC"));
+
+        var unread = Assert.Single(plan.Body.Managed.Arguments, a => a.Unread);
+        Assert.Equal(SwiftCallPlanner.ThinMetatypeReason, unread.UnreadReason);
+        Assert.Empty(On(plan, SwiftArchitecture.Arm64).Outgoing);
+
+        // Named otherwise, the same argument is not explained.
+        Refused(Planner().PlanForward(facts, Named("long", ("other", "nint")), "$s1M1SVACycfC"), SwiftPlanRefusalKind.PrefixMismatch);
+    }
+
+    [Fact]
+    public void ATypeLevelMetadataArgument_IsUnread_WhenSelfCarriesTheMetadata()
+    {
+        var method = ClassMethod("Swift.Int", "Swift.Int");
+        var facts = method with
+        {
+            Self = method.Self with { Abstraction = SwiftSelfAbstraction.GenericParent },
+            Generics = new SwiftGenericSignatureFacts { Parameters = ["τ_0_0"] },
+        };
+        var plan = Planned(Planner().PlanForward(facts, Named("long", ("index", "long"), ("TMetadata", "nint"), ("self", "SwiftSelf")), "$s1M1CC1fyS2iF"));
+
+        var unread = Assert.Single(plan.Body.Managed.Arguments, a => a.Unread);
+        Assert.Equal(SwiftCallPlanner.FulfilledMetadataReason, unread.UnreadReason);
+        Assert.Equal(1, unread.Parameter);
+
+        // A member's own generic parameter is not in self's metadata: the callee takes and reads it.
+        var own = facts with { Generics = new SwiftGenericSignatureFacts { Parameters = ["τ_0_0"], OwnParameters = ["τ_0_0"] } };
+        var read = Planned(Planner().PlanForward(own, Named("long", ("index", "long"), ("TMetadata", "nint"), ("self", "SwiftSelf")), "$s1M1CC1fyS2iF"));
+        Assert.DoesNotContain(read.Body.Managed.Arguments, a => a.Unread);
+        // More surplus arguments than type-level parameters are not explained either.
+        Refused(Planner().PlanForward(facts, Named("long", ("index", "long"), ("TMetadata", "nint"), ("UMetadata", "nint"), ("self", "SwiftSelf")), "$s1M1CC1fyS2iF"),
+            SwiftPlanRefusalKind.PrefixMismatch);
     }
 
     [Fact]
@@ -775,7 +818,7 @@ public class SwiftCallPlanTests
 
     // ---- hand-written tables ----
 
-    private static string RepoRoot { get; } = LocateRepoRoot();
+    internal static string RepoRoot { get; } = LocateRepoRoot();
 
     private static string LocateRepoRoot()
     {
@@ -787,7 +830,7 @@ public class SwiftCallPlanTests
         throw new InvalidOperationException("the repository root was not found above " + AppContext.BaseDirectory);
     }
 
-    private static IEnumerable<string> SourcesUnder(params string[] relative)
+    internal static IEnumerable<string> SourcesUnder(params string[] relative)
     {
         var directory = Path.Combine(new[] { RepoRoot }.Concat(relative).ToArray());
         var separator = Path.DirectorySeparatorChar;
@@ -798,7 +841,7 @@ public class SwiftCallPlanTests
             .ToList();
     }
 
-    private static TypeDatabase StandardLibraryDatabase()
+    internal static TypeDatabase StandardLibraryDatabase()
     {
         var db = new TypeDatabase();
         foreach (var name in new[] { "SwiftDatabase.xml", "FoundationDatabase.xml" })
@@ -806,12 +849,21 @@ public class SwiftCallPlanTests
         return db;
     }
 
-    private static SwiftCallPlanSet PlanHandWritten(string table, IEnumerable<string> sources, out SwiftHandWrittenTransitionTable loaded)
+    internal static SwiftCallPlanSet PlanHandWritten(string table, IEnumerable<string> sources, out SwiftHandWrittenTransitionTable loaded) =>
+        SwiftHandWrittenPlans.Plan(Path.Combine(RepoRoot, table), sources, StandardLibraryDatabase(), out loaded);
+
+    [Theory]
+    [InlineData("src/Swift.Runtime/src/transition-facts.json", "src/Swift.Runtime/src")]
+    [InlineData("src/Swift.Bindings.Apple/transition-facts.json", "src/Swift.Bindings.Apple/Sources")]
+    public void HandWrittenPlanProducts_AreCurrent(string table, string sources)
     {
-        loaded = SwiftHandWrittenTransitionTable.Load(Path.Combine(RepoRoot, table));
-        var ledger = loaded.Ledger(sources);
-        var lowering = loaded.LoweringOver(new SwiftLayoutValueLowering(Array.Empty<ModuleDecl>(), StandardLibraryDatabase()));
-        return SwiftCallPlanSet.Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(lowering)));
+        // The committed sidecar is what the bridge gate reads; `nuke swift-bridge-products` rewrites it.
+        var set = PlanHandWritten(table, SwiftHandWrittenPlans.Sources([Path.Combine(RepoRoot, sources)]), out var loaded);
+        var product = Path.Combine(RepoRoot, "build", "baselines", "swift-call-plans", SwiftCallPlanSet.FileName(loaded.Assembly));
+
+        Assert.True(File.Exists(product), $"{product} is missing: run `nuke swift-bridge-products`");
+        Assert.True(set.ToJson() == File.ReadAllText(product), $"{product} is stale: run `nuke swift-bridge-products`");
+        Assert.Equal(set.Plans.Select(p => p.Symbol), SwiftCallPlanSet.Read(product).Plans.Select(p => p.Symbol));
     }
 
     private static void AssertEveryTransitionPlanned(SwiftCallPlanSet set, SwiftHandWrittenTransitionTable table, int expected)
