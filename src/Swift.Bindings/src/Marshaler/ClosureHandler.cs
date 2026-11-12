@@ -233,11 +233,13 @@ public partial class ClosureHandler
     /// but the mangled name encodes it as a CFunctionPointer node in the demangling grammar.
     /// </summary>
     /// <remarks>
-    /// The mangled name fallback is only safe when the method has a single closure parameter.
-    /// For methods with multiple closures, the CFunctionPointer node could belong to a different
-    /// closure parameter. In that case, we fall back to the attribute-based check (which returns
-    /// false, treating all closures as @convention(swift) — the safe default that generates
-    /// correct thunks). Mixed @convention(c) + @convention(swift) methods are rare in practice.
+    /// The parser marks each parameter's closure spec from the mangled name
+    /// (<see cref="Demangling.Swift5Demangler.GetCFunctionPointerParameterFlags"/>), so a closure
+    /// parsed from a declaration's own signature already answers through the
+    /// <see cref="IsConventionC(ClosureTypeSpec)"/> check above, however many closures the signature
+    /// holds. The whole-symbol fallback below covers a spec that did not come through that marking,
+    /// and is used only when the method has a single closure parameter: with several, the
+    /// CFunctionPointer node could belong to a different one.
     ///
     /// Finding 17: the fallback now walks the demangled node tree
     /// (<see cref="Demangling.Swift5Demangler.HasCFunctionPointerMarker"/>) for a CFunctionPointer

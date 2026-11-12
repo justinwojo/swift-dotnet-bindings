@@ -1681,6 +1681,13 @@ namespace BindingsGeneration
                     var enumType = _env.ClosureHandler.TranslateTypeSpecToCSharp(elem);
                     paramCalls.Add($"({enumType})arg{argIdx}");
                 }
+                else if (pinvokeType == "void*" && elem is NamedTypeSpec pointerSpec &&
+                         TypeDatabaseExtensions.IsPointerType(pointerSpec))
+                {
+                    // A pointer arrives as void* but the delegate declares IntPtr: the same bridge
+                    // the cdecl callbacks' GetInvokeArgExpression applies.
+                    paramCalls.Add($"new global::System.IntPtr(arg{argIdx})");
+                }
                 else
                 {
                     paramCalls.Add($"arg{argIdx}");

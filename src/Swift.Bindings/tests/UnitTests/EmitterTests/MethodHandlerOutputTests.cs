@@ -1953,6 +1953,43 @@ public class MethodHandlerOutputTests
         Assert.DoesNotContain("Marshal.GetFunctionPointerForDelegate", csOutput);
     }
 
+    [Fact]
+    public void Emit_ConventionCClosureWithPointerParameter_ForwardsPointerAsIntPtr()
+    {
+        // The [UnmanagedCallersOnly] callback receives a pointer as void*, while the user delegate
+        // declares IntPtr. Forwarding the raw void* to the delegate is CS1503.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var closure = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec>
+            {
+                new NamedTypeSpec("Swift.UnsafeRawPointer"),
+                new NamedTypeSpec("Swift.Int"),
+            }),
+            TupleTypeSpec.Empty)
+        {
+            IsConventionC = true,
+        };
+
+        var method = CreateMethodDecl(
+            name: "observe",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closure, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("// Unsupported", csOutput);
+        Assert.Contains("_impl(void* arg0, ", csOutput);
+        Assert.Contains("_del!(new global::System.IntPtr(arg0), arg1);", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
         TypeDatabase typeDatabase,

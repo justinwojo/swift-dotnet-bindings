@@ -1006,13 +1006,14 @@ namespace BindingsGeneration
                 ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(_env.MethodDecl))
                 return;
 
-            // Cdecl constructors and static-dispatch generic-struct properties admit
-            // PAT/Self-requirement conformances with a captured
+            // Constructors on generic parents (wrapper or direct Swift call) and static-dispatch
+            // generic-struct properties admit PAT/Self-requirement conformances with a captured
             // descriptor symbol; their PWT slot is materialized at the call site via
-            // {HelperClass}.Get{Proto}PWT(metadata). The corresponding @_cdecl wrapper
-            // declares one UnsafeRawPointer _pwtN slot per such conformance (see
-            // MetatypeHelperEmitter.GetTotalPwtParameterCount). Other paths (method,
-            // methods and subscripts still use the strict gate.
+            // {HelperClass}.Get{Proto}PWT(metadata). A @_cdecl wrapper declares one
+            // UnsafeRawPointer _pwtN slot per such conformance (see
+            // MetatypeHelperEmitter.GetTotalPwtParameterCount); a direct call reaches an
+            // allocating init that takes one witness table per conformance after the metadata.
+            // Methods and subscripts still use the strict gate.
             bool admitDynamicPwt = GenericDispatchEmitter.ThreadsDescriptorBackedParentPwt(_env);
 
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)

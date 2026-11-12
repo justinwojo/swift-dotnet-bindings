@@ -76,10 +76,8 @@ public class ConventionCDebugParamLoader {
 
 /// Same broken shape, but the constructor takes TWO closures — one non-optional `@convention(c)` and
 /// one ordinary Swift closure. ABI JSON omits the convention attribute, so the only conv-c signal is
-/// the demangled CFunctionPointer node; the per-parameter classifier suppresses that signal once a
-/// method has more than one closure, so the skip relies on the whole-method check instead. End-to-end
-/// guard that a multi-closure init of this shape is still skipped rather than emitted as a broken
-/// direct call.
+/// the demangled CFunctionPointer node, which the parser reads per parameter. End-to-end guard that
+/// a multi-closure init of this shape is still skipped rather than emitted as a broken direct call.
 public class ConventionCMultiClosureLoader {
     public let value: Int32
 
@@ -88,5 +86,47 @@ public class ConventionCMultiClosureLoader {
         guard v >= 0 else { return nil }
         ready(v)
         self.value = v
+    }
+}
+
+// MARK: - Several closures in one signature, at least one @convention(c)
+
+/// Two `@convention(c)` closures in one signature. A C function pointer is one word and a Swift
+/// closure two, and ABI JSON prints both the same way; only the mangled name records which
+/// parameter is which. Binding either closure here as a two-word Swift closure shifts every later
+/// argument by a register, so Swift would call the second pointer through the first one's context.
+/// Returns `first(input) * 100 + second(input)` so each callback's result is told apart.
+public func combineCFunctions(
+    _ first: @convention(c) (Int32) -> Int32,
+    _ second: @convention(c) (Int32) -> Int32,
+    _ input: Int32
+) -> Int32 {
+    return first(input) &* 100 &+ second(input)
+}
+
+/// An ordinary Swift closure followed by a `@convention(c)` one: only the second parameter is a
+/// bare function pointer. Returns `swiftFn(input) * 100 + cFn(input)`.
+public func combineSwiftAndCClosures(
+    _ swiftFn: (Int32) -> Int32,
+    _ cFn: @convention(c) (Int32) -> Int32,
+    _ input: Int32
+) -> Int32 {
+    return swiftFn(input) &* 100 &+ cFn(input)
+}
+
+/// Two `@convention(c)` closures whose parameters are pointers. A C function pointer hands a pointer
+/// over as one raw word, which the managed side receives as `IntPtr`. Both closures are called
+/// before this returns. `measure` gets the text's C string and returns its length; `report` gets the
+/// address of `length * 2` together with the length. Returns the length.
+public func measureThroughCFunctions(
+    _ measure: @convention(c) (UnsafePointer<CChar>) -> Int32,
+    _ report: @convention(c) (UnsafeRawPointer, Int32) -> Void,
+    _ text: String
+) -> Int32 {
+    return text.withCString { cString in
+        let length = measure(cString)
+        var doubled = length &* 2
+        withUnsafeBytes(of: &doubled) { report($0.baseAddress!, length) }
+        return length
     }
 }

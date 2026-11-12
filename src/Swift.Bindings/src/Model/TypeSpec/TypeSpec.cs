@@ -452,7 +452,12 @@ public abstract class TypeSpec
         var returnChanged = ReplaceName(closure.ReturnType, toFind, replacement, ref resultReturn);
         if (argsChanged || returnChanged)
         {
-            result = new ClosureTypeSpec(resultArgs, resultReturn);
+            result = new ClosureTypeSpec(resultArgs, resultReturn)
+            {
+                Throws = closure.Throws,
+                IsAsync = closure.IsAsync,
+                IsConventionC = closure.IsConventionC,
+            };
             return true;
         }
         return false;

@@ -328,6 +328,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 {
                     Throws = closure.Throws,
                     IsAsync = closure.IsAsync,
+                    IsConventionC = closure.IsConventionC,
                 };
                 CopyTypeSpecProps(closure, newClosure);
                 return newClosure;
