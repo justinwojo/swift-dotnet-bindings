@@ -1354,7 +1354,8 @@ public static partial class SwiftUIBridgeEmitter
         // body
         sb.AppendLine("    var body: some View {");
 
-        // Build view init args: state.x for updatable, direct reference for closures
+        // Build view init args: state.x for updatable, the stored closure for closures (rendered by
+        // SwiftClosureArgument, which forwards an autoclosure's value)
         var viewInitArgs = new List<string>();
         foreach (var param in bridgeParams)
         {
@@ -1369,7 +1370,7 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.BridgeArray)
                 viewInitArgs.Add($"{param.SwiftLabel}: {param.SwiftName}");
             else
-                viewInitArgs.Add($"{param.SwiftLabel}: {param.SwiftName}");
+                viewInitArgs.Add($"{param.SwiftLabel}: {SwiftClosureArgument.Render(param.SwiftName, param.SwiftClosureType)}");
         }
 
         var mergedArgs = BuildMergedInitArgs(

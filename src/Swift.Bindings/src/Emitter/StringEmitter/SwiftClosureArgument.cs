@@ -5,11 +5,11 @@ namespace BindingsGeneration;
 
 /// <summary>
 /// Renders the argument a generated Swift call passes for a closure-typed parameter of the API it
-/// wraps. Every emitter that hands such a parameter a closure it built or received (a bound
-/// adapter, a closure literal, or a wrapper parameter of function type) renders it here.
+/// wraps, from the closure the generated code holds for it: a bound adapter, a closure literal, a
+/// wrapper parameter of function type, or a stored closure.
 /// </summary>
 /// <remarks>
-/// A wrapper always holds the closure as a function value, but an <c>@autoclosure</c> parameter
+/// The generated code holds that closure as a function value, but an <c>@autoclosure</c> parameter
 /// takes an expression of its result type. Passing the function itself either fails to compile or,
 /// when a same-named sibling takes a function whose type the closure converts to, quietly calls
 /// that sibling instead. So the argument for an autoclosure parameter is the closure's call,
