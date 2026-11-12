@@ -23,7 +23,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the declaring type is generic in a way the wrapper cannot specialize). P/Invoke calling convention may not match Swift ABI",
-      "count": 12
+      "count": 13
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -394,6 +394,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027GridLayoutRegistry.create\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027GridLayoutRegistry.register\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027Holder.Wrapped\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
       "count": 1
     },
@@ -743,6 +755,18 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027WitnessIndexConformer.consume\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027WitnessPayload.encode\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027WitnessPayload.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
       "count": 1
     },
     {

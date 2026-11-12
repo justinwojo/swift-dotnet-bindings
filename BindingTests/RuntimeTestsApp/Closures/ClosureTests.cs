@@ -136,6 +136,39 @@ public class ClosureTests : TestBase
         TestLogger.Info($"Escaping @convention(c) reentrancy: result={result}");
     }
 
+    // Signatures with more than one closure: each @convention(c) parameter is a one-word function
+    // pointer and each Swift closure a two-word (function, context) pair. Reading the convention per
+    // parameter is what keeps every later argument in its register.
+
+    public void TestTwoConventionCClosures()
+    {
+        var result = TestLibFunctions.CombineCFunctions(x => x + 1, x => x * 2, 7);
+        AssertEqual(814, result,"CombineCFunctions(x+1, x*2, 7) = 8*100 + 14");
+    }
+
+    public void TestSwiftClosureThenConventionCClosure()
+    {
+        var result = TestLibFunctions.CombineSwiftAndCClosures(x => x - 1, x => x * 3, 5);
+        AssertEqual(415, result, "CombineSwiftAndCClosures(x-1, x*3, 5) = 4*100 + 15");
+    }
+
+    public void TestTwoConventionCClosuresWithPointerParameters()
+    {
+        int reportedValue = -1;
+        int reportedLength = -1;
+        var result = TestLibFunctions.MeasureThroughCFunctions(
+            text => global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(text)!.Length,
+            (value, length) =>
+            {
+                reportedValue = global::System.Runtime.InteropServices.Marshal.ReadInt32(value);
+                reportedLength = length;
+            },
+            "hello");
+        AssertEqual(5, result, "measure read the C string through its pointer");
+        AssertEqual(10, reportedValue, "report read length * 2 through its raw pointer");
+        AssertEqual(5, reportedLength, "report's second argument");
+    }
+
     // Note: a constructor taking a non-optional @convention(c) closure (e.g. the Swift fixture
     // ConventionCValidatedLoader.init?) is intentionally SKIPPED by the generator — it has no
     // ABI-correct surface (no native thunk, no @_cdecl wrapper; a direct CallConvSwift call can't

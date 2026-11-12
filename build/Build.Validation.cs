@@ -578,6 +578,11 @@ partial class Build
             var candidatePath = outputBase / ("validation-candidate-" + Guid.NewGuid().ToString("N") + ".json");
             validationPromotion.WriteInspection(candidatePath);
             Log.Information("Validation candidate (inspection only): {Path}", candidatePath);
+            // Withdrawal qualification needs a clean target, so a target that failed generation or a
+            // compile gate can never pass it, and may not even have written its evidence. Such a
+            // target is recorded here and fails the run at the gate below, after the summary has
+            // named what failed, instead of aborting on its missing evidence before the summary.
+            var unqualifiedWithdrawals = new List<string>();
             if (!Quick)
             {
                 var finalSourceHash = WithdrawalSourceFingerprint();
@@ -596,6 +601,15 @@ partial class Build
                     var expectedPlanes = target.VerificationPlanes ?? new[] { "csharp", "swift" };
                     var pureObjCManifestPath = outputBase / target.Name / "binding-artifact-manifest.json";
                     var evidencePath = expectedPlanes.Count == 0 ? pureObjCManifestPath : reportPath;
+                    var unqualifiable = WithdrawalReceipt.UnqualifiableReason(result.GeneratorExitCode,
+                        result.Compile, result.SwiftCompile, result.DepCompile, evidencePath);
+                    if (unqualifiable != null)
+                    {
+                        var reason = $"{target.Name}: withdrawal qualification not run — {unqualifiable}";
+                        Log.Error("{Reason}", reason);
+                        unqualifiedWithdrawals.Add(reason);
+                        continue;
+                    }
                     var receipt = new WithdrawalReceipt(provenance, WithdrawalProvenance.HashFile(evidencePath),
                         result.GeneratorExitCode ?? -1, result.Compile, result.SwiftCompile, result.DepCompile ?? "none");
                     File.WriteAllText(outputBase / target.Name / "withdrawal-receipt.json",
@@ -805,7 +819,8 @@ partial class Build
             // before the gate (the old behavior) persisted a failing run's failures, after which
             // the next run printed "No regressions detected" — an advisory, self-erasing detector.
             bool validationFailed =
-                compileFailed > 0 || compileNoOutput > 0 || depFailed > 0 || regressionCount > 0;
+                compileFailed > 0 || compileNoOutput > 0 || depFailed > 0 || regressionCount > 0 ||
+                unqualifiedWithdrawals.Count > 0;
 
             if (isFullRun && !validationFailed)
             {
@@ -828,7 +843,11 @@ partial class Build
             if (validationFailed)
                 Assert.Fail(
                     $"Validation failed: {compileFailed + depFailed} compile failures, " +
-                    $"{compileNoOutput} no output, {regressionCount} regressions");
+                    $"{compileNoOutput} no output, {regressionCount} regressions" +
+                    (unqualifiedWithdrawals.Count == 0
+                        ? ""
+                        : $"; {unqualifiedWithdrawals.Count} target(s) failed withdrawal qualification: " +
+                          string.Join("; ", unqualifiedWithdrawals)));
         });
 
     // ============================================================

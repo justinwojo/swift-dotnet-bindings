@@ -3021,6 +3021,10 @@ namespace BindingsGeneration
                 _opaqueParamCapture = prevOpaqueCapture;
             }
 
+            MarkConventionCClosureParameters(
+                methodDecl,
+                demangler.GetCFunctionPointerParameterFlags(mangledName, methodDecl.CSSignature.Count - 1));
+
             // Detect variadic parameters per-overload. A Swift variadic parameter (T...)
             // lowers to Array<T> and shares its ABI with a plain [T] parameter; the two
             // differ only by the mangled-name "d" variadic marker. We combine three signals,
@@ -3188,6 +3192,34 @@ namespace BindingsGeneration
         /// demangled parameter list is exact per position; without it, a method with a single
         /// array parameter is unambiguous. Anything else is left unmarked rather than guessed.
         /// </summary>
+        /// <summary>
+        /// Marks each closure parameter the mangled name declares <c>@convention(c)</c>. ABI JSON
+        /// prints a C function pointer exactly like a Swift closure, so without this the parameter's
+        /// spec carries no convention and every later classification has to infer it from the whole
+        /// symbol, which works only when the signature has a single closure. A C function pointer is
+        /// one word and a Swift closure two, so the answer decides the register of every later
+        /// argument. <paramref name="cFunctionPointerFlags"/> holds one flag per parameter, or is null
+        /// when the mangled name could not be read per parameter. Marks are only ever added.
+        /// </summary>
+        internal static void MarkConventionCClosureParameters(MethodDecl methodDecl, IReadOnlyList<bool>? cFunctionPointerFlags)
+        {
+            if (cFunctionPointerFlags is null)
+                return;
+            var parameters = methodDecl.CSSignature.Skip(1).ToList();
+            if (cFunctionPointerFlags.Count != parameters.Count)
+                return;
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                if (!cFunctionPointerFlags[i])
+                    continue;
+                var spec = parameters[i].SwiftTypeSpec;
+                if (spec is NamedTypeSpec { Name: "Swift.Optional" or "Optional", GenericParameters.Count: 1 } optional)
+                    spec = optional.GenericParameters[0];
+                if (spec is ClosureTypeSpec closure)
+                    closure.IsConventionC = true;
+            }
+        }
+
         internal static void MarkVariadicParameterElements(MethodDecl methodDecl, TupleTypeSpec? demangledParameters)
         {
             var parameters = methodDecl.CSSignature.Skip(1).ToList();

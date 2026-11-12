@@ -548,6 +548,15 @@ namespace BindingsGeneration
         public Dictionary<string, int>? ReservedOverloadShapes { get; set; }
 
         /// <summary>
+        /// True when the primary this environment's overloads are built on omits every defaulted
+        /// parameter instead of declaring C#-mappable trailing defaults inline (the concrete
+        /// specialization of a sync generic method). Such a primary does NOT already reach the
+        /// forms that pass a mappable trailing default, so the overload emitter must build the
+        /// trailing trims for it rather than treating them as redundant.
+        /// </summary>
+        public bool PrimaryOmitsDefaultedParameters { get; set; }
+
+        /// <summary>
         /// Per-module emission context, threaded by the handler so emitters that need
         /// authoritative wrapper-symbol-registration data (e.g. the wrapper-symbol
         /// contract check in <c>PInvokeEmitHelper</c>) can consult it without each call

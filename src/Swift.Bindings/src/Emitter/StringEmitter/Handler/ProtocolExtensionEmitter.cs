@@ -2628,6 +2628,7 @@ public static class ProtocolExtensionEmitter
                 {
                     Throws = closureType.Throws,
                     IsAsync = closureType.IsAsync,
+                    IsConventionC = closureType.IsConventionC,
                 };
             }
         }

@@ -1047,6 +1047,51 @@ public class PInvokeEmitterTests
     }
 
     [Fact]
+    public void DirectGenericStructConstructor_DescriptorBackedPat_HasWitnessParameter()
+    {
+        // A constructor the @_cdecl wrapper refuses (too many metadata + witness slots) binds as a
+        // direct Swift-convention call against the allocating init, which takes one witness table
+        // per conformance after the generic metadata. Dropping the Self-requirement table here left
+        // the callee reading the next argument register in its place.
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Bag", moduleDecl);
+        var genericParam = new GenericArgumentDecl(
+            "τ_0_0", "Item",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>());
+        structDecl.GenericParameters = new List<GenericArgumentDecl> { genericParam };
+
+        var ctor = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        ctor.GenericParameters = structDecl.GenericParameters;
+        Assert.False(ctor.UsesCdeclWrapper);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.Bag", "TestModule", "Bag",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IBagItem"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                MetadataAccessor = "$s10TestModule7BagItemMp",
+                ProtocolDescriptorSymbol = "$s10TestModule7BagItemMp",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            });
+        var typeDb = CreateBasicTypeDatabase(testModule: testModule);
+
+        var sig = GetPInvokeSignature(ctor, typeDb);
+
+        Assert.Contains(sig.Parameters, p => p.Name.Contains("BagItem", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ThrowingNonCdeclMethod_ErrorParamLast()
     {
         // Normal throwing methods (non-cdecl) should have error param AFTER args

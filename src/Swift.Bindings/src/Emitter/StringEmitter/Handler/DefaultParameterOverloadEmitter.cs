@@ -185,8 +185,11 @@ public static class DefaultParameterOverloadEmitter
         // carries `= value` defaults, so the trailing-trim variants would add nothing. That is NOT
         // true of the all-defaults form below: a default that sits BEFORE a required parameter can
         // never become a C# optional (C# optionals must be trailing), so the ergonomic
-        // "supply only what Swift requires" form is unreachable from the primary alone.
-        bool trailingDefaultsAreMappable = AllTrailingDefaultsAreCSharpMappable(methodDecl, env.TypeDatabase);
+        // "supply only what Swift requires" form is unreachable from the primary alone. A primary
+        // that omits every default (PrimaryOmitsDefaultedParameters) carries no inline tail at all,
+        // so for it the trailing trims are the only way to pass a mappable default.
+        bool trailingDefaultsAreMappable = !env.PrimaryOmitsDefaultedParameters &&
+            AllTrailingDefaultsAreCSharpMappable(methodDecl, env.TypeDatabase);
 
         // The all-defaults form is redundant when the trim loop already reaches it (every default is
         // trailing AND the run fits under the cap) or when the primary already IS it (every default
@@ -1406,12 +1409,12 @@ public static class DefaultParameterOverloadEmitter
     /// <summary>
     /// Creates a projected C# method key for an overload, matching the format used by
     /// HandleBaseDecl's GetProjectedCSharpMethodKey. (C6/C7)
-    /// Internal so the CSM-sync emitter can pre-populate <see cref="MethodEnvironment.EmittedProjectedSignatures"/>
-    /// with the auto-trim primary's key — without that seed, the most-trimmed trim variant would collide
-    /// with the CSM-sync primary (which already auto-fills all trailing defaults via
-    /// Swift) and produce a CS0111 duplicate-method error.
+    /// Internal so the concrete-specialization emitter can reserve each specialized primary's real
+    /// signature in <see cref="MethodEnvironment.EmittedProjectedSignatures"/> before the overloads
+    /// built on it run — a primary omits every defaulted parameter, so an overload that omits the same
+    /// set would otherwise re-declare it (CS0111).
     /// Thin shim over <see cref="ProtocolSignatureHelper.BuildProjectedMethodKey"/> on the class path.
-    /// The :228 caller passes env.SiblingPropertyNames; the CSM-seed callers pass null, consistent with
+    /// The :228 caller passes env.SiblingPropertyNames; the CSM callers pass null, consistent with
     /// their trimEnv (which carries no sibling set).
     /// </summary>
     internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames = null, string? nameOverride = null)
