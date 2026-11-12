@@ -451,6 +451,27 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Is <paramref name="typeSpec"/> an Optional of one native Swift class reference: the
+        /// <c>Self</c> of a class member, or a Swift class that is not ObjC-bridged? Such an
+        /// Optional is a single pointer with nil as null, and Swift returns it directly in the
+        /// first return register (x0 / rax) at +1, exactly like the bare reference. Every other
+        /// Optional payload carries a tag or a spare inhabitant instead.
+        /// </summary>
+        internal static bool IsOptionalSwiftClassReference(TypeSpec? typeSpec, BaseDecl? parentDecl, ITypeDatabase typeDatabase)
+        {
+            if (typeSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional)
+                return false;
+            var inner = optional.GenericParameters[0];
+            if (inner.IsDynamicSelf)
+                return IsClassDynamicSelf(inner, parentDecl, typeDatabase);
+            return inner is NamedTypeSpec innerNamed
+                && innerNamed.HasModule()
+                && typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(innerNamed), out var record)
+                && record.Kind == TypeRecordKind.Class
+                && !IsObjCBridged(record);
+        }
+
+        /// <summary>
         /// Determines indirect result requirements for constructors.
         /// Failable constructors and non-frozen struct constructors need indirect result.
         /// Returns null if the method is not a constructor or no constructor-specific rule applies.

@@ -226,6 +226,20 @@ open class SelfChainingBuilder {
         return self.init(tag: lhs.tag &+ rhs.tag)
     }
 
+    /// An operator returning `Self?`: a fresh instance whose tag is the difference of the tags, or
+    /// nil when that difference is negative.
+    public static func - (lhs: SelfChainingBuilder, rhs: SelfChainingBuilder) -> Self? {
+        let difference = lhs.tag &- rhs.tag
+        return difference >= 0 ? self.init(tag: difference) : nil
+    }
+
+    /// An operator returning the class itself as an Optional: a fresh instance whose tag is the
+    /// product of the tags, or nil when that product is zero.
+    public static func * (lhs: SelfChainingBuilder, rhs: SelfChainingBuilder) -> SelfChainingBuilder? {
+        let product = lhs.tag &* rhs.tag
+        return product != 0 ? SelfChainingBuilder(tag: product) : nil
+    }
+
     /// Calls every registered integer handler with `value + tag`, returning how many ran.
     public func fire(_ value: Int32) -> Int32 {
         for handler in handlers { handler(value + tag) }

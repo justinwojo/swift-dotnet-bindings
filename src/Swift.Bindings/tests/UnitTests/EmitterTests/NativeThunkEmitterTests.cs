@@ -89,7 +89,42 @@ namespace BindingsGeneration.Tests
             var env = CreateMethodEnv(methodType: MethodType.Static, parentDecl: CreateStructDecl(isFrozen: false));
             env.MethodDecl.CSSignature[0] = MakeArg(new NamedTypeSpec("Self"), "");
 
-            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env, classDynamicSelfReturnAllowed: true));
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env, classReferenceResultAllowed: true));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_ClassOptionalSelfReturn_KeepsItsWrapperByDefault()
+        {
+            // Self? of a class is one nullable reference, but a method that can take a @_cdecl
+            // wrapper keeps it.
+            var env = CreateMethodEnv(methodType: MethodType.Instance, parentDecl: CreateClassDecl());
+            env.MethodDecl.CSSignature[0] = MakeArg(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Self")), "");
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Theory]
+        [InlineData("Swift.Int")]
+        [InlineData("Swift.Bool")]
+        [InlineData("Swift.String")]
+        public void ShouldEmitThunk_ValueOptionalReturn_RefusedEvenWhenClassReferencesAreAllowed(string inner)
+        {
+            // Only an Optional class reference is one nullable pointer; a value payload's Optional
+            // carries a tag or a spare inhabitant the thunk has no encoding for.
+            var env = CreateMethodEnv(methodType: MethodType.Static, parentDecl: CreateClassDecl());
+            env.MethodDecl.CSSignature[0] = MakeArg(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(inner)), "");
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env, classReferenceResultAllowed: true));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_StructOptionalSelfReturn_RefusedEvenWhenClassReferencesAreAllowed()
+        {
+            // Self? outside a class wraps the value itself, not a reference.
+            var env = CreateMethodEnv(methodType: MethodType.Static, parentDecl: CreateStructDecl(isFrozen: false));
+            env.MethodDecl.CSSignature[0] = MakeArg(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Self")), "");
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env, classReferenceResultAllowed: true));
         }
 
         [Fact]

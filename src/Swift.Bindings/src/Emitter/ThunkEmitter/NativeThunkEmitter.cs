@@ -48,11 +48,13 @@ public static class NativeThunkEmitter
     /// - ABI field layout available for return type (if thunk needs return bridging)
     /// </summary>
     /// <param name="env">The method environment.</param>
-    /// <param name="classDynamicSelfReturnAllowed">Whether a class member returning its dynamic
-    /// <c>Self</c> may be thunked. Only a caller with no <c>@_cdecl</c> wrapper to fall back to
-    /// passes true, so the thunk replaces the direct Swift-convention route and never a wrapper.</param>
+    /// <param name="classReferenceResultAllowed">Whether a member whose result is one class reference
+    /// the @_cdecl wrapper would otherwise carry may be thunked: a class member's dynamic <c>Self</c>,
+    /// or an Optional of a Swift class reference (<c>Self?</c> included), each returned directly in
+    /// the first return register. Only a caller with no <c>@_cdecl</c> wrapper to fall back to passes
+    /// true, so the thunk replaces the direct Swift-convention route and never a wrapper.</param>
     /// <returns>True if the method can be thunked.</returns>
-    public static bool ShouldEmitThunk(MethodEnvironment env, bool classDynamicSelfReturnAllowed = false)
+    public static bool ShouldEmitThunk(MethodEnvironment env, bool classReferenceResultAllowed = false)
     {
         var methodDecl = env.MethodDecl;
 
@@ -251,7 +253,7 @@ public static class NativeThunkEmitter
         // Swift-convention call (a class operator) may thunk it, and the thunk lowers it as the
         // declaring class (ThunkReturnSpec).
         if (returnSpec.IsDynamicSelf
-            && !(classDynamicSelfReturnAllowed
+            && !(classReferenceResultAllowed
                  && MarshallingHelpers.IsClassDynamicSelf(returnSpec, env.ParentDecl, env.TypeDatabase)))
             return false;
 
@@ -262,11 +264,15 @@ public static class NativeThunkEmitter
         // on UsesCdeclPropertyWrapper/UsesCdeclMethodWrapper flags, which aren't set yet
         // when ShouldEmitThunk is evaluated (flags are assigned later by PropertyHandler/
         // MethodHandler after the thunk decision).
-        {
-            var returnSpec2 = methodDecl.CSSignature.First().SwiftTypeSpec;
-            if (MethodWrapperEmitter.IsOptionalType(returnSpec2))
-                return false;
-        }
+        //
+        // An Optional of one Swift class reference (Self? of a class included) is the exception
+        // for a caller with no wrapper to fall back to: it is a single pointer with nil as null,
+        // returned directly in x0 / rax at +1 like the bare reference, so the thunk passes it
+        // through unchanged (ThunkReturnSpec, TypeLowering.LowerOptional).
+        if (MethodWrapperEmitter.IsOptionalType(returnSpec)
+            && !(classReferenceResultAllowed
+                 && MarshallingHelpers.IsOptionalSwiftClassReference(returnSpec, env.ParentDecl, env.TypeDatabase)))
+            return false;
 
         // Small (≤16B) structs returned by value are tail-call-thunked without repacking. Decline the
         // shapes where swiftcc's field-wise register return diverges from the C ABI's aggregate return
@@ -326,15 +332,20 @@ public static class NativeThunkEmitter
 
     /// <summary>
     /// The return type the thunk lowers. A class member's dynamic <c>Self</c> is one reference to an
-    /// instance of the declaring class, so it lowers as that class; every other return is its own type.
+    /// instance of the declaring class, so it lowers as that class, and its <c>Self?</c> as an Optional
+    /// of that class; every other return is its own type.
     /// </summary>
     private static TypeSpec ThunkReturnSpec(MethodEnvironment env)
     {
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        return env.ParentDecl is TypeDecl parent
-            && MarshallingHelpers.IsClassDynamicSelf(returnSpec, parent, env.TypeDatabase)
-                ? new NamedTypeSpec(parent.SwiftTypeName.ModuleQualifiedName)
-                : returnSpec;
+        if (env.ParentDecl is not TypeDecl parent)
+            return returnSpec;
+        if (MarshallingHelpers.IsClassDynamicSelf(returnSpec, parent, env.TypeDatabase))
+            return new NamedTypeSpec(parent.SwiftTypeName.ModuleQualifiedName);
+        if (MarshallingHelpers.IsOptionalDynamicSelf(returnSpec)
+            && MarshallingHelpers.IsClassDynamicSelf(((NamedTypeSpec)returnSpec).GenericParameters[0], parent, env.TypeDatabase))
+            return new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(parent.SwiftTypeName.ModuleQualifiedName));
+        return returnSpec;
     }
 
     /// <summary>

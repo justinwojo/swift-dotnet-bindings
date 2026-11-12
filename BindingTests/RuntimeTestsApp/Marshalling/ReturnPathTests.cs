@@ -259,6 +259,40 @@ public class ReturnPathTests : TestBase
         AssertEqual(6, after.Tag, "the class still constructs after operator +");
     }
 
+    public void TestSelfChainingOptionalSelfOperatorReturnsFreshInstanceOrNull()
+    {
+        using var lhs = new SelfChainingBuilder(tag: 9);
+        using var rhs = new SelfChainingBuilder(tag: 4);
+        using (var difference = lhs - rhs)
+        {
+            AssertNotNull(difference, "operator - with a non-negative difference returned an instance");
+            AssertEqual(5, difference!.Tag, "operator - result reads its own state");
+            AssertFalse(difference.IsSameObject(lhs), "operator - returned a new object, not an operand");
+            AssertTrue(difference.IsSameObject(difference), "operator - result is usable as a receiver");
+        }
+        AssertNull(rhs - lhs, "operator - with a negative difference is nil");
+        // The class metatype the operator reads must survive the call.
+        using var after = new SelfChainingBuilder(tag: 6);
+        AssertEqual(6, after.Tag, "the class still constructs after operator -");
+    }
+
+    public void TestSelfChainingOptionalClassOperatorReturnsFreshInstanceOrNull()
+    {
+        using var lhs = new SelfChainingBuilder(tag: 3);
+        using var rhs = new SelfChainingBuilder(tag: 7);
+        using var zero = new SelfChainingBuilder(tag: 0);
+        using (var product = lhs * rhs)
+        {
+            AssertNotNull(product, "operator * with a non-zero product returned an instance");
+            AssertEqual(21, product!.Tag, "operator * result reads its own state");
+            AssertFalse(product.IsSameObject(lhs), "operator * returned a new object, not an operand");
+            AssertTrue(product.IsSameObject(product), "operator * result is usable as a receiver");
+        }
+        AssertNull(lhs * zero, "operator * with a zero product is nil");
+        using var after = new SelfChainingBuilder(tag: 8);
+        AssertEqual(8, after.Tag, "the class still constructs after operator *");
+    }
+
     public void TestSelfChainingReturnsDoNotLeak()
     {
         LifetimeTracker.RunWithLeakCheck(() =>
@@ -287,6 +321,17 @@ public class ReturnPathTests : TestBase
 #pragma warning restore SB0001
         using (var made = SelfChainingBuilder.Make(tag: tag + 100, _ => { })) AssertEqual(tag + 100, made.Tag, "factory tag");
         using (var sum = builder + builder) AssertEqual(tag + tag, sum.Tag, "operator + tag");
+        using (var larger = new SelfChainingBuilder(tag: tag + 1))
+        {
+            using (var difference = larger - builder) AssertEqual(1, difference!.Tag, "operator - tag");
+            AssertNull(builder - larger, "operator - nil");
+        }
+        // The product is nil on the first pass (tag 0) and an instance on every other one.
+        using (var product = builder * builder)
+        {
+            if (tag == 0) AssertNull(product, "operator * nil");
+            else AssertEqual(tag * tag, product!.Tag, "operator * tag");
+        }
     }
 
     private void AssertSameBuilder(SelfChainingBuilder expected, SelfChainingBuilder actual, int tag, string route)
