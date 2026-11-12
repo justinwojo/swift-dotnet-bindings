@@ -148,9 +148,10 @@ internal static class DirectOptionalAbi
     /// <summary>
     /// Classifies how wide <paramref name="typeSpec"/> is when carried by a direct CallConvSwift
     /// P/Invoke. Returns <see cref="DirectOptionalAbiWidth.NotOptional"/> for anything that is
-    /// not an <c>Optional&lt;T&gt;</c>.
+    /// not an <c>Optional&lt;T&gt;</c>. <paramref name="parentDecl"/> is the declaring type of the
+    /// member carrying the value, which is what <c>Self</c> means.
     /// </summary>
-    internal static DirectOptionalAbiWidth Classify(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    internal static DirectOptionalAbiWidth Classify(TypeSpec typeSpec, ITypeDatabase typeDatabase, BaseDecl? parentDecl = null)
     {
         if (!WrapperValidation.IsOptionalType(typeSpec))
             return DirectOptionalAbiWidth.NotOptional;
@@ -161,6 +162,14 @@ internal static class DirectOptionalAbi
             namedType.GenericParameters.Count != 1 ||
             namedType.GenericParameters[0] is not NamedTypeSpec inner)
             return DirectOptionalAbiWidth.Unprovable;
+
+        // Self? of a class member is a class reference with nil as null, one word. Self has no
+        // type record of its own, so the reference test below cannot establish that; outside a
+        // class the layout is the conformer's and stays unprovable.
+        if (inner.IsDynamicSelf)
+            return MarshallingHelpers.IsClassDynamicSelf(inner, parentDecl, typeDatabase)
+                ? DirectOptionalAbiWidth.SingleWord
+                : DirectOptionalAbiWidth.Unprovable;
 
         // A class or ObjC-rooted payload is a single pointer, and nil is its null extra inhabitant.
         // This is the case the existing direct emission was designed around.
@@ -329,8 +338,8 @@ internal static class DirectOptionalAbi
     /// P/Invoke slot. Such a shape needs a carrier; it is not by itself a reason to refuse — see
     /// <see cref="HasNoSoundDirectCallPath"/> for that question.
     /// </summary>
-    internal static bool ExceedsDirectSlot(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-        => Classify(typeSpec, typeDatabase) is DirectOptionalAbiWidth.WordAndTagByte
+    internal static bool ExceedsDirectSlot(TypeSpec typeSpec, ITypeDatabase typeDatabase, BaseDecl? parentDecl = null)
+        => Classify(typeSpec, typeDatabase, parentDecl) is DirectOptionalAbiWidth.WordAndTagByte
                                             or DirectOptionalAbiWidth.TwoIntegerWords
                                             or DirectOptionalAbiWidth.Unprovable;
 
@@ -344,8 +353,8 @@ internal static class DirectOptionalAbi
     /// construction; it cannot fall through into a truncated direct call.</para>
     /// </summary>
     internal static bool HasNoSoundDirectCallPath(
-        MethodDecl member, TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isInOut = false)
-        => (ExceedsDirectSlot(typeSpec, typeDatabase)
+        MethodDecl member, TypeSpec typeSpec, ITypeDatabase typeDatabase, bool isInOut = false, BaseDecl? parentDecl = null)
+        => (ExceedsDirectSlot(typeSpec, typeDatabase, parentDecl)
             && TryGetDirectCarrier(member, typeSpec, typeDatabase, isInOut) is null)
            || RendersAsForeignObject(typeSpec, typeDatabase);
 

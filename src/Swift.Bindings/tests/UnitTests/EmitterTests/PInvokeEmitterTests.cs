@@ -1543,6 +1543,31 @@ public class PInvokeEmitterTests
         Assert.DoesNotContain("SwiftSelf", paramStr);
     }
 
+    // A class member's dynamic Self is one class reference, returned directly in x0 on every
+    // route. The Swift-convention routes (the library entry point or its dispatch thunk, and a
+    // generated @_silgen_name shim such as a trimmed default-argument overload) used to declare a
+    // SwiftIndirectResult the callee never writes, then read the object out of that buffer.
+    [Theory]
+    [InlineData(false, false)] // library entry point or dispatch thunk, instance member
+    [InlineData(true, false)]  // generated @_silgen_name shim (trimmed default-argument overload)
+    [InlineData(false, true)]  // class factory (`class func make() -> Self`)
+    public void ReturnType_ClassDynamicSelf_SwiftConvention_ReturnsReferenceDirectly(bool viaGeneratedShim, bool isStatic)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("chained", classDecl, moduleDecl, isStatic: isStatic);
+        method.UsesWrapperLibrary = viaGeneratedShim;
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("Self"), moduleDecl);
+        Assert.True(method.CSSignature[0].SwiftTypeSpec.IsDynamicSelf);
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Equal(PInvokeCallingConvention.Swift, WrapperValidation.GetCallingConvention(method));
+        Assert.Equal("IntPtr", sig.ReturnType);
+        Assert.DoesNotContain(sig.Parameters, p => p.Type is MarshalledType.Simple("SwiftIndirectResult"));
+    }
+
     [Fact]
     public void NativeThunk_CallingConvention_IsCdecl()
     {

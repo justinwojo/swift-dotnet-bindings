@@ -271,11 +271,15 @@ namespace BindingsGeneration
             // String @_cdecl property wrappers use indirect result (resultPtr) because
             // @_cdecl can't return Swift structs (SBW_Utf8Slice). Falls through to indirect result path below.
 
-            // DynamicSelf (Self return type) on @_cdecl class wrappers or native thunks:
-            // Swift wrapper returns retained class pointer (UnsafeMutableRawPointer) directly.
-            // P/Invoke receives IntPtr — no indirect result needed.
-            // Thunks also return class pointers in x0 (single register, no indirect result).
-            if (returnType.SwiftTypeSpec.IsDynamicSelf && (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk))
+            // DynamicSelf (Self return type): the callee returns one retained class reference
+            // directly, so the P/Invoke receives IntPtr with no indirect result. A @_cdecl wrapper
+            // returns it as an UnsafeMutableRawPointer and a native thunk in x0. A class member
+            // reached with the Swift convention (the library's own entry point, its dispatch thunk
+            // or a generated @_silgen_name shim) returns it in x0 too, which
+            // MethodRequiresIndirectResult agrees with through the same class test.
+            if (returnType.SwiftTypeSpec.IsDynamicSelf
+                && (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk
+                    || MarshallingHelpers.IsClassDynamicSelf(returnType.SwiftTypeSpec, _env.ParentDecl, _env.TypeDatabase)))
             {
                 SetReturnType("IntPtr");
                 return;

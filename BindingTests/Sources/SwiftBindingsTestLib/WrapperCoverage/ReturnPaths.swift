@@ -127,6 +127,117 @@ open class Buildable {
     }
 }
 
+// MARK: - DynamicSelf Return on Class, Swift-convention routes
+
+/// Non-final class whose `Self`-returning members spread over the binding's call routes. The
+/// members taking a URL request closure have no C-convention wrapper, so the binding calls them
+/// with the Swift calling convention: the library entry point for the full forms, and a generated
+/// `@_silgen_name` shim for the trimmed default-argument overload. The members taking an integer
+/// closure or only scalars go through C-convention wrappers.
+///
+/// A dynamic `Self` on a class is one class reference, returned directly in the first return
+/// register. Every member returns `self` (or a fresh tracked instance for the factories), so a
+/// caller that reads the result from an indirect buffer the callee never writes gets the wrong
+/// object, and the +1 reference the callee really returned is leaked. Each instance feeds the
+/// shared allocation counters so a leak probe sees that reference.
+open class SelfChainingBuilder {
+    public let tag: Int32
+    public private(set) var registrations: Int32 = 0
+    public private(set) var lastOffset: Int32 = -1
+    public private(set) var lastQueueLabel: String = ""
+    private var handlers: [(Int32) -> Void] = []
+    private var requestHandlers: [(URLRequest) -> Void] = []
+    private let trackedSerial: Int64
+
+    public required init(tag: Int32) {
+        self.tag = tag
+        self.trackedSerial = recordTrackedAllocation(category: "SelfChainingBuilder", tag: tag)
+    }
+
+    deinit {
+        recordTrackedDeallocation(serial: trackedSerial)
+    }
+
+    /// A leading defaulted parameter before an escaping closure: the binding gets a trimmed
+    /// overload that drops the default and calls a generated Swift shim.
+    @discardableResult
+    open func onEvent(offset: Int32 = 0, perform handler: @escaping (Int32) -> Void) -> Self {
+        registrations += 1
+        lastOffset = offset
+        handlers.append(handler)
+        return self
+    }
+
+    /// The same shape with a dispatch queue default and a URL request closure.
+    @discardableResult
+    open func onRequestCreation(on queue: DispatchQueue = .main,
+                                perform handler: @escaping (URLRequest) -> Void) -> Self {
+        registrations += 1
+        lastQueueLabel = queue.label
+        requestHandlers.append(handler)
+        return self
+    }
+
+    /// An escaping closure and no defaults.
+    @discardableResult
+    open func withHandler(_ handler: @escaping (Int32) -> Void) -> Self {
+        registrations += 1
+        handlers.append(handler)
+        return self
+    }
+
+    /// A defaulted scalar parameter and no closure.
+    @discardableResult
+    open func touch(_ amount: Int32, offset: Int32 = 0) -> Self {
+        registrations += amount
+        lastOffset = offset
+        return self
+    }
+
+    /// `Self?`: one nullable class reference.
+    open func selfIfTagged(_ wanted: Int32) -> Self? {
+        return wanted == tag ? self : nil
+    }
+
+    /// `Self?` with a URL request closure.
+    open func onRequestIfTagged(_ wanted: Int32, perform handler: @escaping (URLRequest) -> Void) -> Self? {
+        guard wanted == tag else { return nil }
+        registrations += 1
+        requestHandlers.append(handler)
+        return self
+    }
+
+    /// A class factory returning `Self`, taking a URL request closure.
+    open class func makeForRequests(tag: Int32, perform handler: @escaping (URLRequest) -> Void) -> Self {
+        let instance = self.init(tag: tag)
+        instance.onRequestCreation(perform: handler)
+        return instance
+    }
+
+    /// A class factory returning `Self`.
+    open class func make(tag: Int32, offset: Int32 = 0, perform handler: @escaping (Int32) -> Void) -> Self {
+        let instance = self.init(tag: tag)
+        instance.onEvent(offset: offset, perform: handler)
+        return instance
+    }
+
+    /// An operator returning `Self`: a fresh instance whose tag is the sum of both tags.
+    public static func + (lhs: SelfChainingBuilder, rhs: SelfChainingBuilder) -> Self {
+        return self.init(tag: lhs.tag &+ rhs.tag)
+    }
+
+    /// Calls every registered integer handler with `value + tag`, returning how many ran.
+    public func fire(_ value: Int32) -> Int32 {
+        for handler in handlers { handler(value + tag) }
+        return Int32(handlers.count)
+    }
+
+    /// Swift object identity, so a caller can tell whether a returned reference is this object.
+    public func isSameObject(as other: SelfChainingBuilder) -> Bool {
+        return self === other
+    }
+}
+
 // MARK: - DynamicSelf Return on Struct (guard path)
 
 /// Struct with method returning Self — exercises

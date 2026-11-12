@@ -733,6 +733,15 @@ namespace BindingsGeneration
             if (methodEnv != null)
             {
                 var returnArg = methodEnv.MethodDecl.CSSignature.First();
+
+                // A class operator's Self is the class reference itself, returned in x0 like the
+                // class arm below; it has no type record of its own to reach that arm through.
+                if (MarshallingHelpers.IsClassDynamicSelf(returnArg.SwiftTypeSpec, methodEnv.ParentDecl, methodEnv.TypeDatabase))
+                {
+                    csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>({call});");
+                    return;
+                }
+
                 if (returnArg.SwiftTypeSpec is NamedTypeSpec retNts && retNts.HasModule())
                 {
                     var retTypeName = SwiftTypeName.FromTypeSpec(retNts);
@@ -1198,7 +1207,8 @@ namespace BindingsGeneration
         {
             if (parentDecl is not ClassDecl || parentDecl.IsGeneric)
                 return false;
-            if (!NativeThunkEmitter.ShouldEmitThunk(methodEnv))
+            // A class operator has no @_cdecl wrapper, so a Self result may take the thunk too.
+            if (!NativeThunkEmitter.ShouldEmitThunk(methodEnv, classDynamicSelfReturnAllowed: true))
                 return false;
 
             var methodDecl = methodEnv.MethodDecl;

@@ -329,7 +329,18 @@ namespace BindingsGeneration
             => MethodWrapperEmitter.IsOptionalType(returnSpec)
                 && !ExistentialHandler.IsOptionalAnyErrorSpec(returnSpec)
                 && !CdeclParamMapper.IsOptionalWithReferenceInner(returnSpec, typeDatabase)
+                && !IsOptionalDynamicSelf(returnSpec)
                 && !CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnSpec, typeDatabase);
+
+        /// <summary>
+        /// Is <paramref name="typeSpec"/> <c>Self?</c>? The wrapper returns it as a nullable class
+        /// pointer (<c>CdeclReturnMapping.Classify</c>), and only a class member gets a wrapper for
+        /// it. The reference test above cannot see that, because <c>Self</c> resolves to no type
+        /// record of its own.
+        /// </summary>
+        internal static bool IsOptionalDynamicSelf(TypeSpec? typeSpec)
+            => typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+                && optional.GenericParameters[0].IsDynamicSelf;
 
         /// <summary>
         /// Determines indirect result requirements specific to @_cdecl wrappers.
@@ -419,6 +430,27 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Is <paramref name="typeSpec"/> the dynamic <c>Self</c> of a class member? That <c>Self</c>
+        /// is the dynamic type of a class instance, so it lowers to one class reference: Swift
+        /// returns it directly in the first return register (x0 / rax) at +1, never through an
+        /// indirect result, whether the callee is the library's own entry point, a dispatch thunk
+        /// or a Swift-convention shim the generator emits. The parent is a class when it is
+        /// declared as one or when the type database records it as one, which also covers a class
+        /// reached through an extension of a type declared in another module.
+        /// </summary>
+        internal static bool IsClassDynamicSelf(TypeSpec? typeSpec, BaseDecl? parentDecl, ITypeDatabase typeDatabase)
+        {
+            if (typeSpec is null || !typeSpec.IsDynamicSelf)
+                return false;
+            if (parentDecl is ClassDecl)
+                return true;
+            return parentDecl is TypeDecl parentType
+                && parentType is not ProtocolDecl
+                && typeDatabase.TryGetTypeRecord(parentType.SwiftTypeName, out var record)
+                && record.Kind == TypeRecordKind.Class;
+        }
+
+        /// <summary>
         /// Determines indirect result requirements for constructors.
         /// Failable constructors and non-frozen struct constructors need indirect result.
         /// Returns null if the method is not a constructor or no constructor-specific rule applies.
@@ -465,9 +497,19 @@ namespace BindingsGeneration
             var returnType = env.MethodDecl.CSSignature.First();
             bool isCdeclNonSetter = IsCdeclNonSetterWrapper(env);
 
-            // DynamicSelf (Self return type) always requires indirect result.
+            // DynamicSelf (Self return type). A class member's Self is one class reference, which
+            // Swift returns directly in the first return register on every route, the generated
+            // Swift-convention shims included. Elsewhere Self stays indirect.
             if (returnType.SwiftTypeSpec.IsDynamicSelf)
-                return true;
+                return !IsClassDynamicSelf(returnType.SwiftTypeSpec, env.ParentDecl, env.TypeDatabase);
+
+            // Self? of a class member is one nullable class reference, returned in the same
+            // register with nil as null. Decided here because Self has no type record of its own:
+            // the bound-generic arm below would read Self? as an optional existential and
+            // force an indirect result the callee never writes.
+            if (IsOptionalDynamicSelf(returnType.SwiftTypeSpec)
+                && IsClassDynamicSelf(((NamedTypeSpec)returnType.SwiftTypeSpec).GenericParameters[0], env.ParentDecl, env.TypeDatabase))
+                return false;
 
             // Closure return types: non-cdecl passes as function pointers directly.
             if (returnType.SwiftTypeSpec is ClosureTypeSpec)
