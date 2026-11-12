@@ -266,6 +266,10 @@ public sealed record SwiftTransitionLedgerEntry(
     /// </summary>
     public ImmutableArray<string>? Candidates { get; init; }
 
+    /// <summary>The managed signature the site passes, read from the emitted C#; not serialized.</summary>
+    [JsonIgnore]
+    public SwiftManagedSignature? Signature { get; init; }
+
     /// <summary>
     /// The join key with an IL inventory site of the same kind: an import's member and entry point; a
     /// callback's member; a callback address's member and target; a <c>calli</c>'s member.
@@ -324,6 +328,9 @@ public sealed class SwiftTransitionLedger
     public ImmutableSortedDictionary<string, int> Registered { get; init; } =
         ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal);
 
+    /// <summary>The value types the emitted C# declares, which the entries' signatures name; not serialized.</summary>
+    public SwiftManagedTypeIndex Types { get; init; } = SwiftManagedTypeIndex.Empty;
+
     /// <summary>The join key of a member and an entry point.</summary>
     public static string KeyOf(string member, string entryPoint) => string.Concat(member, " ", entryPoint);
 
@@ -354,7 +361,8 @@ public sealed class SwiftTransitionLedger
         IEnumerable<SwiftCalliRecord>? callis = null)
     {
         var issues = new List<string>(additionalIssues ?? Array.Empty<string>());
-        var sites = csharpSources.SelectMany(source => SwiftTransitionSyntax.Scan(source, issues)).ToList();
+        var types = new SwiftManagedTypeIndex();
+        var sites = csharpSources.SelectMany(source => SwiftTransitionSyntax.Scan(source, issues, types)).ToList();
 
         var importRecords = records
             .GroupBy(r => (r.MethodName, r.EntryPoint, r.Library))
@@ -382,12 +390,14 @@ public sealed class SwiftTransitionLedger
                 Carriers = site.Carriers,
                 Target = site.Target,
                 Specials = site.Kind == SwiftTransitionKind.CdeclSpecialPInvoke ? site.Specials : null,
+                Signature = site.Signature,
             });
         }
 
         return new SwiftTransitionLedger
         {
             Module = module,
+            Types = types,
             Entries = entries
                 .OrderBy(e => e.Transition)
                 .ThenBy(e => e.Member, StringComparer.Ordinal)
@@ -430,10 +440,15 @@ public sealed class SwiftTransitionLedger
             return Unplanned(site, matches.Select(m => m.Reason ?? "the producer recorded no facts"));
 
         var distinctFacts = withFacts.Select(m => m.Facts!).Distinct().ToList();
+        string[]? conflict = null;
         if (distinctFacts.Count > 1)
+        {
             issues.Add($"{site.Member} ({site.EntryPoint}): producers recorded {distinctFacts.Count} different facts; the first by id is cited");
+            // Which of them is the call's is not determined, so the entry is not complete.
+            conflict = [$"producers recorded {distinctFacts.Count} different facts"];
+        }
         var record = withFacts.OrderBy(m => m.Facts!.Id, StringComparer.Ordinal).ThenBy(m => (int)m.Source).First();
-        return Cite(site, record.Facts!, record.Source, cited);
+        return Cite(site, record.Facts!, record.Source, cited, conflict);
     }
 
     private static SwiftTransitionLedgerEntry CallbackEntry(
@@ -443,11 +458,16 @@ public sealed class SwiftTransitionLedger
         if (site.CallbackName is null || !records.TryGetValue(site.CallbackName, out var matches))
             return Unplanned(site, ["no producer recorded this callback"]);
         var distinct = matches.Distinct().ToList();
+        var reasons = new List<string>();
         if (distinct.Count > 1 && site.Kind == SwiftTransitionKind.ReverseCallback)
+        {
             issues.Add($"{site.Member}: producers recorded {distinct.Count} different descriptions of this callback; the first by id is cited");
+            reasons.Add($"producers recorded {distinct.Count} different descriptions of this callback");
+        }
         var record = distinct.OrderBy(r => r.Facts.Id, StringComparer.Ordinal).First();
-        var ownerReasons = record.OwnerReason is { } reason ? new[] { "closure owner: " + reason } : null;
-        return Cite(site, record.Facts, SwiftCallFactsSource.ClosureType, cited, ownerReasons) with { Owner = record.Owner };
+        if (record.OwnerReason is { } reason)
+            reasons.Add("closure owner: " + reason);
+        return Cite(site, record.Facts, SwiftCallFactsSource.ClosureType, cited, reasons) with { Owner = record.Owner };
     }
 
     private static SwiftTransitionLedgerEntry CalliEntry(

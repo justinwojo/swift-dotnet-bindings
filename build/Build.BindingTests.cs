@@ -605,9 +605,9 @@ partial class Build
                 Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
             }
 
-            // The dependency module's Swift call facts sidecar and transition ledger travel with its
-            // C# for the same reason: they describe transitions that are compiled from BtOutputDir.
-            foreach (var sidecar in new[] { $"{DepModuleName}.swift-call-facts.json", $"{DepModuleName}.swift-transition-ledger.json" })
+            // The dependency module's Swift call facts sidecar, transition ledger and call plans travel
+            // with its C# for the same reason: they describe transitions that are compiled from BtOutputDir.
+            foreach (var sidecar in new[] { $"{DepModuleName}.swift-call-facts.json", $"{DepModuleName}.swift-transition-ledger.json", $"{DepModuleName}.swift-call-plans.json" })
             {
                 var depSidecar = depOutputDir / sidecar;
                 if (File.Exists(depSidecar))

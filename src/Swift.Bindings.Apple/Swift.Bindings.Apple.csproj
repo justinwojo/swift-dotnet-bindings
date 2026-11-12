@@ -188,7 +188,7 @@
           BeforeTargets="CoreCompile">
     <ItemGroup>
       <Compile Include="$(_AppleTypesGeneratedDir)\**\*.cs" Exclude="@(Compile)" />
-      <FileWrites Include="$(_AppleTypesGeneratedDir)\**\*.cs;$(_AppleTypesGeneratedDir)\*.swift-transition-ledger.json;$(_AppleTypesStampFile)" />
+      <FileWrites Include="$(_AppleTypesGeneratedDir)\**\*.cs;$(_AppleTypesGeneratedDir)\*.swift-transition-ledger.json;$(_AppleTypesGeneratedDir)\*.swift-call-plans.json;$(_AppleTypesStampFile)" />
     </ItemGroup>
   </Target>
 

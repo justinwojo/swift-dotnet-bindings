@@ -89,7 +89,8 @@ public sealed record SwiftCallFacts
         foreach (var parameter in Parameters)
             hash.Add(parameter);
         hash.Add(Generics);
-        foreach (var unknown in Unknowns)
+        // A default list is an empty one, as IsComplete reads it.
+        foreach (var unknown in Unknowns.IsDefault ? [] : Unknowns)
             hash.Add(unknown);
         return hash.ToHashCode();
     }

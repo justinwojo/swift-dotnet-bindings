@@ -203,9 +203,18 @@ namespace BindingsGeneration
                 // Swift P/Invokes, C-convention imports naming a Swift register type, Swift-convention
                 // callbacks and where their addresses are taken, calls through unmanaged[Swift] pointers),
                 // read from that C#, with the facts its producer recorded or why there are none.
-                SwiftTransitionLedger
+                var ledger = SwiftTransitionLedger
                     .Build(moduleDecl.Name, wholeOutput, emissionContext.SwiftTransitionRecords, emissionContext.SyntheticSwiftFunctionConflicts,
-                        emissionContext.SyntheticSwiftFunctions, emissionContext.SwiftCallbackRecords, emissionContext.SwiftCalliRecords)
+                        emissionContext.SyntheticSwiftFunctions, emissionContext.SwiftCallbackRecords, emissionContext.SwiftCalliRecords);
+                ledger.Write(_outputDirectory, @namespace, _logger);
+
+                // The bridge plans of the ledger's transitions, from their facts and the managed
+                // signatures the C# declares: a sidecar only, nothing is emitted from it yet.
+                var lowering = new SwiftLayoutValueLowering(
+                    new[] { moduleDecl }.Concat(_typeDatabase.GetDependencyModuleDecls().Where(d => !ReferenceEquals(d, moduleDecl) && d.Name != moduleDecl.Name)),
+                    _typeDatabase);
+                SwiftCallPlanSet
+                    .Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(lowering)))
                     .Write(_outputDirectory, @namespace, _logger);
 
                 // Split the combined output into one file per top-level type (prelude keeps the

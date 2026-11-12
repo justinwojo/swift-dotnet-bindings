@@ -67,6 +67,12 @@ public sealed record SwiftPhysicalArgument(
         }
     }
 
+    /// <summary>
+    /// For a piece of a directly passed formal or self, which bytes of the value it carries. Not part
+    /// of the IR signature; a plan matches the managed carrier's pieces against it.
+    /// </summary>
+    public SwiftLoweredPiece? Piece { get; init; }
+
     public override string ToString() => Detail is null ? Normalized : $"{Normalized} ({Detail})";
 }
 
@@ -76,6 +82,9 @@ public sealed record SwiftPhysicalArgument(
 /// </summary>
 public sealed record SwiftPhysicalSignature(ImmutableArray<SwiftPhysicalArgument> Arguments, string Result)
 {
+    /// <summary>The direct result's pieces, with the bytes of the value each carries; empty for a void or indirect result.</summary>
+    public ImmutableArray<SwiftLoweredPiece> ResultPieces { get; init; } = ImmutableArray<SwiftLoweredPiece>.Empty;
+
     /// <summary>The signature as swiftc's IR spells it, attributes normalized: <c>i64 (ptr noalias sret, i64)</c>.</summary>
     public string Normalized => $"{Result} ({string.Join(", ", Arguments.Select(a => a.Normalized))})";
 
@@ -116,14 +125,21 @@ public static class SwiftPhysicalSignaturePredictor
             return SwiftPhysicalPrediction.Refused(notSynchronous);
         if (!facts.IsComplete)
             return SwiftPhysicalPrediction.Refused($"the facts are incomplete: {string.Join("; ", facts.Unknowns)}");
-        if (facts.Target.Kind is SwiftCallTargetKind.ClosureInvocation or SwiftCallTargetKind.ValueWitness or SwiftCallTargetKind.MetadataAccessor)
+        if (facts.Target.Kind is SwiftCallTargetKind.ValueWitness or SwiftCallTargetKind.MetadataAccessor)
             return SwiftPhysicalPrediction.Refused($"a {facts.Target.Kind} is not a declared Swift function this predictor models");
+        // A thick closure's function takes its formals, then its context in the self register (and
+        // the error register when it throws). It takes no generic arguments: whatever its type
+        // abstracts over is either passed indirectly or captured in the context.
+        bool closure = facts.Target.Kind == SwiftCallTargetKind.ClosureInvocation;
+        if (closure && facts.Self.Kind != SwiftCallSelfKind.ClosureContext)
+            return SwiftPhysicalPrediction.Refused($"a closure invocation whose self is {facts.Self.Kind}, not its context");
 
         var arguments = ImmutableArray.CreateBuilder<SwiftPhysicalArgument>();
         var generics = facts.Generics;
 
         // The result: direct pieces, or an address before everything else.
         string result;
+        var resultPieces = ImmutableArray<SwiftLoweredPiece>.Empty;
         if (facts.Result.IsVoid)
         {
             result = "void";
@@ -135,6 +151,7 @@ public static class SwiftPhysicalSignaturePredictor
             {
                 case SwiftLoweringOutcome.Direct when physical.HasLayout:
                     result = ResultType(physical.Layout);
+                    resultPieces = physical.Layout;
                     break;
                 case SwiftLoweringOutcome.Indirect:
                     arguments.Add(new SwiftPhysicalArgument(SwiftPhysicalArgumentRole.IndirectResult, "ptr", NoAlias: true, StructRet: true));
@@ -157,7 +174,7 @@ public static class SwiftPhysicalSignaturePredictor
                     if (!physical.HasLayout)
                         return SwiftPhysicalPrediction.Refused($"parameter {i} ('{facts.Parameters[i].Type.Spelling}'): its pieces are not known");
                     foreach (var piece in physical.Layout)
-                        arguments.Add(new SwiftPhysicalArgument(SwiftPhysicalArgumentRole.Formal, piece.IrType, FormalIndex: i));
+                        arguments.Add(new SwiftPhysicalArgument(SwiftPhysicalArgumentRole.Formal, piece.IrType, FormalIndex: i) { Piece = piece });
                     break;
                 }
                 case SwiftParameterPassingKind.IndirectBorrowed or SwiftParameterPassingKind.IndirectOwned:
@@ -186,7 +203,7 @@ public static class SwiftPhysicalSignaturePredictor
                 if (!physical.HasLayout)
                     return SwiftPhysicalPrediction.Refused($"self ('{facts.Self.Type!.Spelling}'): its pieces are not known");
                 foreach (var piece in physical.Layout)
-                    arguments.Add(new SwiftPhysicalArgument(SwiftPhysicalArgumentRole.LoweredSelf, piece.IrType));
+                    arguments.Add(new SwiftPhysicalArgument(SwiftPhysicalArgumentRole.LoweredSelf, piece.IrType) { Piece = piece });
                 break;
             }
             case SwiftSelfConvention.IndirectBorrowed or SwiftSelfConvention.IndirectOwned:
@@ -198,7 +215,9 @@ public static class SwiftPhysicalSignaturePredictor
                 break;
         }
 
-        var (leading, trailing, polymorphicRefusal) = Polymorphic(facts, self.Convention!.Value);
+        var (leading, trailing, polymorphicRefusal) = closure
+            ? (ImmutableArray<SwiftPhysicalArgument>.Empty, ImmutableArray<SwiftPhysicalArgument>.Empty, null)
+            : Polymorphic(facts, self.Convention!.Value);
         if (polymorphicRefusal is not null)
             return SwiftPhysicalPrediction.Refused(polymorphicRefusal);
         arguments.AddRange(leading);
@@ -215,7 +234,7 @@ public static class SwiftPhysicalSignaturePredictor
         if (facts.Effects.Throws)
             arguments.Add(new SwiftPhysicalArgument(SwiftPhysicalArgumentRole.Error, "ptr", NoAlias: true, SwiftError: true));
         arguments.AddRange(trailing);
-        return new SwiftPhysicalPrediction(new SwiftPhysicalSignature(arguments.ToImmutable(), result), null);
+        return new SwiftPhysicalPrediction(new SwiftPhysicalSignature(arguments.ToImmutable(), result) { ResultPieces = resultPieces }, null);
     }
 
     /// <summary>The IR type of a direct result: nothing, one piece, or a literal struct of the pieces.</summary>

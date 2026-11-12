@@ -113,7 +113,11 @@ public sealed class AppleTypesCsEmitter
         EmitFrameworkResolverRegistration(outputDir, opaqueRegistrations);
 
         // Beside the C#, not among it: the project compiles only the emitted .cs files.
-        BuildTransitionLedger().Write(outputDir, LedgerModule, _logger);
+        var ledger = BuildTransitionLedger();
+        ledger.Write(outputDir, LedgerModule, _logger);
+        SwiftCallPlanSet
+            .Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(UnknownSwiftValueLowering.Instance)))
+            .Write(outputDir, LedgerModule, _logger);
     }
 
     // Emits a single file with a `[ModuleInitializer]` that validates the Runtime

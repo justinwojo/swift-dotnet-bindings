@@ -168,9 +168,30 @@ partial class Build
     (string Assembly, AbsolutePath LedgerDirectory, string[] HandWrittenTypes)[] LedgeredAssemblies => new[]
     {
         ("CompileCheck.dll", BtOutputDir, Array.Empty<string>()),
-        ("SwiftBindings.Apple.dll", AppleSupplementDir / "obj" / "Debug" / $"{BtFramework}-ios" / "AppleTypes",
+        ("SwiftBindings.Apple.dll", AppleSupplementDir / "obj" / "Debug" / AppleSupplementIosFramework() / "AppleTypes",
             new[] { "Swift.Foundation.Data", "Swift.Foundation.URL", "Swift.Foundation.URLRequest", "Swift.SwiftUI.Text" }),
     };
+
+    /// <summary>
+    /// The Apple supplement's iOS framework the compile check's reference to it resolves to: of the iOS
+    /// frameworks its project targets, the newest the lane's framework can consume. A lane newer than
+    /// the supplement (net11 against a net10-only supplement) consumes the older build, whose
+    /// ledger is under that framework's obj directory.
+    /// </summary>
+    string AppleSupplementIosFramework()
+    {
+        var project = System.Xml.Linq.XDocument.Load(AppleSupplementDir / "Swift.Bindings.Apple.csproj");
+        var lane = System.Version.Parse(BtFramework["net".Length..]);
+        return project.Descendants("TargetFrameworks")
+                   .SelectMany(e => e.Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                   .Where(t => t.StartsWith("net", StringComparison.Ordinal) && t.EndsWith("-ios", StringComparison.Ordinal))
+                   .Select(t => (Framework: t, Version: System.Version.Parse(t["net".Length..^"-ios".Length])))
+                   .Where(t => t.Version <= lane)
+                   .OrderByDescending(t => t.Version)
+                   .Select(t => t.Framework)
+                   .FirstOrDefault()
+               ?? throw new Exception($"Transition ledger cross-check: Swift.Bindings.Apple.csproj targets no iOS framework a {BtFramework} compile check can consume.");
+    }
 
     /// <summary>
     /// The compile-only step: scans the compile-check assembly and the Apple supplement built beside

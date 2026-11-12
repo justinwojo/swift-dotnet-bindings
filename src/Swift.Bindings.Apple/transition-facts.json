@@ -1,0 +1,227 @@
+{
+  "schema": 1,
+  "assembly": "SwiftBindings.Apple",
+  "lowering": [
+    {
+      "type": "Foundation.Data",
+      "outcome": "Direct",
+      "pieces": [
+        "i64",
+        "i64"
+      ],
+      "reason": "Data is a frozen enum of inline and reference-backed representations, two words: swiftc passes and returns it as { i64, i64 }"
+    }
+  ],
+  "transitions": [
+    {
+      "method": "PInvoke_InitWithBytes",
+      "entryPoint": "$s10Foundation4DataV5bytes5countACSV_SitcfC",
+      "library": "KnownLibraries.SwiftFoundation",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Initializer",
+          "accessor": "None",
+          "entry": "Implementation",
+          "symbol": "$s10Foundation4DataV5bytes5countACSV_SitcfC",
+          "module": "Foundation",
+          "declaringType": "Foundation.Data",
+          "memberName": "init",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "ThinMetatype",
+          "mutation": "NotApplicable",
+          "abstraction": "Concrete",
+          "type": {
+            "spelling": "Foundation.Data",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [
+          {
+            "index": 0,
+            "name": "bytes",
+            "type": {
+              "spelling": "Swift.UnsafeRawPointer",
+              "category": "Struct",
+              "isClassBound": false,
+              "isFrozen": true
+            },
+            "convention": "Guaranteed",
+            "conventionSource": "Default",
+            "closure": "NotClosure",
+            "isVariadic": false
+          },
+          {
+            "index": 1,
+            "name": "count",
+            "type": {
+              "spelling": "Swift.Int",
+              "category": "Struct",
+              "isClassBound": false,
+              "isFrozen": true
+            },
+            "convention": "Guaranteed",
+            "conventionSource": "Default",
+            "closure": "NotClosure",
+            "isVariadic": false
+          }
+        ],
+        "result": {
+          "type": {
+            "spelling": "Foundation.Data",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [],
+          "requirements": [],
+          "ownParameters": []
+        }
+      }
+    },
+    {
+      "method": "PInvoke_GetCount",
+      "entryPoint": "$s10Foundation4DataV5countSivg",
+      "library": "KnownLibraries.SwiftFoundation",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Accessor",
+          "accessor": "Get",
+          "entry": "Implementation",
+          "symbol": "$s10Foundation4DataV5countSivg",
+          "module": "Foundation",
+          "declaringType": "Foundation.Data",
+          "memberName": "count",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "Value",
+          "mutation": "Nonmutating",
+          "abstraction": "Concrete",
+          "type": {
+            "spelling": "Foundation.Data",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [],
+        "result": {
+          "type": {
+            "spelling": "Swift.Int",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [],
+          "requirements": [],
+          "ownParameters": []
+        }
+      }
+    },
+    {
+      "method": "PInvoke_CopyBytes",
+      "entryPoint": "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF",
+      "library": "KnownLibraries.SwiftFoundation",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Method",
+          "accessor": "None",
+          "entry": "Implementation",
+          "symbol": "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF",
+          "module": "Foundation",
+          "declaringType": "Foundation.Data",
+          "memberName": "copyBytes",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "Value",
+          "mutation": "Nonmutating",
+          "abstraction": "Concrete",
+          "type": {
+            "spelling": "Foundation.Data",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [
+          {
+            "index": 0,
+            "name": "to",
+            "type": {
+              "spelling": "Swift.UnsafeMutablePointer<Swift.UInt8>",
+              "category": "Struct",
+              "isClassBound": false,
+              "isFrozen": true
+            },
+            "convention": "Guaranteed",
+            "conventionSource": "Default",
+            "closure": "NotClosure",
+            "isVariadic": false
+          },
+          {
+            "index": 1,
+            "name": "count",
+            "type": {
+              "spelling": "Swift.Int",
+              "category": "Struct",
+              "isClassBound": false,
+              "isFrozen": true
+            },
+            "convention": "Guaranteed",
+            "conventionSource": "Default",
+            "closure": "NotClosure",
+            "isVariadic": false
+          }
+        ],
+        "result": {
+          "type": {
+            "spelling": "()",
+            "category": "Void",
+            "isClassBound": false
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [],
+          "requirements": [],
+          "ownParameters": []
+        }
+      }
+    }
+  ]
+}

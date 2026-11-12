@@ -19,6 +19,7 @@ namespace BindingsGeneration;
 /// <param name="FunctionPointerType">For a <c>calli</c>, the function-pointer type it calls through, as written.</param>
 /// <param name="Carriers">For a forward transition, whether its signature carries only primitives.</param>
 /// <param name="Specials">For a non-Swift import, the Swift register types its signature names.</param>
+/// <param name="Signature">The managed signature the site passes: an import's or a callback's declaration, a <c>calli</c>'s pointer type.</param>
 internal sealed record SwiftTransitionSite(
     SwiftTransitionKind Kind,
     string Member,
@@ -29,7 +30,8 @@ internal sealed record SwiftTransitionSite(
     string? CallbackName = null,
     string? FunctionPointerType = null,
     SwiftTransitionCarriers? Carriers = null,
-    ImmutableArray<string> Specials = default);
+    ImmutableArray<string> Specials = default,
+    SwiftManagedSignature? Signature = null);
 
 /// <summary>
 /// Reads the transition sites out of a module's emitted C#: forward Swift-convention imports, imports
@@ -81,10 +83,14 @@ internal static class SwiftTransitionSyntax
     /// </summary>
     private static readonly HashSet<string> LoweredToPrimitive = new(StringComparer.Ordinal) { "SafeHandle" };
 
-    public static List<SwiftTransitionSite> Scan(string source, List<string> issues)
+    public static List<SwiftTransitionSite> Scan(string source, List<string> issues) => Scan(source, issues, null);
+
+    /// <summary>The sites of <paramref name="source"/>; the types it declares are added to <paramref name="types"/>.</summary>
+    public static List<SwiftTransitionSite> Scan(string source, List<string> issues, SwiftManagedTypeIndex? types)
     {
         var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
         var root = tree.GetRoot();
+        types?.Add(root);
         var enums = root.DescendantNodes().OfType<EnumDeclarationSyntax>().Select(e => e.Identifier.ValueText).ToHashSet(StringComparer.Ordinal);
         var sites = new List<SwiftTransitionSite>();
         var callbacks = new Dictionary<string, List<MethodDeclarationSyntax>>(StringComparer.Ordinal);
@@ -102,7 +108,8 @@ internal static class SwiftTransitionSyntax
             if (uco is not null && NamesCallConvSwift(uco))
             {
                 var name = method.Identifier.ValueText;
-                sites.Add(new SwiftTransitionSite(SwiftTransitionKind.ReverseCallback, MemberOf(method), name, CallbackName: name));
+                sites.Add(new SwiftTransitionSite(SwiftTransitionKind.ReverseCallback, MemberOf(method), name, CallbackName: name,
+                    Signature: SwiftManagedSignature.Of(method, SwiftManagedMarshalling.None)));
                 if (!callbacks.TryGetValue(name, out var list))
                     callbacks[name] = list = new List<MethodDeclarationSyntax>();
                 list.Add(method);
@@ -138,7 +145,8 @@ internal static class SwiftTransitionSyntax
                 SwiftTransitionKind.ForwardCalli, ContainingMember(invocation), "", FunctionPointerType: pointer.ToString(),
                 Carriers: pointer.ParameterList.Parameters.All(p => IsPrimitive(p.Type, p.Modifiers, enums))
                     ? SwiftTransitionCarriers.Primitive
-                    : SwiftTransitionCarriers.NonPrimitive));
+                    : SwiftTransitionCarriers.NonPrimitive,
+                Signature: SwiftManagedSignature.Of(pointer, invocation)));
         }
 
         // A site in an inactive region is not in the syntax tree; say so rather than miss it.
@@ -163,14 +171,18 @@ internal static class SwiftTransitionSyntax
             return;
 
         var arguments = import.ArgumentList?.Arguments ?? default;
-        var library = arguments.FirstOrDefault(a => a.NameEquals is null && a.NameColon is null)?.Expression is LiteralExpressionSyntax lib
-            ? lib.Token.ValueText
-            : null;
+        // A literal, or a named constant (hand-written imports name KnownLibraries members), by its spelling.
+        var library = arguments.FirstOrDefault(a => a.NameEquals is null && a.NameColon is null)?.Expression switch
+        {
+            LiteralExpressionSyntax lib => lib.Token.ValueText,
+            MemberAccessExpressionSyntax constant => constant.ToString(),
+            _ => null,
+        };
         var entryArgument = arguments.FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "EntryPoint");
         var entryPoint = entryArgument?.Expression is LiteralExpressionSyntax ep ? ep.Token.ValueText : method.Identifier.ValueText;
         if (library is null)
         {
-            issues.Add($"{MemberOf(method)}: an import whose library is not a literal is not listed");
+            issues.Add($"{MemberOf(method)}: an import whose library is neither a literal nor a named constant is not listed");
             return;
         }
 
@@ -183,7 +195,8 @@ internal static class SwiftTransitionSyntax
             isSwift ? SwiftTransitionKind.ForwardPInvoke : SwiftTransitionKind.CdeclSpecialPInvoke,
             MemberOf(method), method.Identifier.ValueText, entryPoint, library,
             Carriers: primitive ? SwiftTransitionCarriers.Primitive : SwiftTransitionCarriers.NonPrimitive,
-            Specials: specials));
+            Specials: specials,
+            Signature: SwiftManagedSignature.Of(method, lowered ? SwiftManagedMarshalling.SourceGenerated : SwiftManagedMarshalling.Runtime)));
     }
 
     /// <summary>The Swift register types a signature names, by simple name, in signature order.</summary>
