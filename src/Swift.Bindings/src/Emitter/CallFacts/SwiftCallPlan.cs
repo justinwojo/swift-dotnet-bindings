@@ -263,14 +263,24 @@ public sealed record SwiftCallPlan(string Hash, string Symbol, SwiftCallPlanBody
     /// <summary>The length of the hash prefix a bridge symbol carries.</summary>
     public const int SymbolHashLength = 16;
 
+    /// <summary>The prefix of every forward bridge symbol (thin and thick).</summary>
+    public const string ForwardPrefix = "SBSR_";
+
+    /// <summary>The prefix of every reverse bridge symbol.</summary>
+    public const string ReversePrefix = "SBSRR_";
+
+    /// <summary>True when <paramref name="entryPoint"/> names a forward bridge.</summary>
+    public static bool IsForwardBridgeSymbol(string? entryPoint) =>
+        entryPoint is not null && entryPoint.StartsWith(ForwardPrefix, StringComparison.Ordinal);
+
     public static SwiftCallPlan Of(SwiftCallPlanBody body)
     {
         var hash = body.Sha256();
         var prefix = body.Kind switch
         {
-            SwiftPlanKind.Forward => "SBSR_",
-            SwiftPlanKind.ForwardThick => "SBSR_thick_",
-            _ => "SBSRR_",
+            SwiftPlanKind.Forward => ForwardPrefix,
+            SwiftPlanKind.ForwardThick => ForwardPrefix + "thick_",
+            _ => ReversePrefix,
         };
         return new SwiftCallPlan(hash, prefix + hash[..SymbolHashLength], body);
     }

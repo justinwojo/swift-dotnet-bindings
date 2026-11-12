@@ -180,6 +180,35 @@ public static class ArtifactParityGate
 
     private static readonly Regex InvocationToken = new(@"\b(?<name>\w+)\s*\(", RegexOptions.Compiled);
 
+    private static readonly Regex BridgeLine = new(
+        @"^\s*(?:\.(?<directive>globl)|(?<directive>bl|b|call|jmp))\s+_(?<symbol>\S+)\s*$", RegexOptions.Compiled | RegexOptions.Multiline);
+
+    /// <summary>
+    /// Each native Swift bridge of a bridge assembly file (<c>*.Bridges.{arch}.s</c>) and the symbols it
+    /// calls (the targets of the branches in its body), without the Mach-O underscore. A wrapper export a
+    /// bridge calls is referenced through the C-convention twin that calls the bridge, not through a
+    /// P/Invoke of its own.
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlySet<string>> ParseBridgeTargets(string assembly)
+    {
+        var targets = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        HashSet<string>? current = null;
+        foreach (Match m in BridgeLine.Matches(assembly))
+        {
+            var symbol = m.Groups["symbol"].Value;
+            if (m.Groups["directive"].Value == "globl")
+            {
+                if (!targets.TryGetValue(symbol, out current))
+                    targets[symbol] = current = new HashSet<string>(StringComparer.Ordinal);
+            }
+            else
+            {
+                current?.Add(symbol);
+            }
+        }
+        return targets.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.Ordinal);
+    }
+
     /// <summary>All native symbols referenced by the C#: explicit EntryPoints plus
     /// the method identifiers (the symbol an EntryPoint-less import binds to).</summary>
     public static IReadOnlySet<string> ReferencedSymbols(IReadOnlyList<ParityExtern> externs)
@@ -575,12 +604,16 @@ public static class ArtifactParityGate
     /// </summary>
     /// <param name="wrapperAuthoredSymbols">Authored exports of the generator wrapper
     /// dylib (already filtered by <see cref="IsAuthoredWrapperSymbol"/>) for the reverse check.</param>
+    /// <param name="bridgeTargets">The native Swift bridges and the symbols each calls
+    /// (<see cref="ParseBridgeTargets"/>): a bridge's targets count as referenced when a P/Invoke
+    /// references the bridge.</param>
     public static ParityFindings ComputeFindings(
         string csSource,
         string swiftWrapperSource,
         string abiJson,
         IReadOnlyDictionary<string, IReadOnlySet<string>> symbolsByLibrary,
-        IReadOnlySet<string> wrapperAuthoredSymbols)
+        IReadOnlySet<string> wrapperAuthoredSymbols,
+        IReadOnlyDictionary<string, IReadOnlySet<string>>? bridgeTargets = null)
     {
         var externs = ParseExterns(csSource);
 
@@ -606,7 +639,15 @@ public static class ArtifactParityGate
             missingByLib[k] = missingByLib[k].OrderBy(s => s, StringComparer.Ordinal).ToList();
 
         // ---- Gate 1 reverse ----
-        var referenced = ReferencedSymbols(externs);
+        var referenced = new HashSet<string>(ReferencedSymbols(externs), StringComparer.Ordinal);
+        if (bridgeTargets is not null)
+        {
+            foreach (var (bridge, targets) in bridgeTargets)
+            {
+                if (referenced.Contains(bridge))
+                    referenced.UnionWith(targets);
+            }
+        }
         var orphans = wrapperAuthoredSymbols
             .Where(s => !referenced.Contains(s))
             .OrderBy(s => s, StringComparer.Ordinal)

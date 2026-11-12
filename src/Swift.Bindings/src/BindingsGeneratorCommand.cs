@@ -98,6 +98,7 @@ public static class BindingsGeneratorCommand
         var emitAppleTypesCs = parseResult.GetValueForOption(options.EmitAppleTypesCs);
         var swiftBridges = parseResult.GetValueForOption(options.SwiftBridges);
         var swiftCallPlans = parseResult.GetValueForOption(options.SwiftCallPlans) ?? Array.Empty<string>();
+        var swiftRoutedCallPlans = parseResult.GetValueForOption(options.SwiftRoutedCallPlans) ?? Array.Empty<string>();
         var swiftLoweringEvidence = parseResult.GetValueForOption(options.SwiftLoweringEvidence);
         var emitHandWrittenPlans = parseResult.GetValueForOption(options.EmitHandWrittenPlans);
         var transitionFacts = parseResult.GetValueForOption(options.TransitionFacts);
@@ -289,10 +290,29 @@ public static class BindingsGeneratorCommand
                 return;
             }
             context.ExitCode = swiftBridges
-                ? SwiftBridgeGate.Run(swiftCallPlans, swiftLoweringEvidence, outputDirectory!, logger)
+                ? SwiftBridgeGate.Run(swiftCallPlans, swiftRoutedCallPlans, swiftLoweringEvidence, outputDirectory!, logger)
                 : SwiftHandWrittenPlans.Run(transitionFacts ?? string.Empty, planSources, outputDirectory!, logger);
             return;
         }
+
+        // In binding generation, --swift-lowering-evidence routes every transition whose call plan
+        // the evidence makes executable through its native bridge. Without it nothing is executable
+        // and the emitted imports are the direct ones.
+        SwiftLoweringEvidence? bridgeEvidence = null;
+        if (!string.IsNullOrWhiteSpace(swiftLoweringEvidence))
+        {
+            try
+            {
+                bridgeEvidence = SwiftLoweringEvidence.Load(swiftLoweringEvidence);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+            {
+                logger.LogError("Error: --swift-lowering-evidence '{Path}' could not be read: {Message}", swiftLoweringEvidence, ex.Message);
+                context.ExitCode = 1;
+                return;
+            }
+        }
+        using var bridgeEvidenceScope = bridgeEvidence is null ? null : SwiftBridgeEvidence.Use(bridgeEvidence);
 
         // Handle --validate-apple-types-manifest: live-SDK CI validator.
         // Probes every manifest entry advertised on the host platform via dlsym +
@@ -3349,6 +3369,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine();
         Console.WriteLine("Swift bridges — ignore binding-generation options:");
         Console.WriteLine("  --swift-bridges            Emit and validate the native bridges of --swift-call-plans sidecars (repeatable), joined with --swift-lowering-evidence, into -o.");
+        Console.WriteLine("  --swift-routed-call-plans  A sidecar of a generation given the evidence; --swift-bridges also checks its routing agrees.");
         Console.WriteLine("  --emit-hand-written-plans  Plan --transition-facts over --plan-sources directories (repeatable) and write the plan sidecar into -o.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");

@@ -11,6 +11,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using SwiftBindings.TransitionGate;
@@ -442,6 +443,215 @@ public class SwiftTransitionScannerTests
         Assert.Equal(new[] { "i16", "isize", "i32", "ptr", "ptr", "isize", "f64" }, verdicts.Select(v => v.Canonical));
     }
 
+    // ---- R3 -------------------------------------------------------------------------------------
+
+    private const string Cdecl = "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]";
+
+    [Fact]
+    public void R3_TwinMatchingItsPlan_Passes_AsDeclaredAndAsTheSourceGeneratorRenamesIt()
+    {
+        var report = Scan($$"""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "SBSR_1")] {{Cdecl}}
+                public static extern long Twin(long a, nint __self, nint __error);
+
+                [DllImport("lib", EntryPoint = "SBSR_1")] {{Cdecl}}
+                public static extern long Generated(long __a_native, nint ____self_native, nint ____error_native);
+            }
+            """, plan: Plans(SelfErrorPlan("SBSR_1")));
+
+        Assert.True(report.Passed, string.Join("\n", report.Violations.Select(v => $"{v.Rule} {v.Member}: {v.Reason}")));
+        Assert.Equal(2, report.Inventory.BridgeTwins);
+    }
+
+    [Fact]
+    public void R3_ReorderedTrailingPointers_Fire()
+    {
+        // Every trailing pointer is pointer-sized, so the carriers agree; only the order is wrong, and a
+        // bridge would move the error slot into the self register.
+        var report = Scan($$"""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "SBSR_1")] {{Cdecl}}
+                public static extern long Twin(long a, nint __error, nint __self);
+            }
+            """, plan: Plans(SelfErrorPlan("SBSR_1")));
+
+        var v = Assert.Single(report.Violations);
+        Assert.Equal(TransitionRule.R3, v.Rule);
+        Assert.Equal("SBSR_1", v.EntryPoint);
+        Assert.Contains("Self pointer (__self)", v.Reason);
+    }
+
+    [Fact]
+    public void R3_OrdinaryArgumentNamedAsATrailingPointer_Fires()
+    {
+        var report = Scan($$"""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "SBSR_1")] {{Cdecl}}
+                public static extern long Twin(long __self, nint a, nint __error);
+            }
+            """, plan: Plans(SelfErrorPlan("SBSR_1")));
+
+        Assert.Contains(report.Violations, v => v.Rule == TransitionRule.R3 && v.Reason.Contains("ordinary argument"));
+    }
+
+    [Theory]
+    [InlineData("SBSR_1", "long Twin(long a, nint __self, nint __error)", "Swift", "convention")]
+    [InlineData("SBSR_9", "long Twin(long a, nint __self, nint __error)", "Cdecl", "no plan in")]
+    [InlineData("SBSR_R", "long Twin(long a, nint __self, nint __error)", "Cdecl", "Reverse plan")]
+    [InlineData("SBSR_1", "long Twin(long a, nint __self)", "Cdecl", "takes 2 argument(s)")]
+    [InlineData("SBSR_1", "int Twin(long a, nint __self, nint __error)", "Cdecl", "returns")]
+    [InlineData("SBSR_1", "long Twin(double a, nint __self, nint __error)", "Cdecl", "as argument 0")]
+    [InlineData("SBSR_I", "void Twin(uint a)", "Cdecl", "as argument 0")]
+    public void R3_TwinThatIsNotItsPlan_Fires(string symbol, string signature, string convention, string reason)
+    {
+        var callConv = convention == "Swift" ? Swift : Cdecl;
+        var report = Scan($$"""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "{{symbol}}")] {{callConv}}
+                public static extern {{signature}};
+            }
+            """, plan: Plans(SelfErrorPlan("SBSR_1"), ReversePlan("SBSR_R"), SignedIntPlan("SBSR_I")));
+
+        var v = Assert.Single(report.Violations, v => v.Rule == TransitionRule.R3);
+        Assert.Contains(reason, v.Reason);
+        Assert.False(report.Passed);
+    }
+
+    [Fact]
+    public void R3_TwinWithNoPlanSource_Fires()
+    {
+        var report = Scan($$"""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "SBSR_1")] {{Cdecl}}
+                public static extern long Twin(long a, nint __self, nint __error);
+            }
+            """);
+
+        Assert.Contains("no plan source", Assert.Single(report.Violations).Reason);
+    }
+
+    [Fact]
+    public void R3_PlanSourceThatDoesNotRead_FailsEveryTwin()
+    {
+        var plan = Plans();
+        File.WriteAllText(Path.Combine(plan.Location, "Bad" + BridgeTwinPlans.SidecarSuffix), """{ "planVersion": 2, "plans": [] }""");
+        var report = Scan($$"""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "SBSR_1")] {{Cdecl}}
+                public static extern long Twin(long a, nint __self, nint __error);
+            }
+            """, plan: plan);
+
+        Assert.Contains("does not read", Assert.Single(report.Violations).Reason);
+    }
+
+    [Fact]
+    public void BridgeTwinPlans_TwoModulesHoldingOnePlanSymbolWithDifferentBodies_IsAProblem()
+    {
+        var plans = BridgeTwinPlans.FromSidecars(new[]
+        {
+            ("A" + BridgeTwinPlans.SidecarSuffix, Sidecar(SelfErrorPlan("SBSR_1"))),
+            ("B" + BridgeTwinPlans.SidecarSuffix, Sidecar(SelfErrorPlan("SBSR_1"))),
+        });
+        Assert.Empty(plans.Problems);
+        Assert.Equal(1, plans.Count);
+
+        var differing = BridgeTwinPlans.FromSidecars(new[]
+        {
+            ("A" + BridgeTwinPlans.SidecarSuffix, Sidecar(SelfErrorPlan("SBSR_1"))),
+            ("B" + BridgeTwinPlans.SidecarSuffix, Sidecar(SignedIntPlan("SBSR_1"))),
+        });
+        Assert.Contains(differing.Problems, p => p.Contains("differs", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true, true, null)]
+    [InlineData(false, false, null)]
+    [InlineData(true, false, "kept its direct import: parameter x has a default value")]
+    [InlineData(false, true, "does not prove executable")]
+    public void BridgeTwinPlans_RoutingGaps_AreTransitionsWhoseBridgingDisagreesWithTheirEvidence(bool executable, bool bridged, string? gap)
+    {
+        var sidecar = JsonNode.Parse(Sidecar(SelfErrorPlan("SBSR_1")))!.AsObject();
+        var entry = new JsonObject { ["member"] = "M::PInvoke_f", ["symbol"] = "SBSR_1", ["executable"] = executable };
+        if (bridged)
+            entry["bridged"] = true;
+        if (executable && !bridged)
+            entry["bridgeRefusal"] = "parameter x has a default value";
+        sidecar["coverage"] = new JsonArray(entry);
+
+        var plans = BridgeTwinPlans.FromSidecars(new[] { ("A" + BridgeTwinPlans.SidecarSuffix, sidecar.ToJsonString()) });
+
+        Assert.Empty(plans.Problems);
+        if (gap is null)
+            Assert.Empty(plans.RoutingGaps);
+        else
+            Assert.Contains(gap, Assert.Single(plans.RoutingGaps));
+    }
+
+    [Theory]
+    [InlineData("General", 8, false, "isize", true)]
+    [InlineData("General", 8, false, "ptr", true)]
+    [InlineData("General", 4, true, "i32", true)]
+    [InlineData("General", 4, true, "u32", false)]
+    [InlineData("General", 1, false, "bool", true)]
+    [InlineData("General", 1, true, "bool", false)]
+    [InlineData("General", 2, false, "char", true)]
+    [InlineData("Float", 4, false, "f64", false)]
+    [InlineData("Float", 8, false, "f64", true)]
+    public void TwinSlot_AllowsTheCarriersOfItsSizeAndSignedness(string @class, int size, bool signed, string carrier, bool allowed) =>
+        Assert.Equal(allowed, new TwinSlot(@class, size, signed).Carriers.Contains(carrier));
+
+    // A plan: (role, class, size, signed) per argument, and the scalar result, if any.
+    internal sealed record PlanSpec(string Symbol, string Kind, (string Role, string Class, int Size, bool Signed)[] Arguments,
+        (string Class, int Size, bool Signed)? Result);
+
+    internal static PlanSpec SelfErrorPlan(string symbol) => new(symbol, "Forward",
+        new[] { ("Ordinary", "General", 8, true), ("Self", "General", 8, false), ("Error", "General", 8, false) }, ("General", 8, true));
+
+    internal static PlanSpec ReversePlan(string symbol) => SelfErrorPlan(symbol) with { Kind = "Reverse" };
+
+    internal static PlanSpec SignedIntPlan(string symbol) => new(symbol, "Forward", new[] { ("Ordinary", "General", 4, true) }, null);
+
+    internal static string Sidecar(params PlanSpec[] plans)
+    {
+        var array = new JsonArray();
+        foreach (var p in plans)
+        {
+            var arguments = new JsonArray();
+            foreach (var a in p.Arguments)
+                arguments.Add((JsonNode)new JsonObject { ["role"] = a.Role, ["class"] = a.Class, ["size"] = a.Size, ["signed"] = a.Signed });
+            var result = p.Result is { } r
+                ? new JsonObject { ["kind"] = "Scalar", ["class"] = r.Class, ["size"] = r.Size, ["signed"] = r.Signed }
+                : new JsonObject { ["kind"] = "Void" };
+            array.Add((JsonNode)new JsonObject
+            {
+                ["symbol"] = p.Symbol,
+                ["body"] = new JsonObject
+                {
+                    ["kind"] = p.Kind,
+                    ["managed"] = new JsonObject { ["arguments"] = arguments, ["result"] = result },
+                },
+            });
+        }
+        return new JsonObject { ["planVersion"] = BridgeTwinPlans.PlanVersion, ["plans"] = array }.ToJsonString();
+    }
+
+    /// <summary>A plan source: a fresh directory holding one sidecar of <paramref name="plans"/>.</summary>
+    internal static TransitionPlanSource Plans(params PlanSpec[] plans)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "swift-transition-plans", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "Fixture" + BridgeTwinPlans.SidecarSuffix), Sidecar(plans));
+        return new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, directory);
+    }
+
     // ---- negative control -------------------------------------------------------------------------
 
     [Fact]
@@ -466,7 +676,10 @@ public class SwiftTransitionScannerTests
                 }
 
                 [DllImport("lib", EntryPoint = "SBSR_0123", CallingConvention = CallingConvention.Cdecl)]
-                public static extern void Twin(void* args, void* result, SwiftError* error);
+                public static extern long Twin(long a, nint __self, nint __error);
+
+                [DllImport("lib", EntryPoint = "cerror", CallingConvention = CallingConvention.Cdecl)]
+                public static extern void WithError(SwiftError* error);
 
                 [DllImport("lib", EntryPoint = "plain")]
                 public static extern int Plain(Pair p);
@@ -480,14 +693,14 @@ public class SwiftTransitionScannerTests
 
                 public static long CallManaged(delegate*<long, long> p) => p(1);
             }
-            """, references: new[] { File.ReadAllBytes(RuntimeDll) });
+            """, references: new[] { File.ReadAllBytes(RuntimeDll) }, plan: Plans(SelfErrorPlan("SBSR_0123")));
 
         Assert.True(report.Passed, string.Join("\n", report.Violations.Select(v => $"{v.Rule} {v.Member}: {v.Reason}")
             .Concat(report.InspectionErrors.Select(e => $"{e.Member}: {e.Message}"))));
         var i = report.Inventory;
         Assert.Equal(3, i.SwiftPInvokes);
         Assert.Equal(3, i.SwiftPInvokesPrimitiveOnly);
-        Assert.Equal(2, i.NonSwiftPInvokes);
+        Assert.Equal(3, i.NonSwiftPInvokes);
         Assert.Equal(1, i.NonSwiftPInvokesWithSwiftErrorPointer);
         Assert.Equal(1, i.BridgeTwins);
         Assert.Equal(1, i.NonSwiftUnmanagedCallersOnly);
@@ -496,7 +709,7 @@ public class SwiftTransitionScannerTests
         Assert.Equal(1, i.ManagedCalliSites);
         Assert.True(i.MethodBodies > 0 && i.Instructions > 0);
         // Every transition is listed, managed calli excepted; none carries a rule.
-        Assert.Equal(8, report.Sites.Length);
+        Assert.Equal(9, report.Sites.Length);
         Assert.All(report.Sites, s => Assert.Empty(s.Rules));
         Assert.Contains(report.Sites, s => s.Member == "C::ViaLocal" && s.EntryPoint == "$slocal");
     }
@@ -506,7 +719,7 @@ public class SwiftTransitionScannerTests
     [Fact]
     public void Exports_ListEverySiteWithItsRules_AndTheReportRecordsThePlanSource()
     {
-        var plan = new TransitionPlanSource(TransitionPlanSourceKind.BuildReport, "/tree/binding-report.json");
+        var plan = Plans();
         var report = Scan($$"""
             public static class C
             {
@@ -535,11 +748,11 @@ public class SwiftTransitionScannerTests
         var root = json.RootElement;
         Assert.False(root.GetProperty("passed").GetBoolean());
         Assert.Equal(2, root.GetProperty("totals").GetProperty("R1").GetInt32());
-        Assert.Equal(new[] { "R1", "R2", "R4", "R5", "inspectionErrors" },
+        Assert.Equal(new[] { "R1", "R2", "R3", "R4", "R5", "inspectionErrors" },
             root.GetProperty("totals").EnumerateObject().Select(p => p.Name));
         var source = root.GetProperty("assemblies")[0].GetProperty("planSource");
-        Assert.Equal("BuildReport", source.GetProperty("kind").GetString());
-        Assert.Equal("/tree/binding-report.json", source.GetProperty("location").GetString());
+        Assert.Equal("CallPlanSidecars", source.GetProperty("kind").GetString());
+        Assert.Equal(plan.Location, source.GetProperty("location").GetString());
         Assert.Contains("R1 [PInvoke] C::Agg -> agg", SwiftTransitionReport.ToSummary(new[] { report }));
     }
 

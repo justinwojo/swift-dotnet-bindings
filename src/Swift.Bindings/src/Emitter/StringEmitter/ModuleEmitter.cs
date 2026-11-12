@@ -206,22 +206,48 @@ namespace BindingsGeneration
                 var ledger = SwiftTransitionLedger
                     .Build(moduleDecl.Name, wholeOutput, emissionContext.SwiftTransitionRecords, emissionContext.SyntheticSwiftFunctionConflicts,
                         emissionContext.SyntheticSwiftFunctions, emissionContext.SwiftCallbackRecords, emissionContext.SwiftCalliRecords);
-                ledger.Write(_outputDirectory, @namespace, _logger);
 
                 // The bridge plans of the ledger's transitions, from their facts and the managed
-                // signatures the C# declares: a sidecar only, nothing is emitted from it yet.
+                // signatures the C# declares. With swiftc evidence joined, a forward import whose plan
+                // is executable is routed through its bridge: the import becomes a shim of the same
+                // name calling a C-convention twin, and the bridge is emitted beside the thunks. The
+                // ledger and the plans describe the transitions the module declares; each bridged
+                // entry also names the twin that reaches it.
                 var lowering = new SwiftLayoutValueLowering(
                     new[] { moduleDecl }.Concat(_typeDatabase.GetDependencyModuleDecls().Where(d => !ReferenceEquals(d, moduleDecl) && d.Name != moduleDecl.Name)),
                     _typeDatabase);
-                SwiftCallPlanSet
-                    .Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(lowering)))
-                    .Write(_outputDirectory, @namespace, _logger);
+                var planSet = SwiftCallPlanSet.Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(lowering)));
+                if (SwiftBridgeEvidence.Current is { } evidence)
+                    planSet = planSet.WithEvidence(evidence);
+                var routing = SwiftBridgeRouting.Plan(planSet, wholeOutput, PInvokeEmitHelper.ResolveWrapperLibrary(_typeDatabase));
+                foreach (var refused in routing.Routes.Where(r => !r.IsBridged))
+                    _logger.LogWarning(
+                        "{Code}: {Member} ({EntryPoint}) has an executable bridge plan ({Symbol}) but keeps its Swift-convention import: {Reason}",
+                        SwiftBridgeRouting.RefusedCode, refused.Member, refused.EntryPoint, refused.Symbol, refused.Refusal);
+                ledger.WithBridges(routing.Routes).Write(_outputDirectory, @namespace, _logger);
+                routing.Annotate(planSet).Write(_outputDirectory, @namespace, _logger);
+                wholeOutput = routing.Rewrite(wholeOutput);
+
+                // The bridge rewrite runs after qualification, over the same text, so a file's journal
+                // is the two passes composed.
+                string QualifyAndBridge(string source, TextEditJournal? journal)
+                {
+                    if (!routing.BridgesAny)
+                        return Qualify(source, journal);
+                    var qualifying = journal is null ? null : new TextEditJournal();
+                    var qualified = Qualify(source, qualifying);
+                    var bridging = journal is null ? null : new TextEditJournal();
+                    var bridged = routing.Rewrite(qualified, bridging);
+                    if (journal is not null)
+                        TextEditJournal.Compose(qualifying!, bridging!, journal);
+                    return bridged;
+                }
 
                 // Split the combined output into one file per top-level type (prelude keeps the
                 // historical {namespace}.cs name). Byte-for-byte a repackaging of wholeOutput —
                 // zero public-API change; the union of all files is exactly wholeOutput.
                 WriteModuleFiles(
-                    preQualifyOutput, wholeOutput, @namespace, emissionContext, Qualify,
+                    preQualifyOutput, wholeOutput, @namespace, emissionContext, QualifyAndBridge,
                     csTiling, fragmentSet);
 
                 // Emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
@@ -288,6 +314,17 @@ namespace BindingsGeneration
                     emissionContext.AssemblyBuilder, moduleDecl.Name, @namespace);
                 WriteThunkAssemblyFile(emissionContext.HasX64ThunkAssembly, ThunkTargetArch.X86_64,
                     emissionContext.X64AssemblyBuilder, moduleDecl.Name, @namespace);
+
+                // The bridges the twins call, one file per architecture, compiled into the wrapper
+                // with the thunks. A file from an earlier attempt that bridged more is removed.
+                foreach (var architecture in SwiftBridgeRouting.Architectures)
+                {
+                    var bridgePath = Path.Combine(_outputDirectory, SwiftBridgeRouting.AssemblyFileName(@namespace, architecture));
+                    if (routing.Assembly(architecture) is { } bridges)
+                        File.WriteAllText(bridgePath, bridges.Source);
+                    else if (File.Exists(bridgePath))
+                        File.Delete(bridgePath);
+                }
 
                 // Detect theme-bridgeable types (classes with singleton + Color/Font properties)
                 var themeInfos = ThemeBridgeEmitter.DetectThemeBridgeableTypes(moduleDecl);

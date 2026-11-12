@@ -102,6 +102,27 @@ public class WrapperSymbolIntegrityGateTests : IDisposable
         Assert.False(WrapperSymbolIntegrityGate.HasViolations(_dir, logger));
     }
 
+    [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, true)]
+    public void BridgeReference_IsDefinedOnlyWhenEveryArchitectureExportsIt(bool arm64, bool x86_64, bool dangling)
+    {
+        // A twin imports a native Swift bridge; the managed code is shared by both slices, so a bridge
+        // one architecture's assembly lacks is as dangling as one neither has.
+        const string Bridge = "SBSR_0123456789abcdef";
+        WriteCs("Module.cs", Bridge);
+        void WriteBridges(string arch, bool exports) => File.WriteAllText(Path.Combine(_dir, $"Module.Bridges.{arch}.s"),
+            exports ? $"    .globl _{Bridge}\n    .p2align 2\n_{Bridge}:\n    .weak_reference _$s1M1fyyF\n    b _$s1M1fyyF\n" : "    .text\n");
+        WriteBridges("arm64", arm64);
+        WriteBridges("x86_64", x86_64);
+
+        var logger = new CapturingLogger();
+        Assert.Equal(dangling, WrapperSymbolIntegrityGate.HasViolations(_dir, logger));
+        Assert.Equal(dangling, logger.Messages.Any(m => m.Contains("SWIFTBIND108") || m.Contains(Bridge)));
+    }
+
     [Fact]
     public void BuildIntermediates_UnderObjOrBin_AreNotScanned()
     {

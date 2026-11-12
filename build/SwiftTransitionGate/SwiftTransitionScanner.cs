@@ -16,10 +16,9 @@ using System.Reflection.PortableExecutable;
 namespace SwiftBindings.TransitionGate;
 
 /// <summary>
-/// The transition rules this engine implements. The bridge-plan rules (R3, forward twin against
-/// plan; R7, reverse coverage) arrive with the plans they read, through
+/// The transition rules this engine implements. R3 reads the bridge plans of
 /// <see cref="SwiftTransitionScanOptions.PlanSource"/>; R6 (weak linking) belongs to the thunk
-/// weak-link gate.
+/// weak-link gate, and R7 (reverse coverage) arrives with the reverse stubs.
 /// </summary>
 public enum TransitionRule
 {
@@ -30,6 +29,13 @@ public enum TransitionRule
     /// signature: a P/Invoke, a <c>calli</c>, an <c>UnmanagedCallersOnly</c> method or a
     /// function-pointer type.</summary>
     R2,
+
+    /// <summary>
+    /// A forward bridge's twin import (<c>SBSR_…</c>) that is not the C-convention, primitive-only
+    /// signature its plan states: a different convention, no plan or no plan source, a reverse or
+    /// thick plan, or a parameter or result whose native carrier the plan's slot does not allow.
+    /// </summary>
+    R3,
 
     /// <summary>An <c>UnmanagedCallersOnly</c> method with the Swift convention, or any
     /// <c>SwiftSelf&lt;T&gt;</c> in a reverse signature.</summary>
@@ -145,17 +151,14 @@ public sealed record AssemblyTransitionReport(
 /// <summary>Where a binding's bridge plans come from.</summary>
 public enum TransitionPlanSourceKind
 {
-    /// <summary>The generator's build-tree <c>binding-report.json</c>.</summary>
-    BuildReport,
-
-    /// <summary>The manifest embedded in the compiled binding assembly.</summary>
-    EmbeddedManifest,
+    /// <summary>A directory holding the generator's call-plan sidecars (<c>*.swift-call-plans.json</c>).</summary>
+    CallPlanSidecars,
 }
 
 /// <summary>
-/// The optional plan source a scan runs against: a build-tree report path or an embedded manifest
-/// resource. The plan-dependent rules read it; the rules here do not need one, and a scan without
-/// one is complete for them. It is recorded in the report so a result says which plans it saw.
+/// The plan source a scan runs against. R3 reads it; a scan without one still checks the other rules,
+/// and any bridge twin it meets is an R3 violation, since nothing says what the twin must be. It is
+/// recorded in the report so a result says which plans it saw.
 /// </summary>
 public sealed record TransitionPlanSource(TransitionPlanSourceKind Kind, string Location);
 
@@ -188,6 +191,10 @@ public static class SwiftTransitionScanner
 {
     public const string BridgePrefix = "SBSR_";
     public const string ReverseBridgePrefix = "SBSRR_";
+
+    /// <summary>True when <paramref name="entryPoint"/> names a forward bridge (thin or thick).</summary>
+    public static bool IsForwardBridge(string? entryPoint) =>
+        entryPoint is not null && entryPoint.StartsWith(BridgePrefix, StringComparison.Ordinal);
 
     private const string InteropNamespace = "System.Runtime.InteropServices";
 
@@ -260,6 +267,7 @@ public static class SwiftTransitionScanner
         private readonly SigTypeProvider _provider;
         private readonly HashSet<(int MemberToken, string Signature)> _functionPointerTypesSeen = new();
         private readonly Dictionary<MethodDefinitionHandle, (string Member, string Signature)?> _swiftCallbacks = new();
+        private BridgeTwinPlans? _twinPlans;
         private int _memberToken;
 
         public TransitionInventory Inventory { get; } = new();
@@ -427,9 +435,84 @@ public static class SwiftTransitionScanner
                     Inventory.NonSwiftPInvokesWithSwiftErrorPointer++;
             }
 
-            // Twins are checked against their plans by R3, which reads the plan source.
-            if (entryPoint.StartsWith(BridgePrefix, StringComparison.Ordinal))
+            if (IsForwardBridge(entryPoint))
+            {
                 Inventory.BridgeTwins++;
+                if (TwinProblem(convention, carriers, ParameterNames(method), entryPoint) is { } problem)
+                    Report(site, new TransitionViolation(TransitionRule.R3, TransitionSiteKind.PInvoke, member, sigText,
+                        problem, entryPoint, library));
+            }
+        }
+
+        /// <summary>
+        /// The parameter names of an import, as declared: a source-generated import's inner P/Invoke names
+        /// each parameter <c>__{name}_native</c>, which is undone here.
+        /// </summary>
+        private List<string> ParameterNames(MethodDefinition method)
+        {
+            var names = new SortedDictionary<int, string>();
+            foreach (var handle in method.GetParameters())
+            {
+                var parameter = _md.GetParameter(handle);
+                if (parameter.SequenceNumber > 0)
+                    names[parameter.SequenceNumber] = _md.GetString(parameter.Name);
+            }
+            return names.Values
+                .Select(n => n.Length > "___native".Length && n.StartsWith("__", StringComparison.Ordinal) && n.EndsWith("_native", StringComparison.Ordinal)
+                    ? n[2..^"_native".Length]
+                    : n)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Why a bridge twin is not the signature its plan states, or null. The twin must use the C
+        /// convention, its plan must be a forward plan in the plan source, each native carrier, result
+        /// first, must be one the plan's slot allows, in order and in number, and each trailing pointer
+        /// must sit where the plan puts its role: the trailing pointers are all pointer-sized, so a
+        /// swapped pair is told apart only by the names the generator gives them.
+        /// </summary>
+        private string? TwinProblem(TransitionConvention convention, List<(int Index, CarrierVerdict Verdict)> carriers,
+            List<string> names, string symbol)
+        {
+            if (convention != TransitionConvention.Cdecl)
+                return $"a bridge twin is called with the {convention} convention; a bridge takes the C convention";
+            if (_options.PlanSource is not { } source)
+                return "a bridge twin with no plan source: nothing states the signature it must have";
+            _twinPlans ??= BridgeTwinPlans.Load(source);
+            if (!_twinPlans.Problems.IsEmpty)
+                return "the plan source does not read: " + string.Join("; ", _twinPlans.Problems);
+            if (_twinPlans.Find(symbol) is not { } plan)
+                return $"no plan in {source.Location} has the symbol {symbol}";
+            if (plan.Kind != "Forward")
+                return $"the plan {symbol} is a {plan.Kind} plan; a twin calls a forward bridge";
+
+            var parameters = carriers.Where(c => c.Index >= 0).ToList();
+            var result = carriers.Single(c => c.Index < 0).Verdict;
+            var spelled = $"{result.Canonical ?? result.Display} ({string.Join(", ", parameters.Select(c => c.Verdict.Canonical ?? c.Verdict.Display))})";
+            if (parameters.Count != plan.Parameters.Length)
+                return $"the twin {spelled} takes {parameters.Count} argument(s); its plan {plan} takes {plan.Parameters.Length}";
+            if (plan.Return is { } returned ? !Allows(returned, result) : result.Kind != CarrierKind.Void)
+                return $"the twin {spelled} returns {result.Display}; its plan {plan} returns {(plan.Return is { } r ? r.ToString() : "nothing")}";
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                if (!Allows(plan.Parameters[i], parameters[i].Verdict))
+                    return $"the twin {spelled} passes {parameters[i].Verdict.Display} as argument {i}; its plan {plan} passes a {plan.Parameters[i]}";
+            }
+            if (names.Count != parameters.Count)
+                return $"the twin {spelled} names {names.Count} of its {parameters.Count} parameter(s)";
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                var role = plan.Roles[i];
+                var expected = TwinPlan.TrailingName(role);
+                if (expected is not null ? names[i] != expected : TwinPlan.TrailingNames.Contains(names[i]))
+                    return expected is not null
+                        ? $"the twin passes {names[i]} as argument {i}, where its plan {symbol} passes the {role} pointer ({expected})"
+                        : $"the twin passes {names[i]} as argument {i}, where its plan {symbol} passes an ordinary argument";
+            }
+            return null;
+
+            static bool Allows(TwinSlot slot, CarrierVerdict verdict) =>
+                verdict.Kind == CarrierKind.Primitive && verdict.Canonical is { } canonical && slot.Carriers.Contains(canonical);
         }
 
         private void ScanUnmanagedCallersOnly(string member, MethodSignature<SigType> signature, TransitionConvention convention)

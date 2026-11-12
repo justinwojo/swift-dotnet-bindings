@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -55,6 +57,37 @@ public sealed class ExposureReportLedgerTests
             error => error.Contains("receipt is absent", StringComparison.Ordinal));
         Assert.Contains(ExposureReportLedger.Evaluate(stale, scan, "Sample"),
             error => error.Contains("inventory hash is stale", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BridgedBindingTestFixture_NeedsItsPlanToSayItIsBridged_NotJustZeroRows()
+    {
+        // Zero direct rows is also what a fixture that vanished from the emission looks like; only the
+        // generation's plans can say the transition really went through its bridge.
+        const string StableTag = "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg";
+        const string StableDepth = "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg";
+        var scan = new GeneratedSwiftCallScanResult
+        {
+            ScannedFileCount = 1,
+            InventoryHash = "current",
+            Observations = [],
+            UnresolvedSpecimens = [],
+        };
+        const string json = """
+            { "ModuleName":"SwiftBindingsTestLib", "ExposureReportingVersion":1,
+              "ExposureCompleteness":{"Version":1,"Status":"Complete","ScannedFileCount":1,
+                "ClassifiedCallCount":0,"UnresolvedCount":0,"InventoryHash":"current","UnresolvedSpecimens":[]},
+              "DegradedMembers":[], "DegradedSurface":{"Total":0,"ByDiagnosticId":{},
+                "Exposure":{"RowCount":0,"PublicMemberCount":0,"RootCount":0,"NativeCallCount":0}} }
+            """;
+
+        var errors = ExposureReportLedger.Evaluate(json, scan, "SwiftBindingsTestLib",
+            new HashSet<string>(StringComparer.Ordinal) { StableTag });
+
+        Assert.DoesNotContain(errors, e => e.Contains(StableTag, StringComparison.Ordinal) && e.Contains("not routed", StringComparison.Ordinal));
+        Assert.Contains(errors, e => e.Contains(StableDepth, StringComparison.Ordinal) && e.Contains("not routed", StringComparison.Ordinal));
+        // The refused plan stays an exposure, so its row is still expected.
+        Assert.Contains(errors, e => e.Contains("PendingRequestTask", StringComparison.Ordinal) && e.Contains("0 rows", StringComparison.Ordinal));
     }
 
     private static (GeneratedSwiftCallScanResult Scan, string Json) Fixture(string entryPoint = "$sRun")

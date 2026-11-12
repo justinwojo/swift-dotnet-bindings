@@ -65,6 +65,18 @@ public sealed record SwiftPlanCoverageEntry(
 
     /// <summary>When planned, what the managed caller of the twin must preserve around the call.</summary>
     public ImmutableArray<SwiftMarshallingObligation>? Obligations { get; init; }
+
+    /// <summary>
+    /// For an executable forward import: true when the emitted C# calls its bridge through a twin, false
+    /// when it kept its Swift-convention import (<see cref="BridgeRefusal"/> says why). Null otherwise.
+    /// </summary>
+    public bool? Bridged { get; init; }
+
+    /// <summary>When bridged, the twin's IL member: the C-convention import of the bridge.</summary>
+    public string? Twin { get; init; }
+
+    /// <summary>When an executable plan kept its direct import, why it could not be bridged.</summary>
+    public string? BridgeRefusal { get; init; }
 }
 
 /// <summary>
@@ -293,6 +305,7 @@ public sealed class SwiftCallPlanSet
             NotBridged = Count(SwiftPlanStatus.NotBridged),
             Plans = Plans.Length,
             Executable = Coverage.Count(e => e.Executable),
+            Bridged = Coverage.Count(e => e.Bridged == true),
             ByTransition = Coverage.GroupBy(e => $"{e.Transition}/{e.Status}")
                 .ToImmutableSortedDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
             ByPlanKind = Plans.GroupBy(p => p.Body.Kind.ToString())
@@ -354,6 +367,9 @@ public sealed record SwiftCallPlanTotals
 
     /// <summary>Planned entries whose evidence makes them executable.</summary>
     public int Executable { get; init; }
+
+    /// <summary>Executable entries the emitted C# calls through their bridge.</summary>
+    public int Bridged { get; init; }
 
     /// <summary>Coverage entries per transition kind and status (<c>ForwardPInvoke/Planned</c>).</summary>
     public required ImmutableSortedDictionary<string, int> ByTransition { get; init; }

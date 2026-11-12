@@ -13,13 +13,16 @@
 // outside that safe set, by rule:
 //   R1  forward CallConvSwift P/Invoke that is not primitive-only
 //   R2  SwiftSelf / SwiftSelf<T> / SwiftIndirectResult in a non-Swift signature
+//   R3  a forward bridge's twin import (SBSR_…) that is not the C-convention, primitive-only
+//       signature its call plan states
 //   R4  UnmanagedCallersOnly with CallConvSwift, or SwiftSelf<T> in a reverse signature
 //   R5  forward calli through an unmanaged[Swift] pointer that is not primitive-only
-// The plan-dependent rules (R3 forward twins, R7 reverse coverage) arrive with the bridge plans;
-// the engine already takes an optional plan source (--transition-gate-plan-source) for them.
+// R3 reads the generator's call-plan sidecars: by default those beside each ledgered assembly's
+// C#, or the directory --transition-gate-plan-source names.
 //
-// Standalone for now: the tree is red until the bridges land, so this is not yet wired into
-// --compile-only or pack. It is policy, not baseline — no reseed and no --permissive arm.
+// Standalone for now: the tree is red until the bridges land, so this target is not yet wired into
+// --compile-only or pack. R3 alone already is: the compile-only ledger cross-check step fails on any
+// R3 violation. It is policy, not baseline — no reseed and no --permissive arm.
 //
 // Default input: the BindingTests compile-check assembly and the Swift.Runtime and
 // SwiftBindings.Apple assemblies built beside it (run `nuke binding-tests --compile-only` first).
@@ -54,8 +57,8 @@ partial class Build
     [Parameter("Swift transition gate: extra directories searched for assemblies the scanned ones reference")]
     readonly string[] TransitionGateReferenceDir = Array.Empty<string>();
 
-    [Parameter("Swift transition gate: the build-tree binding-report.json holding the bridge plans " +
-               "(optional; the plan-dependent rules read it)")]
+    [Parameter("Swift transition gate: a directory of *.swift-call-plans.json sidecars rule R3 reads " +
+               "(default: the sidecars beside each ledgered assembly's C#; required for any other assembly with bridge twins)")]
     readonly string? TransitionGatePlanSource;
 
     [Parameter("Swift transition gate: directory the report, site inventory and summary are written to")]
@@ -88,9 +91,9 @@ partial class Build
             if (TransitionGatePlanSource is { Length: > 0 } planPath)
             {
                 var full = Path.GetFullPath(planPath);
-                if (!File.Exists(full))
-                    throw new Exception($"Swift transition gate: plan source {full} not found.");
-                planSource = new TransitionPlanSource(TransitionPlanSourceKind.BuildReport, full);
+                if (!Directory.Exists(full))
+                    throw new Exception($"Swift transition gate: plan source directory {full} not found.");
+                planSource = new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, full);
             }
 
             var runtimeDirectory = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
@@ -103,7 +106,7 @@ partial class Build
                         .Concat(TransitionGateReferenceDir.Select(d => Path.GetFullPath(d)))
                         .Append(runtimeDirectory)
                         .ToArray(),
-                    PlanSource = planSource,
+                    PlanSource = planSource ?? (defaultInput ? DefaultPlanSource(Path.GetFileName(assembly)) : null),
                 };
                 reports.Add(SwiftTransitionScanner.Scan(assembly, options));
             }
@@ -172,6 +175,12 @@ partial class Build
             new[] { "Swift.Foundation.Data", "Swift.Foundation.URL", "Swift.Foundation.URLRequest", "Swift.SwiftUI.Text" }),
     };
 
+    /// <summary>The call-plan sidecars beside a ledgered assembly's C#, which its bridge twins are checked against.</summary>
+    TransitionPlanSource? DefaultPlanSource(string assembly) =>
+        LedgeredAssemblies.Where(l => l.Assembly == assembly)
+            .Select(l => new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, l.LedgerDirectory))
+            .SingleOrDefault();
+
     /// <summary>
     /// The Apple supplement's iOS framework the compile check's reference to it resolves to: of the iOS
     /// frameworks its project targets, the newest the lane's framework can consume. A lane newer than
@@ -195,7 +204,8 @@ partial class Build
 
     /// <summary>
     /// The compile-only step: scans the compile-check assembly and the Apple supplement built beside
-    /// it, and cross-checks each against the transition ledgers the generator wrote for it.
+    /// it, cross-checks each against the transition ledgers the generator wrote for it, and checks
+    /// every bridge twin against its call plan (rule R3).
     /// Fail-closed and unconditional, with no baseline and no --permissive arm: a transition the
     /// ledger does not list, or lists without facts, is a producer that bypassed recording.
     /// </summary>
@@ -219,6 +229,7 @@ partial class Build
                     CompileCheckOutputDir.ToString(),
                     System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
                 },
+                PlanSource = new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, ledgerDirectory),
             });
             if (!report.InspectionErrors.IsEmpty)
                 throw new Exception($"Transition ledger cross-check: {report.InspectionErrors.Length} inspection error(s) reading {assembly}: " +
@@ -227,6 +238,24 @@ partial class Build
             WriteLedgerCrossCheck(result, output, Path.GetFileNameWithoutExtension(name));
             if (!result.Passed)
                 failed.Add(name);
+
+            // R3 is enforced here although the other rules are not yet: a twin is only ever emitted
+            // from its plan, so the two must agree from the first twin on.
+            var twins = report.Violations.Where(v => v.Rule == TransitionRule.R3).ToList();
+            Log.Information("[{Assembly}] bridge twins: {Twins}, R3 violations: {Violations}",
+                Path.GetFileNameWithoutExtension(name), report.Inventory.BridgeTwins, twins.Count);
+            foreach (var violation in twins)
+                Log.Error("  R3 {Member} -> {EntryPoint}: {Reason}", violation.Member, violation.EntryPoint, violation.Reason);
+            if (twins.Count > 0)
+                failed.Add($"{name} (R3)");
+
+            // A transition the evidence made executable but the shim refused keeps its direct import,
+            // so no twin exists for R3 to reject; only the generation's own sidecar records it.
+            var routing = BridgeTwinPlans.Load(new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, ledgerDirectory));
+            foreach (var gap in routing.RoutingGaps)
+                Log.Error("  routing {Gap}", gap);
+            if (routing.RoutingGaps.Length > 0)
+                failed.Add($"{name} (routing)");
         }
         if (failed.Count > 0)
             throw new Exception($"Transition ledger cross-check FAILED for {string.Join(", ", failed)} — see the lines above.");

@@ -15,14 +15,29 @@ namespace BindingsGeneration
     public sealed class StrippedSymbolReconciliationException : Exception
     {
         public StrippedSymbolReconciliationException(string containingType, string memberName)
-            : base($"SWIFTBIND057: '{containingType}.{memberName}' calls a Swift wrapper symbol that " +
+            : this($"SWIFTBIND057: '{containingType}.{memberName}' calls a Swift wrapper symbol that " +
                    "wrapper compilation stripped, but its shape could not be rewritten into a throwing " +
                    "stub. Keeping the call would ship a binding that throws EntryPointNotFoundException " +
-                   "on first use, so generation fails instead. Report this as a generator bug.")
+                   "on first use, so generation fails instead. Report this as a generator bug.",
+                   containingType, memberName)
+        {
+        }
+
+        private StrippedSymbolReconciliationException(string message, string containingType, string memberName)
+            : base(message)
         {
             ContainingType = containingType;
             MemberName = memberName;
         }
+
+        /// <summary>
+        /// A stripped wrapper symbol a native Swift bridge calls. The bridge assembly names it, so
+        /// the wrapper would not link; removing the C# that reaches it would leave the bridge behind.
+        /// </summary>
+        public static StrippedSymbolReconciliationException ForBridgeTarget(string bridgeFile, string symbol) =>
+            new($"SWIFTBIND057: wrapper compilation stripped '{symbol}', which the native Swift bridge assembly " +
+                $"{bridgeFile} calls. The wrapper cannot link without it, so generation fails instead. " +
+                "Report this as a generator bug.", bridgeFile, symbol);
 
         public string ContainingType { get; }
         public string MemberName { get; }
@@ -73,6 +88,11 @@ namespace BindingsGeneration
                 ContentChanged = false,
             };
         }
+
+        // `.weak_reference _<target>` — every symbol a native Swift bridge calls.
+        private static readonly Regex BridgeTargetRegex = new(
+            @"^\s*\.weak_reference\s+_(\S+)\s*$",
+            RegexOptions.Compiled | RegexOptions.Multiline);
 
         private static readonly Regex EntryPointRegex = new(
             @"EntryPoint\s*=\s*""([^""]+)""",
@@ -328,6 +348,17 @@ namespace BindingsGeneration
         {
             if (strippedSymbols.Count == 0)
                 return Array.Empty<CoGatedMember>();
+
+            // A bridge's target is named by its assembly, not by a C# entry point this reconciler can
+            // remove: the transition reaches it through the bridge, and the wrapper would not link.
+            foreach (var bridgeFile in Directory.GetFiles(directory, SwiftBridgeRouting.AssemblyFilePattern).Order(StringComparer.Ordinal))
+            {
+                foreach (Match reference in BridgeTargetRegex.Matches(File.ReadAllText(bridgeFile)))
+                {
+                    if (strippedSymbols.Contains(reference.Groups[1].Value))
+                        throw StrippedSymbolReconciliationException.ForBridgeTarget(Path.GetFileName(bridgeFile), reference.Groups[1].Value);
+                }
+            }
 
             var csFiles = Directory.GetFiles(directory, "*.cs");
             var aggregate = new List<CoGatedMember>();

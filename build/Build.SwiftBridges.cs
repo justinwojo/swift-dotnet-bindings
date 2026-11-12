@@ -6,7 +6,8 @@
 // build/baselines/swift-call-plans/; a unit test fails when they are stale. `swift-bridge-gate`
 // reads those and the corpus sidecars of the regenerated BindingTests output, joins the swiftc
 // lowering evidence `swift-lowering-oracle` records, and emits and validates every bridge on arm64
-// and x86_64. Neither touches emission: nothing here is wired into a binding.
+// and x86_64. The same evidence file is what an iOS BindingTests regeneration passes the generator,
+// which routes every transition it proves through that transition's bridge.
 
 using System;
 using System.Collections.Generic;
@@ -23,6 +24,14 @@ partial class Build
 
     AbsolutePath SwiftLoweringEvidencePath => RootDirectory / "build" / "baselines" / "swift-lowering-evidence.json";
 
+    /// <summary>
+    /// Whether a BindingTests regeneration for <paramref name="platformOverride"/> (null: iOS) routes
+    /// through native bridges. The lowering evidence is recorded for the iOS device and simulator
+    /// triples only; a platform it does not name keeps its direct Swift imports.
+    /// </summary>
+    static bool BridgeEvidenceApplies(ApplePlatform? platformOverride) =>
+        platformOverride == null || platformOverride.Name == "ios";
+
     AbsolutePath SwiftBridgeGateScratch => RootDirectory / "artifacts" / "swift-bridges";
 
     /// <summary>The hand-written tables and the source directories of the assembly each belongs to.</summary>
@@ -32,10 +41,15 @@ partial class Build
         (SourceDir / "Swift.Bindings.Apple" / "transition-facts.json", [SourceDir / "Swift.Bindings.Apple" / "Sources"]),
     ];
 
-    /// <summary>Every plan sidecar the bridges are built from: the corpus's, then the products'.</summary>
-    string[] SwiftBridgePlanFiles() =>
+    /// <summary>The plan sidecars of the iOS BindingTests regeneration, which routes through the bridges.</summary>
+    string[] SwiftBridgeCorpusPlanFiles() =>
         new[] { BtOutputDir / $"{ModuleName}.swift-call-plans.json", BtOutputDir / $"{DepModuleName}.swift-call-plans.json" }
             .Select(p => p.ToString())
+            .ToArray();
+
+    /// <summary>Every plan sidecar the bridges are built from: the corpus's, then the products'.</summary>
+    string[] SwiftBridgePlanFiles() =>
+        SwiftBridgeCorpusPlanFiles()
             .Concat(Directory.Exists(SwiftBridgeProductsDir)
                 ? Directory.GetFiles(SwiftBridgeProductsDir, "*.swift-call-plans.json").Order(StringComparer.Ordinal)
                 : [])
@@ -68,6 +82,7 @@ partial class Build
         {
             EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
             var plans = SwiftBridgePlanFiles();
+            var routed = SwiftBridgeCorpusPlanFiles();
             foreach (var missing in plans.Where(p => !File.Exists(p)))
                 Assert.Fail($"{missing} is missing: run `nuke binding-tests --compile-only` first");
             if (Directory.Exists(SwiftBridgeGateScratch))
@@ -77,7 +92,8 @@ partial class Build
                 $"\"{GeneratorDll}\"", "--swift-bridges",
                 $"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"", $"-o \"{SwiftBridgeGateScratch}\"",
             };
-            arguments.AddRange(plans.Select(p => $"--swift-call-plans \"{p}\""));
+            // The corpus was regenerated with this evidence, so its routing must agree with it.
+            arguments.AddRange(plans.Select(p => routed.Contains(p) ? $"--swift-routed-call-plans \"{p}\"" : $"--swift-call-plans \"{p}\""));
             RunGenerator(arguments, "the Swift bridge gate");
             Log.Information("Swift bridge gate report: {Report}", SwiftBridgeGateScratch / "bridge-gate.txt");
         });

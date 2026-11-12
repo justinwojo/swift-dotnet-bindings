@@ -213,6 +213,19 @@ public static class PInvokeEmitHelper
             return PInvokeCallingConvention.Swift;
         }
 
+        // SBSR_ names a native forward bridge: a C-convention stub that moves its trailing
+        // pointer arguments into Swift's context, indirect-result and error registers and
+        // calls the Swift target. Its managed side is always the C convention; a Swift request
+        // would hand the stub's trailing pointers to the wrong registers.
+        if (SwiftCallPlan.IsForwardBridgeSymbol(entryPoint))
+        {
+            if (callerSpec == PInvokeCallingConvention.Swift)
+                throw new InvalidOperationException(
+                    $"P/Invoke entry point '{entryPoint}' names a native Swift bridge, which is " +
+                    "called with the C convention, but the caller requested CallConvSwift.");
+            return PInvokeCallingConvention.Cdecl;
+        }
+
         // SBW_ is reserved for @_cdecl wrappers. @_silgen_name wrappers (Swift CC) must
         // pick a different prefix (e.g. SBSW_) so the pair stays self-describing. Unlike
         // the $s case, a contradiction here points to a wrapper-emit/binding-emit desync

@@ -90,8 +90,46 @@ public static class SwiftBridgeGate
         return (sets, plans, executable);
     }
 
-    public static int Run(IReadOnlyList<string> planFiles, string? evidencePath, string outputDirectory, ILogger logger)
+    /// <summary>
+    /// Where a generation given the evidence disagrees with it. Every executable forward plan must be
+    /// called through its twin, or say why it kept its direct import; a bridged one must be executable
+    /// under the evidence the gate holds, or the generation and the gate read different evidence.
+    /// </summary>
+    public static IEnumerable<string> RoutingDisagreements(SwiftCallPlanSet routed)
     {
+        var forward = routed.Plans.Where(p => p.Body.Kind == SwiftPlanKind.Forward).Select(p => p.Symbol)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var entry in routed.Coverage)
+        {
+            if (entry.Bridged == true && !entry.Executable)
+                yield return $"{routed.Module}: {entry.Member} {entry.EntryPoint} is called through {entry.Symbol}, which the evidence does not prove executable ({entry.Evidence ?? "no evidence"})";
+            else if (entry.Executable && entry.Symbol is { } symbol && forward.Contains(symbol) && entry.Bridged != true)
+                yield return entry.BridgeRefusal is { } refusal
+                    ? $"{routed.Module}: {entry.Member} {entry.EntryPoint} kept its direct import although {symbol} is executable: {refusal}"
+                    : $"{routed.Module}: {entry.Member} {entry.EntryPoint} is executable through {symbol} but the generation did not route it; regenerate with this evidence";
+        }
+    }
+
+    /// <summary>
+    /// Where the routed generations as a whole disagree with the evidence: each one's
+    /// <see cref="RoutingDisagreements"/>, and a generation that calls nothing through a bridge at
+    /// all, since a routing check over no bridged transition passes without checking anything.
+    /// </summary>
+    public static IEnumerable<string> RoutedFindings(IReadOnlyList<SwiftCallPlanSet> routed)
+    {
+        foreach (var set in routed)
+        {
+            foreach (var disagreement in RoutingDisagreements(set))
+                yield return disagreement;
+        }
+        if (routed.Count > 0 && !routed.Any(s => s.Coverage.Any(e => e.Bridged == true)))
+            yield return "no routed generation calls any transition through a bridge: the routing check checked nothing";
+    }
+
+    public static int Run(IReadOnlyList<string> planFiles, IReadOnlyList<string> routedPlanFiles, string? evidencePath, string outputDirectory, ILogger logger)
+    {
+        var routedCount = routedPlanFiles.Count;
+        planFiles = planFiles.Concat(routedPlanFiles).ToList();
         if (planFiles.Count == 0 || planFiles.Any(f => !File.Exists(f)))
         {
             logger.LogError("--swift-bridges needs at least one existing --swift-call-plans sidecar; missing: {Missing}",
@@ -120,6 +158,12 @@ public static class SwiftBridgeGate
         Directory.CreateDirectory(outputDirectory);
         var report = new StringBuilder();
         var failures = new List<string>();
+
+        // Load keeps the files' order, one set per file, so the routed sets are the trailing ones.
+        var routedSets = sets.Skip(planFiles.Count - routedCount).ToList();
+        foreach (var routed in routedSets)
+            report.AppendLine($"{routed.Module}: routed generation, {routed.Coverage.Count(e => e.Bridged == true)} transition(s) called through a bridge");
+        failures.AddRange(RoutedFindings(routedSets));
 
         foreach (var set in sets)
         {

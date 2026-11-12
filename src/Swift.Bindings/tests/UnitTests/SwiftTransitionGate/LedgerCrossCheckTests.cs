@@ -199,6 +199,57 @@ public class LedgerCrossCheckTests
         Assert.Contains(reason, line);
     }
 
+    /// <summary>
+    /// The emitted C# after routing: the Swift-convention import of <c>special</c> became a shim with no
+    /// import and a C-convention twin of its bridge. The ledger stays logical (made over the source
+    /// before routing) and records the bridge, so the join reaches the twin.
+    /// </summary>
+    private static readonly string Bridged = Source.Replace("""
+        [DllImport("lib", EntryPoint = "special")]
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]
+        internal static extern void Special(nint a, SwiftSelf self);
+""", """
+        internal static void Special(nint a, SwiftSelf self) => Special__SBSR_1(a, (nint)self.Value);
+
+        [DllImport("lib", EntryPoint = "SBSR_1")]
+        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+        private static extern void Special__SBSR_1(nint a, nint __self);
+""", StringComparison.Ordinal);
+
+    private static readonly Lazy<AssemblyTransitionReport> BridgedIl = new(() =>
+        SwiftTransitionScanner.Scan(SwiftTransitionScannerTests.Compile(Bridged, "LedgerFixture"), "LedgerFixture.dll", SwiftTransitionScannerTests.Options()));
+
+    private static SwiftBridgeRoute SpecialRoute(string? twin = "Acme.Widgets.Box::Special__SBSR_1") =>
+        new("Acme.Widgets.Box::Special", "special", "SBSR_1", twin, twin is null ? "the import is generic" : null);
+
+    [Fact]
+    public void BridgedImport_JoinsItsTwin_NotTheSwiftImportItReplaced()
+    {
+        Assert.NotEqual(Source, Bridged);
+        var ledger = Ledger().WithBridges([SpecialRoute()]);
+        var entry = Assert.Single(ledger.Entries, e => e.Bridge is not null);
+        Assert.Equal(new SwiftTransitionBridge("SBSR_1", "Acme.Widgets.Box::Special__SBSR_1"), entry.Bridge);
+
+        var result = LedgerCrossCheck.Check(BridgedIl.Value, [("Acme.swift-transition-ledger.json", ledger.ToJson())]);
+
+        Assert.True(result.Passed, LedgerCrossCheck.ToSummary(result));
+        Assert.Equal(1, result.IlSites[LedgerTransitionKind.BridgedPInvoke]);
+        Assert.Equal(3, result.IlSites[LedgerTransitionKind.ForwardPInvoke]);
+        Assert.Equal(result.IlSites, result.LedgerEntries);
+    }
+
+    [Fact]
+    public void BridgedImport_AgainstALedgerThatDoesNotRecordTheBridge_FailsBothWays()
+    {
+        // The IL calls a bridge the ledger does not know, and the ledger's Swift import is gone from the IL.
+        var result = LedgerCrossCheck.Check(BridgedIl.Value, [("Acme.swift-transition-ledger.json", Ledger().ToJson())]);
+        Assert.False(result.Passed);
+
+        // A refused route records nothing, so the unrouted IL still joins.
+        var refused = Ledger().WithBridges([SpecialRoute(twin: null)]);
+        Assert.True(LedgerCrossCheck.Check(Il.Value, [("Acme.swift-transition-ledger.json", refused.ToJson())]).Passed);
+    }
+
     [Fact]
     public void ThrowsAnyErrorIsASynchronousCallee()
     {

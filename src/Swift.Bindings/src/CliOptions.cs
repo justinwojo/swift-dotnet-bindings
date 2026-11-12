@@ -381,9 +381,20 @@ public class CliOptions
         AllowMultipleArgumentsPerToken = false,
     };
 
+    public Option<string[]> SwiftRoutedCallPlans { get; } = new(
+        aliases: new[] { "--swift-routed-call-plans" },
+        description: "A {Module}.swift-call-plans.json sidecar of a generation that was given the lowering evidence. " +
+                     "Repeatable. Used by --swift-bridges like --swift-call-plans, which also fails when the " +
+                     "generation's routing disagrees with the evidence: an executable forward plan left on its direct " +
+                     "import, or a bridged one the evidence does not prove.")
+    {
+        AllowMultipleArgumentsPerToken = false,
+    };
+
     public Option<string?> SwiftLoweringEvidence { get; } = new(
         aliases: new[] { "--swift-lowering-evidence" },
-        description: "The swiftc lowering evidence (swift-lowering-evidence.json) a plan must agree with to be executable. Used by --swift-bridges.");
+        description: "The swiftc lowering evidence (swift-lowering-evidence.json) a plan must agree with to be executable. With --swift-bridges, the gate joins it; " +
+                     "in binding generation, every transition whose plan it makes executable is routed through a native bridge (SBSR_) instead of its direct import.");
 
     public Option<bool> EmitHandWrittenPlans { get; } = new(
         aliases: new[] { "--emit-hand-written-plans" },
@@ -557,6 +568,7 @@ public class CliOptions
             EmitAppleTypesCs,
             SwiftBridges,
             SwiftCallPlans,
+            SwiftRoutedCallPlans,
             SwiftLoweringEvidence,
             EmitHandWrittenPlans,
             TransitionFacts,

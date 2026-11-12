@@ -19,9 +19,11 @@ public sealed record ObjectReference(string Symbol, bool IsWeak);
 /// <summary>
 /// A fixture floored above every deployment target, named by a fragment of its mangled symbols — a
 /// whole type (<c>15FutureGatedTypeV</c>) or one member. <see cref="ReachedThroughThunk"/> marks the
-/// fixtures the generator binds through a native thunk; the rest reach the wrapper from Swift code.
+/// fixtures the generator binds through native assembly (a thunk or a Swift bridge); the rest reach
+/// the wrapper from Swift code. <see cref="ReachedThroughBridge"/> narrows that to a Swift bridge
+/// (<c>SBSR_</c>) specifically, so the bridge path keeps its own coverage.
 /// </summary>
-public sealed record FutureFlooredFixture(string MangledFragment, bool ReachedThroughThunk);
+public sealed record FutureFlooredFixture(string MangledFragment, bool ReachedThroughThunk, bool ReachedThroughBridge = false);
 
 /// <summary>
 /// The pure verdict behind the thunk weak-link gate.
@@ -97,14 +99,18 @@ public static class ThunkWeakLinkAudit
     /// assembled thunk objects (every architecture the generator emitted); <paramref name="imports"/>
     /// are the linked wrapper's imports. Every <paramref name="futureFlooredFixtures"/> entry must be
     /// imported (so the check is not vacuous) and imported only weakly; the ones marked
-    /// <see cref="FutureFlooredFixture.ReachedThroughThunk"/> must also arrive through a thunk.
+    /// <see cref="FutureFlooredFixture.ReachedThroughThunk"/> must also arrive through a thunk, and the
+    /// ones marked <see cref="FutureFlooredFixture.ReachedThroughBridge"/> through a target of
+    /// <paramref name="bridgeTargets"/> (the branch targets of the Swift bridge files, a subset of
+    /// <paramref name="thunkTargets"/>).
     /// </summary>
     public static ThunkWeakLinkVerdict Evaluate(
         string leg,
         IReadOnlySet<string> thunkTargets,
         IReadOnlyList<ObjectReference> objectReferences,
         IReadOnlyList<DyldImport> imports,
-        IReadOnlyList<FutureFlooredFixture> futureFlooredFixtures)
+        IReadOnlyList<FutureFlooredFixture> futureFlooredFixtures,
+        IReadOnlySet<string>? bridgeTargets = null)
     {
         var failures = new List<string>();
 
@@ -132,7 +138,7 @@ public static class ThunkWeakLinkAudit
         if (thunkTargets.Count > 0 && imports.Count > 0 && importedTargets.Count == 0)
             failures.Add($"{leg}: no thunk target is imported by the wrapper, so the linked-binary check would pass vacuously.");
 
-        foreach (var (token, reachedThroughThunk) in futureFlooredFixtures)
+        foreach (var (token, reachedThroughThunk, reachedThroughBridge) in futureFlooredFixtures)
         {
             var matched = imports.Where(i => i.Symbol.Contains(token, StringComparison.Ordinal)).ToList();
             if (matched.Count == 0)
@@ -142,6 +148,8 @@ public static class ThunkWeakLinkAudit
             }
             if (reachedThroughThunk && !matched.Any(i => thunkTargets.Contains(i.Symbol)))
                 failures.Add($"{leg}: the future-floored fixture `{token}` is no longer reached through a native thunk, so it no longer covers the thunk path.");
+            if (reachedThroughBridge && !matched.Any(i => bridgeTargets?.Contains(i.Symbol) == true))
+                failures.Add($"{leg}: the future-floored fixture `{token}` is no longer reached through a native Swift bridge, so it no longer covers the bridge path.");
             foreach (var i in matched.Where(i => !i.IsWeak))
                 failures.Add($"{leg}: future-floored {i.Symbol} is a STRONG import from {i.Library} [{i.Arch}]; dyld would refuse to load the wrapper on an OS without it.");
         }

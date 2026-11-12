@@ -194,6 +194,32 @@ public class ThunkWeakLinkAuditTests
         Assert.True(verdict.Passed, string.Join("\n", verdict.Failures));
     }
 
+    [Fact]
+    public void Evaluate_BridgeBoundFixture_MustArriveThroughABridgeTarget_NotJustAThunk()
+    {
+        var weakThunkImport = new DyldImport("arm64", Future, "Lib", true);
+        var bridged = new FutureFlooredFixture("4MineV6future", ReachedThroughThunk: true, ReachedThroughBridge: true);
+
+        // Reached through a thunk file but not a bridge file: the bridge path is no longer covered.
+        Assert.Contains(
+            ThunkWeakLinkAudit.Evaluate("W", Targets, AllWeak(Targets), new[] { weakThunkImport }, new[] { bridged },
+                bridgeTargets: new HashSet<string> { Static }).Failures,
+            f => f.Contains("no longer reached through a native Swift bridge"));
+        Assert.Contains(
+            ThunkWeakLinkAudit.Evaluate("W", Targets, AllWeak(Targets), new[] { weakThunkImport }, new[] { bridged }).Failures,
+            f => f.Contains("no longer reached through a native Swift bridge"));
+
+        var verdict = ThunkWeakLinkAudit.Evaluate("W", Targets, AllWeak(Targets), new[] { weakThunkImport }, new[] { bridged },
+            bridgeTargets: new HashSet<string> { Future });
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Failures));
+
+        // A strong import of the bridged fixture still fails as dyld would.
+        Assert.Contains(
+            ThunkWeakLinkAudit.Evaluate("W", Targets, AllWeak(Targets), new[] { weakThunkImport with { IsWeak = false } }, new[] { bridged },
+                bridgeTargets: new HashSet<string> { Future }).Failures,
+            f => f.Contains("dyld would refuse to load"));
+    }
+
     private static FutureFlooredFixture Thunked(string fragment) => new(fragment, ReachedThroughThunk: true);
 
     private static FutureFlooredFixture SwiftOnly(string fragment) => new(fragment, ReachedThroughThunk: false);

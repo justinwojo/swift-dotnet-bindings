@@ -9,6 +9,7 @@
     "notBridged": 4,
     "plans": 3,
     "executable": 0,
+    "bridged": 0,
     "byTransition": {
       "ForwardPInvoke/NotBridged": 4,
       "ForwardPInvoke/Planned": 3

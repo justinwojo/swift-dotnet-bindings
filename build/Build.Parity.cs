@@ -59,7 +59,7 @@ partial class Build
 
             findings = ArtifactParityGate.ComputeFindings(
                 inputs.CsSource, inputs.SwiftWrapperSource, inputs.AbiJson,
-                inputs.SymbolsByLibrary, inputs.WrapperAuthoredSymbols);
+                inputs.SymbolsByLibrary, inputs.WrapperAuthoredSymbols, inputs.BridgeTargets);
 
             // Report (non-gated) the libraries we have no dylib for, so a system-lib
             // skip is never silent. These are libswiftCore et al. that we don't own.
@@ -136,7 +136,8 @@ partial class Build
         string SwiftWrapperSource,
         string AbiJson,
         IReadOnlyDictionary<string, IReadOnlySet<string>> SymbolsByLibrary,
-        IReadOnlySet<string> WrapperAuthoredSymbols);
+        IReadOnlySet<string> WrapperAuthoredSymbols,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> BridgeTargets);
 
     ParityInputs ResolveParityInputs()
     {
@@ -229,7 +230,20 @@ partial class Build
             .Where(ArtifactParityGate.IsAuthoredWrapperSymbol)
             .ToHashSet(StringComparer.Ordinal);
 
-        return new ParityInputs(csSource, swiftSource, abiJson, symbolsByLibrary, wrapperAuthored);
+        // Native Swift bridges (main and dependency): a wrapper export a bridge calls is referenced
+        // through the twin that calls the bridge. One architecture's files suffice; both are emitted
+        // from the same plans.
+        var bridgeTargets = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+        foreach (var dir in new[] { BtOutputDir, BtOutputDir / "dep-swift" })
+        {
+            if (!Directory.Exists(dir))
+                continue;
+            foreach (var file in Directory.GetFiles(dir, "*.Bridges.arm64.s").OrderBy(f => f, StringComparer.Ordinal))
+                foreach (var (bridge, targets) in ArtifactParityGate.ParseBridgeTargets(File.ReadAllText(file)))
+                    bridgeTargets[bridge] = targets;
+        }
+
+        return new ParityInputs(csSource, swiftSource, abiJson, symbolsByLibrary, wrapperAuthored, bridgeTargets);
     }
 
     /// <summary>Finds the framework binary <c>{module}.framework/{module}</c> inside an
@@ -301,7 +315,7 @@ partial class Build
             var inputs = ResolveParityInputs();
             var findings = ArtifactParityGate.ComputeFindings(
                 inputs.CsSource, inputs.SwiftWrapperSource, inputs.AbiJson,
-                inputs.SymbolsByLibrary, inputs.WrapperAuthoredSymbols);
+                inputs.SymbolsByLibrary, inputs.WrapperAuthoredSymbols, inputs.BridgeTargets);
 
             var baseline = ArtifactParityGate.ParityBaseline.Seed(
                 findings, ReadHeadShaShort(), ParityBaselineDescription);

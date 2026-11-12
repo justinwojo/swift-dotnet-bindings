@@ -31,6 +31,13 @@ public enum LedgerTransitionKind
 
     /// <summary>A forward <c>calli</c> through an <c>unmanaged[Swift]</c> pointer.</summary>
     ForwardCalli,
+
+    /// <summary>
+    /// A forward transition routed through a native bridge: in the IL, the C-convention twin import
+    /// of the bridge (<c>SBSR_…</c>); in the ledger, the forward P/Invoke entry whose bridge names
+    /// that twin and symbol.
+    /// </summary>
+    BridgedPInvoke,
 }
 
 /// <summary>One transition, as either side names it: its kind, its join key and, for a forward transition, whether it is primitive-only.</summary>
@@ -186,6 +193,10 @@ public static class LedgerCrossCheck
                     yield return new(LedgerTransitionKind.ForwardPInvoke, KeyOf(site.Member, site.EntryPoint ?? ""),
                         !site.Rules.Contains(TransitionRule.R1), il.AssemblyName);
                     break;
+                case TransitionSiteKind.PInvoke when SwiftTransitionScanner.IsForwardBridge(site.EntryPoint):
+                    // Whether the twin agrees with its plan is rule R3's question, not the join's.
+                    yield return new(LedgerTransitionKind.BridgedPInvoke, KeyOf(site.Member, site.EntryPoint!), null, il.AssemblyName);
+                    break;
                 case TransitionSiteKind.PInvoke when site.Rules.Contains(TransitionRule.R2):
                     yield return new(LedgerTransitionKind.CdeclSpecialPInvoke, KeyOf(site.Member, site.EntryPoint ?? ""), null, il.AssemblyName);
                     break;
@@ -261,7 +272,22 @@ public static class LedgerCrossCheck
                     continue;
                 }
                 var member = t.GetProperty("member").GetString() ?? "";
-                var key = kind switch
+                // A bridged forward transition is no longer a Swift-convention import in the IL: its
+                // site is the twin import of the bridge the ledger names.
+                var hasBridge = t.TryGetProperty("bridge", out var bridge) && bridge.ValueKind != JsonValueKind.Null;
+                var bridged = hasBridge && kind == LedgerTransitionKind.ForwardPInvoke && bridge.ValueKind == JsonValueKind.Object;
+                if (hasBridge && !bridged)
+                {
+                    problems.Add($"{name}: a {kind} entry for {member} names a bridge that is not a forward P/Invoke's bridge object");
+                    continue;
+                }
+                if (bridged && (Str(bridge, "symbol") is not { Length: > 0 } bridgeSymbol || !SwiftTransitionScanner.IsForwardBridge(bridgeSymbol)
+                    || Str(bridge, "twin") is not { Length: > 0 } bridgeTwin))
+                {
+                    problems.Add($"{name}: the bridge of {member} does not name a forward bridge symbol and its twin");
+                    continue;
+                }
+                var key = bridged ? KeyOf(Str(bridge, "twin"), Str(bridge, "symbol")) : kind switch
                 {
                     LedgerTransitionKind.ForwardPInvoke or LedgerTransitionKind.CdeclSpecialPInvoke => KeyOf(member, Str(t, "entryPoint")),
                     LedgerTransitionKind.CallbackAddress => KeyOf(member, Str(t, "target")),
@@ -285,7 +311,9 @@ public static class LedgerCrossCheck
                         if (notSynchronousFacts[id] is { } reason)
                             notSynchronous.Add($"{kind} {key}: {reason}");
                 }
-                entries.Add(new LedgerEntryView(kind, key, primitive, status, reasons, name));
+                entries.Add(bridged
+                    ? new LedgerEntryView(LedgerTransitionKind.BridgedPInvoke, key, null, status, reasons, name)
+                    : new LedgerEntryView(kind, key, primitive, status, reasons, name));
             }
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)

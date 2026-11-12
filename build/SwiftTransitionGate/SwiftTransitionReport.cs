@@ -18,7 +18,7 @@ namespace SwiftBindings.TransitionGate;
 /// the human summary. The JSON is written with <see cref="Utf8JsonWriter"/>, so it needs no
 /// reflection and the schema is exactly what this file spells.
 ///
-/// <para>Report schema 1: <c>{ schema, tool, passed, totals: {R1, R2, R4, R5, inspectionErrors},
+/// <para>Report schema 1: <c>{ schema, tool, passed, totals: {R1, R2, R3, R4, R5, inspectionErrors},
 /// assemblies: [ { path, assemblyName, mvid, passed, planSource: {kind, location} | null, counts:
 /// {…}, inventory: {…}, violations: [ { rule, site, member, signature, reason, entryPoint?,
 /// library?, ilOffset?, classes[] } ], inspectionErrors: [ { member, message } ] } ] }</c>.</para>

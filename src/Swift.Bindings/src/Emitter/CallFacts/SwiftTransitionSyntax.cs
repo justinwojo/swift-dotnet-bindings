@@ -207,7 +207,7 @@ internal static class SwiftTransitionSyntax
             .Distinct(StringComparer.Ordinal)
             .ToImmutableArray();
 
-    private static bool NamesCallConvSwift(AttributeSyntax attribute) =>
+    internal static bool NamesCallConvSwift(AttributeSyntax attribute) =>
         attribute.DescendantNodes().OfType<TypeOfExpressionSyntax>().Any(t => SimpleName(t.Type) == "CallConvSwift");
 
     /// <summary>
@@ -330,7 +330,7 @@ internal static class SwiftTransitionSyntax
         }
     }
 
-    private static bool IsAttribute(AttributeSyntax attribute, string name)
+    internal static bool IsAttribute(AttributeSyntax attribute, string name)
     {
         var simple = SimpleName(attribute.Name);
         return simple == name || simple == name + "Attribute";

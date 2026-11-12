@@ -12,7 +12,8 @@ namespace BindingsGeneration
     /// <summary>
     /// Fail-closed, structural post-emission net: every wrapper entry point a generated C#
     /// P/Invoke targets (<c>SBW_</c> @_cdecl / <c>SBSW_</c> Swift-CC) MUST be defined by a wrapper
-    /// function this generation actually emitted. A reference to an undefined wrapper symbol is a
+    /// function this generation actually emitted, and every native Swift bridge one targets
+    /// (<c>SBSR_</c>) by the bridge assembly of every architecture the wrapper is built for. A reference to an undefined wrapper symbol is a
     /// generator defect that would surface at runtime as an <c>EntryPointNotFoundException</c> /
     /// <c>DllNotFoundException</c> — it is caught here at generation time and turned into a hard
     /// non-zero exit (the <c>--strict</c> / <c>--compile-only</c> seam already hard-fails on a
@@ -31,8 +32,9 @@ namespace BindingsGeneration
     /// Reconciliation is text-vs-text against the emitted SOURCE, not a compiled symbol table
     /// (<c>nm</c>) — cheaper and compile-independent, honoring the session's inner-loop constraint;
     /// the compile-strip channel covers binary truth separately. DEFS are every symbol a wrapper
-    /// <c>.swift</c> defines via <c>@_cdecl("SBW_…")</c> / <c>@_silgen_name("SB(S)W_…")</c>; REFS
-    /// are every <c>EntryPoint = "SB(S)W_…"</c> a generated <c>.cs</c> P/Invoke names. The scan is
+    /// <c>.swift</c> defines via <c>@_cdecl("SBW_…")</c> / <c>@_silgen_name("SB(S)W_…")</c>, plus every
+    /// bridge both an <c>.arm64.s</c> and an <c>.x86_64.s</c> file export (<c>.globl _SBSR_…</c>); REFS
+    /// are every <c>EntryPoint = "SB(S)W_…"</c> or <c>"SBSR_…"</c> a generated <c>.cs</c> P/Invoke names. The scan is
     /// over the whole output directory (recursively, so a co-emitted dependency wrapper under
     /// <c>dep-swift/</c> is included), which makes each single-module generation self-contained:
     /// a module's C# only references symbols its own emitted wrappers define, and a co-emitted
@@ -44,8 +46,13 @@ namespace BindingsGeneration
         // EntryPoint = "SBW_…" / "SBSW_…" — tolerant of spacing and of both the LibraryImport
         // (`EntryPoint = "…"`) and generated-DllImport (`EntryPoint="…"`) spellings.
         private static readonly Regex RefPattern = new(
-            "EntryPoint\\s*=\\s*\"((?:SBW_|SBSW_)[A-Za-z0-9_]+)\"",
+            "EntryPoint\\s*=\\s*\"((?:SBW_|SBSW_|SBSR_)[A-Za-z0-9_]+)\"",
             RegexOptions.Compiled);
+
+        // .globl _SBSR_… — a native bridge an assembly file exports.
+        private static readonly Regex BridgeDefPattern = new(
+            "^\\s*\\.globl\\s+_(SBSR_[A-Za-z0-9_]+)\\s*$",
+            RegexOptions.Compiled | RegexOptions.Multiline);
 
         // @_cdecl("SBW_…") / @_silgen_name("SBW_…"|"SBSW_…") — the wrapper-side definition forms.
         private static readonly Regex DefPattern = new(
@@ -70,6 +77,8 @@ namespace BindingsGeneration
 
             var defined = new HashSet<string>();
             var referenced = new SortedSet<string>();
+            var arm64Bridges = new HashSet<string>();
+            var x86Bridges = new HashSet<string>();
 
             foreach (var file in EnumerateSourceFiles(outputDirectory))
             {
@@ -88,12 +97,25 @@ namespace BindingsGeneration
                     foreach (Match m in DefPattern.Matches(text))
                         defined.Add(m.Groups[1].Value);
                 }
+                else if (file.EndsWith(".s", System.StringComparison.Ordinal))
+                {
+                    var bridges = file.EndsWith(".arm64.s", System.StringComparison.Ordinal) ? arm64Bridges
+                        : file.EndsWith(".x86_64.s", System.StringComparison.Ordinal) ? x86Bridges
+                        : null;
+                    if (bridges is null)
+                        continue;
+                    foreach (Match m in BridgeDefPattern.Matches(text))
+                        bridges.Add(m.Groups[1].Value);
+                }
                 else // .cs
                 {
                     foreach (Match m in RefPattern.Matches(text))
                         referenced.Add(m.Groups[1].Value);
                 }
             }
+
+            // A bridge one architecture lacks would load on the other and fail on it.
+            defined.UnionWith(arm64Bridges.Intersect(x86Bridges));
 
             var dangling = referenced.Where(r => !defined.Contains(r)).ToList();
             if (dangling.Count == 0)
@@ -121,7 +143,8 @@ namespace BindingsGeneration
             foreach (var file in Directory.EnumerateFiles(outputDirectory, "*.*", SearchOption.AllDirectories))
             {
                 if (!file.EndsWith(".cs", System.StringComparison.Ordinal)
-                    && !file.EndsWith(".swift", System.StringComparison.Ordinal))
+                    && !file.EndsWith(".swift", System.StringComparison.Ordinal)
+                    && !file.EndsWith(".s", System.StringComparison.Ordinal))
                     continue;
 
                 // Skip build intermediates — a previously-built output dir may carry obj/bin

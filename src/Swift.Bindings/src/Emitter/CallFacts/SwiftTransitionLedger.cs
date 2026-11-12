@@ -271,6 +271,12 @@ public sealed record SwiftTransitionLedgerEntry(
     public SwiftManagedSignature? Signature { get; init; }
 
     /// <summary>
+    /// For a forward import the emitted C# reaches through a bridge: the bridge and its twin. The entry
+    /// still describes the transition the import declared; the compiled IL holds the twin in its place.
+    /// </summary>
+    public SwiftTransitionBridge? Bridge { get; init; }
+
+    /// <summary>
     /// The join key with an IL inventory site of the same kind: an import's member and entry point; a
     /// callback's member; a callback address's member and target; a <c>calli</c>'s member.
     /// </summary>
@@ -281,6 +287,9 @@ public sealed record SwiftTransitionLedgerEntry(
         _ => Member,
     };
 }
+
+/// <summary>A bridged import's bridge symbol and the IL member of the twin that calls it.</summary>
+public sealed record SwiftTransitionBridge(string Symbol, string Twin);
 
 /// <summary>
 /// The transition coverage ledger of one module: one entry per managed↔Swift transition in the
@@ -333,6 +342,25 @@ public sealed class SwiftTransitionLedger
 
     /// <summary>The join key of a member and an entry point.</summary>
     public static string KeyOf(string member, string entryPoint) => string.Concat(member, " ", entryPoint);
+
+    /// <summary>This ledger with each bridged forward import's bridge and twin recorded on its entry.</summary>
+    public SwiftTransitionLedger WithBridges(IEnumerable<SwiftBridgeRoute> routes)
+    {
+        var bridged = routes.Where(r => r.IsBridged)
+            .ToDictionary(r => KeyOf(r.Member, r.EntryPoint), r => new SwiftTransitionBridge(r.Symbol, r.Twin!), StringComparer.Ordinal);
+        if (bridged.Count == 0)
+            return this;
+        return new SwiftTransitionLedger
+        {
+            Module = Module,
+            Entries = Entries.Select(e => e.Transition == SwiftTransitionKind.ForwardPInvoke && bridged.TryGetValue(e.Key, out var bridge) ? e with { Bridge = bridge } : e)
+                .ToImmutableArray(),
+            Facts = Facts,
+            Issues = Issues,
+            Registered = Registered,
+            Types = Types,
+        };
+    }
 
     public int Count(SwiftTransitionLedgerStatus status) => Entries.Count(e => e.Status == status);
 
