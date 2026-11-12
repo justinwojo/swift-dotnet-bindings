@@ -1,26 +1,35 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Build.BindingTests.BridgeConsumer.cs — opt-in .NET 11 packaged Debug consumer of the Swift bridges.
+// Build.BindingTests.BridgeConsumer.cs — opt-in ordinary consumer of the Swift bridges, on .NET 10 and
+// .NET 11 for iOS.
 //
-// The CoreCLR interpreter, which runs every ordinary Debug .NET 11 app on iOS, mishandles the Swift
-// calling convention. The generator and SwiftBindings.Runtime therefore route each Swift-convention
-// call the swiftc lowering evidence proves through a native bridge (SBSR_), reached through a C
-// twin. This leg shows that the way a consumer gets it: a third-party-shaped module packed through
-// SwiftBindings.Sdk with the evidence on, a Runtime package from the same tree, and an ordinary
-// `dotnet build -c Debug` app that restores both from a local feed and runs on the iOS simulator or a
-// phone.
+// The generator and SwiftBindings.Runtime route each Swift-convention call the swiftc lowering
+// evidence authorizes through a native bridge (SBSR_), reached through a C twin: the .NET 11 CoreCLR
+// interpreter mishandles the Swift calling convention, and Mono's x20 handling exposes .NET 10 apps.
+// This leg proves the way an ordinary consumer gets the bridges: a third-party-shaped module bound
+// through SwiftBindings.Sdk with default settings and no hand-authored <SwiftLoweringEvidence>. The
+// SDK's own wrapper compile collects the module's lowering receipt and routes what it authorizes, in
+// the same build. The binding is consumed three ways, each built by an ordinary app restoring a
+// throwaway Runtime/Sdk/Apple feed of this tree:
+// - package: the binding is packed and the app takes one PackageReference;
+// - direct: the app's own csproj imports SwiftBindings.Sdk and declares the <SwiftFramework>;
+// - projectref: the app takes a ProjectReference to the binding project.
 //
 // The app calls two transitions and checks what each did:
-// - BridgeAccount.accumulate (self, a Swift error and a scalar result) through the binding's own
-//   bridge: success, error, success, with the receiver's state checked after each.
+// - BridgeAccount.settled, a throwing getter on a class isolated to a custom global actor (self, a
+//   Swift error and a scalar result). The @_cdecl wrapper refuses custom-global-actor members, so
+//   its only import is the Swift-convention one the bridge replaces: success, error, success, with
+//   the receiver's state checked after each.
 // - Array's subscript getter through the Runtime's bridge, by indexing the array the module returns.
 // Every measured call records its stack in Swift. The host requires the routed bridge under the Swift
-// code and the interpreter's call stub under the bridge, on every call. The app also calls both bridges
-// from a register sentinel, checks the module's live-object count before and after, and the host
-// validates the bridges of the packed and the linked images.
+// code and the lane's managed caller under the bridge, on every call: the CoreCLR interpreter's call
+// stub (.NET 11), JIT code in no image (Mono JIT, .NET 10 simulator) or code compiled into the app
+// (NativeAOT, or Mono full-AOT with --mono-aot). The app also calls both bridges from a register
+// sentinel and checks the module's live-object count before and after. The host checks each mode's
+// SDK-collected receipt against the oracle and validates the bridges of the packed and linked images.
 //
-// Opt-in, .NET 11 and --coreclr-interp only. Never part of the default run or --compile-only.
+// Opt-in. .NET 11 runs it with --coreclr-interp. Never part of the default run or --compile-only.
 
 using System;
 using System.Collections.Generic;
@@ -40,8 +49,11 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 partial class Build
 {
-    [Parameter("Opt-in, .NET 11 with --coreclr-interp: pack a binding generated with the Swift bridges on, consume it from an ordinary Debug app through NuGet, and prove on the simulator and/or a device that its calls run through the bridges from the interpreter. Never part of the default run or --compile-only.")]
+    [Parameter("Opt-in: bind a module through SwiftBindings.Sdk with default settings and no hand-authored lowering evidence, consume it as a package, SDK-direct and through a ProjectReference, and prove on the simulator and/or a device that its calls run through the bridges the SDK routed. .NET 10: --sim (Mono JIT), --device (NativeAOT), --device --mono-aot (Mono full-AOT). .NET 11: --coreclr-interp. Never part of the default run or --compile-only.")]
     readonly bool BridgeConsumer;
+
+    [Parameter("With --bridge-consumer: the consumption modes to run, from package, direct and projectref. Default: all three.")]
+    readonly string[] BridgeConsumerModes = [];
 
     const string BcfVersion = "0.0.0-bridgeconsumer";
     const string BcfModule = "BridgeConsumerFixture";
@@ -56,20 +68,67 @@ partial class Build
     AbsolutePath BcfScratch => RootDirectory / "artifacts" / "bridge-consumer";
     AbsolutePath BcfReceipts => BcfScratch / "receipts";
 
+    /// <summary>How the app consumes the binding.</summary>
+    enum BcfMode { Package, Direct, ProjectReference }
+
+    /// <summary>What must call a bridge on a lane: the managed code that made the Swift call.</summary>
+    enum BcfCaller { Interpreter, Jit, App }
+
+    /// <summary>One platform a mode runs on.</summary>
+    sealed record BcfPlatform(bool OnDevice, bool MonoAot)
+    {
+        public string Name => OnDevice ? MonoAot ? "device-monoaot" : "device" : "simulator";
+        public string Rid => OnDevice ? "ios-arm64" : "iossimulator-arm64";
+    }
+
     /// <summary>One routed bridge the host expects on a measured call.</summary>
     sealed record BcfRoute(string Tag, string Member, string Target, string Bridge, string Image);
 
-    void RunBridgeConsumerLeg(bool sim, bool device)
+    /// <summary>What one binding build produced: its routing sidecar and the receipt it collected.</summary>
+    sealed record BcfBinding(AbsolutePath Plans, AbsolutePath Receipt, BcfRoute Settle);
+
+    static IReadOnlyList<BcfMode> ParseBridgeConsumerModes(IReadOnlyList<string> requested)
     {
+        if (requested.Count == 0)
+            return [BcfMode.Package, BcfMode.Direct, BcfMode.ProjectReference];
+        var modes = new List<BcfMode>();
+        foreach (var name in requested.SelectMany(r => r.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
+        {
+            var mode = name.ToLowerInvariant() switch
+            {
+                "package" => BcfMode.Package,
+                "direct" => BcfMode.Direct,
+                "projectref" or "projectreference" => BcfMode.ProjectReference,
+                _ => throw new ArgumentException($"--bridge-consumer-modes: unknown mode '{name}'; expected package, direct or projectref."),
+            };
+            if (!modes.Contains(mode)) modes.Add(mode);
+        }
+        return modes;
+    }
+
+    static string BcfModeName(BcfMode mode) => mode switch
+    {
+        BcfMode.Package => "package",
+        BcfMode.Direct => "direct",
+        _ => "projectref",
+    };
+
+    BcfCaller BcfExpectedCaller(BcfPlatform platform) =>
+        RuntimeLane.IsNet11 ? BcfCaller.Interpreter : platform.OnDevice ? BcfCaller.App : BcfCaller.Jit;
+
+    void RunBridgeConsumerLeg(bool sim, bool device, bool monoAot)
+    {
+        var modes = ParseBridgeConsumerModes(BridgeConsumerModes);
         Log.Information("=================================================");
-        Log.Information(" BindingTests — packaged Debug consumer of the Swift bridges (--bridge-consumer)");
-        Log.Information("   sim: {Sim}   device: {Device}", sim, device);
+        Log.Information(" BindingTests — ordinary consumer of the Swift bridges (--bridge-consumer)");
+        Log.Information("   {Framework}   sim: {Sim}   device: {Device}{MonoAot}   modes: {Modes}", RuntimeLane.Framework, sim, device,
+            monoAot ? " (Mono full-AOT)" : "", string.Join(", ", modes.Select(BcfModeName)));
         Log.Information("=================================================");
 
-        if (!RuntimeLane.IsNet11 || !RuntimeLane.CoreClrInterpreter)
-            throw new Exception("--bridge-consumer measures the .NET 11 CoreCLR interpreter. Run it under the net11 toolchain profile with " +
-                "--coreclr-interp: bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --bridge-consumer --coreclr-interp [--sim] [--device]");
-        // Also stages SwiftInterfaceParser, which the SDK package ships and the fixture pack runs.
+        if (RuntimeLane.IsNet11 && !RuntimeLane.CoreClrInterpreter)
+            throw new Exception("--bridge-consumer measures the .NET 11 CoreCLR interpreter on .NET 11. Run it with --coreclr-interp: " +
+                "bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --bridge-consumer --coreclr-interp [--sim] [--device]");
+        // Also stages SwiftInterfaceParser, which the SDK package ships and every binding build runs.
         EnsureGeneratorBuilt();
         var stagedParser = SwiftInterfaceParserStagingDir / "SwiftInterfaceParser";
         if (!File.Exists(stagedParser))
@@ -78,64 +137,199 @@ partial class Build
         if (Directory.Exists(BcfScratch)) BcfScratch.DeleteDirectory();
         BcfReceipts.CreateDirectory();
         var nupkgDir = BcfScratch / "packages";
-        var fixtureDir = BcfScratch / "fixture";
-        var fixtureOut = BcfScratch / "fixture-output";
         nupkgDir.CreateDirectory();
-        fixtureDir.CreateDirectory();
-        fixtureOut.CreateDirectory();
+
+        var platforms = new List<BcfPlatform>();
+        if (sim) platforms.Add(new BcfPlatform(OnDevice: false, MonoAot: false));
+        if (device) platforms.Add(new BcfPlatform(OnDevice: true, MonoAot: monoAot));
 
         var xcframework = BuildBridgeConsumerXcframework(BcfScratch / "build");
 
-        // The evidence is per symbol, so the fixture's own targets need it: generate once to learn
-        // them (the call-plan sidecar and the wrapper source), then let the oracle record what swiftc
-        // gives each one on every required triple.
-        var evidence = RecordBridgeConsumerEvidence(xcframework);
+        // An independent cross-check, never an input: the oracle records what swiftc gives each of the
+        // fixture's plan targets on every slice, and each SDK-collected receipt must agree with it.
+        var oracle = RecordBridgeConsumerOracle(xcframework);
 
+        var failures = new List<string>();
+        var passed = false;
         try
         {
             using var scope = new VersionScope(BcfLaneVersion, RootDirectory, BcfLaneAppleVersion);
             BuildLocalPackageFeed(nupkgDir, scope, "bridge-consumer", BcfLaneVersion, BcfLaneAppleVersion, BcfPackageId);
             AssertRuntimeNativePackage(nupkgDir / $"SwiftBindings.Runtime.{BcfLaneVersion}.nupkg");
+            var element = BridgeConsumerElementRoute();
 
-            WriteBridgeConsumerFixture(fixtureDir, nupkgDir, xcframework, evidence);
-            Log.Information("=== bridge-consumer: packing the fixture binding with the lowering evidence ===");
-            DotNetPack(s => s
-                .SetProject(fixtureDir / $"{BcfModule}.csproj")
-                .SetConfiguration("Release")
-                .SetOutputDirectory(fixtureOut)
-                .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
+            foreach (var mode in modes)
+                failures.AddRange(mode switch
+                {
+                    BcfMode.Package => RunBridgeConsumerPackage(nupkgDir, xcframework, oracle, element, platforms),
+                    BcfMode.Direct => RunBridgeConsumerDirect(nupkgDir, xcframework, oracle, element, platforms),
+                    _ => RunBridgeConsumerProjectReference(nupkgDir, xcframework, oracle, element, platforms),
+                });
 
-            var fixturePlans = Directory.GetFiles(fixtureDir, $"{BcfModule}.swift-call-plans.json", SearchOption.AllDirectories)
-                .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-                .ToList();
-            if (fixturePlans.Count != 1)
-                throw new Exception($"--bridge-consumer: expected one {BcfModule}.swift-call-plans.json under {fixtureDir}, found {fixturePlans.Count}.");
-            var routes = BridgeConsumerRoutes((AbsolutePath)fixturePlans[0]);
-            AssertBridgeConsumerPackedWrapper(fixtureOut, (AbsolutePath)fixturePlans[0]);
-            AssertBridgeConsumerCollectedReceipt(fixtureDir, evidence, routes.Single(r => r.Image == BcfWrapperModule));
-
-            var failures = new List<string>();
-            if (sim)
-                failures.AddRange(RunBridgeConsumer(nupkgDir, fixtureOut, routes, (AbsolutePath)fixturePlans[0], onDevice: false));
-            if (device)
-                failures.AddRange(RunBridgeConsumer(nupkgDir, fixtureOut, routes, (AbsolutePath)fixturePlans[0], onDevice: true));
             if (failures.Count > 0)
             {
                 foreach (var f in failures) Log.Error("  ✗ {Failure}", f);
                 throw new Exception($"--bridge-consumer: {failures.Count} problem(s); receipts under {BcfReceipts}.");
             }
-            Log.Information("--bridge-consumer PASSED. Receipts: {Dir}", BcfReceipts);
+            Log.Information("--bridge-consumer PASSED ({Modes} on {Platforms}). Receipts: {Dir}",
+                string.Join(", ", modes.Select(BcfModeName)), string.Join(", ", platforms.Select(p => p.Name)), BcfReceipts);
+            passed = true;
         }
         finally
         {
             EvictThrowawayPackages(BcfLaneVersion, BcfLaneAppleVersion, BcfPackageId);
-            foreach (var dir in new[] { nupkgDir, fixtureOut })
-                if (Directory.Exists(dir)) dir.DeleteDirectory();
+            if (Directory.Exists(nupkgDir)) nupkgDir.DeleteDirectory();
+            // The scratch bindings and consumers are large (a NativeAOT publish is several hundred MB):
+            // a passing run keeps only its receipts; a failing one keeps everything for the post-mortem.
+            if (passed)
+                foreach (var dir in Directory.GetDirectories(BcfScratch).Where(d => (AbsolutePath)d != BcfReceipts))
+                    ((AbsolutePath)dir).DeleteDirectory();
         }
     }
 
-    // MARK: - Fixture module and its lowering evidence
+    // MARK: - Consumption modes
+
+    // The binding packed once (Release), then consumed through one PackageReference on every platform.
+    IEnumerable<string> RunBridgeConsumerPackage(AbsolutePath nupkgDir, AbsolutePath xcframework, AbsolutePath oracle,
+        BcfRoute element, IReadOnlyList<BcfPlatform> platforms)
+    {
+        var fixtureDir = BcfScratch / "package-binding";
+        var fixtureOut = BcfScratch / "package-output";
+        fixtureDir.CreateDirectory();
+        fixtureOut.CreateDirectory();
+        WriteBridgeConsumerBinding(fixtureDir, nupkgDir, xcframework, packable: true);
+        Log.Information("=== bridge-consumer [package]: packing the binding with default settings ===");
+        DotNetPack(s => s
+            .SetProject(fixtureDir / $"{BcfModule}.csproj")
+            .SetConfiguration("Release")
+            .SetOutputDirectory(fixtureOut)
+            .EnableNoLogo()
+            .SetVerbosity(DotNetVerbosity.quiet));
+
+        var binding = BridgeConsumerBinding(BcfMode.Package, fixtureDir, "Release", oracle);
+        AssertBridgeConsumerPackedWrapper(fixtureOut, binding.Plans);
+
+        var failures = new List<string>();
+        foreach (var platform in platforms)
+        {
+            var appDir = BcfScratch / $"package-app-{platform.Name}";
+            appDir.CreateDirectory();
+            WriteBridgeConsumerApp(appDir, BcfMode.Package, platform, element, xcframework, projectReference: null);
+            File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureOut, "BridgeConsumerFixture.*"));
+            failures.AddRange(RunBridgeConsumerApp(BcfMode.Package, appDir, platform, element, _ => binding));
+        }
+        return failures;
+    }
+
+    // The app is the binding: its own csproj imports SwiftBindings.Sdk, so each platform's build
+    // generates, collects its own receipt and routes.
+    IEnumerable<string> RunBridgeConsumerDirect(AbsolutePath nupkgDir, AbsolutePath xcframework, AbsolutePath oracle,
+        BcfRoute element, IReadOnlyList<BcfPlatform> platforms)
+    {
+        var failures = new List<string>();
+        foreach (var platform in platforms)
+        {
+            var appDir = BcfScratch / $"direct-app-{platform.Name}";
+            appDir.CreateDirectory();
+            File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
+            WriteBridgeConsumerApp(appDir, BcfMode.Direct, platform, element, xcframework, projectReference: null);
+            failures.AddRange(RunBridgeConsumerApp(BcfMode.Direct, appDir, platform, element,
+                configuration => BridgeConsumerBinding(BcfMode.Direct, appDir, configuration, oracle)));
+        }
+        return failures;
+    }
+
+    // The app takes a ProjectReference to a binding project, which the app's build builds in its own configuration.
+    IEnumerable<string> RunBridgeConsumerProjectReference(AbsolutePath nupkgDir, AbsolutePath xcframework, AbsolutePath oracle,
+        BcfRoute element, IReadOnlyList<BcfPlatform> platforms)
+    {
+        var fixtureDir = BcfScratch / "projectref-binding";
+        fixtureDir.CreateDirectory();
+        WriteBridgeConsumerBinding(fixtureDir, nupkgDir, xcframework, packable: false);
+        var failures = new List<string>();
+        foreach (var platform in platforms)
+        {
+            var appDir = BcfScratch / $"projectref-app-{platform.Name}";
+            appDir.CreateDirectory();
+            File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
+            WriteBridgeConsumerApp(appDir, BcfMode.ProjectReference, platform, element, xcframework,
+                projectReference: fixtureDir / $"{BcfModule}.csproj");
+            failures.AddRange(RunBridgeConsumerApp(BcfMode.ProjectReference, appDir, platform, element,
+                configuration => BridgeConsumerBinding(BcfMode.ProjectReference, fixtureDir, configuration, oracle)));
+        }
+        return failures;
+    }
+
+    // The binding project an ordinary consumer writes: SwiftBindings.Sdk, one <SwiftFramework>, defaults.
+    void WriteBridgeConsumerBinding(AbsolutePath fixtureDir, AbsolutePath nupkgDir, AbsolutePath xcframework, bool packable)
+    {
+        var csproj = $"""
+            <Project Sdk="SwiftBindings.Sdk/{BcfLaneVersion}">
+              <PropertyGroup>
+                <TargetFramework>{RuntimeLane.Framework}-ios</TargetFramework>
+                <PackageId>{BcfPackageId}</PackageId>
+                <PackageVersion>{BcfLaneVersion}</PackageVersion>
+                <IsPackable>{(packable ? "true" : "false")}</IsPackable>
+                <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+                <NoWarn>$(NoWarn);CS0649;CS0114;CA1416;CS8604</NoWarn>
+              </PropertyGroup>
+              <ItemGroup>
+                <SwiftFramework Include="{xcframework}" />
+              </ItemGroup>
+            </Project>
+            """;
+        if (csproj.Contains("SwiftLoweringEvidence", StringComparison.Ordinal))
+            throw new InvalidOperationException("--bridge-consumer: the ordinary consumer's binding must not carry hand-authored lowering evidence.");
+        File.WriteAllText(fixtureDir / $"{BcfModule}.csproj", csproj);
+        File.WriteAllText(fixtureDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
+    }
+
+    // What one binding build in `projectDir` produced under `configuration`: the sidecar that routed
+    // the module and the receipt that authorized it. The receipt must agree with the oracle and show
+    // the settle target on every slice the fixture ships, and the sidecar must route settle.
+    BcfBinding BridgeConsumerBinding(BcfMode mode, AbsolutePath projectDir, string configuration, AbsolutePath oracle)
+    {
+        var obj = projectDir / "obj" / configuration;
+        var label = $"[{BcfModeName(mode)}] {projectDir.Name} ({configuration})";
+        AbsolutePath One(string fileName)
+        {
+            var found = Directory.Exists(obj) ? Directory.GetFiles(obj, fileName, SearchOption.AllDirectories) : [];
+            if (found.Length != 1)
+                throw new Exception($"--bridge-consumer {label}: expected one {fileName} under {obj}, found {found.Length}.");
+            return (AbsolutePath)found[0];
+        }
+
+        var plans = One($"{BcfModule}.swift-call-plans.json");
+        var receipt = One("swift-lowering-receipt.json");
+        var journal = One($"{BcfModule}.swift-bridge-routing.json");
+        var tag = $"{BcfModeName(mode)}-{configuration.ToLowerInvariant()}";
+        File.Copy(plans, BcfReceipts / $"{tag}-{plans.Name}", overwrite: true);
+        File.Copy(receipt, BcfReceipts / $"{tag}-{receipt.Name}", overwrite: true);
+        File.Copy(journal, BcfReceipts / $"{tag}-{journal.Name}", overwrite: true);
+
+        AssertBridgeConsumerFullyRouted(label, plans);
+        var settle = BridgeConsumerSettleRoute(plans);
+        AssertBridgeConsumerCollectedReceipt(label, receipt, oracle, settle);
+        return new BcfBinding(plans, receipt, settle);
+    }
+
+    // Every member the fixture's binding plans must reach the app through its bridge: one left on its
+    // Swift-convention import is the transition the interpreter and Mono cannot make, wherever the app
+    // happens to call it.
+    static void AssertBridgeConsumerFullyRouted(string label, AbsolutePath plans)
+    {
+        var unrouted = JsonDocument.Parse(File.ReadAllText(plans)).RootElement.GetProperty("coverage").EnumerateArray()
+            .Where(e => e.GetProperty("status").GetString() == "Planned"
+                        && !(e.TryGetProperty("bridged", out var b) && b.ValueKind == JsonValueKind.True))
+            .Select(e => $"{e.GetProperty("member").GetString()}: {(e.TryGetProperty("evidence", out var why) ? why.GetString() : "no evidence")}")
+            .ToList();
+        if (unrouted.Count > 0)
+            throw new Exception($"--bridge-consumer {label}: {unrouted.Count} planned member(s) still reach Swift through a direct import:\n  " +
+                string.Join("\n  ", unrouted));
+        Log.Information("  {Label}: every planned member is routed through its bridge", label);
+    }
+
+    // MARK: - Fixture module and the oracle
 
     // The slices BuildBridgeConsumerXcframework builds, by the triple each is compiled for.
     static readonly string[] BcfSliceTriples = [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget];
@@ -175,7 +369,9 @@ partial class Build
         return xcframework;
     }
 
-    AbsolutePath RecordBridgeConsumerEvidence(AbsolutePath xcframework)
+    // Generates once to learn the fixture's plan targets, then lets the oracle record what swiftc
+    // gives each one on every required triple. The result is compared with, never fed to, the SDK.
+    AbsolutePath RecordBridgeConsumerOracle(AbsolutePath xcframework)
     {
         var planDir = BcfScratch / "plan-generation";
         planDir.CreateDirectory();
@@ -201,7 +397,7 @@ partial class Build
             if (!File.Exists(required))
                 throw new Exception($"--bridge-consumer: the generator wrote no {required.Name} in {planDir}.");
 
-        var evidence = BcfScratch / "swift-lowering-evidence.json";
+        var evidence = BcfScratch / "oracle-lowering-evidence.json";
         var reports = BcfReceipts / "oracle";
         var manifest = BcfScratch / "oracle-corpus.json";
         File.WriteAllText(manifest, JsonSerializer.Serialize(new
@@ -216,7 +412,7 @@ partial class Build
             evidence = evidence.ToString(),
         }));
 
-        Log.Information("=== bridge-consumer: recording the fixture's swiftc lowering evidence ===");
+        Log.Information("=== bridge-consumer: recording the oracle's swiftc lowering evidence (cross-check only) ===");
         Environment.SetEnvironmentVariable("SWIFT_LOWERING_ORACLE_CORPUS", manifest);
         try
         {
@@ -234,32 +430,11 @@ partial class Build
         }
         if (!File.Exists(evidence))
             throw new Exception($"--bridge-consumer: the oracle wrote no evidence at {evidence}.");
+        File.Copy(evidence, BcfReceipts / evidence.Name, overwrite: true);
         foreach (var report in Directory.GetFiles(reports, "*.txt").OrderBy(f => f, StringComparer.Ordinal))
             foreach (var line in File.ReadAllLines(report).Where(l => l.StartsWith("evidence:", StringComparison.Ordinal)))
                 Log.Information("  {Triple}: {Line}", Path.GetFileNameWithoutExtension(report), line);
         return evidence;
-    }
-
-    void WriteBridgeConsumerFixture(AbsolutePath fixtureDir, AbsolutePath nupkgDir, AbsolutePath xcframework, AbsolutePath evidence)
-    {
-        var csproj = $"""
-            <Project Sdk="SwiftBindings.Sdk/{BcfLaneVersion}">
-              <PropertyGroup>
-                <TargetFramework>{RuntimeLane.Framework}-ios</TargetFramework>
-                <PackageId>{BcfPackageId}</PackageId>
-                <PackageVersion>{BcfLaneVersion}</PackageVersion>
-                <IsPackable>true</IsPackable>
-                <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-                <NoWarn>$(NoWarn);CS0649;CS0114;CA1416;CS8604</NoWarn>
-                <SwiftLoweringEvidence>{evidence}</SwiftLoweringEvidence>
-              </PropertyGroup>
-              <ItemGroup>
-                <SwiftFramework Include="{xcframework}" />
-              </ItemGroup>
-            </Project>
-            """;
-        File.WriteAllText(fixtureDir / $"{BcfModule}.csproj", csproj);
-        File.WriteAllText(fixtureDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
     }
 
     // The SDK's wrapper compile collects the module's lowering receipt from the IR of the wrapper it
@@ -268,63 +443,51 @@ partial class Build
     // symbol it shows exactly as the oracle recorded it on the same slice. The bridged transition's
     // target is the positive control: the wrapper does not call it, so only the probe can show it, and
     // the receipt must show it, as the oracle does, on every slice the fixture ships.
-    void AssertBridgeConsumerCollectedReceipt(AbsolutePath fixtureDir, AbsolutePath oracle, BcfRoute bridged)
+    void AssertBridgeConsumerCollectedReceipt(string label, AbsolutePath collected, AbsolutePath oracle, BcfRoute bridged)
     {
-        var sep = Path.DirectorySeparatorChar;
-        var collected = Directory.GetFiles(fixtureDir, "swift-lowering-receipt.json", SearchOption.AllDirectories)
-            .Where(p => !p.Contains($"{sep}bin{sep}", StringComparison.Ordinal))
-            .OrderBy(p => p, StringComparer.Ordinal)
-            .ToList();
-        if (collected.Count == 0)
-            throw new Exception($"--bridge-consumer: the SDK build collected no lowering receipt under {fixtureDir} (expected obj/**/swift-binding/swift-lowering-receipt.json).");
-
         var expected = BcfReceiptOf(oracle, BcfModule);
+        var actual = BcfReceiptOf(collected, BcfModule);
         var problems = new List<string>();
-        for (var i = 0; i < collected.Count; i++)
+        if (actual.Compiler != expected.Compiler)
+            problems.Add($"the receipt was collected by {actual.Compiler}; the oracle by {expected.Compiler}");
+        if (actual.Slices.Count == 0)
+            problems.Add("the receipt covers no slice");
+        foreach (var (triple, slice) in actual.Slices)
         {
-            File.Copy(collected[i], BcfReceipts / $"sdk-lowering-receipt-{i}.json", overwrite: true);
-            var actual = BcfReceiptOf((AbsolutePath)collected[i], BcfModule);
-            if (actual.Compiler != expected.Compiler)
-                problems.Add($"{collected[i]} was collected by {actual.Compiler}; the oracle by {expected.Compiler}");
-            if (actual.Slices.Count == 0)
-                problems.Add($"{collected[i]} covers no slice");
-            foreach (var (triple, slice) in actual.Slices)
+            if (!expected.Slices.TryGetValue(triple, out var oracleSlice))
             {
-                if (!expected.Slices.TryGetValue(triple, out var oracleSlice))
-                {
-                    problems.Add($"{triple}: the oracle recorded no evidence for a slice the SDK receipt covers");
-                    continue;
-                }
-                if (slice.Sdk != oracleSlice.Sdk)
-                    problems.Add($"{triple}: collected against {slice.Sdk}; the oracle against {oracleSlice.Sdk}");
-                var agree = 0;
-                foreach (var (symbol, signature) in slice.Symbols)
-                {
-                    if (!oracleSlice.Symbols.TryGetValue(symbol, out var oracleSignature))
-                        problems.Add($"{triple}: the SDK receipt shows {symbol} as {signature}; the oracle shows no {symbol}");
-                    else if (oracleSignature != signature)
-                        problems.Add($"{triple}: the SDK receipt shows {symbol} as {signature}; the oracle as {oracleSignature}");
-                    else
-                        agree++;
-                }
-                // Every shown symbol was compared with the oracle above; the bridged target must be one of them.
-                if (slice.Symbols.TryGetValue(bridged.Target, out var bridgedSignature))
-                    Log.Information("  SDK receipt {Triple}: shows the bridged target {Target} as {Signature}", triple, bridged.Target, bridgedSignature);
-                else
-                    problems.Add($"{triple}: the SDK receipt does not show the bridged target {bridged.Target} of {bridged.Member}" +
-                        (slice.Unobserved.TryGetValue(bridged.Target, out var why) ? $"; it records it unobserved: {why}" : "; it does not record it at all"));
-                if (!oracleSlice.Symbols.ContainsKey(bridged.Target))
-                    problems.Add($"{triple}: the oracle does not show the bridged target {bridged.Target}, so agreeing with it proves nothing");
-                Log.Information("  SDK receipt {Triple}: {Agree} of {Shown} shown symbol(s) agree with the oracle ({OracleShown} shown there), {Unobserved} unobserved",
-                    triple, agree, slice.Symbols.Count, oracleSlice.Symbols.Count, slice.Unobserved.Count);
+                problems.Add($"{triple}: the oracle recorded no evidence for a slice the SDK receipt covers");
+                continue;
             }
-            foreach (var triple in BcfSliceTriples.Where(t => !actual.Slices.ContainsKey(t)))
-                problems.Add($"{collected[i]} covers no {triple} slice, which the fixture's xcframework ships");
+            if (slice.Sdk != oracleSlice.Sdk)
+                problems.Add($"{triple}: collected against {slice.Sdk}; the oracle against {oracleSlice.Sdk}");
+            var agree = 0;
+            foreach (var (symbol, signature) in slice.Symbols)
+            {
+                if (!oracleSlice.Symbols.TryGetValue(symbol, out var oracleSignature))
+                    problems.Add($"{triple}: the SDK receipt shows {symbol} as {signature}; the oracle shows no {symbol}");
+                else if (oracleSignature != signature)
+                    problems.Add($"{triple}: the SDK receipt shows {symbol} as {signature}; the oracle as {oracleSignature}");
+                else
+                    agree++;
+            }
+            // Every shown symbol was compared with the oracle above; the bridged target must be one of them.
+            if (slice.Symbols.TryGetValue(bridged.Target, out var bridgedSignature))
+                Log.Information("  {Label} receipt {Triple}: shows the bridged target {Target} as {Signature}", label, triple, bridged.Target, bridgedSignature);
+            else
+                problems.Add($"{triple}: the SDK receipt does not show the bridged target {bridged.Target} of {bridged.Member}" +
+                    (slice.Unobserved.TryGetValue(bridged.Target, out var why) ? $"; it records it unobserved: {why}" : "; it does not record it at all"));
+            if (!oracleSlice.Symbols.ContainsKey(bridged.Target))
+                problems.Add($"{triple}: the oracle does not show the bridged target {bridged.Target}, so agreeing with it proves nothing");
+            Log.Information("  {Label} receipt {Triple}: {Agree} of {Shown} shown symbol(s) agree with the oracle ({OracleShown} shown there), {Unobserved} unobserved",
+                label, triple, agree, slice.Symbols.Count, oracleSlice.Symbols.Count, slice.Unobserved.Count);
         }
+        foreach (var triple in BcfSliceTriples.Where(t => !actual.Slices.ContainsKey(t)))
+            problems.Add($"the receipt covers no {triple} slice, which the fixture's xcframework ships");
         if (problems.Count > 0)
         {
-            foreach (var p in problems) Log.Error("  ✗ {Problem}", p);
-            throw new Exception($"--bridge-consumer: the SDK-collected lowering receipt disagrees with the oracle in {problems.Count} place(s); copies under {BcfReceipts}.");
+            foreach (var p in problems) Log.Error("  ✗ {Label}: {Problem}", label, p);
+            throw new Exception($"--bridge-consumer {label}: the SDK-collected lowering receipt {collected} disagrees with the oracle in {problems.Count} place(s).");
         }
     }
 
@@ -356,40 +519,42 @@ partial class Build
 
     // MARK: - Routes and packed-image checks
 
-    // The two measured transitions and the bridge each must take, read from the sidecars that routed them.
-    List<BcfRoute> BridgeConsumerRoutes(AbsolutePath fixturePlans)
+    static IEnumerable<JsonElement> BcfBridged(AbsolutePath path) =>
+        JsonDocument.Parse(File.ReadAllText(path)).RootElement.GetProperty("coverage").EnumerateArray()
+            .Where(e => e.TryGetProperty("bridged", out var b) && b.ValueKind == JsonValueKind.True)
+            .Select(e => e.Clone()).ToList();
+
+    static BcfRoute BcfSingleRoute(IEnumerable<JsonElement> entries, Func<string, bool> member, string tag, string image, string what, AbsolutePath sidecar)
     {
-        static IEnumerable<JsonElement> Bridged(AbsolutePath path) =>
-            JsonDocument.Parse(File.ReadAllText(path)).RootElement.GetProperty("coverage").EnumerateArray()
-                .Where(e => e.TryGetProperty("bridged", out var b) && b.ValueKind == JsonValueKind.True)
-                .Select(e => e.Clone()).ToList();
-
-        BcfRoute Single(IEnumerable<JsonElement> entries, Func<string, bool> member, string tag, string image, string what)
-        {
-            var matches = entries.Where(e => member(e.GetProperty("member").GetString()!)).ToList();
-            if (matches.Count != 1)
-                throw new Exception($"--bridge-consumer: expected exactly one bridged {what}, found {matches.Count}. " +
-                    "The generator did not route it through a bridge; check the evidence and the sidecar.");
-            var e = matches[0];
-            return new BcfRoute(tag, e.GetProperty("member").GetString()!, e.GetProperty("entryPoint").GetString()!,
-                e.GetProperty("symbol").GetString()!, image);
-        }
-
-        var accumulate = Single(Bridged(fixturePlans), m => m.Contains("::PInvoke_accumulate", StringComparison.Ordinal),
-            "accumulate", BcfWrapperModule, "BridgeAccount.accumulate");
-        var element = Single(Bridged(SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json"),
-            m => m == "Swift.SwiftArrayPInvokes::Get", "element", BcfRuntimeLibrary, "SwiftArrayPInvokes.Get");
-        foreach (var r in new[] { accumulate, element })
-            Log.Information("  route {Tag}: {Member} -> {Image}!{Bridge} -> {Target}", r.Tag, r.Member, r.Image, r.Bridge, r.Target);
-        return [accumulate, element];
+        var matches = entries.Where(e => member(e.GetProperty("member").GetString()!)).ToList();
+        if (matches.Count != 1)
+            throw new Exception($"--bridge-consumer: expected exactly one bridged {what} in {sidecar}, found {matches.Count}. " +
+                "The build did not route it through a bridge; check its receipt and the sidecar.");
+        var e = matches[0];
+        var route = new BcfRoute(tag, e.GetProperty("member").GetString()!, e.GetProperty("entryPoint").GetString()!,
+            e.GetProperty("symbol").GetString()!, image);
+        Log.Information("  route {Tag}: {Member} -> {Image}!{Bridge} -> {Target}", route.Tag, route.Member, route.Image, route.Bridge, route.Target);
+        return route;
     }
 
-    // The binding package's wrapper must export its bridges, validated against the fixture's sidecar on every slice.
+    // The settle getter's bridge, read from the sidecar of the build that routed it.
+    static BcfRoute BridgeConsumerSettleRoute(AbsolutePath plans) =>
+        BcfSingleRoute(BcfBridged(plans), m => m.Contains("::PInvoke_settled_Get", StringComparison.Ordinal),
+            "settle", BcfWrapperModule, "BridgeAccount.settled getter", plans);
+
+    // Array's subscript getter, which the Runtime routes for every consumer.
+    BcfRoute BridgeConsumerElementRoute()
+    {
+        var plans = SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json";
+        return BcfSingleRoute(BcfBridged(plans), m => m == "Swift.SwiftArrayPInvokes::Get", "element", BcfRuntimeLibrary, "SwiftArrayPInvokes.Get", plans);
+    }
+
+    // The binding package's wrapper must export its bridges, validated against the binding's sidecar on every slice.
     void AssertBridgeConsumerPackedWrapper(AbsolutePath fixtureOut, AbsolutePath fixturePlans)
     {
         var nupkg = fixtureOut / $"{BcfPackageId}.{BcfLaneVersion}.nupkg";
         if (!File.Exists(nupkg))
-            throw new Exception($"--bridge-consumer: the fixture package was not produced at {nupkg}.");
+            throw new Exception($"--bridge-consumer: the binding package was not produced at {nupkg}.");
         var extract = BcfScratch / "packed-wrapper";
         if (Directory.Exists(extract)) extract.DeleteDirectory();
         var images = new List<string>();
@@ -408,6 +573,7 @@ partial class Build
         if (images.Count < 2)
             throw new Exception($"--bridge-consumer: {nupkg.Name} carries {images.Count} wrapper slice(s); expected the device and simulator slices.");
         ValidateLinkedBridges(images, fixturePlans, $"the packed wrapper of {nupkg.Name}");
+        extract.DeleteDirectory();
     }
 
     void ValidateLinkedBridges(IReadOnlyList<string> images, AbsolutePath plans, string what)
@@ -430,43 +596,61 @@ partial class Build
 
     // MARK: - Consumer
 
-    IReadOnlyList<string> RunBridgeConsumer(AbsolutePath nupkgDir, AbsolutePath fixtureOut, IReadOnlyList<BcfRoute> routes,
-        AbsolutePath fixturePlans, bool onDevice)
+    // Builds, installs and runs one app, then judges it. `bindingFor` gives the binding the app's build
+    // consumed, in the app's configuration; for a binding built with the app (direct, projectref) it
+    // checks that build's receipt against the oracle. The app is told the settle bridge that binding
+    // routed on its command line, for its sentinel.
+    IReadOnlyList<string> RunBridgeConsumerApp(BcfMode mode, AbsolutePath appDir, BcfPlatform platform, BcfRoute element,
+        Func<string, BcfBinding> bindingFor)
     {
-        var platform = onDevice ? "device" : "simulator";
-        var config = RuntimeLane.BuildConfiguration(onDevice, false);
-        var label = $"{platform} ({RuntimeLane.Engine(onDevice)}, {config})";
-        var rid = onDevice ? "ios-arm64" : "iossimulator-arm64";
-        var appDir = BcfScratch / $"consumer-{platform}";
-        if (Directory.Exists(appDir)) appDir.DeleteDirectory();
-        appDir.CreateDirectory();
+        var config = RuntimeLane.BuildConfiguration(platform.OnDevice, platform.MonoAot);
+        var engine = RuntimeLane.IsNet11 ? RuntimeLane.Engine(platform.OnDevice)
+            : platform.OnDevice ? platform.MonoAot ? "mono-aot" : "nativeaot" : "mono-jit";
+        var label = $"[{BcfModeName(mode)}] {platform.Name} ({RuntimeLane.Framework} {engine}, {config})";
+        var tag = $"{BcfModeName(mode)}-{platform.Name}";
 
-        WriteBridgeConsumerApp(appDir, rid, routes);
-        File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureOut, "BridgeConsumerFixture.*"));
+        var failures = new List<string>();
+        AbsolutePath appPath;
+        BcfBinding binding;
+        try
+        {
+            appPath = BuildPackageConsumer(appDir, BcfAppName, platform.OnDevice, "--bridge-consumer", label, platform.MonoAot);
+            binding = bindingFor(config);
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{label}: {ex.Message}");
+            return failures;
+        }
+        var plans = binding.Plans;
+        IReadOnlyList<BcfRoute> routes = [binding.Settle, element];
 
-        var (appPath, result) = BuildAndLaunchPackageConsumer(appDir, BcfAppName, BcfBundleId, onDevice, "--bridge-consumer", label);
-        File.WriteAllText(BcfReceipts / $"{platform}-console.txt", result.Output);
+        var result = LaunchPackageConsumer(appPath, BcfAppName, BcfBundleId, platform.OnDevice, "--bridge-consumer", label,
+            ["--bcf-settle-bridge", binding.Settle.Bridge]);
+        File.WriteAllText(BcfReceipts / $"{tag}-console.txt", result.Output);
         Log.Information("=== CONSUMER OUTPUT ({Label}) ===", label);
         foreach (var line in result.Output.Split('\n').Where(l => l.Contains("BCF CHECK") || l.Contains("BCF SENTINEL") || l.Contains("Runtime flavor")
                      || l.Contains("TEST ")))
             Log.Information("  {Line}", line.TrimEnd());
 
-        var failures = new List<string>();
         if (LaunchDiagnostics.LauncherNeverStartedApp(result))
         {
             failures.Add($"{label}: the launcher never started the app, so nothing was measured.");
             return failures;
         }
-        AssertLiveRuntimeLane(result, onDevice);
+        if (RuntimeLane.IsNet11)
+            AssertLiveRuntimeLane(result, platform.OnDevice);
+        else if (BcfNet10FlavorProblem(result.Output, platform) is { } flavor)
+            failures.Add($"{label}: {flavor}");
 
         failures.AddRange(Regex.Matches(result.Output, @"BCF CHECK (\S+) FAIL ?(.*)").Select(m => $"{label}: in-app check {m.Groups[1].Value} failed: {m.Groups[2].Value.Trim()}"));
         if (result.Result != TestResult.Success)
             failures.Add($"{label}: the app did not report TEST SUCCESS (result {result.Result}).");
 
         var objRoot = appDir / "obj";
-        var analysis = AnalyzeBridgeConsumerStacks(result.Output, routes,
-            image => UnstrippedImageSymbols(objRoot, rid, image));
-        File.WriteAllText(BcfReceipts / $"{platform}-stacks.txt", analysis.Report);
+        var analysis = AnalyzeBridgeConsumerStacks(result.Output, routes, BcfExpectedCaller(platform),
+            image => UnstrippedImageSymbols(objRoot, platform.Rid, image));
+        File.WriteAllText(BcfReceipts / $"{tag}-stacks.txt", analysis.Report);
         Log.Information("{Report}", analysis.Report);
         failures.AddRange(analysis.Problems.Select(p => $"{label}: {p}"));
 
@@ -479,17 +663,43 @@ partial class Build
                 failures.Add($"{label}: the app bundle has no {image.Name} at {image}.");
         if (failures.Count == 0)
         {
-            ValidateLinkedBridges([runtimeImage], SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json", $"the {platform} app's {BcfRuntimeLibrary}");
-            ValidateLinkedBridges([wrapperImage], fixturePlans, $"the {platform} app's {BcfWrapperModule}");
+            ValidateLinkedBridges([runtimeImage], SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json", $"{label} {BcfRuntimeLibrary}");
+            ValidateLinkedBridges([wrapperImage], plans, $"{label} {BcfWrapperModule}");
         }
         return failures;
     }
 
+    // .NET 10 has no live-lane identity of its own; the app's runtime-flavor banner names the engine.
+    static string? BcfNet10FlavorProblem(string output, BcfPlatform platform)
+    {
+        var banner = DeviceRuntimeFlavorGate.ExtractBanner(output);
+        if (banner is null)
+            return "the app printed no runtime-flavor banner, so the engine it ran on is unproven.";
+        var mono = banner.Contains("IsMonoRuntime=True", StringComparison.Ordinal);
+        var nativeAot = banner.Contains("IsNativeAotRuntime=True", StringComparison.Ordinal);
+        var nativeAotLane = platform.OnDevice && !platform.MonoAot;
+        return nativeAotLane == nativeAot && mono == !nativeAotLane
+            ? null
+            : $"the app reported '{banner}', expected {(nativeAotLane ? "NativeAOT" : "Mono")}.";
+    }
+
     sealed record BcfStackAnalysis(string Report, IReadOnlyList<string> Problems);
 
+    // Whether `caller`, the frame under a bridge, is the managed code the lane runs Swift calls from.
+    static string? BcfCallerProblem(LaneWitness? caller, BcfCaller expected) => expected switch
+    {
+        _ when caller is null => "no frame under the bridge",
+        BcfCaller.Interpreter => RuntimeLaneIdentity.Classify(caller, BcfAppName) == RuntimeExecutionLane.Interpreter
+            ? null : "expected the CoreCLR interpreter's call stub",
+        // Mono JIT code is mapped memory no image covers, so dladdr finds none.
+        BcfCaller.Jit => caller.Address != 0 && caller.Image == "?" ? null : "expected Mono JIT code, which lies in no image",
+        // NativeAOT and Mono full-AOT compile the managed code, P/Invoke stubs included, into the app.
+        _ => caller.Image == BcfAppName ? null : $"expected code compiled into {BcfAppName}",
+    };
+
     // Every measured call's stack: the routed bridge must sit directly under the Swift code and the
-    // interpreter's call stub directly under the bridge.
-    static BcfStackAnalysis AnalyzeBridgeConsumerStacks(string output, IReadOnlyList<BcfRoute> routes,
+    // lane's managed caller directly under the bridge.
+    static BcfStackAnalysis AnalyzeBridgeConsumerStacks(string output, IReadOnlyList<BcfRoute> routes, BcfCaller expectedCaller,
         Func<string, IReadOnlyList<ImageSymbol>?> symbolsFor)
     {
         var frameLine = new Regex(@"BCF FRAME (\d+) (\S+) (\d+) 0x([0-9a-f]+) 0x([0-9a-f]+) (\S+) (\S+)", RegexOptions.CultureInvariant);
@@ -508,23 +718,25 @@ partial class Build
 
         var problems = new List<string>();
         var report = new StringBuilder();
+        report.AppendLine($"expected caller: {expectedCaller}");
         foreach (var route in routes)
         {
             var calls = frames.Where(f => f.Tag == route.Tag).GroupBy(f => f.Serial).OrderBy(g => g.Key).ToList();
-            // Three accumulate calls (success, error, success) and three element reads. A read may
-            // reach object(at:) more than once, so only accumulate's count is exact.
+            // Three settle calls (success, error, success) and three element reads. A read may reach
+            // object(at:) more than once, so only settle's count is exact.
             const int expected = 3;
+            var exact = route.Tag == "settle";
             report.AppendLine($"{route.Tag}: {calls.Count} measured call(s) through {route.Image}!{route.Bridge} -> {route.Target}");
-            if (route.Tag == "accumulate" ? calls.Count != expected : calls.Count < expected)
-                problems.Add($"{route.Tag}: {calls.Count} measured call(s) recorded a stack; expected {(route.Tag == "accumulate" ? "exactly" : "at least")} {expected}.");
+            if (exact ? calls.Count != expected : calls.Count < expected)
+                problems.Add($"{route.Tag}: {calls.Count} measured call(s) recorded a stack; expected {(exact ? "exactly" : "at least")} {expected}.");
             foreach (var call in calls)
             {
                 var stack = call.OrderBy(f => f.Index).Select(f => f.Witness).ToList();
                 var at = stack.FindIndex(w => w.Symbol != null && w.Symbol.StartsWith("SBSR_", StringComparison.Ordinal));
                 var caller = at >= 0 && at + 1 < stack.Count ? stack[at + 1] : null;
                 var callee = at > 0 ? stack[at - 1] : null;
-                var lane = caller == null ? null : RuntimeLaneIdentity.Classify(caller, BcfAppName);
-                report.AppendLine($"  call {call.Key}: callee {callee?.Describe() ?? "-"} | bridge {(at >= 0 ? stack[at].Describe() : "none")} | caller {caller?.Describe() ?? "-"} => {lane?.ToString() ?? "unclassified"}");
+                var callerProblem = BcfCallerProblem(caller, expectedCaller);
+                report.AppendLine($"  call {call.Key}: callee {callee?.Describe() ?? "-"} | bridge {(at >= 0 ? stack[at].Describe() : "none")} | caller {caller?.Describe() ?? "-"} @0x{caller?.Address ?? 0:x} => {callerProblem ?? "ok"}");
                 if (at < 0)
                 {
                     problems.Add($"{route.Tag} call {call.Key}: no bridge frame on the stack ({string.Join(" < ", stack.Take(8).Select(w => w.Describe()))}).");
@@ -532,10 +744,10 @@ partial class Build
                 }
                 if (stack[at].Symbol != route.Bridge || stack[at].Image != route.Image)
                     problems.Add($"{route.Tag} call {call.Key}: the bridge frame is {stack[at].Describe()}, expected {route.Image}!{route.Bridge}.");
-                if (lane != RuntimeExecutionLane.Interpreter)
-                    problems.Add($"{route.Tag} call {call.Key}: the bridge's caller {caller?.Describe() ?? "-"} is {lane?.ToString() ?? "not a known lane"}, expected the interpreter's call stub.");
+                if (callerProblem is not null)
+                    problems.Add($"{route.Tag} call {call.Key}: the bridge's caller is {caller?.Describe() ?? "-"}; {callerProblem}.");
                 // The binding's bridge calls the member's own entry point; the getter reaches object(at:) through stdlib internals.
-                if (route.Tag == "accumulate" && callee?.Symbol != route.Target)
+                if (exact && callee?.Symbol != route.Target)
                     problems.Add($"{route.Tag} call {call.Key}: the bridge called {callee?.Describe() ?? "-"}, expected {route.Target}.");
             }
         }
@@ -544,18 +756,26 @@ partial class Build
 
     // MARK: - Consumer app
 
-    void WriteBridgeConsumerApp(AbsolutePath appDir, string rid, IReadOnlyList<BcfRoute> routes)
+    void WriteBridgeConsumerApp(AbsolutePath appDir, BcfMode mode, BcfPlatform platform, BcfRoute element,
+        AbsolutePath xcframework, AbsolutePath? projectReference)
     {
-        var device = rid == "ios-arm64";
-        var accumulate = routes.Single(r => r.Tag == "accumulate");
-        var element = routes.Single(r => r.Tag == "element");
+        var device = platform.OnDevice;
+        var direct = mode == BcfMode.Direct;
+        // An SDK-direct app imports SwiftBindings.Sdk, which already emits DisableRuntimeMarshalling (a
+        // second one is CS0579); an app that references a binding adds it itself.
+        var reference = mode switch
+        {
+            BcfMode.Package => $"""<PackageReference Include="{BcfPackageId}" Version="{BcfLaneVersion}" />""",
+            BcfMode.ProjectReference => $"""<ProjectReference Include="{projectReference}" />""",
+            _ => $"""<SwiftFramework Include="{xcframework}" />""",
+        };
         var csproj = $"""
-            <Project Sdk="Microsoft.NET.Sdk">
+            <Project Sdk="{(direct ? $"SwiftBindings.Sdk/{BcfLaneVersion}" : "Microsoft.NET.Sdk")}">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
                 <TargetFramework>{RuntimeLane.Framework}-ios</TargetFramework>
-                <RuntimeIdentifier>{rid}</RuntimeIdentifier>
-                {MixedConsumerRuntimeProperties(RuntimeLane, device)}
+                <RuntimeIdentifier>{platform.Rid}</RuntimeIdentifier>
+                {MixedConsumerRuntimeProperties(RuntimeLane, device, platform.MonoAot)}
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
                 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -563,7 +783,8 @@ partial class Build
                 <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
                 <ApplicationVersion>1</ApplicationVersion>
                 <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
-                <NoWarn>$(NoWarn);CA1416;CA1422{(device ? ";IL2121" : "")}</NoWarn>
+                {(direct ? "<IsPackable>false</IsPackable>\n<TreatWarningsAsErrors>false</TreatWarningsAsErrors>" : "")}
+                <NoWarn>$(NoWarn);CA1416;CA1422{(device ? ";IL2121" : "")}{(direct ? ";CS0649;CS0114;CS8604" : "")}</NoWarn>
               </PropertyGroup>
               <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64'">
                 <MtouchLink>None</MtouchLink>
@@ -573,17 +794,17 @@ partial class Build
                 <CodesignProvision>Swift Bindings Dev</CodesignProvision>
                 <TeamIdentifierPrefix>HM68F9PH26</TeamIdentifierPrefix>
               </PropertyGroup>
-              <ItemGroup>
-                <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
-              </ItemGroup>
+              {(direct ? "" : """<ItemGroup><AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" /></ItemGroup>""")}
               <ItemGroup>
                 <None Include="Info.plist" />
               </ItemGroup>
               <ItemGroup>
-                <PackageReference Include="{BcfPackageId}" Version="{BcfLaneVersion}" />
+                {reference}
               </ItemGroup>
             </Project>
             """;
+        if (csproj.Contains("SwiftLoweringEvidence", StringComparison.Ordinal))
+            throw new InvalidOperationException("--bridge-consumer: the ordinary consumer must not carry hand-authored lowering evidence.");
         File.WriteAllText(appDir / $"{BcfAppName}.csproj", csproj);
 
         var program = $$"""
@@ -641,7 +862,6 @@ partial class Build
 
             static unsafe class Probe
             {
-                const string AccumulateBridge = "{{accumulate.Bridge}}";
                 const string ElementBridge = "{{element.Bridge}}";
                 static int _failures;
 
@@ -661,7 +881,7 @@ partial class Build
                         Measure();
                         Console.WriteLine(Functions.GetBridgeConsumerTakeCaptures());
                         Sentinels();
-                        // The sentinel calls record stacks under the sentinel, not the interpreter; drop them.
+                        // The sentinel calls record stacks under the sentinel, not managed code; drop them.
                         Functions.GetBridgeConsumerTakeCaptures();
                         for (var i = 0; i < 3; i++)
                         {
@@ -680,20 +900,23 @@ partial class Build
                     }
                 }
 
-                // self + error + scalar result, and the array getter, each through its bridge from interpreted code.
+                // self + error + scalar result, and the array getter, each through its bridge from managed code.
                 [MethodImpl(MethodImplOptions.NoInlining)]
                 static void Measure()
                 {
                     using (var account = new BridgeAccount(7))
                     {
                         var handle = ((ISwiftObject)account).SwiftHandle;
-                        var first = account.Accumulate(5, x => x);
-                        Check("accumulate-success", first == 12 && account.Total == 12, $"returned {first}, total {account.Total}");
+                        account.Pending = 5;
+                        var first = account.Settled;
+                        Check("settle-success", first == 12 && account.Total == 12 && account.Pending == 0,
+                            $"returned {first}, total {account.Total}, pending {account.Pending}");
 
+                        account.Pending = -4;
                         string? thrown = null;
                         try
                         {
-                            var unexpected = account.Accumulate(4, x => -x);
+                            var unexpected = account.Settled;
                             thrown = $"no exception (returned {unexpected})";
                         }
                         catch (Exception ex)
@@ -701,10 +924,13 @@ partial class Build
                             Console.WriteLine($"BCF ERROR {ex.GetType().FullName}: {ex.Message}");
                             (ex as IDisposable)?.Dispose();
                         }
-                        Check("accumulate-error", thrown == null && account.Total == 12, $"{thrown ?? "threw"}, total {account.Total}");
+                        Check("settle-error", thrown == null && account.Total == 12 && account.Pending == -4,
+                            $"{thrown ?? "threw"}, total {account.Total}, pending {account.Pending}");
 
-                        var second = account.Accumulate(3, x => x);
-                        Check("accumulate-after-error", second == 15 && account.Total == 15, $"returned {second}, total {account.Total}");
+                        account.Pending = 3;
+                        var second = account.Settled;
+                        Check("settle-after-error", second == 15 && account.Total == 15 && account.Pending == 0,
+                            $"returned {second}, total {account.Total}, pending {account.Pending}");
                         Check("receiver-intact", ((ISwiftObject)account).SwiftHandle == handle, "the receiver's handle survived the error");
                     }
 
@@ -739,15 +965,24 @@ partial class Build
                     return NativeLibrary.GetExport(NativeLibrary.Load(path), symbol);
                 }
 
+                // The settle bridge the binding's build routed, which the host read from its sidecar and
+                // passes on the command line.
+                static string SettleBridge()
+                {
+                    var arguments = NSProcessInfo.ProcessInfo.Arguments;
+                    var at = Array.IndexOf(arguments, "--bcf-settle-bridge");
+                    if (at < 0 || at + 1 >= arguments.Length)
+                        throw new InvalidOperationException("launched without --bcf-settle-bridge <symbol>");
+                    return arguments[at + 1];
+                }
+
                 // Each bridge called from native code that loads sentinels into x19-x28 and d8-d15 and
                 // reports any the bridge did not preserve.
                 [MethodImpl(MethodImplOptions.NoInlining)]
                 static void Sentinels()
                 {
                     var sentinel = (delegate* unmanaged<nint, ulong*, ulong*, ulong>)Export("{{BcfModule}}", "bcf_bridge_sentinel");
-                    var identity = (ulong)Export("{{BcfModule}}", "bcf_identity_map");
-                    var negate = (ulong)Export("{{BcfModule}}", "bcf_negate_map");
-                    var accumulateBridge = Export("{{BcfWrapperModule}}", AccumulateBridge);
+                    var settleBridge = Export("{{BcfWrapperModule}}", SettleBridge());
                     var elementBridge = Export("{{BcfRuntimeLibrary}}", ElementBridge);
                     ulong* args = stackalloc ulong[8];
                     ulong result = 0;
@@ -756,16 +991,20 @@ partial class Build
                     {
                         var self = (ulong)((ISwiftObject)account).SwiftHandle;
                         nint error = 0;
-                        args[0] = 5; args[1] = identity; args[2] = self; args[3] = (ulong)&error;
-                        var mask = sentinel(accumulateBridge, args, &result);
-                        Check("sentinel-accumulate", mask == 0 && result == 105 && error == 0, $"mask 0x{mask:x}, result {result}, error 0x{error:x}");
-                        Console.WriteLine($"BCF SENTINEL accumulate mask=0x{mask:x}");
+                        account.Pending = 5;
+                        args[0] = self; args[1] = (ulong)&error;
+                        var mask = sentinel(settleBridge, args, &result);
+                        Check("sentinel-settle", mask == 0 && result == 105 && error == 0 && account.Total == 105,
+                            $"mask 0x{mask:x}, result {result}, error 0x{error:x}, total {account.Total}");
+                        Console.WriteLine($"BCF SENTINEL settle mask=0x{mask:x}");
 
                         error = 0;
-                        args[0] = 2; args[1] = negate; args[2] = self; args[3] = (ulong)&error;
-                        mask = sentinel(accumulateBridge, args, &result);
-                        Check("sentinel-accumulate-error", mask == 0 && error != 0 && account.Total == 105, $"mask 0x{mask:x}, error 0x{error:x}, total {account.Total}");
-                        Console.WriteLine($"BCF SENTINEL accumulate-error mask=0x{mask:x}");
+                        account.Pending = -2;
+                        args[0] = self; args[1] = (ulong)&error;
+                        mask = sentinel(settleBridge, args, &result);
+                        Check("sentinel-settle-error", mask == 0 && error != 0 && account.Total == 105,
+                            $"mask 0x{mask:x}, error 0x{error:x}, total {account.Total}");
+                        Console.WriteLine($"BCF SENTINEL settle-error mask=0x{mask:x}");
                         if (error != 0) swift_errorRelease(error);
                     }
 

@@ -209,6 +209,28 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         Assert.Equal(plan.Calls.Length, plan.Calls.Select(c => c.Function).Distinct().Count());
     }
 
+    /// <summary>
+    /// A member of a non-generic type is also written from inside its type, whose isolation an
+    /// extension shares; a global has no type to be inside, and a generic one's extension could not
+    /// name the probe's parameters.
+    /// </summary>
+    [Fact]
+    public void Plan_ANonGenericTypesMember_IsAlsoWrittenFromInsideItsType()
+    {
+        var plan = Plan(Scale, Getter, Always, Pack);
+
+        var scale = plan.Calls.Single(c => c.Target == Scale);
+        Assert.NotNull(scale.InType);
+        Assert.StartsWith($"// {Scale}\nextension Lib.Account {{\n", scale.InType);
+        Assert.Contains($"public static func {scale.Function}() async throws {{", scale.InType);
+        Assert.DoesNotContain("@MainActor", scale.InType);
+        // The same body as the main-actor form.
+        var body = scale.Text.Split('\n').SkipWhile(l => !l.Contains("var recv")).Select(l => l.Trim()).Where(l => l != "}");
+        Assert.All(body, line => Assert.Contains(line, scale.InType));
+        Assert.Contains("extension Lib.Account {", plan.Calls.Single(c => c.Target == Getter).InType);
+        Assert.Null(plan.Calls.Single(c => c.Target == Always).InType);
+    }
+
     [Fact]
     public void Render_ImportsTheBoundModuleUnconditionally_AndEveryOtherOnlyWhereItResolves()
     {
@@ -327,6 +349,7 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         public protocol Shape { func area() -> Double }
         @globalActor public actor ProbeActor { public static let shared = ProbeActor() }
         @ProbeActor public final class Isolated { public init() {}; public var count: Int32 = 0 }
+        public final class Mixed { public init() {}; @ProbeActor public var count: Int32 = 0 }
         public func global(_ x: Int32) -> Int32 { x }
         @_transparent public func transparent() -> Int32 { 2 }
         public func + (lhs: Account, rhs: Int32) -> Int32 { rhs }
@@ -484,22 +507,46 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         Assert.Equal(3, result.Unseen.Count);
     }
 
-    /// <summary>A call that does not compile is dropped with the compiler's error, and every other call still shows its target.</summary>
+    /// <summary>
+    /// A global-actor type's setter, which no other actor may call, is shown from inside its type; the
+    /// getter, which the main actor may await, needs no second form.
+    /// </summary>
+    [SkippableFact]
+    public void Run_AGlobalActorTypesSetter_IsShownFromInsideItsType()
+    {
+        Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
+        var setter = Symbol("Isolated", "count", "set");
+        var getter = Symbol("Isolated", "count", "get");
+
+        var result = Probe([setter, getter]);
+
+        Assert.True(result.Unseen.IsEmpty, string.Join("\n", result.Unseen.Select(u => $"{u.Key}: {u.Value}")));
+        Assert.Equal(Defined(setter), Shown(result, setter));
+        Assert.Equal(Defined(getter), Shown(result, getter));
+        Assert.Equal(2, result.Compiles);
+    }
+
+    /// <summary>
+    /// A call that compiles in neither form is dropped with both of the compiler's errors, and every
+    /// other call still shows its target.
+    /// </summary>
     [SkippableFact]
     public void Run_ACallThatDoesNotCompile_IsDropped_AndTheRestAreStillShown()
     {
         Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
-        // The global-actor-isolated setter cannot be called from the probe's main-actor function.
-        var setter = Symbol("Isolated", "count", "set");
-        var getter = Symbol("Isolated", "count", "get");
+        // A setter isolated on its own to a global actor: the main actor cannot set it, and neither can
+        // its nonisolated type.
+        var setter = Symbol("Mixed", "count", "set");
+        var getter = Symbol("Mixed", "count", "get");
         var scale = Symbol("Account", "scale(_:)", containing: "Int32");
 
         var result = Probe([setter, getter, scale]);
 
         Assert.StartsWith("unsupported in the probe: its call did not compile: ", result.Unseen[setter]);
+        Assert.Contains("; and from inside its type: ", result.Unseen[setter]);
         Assert.Equal(Defined(getter), Shown(result, getter));
         Assert.Equal(Defined(scale), Shown(result, scale));
-        Assert.Equal(2, result.Compiles);
+        Assert.Equal(3, result.Compiles);
     }
 
     /// <summary>A probe that cannot compile at all leaves every target unobserved, with why, and no evidence source.</summary>

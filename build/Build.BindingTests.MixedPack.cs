@@ -93,9 +93,11 @@ partial class Build
         Console.WriteLine($"Runtime flavor: IsMonoRuntime={Swift.Runtime.SwiftRuntimeInfo.IsMonoRuntime}, IsNativeAotRuntime={Swift.Runtime.SwiftRuntimeInfo.IsNativeAotRuntime}, Framework={AppContext.TargetFrameworkName}, Runtime={System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
         """;
 
-    static string MixedConsumerRuntimeProperties(RuntimeTestLane lane, bool device) => $"""
-        <PublishAot>{(device && !lane.DeviceCoreClr ? "true" : "false")}</PublishAot>
-        <PublishAotUsingRuntimePack>{(device && !lane.DeviceCoreClr ? "true" : "false")}</PublishAotUsingRuntimePack>
+    // A device app publishes NativeAOT unless it runs CoreCLR (.NET 11) or Mono full-AOT (.NET 10's
+    // default device runtime, which an ordinary `dotnet build -r ios-arm64` without PublishAot gets).
+    static string MixedConsumerRuntimeProperties(RuntimeTestLane lane, bool device, bool monoAot = false) => $"""
+        <PublishAot>{(device && !lane.DeviceCoreClr && !monoAot ? "true" : "false")}</PublishAot>
+        <PublishAotUsingRuntimePack>{(device && !lane.DeviceCoreClr && !monoAot ? "true" : "false")}</PublishAotUsingRuntimePack>
         {(lane.IsNet11 ? "<UseMonoRuntime>false</UseMonoRuntime>" : "")}
         """;
 
@@ -446,10 +448,18 @@ partial class Build
     (AbsolutePath AppPath, LaunchResult Result) BuildAndLaunchPackageConsumer(
         AbsolutePath appDir, string appName, string bundleId, bool onDevice, string leg, string label)
     {
-        var nativeAot = onDevice && !RuntimeLane.DeviceCoreClr;
-        var config = RuntimeLane.BuildConfiguration(onDevice, false);
+        var appPath = BuildPackageConsumer(appDir, appName, onDevice, leg, label);
+        return (appPath, LaunchPackageConsumer(appPath, appName, bundleId, onDevice, leg, label, []));
+    }
+
+    // Builds the consumer and returns its .app bundle: a NativeAOT publish on a device unless the lane
+    // runs CoreCLR there or `monoAot` asks for Mono full-AOT (a Debug device build, no PublishAot).
+    AbsolutePath BuildPackageConsumer(AbsolutePath appDir, string appName, bool onDevice, string leg, string label, bool monoAot = false)
+    {
+        var nativeAot = onDevice && !RuntimeLane.DeviceCoreClr && !monoAot;
+        var config = RuntimeLane.BuildConfiguration(onDevice, monoAot);
         var rid = onDevice ? "ios-arm64" : "iossimulator-arm64";
-        Log.Information("=== {Leg} ({Label}): building single-PackageReference consumer ===", leg, label);
+        Log.Information("=== {Leg} ({Label}): building the consumer ===", leg, label);
         if (nativeAot)
         {
             Log.Information("    NativeAOT publish — this may take several minutes (ILCompiler + code signing)...");
@@ -488,7 +498,13 @@ partial class Build
             Log.Warning("{Leg} ({Label}): {Count} matching {App}.app bundles (config={Config}, rid={Rid}); selected {Path}",
                 leg, label, candidates.Count, appName, config, rid, appPath);
         Log.Information("    app bundle: {Path}", appPath);
+        return (AbsolutePath)appPath;
+    }
 
+    // Installs and launches a built consumer on the device or simulator, with `arguments` on its command line.
+    LaunchResult LaunchPackageConsumer(AbsolutePath appPath, string appName, string bundleId, bool onDevice, string leg, string label,
+        string[] arguments)
+    {
         Log.Information("=== {Leg} ({Label}): deploying + launching consumer ===", leg, label);
 
         // Resolve the deploy target once, then install+launch inside the retry loop below.
@@ -506,7 +522,7 @@ partial class Build
             deployAndLaunch = () =>
             {
                 DeviceCtl.Install(dev.Udid, appPath);
-                return DeviceCtl.Launch(dev.Udid, bundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout));
+                return DeviceCtl.Launch(dev.Udid, bundleId, arguments, TimeSpan.FromSeconds(Timeout));
             };
         }
         else
@@ -522,12 +538,11 @@ partial class Build
             deployAndLaunch = () =>
             {
                 SimCtl.Install(sim.Udid, appPath);
-                return SimCtl.Launch(sim.Udid, bundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout), appName: appName);
+                return SimCtl.Launch(sim.Udid, bundleId, arguments, TimeSpan.FromSeconds(Timeout), appName: appName);
             };
         }
 
-        var result = LaunchUntilAppRuns(deployAndLaunch, $"{leg} ({label})");
-        return ((AbsolutePath)appPath, result);
+        return LaunchUntilAppRuns(deployAndLaunch, $"{leg} ({label})");
     }
 
     // Asserts the launched consumer (a) ran the ObjC type to completion through the single

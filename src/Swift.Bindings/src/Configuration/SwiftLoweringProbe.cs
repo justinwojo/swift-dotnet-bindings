@@ -24,9 +24,12 @@ namespace BindingsGeneration;
 /// </para>
 /// <para>
 /// Each target is called from its own never-called function. A call that does not compile is
-/// attributed to its function by line and dropped with the compiler's error as its reason, and the
-/// rest compile again. A target the probe cannot call, or whose call leaves no declaration of it, is
-/// returned with the reason: it stays unobserved, so a probe never authorizes by omission.
+/// attributed to its function by line. A member of a non-generic type is then called once more from a
+/// function in an extension of its type, which shares the type's isolation: a global-actor type's
+/// setter, which no other actor may call, is reachable only there. A call that still does not compile
+/// is dropped with the compiler's error as its reason, and the rest compile again. A target the probe
+/// cannot call, or whose call leaves no declaration of it, is returned with the reason: it stays
+/// unobserved, so a probe never authorizes by omission.
 /// </para>
 /// </remarks>
 public static class SwiftLoweringProbe
@@ -174,6 +177,8 @@ public static class SwiftLoweringProbe
                 unseen[target] = why;
             calls = plan.Calls.Length;
             var alive = plan.Calls.ToList();
+            // A call written again from inside its type keeps the error its first form had.
+            var firstErrors = new Dictionary<string, string>(StringComparer.Ordinal);
 
             while (alive.Count > 0)
             {
@@ -212,8 +217,17 @@ public static class SwiftLoweringProbe
                 }
                 foreach (var (call, error) in failed)
                 {
-                    unseen[call.Target] = DidNotCompileReason(error);
-                    alive.Remove(call);
+                    var at = alive.IndexOf(call);
+                    if (call.InType is { } inType)
+                    {
+                        firstErrors[call.Target] = error;
+                        alive[at] = call with { Text = inType, InType = null };
+                        continue;
+                    }
+                    unseen[call.Target] = DidNotCompileReason(firstErrors.TryGetValue(call.Target, out var first)
+                        ? $"{first}; and from inside its type: {error}"
+                        : error);
+                    alive.RemoveAt(at);
                 }
                 if (compiles >= MaxCompiles && alive.Count > 0)
                 {
@@ -361,8 +375,12 @@ public static class SwiftLoweringProbe
     private const string AlwaysEmitIntoClient = "@_alwaysEmitIntoClient";
     private const string Transparent = "@_transparent";
 
-    /// <summary>One target's call: its never-called function, and what would keep a client from declaring it.</summary>
-    internal sealed record ProbeCall(string Target, string Function, string Text, string? Inlining);
+    /// <summary>
+    /// One target's call: its never-called function, what would keep a client from declaring it, and
+    /// the same call from a function in an extension of the target's type (null when there is none),
+    /// which the probe compiles in its place when the first does not compile.
+    /// </summary>
+    internal sealed record ProbeCall(string Target, string Function, string Text, string? Inlining, string? InType = null);
 
     /// <summary>The probe of a set of targets: its imports, a call per target it can write, and why it cannot write the others.</summary>
     internal sealed record ProbePlan(
@@ -390,9 +408,9 @@ public static class SwiftLoweringProbe
                 continue;
             }
             var function = $"_sbProbe_{calls.Count}";
-            if (CallWriter.TryWrite(target, declaration, demangled.GetValueOrDefault(target), function, out var text, out var inlining, out var why))
+            if (CallWriter.TryWrite(target, declaration, demangled.GetValueOrDefault(target), function, out var text, out var inType, out var inlining, out var why))
             {
-                calls.Add(new ProbeCall(target, function, text, inlining));
+                calls.Add(new ProbeCall(target, function, text, inlining, inType));
                 modules.Add(declaration.Module);
             }
             else
@@ -582,6 +600,17 @@ public static class SwiftLoweringProbe
     /// The function is never called: its body only has to type-check, so every value comes from a
     /// generic helper that never returns. It is async and main-actor isolated, so an isolated member
     /// can be called, and available nowhere, so a member of any availability can.
+    /// <para>
+    /// No actor may set another actor's property, so a global-actor type's setter has no call there. A
+    /// member of a non-generic type therefore also gets the same body in a static function of an
+    /// extension of its type, which shares the type's isolation without the probe naming its actor:
+    /// <code>
+    /// extension Receiver {
+    ///     @available(iOS 99, ...)
+    ///     public static func _sbProbe_N() async throws { ... }
+    /// }
+    /// </code>
+    /// </para>
     /// </summary>
     private static class CallWriter
     {
@@ -601,10 +630,10 @@ public static class SwiftLoweringProbe
 
         public static bool TryWrite(
             string target, AbiDeclaration declaration, string? demangled, string function,
-            out string text, out string? inlining, out string why)
+            out string text, out string? inType, out string? inlining, out string why)
         {
             text = why = string.Empty;
-            inlining = null;
+            inType = inlining = null;
             var node = declaration.Node;
             var ancestors = declaration.Ancestors;
             if (HasAttribute(node, "UsableFromInline") || ancestors.Any(a => HasAttribute(a, "UsableFromInline")))
@@ -741,17 +770,31 @@ public static class SwiftLoweringProbe
             // A generic parameter must appear in the function's signature, so each one is a metatype argument.
             var metatypes = string.Join(", ", parameters.Select(p => $"_: {p}.Type"));
             var where = requirements.Length == 0 ? string.Empty : " where " + requirements;
-            var body = new StringBuilder();
-            body.Append("// ").Append(target).Append('\n');
-            body.Append("@available(iOS 99, macOS 99, tvOS 99, watchOS 99, visionOS 99, *)\n");
-            body.Append("@MainActor\n");
-            body.Append($"public func {function}{generics}({metatypes}) async throws{where} {{\n");
-            foreach (var line in prelude)
-                body.Append("    ").Append(line).Append('\n');
-            body.Append("    ").Append(statement).Append('\n');
-            body.Append('}');
-            text = body.ToString();
+            var statements = prelude.Append(statement).ToList();
+            text = $"// {target}\n" + Function(["@MainActor", $"public func {function}{generics}({metatypes}) async throws{where}"], statements, indent: "");
+            // A generic type's extension names its own parameters, not the probe's, so only a
+            // non-generic type's member is written again from inside the type.
+            if (receiver is not null && !isProtocol && parameters.Count == 0)
+            {
+                inType = $"// {target}\nextension {receiver} {{\n" +
+                         Function([$"public static func {function}() async throws"], statements, indent: "    ") + "\n}";
+            }
             return true;
+        }
+
+        /// <summary>A never-called function, available nowhere, of <paramref name="statements"/>.</summary>
+        private static string Function(IEnumerable<string> header, IEnumerable<string> statements, string indent)
+        {
+            var body = new StringBuilder();
+            body.Append(indent).Append("@available(iOS 99, macOS 99, tvOS 99, watchOS 99, visionOS 99, *)\n");
+            foreach (var line in header)
+                body.Append(indent).Append(line).Append('\n');
+            body.Length--;
+            body.Append(" {\n");
+            foreach (var line in statements)
+                body.Append(indent).Append("    ").Append(line).Append('\n');
+            body.Append(indent).Append('}');
+            return body.ToString();
         }
 
         private static string Bind(string? type, string expression) =>

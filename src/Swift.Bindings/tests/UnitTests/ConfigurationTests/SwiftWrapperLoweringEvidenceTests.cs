@@ -262,6 +262,97 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
         Assert.Contains("no wrapper compile pass ran", why);
     }
 
+    // ---- verifying a relinked wrapper against its receipt ----
+
+    private static readonly SwiftEvidenceSource ProbeSource =
+        new(SwiftEvidenceSource.ProbeRole, "Swift.RuntimeSwiftBindingsLoweringProbe.arm64-apple-ios16.0-simulator.swift", "sha256:pp",
+            SwiftWrapperLoweringEvidence.WrapperFlags("arm64-apple-ios16.0-simulator"));
+
+    /// <summary>The receipt a compile of the arm64 device and simulator slices collects, with a probe on each.</summary>
+    private SwiftLoweringReceipt Collected() => Assert.Single(CollectedEvidence().Receipts);
+
+    private SwiftLoweringEvidence CollectedEvidence()
+    {
+        var collection = Collection();
+        var pass = collection.BeginPass("arm64");
+        pass.Observe("arm64-apple-ios16.0", Ir(DeclaredIr), [.. SomeSources, ProbeSource]);
+        pass.Observe("arm64-apple-ios16.0-simulator", Ir(DeclaredIr), [.. SomeSources, ProbeSource]);
+        return collection.Receipt([], out _)!;
+    }
+
+    [Fact]
+    public void Verification_OfSlicesCompiledFromTheReceiptsInputs_IsTheReceipt()
+    {
+        var collected = CollectedEvidence();
+        var receipt = Assert.Single(collected.Receipts);
+        var verification = SwiftWrapperLoweringEvidence.ForVerification(receipt, "ios", Sdk);
+        Assert.True(verification.Verifies);
+        // It searches for every target the receipt answers for, shown or not.
+        Assert.Equal(Collection().Targets, verification.Targets);
+
+        var pass = verification.BeginPass("arm64");
+        Assert.True(pass.Verifies);
+        // The probe is not compiled again: the slice reads the wrapper and interface sources only.
+        Assert.True(pass.Verify("arm64-apple-ios16.0", SomeSources));
+        Assert.True(pass.Verify("arm64-apple-ios16.0-simulator", SomeSources));
+
+        var verified = verification.Receipt([], out var why);
+        Assert.Null(why);
+        // The very receipt the first compile collected, probe sources included.
+        Assert.Equal(collected.ToJson(), verified!.ToJson());
+        Assert.Contains("sha256:pp", verified.ToJson());
+    }
+
+    [Fact]
+    public void Verification_OfASliceCompiledFromOtherInputs_IsAFailure_AndNoReceipt()
+    {
+        var verification = SwiftWrapperLoweringEvidence.ForVerification(Collected(), "ios", Sdk);
+        var pass = verification.BeginPass("arm64");
+        Assert.True(pass.Verify("arm64-apple-ios16.0", SomeSources));
+        var otherWrapper = SomeSources.Select(s => s with { Digest = "sha256:cc" }).ToList();
+
+        Assert.False(pass.Verify("arm64-apple-ios16.0-simulator", otherWrapper));
+
+        Assert.Null(verification.Receipt([], out var why));
+        Assert.Contains("sha256:aa", why);
+        Assert.Contains("which this compile did not read", why);
+        Assert.Contains("which the receipt does not record", why);
+    }
+
+    [Fact]
+    public void Verification_UnderAnotherSdk_IsAFailure()
+    {
+        var verification = SwiftWrapperLoweringEvidence.ForVerification(Collected(), "ios", sdk => $"{sdk} 26.4 (23E200)");
+
+        Assert.False(verification.BeginPass("arm64").Verify("arm64-apple-ios16.0", SomeSources));
+
+        Assert.Null(verification.Receipt([], out var why));
+        Assert.Contains("was collected against iphoneos 26.2 (23C53)", why);
+    }
+
+    [Fact]
+    public void Verification_OfASliceTheReceiptDoesNotHave_IsAFailure()
+    {
+        var collection = Collection();
+        collection.BeginPass("arm64").Observe("arm64-apple-ios16.0-simulator", Ir(DeclaredIr), SomeSources);
+        var simulatorOnly = Assert.Single(collection.Receipt([], out _)!.Receipts);
+        var verification = SwiftWrapperLoweringEvidence.ForVerification(simulatorOnly, "ios", Sdk);
+        var pass = verification.BeginPass("arm64");
+
+        Assert.True(pass.Verify("arm64-apple-ios16.0-simulator", SomeSources));
+        Assert.False(pass.Verify("arm64-apple-ios16.0", SomeSources));
+
+        Assert.Null(verification.Receipt([], out var why));
+        Assert.Contains("has no evidence for arm64-apple-ios15.0", why);
+    }
+
+    [Fact]
+    public void Verify_IsOnlyForAVerification()
+    {
+        Assert.False(Collection().Verifies);
+        Assert.Throws<InvalidOperationException>(() => Collection().BeginPass("arm64").Verify("arm64-apple-ios16.0", SomeSources));
+    }
+
     // ---- collection lifecycle ----
 
     [Fact]

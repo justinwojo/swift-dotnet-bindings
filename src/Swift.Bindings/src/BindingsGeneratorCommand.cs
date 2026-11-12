@@ -77,6 +77,7 @@ public static class BindingsGeneratorCommand
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
         var collectSwiftLoweringEvidence = parseResult.GetValueForOption(options.CollectSwiftLoweringEvidence);
+        var routeSwiftBridges = parseResult.GetValueForOption(options.RouteSwiftBridges);
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
         var detectAppleCrossModuleDeps = parseResult.GetValueForOption(options.DetectAppleCrossModuleDeps);
         var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
@@ -292,6 +293,13 @@ public static class BindingsGeneratorCommand
             context.ExitCode = 1;
             return;
         }
+        if (routeSwiftBridges && string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence))
+        {
+            // Routing is authorized only by the receipt the same compile collects.
+            logger.LogError("Error: --route-swift-bridges requires --collect-swift-lowering-evidence.");
+            context.ExitCode = 1;
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(swiftLoweringEvidence) && !string.IsNullOrWhiteSpace(swiftLoweringQualification))
         {
             logger.LogError("Error: --swift-lowering-evidence (a build's own receipt) and --swift-lowering-qualification (the SDK's qualification record) are exclusive.");
@@ -478,7 +486,8 @@ public static class BindingsGeneratorCommand
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
                 skipThunkCompilation, targetArchitectures,
                 linkFrameworks: linkFrameworks, linkLibraries: linkLibraries,
-                loweringReceiptPath: string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence) ? null : Path.GetFullPath(collectSwiftLoweringEvidence));
+                loweringReceiptPath: string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence) ? null : Path.GetFullPath(collectSwiftLoweringEvidence),
+                routeBridges: routeSwiftBridges);
             return;
         }
 

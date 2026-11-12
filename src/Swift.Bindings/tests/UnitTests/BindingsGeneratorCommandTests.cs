@@ -1712,3 +1712,20 @@ public class ClassifyStrippedSymbolsTests
 }
 
 #endregion
+
+/// <summary>
+/// <c>--route-swift-bridges</c> is off unless asked for (only the SDK's wrapper compile asks, with
+/// the receipt it collects), and is bound on the root command.
+/// </summary>
+public class RouteSwiftBridgesCliOptionTests
+{
+    [Fact]
+    public void Option_IsOffUnlessAskedFor_AndRegistered()
+    {
+        var opts = new CliOptions();
+        var root = opts.CreateRootCommand();
+        Assert.Contains(opts.RouteSwiftBridges, root.Options);
+        Assert.False(root.Parse(Array.Empty<string>()).GetValueForOption(opts.RouteSwiftBridges));
+        Assert.True(root.Parse(new[] { "--route-swift-bridges" }).GetValueForOption(opts.RouteSwiftBridges));
+    }
+}

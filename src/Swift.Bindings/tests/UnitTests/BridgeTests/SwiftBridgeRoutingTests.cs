@@ -409,6 +409,94 @@ public sealed class SwiftBridgeRoutingTests
         Assert.Empty(SwiftBridgeGate.RoutedFindings([]));
     }
 
+    // ---- a module split across files ----
+
+    private static string TypeSource(string type, string import) => $$"""
+        namespace M
+        {
+            public static unsafe partial class {{type}}
+            {
+                {{import}}
+            }
+        }
+        """;
+
+    [Fact]
+    public void SplitModule_EachImportIsRoutedInTheFileThatDeclaresIt_AndEachRewriteNamesThatFile()
+    {
+        var self = SelfPlan();
+        var throwing = ThrowingPlan();
+        var plans = new SwiftCallPlanSet
+        {
+            Module = "M",
+            Coverage = [Set(self, "$s1M1CC1fyS2iF").Coverage[0], Set(throwing, "$s1M1tyS2iKF", member: "M.D::PInvoke_t").Coverage[0]],
+            Plans = [self, throwing],
+        };
+        var main = Source(Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var split = TypeSource("D", Import("$s1M1tyS2iKF", "private static partial long PInvoke_t(long a, out global::System.Runtime.InteropServices.Swift.SwiftError error);"));
+
+        var routing = SwiftBridgeRouting.Plan(plans, [new SwiftBridgeSource("M.cs", main), new SwiftBridgeSource("M.Types.D.cs", split)], Library);
+
+        Assert.All(routing.Routes, r => Assert.True(r.IsBridged, r.Refusal));
+        // Rewrites are ordered by file name, ordinally.
+        Assert.Equal(new[] { "M.Types.D.cs", "M.cs" }, routing.Rewrites.Select(r => r.File));
+        Assert.Equal(new[] { "M.D::PInvoke_t", "M.C::PInvoke_f" }, routing.Rewrites.Select(r => r.Member));
+        // Each file's rewrite touches only the imports that file declares.
+        var mainRewritten = routing.Rewrite(main);
+        var splitRewritten = routing.Rewrite(split);
+        Assert.Contains(SwiftBridgeRouting.TwinName("PInvoke_f", self.Symbol), mainRewritten);
+        Assert.DoesNotContain(SwiftBridgeRouting.TwinName("PInvoke_t", throwing.Symbol), mainRewritten);
+        Assert.Contains(SwiftBridgeRouting.TwinName("PInvoke_t", throwing.Symbol), splitRewritten);
+        Assert.DoesNotContain("CallConvSwift", mainRewritten + splitRewritten);
+        // Each rewrite is the import as declared and what replaced it.
+        foreach (var (rewrite, before, after) in new[] { (routing.Rewrites.Single(r => r.File == "M.cs"), main, mainRewritten), (routing.Rewrites.Single(r => r.File == "M.Types.D.cs"), split, splitRewritten) })
+        {
+            Assert.Contains(rewrite.Original, before);
+            Assert.Contains(rewrite.Replacement, after);
+            Assert.Equal(before, after.Replace(rewrite.Replacement, rewrite.Original, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void SplitModule_TheSameImportInTwoFiles_IsRefused()
+    {
+        var plan = SelfPlan();
+        var import = Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);");
+        var routing = SwiftBridgeRouting.Plan(Set(plan, "$s1M1CC1fyS2iF"),
+            [new SwiftBridgeSource("M.cs", Source(import)), new SwiftBridgeSource("M.Types.C.cs", TypeSource("C", import))], Library);
+
+        var route = Assert.Single(routing.Routes);
+        Assert.False(route.IsBridged);
+        Assert.Contains("two imports share", route.Refusal);
+        Assert.Empty(routing.Rewrites);
+    }
+
+    [Fact]
+    public void Withdraw_KeepsEveryImport_WithTheReason_AndARefusalKeepsItsOwn()
+    {
+        var self = SelfPlan();
+        var direct = DirectResultPlan();
+        var plans = new SwiftCallPlanSet
+        {
+            Module = "M",
+            Coverage = [Set(self, "$s1M1CC1fyS2iF").Coverage[0], Set(direct, "$s1M1fSSyF", member: "M.C::PInvoke_missing").Coverage[0]],
+            Plans = [self, direct],
+        };
+        var source = Source(Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var routing = SwiftBridgeRouting.Plan(plans, source, Library);
+        var refused = routing.Routes.Single(r => !r.IsBridged);
+
+        var withdrawn = routing.Withdraw("the relink failed");
+
+        Assert.Empty(withdrawn.Bridged);
+        Assert.Empty(withdrawn.Rewrites);
+        Assert.Equal(source, withdrawn.Rewrite(source));
+        Assert.All(withdrawn.Routes, r => Assert.False(r.IsBridged));
+        Assert.Equal("the relink failed", withdrawn.Routes.Single(r => r.Member == "M.C::PInvoke_f").Refusal);
+        Assert.Equal(refused.Refusal, withdrawn.Routes.Single(r => r.Member == refused.Member).Refusal);
+        Assert.Null(withdrawn.Assembly(SwiftArchitecture.Arm64));
+    }
+
     // ---- the calling convention of a bridge symbol ----
 
     [Fact]

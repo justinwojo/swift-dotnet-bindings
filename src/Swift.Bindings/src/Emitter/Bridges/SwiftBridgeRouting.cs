@@ -60,6 +60,21 @@ public sealed record SwiftBridgeRoute(string Member, string EntryPoint, string S
     public bool IsBridged => Twin is not null;
 }
 
+/// <summary>One file of a module's emitted C#, by its name in the output directory.</summary>
+public sealed record SwiftBridgeSource(string Name, string Source);
+
+/// <summary>
+/// One bridged import's rewrite: in <see cref="File"/>, the import's text <see cref="Original"/>
+/// became <see cref="Replacement"/> (its shim and twin).
+/// </summary>
+/// <param name="File">The file that declares the import; empty when the routing was planned over one whole source.</param>
+/// <param name="Member">The import's IL member.</param>
+/// <param name="EntryPoint">The Swift symbol the import calls.</param>
+/// <param name="Symbol">The bridge the twin calls.</param>
+/// <param name="Original">The import's declaration as emitted.</param>
+/// <param name="Replacement">The shim and twin written in its place.</param>
+public sealed record SwiftBridgeRewrite(string File, string Member, string EntryPoint, string Symbol, string Original, string Replacement);
+
 /// <summary>
 /// Routes a module's executable forward plans through their bridges. Each Swift-convention import
 /// whose plan is executable becomes two declarations: a shim with the import's own name and
@@ -98,10 +113,10 @@ public sealed class SwiftBridgeRouting
     /// <summary>The architectures every bridge is emitted for.</summary>
     public static readonly ImmutableArray<SwiftArchitecture> Architectures = [SwiftArchitecture.Arm64, SwiftArchitecture.X86_64];
 
-    private readonly Dictionary<string, (string Original, string Replacement)> _rewrites;
+    private readonly Dictionary<string, SwiftBridgeRewrite> _rewrites;
 
     private SwiftBridgeRouting(ImmutableArray<SwiftBridgeRoute> routes, ImmutableArray<SwiftCallPlan> bridged,
-        Dictionary<string, (string Original, string Replacement)> rewrites)
+        Dictionary<string, SwiftBridgeRewrite> rewrites)
     {
         Routes = routes;
         Bridged = bridged;
@@ -110,6 +125,27 @@ public sealed class SwiftBridgeRouting
 
     /// <summary>A routing that bridges nothing.</summary>
     public static SwiftBridgeRouting None { get; } = new([], [], new(StringComparer.Ordinal));
+
+    /// <summary>
+    /// Each bridged import's replacement, ordered by file, member and entry point: what
+    /// <see cref="Rewrite"/> writes in place of the import, and what undoes it.
+    /// </summary>
+    public ImmutableArray<SwiftBridgeRewrite> Rewrites => _rewrites.Values
+        .OrderBy(r => r.File, StringComparer.Ordinal)
+        .ThenBy(r => r.Member, StringComparer.Ordinal)
+        .ThenBy(r => r.EntryPoint, StringComparer.Ordinal)
+        .ToImmutableArray();
+
+    /// <summary>
+    /// This routing with nothing bridged: every route it would have bridged keeps its import, for
+    /// <paramref name="reason"/>; a route it refused keeps its own reason.
+    /// </summary>
+    public SwiftBridgeRouting Withdraw(string reason) => Routes.IsEmpty
+        ? this
+        : new SwiftBridgeRouting(
+            Routes.Select(r => r.IsBridged ? r with { Twin = null, Refusal = reason } : r).ToImmutableArray(),
+            [],
+            new(StringComparer.Ordinal));
 
     /// <summary>One route per executable forward transition, ordered by member and entry point.</summary>
     public ImmutableArray<SwiftBridgeRoute> Routes { get; }
@@ -127,7 +163,17 @@ public sealed class SwiftBridgeRouting
     /// module's whole emitted C#, <paramref name="source"/>.
     /// </summary>
     /// <param name="library">The library the bridges are linked into: the module's wrapper.</param>
-    public static SwiftBridgeRouting Plan(SwiftCallPlanSet plans, string source, string library)
+    public static SwiftBridgeRouting Plan(SwiftCallPlanSet plans, string source, string library) =>
+        Plan(plans, [new SwiftBridgeSource(string.Empty, source)], library);
+
+    /// <summary>
+    /// Decides the route of every executable forward transition of <paramref name="plans"/> over the
+    /// module's emitted C# split across <paramref name="files"/>, each a complete compilation unit. An
+    /// import is found in whichever file declares it, and two imports of one member and entry point
+    /// refuse the route whether or not they share a file.
+    /// </summary>
+    /// <param name="library">The library the bridges are linked into: the module's wrapper.</param>
+    public static SwiftBridgeRouting Plan(SwiftCallPlanSet plans, IReadOnlyList<SwiftBridgeSource> files, string library)
     {
         var executable = plans.Coverage
             .Where(e => e.Transition == SwiftTransitionKind.ForwardPInvoke && e.Status == SwiftPlanStatus.Planned && e.Executable && e.Symbol is not null)
@@ -135,20 +181,21 @@ public sealed class SwiftBridgeRouting
         if (executable.Count == 0)
             return None;
 
-        var byKey = new Dictionary<string, MethodDeclarationSyntax>(StringComparer.Ordinal);
+        var byKey = new Dictionary<string, (SwiftBridgeSource File, MethodDeclarationSyntax Method)>(StringComparer.Ordinal);
         var duplicates = new HashSet<string>(StringComparer.Ordinal);
-        var root = Parse(source);
-        foreach (var (method, member, entryPoint) in ForwardImports(root))
+        foreach (var file in files)
         {
-            var key = SwiftTransitionLedger.KeyOf(member, entryPoint);
-            if (!byKey.TryAdd(key, method))
-                duplicates.Add(key);
+            foreach (var (method, member, entryPoint) in ForwardImports(Parse(file.Source)))
+            {
+                var key = SwiftTransitionLedger.KeyOf(member, entryPoint);
+                if (!byKey.TryAdd(key, (file, method)))
+                    duplicates.Add(key);
+            }
         }
-        var newline = source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
         var plansBySymbol = plans.Plans.ToDictionary(p => p.Symbol, StringComparer.Ordinal);
 
         var routes = new List<SwiftBridgeRoute>();
-        var rewrites = new Dictionary<string, (string, string)>(StringComparer.Ordinal);
+        var rewrites = new Dictionary<string, SwiftBridgeRewrite>(StringComparer.Ordinal);
         var bridged = new SortedDictionary<string, SwiftCallPlan>(StringComparer.Ordinal);
         foreach (var entry in executable)
         {
@@ -163,22 +210,24 @@ public sealed class SwiftBridgeRouting
                 refusal = $"the bridge emitter has no template for it ({noTemplate})";
             else if (duplicates.Contains(key))
                 refusal = "two imports share its member and entry point";
-            else if (!byKey.TryGetValue(key, out var method))
+            else if (!byKey.TryGetValue(key, out var found))
                 refusal = "its import is not in the emitted C#";
             else
             {
+                var (file, method) = found;
                 var twinName = TwinName(method.Identifier.ValueText, plan.Symbol);
                 var type = method.Parent as TypeDeclarationSyntax;
+                var newline = file.Source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
                 if (type is null)
                     refusal = "its import is not declared in a type";
                 else if (type.Members.OfType<MethodDeclarationSyntax>().Any(m => m.Identifier.ValueText == twinName))
                     refusal = $"its type already declares {twinName}";
-                else if (SwiftTwinShim.Build(method, plan, library, twinName, IndentOf(source, method.SpanStart), newline, out var replacement) is { } shimRefusal)
+                else if (SwiftTwinShim.Build(method, plan, library, twinName, IndentOf(file.Source, method.SpanStart), newline, out var replacement) is { } shimRefusal)
                     refusal = shimRefusal;
                 else
                 {
                     twin = $"{entry.Member[..(entry.Member.LastIndexOf("::", StringComparison.Ordinal) + 2)]}{twinName}";
-                    rewrites[key] = (method.ToString(), replacement!);
+                    rewrites[key] = new SwiftBridgeRewrite(file.Name, entry.Member, entry.EntryPoint, plan.Symbol, method.ToString(), replacement!);
                     bridged.TryAdd(plan.Symbol, plan);
                 }
             }

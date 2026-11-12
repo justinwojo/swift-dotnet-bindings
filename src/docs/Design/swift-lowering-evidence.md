@@ -168,10 +168,11 @@ text unchanged.
 Routing is decided while the module is generated. The wrapper source is written after that and is
 rewritten again on disk before it is compiled. So at generation time the final wrapper digest does
 not exist, and the expectation carries no sources: authorization at generation compares artifact,
-compiler, family, contract, slices and SDKs, but not source digests. A build that collects its own
-receipt must finalize routing after its native inputs are final, and compare sources then
-(`SwiftEvidenceExpectation.Sources`). Until it does, a receipt authorizes the plans of whatever
-wrapper the same compiler and SDKs produce.
+compiler, family, contract, slices and SDKs, but not source digests. A hand-authored record
+therefore authorizes the plans of whatever wrapper the same compiler and SDKs produce. A build that
+collects its own receipt routes after its native inputs are final (see *Routing from the collected
+receipt*): the receipt was collected from the wrapper it ships, and a relink must read exactly the
+sources that receipt records.
 
 ## Production collection
 
@@ -271,11 +272,11 @@ The receipt goes stale through any of its inputs, each of which `Authorize` comp
 - each imported interface's digest;
 - the contract's plan, facts and collector versions.
 
-**Where it runs.** Only .NET 11 routing reads a receipt, so `SwiftCollectLoweringEvidence` defaults
-to `true` for `net11.0` binding projects and is off for `net10.0`. A project can set it either way.
-A .NET 10 build therefore runs no extra swiftc pass and keeps its fingerprint text. The extra pass
-is a full second frontend compile of the wrapper, without the link. Its cost grows with the wrapper,
-so paying it where nothing reads the result is waste. Measured on one simulator slice:
+**Where it runs.** `SwiftCollectLoweringEvidence` defaults to `true` for every iOS binding project
+(`net10.0` and `net11.0`) and every `net11.0` binding project. A project can set it either way. Every
+other `net10.0` build runs no extra swiftc pass and keeps its fingerprint text. The extra pass is a
+full second frontend compile of the wrapper, without the link. Its cost grows with the wrapper, so
+paying it where nothing reads the result is waste. Measured on one simulator slice:
 - BindingTests: the IR pass took 29 to 42 s after a 32 to 34 s wrapper compile, under both Xcode 26.3
   and 27.2.
 - Alamofire: it took 1.3 to 2.7 s after a 2.1 to 2.5 s compile.
@@ -283,28 +284,69 @@ so paying it where nothing reads the result is waste. Measured on one simulator 
 So it roughly doubles the wrapper's swiftc time. The probe adds little: on BindingTests it wrote 92
 calls and took 0.9 s, in two compiles, under each compiler family. A build that finds the wrapper up
 to date skips all of it, so an incremental build pays nothing. The direct generator path (a wrapper compiled
-inline during generation) and Apple-framework mode do not collect. Neither feeds a consumer's .NET
-11 routing yet.
+inline during generation) and Apple-framework mode do not collect, and so do not route from a receipt.
 
-**What this does not yet do.** The receipt is collected, but routing is still decided at
-generation from `<SwiftLoweringEvidence>`, without sources. The step that finalizes routing against
-the collected receipt must account for the following:
-- The wrapper's cleaned sources are deleted once the slice compiles, so a source comparison has to
-  happen inside the wrapper compile, or from sources it keeps.
-- The receipt covers the slices the wrapper was compiled for. An arm64-only wrapper has no x86_64
-  simulator slice, although `PlatformSlices("ios")` claims one. The scope of a build-collected
-  receipt has to be the slices that build ships.
-- Feeding the collected receipt back as `<SwiftLoweringEvidence>` would make it a fingerprint input
-  of the generation that deletes it, so that loop needs its own design.
-- One project with several `SwiftFramework` items shares one receipt path.
-- The expected sources of a slice must include its probe. The probe file's name and text are
-  deterministic, so the same inputs give the same digest.
-- The wrapper's IR alone shows 32 of the 131 plan targets on BindingTests. With the probe, the
-  receipt shows 115, all agreeing with the oracle record, under both compiler families. The other
-  16 are unobserved: 15 are `@usableFromInline internal`, and one is a setter isolated to a custom
-  global actor, which the probe's main-actor call cannot mutate.
-- The probe needs the descriptor a framework ships. A slice without one leaves its targets
-  unobserved; the probe does not yet generate a descriptor from the interface.
+The wrapper's IR alone shows 32 of the 131 plan targets on BindingTests. With the probe, the receipt
+shows 115, all agreeing with the oracle record, under both compiler families. The other 16 are
+unobserved: 15 are `@usableFromInline internal`, and one is a setter isolated to a custom global
+actor, which the probe's main-actor call cannot mutate. The probe needs the descriptor a framework
+ships. A slice without one leaves its targets unobserved; the probe does not generate a descriptor
+from the interface.
+
+## Routing from the collected receipt
+
+A binding that collects its receipt routes from it in the same wrapper compile
+(`--route-swift-bridges`, `SwiftBridgeFinalizer` in `src/Swift.Bindings/src/Configuration/`). The
+SDK passes the flag when `SwiftRouteBridges` is on, which it is by default for iOS targets, and only
+when it collects and has no hand-authored `<SwiftLoweringEvidence>`. A hand-authored record routes at
+generation instead, and the wrapper compile then leaves the C# alone.
+
+**Why in the wrapper compile.** Generation runs before the wrapper is compiled, so it has no receipt.
+Feeding the receipt back as `<SwiftLoweringEvidence>` would make it a fingerprint input of the
+generation that deletes it. The finalizer therefore changes no input of generation: the binding's
+fingerprint never sees the receipt, and there is no loop.
+
+**What it does.** Once the receipt is written:
+1. It restores generation's own C#. A journal beside the C#
+   (`{namespace}.swift-bridge-routing.json`) records every import an earlier routing rewrote, and
+   generation deletes the journal along with the C# it replaces.
+2. It judges the receipt for the plans generation wrote without evidence
+   (`SwiftCallPlanSet.WithoutEvidence`). The scope is the receipt's own slices. The receipt holds a
+   slice for every slice the wrapper ships and for no other, so an arm64-only wrapper claims no x86_64
+   simulator slice.
+3. It routes the authorized plans over that C#, as generation would under the same judgement, and
+   writes the C#, the bridges and the plan and ledger sidecars to match. It writes the journal first,
+   so a build stopped part-way leaves a journal covering every rewrite on disk.
+4. The wrapper must define exactly the bridges the C# calls. When the bridges differ from those it was
+   linked from, it is compiled again with them: the same sources, flags and slices. Every relinked
+   slice must read exactly the inputs the receipt was collected from (`SwiftWrapperLoweringEvidence.ForVerification`):
+   the wrapper digest, the probe, each interface digest, the SDK and the compiler. The relinked wrapper
+   must strip the same symbols and fold the same architectures as the first compile.
+
+**Fail-closed.** An import the receipt does not authorize keeps its Swift-convention call, and a
+contradiction in the receipt refuses its plan whatever else the receipt says. When the relink fails,
+or its wrapper is not the one the receipt describes, the first compile's wrapper is put back, the C#
+goes back to generation's own and `SWIFTBIND129` says why. A journal that does not match the C# fails
+the build, because the C# can no longer be trusted to be generation's own. A slice that cannot be
+observed withholds the whole receipt (see *When a receipt is written*), and with it every bridge:
+a thunk-only slice, which has no Swift source to compile to IR, therefore leaves its module unrouted.
+
+**One receipt per project.** The SDK binds one xcframework per project (`SWIFTBIND002`), so a
+project has one module, one receipt and one routing. A multi-framework library is several projects.
+
+**Cost.** Generation always leaves the bridges out, so the first wrapper compile after a
+regeneration that routes anything is followed by a relink: one more full compile of every slice. A
+build whose wrapper is up to date skips the compile, the collection and the routing, and keeps the
+routed C# on disk.
+
+**Fingerprint.** A build that collects adds whether it routes, and every file under each framework's
+`Modules/` (the descriptors the probe reads and the private interfaces), to its fingerprint. So a
+changed descriptor recompiles the wrapper and collects a new receipt. A build that neither reads nor
+collects a receipt fingerprints exactly what it did before.
+
+**Where it is proven.** `nuke binding-tests --bridge-consumer` binds a fixture with default settings
+and consumes it as a package, SDK-direct and through a `ProjectReference`, on .NET 10 (Mono JIT on the
+simulator, NativeAOT and Mono full-AOT on a device) and the .NET 11 CoreCLR interpreter.
 
 ## Limits
 
