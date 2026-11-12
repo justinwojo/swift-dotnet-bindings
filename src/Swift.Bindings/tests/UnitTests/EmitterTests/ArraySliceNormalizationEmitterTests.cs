@@ -224,6 +224,24 @@ public class ArraySliceNormalizationEmitterTests
     }
 
     [Fact]
+    public void TryEmit_SilgenWrapperInAnExtension_IsDescribedAsAMemberOfTheExtendedType()
+    {
+        var (method, typeDatabase, _) = CreateMethodWithArraySlice("encrypt", throws: true);
+        var ctx = new ModuleEmissionContext();
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase, ctx);
+
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.ArraySliceNormalization));
+        // Written in `extension TestModule.AES`: a class instance member, self by reference.
+        Assert.Equal(SwiftCallSelfKind.Reference, wrapper.Self.Kind);
+        Assert.Equal("TestModule.AES", wrapper.DeclaringType);
+        Assert.True(wrapper.Throws);
+        // The slice parameter is normalized to an array in the wrapper's own signature.
+        Assert.DoesNotContain(wrapper.Parameters, p => p.SwiftType.Contains("ArraySlice"));
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.ArraySliceNormalization);
+    }
+
+    [Fact]
     public void TryEmit_ThrowingMethod_EmitsThrowsAndTry()
     {
         var (method, typeDatabase, moduleDecl) = CreateMethodWithArraySlice("encrypt", throws: true);
@@ -1279,17 +1297,18 @@ public class ArraySliceNormalizationEmitterTests
         };
     }
 
-    private static (string csOutput, string swiftOutput) EmitMethod(MethodDecl methodDecl, TypeDatabase typeDatabase)
+    private static (string csOutput, string swiftOutput) EmitMethod(
+        MethodDecl methodDecl, TypeDatabase typeDatabase, ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
         var swiftWriter = new SwiftWriter(swiftOutput);
 
-        var env = new MethodEnvironment(methodDecl, typeDatabase);
+        var env = new MethodEnvironment(methodDecl, typeDatabase) { EmissionContext = emissionContext };
         var logger = NullLogger.Instance;
 
-        var result = ArraySliceNormalizationEmitter.TryEmitNormalizedMethod(csWriter, swiftWriter, env, logger);
+        var result = ArraySliceNormalizationEmitter.TryEmitNormalizedMethod(csWriter, swiftWriter, env, logger, emissionContext);
 
         if (!result)
             return (string.Empty, string.Empty);

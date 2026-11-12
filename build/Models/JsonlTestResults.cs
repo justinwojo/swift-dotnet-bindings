@@ -43,6 +43,12 @@ public class JsonlTestResults
     public record TestEntry(string ClassName, string TestName, string Status, string? Error, int Ms);
 
     /// <summary>
+    /// Per-class execution-lane witnesses the app recorded under <c>--lane-identity</c>, in file
+    /// order. A class run in several attempts keeps one witness per attempt.
+    /// </summary>
+    public List<LaneWitness> LaneWitnesses { get; } = new();
+
+    /// <summary>
     /// Parses a JSONL string (one JSON object per line). Skips malformed lines gracefully.
     /// </summary>
     public static JsonlTestResults Parse(string jsonlContent)
@@ -61,6 +67,13 @@ public class JsonlTestResults
                 if (root.TryGetProperty("run_token", out var runToken))
                 {
                     results.RunToken = runToken.GetString();
+                }
+                else if (root.TryGetProperty("lane_class", out var laneClass))
+                {
+                    results.LaneWitnesses.Add(new LaneWitness(laneClass.GetString()!,
+                        root.TryGetProperty("image", out var image) ? image.GetString() ?? "?" : "?",
+                        root.TryGetProperty("symbol", out var symbol) && symbol.ValueKind == JsonValueKind.String ? symbol.GetString() : null,
+                        HexProperty(root, "address"), HexProperty(root, "image_base")));
                 }
                 else if (root.TryGetProperty("class_done", out var classDone))
                 {
@@ -87,7 +100,7 @@ public class JsonlTestResults
                     results.Tests.Add(new TestEntry(cls.GetString()!, test.GetString()!, status, error, ms));
                 }
             }
-            catch (JsonException)
+            catch (Exception e) when (e is JsonException or FormatException or OverflowException)
             {
                 // Truncated/malformed line — skip gracefully (crash-safe by design)
             }
@@ -179,6 +192,12 @@ public class JsonlTestResults
            && !string.IsNullOrEmpty(expected)
            && string.Equals(actual, expected, StringComparison.Ordinal);
 
+    static ulong HexProperty(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+        && value.GetString() is { } hex && hex.StartsWith("0x", StringComparison.Ordinal)
+            ? ulong.Parse(hex.AsSpan(2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture)
+            : 0UL;
+
     /// <summary>
     /// Merges another set of results into this one. Used for aggregating multiple runs
     /// after crash recovery. Last result for a given test wins (dedup by ClassName.TestName).
@@ -213,6 +232,8 @@ public class JsonlTestResults
 
         foreach (var cls in other.CompletedClasses)
             CompletedClasses.Add(cls);
+
+        LaneWitnesses.AddRange(other.LaneWitnesses);
 
         if (other.Done) Done = true;
         if (other.TotalFromSummary > 0) TotalFromSummary = other.TotalFromSummary;

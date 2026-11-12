@@ -2513,6 +2513,29 @@ namespace BindingsGeneration.Tests
             Assert.NotEqual(survivorKey, stripped.PublicApiKey);
         }
 
+        [Fact]
+        public void ProcessDirectory_StrippedBridgeTarget_FailsClosed_AnUnrelatedStripDoesNot()
+        {
+            // A native Swift bridge names its target in assembly, beyond the C# this reconciler can
+            // remove: a stripped target would leave the wrapper unlinkable, so generation stops.
+            using var temp = new TempReconcilerDir();
+            File.WriteAllText(Path.Combine(temp.Path, "Demo.Bridges.arm64.s"),
+                "    .globl _SBSR_0123456789abcdef\n_SBSR_0123456789abcdef:\n    .weak_reference _SBSW_Demo_stamped\n    b _SBSW_Demo_stamped\n");
+            File.WriteAllText(Path.Combine(temp.Path, "Foo.cs"),
+                "public partial class Foo {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_orphan_trampoline\")]\n" +
+                "    private static partial void PInvoke_orphan(IntPtr ptr);\n" +
+                "}\n");
+
+            var ex = Assert.Throws<StrippedSymbolReconciliationException>(() =>
+                StrippedSymbolCSharpReconciler.ProcessDirectory(temp.Path, new HashSet<string> { "SBSW_Demo_stamped" }));
+            Assert.Contains("SWIFTBIND057", ex.Message);
+            Assert.Contains("SBSW_Demo_stamped", ex.Message);
+
+            Assert.Empty(StrippedSymbolCSharpReconciler.ProcessDirectory(temp.Path, new HashSet<string> { "SBW_orphan_trampoline" }));
+            Assert.DoesNotContain("PInvoke_orphan", File.ReadAllText(Path.Combine(temp.Path, "Foo.cs")));
+        }
+
         private sealed class TempReconcilerDir : IDisposable
         {
             public string Path { get; }

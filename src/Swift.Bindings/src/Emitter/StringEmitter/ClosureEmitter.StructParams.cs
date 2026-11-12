@@ -25,6 +25,7 @@ public static partial class ClosureEmitter
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        RecordSwiftCalli(closureHandler, closureTypeSpec, funcPtrTypeWithContext);
 
         // Build lambda parameter list
         var parameters = new List<string>();
@@ -209,6 +210,7 @@ public static partial class ClosureEmitter
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
         var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+        RecordSwiftCalli(closureHandler, closureTypeSpec, funcPtrTypeWithContext);
 
         // Build lambda parameter list
         var parameters = new List<string>();

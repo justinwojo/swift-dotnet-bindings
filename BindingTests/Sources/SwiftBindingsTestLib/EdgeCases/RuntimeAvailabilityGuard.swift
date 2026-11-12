@@ -223,3 +223,20 @@ public struct FutureGatedBuffer<T> {
         return 99
     }
 }
+
+// MARK: - Future floor reached through a native Swift bridge
+//
+// A `@usableFromInline internal` parent cannot be named by a Swift wrapper, so its
+// static members are imported directly through the Swift calling convention. When
+// the call needs a Swift register (here the metatype self) the generator routes it
+// through a native bridge stub, which — like a thunk — names its target in
+// hand-written assembly and must declare it `.weak_reference`. The member is floored
+// above every deployment target, so a strong import would stop the wrapper loading.
+
+/// Internal host whose only member is floored above every current OS and reached
+/// through a native bridge. The runtime guard must fire before the bridge is called.
+@usableFromInline
+internal class FutureBridgedHost {
+    @available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
+    public static func futureLabel() -> String { "future-bridged" }
+}

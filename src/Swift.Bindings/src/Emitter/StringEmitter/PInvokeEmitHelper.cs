@@ -93,6 +93,14 @@ public record PInvokeEmissionInfo
     /// null-owner plan is still validated, but a violation on it fails closed rather than recovering.
     /// </summary>
     public ArtifactId? Owner { get; init; }
+
+    /// <summary>
+    /// The facts of the Swift function this declaration binds, when the producer has them in hand.
+    /// Null lets the declaration resolve them from <see cref="EmissionContext"/> by
+    /// <see cref="EntryPoint"/>: a function a synthesizer registered, then a declared symbol. Only read
+    /// for a Swift-convention declaration; it never changes the rendered text.
+    /// </summary>
+    public SwiftCallFacts? CallFacts { get; init; }
 }
 
 /// <summary>
@@ -203,6 +211,19 @@ public static class PInvokeEmitHelper
                     "needs to be emitted as @_cdecl with an SBW_ prefix or the caller needs to pass " +
                     "CallingConvention = PInvokeCallingConvention.Swift.");
             return PInvokeCallingConvention.Swift;
+        }
+
+        // SBSR_ names a native forward bridge: a C-convention stub that moves its trailing
+        // pointer arguments into Swift's context, indirect-result and error registers and
+        // calls the Swift target. Its managed side is always the C convention; a Swift request
+        // would hand the stub's trailing pointers to the wrong registers.
+        if (SwiftCallPlan.IsForwardBridgeSymbol(entryPoint))
+        {
+            if (callerSpec == PInvokeCallingConvention.Swift)
+                throw new InvalidOperationException(
+                    $"P/Invoke entry point '{entryPoint}' names a native Swift bridge, which is " +
+                    "called with the C convention, but the caller requested CallConvSwift.");
+            return PInvokeCallingConvention.Cdecl;
         }
 
         // SBW_ is reserved for @_cdecl wrappers. @_silgen_name wrappers (Swift CC) must
@@ -339,8 +360,21 @@ public static class PInvokeEmitHelper
         // plans yet — this is the foundation for typed call-plan validation.
         info.EmissionContext?.RecordAbiCallPlan(BuildAbiCallPlan(info));
 
+        // A forward Swift-convention transition records the facts of the function it binds, for the
+        // module's transition ledger; so does an import of another convention whose signature names a
+        // Swift register type, which the ledger lists too. A declaration rendered without a context
+        // records nothing and is listed in the ledger as unplanned, which is how a missing context shows up.
+        if ((resolvedCallingConvention == PInvokeCallingConvention.Swift || NamesSwiftRegisterType(returnTypeStr, paramsStr))
+            && info.EmissionContext is { } context)
+            context.RecordSwiftTransition(SwiftTransitionRecord.For(
+                info.MethodName, info.EntryPoint, info.LibraryPath, info.CallFacts, context));
+
         return lines;
     }
+
+    /// <summary>Whether a rendered signature names <c>SwiftSelf</c>, <c>SwiftSelf&lt;T&gt;</c> or <c>SwiftIndirectResult</c>.</summary>
+    private static bool NamesSwiftRegisterType(string returnType, string parameters) =>
+        System.Text.RegularExpressions.Regex.IsMatch(returnType + " " + parameters, @"\b(SwiftSelf|SwiftIndirectResult)\b");
 
     /// <summary>
     /// Builds the typed <see cref="AbiCallPlan"/> for a P/Invoke declaration without emitting it, from the

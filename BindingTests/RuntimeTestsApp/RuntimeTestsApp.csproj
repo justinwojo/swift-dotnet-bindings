@@ -41,6 +41,13 @@
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
+  <!-- .NET 11 CoreCLR lanes: crossgen2's map of exactly which methods received precompiled
+       bodies. The harness reads it as lane-identity evidence beside each class's lane witness
+       (interpreter: no app bodies; ReadyToRun: the witness's caller is a mapped body). -->
+  <PropertyGroup Condition="'$(BtTargetFramework)' == 'net11.0' AND '$(BtRuntimeEngine)' == 'coreclr'">
+    <PublishReadyToRunCrossgen2ExtraArgs>$(PublishReadyToRunCrossgen2ExtraArgs);--map;--mapcsv</PublishReadyToRunCrossgen2ExtraArgs>
+  </PropertyGroup>
+
   <!-- Shared BCL-only capability policy. The Nuke harness compiles this file too;
        RuntimeTestsApp supplies the live SecTask probe while both consume the same
        missing-entitlement contract. -->

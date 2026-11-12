@@ -674,7 +674,7 @@ done; true"
       find &quot;%(SwiftFramework.Identity)&quot; -path &quot;*.framework/*&quot; \
         -not -name &quot;Info.plist&quot; -not -path &quot;*/Modules/*&quot; \
         -not -path &quot;*/_CodeSignature/*&quot; -type f -exec shasum -a 256 {} \; &amp;&amp; \
-      for f in &quot;%(SwiftFramework.SymbolGraph)&quot; &quot;%(SwiftFramework.BridgeHints)&quot; &quot;%(SwiftFramework.SwiftInterface)&quot;; do \
+      for f in &quot;%(SwiftFramework.SymbolGraph)&quot; &quot;%(SwiftFramework.BridgeHints)&quot; &quot;%(SwiftFramework.SwiftInterface)&quot; &quot;$(SwiftLoweringEvidence)&quot;; do \
         if [ -n &quot;%24f&quot; ] &amp;&amp; [ -e &quot;%24f&quot; ]; then shasum -a 256 &quot;%24f&quot;; fi; \
       done; \
       echo &quot;@(SwiftFrameworkDependency, '%0A')&quot; | while IFS= read -r dep; do \
@@ -696,7 +696,7 @@ done; true"
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
       if [ -f &quot;$(_SwiftManagedReferencesFile)&quot; ]; then shasum -a 256 &quot;$(_SwiftManagedReferencesFile)&quot;; fi ; \
-      echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) $(SwiftLoweringEvidence) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -1908,6 +1908,11 @@ done; true"
       <_SwiftGenCmd Condition="'$(SwiftFrameworkType)' == 'ObjC'">$(_SwiftGenCmd) --objc</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementVersion)' != ''">$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
+      <!-- Opt-in swiftc lowering evidence (swift-lowering-evidence.json): every Swift-convention
+           transition it proves is called through a native bridge (SBSR_) the generator writes beside
+           the wrapper thunks, which _CompileSwiftWrapper links into the wrapper framework. Without
+           it every transition keeps its direct import. -->
+      <_SwiftGenCmd Condition="'$(SwiftLoweringEvidence)' != ''">$(_SwiftGenCmd) --swift-lowering-evidence "$(SwiftLoweringEvidence)"</_SwiftGenCmd>
       <!-- Skip wrapper compilation — deferred to _CompileSwiftWrapper after ResolveProjectReferences -->
       <_SwiftGenCmd>$(_SwiftGenCmd) --skip-wrapper-compilation</_SwiftGenCmd>
     </PropertyGroup>

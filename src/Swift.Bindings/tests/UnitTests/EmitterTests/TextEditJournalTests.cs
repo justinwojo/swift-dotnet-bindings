@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Xunit;
 
@@ -233,6 +234,79 @@ public class TextEditJournalTests
 
         Assert.Equal(2, mapped.Count);
         Assert.DoesNotContain(mapped, i => i.Fragment.Text.Contains("DELETE", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Two passes composed into one journal map like the two in turn: every source character no
+    /// composed edit covers lands on the same character of the final text, and every offset outside
+    /// the composed edits maps where the second pass maps the first pass's image of it.
+    /// </summary>
+    [Theory]
+    [InlineData(20261112)]
+    [InlineData(7)]
+    [InlineData(424242)]
+    public void Compose_OfTwoRandomPasses_MapsLikeThePassesInTurn(int seed)
+    {
+        var random = new Random(seed);
+        for (int trial = 0; trial < 5000; trial++)
+        {
+            var source = RandomText(random, random.Next(0, 40));
+            var (middle, first) = RandomPass(random, source);
+            var (final, second) = RandomPass(random, middle);
+            var composed = new TextEditJournal();
+            TextEditJournal.Compose(first, second, composed);
+
+            var context = $"trial {trial}: \"{source}\" -> \"{middle}\" -> \"{final}\"";
+            Assert.Equal(final.Length - source.Length, composed.Edits.Sum(e => e.NewLength - e.OldLength));
+            for (int x = 0; x <= source.Length; x++)
+            {
+                if (composed.Edits.Any(e => e.Start < x && x < e.Start + e.OldLength))
+                    continue;
+                Assert.True(second.MapOffset(first.MapOffset(x)) == composed.MapOffset(x), $"{context}: offset {x}");
+                if (x < source.Length && !composed.Edits.Any(e => e.Start <= x && x < e.Start + e.OldLength))
+                    Assert.True(source[x] == final[composed.MapOffset(x + 1) - 1], $"{context}: character {x}");
+            }
+        }
+    }
+
+    [Fact]
+    public void Compose_IntoAJournalThatAlreadyHasEdits_Throws()
+    {
+        var target = new TextEditJournal();
+        target.Record(0, 1, 1);
+        Assert.Throws<InvalidOperationException>(() => TextEditJournal.Compose(new TextEditJournal(), new TextEditJournal(), target));
+    }
+
+    private static string RandomText(Random random, int length)
+    {
+        var text = new StringBuilder(length);
+        for (int i = 0; i < length; i++)
+            text.Append((char)('a' + random.Next(26)));
+        return text.ToString();
+    }
+
+    /// <summary>Random ascending edits (insertions, deletions, replacements) of <paramref name="input"/>, applied and journaled.</summary>
+    private static (string Output, TextEditJournal Journal) RandomPass(Random random, string input)
+    {
+        var journal = new TextEditJournal();
+        var output = new StringBuilder();
+        int position = 0;
+        while (position <= input.Length && random.Next(3) != 0)
+        {
+            int start = position + random.Next(0, Math.Min(6, input.Length - position) + 1);
+            int oldLength = random.Next(0, Math.Min(4, input.Length - start) + 1);
+            // Two insertions at one offset would be one edit; keep the edits apart.
+            if (journal.Edits.Count > 0 && start == position && oldLength == 0)
+                break;
+            var replacement = RandomText(random, random.Next(0, 5)).ToUpperInvariant();
+            output.Append(input, position, start - position).Append(replacement);
+            journal.Record(start, oldLength, replacement.Length);
+            position = start + oldLength;
+            if (position == input.Length)
+                break;
+        }
+        output.Append(input, position, input.Length - position);
+        return (output.ToString(), journal);
     }
 
     private static FragmentInterval Interval(string name, string source, int start, int end) =>

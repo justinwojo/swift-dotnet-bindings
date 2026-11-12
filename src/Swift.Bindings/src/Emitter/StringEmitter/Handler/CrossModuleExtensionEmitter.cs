@@ -779,7 +779,8 @@ public static partial class CrossModuleExtensionEmitter
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
             CallingConvention = methodCallingConvention,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext
         });
         csWriter.WriteLine();
     }
@@ -834,7 +835,8 @@ public static partial class CrossModuleExtensionEmitter
                 ReturnType = pinvokeReturnType,
                 ParametersString = string.Join(", ", pinvokeParams),
                 CallingConvention = callingConvention,
-                Visibility = PInvokeVisibility.Internal
+                Visibility = PInvokeVisibility.Internal,
+                EmissionContext = emissionContext
             });
             csWriter.WriteLine();
         }
@@ -873,7 +875,8 @@ public static partial class CrossModuleExtensionEmitter
                 ReturnType = "void",
                 ParametersString = string.Join(", ", pinvokeParams),
                 CallingConvention = setterCallingConvention,
-                Visibility = PInvokeVisibility.Internal
+                Visibility = PInvokeVisibility.Internal,
+                EmissionContext = emissionContext
             });
             csWriter.WriteLine();
         }

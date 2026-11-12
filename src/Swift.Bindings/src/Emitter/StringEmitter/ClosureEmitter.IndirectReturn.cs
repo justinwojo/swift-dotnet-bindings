@@ -33,6 +33,7 @@ public static partial class ClosureEmitter
         bool useBoxedContext = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
+        RecordSwiftCallback(closureHandler, callbackName, closureTypeSpec, parameterName, mangledName, useCdecl);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
         var returnCSharpType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
 

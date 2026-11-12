@@ -101,7 +101,7 @@ public static class ProtocolExtensionClosureBridge
             EmitFunctionPointerField(helperCsWriter, closureArgs, closureReturnIsVoid, closureReturnIsBool,
                 closureReturnIsMethodGeneric, callbackBaseName);
             EmitPInvoke(helperCsWriter, method, asyncLibName, closureReturnIsVoid,
-                closureReturnIsBool, closureReturnIsMethodGeneric, closureArg);
+                closureReturnIsBool, closureReturnIsMethodGeneric, closureArg, env.EmissionContext);
 
             helperCsWriter.Flush();
             env.PInvokeHelperContext.RawCodeBlocks.Add(helperWriter.ToString());
@@ -114,7 +114,7 @@ public static class ProtocolExtensionClosureBridge
             EmitFunctionPointerField(csWriter, closureArgs, closureReturnIsVoid, closureReturnIsBool,
                 closureReturnIsMethodGeneric, callbackBaseName);
             EmitPInvoke(csWriter, method, asyncLibName, closureReturnIsVoid,
-                closureReturnIsBool, closureReturnIsMethodGeneric, closureArg);
+                closureReturnIsBool, closureReturnIsMethodGeneric, closureArg, env.EmissionContext);
         }
 
         // --- Emit public method (always in the class body) ---
@@ -249,7 +249,8 @@ public static class ProtocolExtensionClosureBridge
         bool closureReturnIsVoid,
         bool closureReturnIsBool,
         bool closureReturnIsMethodGeneric,
-        ArgumentDecl closureArg)
+        ArgumentDecl closureArg,
+        ModuleEmissionContext? emissionContext)
     {
         var pInvokeName = NameProvider.GetPInvokeName(method);
         var pinvokeParams = new List<string>();
@@ -314,7 +315,8 @@ public static class ProtocolExtensionClosureBridge
             // BuildSymbolName encodes this in the prefix; the calling-convention pick must agree.
             CallingConvention = method.UsesCdeclMethodWrapper
                 ? PInvokeCallingConvention.Cdecl
-                : PInvokeCallingConvention.Swift
+                : PInvokeCallingConvention.Swift,
+            EmissionContext = emissionContext
         });
         csWriter.WriteLine();
     }

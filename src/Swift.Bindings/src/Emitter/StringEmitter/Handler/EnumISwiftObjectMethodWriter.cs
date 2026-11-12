@@ -100,7 +100,7 @@ namespace BindingsGeneration
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
-                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _enumDecl.MetadataAccessor);
+                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _enumDecl.MetadataAccessor, _emissionCtx);
                 return;
             }
 
@@ -126,7 +126,7 @@ namespace BindingsGeneration
                     _writer.WriteLine();
 
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false))
+                        libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -165,7 +165,7 @@ namespace BindingsGeneration
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _enumDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false))
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _enumDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false, emissionContext: _emissionCtx))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -177,7 +177,7 @@ namespace BindingsGeneration
                 _writer.WriteLine();
 
                 foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                    libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false))
+                    libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
             }

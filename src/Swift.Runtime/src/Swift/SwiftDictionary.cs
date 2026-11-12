@@ -765,7 +765,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 // `Iterator.next` — dispatches through the C-side cdecl shims in
 // `SwiftCollectionCdeclWrappers`, and its register layout is recorded there
 // and in the C wrapper's own declaration.
-internal static class SwiftDictionaryPInvokes
+//
+// Get and MakeIterator are declared in Bridges/SwiftTransitions.declarations.cs and compiled from
+// the bridge products in Bridges/SwiftTransitions.g.cs.
+internal static partial class SwiftDictionaryPInvokes
 {
     // Dictionary metadata accessor: $sSDMa
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
@@ -785,32 +788,11 @@ internal static class SwiftDictionaryPInvokes
         TypeMetadata valueTypeMetadata,
         ProtocolWitnessTable witnessTable);
 
-    // Dictionary subscript getter: $sSDyq_Sgxcig (subscript getter returns Optional<Value>)
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSDyq_Sgxcig")]
-    public static extern void Get(
-        SwiftIndirectResult result,
-        IntPtr key,
-        IntPtr handle,
-        TypeMetadata keyTypeMetadata,
-        TypeMetadata valueTypeMetadata,
-        ProtocolWitnessTable witnessTable);
-
     // Dictionary.Iterator metadata accessor: $sSD8IteratorVMa
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD8IteratorVMa")]
     public static extern TypeMetadata PInvoke_getIteratorMetadata(
         TypeMetadataRequest request,
-        TypeMetadata keyTypeMetadata,
-        TypeMetadata valueTypeMetadata,
-        ProtocolWitnessTable witnessTable);
-
-    // Dictionary.makeIterator(): $sSD12makeIteratorSD0B0Vyxq__GyF
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSD12makeIteratorSD0B0Vyxq__GyF")]
-    public static extern void MakeIterator(
-        SwiftIndirectResult result,
-        IntPtr handle,
         TypeMetadata keyTypeMetadata,
         TypeMetadata valueTypeMetadata,
         ProtocolWitnessTable witnessTable);

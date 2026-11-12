@@ -810,6 +810,43 @@ namespace BindingsGeneration
             return false;
         }
 
+        /// <inheritdoc/>
+        public bool TryPeekTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
+            // The arms of TryGetTypeRecord that find a record a database already holds, in its
+            // order, through the primitives the cascade strategies call, and without the reference
+            // recording TryGetTypeRecord and its cascade adapter add on a hit.
+            if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplement))
+            {
+                record = supplement;
+                return true;
+            }
+            if (TryGetTypeRecordInternal(swiftTypeName, out record))
+                return true;
+            // A peek never throws: a name that does not parse is looked up no further.
+            if (RefAliasVariantName(swiftTypeName) is { } refName
+                && SwiftTypeName.TryFromModuleQualifiedName(refName, out var refVariant)
+                && TryGetTypeRecordInternal(refVariant, out record))
+                return true;
+            if (TryGetOutOfModuleType(swiftTypeName, out record))
+                return true;
+            if (TryResolveTypeAlias(swiftTypeName) is { } canonicalName)
+            {
+                var baseName = canonicalName.IndexOf('<') is var idx and >= 0 ? canonicalName[..idx] : canonicalName;
+                if (SwiftTypeName.TryFromModuleQualifiedName(baseName, out var aliasTarget)
+                    && TryGetTypeRecordInternal(aliasTarget, out record))
+                    return true;
+            }
+            if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
+            {
+                record = TypeDatabaseExtensions.SwiftErrorType;
+                return true;
+            }
+
+            record = null;
+            return false;
+        }
+
         /// <summary>
         /// Resolves a cross-module type alias to its full canonical name, preserving generic
         /// type arguments. Returns null if the type is not an alias.
@@ -1118,18 +1155,17 @@ namespace BindingsGeneration
         // arbitrary module's "…Ref"-suffixed type is a distinct real identity, not an alias of
         // a sibling. Returning null for non-family modules stops both arm 3 and IsTypeRegistered
         // from synthesizing a bogus sibling lookup — both call sites already guard the null.
-        internal static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName)
+        internal static SwiftTypeName? GetRefAliasVariant(SwiftTypeName swiftTypeName) =>
+            RefAliasVariantName(swiftTypeName) is { } name ? SwiftTypeName.FromModuleQualifiedName(name) : null;
+
+        /// <summary>The Foo/FooRef sibling's module-qualified name, unparsed; null outside the family.</summary>
+        private static string? RefAliasVariantName(SwiftTypeName swiftTypeName)
         {
             if (!_refAliasModules.Contains(swiftTypeName.Module))
                 return null;
 
             var fullName = swiftTypeName.ModuleQualifiedName;
-            if (fullName.EndsWith("Ref", StringComparison.Ordinal))
-            {
-                return SwiftTypeName.FromModuleQualifiedName(fullName[..^3]);
-            }
-
-            return SwiftTypeName.FromModuleQualifiedName($"{fullName}Ref");
+            return fullName.EndsWith("Ref", StringComparison.Ordinal) ? fullName[..^3] : $"{fullName}Ref";
         }
     }
 }

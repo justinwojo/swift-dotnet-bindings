@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using Xunit;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -227,6 +228,36 @@ public class ObjCOverridePropertyWrapperEmitterTests
         Assert.Contains("_ newValue: Swift.Int", output);
         Assert.Contains("_ self_: VectorAnimation.AnimationViewBase", output);
         Assert.Contains("self_.contentMode = newValue", output);
+    }
+
+    [Fact]
+    public void EmitSwiftAccessorWrappers_DescribeTheFunctionsTheyWrite()
+    {
+        var (moduleDecl, _) = CreateTestEnvironment("VectorAnimation");
+        var classDecl = CreateClassDecl("AnimationViewBase", moduleDecl, isObjCRooted: true);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "contentMode", "Swift.Int",
+            hasGetter: true, hasSetter: true);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
+            writer, property, "SBW_Get_VectorAnimation_AnimationViewBase_contentMode", ctx, "VectorAnimationSwiftBindings");
+        ObjCOverridePropertyWrapperEmitter.EmitSwiftSetterWrapper(
+            writer, property, "SBW_Set_VectorAnimation_AnimationViewBase_contentMode", ctx, "VectorAnimationSwiftBindings");
+
+        var output = sw.ToString();
+        var wrappers = SyntheticRegistration.AssertRegistered(ctx, output, SwiftWrapperSynthesizer.ObjCOverrideProperty);
+        SyntheticRegistration.AssertEveryWrittenIsRegistered(ctx, output, "SBW_");
+        Assert.All(wrappers, w => Assert.Equal("VectorAnimationSwiftBindings", w.Module));
+
+        Assert.True(ctx.TryGetSyntheticSwiftFunction("SBW_Get_VectorAnimation_AnimationViewBase_contentMode", out var getter));
+        Assert.Equal("Swift.Int", getter.ResultType);
+        Assert.Equal(new[] { "VectorAnimation.AnimationViewBase" }, getter.Parameters.Select(p => p.SwiftType));
+
+        Assert.True(ctx.TryGetSyntheticSwiftFunction("SBW_Set_VectorAnimation_AnimationViewBase_contentMode", out var setter));
+        Assert.Null(setter.ResultType);
+        Assert.Equal(new[] { "Swift.Int", "VectorAnimation.AnimationViewBase" }, setter.Parameters.Select(p => p.SwiftType));
     }
 
     [Fact]

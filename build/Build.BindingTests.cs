@@ -460,6 +460,11 @@ partial class Build
         // redundant per-regen dotnet build of the binding csproj.
         genArgs.Add("--no-verify-csharp");
 
+        // Route every transition the committed swiftc evidence proves through its native bridge.
+        // The evidence covers the iOS triples only, so the other platforms keep their direct imports.
+        if (BridgeEvidenceApplies(platformOverride))
+            genArgs.Add($"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"");
+
         // In strict mode (explicit --strict or --compile-only's fail-closed default), make the
         // generator fail-closed on a degraded input edge — a device→sim slice fallback, a missing
         // swiftinterface, an ABI-JSON fallback, an ambiguous TBD, or a degraded auto-detected
@@ -541,6 +546,8 @@ partial class Build
             if (strict)
                 depArgs.Add("--strict-inputs");
             depArgs.Add("--no-verify-csharp");
+            if (BridgeEvidenceApplies(platformOverride))
+                depArgs.Add($"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),
@@ -603,6 +610,15 @@ partial class Build
             {
                 File.Move(depManifest, BtOutputDir / $"{DepModuleName}.api-manifest.json", overwrite: true);
                 Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
+            }
+
+            // The dependency module's Swift call facts sidecar, transition ledger and call plans travel
+            // with its C# for the same reason: they describe transitions that are compiled from BtOutputDir.
+            foreach (var sidecar in new[] { $"{DepModuleName}.swift-call-facts.json", $"{DepModuleName}.swift-transition-ledger.json", $"{DepModuleName}.swift-call-plans.json" })
+            {
+                var depSidecar = depOutputDir / sidecar;
+                if (File.Exists(depSidecar))
+                    File.Move(depSidecar, BtOutputDir / sidecar, overwrite: true);
             }
 
             // Preserve the dependency wrapper xcframework for runtime linking
@@ -1113,9 +1129,9 @@ partial class Build
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || InterpIdentity || BridgeConsumer) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer and --compile-only cannot be "
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer/--interp-identity/--bridge-consumer and --compile-only cannot be "
                     + "combined: --compile-only is the whole-test-lib compile-check gate, while each opt-in leg builds and "
                     + "asserts its own focused fixture and returns early. Pass exactly one.");
 
@@ -1124,9 +1140,9 @@ partial class Build
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken, InterpIdentity, BridgeConsumer }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, and --activitykit-push-token "
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, --activitykit-push-token, --interp-identity, and --bridge-consumer "
                     + "cannot be combined: each requires its own focused execution path. Pass exactly one.");
 
             // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
@@ -1138,6 +1154,30 @@ partial class Build
                 if (Sim || Device || Macos || Catalyst || Tvos)
                     Log.Warning("--partial-success-kitchen is a host-only gate; platform flags are ignored.");
                 RunPartialSuccessKitchenGate();
+                return;
+            }
+
+            // --interp-identity: the opt-in .NET 11 lane-identity harness. It builds its own fixture,
+            // binding and apps for a fixed cell matrix (iOS simulator arm64 and Mac Catalyst x86_64,
+            // interpreter and ReadyToRun), so platform flags do not apply. Focused + exclusive.
+            if (InterpIdentity)
+            {
+                if (Device || Macos || MacosX64 || Tvos || MonoAot)
+                    throw new Exception("--interp-identity runs its fixed iOS-simulator and Mac Catalyst cell matrix; " +
+                        "it cannot be combined with --device, --macos, --tvos or --mono-aot. Select cells with --interp-identity-cells.");
+                RunInterpIdentityHarness();
+                return;
+            }
+
+            // --bridge-consumer: the opt-in .NET 11 packaged Debug consumer of the Swift bridges. It
+            // packs its own feed and fixture binding and runs one Debug app on the simulator and/or
+            // a device (simulator when neither is given). Focused + exclusive.
+            if (BridgeConsumer)
+            {
+                if (Macos || MacosX64 || Catalyst || CatalystX64 || Tvos || MonoAot)
+                    throw new Exception("--bridge-consumer runs an iOS app on the simulator and/or a device; " +
+                        "it cannot be combined with --macos, --catalyst, --tvos or --mono-aot.");
+                RunBridgeConsumerLeg(sim: Sim || !Device, device: Device);
                 return;
             }
 
@@ -1262,6 +1302,13 @@ partial class Build
                 // older OS, before any managed guard can run. Fail-closed and unconditional.
                 RunThunkWeakLinkGate();
 
+                // Transition ledger cross-check: join the generator's per-module transition ledgers
+                // with the compiled assembly's IL transition sites and demand a bijection, kind by
+                // kind, with facts on every entry and agreeing primitive verdicts. A Swift transition
+                // a producer rendered without recording its facts fails here. Fail-closed and
+                // unconditional: policy, not baseline.
+                RunTransitionLedgerCrossCheck();
+
                 // Layer B trend gate: parse skip markers from generated `.cs`
                 // and diff against `build/baselines/skip-surface-baseline.json`. Gated on
                 // --skip-surface so it runs only when explicitly requested
@@ -1372,7 +1419,7 @@ partial class Build
     {
         if (SkipBuild)
             return "and --skip-build contradict each other: run --build-only first, then --skip-build.";
-        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer)
+        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || BridgeConsumer)
             return "builds the iOS Simulator RuntimeTestsApp; it cannot be combined with --compile-only or an opt-in focused leg.";
         if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
             return "is iOS Simulator only; drop the other platform flags.";

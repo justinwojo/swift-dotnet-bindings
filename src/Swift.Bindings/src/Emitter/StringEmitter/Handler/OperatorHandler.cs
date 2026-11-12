@@ -359,7 +359,7 @@ namespace BindingsGeneration
 
                 // Emit the operator wrapper and PInvoke
                 EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper, callSite);
-                EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
+                EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper, emissionContext);
                 // Last, after every step that can still refuse the operator: the error helpers are
                 // deduplicated per type, so they must not be claimed by an operator that rolls back.
                 callSite?.EmitCallSiteMemberDeclarations(csWriter);
@@ -910,7 +910,8 @@ namespace BindingsGeneration
         /// and SwiftIndirectResult for struct returns.
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext, bool usesCdeclWrapper = false)
+        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext, bool usesCdeclWrapper = false,
+            ModuleEmissionContext? emissionContext = null)
         {
             var methodDecl = operatorDecl.UnderlyingMethod;
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
@@ -988,7 +989,8 @@ namespace BindingsGeneration
                     // the self register; it takes no trailing metadata.
                     MetadataParameters = MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv)
                         ? Array.Empty<string>()
-                        : pinvokeHelperContext.GetMetadataParameterDeclarations()
+                        : pinvokeHelperContext.GetMetadataParameterDeclarations(),
+                    EmissionContext = emissionContext ?? methodEnv.EmissionContext
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }
@@ -1003,7 +1005,8 @@ namespace BindingsGeneration
                     ReturnType = returnType,
                     ParametersString = parametersString,
                     CallingConvention = callingConvention,
-                    IsUnsafe = usesCdeclWrapper
+                    IsUnsafe = usesCdeclWrapper,
+                    EmissionContext = emissionContext ?? methodEnv.EmissionContext
                 });
             }
         }

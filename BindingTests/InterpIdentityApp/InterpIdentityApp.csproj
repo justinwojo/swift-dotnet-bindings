@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lane-identity app for the binding-tests interp-identity leg. It consumes the generated
+       InterpIdentityFixture binding exactly as a local ProjectReference consumer does (the
+       generated csproj plus its .ProjectReference.targets), runs one fixture per process and
+       prints the IIF receipt protocol. Nuke supplies every property below; the build refuses to
+       guess them. -->
+  <PropertyGroup>
+    <IifTargetFramework Condition="'$(IifTargetFramework)' == ''">net11.0</IifTargetFramework>
+    <TargetFramework Condition="'$(IifRuntimeIdentifier)' == 'iossimulator-arm64'">$(IifTargetFramework)-ios</TargetFramework>
+    <TargetFramework Condition="'$(IifRuntimeIdentifier)' == 'maccatalyst-x64'">$(IifTargetFramework)-maccatalyst</TargetFramework>
+    <!-- Local to this app: a global RID would also reach the binding and runtime projects. -->
+    <RuntimeIdentifier>$(IifRuntimeIdentifier)</RuntimeIdentifier>
+    <OutputPath>bin/$(IifRuntimeIdentifier)/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath>obj/$(IifRuntimeIdentifier)/$(Configuration)/</IntermediateOutputPath>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <UseMonoRuntime>false</UseMonoRuntime>
+    <PublishAot>false</PublishAot>
+    <ApplicationId>com.swiftbindings.interpidentity</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <SupportedOSPlatformVersion Condition="'$(IifRuntimeIdentifier)' == 'iossimulator-arm64'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="'$(IifRuntimeIdentifier)' == 'maccatalyst-x64'">17.0</SupportedOSPlatformVersion>
+    <!-- SB0001 is the binding's own notice on the direct CallConvSwift members; calling those
+         members is the point of the negative controls. -->
+    <!-- IL2121 (unused UnconditionalSuppressMessage): Swift.Runtime's suppressions are load-bearing
+         for ILC and read as unused to ILLink, which the Mac Catalyst Release build runs. Same
+         policy and reason as RuntimeTestsApp. -->
+    <NoWarn>$(NoWarn);SB0001;CA1416;CA1418;CA1422;IL2121</NoWarn>
+    <!-- The receipts: crossgen2's map of exactly which methods received precompiled bodies. -->
+    <PublishReadyToRunCrossgen2ExtraArgs>--map;--mapcsv</PublishReadyToRunCrossgen2ExtraArgs>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+    <IifBindingTargets>$(IifBindingDir)/$(IifBindingProjectName).ProjectReference.targets</IifBindingTargets>
+  </PropertyGroup>
+
+  <!-- ProjectReference does not import buildTransitive assets: take the runtime's final-app
+       engine hook directly, as the in-tree test apps do. -->
+  <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
+  <Import Project="$(IifBindingTargets)" Condition="Exists('$(IifBindingTargets)')" />
+
+  <Target Name="_IifRequireInputs" BeforeTargets="Restore;_CheckForInvalidConfigurationAndPlatform">
+    <Error Condition="'$(IifRuntimeIdentifier)' != 'iossimulator-arm64' AND '$(IifRuntimeIdentifier)' != 'maccatalyst-x64'"
+           Text="InterpIdentityApp: IifRuntimeIdentifier must be iossimulator-arm64 or maccatalyst-x64 (got '$(IifRuntimeIdentifier)')." />
+    <Error Condition="!Exists('$(IifBindingDir)/$(IifBindingProjectName).csproj')"
+           Text="InterpIdentityApp: no generated binding project at '$(IifBindingDir)/$(IifBindingProjectName).csproj'. Run it through the binding-tests interp-identity leg." />
+    <Error Condition="!Exists('$(IifBindingTargets)')"
+           Text="InterpIdentityApp: the generated binding's ProjectReference targets are missing at '$(IifBindingTargets)'." />
+  </Target>
+
+  <ItemGroup>
+    <None Include="Info.plist" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(IifBindingDir)/$(IifBindingProjectName).csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <NativeReference Include="../../src/Swift.Runtime/native/SwiftBindingsRuntime.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+</Project>

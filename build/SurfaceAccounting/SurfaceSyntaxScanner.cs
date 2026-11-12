@@ -775,6 +775,7 @@ public static class SurfaceSyntaxScanner
             Route = symbol.StartsWith("thunk_", StringComparison.Ordinal) ? "native-thunk"
                 : symbol.StartsWith("SBW_", StringComparison.Ordinal) || symbol.StartsWith("SBSW_", StringComparison.Ordinal) ? "cdecl"
                 : symbol.StartsWith("$s", StringComparison.Ordinal) ? "direct-swift"
+                : SwiftBindings.TransitionGate.SwiftTransitionScanner.IsForwardBridge(symbol) ? "swift-bridge"
                 : "unknown",
             UntypedSwiftSelf = parameters.Any(p => p.UntypedSwiftSelf),
             TypedSwiftSelf = parameters.Any(p => p.TypedSwiftSelf),

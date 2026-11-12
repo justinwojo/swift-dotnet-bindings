@@ -230,6 +230,50 @@ public class ArtifactParityGateTests
         Assert.DoesNotContain(ArtifactParityGate.DiffAgainstBaseline(findings, baseline), v => v.Gate == "symbol-reverse");
     }
 
+    [Fact]
+    public void Reverse_ExportCalledByAReferencedBridge_IsReferenced_ButNotThroughAnUnreferencedOne()
+    {
+        // A wrapper export a native Swift bridge calls is reached through the twin that imports the
+        // bridge; one only an unimported bridge calls is still an orphan.
+        const string cs = """
+            [LibraryImport("SwiftBindings", EntryPoint = "SBSR_0123456789abcdef")]
+            private static partial void Run__SBSR_0123456789abcdef(nint __self);
+            """;
+        // The weak references are hoisted to the top of the file; a bridge's targets are its branches.
+        const string bridges = """
+            .section __TEXT,__text,regular,pure_instructions
+            .weak_reference _SBSW_reached
+            .weak_reference _SBSW_unreached
+            .globl _SBSR_0123456789abcdef
+            .p2align 2
+            _SBSR_0123456789abcdef:
+              stp x29, x30, [sp, #-16]!
+              mov x20, x0
+              bl _SBSW_reached
+              ldp x29, x30, [sp], #16
+              ret
+            .globl _SBSR_fedcba9876543210
+            .p2align 2
+            _SBSR_fedcba9876543210:
+              jmp _SBSW_unreached
+            """;
+        var targets = ArtifactParityGate.ParseBridgeTargets(bridges);
+        Assert.Equal(Set("SBSW_reached"), targets["SBSR_0123456789abcdef"]);
+        Assert.Equal(Set("SBSW_unreached"), targets["SBSR_fedcba9876543210"]);
+
+        var findings = ArtifactParityGate.ComputeFindings(
+            cs, swiftWrapperSource: "", abiJson: EmptyAbi,
+            symbolsByLibrary: Libs(("SwiftBindings", new[] { "SBSR_0123456789abcdef", "SBSW_reached", "SBSW_unreached" })),
+            wrapperAuthoredSymbols: Set("SBSW_reached", "SBSW_unreached"),
+            bridgeTargets: targets);
+
+        Assert.Equal(new[] { "SBSW_unreached" }, findings.ReverseOrphans);
+        // Without the bridges, both look orphaned: the gate needs them to see the call.
+        Assert.Equal(2, ArtifactParityGate.ComputeFindings(
+            cs, "", EmptyAbi, Libs(("SwiftBindings", new[] { "SBSR_0123456789abcdef" })),
+            Set("SBSW_reached", "SBSW_unreached")).ReverseOrphans.Count);
+    }
+
     // ===================================================================
     //  Gate 2 — struct-mirror arity (Defect B)
     // ===================================================================

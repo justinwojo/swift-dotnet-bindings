@@ -85,7 +85,7 @@ public static class GenericClosureBridgeEmitter
         EmitCreateErrorHelperIfNeeded(swiftWriter, moduleName, ctx);
 
         // Emit Swift wrappers (returning + void)
-        EmitSwiftWrappers(swiftWriter, env, parentDecl, closureArg, closureTypeSpec);
+        EmitSwiftWrappers(swiftWriter, env, parentDecl, closureArg, closureTypeSpec, ctx);
 
         // Set method flags so PInvokeEmitter routes to wrapper library
         methodDecl.HasGenericClosureBridge = true;
@@ -208,7 +208,8 @@ public static class GenericClosureBridgeEmitter
         MethodEnvironment env,
         TypeDecl? parentDecl,
         ArgumentDecl closureArg,
-        ClosureTypeSpec closureTypeSpec)
+        ClosureTypeSpec closureTypeSpec,
+        ModuleEmissionContext ctx)
     {
         var methodDecl = env.MethodDecl;
         var csClosureName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(closureArg));
@@ -344,10 +345,16 @@ public static class GenericClosureBridgeEmitter
 
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");
-            swiftWriter.WriteLine($"@_silgen_name(\"{returningSymbol}\")");
-            swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}_XC(");
-            swiftWriter.WriteLine($"    {string.Join(",\n    ", swiftParams)}");
-            swiftWriter.WriteLine($"){throwsStr} {{");
+            string[] declarationLines =
+            [
+                $"@_silgen_name(\"{returningSymbol}\")",
+                $"public func {NameProvider.GetPInvokeName(methodDecl)}_XC(",
+                $"    {string.Join(",\n    ", swiftParams)}",
+                $"){throwsStr} {{",
+            ];
+            foreach (var line in declarationLines)
+                swiftWriter.WriteLine(line);
+            RegisterWrapper(ctx, declarationLines, env);
 
             if (!string.IsNullOrEmpty(selfConversion))
                 swiftWriter.WriteLine($"    {selfConversion}");
@@ -400,10 +407,16 @@ public static class GenericClosureBridgeEmitter
 
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");
-            swiftWriter.WriteLine($"@_silgen_name(\"{voidSymbol}\")");
-            swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}_XC_void(");
-            swiftWriter.WriteLine($"    {string.Join(",\n    ", swiftParams)}");
-            swiftWriter.WriteLine($"){throwsStr} {{");
+            string[] declarationLines =
+            [
+                $"@_silgen_name(\"{voidSymbol}\")",
+                $"public func {NameProvider.GetPInvokeName(methodDecl)}_XC_void(",
+                $"    {string.Join(",\n    ", swiftParams)}",
+                $"){throwsStr} {{",
+            ];
+            foreach (var line in declarationLines)
+                swiftWriter.WriteLine(line);
+            RegisterWrapper(ctx, declarationLines, env);
 
             if (!string.IsNullOrEmpty(selfConversion))
                 swiftWriter.WriteLine($"    {selfConversion}");
@@ -424,6 +437,17 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine();
         }
     }
+
+    /// <summary>
+    /// Describes a @_silgen_name wrapper from the declaration just written, so the binding's
+    /// Swift-convention transition carries its facts.
+    /// </summary>
+    private static void RegisterWrapper(ModuleEmissionContext ctx, string[] declarationLines, MethodEnvironment env) =>
+        ctx.RegisterSyntheticSwiftDeclaration(
+            declarationLines,
+            SwiftWrapperSynthesizer.GenericClosureBridge,
+            PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+            forwards: env.MethodDecl.MangledName);
 
     /// <summary>
     /// Builds the full argument list for the Swift method call, preserving declaration order.
@@ -515,7 +539,7 @@ public static class GenericClosureBridgeEmitter
         EmitCreateErrorPInvoke(csWriter, moduleName, asyncLibName, env, ctx);
         EmitErrorHelperPInvokes(csWriter, moduleName, asyncLibName, env, ctx);
         EmitPInvokeDeclarations(csWriter, pInvokeName, returningSymbol, voidSymbol, asyncLibName,
-            methodDecl, env, closureArg, emitVoidVariant);
+            methodDecl, env, closureArg, emitVoidVariant, ctx);
 
         // --- Public methods ---
         var classParent = parentDecl as ClassDecl;
@@ -661,7 +685,8 @@ public static class GenericClosureBridgeEmitter
         MethodDecl methodDecl,
         MethodEnvironment env,
         ArgumentDecl closureArg,
-        bool emitVoidVariant)
+        bool emitVoidVariant,
+        ModuleEmissionContext ctx)
     {
         // --- Returning variant P/Invoke ---
         var retParams = new List<string>();
@@ -680,7 +705,8 @@ public static class GenericClosureBridgeEmitter
             ReturnType = "void",
             ParametersString = string.Join(", ", retParams),
             Visibility = PInvokeVisibility.Internal,
-            IsUnsafe = true
+            IsUnsafe = true,
+            EmissionContext = ctx
         });
         csWriter.WriteLine();
 
@@ -702,7 +728,8 @@ public static class GenericClosureBridgeEmitter
             ReturnType = "void",
             ParametersString = string.Join(", ", voidParams),
             Visibility = PInvokeVisibility.Internal,
-            IsUnsafe = true
+            IsUnsafe = true,
+            EmissionContext = ctx
         });
         csWriter.WriteLine();
     }

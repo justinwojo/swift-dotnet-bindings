@@ -28,6 +28,12 @@ namespace RuntimeTestsApp.Marshalling;
 /// between them isolates a stack-aliasing artifact from a real ABI break — the real
 /// <c>SwiftDictionary</c> uses heap-allocated buffers, so the heap variant is the
 /// dictionary-representative shape.
+///
+/// The direct probes are negative controls for the generated native Swift bridges: they make the
+/// runtime's own Swift-convention transition on purpose, which a bridged binding never does, and
+/// <see cref="SwiftBridgeTests"/> drives the same register shapes (self with an indirect result and
+/// arguments) through generated bridges. They stay hand-marshalled and running so a divergence
+/// between the two names the runtime transition rather than the bridge.
 /// </summary>
 public class SretSelfProbeTests : TestBase
 {

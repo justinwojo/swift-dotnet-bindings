@@ -1674,6 +1674,19 @@ namespace BindingsGeneration
             """;
             }
 
+            // A @_silgen_name wrapper is bound from C# with the Swift convention: describe it from the
+            // declaration just built, so the binding's transition carries its facts.
+            if (!_env.MethodDecl.UsesCdeclMethodWrapper)
+                _emissionContext.RegisterSyntheticSwiftDeclaration(
+                    [funcBody],
+                    SwiftWrapperSynthesizer.AsyncBridge,
+                    PInvokeEmitHelper.ResolveWrapperLibrary(_env.TypeDatabase),
+                    forwards: _env.EmissionSymbol,
+                    declaringType: isExtension
+                        ? SyntheticSwiftDeclaringType.Of((TypeDecl)_env.ParentDecl!)
+                        : null,
+                    availability: SyntheticSwiftFunction.FloorsOf(availability));
+
             if (isExtension)
             {
                 // Extension declarations on nested types inside OS-gated outer types

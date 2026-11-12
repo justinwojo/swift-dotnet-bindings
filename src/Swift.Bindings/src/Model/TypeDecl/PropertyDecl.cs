@@ -42,6 +42,13 @@ namespace BindingsGeneration
         public bool IsFinal { get; set; } = false;
 
         /// <summary>
+        /// Whether this property is declared <c>lazy</c>. A lazy property's getter stores the value it
+        /// computes on first read, so on a value type it takes self inout although the ABI descriptor
+        /// does not mark the getter mutating.
+        /// </summary>
+        public bool IsLazy { get; set; } = false;
+
+        /// <summary>
         /// Set to true during emission when this property passes all validation gates and is
         /// actually written to the C# output. Used by override resolution to verify that a
         /// base class property exists in the emitted C# hierarchy (not just the parsed model).

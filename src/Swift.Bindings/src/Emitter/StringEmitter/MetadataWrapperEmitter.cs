@@ -18,9 +18,12 @@ public static class MetadataWrapperEmitter
     /// Callers keep the zero-argument spelling. The import is private, so it neither hides nor is
     /// hidden by a base class's import, and <paramref name="hasNewModifier"/> applies only to the
     /// zero-argument method, as it did when that method was the import itself.
+    /// <paramref name="emissionContext"/>, when supplied, records the import's Swift call facts for
+    /// the module's transition ledger; it never changes the rendered text.
     /// </summary>
     public static IEnumerable<string> FormatSwiftAccessorImportLines(
-        string libraryPath, string accessorSymbol, string methodName, bool hasNewModifier)
+        string libraryPath, string accessorSymbol, string methodName, bool hasNewModifier,
+        ModuleEmissionContext? emissionContext = null)
     {
         var newModifier = hasNewModifier ? "new " : "";
         yield return $"internal static {newModifier}TypeMetadata {methodName}() => {methodName}(global::Swift.Runtime.TypeMetadataRequest.Complete);";
@@ -33,7 +36,8 @@ public static class MetadataWrapperEmitter
             ReturnType = "TypeMetadata",
             ParametersString = "global::Swift.Runtime.TypeMetadataRequest request",
             Visibility = PInvokeVisibility.Private,
-            CallingConvention = PInvokeCallingConvention.Swift
+            CallingConvention = PInvokeCallingConvention.Swift,
+            EmissionContext = emissionContext
         }))
             yield return line;
     }

@@ -135,6 +135,17 @@ public class RuntimeAvailabilityGuardTests : TestBase
     }
 
     /// <summary>
+    /// A future-floored member reached through a native Swift bridge: the guard must fire
+    /// before the bridge is called. Reaching the guard at all proves the wrapper holding the
+    /// bridge loaded on an OS without the member.
+    /// </summary>
+    public void TestFutureBridgedStaticMember_GuardThrows()
+    {
+        var method = FindMethod(typeof(FutureBridgedHost), "FutureLabel", isStatic: true);
+        AssertGuardThrows(() => method.Invoke(null, null), "FutureBridgedHost.FutureLabel");
+    }
+
+    /// <summary>
     /// A constructor of a future-gated TYPE inherits the type's floor even though it
     /// declares none of its own. This is the case the pre-fix emitter deduped to nothing
     /// (member floor == parent floor → no guard), leaving the type-gated constructor able

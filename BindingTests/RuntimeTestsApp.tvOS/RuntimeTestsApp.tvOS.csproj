@@ -20,6 +20,13 @@
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 
+  <!-- .NET 11 CoreCLR lanes: crossgen2's map of exactly which methods received precompiled
+       bodies. The harness reads it as lane-identity evidence beside each class's lane witness
+       (interpreter: no app bodies; ReadyToRun: the witness's caller is a mapped body). -->
+  <PropertyGroup Condition="'$(BtTargetFramework)' == 'net11.0' AND '$(BtRuntimeEngine)' == 'coreclr'">
+    <PublishReadyToRunCrossgen2ExtraArgs>$(PublishReadyToRunCrossgen2ExtraArgs);--map;--mapcsv</PublishReadyToRunCrossgen2ExtraArgs>
+  </PropertyGroup>
+
   <!-- ProjectReference does not import buildTransitive assets. Use the production
        final-app engine hook; Nuke owns native injection for these test apps. -->
   <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
@@ -66,6 +73,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/LaneProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MallocProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/ConservativeRootProbe.cs" />

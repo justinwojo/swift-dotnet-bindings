@@ -220,7 +220,8 @@ namespace BindingsGeneration
                             ParametersString = $"{csharpRawType} rawValue",
                             IsAsync = false,
                             MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
-                            CallingConvention = PInvokeCallingConvention.Swift
+                            CallingConvention = PInvokeCallingConvention.Swift,
+                            EmissionContext = ctx
                         });
                     }
                     else
@@ -232,7 +233,8 @@ namespace BindingsGeneration
                             MethodName = "PInvoke_InitWithRawValue",
                             ReturnType = "IntPtr",
                             ParametersString = $"{csharpRawType} rawValue",
-                            CallingConvention = PInvokeCallingConvention.Swift
+                            CallingConvention = PInvokeCallingConvention.Swift,
+                            EmissionContext = ctx
                         });
                         csWriter.WriteLine();
                     }
@@ -386,7 +388,8 @@ namespace BindingsGeneration
                         ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue",
                         IsAsync = false,
                         MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = ctx
                     });
                 }
                 else
@@ -398,7 +401,8 @@ namespace BindingsGeneration
                         MethodName = "PInvoke_InitWithRawValue",
                         ReturnType = "void",
                         ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue",
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = ctx
                     });
                     csWriter.WriteLine();
                 }
@@ -414,7 +418,8 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
                         IsAsync = false,
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = ctx
                     });
                 }
                 else
@@ -427,7 +432,8 @@ namespace BindingsGeneration
                         MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
                         ReturnType = "TypeMetadata",
                         ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = ctx
                     });
                     csWriter.WriteLine();
                 }

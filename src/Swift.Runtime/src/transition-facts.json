@@ -1,0 +1,298 @@
+{
+  "schema": 1,
+  "assembly": "Swift.Runtime",
+  "bridges": {
+    "library": "SwiftBindingsRuntime",
+    "declarations": "Swift/Bridges/SwiftTransitions.declarations.cs",
+    "managed": "Swift/Bridges/SwiftTransitions.g.cs",
+    "native": "../swift/SwiftBindingsRuntimeBridges"
+  },
+  "lowering": [
+    {
+      "type": "Swift.Dictionary<τ_0_0, τ_0_1>.Iterator",
+      "outcome": "Indirect",
+      "pieces": [],
+      "reason": "Dictionary.Iterator's frozen layout (a native iterator: storage, bitmap words, position) is more than four pieces, so swiftc returns it indirectly; the runtime declares the call with SwiftIndirectResult"
+    },
+    {
+      "type": "Swift.Set<τ_0_0>.Iterator",
+      "outcome": "Indirect",
+      "pieces": [],
+      "reason": "Set.Iterator's frozen layout (a native iterator: storage, bitmap words, position) is more than four pieces, so swiftc returns it indirectly; the runtime declares the call with SwiftIndirectResult"
+    }
+  ],
+  "transitions": [
+    {
+      "method": "Get",
+      "entryPoint": "$sSayxSicig",
+      "library": "KnownLibraries.SwiftCore",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Accessor",
+          "accessor": "Get",
+          "entry": "Implementation",
+          "symbol": "$sSayxSicig",
+          "module": "Swift",
+          "declaringType": "Swift.Array",
+          "memberName": "subscript",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "Value",
+          "mutation": "Nonmutating",
+          "abstraction": "GenericParent",
+          "type": {
+            "spelling": "Swift.Array",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [
+          {
+            "index": 0,
+            "name": "index",
+            "type": {
+              "spelling": "Swift.Int",
+              "category": "Struct",
+              "isClassBound": false,
+              "isFrozen": true
+            },
+            "convention": "Guaranteed",
+            "conventionSource": "Default",
+            "closure": "NotClosure",
+            "isVariadic": false
+          }
+        ],
+        "result": {
+          "type": {
+            "spelling": "τ_0_0",
+            "category": "GenericParameter",
+            "isClassBound": false
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [
+            "τ_0_0"
+          ],
+          "requirements": [],
+          "ownParameters": []
+        }
+      }
+    },
+    {
+      "method": "Get",
+      "entryPoint": "$sSDyq_Sgxcig",
+      "library": "KnownLibraries.SwiftCore",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Accessor",
+          "accessor": "Get",
+          "entry": "Implementation",
+          "symbol": "$sSDyq_Sgxcig",
+          "module": "Swift",
+          "declaringType": "Swift.Dictionary",
+          "memberName": "subscript",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "Value",
+          "mutation": "Nonmutating",
+          "abstraction": "GenericParent",
+          "type": {
+            "spelling": "Swift.Dictionary",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [
+          {
+            "index": 0,
+            "name": "key",
+            "type": {
+              "spelling": "τ_0_0",
+              "category": "GenericParameter",
+              "isClassBound": false
+            },
+            "convention": "Guaranteed",
+            "conventionSource": "Default",
+            "closure": "NotClosure",
+            "isVariadic": false
+          }
+        ],
+        "result": {
+          "type": {
+            "spelling": "Swift.Optional<τ_0_1>",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [
+            "τ_0_0",
+            "τ_0_1"
+          ],
+          "requirements": [
+            {
+              "subject": "τ_0_0",
+              "target": "Swift.Hashable",
+              "kind": "Conformance",
+              "targetKind": "Protocol",
+              "isInherited": false,
+              "passesWitnessTable": true,
+              "bindsToClasses": false
+            }
+          ],
+          "ownParameters": []
+        }
+      }
+    },
+    {
+      "method": "MakeIterator",
+      "entryPoint": "$sSD12makeIteratorSD0B0Vyxq__GyF",
+      "library": "KnownLibraries.SwiftCore",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Method",
+          "accessor": "None",
+          "entry": "Implementation",
+          "symbol": "$sSD12makeIteratorSD0B0Vyxq__GyF",
+          "module": "Swift",
+          "declaringType": "Swift.Dictionary",
+          "memberName": "makeIterator",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "Value",
+          "mutation": "Consuming",
+          "abstraction": "GenericParent",
+          "type": {
+            "spelling": "Swift.Dictionary",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [],
+        "result": {
+          "type": {
+            "spelling": "Swift.Dictionary<τ_0_0, τ_0_1>.Iterator",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [
+            "τ_0_0",
+            "τ_0_1"
+          ],
+          "requirements": [
+            {
+              "subject": "τ_0_0",
+              "target": "Swift.Hashable",
+              "kind": "Conformance",
+              "targetKind": "Protocol",
+              "isInherited": false,
+              "passesWitnessTable": true,
+              "bindsToClasses": false
+            }
+          ],
+          "ownParameters": []
+        }
+      }
+    },
+    {
+      "method": "MakeIterator",
+      "entryPoint": "$sSh12makeIteratorSh0B0Vyx_GyF",
+      "library": "KnownLibraries.SwiftCore",
+      "facts": {
+        "factsVersion": 3,
+        "target": {
+          "kind": "Method",
+          "accessor": "None",
+          "entry": "Implementation",
+          "symbol": "$sSh12makeIteratorSh0B0Vyx_GyF",
+          "module": "Swift",
+          "declaringType": "Swift.Set",
+          "memberName": "makeIterator",
+          "availability": [],
+          "hasDispatchThunk": false
+        },
+        "self": {
+          "kind": "Value",
+          "mutation": "Consuming",
+          "abstraction": "GenericParent",
+          "type": {
+            "spelling": "Swift.Set",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          }
+        },
+        "parameters": [],
+        "result": {
+          "type": {
+            "spelling": "Swift.Set<τ_0_0>.Iterator",
+            "category": "Struct",
+            "isClassBound": false,
+            "isFrozen": true
+          },
+          "isFailableInitializer": false
+        },
+        "effects": {
+          "throws": false,
+          "isAsync": false,
+          "isCoroutine": false,
+          "hasParameterPacks": false
+        },
+        "generics": {
+          "parameters": [
+            "τ_0_0"
+          ],
+          "requirements": [
+            {
+              "subject": "τ_0_0",
+              "target": "Swift.Hashable",
+              "kind": "Conformance",
+              "targetKind": "Protocol",
+              "isInherited": false,
+              "passesWitnessTable": true,
+              "bindsToClasses": false
+            }
+          ],
+          "ownParameters": []
+        }
+      }
+    }
+  ]
+}

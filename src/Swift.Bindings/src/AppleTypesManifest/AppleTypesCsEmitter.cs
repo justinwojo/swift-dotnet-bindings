@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Swift.Runtime;
@@ -54,6 +55,21 @@ public sealed class AppleTypesCsEmitter
     public IReadOnlyList<RefusedWhitelistEntry> RefusedWhitelistEntries => _refused;
     private readonly List<RefusedWhitelistEntry> _refused = new();
 
+    /// <summary>The assembly the emitted files compile into; its transition ledger is named after it.</summary>
+    public const string LedgerModule = "SwiftBindings.Apple";
+
+    // The Swift transitions the emitted files contain, with the facts of each, and the emitted
+    // sources the ledger reads them back from.
+    private readonly List<SwiftTransitionRecord> _transitionRecords = new();
+    private readonly List<string> _emittedSources = new();
+
+    /// <summary>
+    /// The transition ledger of every file emitted so far: each metadata-accessor import, read back
+    /// from the emitted C#, with the accessor's facts.
+    /// </summary>
+    public SwiftTransitionLedger BuildTransitionLedger() =>
+        SwiftTransitionLedger.Build(LedgerModule, _emittedSources, _transitionRecords);
+
     public sealed record SkippedEntry(string SwiftIdentity, string Reason);
     public sealed record RefusedWhitelistEntry(string SwiftIdentity, string Reason);
 
@@ -95,6 +111,13 @@ public sealed class AppleTypesCsEmitter
         }
 
         EmitFrameworkResolverRegistration(outputDir, opaqueRegistrations);
+
+        // Beside the C#, not among it: the project compiles only the emitted .cs files.
+        var ledger = BuildTransitionLedger();
+        ledger.Write(outputDir, LedgerModule, _logger);
+        SwiftCallPlanSet
+            .Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(UnknownSwiftValueLowering.Instance)))
+            .Write(outputDir, LedgerModule, _logger);
     }
 
     // Emits a single file with a `[ModuleInitializer]` that validates the Runtime
@@ -209,8 +232,19 @@ public sealed class AppleTypesCsEmitter
         Directory.CreateDirectory(moduleDir);
         var outputPath = Path.Combine(moduleDir, fileName);
 
-        File.WriteAllText(outputPath, QualifyGenerated(source));
+        var emitted = QualifyGenerated(source);
+        File.WriteAllText(outputPath, emitted);
         _emittedFiles.Add(outputPath);
+        _emittedSources.Add(emitted);
+        _transitionRecords.Add(new SwiftTransitionRecord
+        {
+            MethodName = MetadataAccessorMethod,
+            EntryPoint = accessor.Symbol,
+            Library = ResolveLibraryPath(accessor.Library),
+            Facts = SwiftCallFactsBuilder.ForMetadataAccessorSymbol(
+                accessor.Symbol, moduleName, entry.SwiftIdentity, AvailabilityFloorsOf(accessor.Availability)),
+            Source = SwiftCallFactsSource.Declared,
+        });
 
         return useSequential
             ? null
@@ -423,7 +457,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
         sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
-        sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);");
+        sb.Append(bodyPad); sb.AppendLine($"private static extern TypeMetadata {MetadataAccessorMethod}(TypeMetadataRequest request);");
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("public void Dispose()");
         sb.Append(bodyPad); sb.AppendLine("{");
@@ -493,7 +527,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
         sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
-        sb.Append(bodyPad); sb.AppendLine("private static extern TypeMetadata PInvoke_GetMetadata(TypeMetadataRequest request);");
+        sb.Append(bodyPad); sb.AppendLine($"private static extern TypeMetadata {MetadataAccessorMethod}(TypeMetadataRequest request);");
         sb.Append(pad); sb.AppendLine("}");
 
         for (var i = outer.Count - 1; i >= 0; i--)
@@ -574,6 +608,20 @@ public sealed class AppleTypesCsEmitter
     //
     // Swift stdlib paths stay absolute (no `.framework/` substring so they don't trigger
     // the scanner, and they're already canonical dyld paths).
+    /// <summary>The name every emitted type gives its metadata-accessor import.</summary>
+    private const string MetadataAccessorMethod = "PInvoke_GetMetadata";
+
+    /// <summary>A manifest availability as the call facts spell platform floors.</summary>
+    private static ImmutableArray<SwiftAvailabilityFloor> AvailabilityFloorsOf(Availability availability) =>
+        new (string Platform, string? Version)[]
+        {
+            ("iOS", availability.Ios), ("macCatalyst", availability.Maccatalyst), ("macOS", availability.Macos), ("tvOS", availability.Tvos),
+        }
+        .Where(p => !string.IsNullOrEmpty(p.Version))
+        .OrderBy(p => p.Platform, StringComparer.Ordinal)
+        .Select(p => new SwiftAvailabilityFloor(p.Platform, p.Version!))
+        .ToImmutableArray();
+
     private static string ResolveLibraryPath(string library)
     {
         return library switch

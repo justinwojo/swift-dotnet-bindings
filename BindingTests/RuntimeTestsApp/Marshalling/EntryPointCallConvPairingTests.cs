@@ -93,6 +93,22 @@ public class EntryPointCallConvPairingTests : TestBase
                             "Swift-CC wrapper symbols always use the Swift calling convention exclusively.");
                     }
                 }
+                else if (entryPoint.StartsWith("SBSR_", StringComparison.Ordinal))
+                {
+                    // SBSR_ is a native Swift bridge: a C-convention stub that moves its trailing
+                    // pointers into Swift's self, indirect-result and error registers. Called with
+                    // the Swift convention, those pointers would land in the wrong registers.
+                    bool exclusiveCdecl = convs.Length == 1 && convs[0] == typeof(CallConvCdecl);
+                    if (!exclusiveCdecl)
+                    {
+                        violations.Add(
+                            $"{type.FullName}.{method.Name}: EntryPoint=\"{entryPoint}\" " +
+                            "is an SBSR_ native Swift bridge; the only correct pairing is " +
+                            "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })] " +
+                            $"(observed convs: [{string.Join(", ", convs.Select(t => t.Name))}], " +
+                            $"hasCdecl={hasCdecl}, hasSwift={hasSwift}).");
+                    }
+                }
                 else if (entryPoint.StartsWith("SBW_", StringComparison.Ordinal))
                 {
                     // SBW_ wrappers are emitted as @_cdecl Swift functions — they MUST declare

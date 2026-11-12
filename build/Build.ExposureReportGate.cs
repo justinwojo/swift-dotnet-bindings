@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -55,7 +56,7 @@ partial class Build
             throw new Exception("Exposure report gate: generated C# inventory is empty.");
 
         var scan = BindingsGeneration.GeneratedSwiftCallReader.Scan(generatedFiles, BtOutputDir);
-        var errors = ExposureReportLedger.Evaluate(File.ReadAllText(reportPath), scan, ModuleName);
+        var errors = ExposureReportLedger.Evaluate(File.ReadAllText(reportPath), scan, ModuleName, BridgedEntryPoints(ModuleName));
         foreach (var error in errors)
             Log.Error("  ✗ {Error}", error);
         if (errors.Count != 0)
@@ -65,6 +66,19 @@ partial class Build
             "  ✓ {Rows} direct SwiftSelf row(s), {Files} final C# file(s), receipt/hash exact; named positive, resolved-negative, and function-pointer fixtures attributed",
             scan.Observations.Count,
             scan.ScannedFileCount);
+    }
+
+    /// <summary>The entry points the module's call-plan sidecar says this generation routed through a native bridge.</summary>
+    HashSet<string> BridgedEntryPoints(string module)
+    {
+        var path = BtOutputDir / $"{module}.swift-call-plans.json";
+        if (!File.Exists(path))
+            throw new Exception($"Exposure report gate: the call-plan sidecar is absent: {path}");
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        return document.RootElement.GetProperty("coverage").EnumerateArray()
+            .Where(entry => entry.TryGetProperty("bridged", out var bridged) && bridged.ValueKind == JsonValueKind.True)
+            .Select(entry => entry.GetProperty("entryPoint").GetString() ?? "")
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private static string ReadApiManifestModule(string path)

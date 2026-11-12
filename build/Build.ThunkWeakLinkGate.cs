@@ -41,7 +41,8 @@ partial class Build
     /// types, and the future-floored members of otherwise ordinary types. Each must be imported, and
     /// only weakly. The ones the generator binds through a native thunk (instance and static methods,
     /// and the metadata accessor the static path calls) must also still arrive through one; the rest
-    /// reach the wrapper from Swift code only.
+    /// reach the wrapper from Swift code only. The internal host's member is bound through a native
+    /// Swift bridge (its metatype self travels in a Swift register), and must arrive through one.
     /// </summary>
     static readonly FutureFlooredFixture[] ThunkWeakLinkFutureFlooredFixtures =
     {
@@ -50,6 +51,7 @@ partial class Build
         new("19RuntimeGuardCarrierV16futureOnlyStatic", ReachedThroughThunk: true),
         new("17FutureGatedBufferV", ReachedThroughThunk: false),
         new("14GuardedOperandV1poi", ReachedThroughThunk: false),
+        new("17FutureBridgedHostC11futureLabel", ReachedThroughThunk: true, ReachedThroughBridge: true),
     };
 
     /// <summary>
@@ -91,10 +93,14 @@ partial class Build
                 : new List<string>();
 
             var targets = new HashSet<string>(StringComparer.Ordinal);
+            var bridgeTargets = new HashSet<string>(StringComparer.Ordinal);
             var references = new List<ObjectReference>();
             foreach (var asm in assemblyFiles)
             {
-                targets.UnionWith(ThunkWeakLinkAudit.ParseBranchTargets(File.ReadAllText(asm)));
+                var branchTargets = ThunkWeakLinkAudit.ParseBranchTargets(File.ReadAllText(asm));
+                targets.UnionWith(branchTargets);
+                if (Path.GetFileName(asm).Contains(".Bridges.", StringComparison.Ordinal))
+                    bridgeTargets.UnionWith(branchTargets);
 
                 // `{ns}.{arch}.s` — assemble each for its own architecture on this lane's platform.
                 var arch = Path.GetExtension(Path.GetFileNameWithoutExtension(asm)).TrimStart('.');
@@ -110,7 +116,7 @@ partial class Build
             else
                 failures.Add($"{leg}: wrapper binary not found at {binary}.");
 
-            var verdict = ThunkWeakLinkAudit.Evaluate(leg, targets, references, imports, fixtures);
+            var verdict = ThunkWeakLinkAudit.Evaluate(leg, targets, references, imports, fixtures, bridgeTargets);
             Log.Information(
                 "{Leg}: {Files} thunk file(s), {Targets} target(s), {Weak} weak in the objects; linked wrapper imports {Imported} " +
                 "({Strong} strong because Swift code also references them unconditionally)",

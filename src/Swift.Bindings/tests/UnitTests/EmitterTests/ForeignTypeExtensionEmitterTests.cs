@@ -284,6 +284,32 @@ public class ForeignTypeExtensionEmitterTests
     }
 
     [Fact]
+    public void ProcessedMember_DescribesTheWrapperItsSwiftConventionPInvokeBinds()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { CreateExtMethod("configure", "public func configure()") }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var swiftOutput = new StringWriter();
+        ForeignTypeExtensionEmitter.EmitSwiftWrappers(new SwiftWriter(swiftOutput), ctx);
+        var csOutput = new StringWriter();
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(new CSharpWriter(csOutput), typeDatabase, "TestModule", ctx);
+
+        var swift = swiftOutput.ToString();
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swift, SwiftWrapperSynthesizer.ForeignTypeExtension));
+        SyntheticRegistration.AssertEveryWrittenIsRegistered(ctx, swift, "SBSW_");
+        // A free function that takes the foreign instance as its first parameter.
+        Assert.Equal(SwiftCallSelfKind.None, wrapper.Self.Kind);
+        Assert.NotEmpty(wrapper.Parameters);
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput.ToString(), SwiftWrapperSynthesizer.ForeignTypeExtension);
+    }
+
+    [Fact]
     public void EmitSwiftWrappers_UserParamNamedSelf_EscapedAgainstInjectedReceiver()
     {
         // Foreign-type-extension path: a user parameter literally named `self_` collides with the

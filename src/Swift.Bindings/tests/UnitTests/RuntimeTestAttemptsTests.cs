@@ -210,7 +210,6 @@ public sealed class RuntimeTestAttemptsTests : IDisposable
 
     [Theory]
     [InlineData("Unhandled exception. System.InvalidOperationException")]
-    [InlineData("[INFO] === InstanceDirectThrowControlTests ===\nUnhandled exception. System.TypeInitializationException")]
     [InlineData("[TEST] --- InstanceDirectThrowControlTests.TestThrowingInstanceDirectCall ---\nTEST FAILURE")]
     [InlineData("[TEST] --- InstanceDirectThrowControlTests.TestThrowingInstanceDirectCall ---\n[PASS] InstanceDirectThrowControlTests.TestThrowingInstanceDirectCall (1ms)\nUnhandled exception.")]
     public void IncompleteOrCompletedFailure_WithoutUnfinishedIdentity_CannotResume(string output)

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 
 namespace BindingsGeneration;
@@ -75,6 +76,14 @@ public sealed class ModuleEmissionContext
     }
 
     private ModuleEmissionContext(bool implicitFallback) => IsImplicitFallback = implicitFallback;
+
+    /// <summary>
+    /// The Swift-side facts of every symbol this module's declarations name. Set once, before any
+    /// member is emitted, from the module's parsed model; read-only after that. An emitter binding a
+    /// Swift-convention symbol asks it for the symbol's facts instead of reconstructing them from
+    /// rendered strings. <see cref="SwiftCallFactsTable.Empty"/> until the module emitter sets it.
+    /// </summary>
+    public SwiftCallFactsTable SwiftCallFacts { get; set; } = SwiftCallFactsTable.Empty;
 
     // ==================== Module / Type Name Collision ====================
 
@@ -1659,6 +1668,172 @@ public sealed class ModuleEmissionContext
             .ThenBy(p => p.IsAsync)
             .ThenBy(p => string.Join('\u0001', p.ParameterCarriers), StringComparer.Ordinal)
             .ToList();
+        }
+    }
+
+    // ---- Swift call facts for the forward Swift-convention transitions this module emits ----
+    //
+    // A synthesizer that writes a Swift function into the wrapper registers its description here, keyed
+    // by the exported symbol; every rendered Swift-convention declaration records what its producer knew.
+    // Both are side effects of rendering and change no text. Facts for a registered function are built at
+    // lookup, not at registration, so a pre-pass that registers before the module's facts table is set
+    // still resolves against the final table. Same locking rationale as the call plans above.
+
+    private readonly Dictionary<string, SyntheticSwiftFunction> _syntheticSwiftFunctions = new(StringComparer.Ordinal);
+    private readonly SortedSet<string> _syntheticSwiftFunctionConflicts = new(StringComparer.Ordinal);
+    private readonly HashSet<SwiftTransitionRecord> _swiftTransitionRecords = new();
+    private readonly HashSet<SwiftCallbackRecord> _swiftCallbackRecords = new();
+    private readonly HashSet<SwiftCalliRecord> _swiftCalliRecords = new();
+    private readonly object _swiftTransitionLock = new();
+
+    /// <summary>Records what the producer of one rendered Swift-convention reverse callback knew.</summary>
+    public void RecordSwiftCallback(SwiftCallbackRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        lock (_swiftTransitionLock)
+            _swiftCallbackRecords.Add(record);
+    }
+
+    /// <summary>Every recorded reverse callback, in no particular order.</summary>
+    public IReadOnlyList<SwiftCallbackRecord> SwiftCallbackRecords
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _swiftCallbackRecords.ToArray();
+        }
+    }
+
+    /// <summary>Records what the producer of one rendered forward <c>calli</c> through an <c>unmanaged[Swift]</c> pointer knew.</summary>
+    public void RecordSwiftCalli(SwiftCalliRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        lock (_swiftTransitionLock)
+            _swiftCalliRecords.Add(record);
+    }
+
+    /// <summary>Every recorded forward Swift-convention <c>calli</c>, in no particular order.</summary>
+    public IReadOnlyList<SwiftCalliRecord> SwiftCalliRecords
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _swiftCalliRecords.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Registers a Swift function a synthesizer wrote into the wrapper, so a declaration binding its
+    /// symbol resolves facts for it. Registering the same description again is a no-op; a different
+    /// description under the same symbol keeps the first and is reported as a ledger issue.
+    /// </summary>
+    public void RegisterSyntheticSwiftFunction(SyntheticSwiftFunction function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        lock (_swiftTransitionLock)
+        {
+            if (_syntheticSwiftFunctions.TryGetValue(function.Symbol, out var existing))
+            {
+                if (!existing.Equals(function))
+                    _syntheticSwiftFunctionConflicts.Add(
+                        $"{function.Symbol}: registered twice with different descriptions ({existing.Synthesizer}, {function.Synthesizer}); the first is kept");
+                return;
+            }
+            _syntheticSwiftFunctions.Add(function.Symbol, function);
+        }
+    }
+
+    /// <summary>
+    /// Registers a Swift function from the declaration lines its synthesizer just wrote. A
+    /// declaration the reader cannot read is reported as a ledger issue instead of failing the
+    /// member: describing a wrapper must never change what is emitted.
+    /// </summary>
+    public void RegisterSyntheticSwiftDeclaration(
+        IEnumerable<string> declarationLines,
+        SwiftWrapperSynthesizer synthesizer,
+        string module,
+        string? forwards = null,
+        SyntheticSwiftDeclaringType? declaringType = null,
+        System.Collections.Immutable.ImmutableArray<SwiftAvailabilityFloor> availability = default)
+    {
+        var declaration = string.Join("\n", declarationLines);
+        SyntheticSwiftFunction function;
+        try
+        {
+            function = SyntheticSwiftFunction.FromDeclaration(declaration, synthesizer, module, forwards, declaringType, availability);
+        }
+        catch (FormatException ex)
+        {
+            var firstLine = declaration.Split('\n')[0];
+            lock (_swiftTransitionLock)
+                _syntheticSwiftFunctionConflicts.Add($"{synthesizer} declaration '{firstLine}' could not be read: {ex.Message}");
+            return;
+        }
+        RegisterSyntheticSwiftFunction(function);
+    }
+
+    /// <summary>Every registered synthesized function, in no particular order.</summary>
+    public IReadOnlyList<SyntheticSwiftFunction> SyntheticSwiftFunctions
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _syntheticSwiftFunctions.Values.ToArray();
+        }
+    }
+
+    /// <summary>The synthesized function registered under <paramref name="symbol"/>, if any.</summary>
+    public bool TryGetSyntheticSwiftFunction(string symbol, [NotNullWhen(true)] out SyntheticSwiftFunction? function)
+    {
+        lock (_swiftTransitionLock)
+            return _syntheticSwiftFunctions.TryGetValue(symbol, out function);
+    }
+
+    /// <summary>
+    /// The facts of the symbol a Swift-convention declaration binds: a function a synthesizer registered
+    /// first (its symbol is the wrapper's own), then a declared symbol from the module's facts table.
+    /// </summary>
+    public bool TryResolveCallFacts(
+        string symbol, [NotNullWhen(true)] out SwiftCallFacts? facts, out SwiftCallFactsSource source)
+    {
+        if (TryGetSyntheticSwiftFunction(symbol, out var function))
+        {
+            facts = SwiftCallFacts.Describe(function);
+            source = SwiftCallFactsSource.Synthesized;
+            return true;
+        }
+        source = SwiftCallFactsSource.Declared;
+        return SwiftCallFacts.TryGet(symbol, out facts);
+    }
+
+    /// <summary>Records what the producer of one rendered Swift-convention declaration knew.</summary>
+    public void RecordSwiftTransition(SwiftTransitionRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        lock (_swiftTransitionLock)
+            _swiftTransitionRecords.Add(record);
+    }
+
+    /// <summary>Every recorded transition, in no particular order.</summary>
+    public IReadOnlyList<SwiftTransitionRecord> SwiftTransitionRecords
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _swiftTransitionRecords.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Registration problems: synthesized symbols registered twice with different descriptions, and
+    /// synthesized declarations that could not be read.
+    /// </summary>
+    public IReadOnlyList<string> SyntheticSwiftFunctionConflicts
+    {
+        get
+        {
+            lock (_swiftTransitionLock)
+                return _syntheticSwiftFunctionConflicts.ToArray();
         }
     }
 

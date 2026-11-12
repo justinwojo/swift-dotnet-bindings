@@ -2337,6 +2337,83 @@ public class DefaultParameterOverloadEmitterTests
         // 4. C# output must have a P/Invoke with the @_cdecl symbol as entry point
         Assert.Contains("SBW_TestModule_FinalCounter_add_", csOutput);
         Assert.Contains("LibraryImport", csOutput);
+
+        // 5. The @_silgen_name shim is described in the context the caller passed (the environment
+        // carries none), as a member of the class it extends, forwarding to the original method.
+        var shim = Assert.Single(SyntheticRegistration.AssertRegistered(
+            emissionContext, swiftOutput, SwiftWrapperSynthesizer.DefaultParameterOverload));
+        Assert.Equal(method.MangledName, shim.Forwards);
+        Assert.Equal(SwiftCallSelfKind.Reference, shim.Self.Kind);
+        Assert.Equal("TestModule.FinalCounter", shim.DeclaringType);
+        Assert.Equal("Swift.Int", Assert.Single(shim.Parameters).SwiftType);
+        Assert.Equal("Swift.Int", shim.ResultType);
+    }
+
+    [Fact]
+    public void EmitDebugParamWrapper_DescribesTheShimAsAMemberOfTheExtendedType()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Logger");
+        var parentDecl = new StructDecl
+        {
+            Name = "Logger",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Logger"),
+            MangledName = "$s10TestModule6LoggerVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6LoggerVMa"
+        };
+        var method = new MethodDecl
+        {
+            Name = "log",
+            MangledName = "$s10TestModule6LoggerV3log_4fileySi_s12StaticStringVtF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("level", hasDefault: false),
+                new ArgumentDecl
+                {
+                    Name = "file",
+                    PrivateName = "file",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.StaticString"),
+                    HasDefaultArg = true,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(method);
+        var ctx = new ModuleEmissionContext();
+        var output = new StringWriter();
+
+        DefaultParameterOverloadEmitter.EmitDebugParamWrapper(
+            new SwiftWriter(output), new MethodEnvironment(method, typeDb) { EmissionContext = ctx });
+
+        var swift = output.ToString();
+        var shim = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swift, SwiftWrapperSynthesizer.DebugParameterStrip));
+        SyntheticRegistration.AssertEveryWrittenIsRegistered(ctx, swift, "DBG_");
+        Assert.Equal("$s10TestModule6LoggerV3log_4fileySi_s12StaticStringVtF", shim.Forwards);
+        Assert.Equal(SwiftCallSelfKind.Value, shim.Self.Kind);
+        Assert.Equal("TestModule.Logger", shim.DeclaringType);
+        // The debug parameter is stripped: the shim takes only what the caller supplies.
+        Assert.Equal("Swift.Int", Assert.Single(shim.Parameters).SwiftType);
     }
 
     [Fact]

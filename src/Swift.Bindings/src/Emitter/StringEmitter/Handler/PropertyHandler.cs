@@ -773,12 +773,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     if (isGetter)
                     {
                         ObjCOverridePropertyWrapperEmitter.EmitSwiftGetterWrapper(
-                            swiftWriter, propertyDecl, symbol, context.GetEmissionContext());
+                            swiftWriter, propertyDecl, symbol, context.GetEmissionContext(),
+                            PInvokeEmitHelper.ResolveWrapperLibrary(propertyEnv.TypeDatabase));
                     }
                     else
                     {
                         ObjCOverridePropertyWrapperEmitter.EmitSwiftSetterWrapper(
-                            swiftWriter, propertyDecl, symbol, context.GetEmissionContext());
+                            swiftWriter, propertyDecl, symbol, context.GetEmissionContext(),
+                            PInvokeEmitHelper.ResolveWrapperLibrary(propertyEnv.TypeDatabase));
                     }
                 }
 

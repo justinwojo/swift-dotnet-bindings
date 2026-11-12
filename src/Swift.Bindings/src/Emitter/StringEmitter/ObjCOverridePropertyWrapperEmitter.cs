@@ -87,7 +87,8 @@ public static class ObjCOverridePropertyWrapperEmitter
         SwiftWriter swiftWriter,
         PropertyDecl propertyDecl,
         string symbolName,
-        ModuleEmissionContext? ctx = null)
+        ModuleEmissionContext? ctx = null,
+        string? wrapperLibrary = null)
     {
         ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
@@ -121,12 +122,14 @@ public static class ObjCOverridePropertyWrapperEmitter
             swiftWriter.WriteLine("@MainActor");
         }
 
-        swiftWriter.WriteLines($$"""
+        var wrapper = $$"""
             @_silgen_name("{{symbolName}}")
             public func _sbw_get_{{propertyDecl.Name}}_{{EmitterUtility.DeterministicHash8(symbolName)}}(_ self_: {{moduleQualifiedName}}) -> {{propertySwiftType}} {
                 return self_.{{propertyDecl.Name}}
             }
-            """);
+            """;
+        swiftWriter.WriteLines(wrapper);
+        Describe(ctx, wrapper, wrapperLibrary, availability);
     }
 
     /// <summary>
@@ -137,7 +140,8 @@ public static class ObjCOverridePropertyWrapperEmitter
         SwiftWriter swiftWriter,
         PropertyDecl propertyDecl,
         string symbolName,
-        ModuleEmissionContext? ctx = null)
+        ModuleEmissionContext? ctx = null,
+        string? wrapperLibrary = null)
     {
         ctx ??= ModuleEmissionContext.CreateImplicitFallback();
 
@@ -175,11 +179,25 @@ public static class ObjCOverridePropertyWrapperEmitter
 
         // Parameter order: newValue first, self last — matches C# P/Invoke parameter layout
         // where HandleSwiftSelf (UsesFreeFunctionWrapper) appends self AFTER value params.
-        swiftWriter.WriteLines($$"""
+        var wrapper = $$"""
             @_silgen_name("{{symbolName}}")
             public func _sbw_set_{{propertyDecl.Name}}_{{EmitterUtility.DeterministicHash8(symbolName)}}(_ newValue: {{propertySwiftType}}, _ self_: {{moduleQualifiedName}}) {
                 self_.{{propertyDecl.Name}} = newValue
             }
-            """);
+            """;
+        swiftWriter.WriteLines(wrapper);
+        Describe(ctx, wrapper, wrapperLibrary, availability);
     }
+
+    /// <summary>
+    /// Describes an accessor wrapper from the text just written: the C# accessor binds it with the
+    /// Swift convention, self passed as an explicit argument, so it is a top-level function.
+    /// </summary>
+    private static void Describe(
+        ModuleEmissionContext ctx, string wrapper, string? wrapperLibrary, IReadOnlyList<AvailabilityAnnotation>? availability) =>
+        ctx.RegisterSyntheticSwiftDeclaration(
+            [wrapper],
+            SwiftWrapperSynthesizer.ObjCOverrideProperty,
+            wrapperLibrary ?? PInvokeEmitHelper.DefaultWrapperLibraryName,
+            availability: SyntheticSwiftFunction.FloorsOf(availability));
 }

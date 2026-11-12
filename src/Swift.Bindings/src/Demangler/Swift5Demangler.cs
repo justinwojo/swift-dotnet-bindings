@@ -141,6 +141,60 @@ namespace BindingsGeneration.Demangling
         public bool HasCFunctionPointerMarker(string mangledName)
             => RawTreeContainsKind(mangledName, NodeKind.CFunctionPointer);
 
+        static readonly HashSet<NodeKind> FunctionTypeKinds = new()
+        {
+            NodeKind.FunctionType, NodeKind.NoEscapeFunctionType, NodeKind.AutoClosureType, NodeKind.EscapingAutoClosureType,
+            NodeKind.ThinFunctionType, NodeKind.CFunctionPointer, NodeKind.ObjCBlock, NodeKind.UncurriedFunctionType,
+            NodeKind.ImplFunctionType,
+        };
+
+        /// <summary>
+        /// The kind of every function type <paramref name="mangledName"/>'s signature spells, in tree
+        /// order, leaving out the declaration's own function type (a function's, an initializer's or a
+        /// subscript's signature; a property's type is a value and stays in). The ABI descriptor prints
+        /// every function representation alike, so the symbol is where a caller learns whether a
+        /// closure it sees is thick, thin, a block or a C function pointer. Null when the tree cannot
+        /// be built.
+        /// </summary>
+        public IReadOnlyList<NodeKind> FunctionTypeKindsInSignature(string mangledName)
+        {
+            if (string.IsNullOrEmpty(mangledName) || GetManglingPrefixLength(mangledName) == 0)
+                return null;
+            lock (runLock)
+            {
+                nodeStack.Clear();
+                substitutions.Clear();
+                words.Clear();
+                originalIdentifier = mangledName;
+                slice = new StringSlice(originalIdentifier);
+                slice.Advance(GetManglingPrefixLength(originalIdentifier));
+                Node topLevelNode;
+                try
+                {
+                    topLevelNode = DemangleType(null);
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+                if (topLevelNode is null)
+                    return null;
+                var own = DeclarationSignature(topLevelNode);
+                var kinds = new List<NodeKind>();
+                void Walk(Node node)
+                {
+                    if (node is null)
+                        return;
+                    if (FunctionTypeKinds.Contains(node.Kind) && !ReferenceEquals(node, own))
+                        kinds.Add(node.Kind);
+                    foreach (var child in node.Children)
+                        Walk(child);
+                }
+                Walk(topLevelNode);
+                return kinds;
+            }
+        }
+
         /// <summary>
         /// For each formal parameter of the declaration's own signature (the outermost
         /// <see cref="NodeKind.FunctionType"/>), whether its type is a <c>@convention(c)</c> function
@@ -184,6 +238,73 @@ namespace BindingsGeneration.Demangling
                 foreach (var parameter in parameters)
                     flags.Add(IsCFunctionPointerParameter(parameter));
                 return flags;
+            }
+        }
+
+        /// <summary>
+        /// The declaration's own function type: the shallowest <see cref="NodeKind.FunctionType"/>,
+        /// unless a variable's type is what holds it (then the function type is the property's value
+        /// type and the declaration has no signature of its own).
+        /// </summary>
+        static Node DeclarationSignature(Node root)
+        {
+            var queue = new Queue<(Node Node, bool UnderVariable)>();
+            queue.Enqueue((root, false));
+            while (queue.Count > 0)
+            {
+                var (node, underVariable) = queue.Dequeue();
+                if (node.Kind == NodeKind.FunctionType)
+                    return underVariable ? null : node;
+                foreach (var child in node.Children)
+                    queue.Enqueue((child, underVariable || node.Kind == NodeKind.Variable));
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="mangledName"/>'s own function type throws a typed error
+        /// (<c>throws(E)</c>, mangled <c>YK</c>), and the error type when the reducer can spell it.
+        /// <c>throws(any Error)</c> mangles as an untyped <c>throws</c>, so a true result is always a
+        /// concrete or generic error type. Returns false when the tree cannot be built.
+        /// </summary>
+        public bool TryGetTypedThrows(string mangledName, out TypeSpec errorType)
+        {
+            errorType = null;
+            if (string.IsNullOrEmpty(mangledName) || GetManglingPrefixLength(mangledName) == 0)
+                return false;
+            lock (runLock)
+            {
+                nodeStack.Clear();
+                substitutions.Clear();
+                words.Clear();
+                originalIdentifier = mangledName;
+                slice = new StringSlice(originalIdentifier);
+                slice.Advance(GetManglingPrefixLength(originalIdentifier));
+                Node topLevelNode;
+                try
+                {
+                    topLevelNode = DemangleType(null);
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+                var annotation = DeclarationSignature(topLevelNode)?.Children.FirstOrDefault(c => c.Kind == NodeKind.TypedThrowsAnnotation);
+                if (annotation is null)
+                    return false;
+                if (annotation.Children.Count == 1)
+                {
+                    try
+                    {
+                        if (Swift5Reducer.Convert(annotation.Children[0], mangledName) is TypeSpecReduction reduced)
+                            errorType = reduced.TypeSpec;
+                    }
+                    catch (Exception)
+                    {
+                        errorType = null;
+                    }
+                }
+                return true;
             }
         }
 

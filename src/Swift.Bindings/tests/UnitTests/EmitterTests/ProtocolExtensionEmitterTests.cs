@@ -423,6 +423,29 @@ public class ProtocolExtensionEmitterTests
     }
 
     [Fact]
+    public void SilgenWrapperOnGenericConformer_IsDescribedWithItsOwnSignature()
+    {
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "Box", "TipLike");
+        conformingType.GenericParameters.Add(new GenericArgumentDecl(
+            TypeName: "τ_0_0",
+            SugaredTypeName: "Value",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        var extMethods = CreateExtensionMethodDict("TestModule.TipLike",
+            CreateExtProperty("shouldDisplayTip", "public var shouldDisplayTip: Swift.Bool { get }"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, wrapperLines, SwiftWrapperSynthesizer.ProtocolExtension));
+        SyntheticRegistration.AssertEveryWrittenIsRegistered(ctx, wrapperLines, "SBSW_");
+        Assert.Equal("Swift.Bool", wrapper.ResultType);
+        Assert.Equal(SwiftCallSelfKind.None, wrapper.Self.Kind);
+        Assert.NotNull(wrapper.GenericSignature);
+    }
+
+    [Fact]
     public void ReadWriteProperty_NotInjected()
     {
         // A read-write extension-default property (get set) is deferred — surfacing the

@@ -64,6 +64,10 @@ public class Application
                 TestRunFlags.RunToken = effectiveArgs[i + 1];
                 i++;
             }
+            else if (effectiveArgs[i] == "--lane-identity")
+            {
+                TestRunFlags.LaneIdentity = true;
+            }
         }
 
         SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
@@ -246,6 +250,10 @@ public class SceneDelegate : UIWindowSceneDelegate
     {
         TestLogger.Info("");
         TestLogger.Info($"=== {descriptor.Name} ===");
+        // After the class marker, so a crash in the probe is attributed to this class, and before
+        // any skip, so every class that records a result also records how it ran.
+        if (TestRunFlags.LaneIdentity)
+            LaneProbe.Record(descriptor.Name, results);
 
         if (descriptor.SkipReason != null)
         {

@@ -1704,6 +1704,43 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
+    public void TryEmit_GenericParentSilgenExtension_IsDescribedAsAMemberOfTheGenericType()
+    {
+        // With no helper context to reroute through, an instance method on a generic parent keeps
+        // the @_silgen_name extension: the C# side calls it with the Swift convention and self in
+        // the context register, and it is compiled against the unspecialized parent.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+        parentDecl.RawGenericSig = "<τ_0_0>";
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)new NamedTypeSpec("TestModule.DataResponse", new NamedTypeSpec("TestModule.MyData")) }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl, TupleTypeSpec.Empty, closureType, "handler");
+        var ctx = new ModuleEmissionContext();
+        var env = new MethodEnvironment(method, typeDatabase) { EmissionContext = ctx };
+        var swiftOutput = new StringWriter();
+
+        Assert.True(MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput), env, parentDecl, ctx));
+
+        var swift = swiftOutput.ToString();
+        var bridge = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swift, SwiftWrapperSynthesizer.MethodClosureBridge));
+        Assert.Equal(SwiftCallSelfKind.Reference, bridge.Self.Kind);
+        Assert.Equal("TestModule.GenericClass", bridge.DeclaringType);
+        Assert.NotNull(bridge.DeclaringTypeGenericSignature);
+        Assert.Contains("T", bridge.DeclaringTypeGenericParameters);
+        // The Swift closure crosses as a function pointer and its context, never as a Swift closure.
+        Assert.DoesNotContain(bridge.Parameters, p => p.SwiftType.Contains("->"));
+
+        // The facts are generic over the parent's parameters.
+        var facts = SwiftCallFactsTable.Build(moduleDecl, typeDatabase).Describe(bridge);
+        Assert.Equal(SwiftSelfAbstraction.GenericParent, facts.Self.Abstraction);
+        Assert.Equal(new[] { "τ_0_0" }, facts.Generics.Parameters);
+        Assert.All(facts.Parameters, p => Assert.Equal(SwiftClosureKind.NotClosure, p.Closure));
+    }
+
+    [Fact]
     public void CanRerouteGenericParentToCdecl_NonGenericParent_ReturnsFalse()
     {
         // Not a rejection: a non-generic parent never took the @_silgen_name extension path

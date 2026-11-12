@@ -14,10 +14,16 @@ using BindingsGeneration;
 /// <summary>Pure comparison logic for the final-file exposure-report truth gate.</summary>
 public static class ExposureReportLedger
 {
+    /// <param name="bridgedEntryPoints">
+    /// The Swift entry points the generation routed through a native bridge (its call-plan sidecars'
+    /// bridged coverage). A bridged transition has no direct Swift-convention import left, so it is
+    /// no exposure; the named BindingTests fixtures that are must be among these.
+    /// </param>
     public static IReadOnlyList<string> Evaluate(
         string reportJson,
         GeneratedSwiftCallScanResult scan,
-        string expectedModule)
+        string expectedModule,
+        IReadOnlySet<string>? bridgedEntryPoints = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reportJson);
         ArgumentNullException.ThrowIfNull(scan);
@@ -95,7 +101,7 @@ public static class ExposureReportLedger
         }
 
         if (string.Equals(expectedModule, "SwiftBindingsTestLib", StringComparison.Ordinal))
-            ValidateNamedBindingTestFixtures(reported, errors);
+            ValidateNamedBindingTestFixtures(reported, bridgedEntryPoints, errors);
 
         var allRows = report.DegradedMembers.Count;
         if (report.DegradedSurface is null)
@@ -119,6 +125,7 @@ public static class ExposureReportLedger
 
     private static void ValidateNamedBindingTestFixtures(
         IReadOnlyList<ExposureRowDocument> rows,
+        IReadOnlySet<string>? bridgedEntryPoints,
         List<string> errors)
     {
         foreach (var expected in BindingTestFixtures)
@@ -152,6 +159,18 @@ public static class ExposureReportLedger
             }
         }
 
+        foreach (var bridged in BridgedBindingTestFixtures)
+        {
+            var name = $"{bridged.Owner}.{bridged.Member}{(bridged.Accessor is null ? "" : "." + bridged.Accessor)}";
+            var matches = rows.Count(row =>
+                string.Equals(row.NativeCall?.EntryPoint, bridged.Symbol, StringComparison.Ordinal));
+            if (matches != 0)
+                errors.Add($"bridged fixture {name} has {matches} direct SwiftSelf row(s) for {bridged.Symbol}, expected 0 after native bridge routing");
+            // Zero rows proves nothing unless the transition really went through its bridge.
+            if (bridgedEntryPoints?.Contains(bridged.Symbol) != true)
+                errors.Add($"bridged fixture {name} ({bridged.Symbol}) is not routed through a native bridge by this generation");
+        }
+
         var functionPointer = rows.Where(row =>
             string.Equals(row.Route, "swift_function_pointer", StringComparison.Ordinal)
             && string.Equals(row.ContainingType, "SwiftBindingsTestLib.OwnershipCallbackOwner", StringComparison.Ordinal)
@@ -161,16 +180,26 @@ public static class ExposureReportLedger
             errors.Add($"named fixture OwnershipCallbackOwner.ClassCallback.get has {functionPointer.Count} Swift function-pointer rows, expected 1");
     }
 
+    // A direct SwiftSelf import the generation cannot bridge yet: its plan is refused (its result
+    // type has no carrier), so it stays an exposure and keeps the attribution positive.
     private static readonly FixtureExpectation[] BindingTestFixtures =
     [
-        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "StableTag", "get", "actor_isolated", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg"),
-        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "StableDepth", "get", "actor_isolated", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg"),
-        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "MutableCount", "get", "actor_isolated", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj"),
-        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "MutableCount", "set", "actor_isolated", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj"),
-        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "DoubledCount", "get", "actor_isolated", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj"),
-        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "PrivatelySet", "get", "actor_isolated", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj"),
-        new("SwiftBindingsTestLib.BugReproBindTarget.ScenePath", "Self", "get", "self_property", "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg"),
-        new("SwiftBindingsTestLib.DirectReturnLocalNameCollider", "OptionalExistentialReturn", null, "unsupported_generic_container", "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF"),
+        new("SwiftBindingsTestLib.PendingRequestTask", "Start", null, "generic_parent_type", "$s20SwiftBindingsTestLib18PendingRequestTaskV5starts6ResultOyxq_GyF"),
+    ];
+
+    // These were direct SwiftSelf exposures, attributed above until the generation routed them
+    // through native bridges. A bridged transition calls a C-convention twin, so the final-file
+    // reader must find no direct row for them, and the generation's plans must say they are bridged.
+    private static readonly BridgedFixtureExpectation[] BridgedBindingTestFixtures =
+    [
+        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "StableTag", "get", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg"),
+        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "StableDepth", "get", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg"),
+        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "MutableCount", "get", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj"),
+        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "MutableCount", "set", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj"),
+        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "DoubledCount", "get", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj"),
+        new("SwiftBindingsTestLib.GlobalActorStorageBoundary", "PrivatelySet", "get", "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj"),
+        new("SwiftBindingsTestLib.BugReproBindTarget.ScenePath", "Self", "get", "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg"),
+        new("SwiftBindingsTestLib.DirectReturnLocalNameCollider", "OptionalExistentialReturn", null, "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF"),
     ];
 
     // These setters used to be intentional direct-call specimens. They now reach typed Cdecl
@@ -188,6 +217,12 @@ public static class ExposureReportLedger
         string Member,
         string? Accessor,
         string Reason,
+        string Symbol);
+
+    private sealed record BridgedFixtureExpectation(
+        string Owner,
+        string Member,
+        string? Accessor,
         string Symbol);
 
     private sealed record ResolvedFixtureExpectation(

@@ -56,4 +56,11 @@ public static class TestRunFlags
     /// <c>JsonlTestResults.HasMatchingRunToken</c>.
     /// </remarks>
     public static string? RunToken { get; set; }
+
+    /// <summary>
+    /// When true, the iOS and tvOS hosts record a per-class execution-lane witness
+    /// (<c>LaneProbe</c>) before each test class. Wired via the <c>--lane-identity</c> CLI arg,
+    /// which the Nuke harness passes on every .NET 11 runtime lane.
+    /// </summary>
+    public static bool LaneIdentity { get; set; }
 }

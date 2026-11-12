@@ -153,6 +153,11 @@ namespace BindingsGeneration
                 }
             }
             """);
+                    // The attribute names the getter, so the alias is the getter function.
+                    DescribeOpaqueReturnAlias(
+                        $"@_silgen_name(\"{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}\")\n"
+                        + $"public {staticModifier}func _sb_{propertyName}() -> {anyReturnType} {{",
+                        mergedAvailability, (TypeDecl)_env.ParentDecl!);
                 }
                 else
                 {
@@ -168,6 +173,10 @@ namespace BindingsGeneration
                 }
             }
             """);
+                    DescribeOpaqueReturnAlias(
+                        $"@_silgen_name(\"{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}\")\n"
+                        + $"public {staticModifier}func {NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl)}{genericParams}({parameters}) -> {anyReturnType}{whereClause} {{",
+                        mergedAvailability, (TypeDecl)_env.ParentDecl!);
                 }
             }
             else
@@ -184,8 +193,26 @@ namespace BindingsGeneration
                 {{freeDerefCode}}return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
             }
             """);
+                DescribeOpaqueReturnAlias(
+                    $"@_silgen_name(\"{NameProvider.GetMangledName(_env.EmissionSymbol, _env.MethodDecl)}\")\n"
+                    + $"public func {NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl)}{genericParams}({parameters}) -> {anyReturnType}{whereClause} {{",
+                    mergedAvailability, declaringType: null);
             }
         }
+
+        /// <summary>
+        /// Describes the opaque-return alias from its declaration, so the binding's Swift-convention
+        /// transition carries its facts. A member alias is written in an extension of the parent.
+        /// </summary>
+        private void DescribeOpaqueReturnAlias(
+            string declaration, IReadOnlyList<AvailabilityAnnotation>? availability, TypeDecl? declaringType) =>
+            _emissionContext.RegisterSyntheticSwiftDeclaration(
+                [declaration],
+                SwiftWrapperSynthesizer.OpaqueReturnAlias,
+                PInvokeEmitHelper.ResolveWrapperLibrary(_env.TypeDatabase),
+                forwards: _env.EmissionSymbol,
+                declaringType: declaringType is null ? null : SyntheticSwiftDeclaringType.Of(declaringType),
+                availability: SyntheticSwiftFunction.FloorsOf(availability));
 
         /// <summary>
         /// Builds a joined string of <c>@available(Platform Version, *)</c> attributes using the

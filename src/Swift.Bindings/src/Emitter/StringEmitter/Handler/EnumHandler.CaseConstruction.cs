@@ -996,7 +996,8 @@ namespace BindingsGeneration
                         ParametersString = string.Join(", ", pInvokeParams),
                         IsAsync = false,
                         MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = emissionCtx
                     });
                 }
                 else
@@ -1008,7 +1009,8 @@ namespace BindingsGeneration
                         MethodName = pInvokeName,
                         ReturnType = "void",
                         ParametersString = string.Join(", ", pInvokeParams),
-                        CallingConvention = PInvokeCallingConvention.Swift
+                        CallingConvention = PInvokeCallingConvention.Swift,
+                        EmissionContext = emissionCtx
                     });
                     csWriter.WriteLine();
                 }

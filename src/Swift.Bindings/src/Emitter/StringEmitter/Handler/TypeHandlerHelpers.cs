@@ -115,7 +115,7 @@ namespace BindingsGeneration
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
-                pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor);
+                pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor, _emissionCtx);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
                      WrapperValidation.IsXCFrameworkMode(_typeDatabase))
@@ -136,7 +136,7 @@ namespace BindingsGeneration
                     _writer.WriteLine();
 
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false))
+                        libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -173,7 +173,7 @@ namespace BindingsGeneration
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _structDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false))
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _structDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false, emissionContext: _emissionCtx))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -185,7 +185,7 @@ namespace BindingsGeneration
                 _writer.WriteLine();
 
                 foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                    libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false))
+                    libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
             }

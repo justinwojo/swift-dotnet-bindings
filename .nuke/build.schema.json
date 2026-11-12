@@ -55,6 +55,10 @@
         "SeedWrapperStripBaseline",
         "SmokeTest",
         "SurfaceAccounting",
+        "SwiftBridgeGate",
+        "SwiftBridgeProducts",
+        "SwiftLoweringOracle",
+        "SwiftTransitionGate",
         "Test",
         "ToolchainProfileTests",
         "UnitTests",
@@ -184,6 +188,10 @@
           "type": "string",
           "description": "Managed BindingTests target: net10.0 (default) or net11.0"
         },
+        "BridgeConsumer": {
+          "type": "boolean",
+          "description": "Opt-in, .NET 11 with --coreclr-interp: pack a binding generated with the Swift bridges on, consume it from an ordinary Debug app through NuGet, and prove on the simulator and/or a device that its calls run through the bridges from the interpreter. Never part of the default run or --compile-only"
+        },
         "BuildOnly": {
           "type": "boolean",
           "description": "iOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build"
@@ -231,6 +239,10 @@
         "CoreClrCanaryRuntimeVersion": {
           "type": "string",
           "description": "Exact SwiftBindings.Runtime package version for the CoreCLR canary"
+        },
+        "CoreClrInterp": {
+          "type": "boolean",
+          "description": "Run the RuntimeTestsApp as the ordinary Debug .NET 11 app on the CoreCLR interpreter (simulator, tvOS and device)"
         },
         "Device": {
           "type": "boolean",
@@ -311,6 +323,14 @@
         "IncludeDevice": {
           "type": "boolean",
           "description": "Include device slice in xcframework build"
+        },
+        "InterpIdentity": {
+          "type": "boolean",
+          "description": "Opt-in, .NET 11 only: run the lane-identity harness (generated InterpIdentityFixture binding on the iOS-simulator and Mac Catalyst x86_64 cells, interpreter and ReadyToRun). Never part of the default run or --compile-only"
+        },
+        "InterpIdentityCells": {
+          "type": "string",
+          "description": "Comma-separated subset of --interp-identity cells (M1,M2,M3,M4). Default: all four"
         },
         "Jobs": {
           "type": "integer",
@@ -450,6 +470,28 @@
           "type": "integer",
           "description": "Test timeout in seconds",
           "format": "int32"
+        },
+        "TransitionGateAssembly": {
+          "type": "array",
+          "description": "Swift transition gate: compiled assemblies to scan (default: the BindingTests compile-check assembly and the Swift.Runtime and SwiftBindings.Apple assemblies beside it)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "TransitionGateOutput": {
+          "type": "string",
+          "description": "Swift transition gate: directory the report, site inventory and summary are written to"
+        },
+        "TransitionGatePlanSource": {
+          "type": "string",
+          "description": "Swift transition gate: a directory of *.swift-call-plans.json sidecars rule R3 reads (default: the sidecars beside each ledgered assembly's C#; required for any other assembly with bridge twins)"
+        },
+        "TransitionGateReferenceDir": {
+          "type": "array",
+          "description": "Swift transition gate: extra directories searched for assemblies the scanned ones reference",
+          "items": {
+            "type": "string"
+          }
         },
         "Tvos": {
           "type": "boolean",

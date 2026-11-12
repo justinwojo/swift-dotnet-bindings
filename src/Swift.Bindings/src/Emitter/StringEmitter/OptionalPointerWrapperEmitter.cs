@@ -408,10 +408,24 @@ public static class OptionalPointerWrapperEmitter
         // per-kind method bucket is collision-safe.
         if (useCdecl)
             emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(methodDecl));
-        swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
-        swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(");
-        swiftWriter.WriteLine($"    {paramsStr}");
-        swiftWriter.WriteLine($"){throwsStr}{returnTypeStr} {{");
+        string[] declarationLines =
+        [
+            $"{annotation}(\"{wrapperSymbol}\")",
+            $"public func {NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}(",
+            $"    {paramsStr}",
+            $"){throwsStr}{returnTypeStr} {{",
+        ];
+        foreach (var line in declarationLines)
+            swiftWriter.WriteLine(line);
+        // A @_silgen_name wrapper is bound from C# with the Swift convention: describe it from the
+        // declaration just written, so the binding's transition carries its facts.
+        if (!useCdecl)
+            emissionContext?.RegisterSyntheticSwiftDeclaration(
+                declarationLines,
+                SwiftWrapperSynthesizer.OptionalBuffer,
+                PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+                forwards: env.EmissionSymbol,
+                availability: SyntheticSwiftFunction.FloorsOf(availability));
 
         // Emit self conversion for instance methods (when not using through-pointer)
         if (!string.IsNullOrEmpty(selfConversion))

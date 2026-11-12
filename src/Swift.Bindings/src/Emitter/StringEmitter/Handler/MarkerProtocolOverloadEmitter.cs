@@ -156,7 +156,7 @@ namespace BindingsGeneration
 
                 // --- Emit Swift wrapper ---
                 EmitSwiftWrapper(swiftWriter, methodDecl, parentTypeDecl, markerParamIndex,
-                    swiftType, wrapperMangledName, wrapperPInvokeName, isStatic, isClass);
+                    swiftType, wrapperMangledName, wrapperPInvokeName, isStatic, isClass, env);
 
                 // --- Emit C# P/Invoke (LibraryImport + CallConvSwift) ---
                 var pInvokeParams = new List<string>();
@@ -173,7 +173,8 @@ namespace BindingsGeneration
                     MethodName = wrapperPInvokeName,
                     ReturnType = pInvokeReturnType,
                     ParametersString = string.Join(", ", pInvokeParams),
-                    CallingConvention = PInvokeCallingConvention.Swift
+                    CallingConvention = PInvokeCallingConvention.Swift,
+                    EmissionContext = env.EmissionContext
                 });
                 csWriter.WriteLine();
 
@@ -231,7 +232,8 @@ namespace BindingsGeneration
             string wrapperMangledName,
             string wrapperPInvokeName,
             bool isStatic,
-            bool isClass)
+            bool isClass,
+            MethodEnvironment env)
         {
             var parentTypeName = parentTypeDecl?.SwiftTypeName;
             bool isInstance = !isStatic && parentTypeName != null;
@@ -309,8 +311,21 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");
-            swiftWriter.WriteLine($"@_silgen_name(\"{wrapperMangledName}\")");
-            swiftWriter.WriteLine($"public func {wrapperPInvokeName}({string.Join(", ", swiftParams)}){returnTypeStr} {{");
+            string[] declarationLines =
+            [
+                $"@_silgen_name(\"{wrapperMangledName}\")",
+                $"public func {wrapperPInvokeName}({string.Join(", ", swiftParams)}){returnTypeStr} {{",
+            ];
+            foreach (var line in declarationLines)
+                swiftWriter.WriteLine(line);
+            // The C# overload binds this wrapper with the Swift convention: describe it from the
+            // declaration just written, so the binding's transition carries its facts.
+            env.EmissionContext?.RegisterSyntheticSwiftDeclaration(
+                declarationLines,
+                SwiftWrapperSynthesizer.MarkerProtocolOverload,
+                PInvokeEmitHelper.ResolveWrapperLibrary(env.TypeDatabase),
+                forwards: methodDecl.MangledName,
+                availability: SyntheticSwiftFunction.FloorsOf(mergedAvailability));
 
             // Emit self conversion for instance methods (matching ClosureEmitter pattern)
             if (isInstance)

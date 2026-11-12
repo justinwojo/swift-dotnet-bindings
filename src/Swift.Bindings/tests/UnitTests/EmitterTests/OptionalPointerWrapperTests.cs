@@ -607,6 +607,30 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
+    public void Emit_SilgenOptbufWrapper_IsDescribedAndItsPInvokeCarriesTheFacts()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodDecl("describe", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("value", optStringType, moduleDecl));
+        var ctx = new ModuleEmissionContext();
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase, ctx);
+
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.OptionalBuffer));
+        // A free function: the large optional arrives as a raw pointer to its buffer.
+        Assert.Equal(SwiftCallSelfKind.None, wrapper.Self.Kind);
+        Assert.Contains(wrapper.Parameters, p => p.SwiftType.Contains("UnsafeRawPointer"));
+        Assert.Equal("Swift.String", wrapper.ResultType);
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.OptionalBuffer);
+    }
+
+    [Fact]
     public void Emit_SwiftWrapper_UsesUnsafeRawPointer()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -2131,7 +2155,8 @@ public class OptionalPointerWrapperTests
 
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
-        TypeDatabase typeDatabase)
+        TypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -2141,7 +2166,8 @@ public class OptionalPointerWrapperTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null ? TypeHandlerContext.Empty : TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

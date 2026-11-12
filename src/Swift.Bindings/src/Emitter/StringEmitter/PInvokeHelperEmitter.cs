@@ -652,7 +652,11 @@ public class PInvokeHelperContext
     /// </summary>
     /// <param name="libraryPath">Dylib hosting the Swift <c>Ma</c> symbol.</param>
     /// <param name="metadataAccessorSymbol">Mangled Swift metadata-accessor symbol.</param>
-    public void AddMetadataAccessorDeclaration(string libraryPath, string metadataAccessorSymbol)
+    /// <param name="emissionContext">
+    /// The module's emission context, which the declaration records its Swift call facts on.
+    /// </param>
+    public void AddMetadataAccessorDeclaration(
+        string libraryPath, string metadataAccessorSymbol, ModuleEmissionContext? emissionContext = null)
     {
         if (!ExceedsRegisterArgumentThreshold)
         {
@@ -665,7 +669,8 @@ public class PInvokeHelperContext
                 ParametersString = "TypeMetadataRequest request",
                 IsAsync = false,
                 MetadataParameters = GetTypeMetadataAccessorParameterDeclarations(),
-                CallingConvention = PInvokeCallingConvention.Swift
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = emissionContext
             });
             return;
         }
@@ -674,7 +679,15 @@ public class PInvokeHelperContext
             return;
 
         RawCodeBlocks.Add(BuildBufferModeMetadataAccessorBlock(libraryPath, metadataAccessorSymbol));
+
+        // The buffer-mode block is raw text, not a formatted declaration, so it records its own
+        // Swift-convention transition: the accessor symbol, called with the request and the buffer.
+        emissionContext?.RecordSwiftTransition(SwiftTransitionRecord.For(
+            BufferModeMetadataAccessorMethodName, metadataAccessorSymbol, libraryPath, null, emissionContext));
     }
+
+    /// <summary>The name of the buffer-mode metadata accessor's Swift-convention P/Invoke.</summary>
+    internal const string BufferModeMetadataAccessorMethodName = "PInvoke_getMetadata_buffer";
 
     // Guards against emitting the buffer-mode wrapper + P/Invoke more than once for
     // the same metadata symbol when a handler re-enters AddMetadataAccessorDeclaration
@@ -716,13 +729,13 @@ public class PInvokeHelperContext
         return $$"""
             [global::System.Runtime.InteropServices.LibraryImport("{{libraryPath}}", EntryPoint = "{{metadataAccessorSymbol}}")]
             [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
-            private static partial global::Swift.Runtime.TypeMetadata PInvoke_getMetadata_buffer(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
+            private static partial global::Swift.Runtime.TypeMetadata {{BufferModeMetadataAccessorMethodName}}(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
 
             internal static global::Swift.Runtime.TypeMetadata PInvoke_getMetadata({{wrapperParamList}})
             {
                 global::System.IntPtr* buffer = stackalloc global::System.IntPtr[{{metadataAndPwtArgCount}}];
             {{storeBlock}}
-                return PInvoke_getMetadata_buffer(request, (global::System.IntPtr)buffer);
+                return {{BufferModeMetadataAccessorMethodName}}(request, (global::System.IntPtr)buffer);
             }
             """;
     }
@@ -895,6 +908,9 @@ public class PInvokeDeclaration
     /// </summary>
     public ArtifactId? Owner { get; init; }
 
+    /// <summary>Forwarded into <see cref="PInvokeEmissionInfo.CallFacts"/>.</summary>
+    public SwiftCallFacts? CallFacts { get; init; }
+
     /// <summary>
     /// Emits the P/Invoke declaration.
     /// </summary>
@@ -914,7 +930,8 @@ public class PInvokeDeclaration
             MetadataParameters = MetadataParameters,
             EmissionContext = EmissionContext,
             EnforceWrapperContract = EnforceWrapperContract,
-            Owner = Owner
+            Owner = Owner,
+            CallFacts = CallFacts
         });
     }
 }

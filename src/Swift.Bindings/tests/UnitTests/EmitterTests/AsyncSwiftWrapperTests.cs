@@ -850,6 +850,35 @@ public class AsyncSwiftWrapperTests
         Assert.Contains("fetchGlobalData(", swiftOutput);
     }
 
+    [Fact]
+    public void AsyncWrapper_FreeFunction_IsDescribedAsATopLevelFunctionWithACompletionCallback()
+    {
+        var ctx = new ModuleEmissionContext();
+        var (_, swiftOutput) = GenerateAsyncFreeFunctionWrapper("fetchGlobalData", isAsync: true, ctx);
+
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.AsyncBridge));
+        Assert.Equal(SwiftCallSelfKind.None, wrapper.Self.Kind);
+        Assert.Null(wrapper.DeclaringType);
+        // The wrapper itself is synchronous: it starts a task and reports through a C callback.
+        Assert.False(wrapper.IsAsync);
+        Assert.Contains(wrapper.Parameters, p => p.SwiftType.Contains("@convention(c)"));
+        Assert.Equal("$s10TestModulefetchGlobalDatayS2iFYaKF", wrapper.Forwards);
+    }
+
+    [Fact]
+    public void AsyncWrapper_StructInstanceMethod_IsDescribedAsATopLevelFunctionTakingTheInstance()
+    {
+        // An async instance method's wrapper is a top-level function: the instance is an ordinary
+        // parameter, so the wrapper takes no self.
+        var ctx = new ModuleEmissionContext();
+        var (csOutput, swiftOutput) = GenerateAsyncStructInstanceMethod(isFrozen: true, ctx);
+
+        var wrapper = Assert.Single(SyntheticRegistration.AssertRegistered(ctx, swiftOutput, SwiftWrapperSynthesizer.AsyncBridge));
+        Assert.Equal(SwiftCallSelfKind.None, wrapper.Self.Kind);
+        Assert.Null(wrapper.DeclaringType);
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.AsyncBridge);
+    }
+
     #endregion
 
     #region Async Static Member Wrapper Tests
@@ -1015,7 +1044,10 @@ public class AsyncSwiftWrapperTests
     /// Mirrors <see cref="GenerateAsyncMethodWrapper"/> but exposes the C# output and
     /// lets the caller toggle <c>IsFrozen</c> so non-frozen-struct paths are exercised.
     /// </summary>
-    private static string GenerateAsyncStructInstanceMethodCSharp(bool isFrozen)
+    private static string GenerateAsyncStructInstanceMethodCSharp(bool isFrozen) =>
+        GenerateAsyncStructInstanceMethod(isFrozen, emissionContext: null).csOutput;
+
+    private static (string csOutput, string swiftOutput) GenerateAsyncStructInstanceMethod(bool isFrozen, ModuleEmissionContext emissionContext)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1109,9 +1141,10 @@ public class AsyncSwiftWrapperTests
 
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = handler.Marshal(methodDecl, typeDatabase);
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null ? TypeHandlerContext.Empty : TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
-        return csStringWriter.ToString();
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
 
     /// <summary>
@@ -1962,7 +1995,8 @@ public class AsyncSwiftWrapperTests
     /// Generates C# and Swift output for an async free function (method on ModuleDecl, not a type).
     /// Used to verify that free functions don't get a "self." prefix in the wrapper.
     /// </summary>
-    private static (string csOutput, string swiftOutput) GenerateAsyncFreeFunctionWrapper(string methodName, bool isAsync)
+    private static (string csOutput, string swiftOutput) GenerateAsyncFreeFunctionWrapper(
+        string methodName, bool isAsync, ModuleEmissionContext emissionContext = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -2036,8 +2070,9 @@ public class AsyncSwiftWrapperTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = (MethodEnvironment)handler.Marshal(methodDecl, typeDatabase);
 
+        env.EmissionContext = emissionContext;
         var signatureHandler = new SignatureHandler(env);
-        var wrapperEmitter = new WrapperEmitter(env, signatureHandler);
+        var wrapperEmitter = new WrapperEmitter(env, signatureHandler, emissionContext: emissionContext);
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());

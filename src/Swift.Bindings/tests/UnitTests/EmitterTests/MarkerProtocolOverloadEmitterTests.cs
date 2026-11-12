@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -261,6 +262,49 @@ public class MarkerProtocolOverloadEmitterTests
         Assert.Contains("@_silgen_name", swiftResult);
         Assert.Contains("Swift.Double", swiftResult);
         Assert.Contains("Swift.Int", swiftResult);
+    }
+
+    [Fact]
+    public void EmitOverloads_DescribesEachConformerWrapperItBindsWithTheSwiftConvention()
+    {
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateClassDecl("Widget");
+        var method = new MethodDecl
+        {
+            Name = "offset",
+            MangledName = "$s10TestModule6Widget6offsetyySiF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                CreateArg("amount", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.OffsetTarget") }), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
+        var ctx = new ModuleEmissionContext();
+        var env = CreateMethodEnvironment(method);
+        env.EmissionContext = ctx;
+
+        MarkerProtocolOverloadEmitter.EmitOverloads(
+            new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), method, env, parentDecl,
+            new Dictionary<string, List<string>> { ["OffsetTarget"] = new() { "Swift.Double", "Swift.Int" } });
+
+        var swift = swiftOutput.ToString();
+        var wrappers = SyntheticRegistration.AssertRegistered(ctx, swift, SwiftWrapperSynthesizer.MarkerProtocolOverload);
+        // One wrapper per primitive conformer, each taking that conformer where the marker existential was.
+        Assert.Equal(2, wrappers.Count);
+        Assert.Contains(wrappers, w => w.Parameters.Any(p => p.SwiftType == "Swift.Double"));
+        Assert.Contains(wrappers, w => w.Parameters.Any(p => p.SwiftType == "Swift.Int"));
+        Assert.All(wrappers, w => Assert.Equal(method.MangledName, w.Forwards));
+        SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput.ToString(), SwiftWrapperSynthesizer.MarkerProtocolOverload);
     }
 
     [Fact]
