@@ -1617,9 +1617,10 @@ public partial class ClosureHandler
     }
 
     /// <summary>
-    /// Gets the P/Invoke function pointer type for a throwing closure callback.
-    /// The error pointer is passed as an additional parameter (SwiftError*), and the callback
-    /// should set the error pointer if the delegate returns a failure result.
+    /// Gets the function pointer type C# calls a throwing closure Swift handed back through (the
+    /// FORWARD direction). The error pointer is an additional trailing parameter (SwiftError*), and
+    /// Swift sets it when the closure throws. A reverse callback's type comes from
+    /// <c>ReverseSwiftCallbackSignature</c>, which orders the special parameters differently.
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The unmanaged function pointer type string with error parameter.</returns>
@@ -1642,27 +1643,6 @@ public partial class ClosureHandler
             return $"delegate* unmanaged[Swift]<{returnType}>";
 
         return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, {returnType}>";
-    }
-
-    /// <summary>
-    /// Gets the P/Invoke function pointer type for a throwing closure callback that uses indirect return.
-    /// Combines indirect return (void* first) with error handling (SwiftError* before context).
-    /// </summary>
-    /// <param name="closureTypeSpec">The closure type specification.</param>
-    /// <returns>The unmanaged function pointer type string with indirect return and error parameter.</returns>
-    public string GetPInvokeFunctionPointerTypeWithIndirectReturnAndError(ClosureTypeSpec closureTypeSpec)
-    {
-        var argTypes = new List<string> { "void*" }; // indirectResult first
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            argTypes.Add(TranslateTypeSpecToPInvokeType(arg));
-        }
-
-        // Add SwiftError* out parameter before SwiftSelf context
-        argTypes.Add("SwiftError*");
-
-        // Use Swift calling convention, return type is always void with indirect return
-        return $"delegate* unmanaged[Swift]<{string.Join(", ", argTypes)}, void>";
     }
 
     /// <summary>

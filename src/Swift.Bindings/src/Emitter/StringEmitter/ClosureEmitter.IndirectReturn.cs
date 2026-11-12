@@ -61,7 +61,11 @@ public static partial class ClosureEmitter
             argTypes.Add(arg);
             argIndex++;
         }
-        parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
+        // Cdecl: a trailing IntPtr context. Swift: the shared reverse order places the context.
+        if (useCdecl)
+            parameters.Add("IntPtr contextPtr");
+        else
+            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: false);
         var parametersString = string.Join(", ", parameters);
 
         // Existential-argument proxy suppression: see EmitEscapingClosureCallback. An existential
@@ -295,22 +299,17 @@ public static partial class ClosureEmitter
         bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        // For Cdecl indirect return, build a Cdecl-based function pointer type
-        var funcPtrType = useCdecl
-            ? BuildIndirectReturnCdeclFunctionPointerType(closureTypeSpec, closureHandler)
-            : BuildIndirectReturnSwiftFunctionPointerType(closureTypeSpec, closureHandler);
-
-        // Add context parameter to the function pointer type
+        // Both builders return the type with its context parameter included.
         var funcPtrTypeWithContext = useCdecl
-            ? AddCdeclContextToFunctionPointerType(funcPtrType)
-            : AddContextToFunctionPointerType(funcPtrType);
+            ? AddCdeclContextToFunctionPointerType(BuildIndirectReturnCdeclFunctionPointerType(closureTypeSpec, closureHandler))
+            : BuildIndirectReturnSwiftFunctionPointerType(closureTypeSpec, closureHandler);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
     }
 
     /// <summary>
     /// Builds the direct-lane (<c>CallConvSwift</c>) function pointer type for an indirect-return
-    /// callback. Mirrors <see cref="EmitIndirectReturnCallback"/>'s parameter expansion, including the
+    /// callback, context included. Mirrors <see cref="EmitIndirectReturnCallback"/>'s parameter expansion, including the
     /// extra registers a loadable argument arrives in — the reverse trampoline and the pointer type
     /// that names it have to agree on arity. This deliberately does NOT reuse
     /// <c>ClosureHandler.GetPInvokeFunctionPointerTypeWithIndirectReturn</c>: that one types the
@@ -328,8 +327,7 @@ public static partial class ClosureEmitter
             AppendDirectLaneExtraWordTypes(types, arg, closureHandler, useCdecl: false);
         }
 
-        types.Add("void");
-        return $"delegate* unmanaged[Swift]<{string.Join(", ", types)}>";
+        return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: false, returnType: "void");
     }
 
     /// <summary>

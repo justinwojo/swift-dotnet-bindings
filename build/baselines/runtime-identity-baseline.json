@@ -2,7 +2,7 @@
   "git_sha": "9d0f7d2f0",
   "platforms": {
     "simulator": {
-      "pass_count": 4438,
+      "pass_count": 4471,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -128,7 +128,7 @@
       "known_fails": []
     },
     "device": {
-      "pass_count": 4441,
+      "pass_count": 4474,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -239,7 +239,7 @@
       "known_fails": []
     },
     "device_monoaot": {
-      "pass_count": 4438,
+      "pass_count": 4471,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -365,7 +365,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3473,
+      "pass_count": 3552,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -446,6 +446,11 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
+        },
+        {
+          "class": "SwiftBridgeTests",
+          "method": "TestProbeMembersAreRoutedThroughNativeBridges",
+          "reason": "lowering evidence is applied to the iOS regeneration only"
         }
       ],
       "known_fails": []
@@ -552,6 +557,11 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
+        },
+        {
+          "class": "SwiftBridgeTests",
+          "method": "TestProbeMembersAreRoutedThroughNativeBridges",
+          "reason": "lowering evidence is applied to the iOS regeneration only"
         }
       ],
       "known_fails": []
