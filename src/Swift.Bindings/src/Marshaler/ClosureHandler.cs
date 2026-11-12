@@ -1934,7 +1934,8 @@ public partial class ClosureHandler
     ///
     ///   1. Invoke-thunk invoker (preferred whenever <see cref="Emitter.StringEmitter.ClosureEmitter.CanUseInvokeThunk"/>
     ///      holds — args are cdecl primitives / simple+complex enums / by-value structs INCLUDING
-    ///      Swift.String + Foundation.Data via the metadata-remap buffer; return is a cdecl
+    ///      Swift.String + Foundation.Data via the metadata-remap buffer / Swift and ObjC class
+    ///      references; return is a cdecl
     ///      primitive / simple enum / class / ObjC class; not async). EVERY other emitter below
     ///      routes through the pre-generated invoker class when a thunk exists, so this is checked
     ///      first and short-circuits. (This is why <c>makeStringLength() -> (String) -> Int32</c>

@@ -36,6 +36,7 @@ public final class OwnershipCallbackOwner {
     public var callback: (CallbackOwnedValue) -> Void = { _ in }
     public var podCallback: (CallbackPodValue) -> Void = { _ in }
     public var classCallback: (OwnershipToken) -> Void = { _ in }
+    public var objCCallback: (SimpleNSObject) -> Void = { _ in }
     public var optionalCallback: ((CallbackOwnedValue) -> Void)?
     public nonisolated(unsafe) static var staticPodCallback: (CallbackPodValue) -> Void = { _ in }
     public init() {}
@@ -46,7 +47,20 @@ public final class OwnershipCallbackOwner {
     public func ordinary(_ body: (CallbackOwnedValue) -> Void) { body(CallbackOwnedValue(75)) }
     public static func invokeStaticPod() { staticPodCallback(CallbackPodValue(77)) }
     public static func resetStaticPodCallback() { staticPodCallback = { _ in } }
+    /// Stores a Swift-native closure, so a C# caller that reads `classCallback` back and invokes it
+    /// runs Swift code, not a C# delegate behind a reverse callback.
+    public func installRecordingClassCallback() {
+        classCallback = { token in recordedClassCallbackNumber = token.number }
+    }
+    /// The same, for a closure whose argument is an Objective-C-rooted class.
+    public func installRecordingObjCCallback() {
+        objCCallback = { item in recordedObjCCallbackLabel = item.label }
+    }
 }
+private nonisolated(unsafe) var recordedClassCallbackNumber: Int32 = 0
+public func getRecordedClassCallbackNumber() -> Int32 { recordedClassCallbackNumber }
+private nonisolated(unsafe) var recordedObjCCallbackLabel: String = ""
+public func getRecordedObjCCallbackLabel() -> String { recordedObjCCallbackLabel }
 public struct OwnershipCallbackFactory {
     public let number: Int32
     public init?(_ body: (CallbackOwnedValue) -> Void, valid: Bool) {
