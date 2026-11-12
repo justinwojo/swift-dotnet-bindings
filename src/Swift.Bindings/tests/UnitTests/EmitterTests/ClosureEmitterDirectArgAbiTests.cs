@@ -710,13 +710,13 @@ public class ClosureEmitterDirectArgAbiTests
     }
 
     [Fact]
-    public void ValidatePropertyEmission_ClosureSetterWithUnmodelledArg_IsSkipped()
+    public void ValidatePropertyEmission_DirectModeClosureSetterWithUnmodelledArg_IsSkipped()
     {
         // Property emission validates through the pipeline and then emits its accessors directly, so
         // the gate has to be stated here or a writable `([Double], Point) -> Void` property reaches
-        // the direct trampoline with the address model. The property @_cdecl wrapper refuses a bare
-        // closure setter outright, so there is no lane to fall back on.
-        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        // the direct trampoline with the address model. Without a companion wrapper library there is
+        // no @_cdecl setter to fall back on.
+        var typeDatabase = CreateTypeDatabase();
         var closureSpec = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[] { ArrayOfDouble(), new NamedTypeSpec("TestModule.Point") }),
             TupleTypeSpec.Empty);
@@ -728,6 +728,29 @@ public class ClosureEmitterDirectArgAbiTests
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
         Assert.Contains("TestModule.Point", result.Details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_ClosureSetterOnNongenericClass_RoutesToThePropertyWrapper()
+    {
+        // In xcframework mode the property wrapper carries a bare closure setter on a nongeneric
+        // class through its @_cdecl adapter whenever the closure is cdecl-compatible, so the setter
+        // never reaches the direct trampoline and the property must keep binding. The two gates have
+        // to agree: a skip here would drop a member the wrapper can carry.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var closureSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { ArrayOfDouble(), new NamedTypeSpec("TestModule.Point") }),
+            TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var property = CreateClosureProperty(closureSpec, withSetter: true);
+        var setter = property.Accessors.OfType<SetAccessorDecl>().Single();
+
+        var result = new MemberValidationPipeline(typeDatabase).ValidatePropertyEmission(property, null);
+        var wrapper = PropertyWrapperEmitter.EvaluateWrapperEligibility(
+            property, new MethodEnvironment(setter.Method, typeDatabase), setter);
+
+        Assert.True(wrapper.IsWrappable);
+        Assert.True(result.ShouldEmit);
     }
 
     [Fact]
@@ -1075,8 +1098,8 @@ public class ClosureEmitterDirectArgAbiTests
     [Fact]
     public void ValidatePropertyEmission_XCFrameworkOptionalClosureSetterWithCdeclShape_IsNotSkipped()
     {
-        // The exemption's positive control. The property wrapper refuses a BARE closure setter but
-        // accepts an Optional-wrapped one whose closure is cdecl-compatible, so in xcframework mode
+        // The exemption's positive control for the Optional form. The property wrapper accepts an
+        // Optional-wrapped closure setter whose closure is cdecl-compatible, so in xcframework mode
         // this property is the wrapper lane's concern and the frozen struct never reaches a register.
         var typeDatabase = CreateXCFrameworkTypeDatabase();
         var closureSpec = new ClosureTypeSpec(
@@ -1217,9 +1240,10 @@ public class ClosureEmitterDirectArgAbiTests
     }
 
     /// <summary>
-    /// A closure-typed property on the same host class, with or without a setter. The property
-    /// <c>@_cdecl</c> wrapper rejects a bare closure setter, so its accessors reach the direct
-    /// trampoline the same way a plain method's closure parameter does.
+    /// A closure-typed property on the same host class, with or without a setter. Without a
+    /// companion wrapper library its setter reaches the direct trampoline the same way a plain
+    /// method's closure parameter does; in xcframework mode the property <c>@_cdecl</c> wrapper
+    /// takes a cdecl-compatible setter instead.
     /// </summary>
     private static PropertyDecl CreateClosureProperty(ClosureTypeSpec closureSpec, bool withSetter)
     {

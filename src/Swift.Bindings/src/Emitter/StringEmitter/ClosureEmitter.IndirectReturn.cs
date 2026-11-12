@@ -124,9 +124,16 @@ public static partial class ClosureEmitter
         bool isPlainString = WitnessDispatchEmitter.IsStringType(closureTypeSpec.ReturnType);
         bool isOptionalString = IsOptionalStringReturn(closureTypeSpec.ReturnType);
         bool isArrayString = IsArrayStringReturn(closureTypeSpec.ReturnType);
-        // ObjC-bridged returns (e.g., Foundation.URL → NSUrl): write the handle pointer.
-        // The Swift struct (e.g., URL) wraps an ObjC reference — writing the handle to the
-        // buffer correctly represents the Swift struct's ABI layout.
+        // ObjC-bridgeable value returns (URL → NSUrl, URLRequest → NSUrlRequest, and their
+        // Optionals) on the @_cdecl adapter: the adapter sizes the buffer for one nullable object
+        // pointer and bridges the peer back into the Swift value, so the callback writes the peer's
+        // handle at +1 rather than the value's storage. The direct lane has no such adapter and
+        // refuses the shape before emission.
+        bool isBridgeableValue = useCdecl &&
+            (closureHandler.IsObjCBridgeableValue(closureTypeSpec.ReturnType) ||
+             closureHandler.IsOptionalObjCBridgeableValue(closureTypeSpec.ReturnType));
+        // ObjC-bridged class returns: write the handle pointer. (Closure-return support refuses
+        // these today; see IsSupportedClosureReturnType.)
         bool isObjCBridged = closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType);
         bool isClassReturn = closureHandler.IsClassType(closureTypeSpec.ReturnType);
 
@@ -185,6 +192,16 @@ public static partial class ClosureEmitter
                 var metadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftArray<Swift.SwiftString>>();
                 var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
                 SwiftMarshal.MarshalToSwift(_swiftArray, ref resultSpan);
+                """;
+        }
+        else if (isBridgeableValue)
+        {
+            var handOver = BuildBridgedPeerHandOver(
+                "result", "__bridgedHandle", closureHandler.IsOptionalObjCBridgeableValue(closureTypeSpec.ReturnType));
+            marshalBlock = $$"""
+                // ObjC-bridgeable value: hand the Foundation peer over at +1; the adapter bridges it back.
+                {{handOver}}
+                *(IntPtr*)indirectResult = __bridgedHandle;
                 """;
         }
         else if (isObjCBridged)

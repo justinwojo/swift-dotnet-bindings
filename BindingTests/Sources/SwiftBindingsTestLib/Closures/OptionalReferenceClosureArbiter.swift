@@ -23,16 +23,11 @@ import Foundation
 // of either ObjC-rooted or pure-Swift `Optional<class>` closure arguments. Both closures are
 // `@_cdecl`-compatible because their inner is a generator-bound class with Swift metadata.
 //
-// OUT OF SCOPE — `Optional<ObjC-bridgeable VALUE type>` closure arguments (e.g. `(URL?) -> Void`,
-// `(URLRequest?) -> Void`). A closure's native slot carries such an inner by its Swift VALUE
-// representation, NOT as an object pointer — there is no Swift-side `as AnyObject` bridge on the
-// reverse-closure path — so reading it via `GetNSObject<NSUrl>` over a value buffer SIGABRTs
-// (`_objc_fatal`). That is why the closure-argument predicate is the narrow `IsOptionalReferenceArg`
-// (true-reference inners only), distinct from the WIDER producer-position oracle
-// `WrapperValidation.IsOptionalWithReferenceInner` (which classifies bridgeable value types as
-// nullable-pointer ABI because a witness-getter / `@_cdecl` return does materialise the pointer via
-// `as AnyObject`). Supporting value-type closure arguments needs a separate Swift bridging thunk and
-// is a pre-existing, never-worked capability recorded in src/docs/Future/notes/closures-async.md — deliberately not fixtured here.
+// NOT HERE — `Optional<ObjC-bridgeable VALUE type>` closure arguments (e.g. `(URL?) -> Void`). A
+// closure's native slot carries such an inner by its Swift VALUE representation, not as an object
+// pointer, so it is not a reference inner and the narrow `IsOptionalReferenceArg` predicate this
+// arbiter pins does not admit it. The closure adapter bridges those values to their Foundation peer
+// with `as AnyObject` on a separate arm; they are fixtured in Closures/BridgeableValueClosureArgs.swift.
 //
 // Payloads feed the shared LifetimeTracker counters (`recordTrackedAllocation` /
 // `recordTrackedDeallocation`, defined in Lifetime/OwnershipTests.swift) so the C# side can assert ARC

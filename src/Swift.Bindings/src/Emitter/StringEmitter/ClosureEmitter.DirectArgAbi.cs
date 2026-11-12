@@ -237,9 +237,10 @@ public static partial class ClosureEmitter
     /// Property emission never routes through <c>ShouldSkipMethodEmission</c> — it validates through
     /// the pipeline and then emits its accessors directly — so the gate has to be stated for the
     /// property as well or the accessor reaches the trampoline unchecked. The lane exemption mirrors
-    /// the property <c>@_cdecl</c> wrapper's own eligibility: it refuses a bare closure setter
-    /// outright, and accepts an <c>Optional</c>-wrapped one only when the closure is cdecl-compatible
-    /// — and, like every wrapper lane, only in xcframework mode.
+    /// the property <c>@_cdecl</c> wrapper's own eligibility: it accepts a bare closure setter on a
+    /// nongeneric class and an <c>Optional</c>-wrapped one on any parent the wrapper takes, in both
+    /// cases only when the closure is cdecl-compatible — and, like every wrapper lane, only in
+    /// xcframework mode.
     /// </remarks>
     internal static bool HasUnmodelledDirectLaneClosureAccessorArg(
         PropertyDecl property, ClosureHandler closureHandler, ITypeDatabase typeDatabase, out string shape)
@@ -293,12 +294,18 @@ public static partial class ClosureEmitter
         // inherits its generic context from an enclosing type is also refused here, which is
         // conservative: the property wrapper now carries plain accessors on such a parent through
         // the nested type's own metadata, but the closure adapter has not been taught that route.
+        //
+        // A bare (non-Optional) closure setter is narrower still: the wrapper carries one only on a
+        // nongeneric class, so that is the only parent exempted for it here.
+        var wrapperCarriesParent = property.SwiftTypeSpec is ClosureTypeSpec
+            ? property.ParentDecl is ClassDecl { IsGeneric: false } classParent &&
+              !WrapperValidation.IsInheritedGenericContext(classParent)
+            : property.ParentDecl is not TypeDecl { IsGeneric: true } genericParent ||
+              (PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper(property, genericParent, typeDatabase) &&
+               !WrapperValidation.IsInheritedGenericContext(genericParent));
         if (WrapperValidation.IsXCFrameworkMode(typeDatabase) &&
             !declVisibleRefusal &&
-            (property.ParentDecl is not TypeDecl { IsGeneric: true } genericParent ||
-             (PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper(property, genericParent, typeDatabase) &&
-              !WrapperValidation.IsInheritedGenericContext(genericParent))) &&
-            property.SwiftTypeSpec is not ClosureTypeSpec &&
+            wrapperCarriesParent &&
             IsClosureCdeclCompatible(spec, closureHandler))
             return false;
 
@@ -409,8 +416,8 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Shared tail of the three entry points: a closure only reaches the direct trampoline when it is
-    /// a supported non-async closure that needs a reverse thunk at all, and only then does its
-    /// argument lowering matter here.
+    /// a supported non-async closure that needs a reverse thunk at all, and only then do its
+    /// argument lowering and its return matter here.
     /// </summary>
     private static bool DirectLaneClosureIsUnmodelled(
         ClosureTypeSpec spec, string mangledName, int closureParamCount,
@@ -422,6 +429,17 @@ public static partial class ClosureEmitter
             return false;
         if (!closureHandler.RequiresThunk(spec, mangledName, closureParamCount))
             return false;
+
+        // An ObjC-bridgeable value return (URL, URLRequest?, …) has the argument side's problem in
+        // reverse: Swift expects the struct back, the managed handler produces its Foundation peer,
+        // and only a Swift-side cast can turn one into the other. The trampoline would ask for the
+        // peer's Swift metadata, which a Foundation class does not have, and fail inside a
+        // non-throwing callback.
+        if (closureHandler.ContainsInlineObjCBridgeableValue(spec.ReturnType))
+        {
+            shape = spec.ReturnType.ToString();
+            return true;
+        }
 
         return HasUnmodelledDirectLaneArg(spec, closureHandler, out shape);
     }

@@ -621,6 +621,12 @@ public partial class ClosureHandler
                             // via void* + SwiftMarshal for Optional<String> and [String] returns.
                             if (MarshallingHelpers.IsSwiftString(genericParam))
                                 continue;
+                            // Optional<ObjC-bridgeable value> (URL?, URLRequest?) crosses the
+                            // @_cdecl adapter as one nullable object pointer the adapter bridges
+                            // back, the same carrier as the non-optional value. The direct lane,
+                            // which has no adapter to bridge in, fails the shape closed.
+                            if (namedType.Name == "Swift.Optional" && IsObjCBridgeableValue(genericParam))
+                                continue;
                             return false;
                         }
                     }
@@ -2615,6 +2621,44 @@ public partial class ClosureHandler
         nativeTypeName = typeRecord.NativeTypeName.FullyQualifiedName;
         return true;
     }
+
+    /// <summary>
+    /// True for a Swift value type that bridges to an Objective-C class and is projected to C# as
+    /// that class: <c>URL</c> → <c>NSUrl</c>, <c>URLRequest</c> → <c>NSUrlRequest</c>,
+    /// <c>IndexPath</c> → <c>NSIndexPath</c>, <c>Locale</c> → <c>NSLocale</c>, and the like.
+    /// </summary>
+    /// <remarks>
+    /// Inside a closure the value travels as the Swift struct, not as an object pointer, so the
+    /// managed handler can only see its Foundation peer once Swift-side code has bridged it with
+    /// <c>as AnyObject</c>. The <c>@_cdecl</c> closure adapter is the only lane with such code; the
+    /// direct <c>CallConvSwift</c> trampoline would read the struct's storage as an object pointer.
+    /// A bridgeable typed enum is excluded: its projection is a C# enum reached through the platform
+    /// binding's constant converter, not an <c>NSObject</c> peer.
+    /// </remarks>
+    public bool IsObjCBridgeableValue(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+        if (namedType.ContainsGenericParameters || !namedType.HasModule())
+            return false;
+        if (!_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
+            return false;
+        return typeRecord.Kind == TypeRecordKind.Struct
+            && MarshallingHelpers.IsObjCBridgeable(typeRecord)
+            && (typeRecord.Flags & TypeRecordFlags.AppleTypedEnum) == 0
+            && typeRecord.NativeTypeName != null;
+    }
+
+    /// <summary>
+    /// True for <c>Optional&lt;T&gt;</c> where <c>T</c> satisfies <see cref="IsObjCBridgeableValue"/>.
+    /// The <c>@_cdecl</c> adapter bridges the payload and hands over a nullable object pointer.
+    /// </summary>
+    public bool IsOptionalObjCBridgeableValue(TypeSpec typeSpec) =>
+        typeSpec is NamedTypeSpec named &&
+        named.ContainsGenericParameters &&
+        named.Name == "Swift.Optional" &&
+        named.GenericParameters.Count == 1 &&
+        IsObjCBridgeableValue(named.GenericParameters[0]);
 
     /// <summary>
     /// Checks if a type is a complex enum (enum with associated values) in the type database.

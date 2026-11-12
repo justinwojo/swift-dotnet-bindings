@@ -154,6 +154,17 @@ public partial class ClosureHandler
             return new DirectClosureArgLowering(
                 DirectClosureArgAbi.Unmodelled, Array.Empty<string>(), typeSpec.ToString());
 
+        // An ObjC-bridgeable value (URL, URLRequest, IndexPath, …) arrives here as the Swift struct
+        // — behind an address, since the Foundation structs are resilient — while its projection is
+        // the Foundation peer, an object only Swift-side `as AnyObject` can produce. This lane has
+        // no Swift-side adapter to bridge in, so reading the slot as an object pointer compiles and
+        // then hands GetNSObject the struct's storage. The @_cdecl adapter carries the shape; here
+        // it is failed closed, wherever it sits inline (an Optional payload, a Result success
+        // payload, a tuple element), because every inline position reaches the same misread.
+        if (ContainsInlineObjCBridgeableValue(typeSpec))
+            return new DirectClosureArgLowering(
+                DirectClosureArgAbi.Unmodelled, Array.Empty<string>(), typeSpec.ToString());
+
         // Anything the P/Invoke translation already declares as a concrete blittable type
         // (primitive, Bool, tuple, supported existential container) is passed in the shape the
         // declaration says, so the register content already matches. No-payload enums are the one
@@ -368,6 +379,31 @@ public partial class ClosureHandler
     /// NOT inline: the container arrives as one buffer reference and its elements are converted by
     /// the container marshalling, which does not read them out of a register.
     /// </summary>
+    /// <summary>
+    /// True when an ObjC-bridgeable value sits in <paramref name="typeSpec"/> itself or inline in it —
+    /// an Optional payload, a Result success payload, or a tuple element. Container generic
+    /// arguments are not walked: their elements are unpacked by the container marshalling, never
+    /// read from the closure's own slot.
+    /// </summary>
+    internal bool ContainsInlineObjCBridgeableValue(TypeSpec typeSpec)
+    {
+        if (typeSpec is TupleTypeSpec tuple)
+            return tuple.Elements.Any(ContainsInlineObjCBridgeableValue);
+
+        if (typeSpec is not NamedTypeSpec named)
+            return false;
+
+        if (IsObjCBridgeableValue(named))
+            return true;
+
+        if (TryGetOptionalInner(named, out var optionalPayload))
+            return ContainsInlineObjCBridgeableValue(optionalPayload);
+        if (IsSwiftResultOverAnyError(named, out var successPayload))
+            return ContainsInlineObjCBridgeableValue(successPayload);
+
+        return false;
+    }
+
     private bool ContainsInlineSimpleEnum(TypeSpec typeSpec)
     {
         if (typeSpec is TupleTypeSpec tuple)
