@@ -61,10 +61,11 @@ internal sealed class SwiftCallPinPlan
 /// struct or enum other than its own, from a value type into a class, from an existential into a value
 /// type, from a struct or enum into a protocol of its own module it does not conform to, between
 /// function types of different arity, or between a function and a non-function). The target counts
-/// as winning only on rules that hold whatever else the solver weighs: it is favored where the
-/// sibling is disfavored; it is async where the sibling is not and neither is favored over the
-/// other; or it takes every passed argument at exactly the same type and needs fewer defaults.
-/// Every other sibling is a competitor. Competitors are removed by spelling out omitted
+/// as winning only on rules that hold whatever else the solver weighs: it is synchronous where the
+/// sibling is async (wrappers call a synchronous target from a synchronous body); it is favored
+/// where the sibling is disfavored; it is async where the sibling is not and neither is favored
+/// over the other; or, as its declaration states it, it takes every passed argument at exactly the
+/// same type and needs fewer defaults. Every other sibling is a competitor. Competitors are removed by spelling out omitted
 /// defaults whose text is a literal the wrapper can repeat verbatim — the smallest such set that
 /// leaves none — and a spelled-out default carries the value Swift would have supplied, so the call
 /// means the same thing. When no set works, the plan is refused and the caller declines the member
@@ -111,8 +112,9 @@ internal static class SwiftOverloadCallPinning
         var siblings = VisibleSiblings(declaration);
         if (siblings.Count == 0)
             return SwiftCallPinPlan.Unchanged;
+        var declared = DeclaredParameters(callTarget, declaration);
 
-        var unpinned = Competitors(declaration, siblings, args, omitted, NoPins, strippedDefaults, concreteArgType, kinds);
+        var unpinned = Competitors(declaration, siblings, args, declared, omitted, NoPins, strippedDefaults, concreteArgType, kinds);
         if (unpinned.Count == 0)
             return SwiftCallPinPlan.Unchanged;
 
@@ -132,7 +134,7 @@ internal static class SwiftOverloadCallPinning
             var pins = new Dictionary<ArgumentDecl, string>(ReferenceEqualityComparer.Instance);
             foreach (var index in subset)
                 pins[spellable[index].Arg] = spellable[index].Pin;
-            if (Competitors(declaration, siblings, args, omitted, pins, strippedDefaults, concreteArgType, kinds).Count == 0)
+            if (Competitors(declaration, siblings, args, declared, omitted, pins, strippedDefaults, concreteArgType, kinds).Count == 0)
                 return new SwiftCallPinPlan(pins, null);
         }
         return new SwiftCallPinPlan(NoPins, Describe(unpinned[0]));
@@ -310,15 +312,40 @@ internal static class SwiftOverloadCallPinning
 
     /// <summary>
     /// One argument the planned call passes: a value of a known (or unknown) type, or a literal.
-    /// <see cref="ValueSpec"/> is the value's structured type when it is the parameter's own.
+    /// <see cref="ValueSpec"/> is the value's structured type when the call passes exactly that
+    /// type. <see cref="Declared"/> is the parameter as the called declaration declares it, before
+    /// any specialization, or null when that is not known.
     /// </summary>
-    private readonly record struct CallArg(string Label, ArgumentDecl Parameter, string? ValueType, TypeSpec? ValueSpec, string? Literal);
+    private readonly record struct CallArg(string Label, ArgumentDecl? Declared, string? ValueType, TypeSpec? ValueSpec, string? Literal);
+
+    /// <summary>
+    /// Maps <paramref name="callTarget"/>'s parameters to <paramref name="declaration"/>'s. A
+    /// specialized copy substitutes concrete types for the declaration's generic ones, but the
+    /// wrapper still calls the generic declaration, and Swift ranks that.
+    /// </summary>
+    private static Func<ArgumentDecl, ArgumentDecl?> DeclaredParameters(MethodDecl callTarget, MethodDecl declaration)
+    {
+        if (ReferenceEquals(callTarget, declaration))
+            return arg => arg;
+        var map = new Dictionary<ArgumentDecl, ArgumentDecl>(ReferenceEqualityComparer.Instance);
+        if (callTarget.CSSignature.Count == declaration.CSSignature.Count)
+        {
+            for (int i = 1; i < callTarget.CSSignature.Count; i++)
+            {
+                if (string.Equals(CdeclParamMapper.BuildSwiftCallArgLabel(callTarget.CSSignature[i]),
+                        CdeclParamMapper.BuildSwiftCallArgLabel(declaration.CSSignature[i]), StringComparison.Ordinal))
+                    map[callTarget.CSSignature[i]] = declaration.CSSignature[i];
+            }
+        }
+        return arg => map.TryGetValue(arg, out var own) ? own : null;
+    }
 
     /// <summary>The siblings that are not sure to lose the call as planned.</summary>
     private static List<MethodDecl> Competitors(
         MethodDecl declaration,
         IReadOnlyList<MethodDecl> siblings,
         IReadOnlyList<ArgumentDecl> args,
+        Func<ArgumentDecl, ArgumentDecl?> declared,
         HashSet<ArgumentDecl> omitted,
         IReadOnlyDictionary<ArgumentDecl, string> pins,
         int strippedDefaults,
@@ -330,21 +357,26 @@ internal static class SwiftOverloadCallPinning
         foreach (var arg in args)
         {
             var label = CdeclParamMapper.BuildSwiftCallArgLabel(arg);
+            var own = declared(arg);
             if (omitted.Contains(arg))
             {
                 if (pins.TryGetValue(arg, out var pin))
-                    call.Add(new CallArg(label, arg, null, null, pin[label.Length..].Trim()));
+                    call.Add(new CallArg(label, own, null, null, pin[label.Length..].Trim()));
                 else
                     targetDefaults++;
                 continue;
             }
+            // An autoclosure parameter is passed an expression of its result type (`value()`).
+            var passed = arg.SwiftTypeSpec is ClosureTypeSpec { IsAutoClosure: true } autoclosure
+                ? autoclosure.ReturnType
+                : arg.SwiftTypeSpec;
             var concrete = concreteArgType?.Invoke(arg);
             if (concrete != null)
-                call.Add(new CallArg(label, arg, concrete, null, null));
-            else if (IsGenericType(arg))
-                call.Add(new CallArg(label, arg, null, null, null));
+                call.Add(new CallArg(label, own, concrete, null, null));
+            else if (arg.IsGeneric || IsGenericSpec(passed))
+                call.Add(new CallArg(label, own, null, null, null));
             else
-                call.Add(new CallArg(label, arg, arg.SwiftTypeSpec.ToString(), arg.SwiftTypeSpec, null));
+                call.Add(new CallArg(label, own, passed.ToString(), passed, null));
         }
 
         var competitors = new List<MethodDecl>();
@@ -405,26 +437,29 @@ internal static class SwiftOverloadCallPinning
 
     /// <summary>
     /// Whether Swift is sure to rank <paramref name="sibling"/> below the target for a call both
-    /// may take. Every rule needs the same type at every literal argument (literal typing outranks
-    /// favoring). Then a favored target beats a disfavored sibling. An async target is awaited, so
-    /// its call is in an async context, where Swift ranks a synchronous sibling below it whatever
+    /// may take. Every wrapper calls a synchronous target from a synchronous body and an async one
+    /// from an async body. In a synchronous body Swift takes a synchronous declaration over an
+    /// async one whatever else it weighs. Every other rule needs the same type at every literal
+    /// argument (literal typing outranks favoring). Then a favored target beats a disfavored
+    /// sibling. In an async body Swift ranks a synchronous sibling below an async target whatever
     /// conversions either needs; only favoring weighs more. Between declarations of the same
     /// async-ness, a target taking every argument at exactly the sibling's types wins on needing
-    /// fewer defaults.
+    /// fewer defaults. Types are compared as the target declares them: a specialized copy still
+    /// calls its generic declaration.
     /// </summary>
     private static bool SurelyLoses(
         MethodDecl target, MethodDecl sibling, IReadOnlyList<CallArg> call, IReadOnlyList<ArgumentDecl> bound,
         int targetDefaults, int siblingDefaults)
     {
-        // A synchronous target may be called from an async context, where an async sibling wins.
         if (!target.IsAsync && sibling.IsAsync)
-            return false;
+            return true;
 
         bool allIdentical = true;
         for (int i = 0; i < call.Count; i++)
         {
-            bool identical = !IsGenericType(call[i].Parameter) && !IsGenericType(bound[i])
-                && string.Equals(call[i].Parameter.SwiftTypeSpec.ToString(), bound[i].SwiftTypeSpec.ToString(), StringComparison.Ordinal);
+            var own = call[i].Declared;
+            bool identical = own != null && !IsGenericType(own) && !IsGenericType(bound[i])
+                && string.Equals(own.SwiftTypeSpec.ToString(), bound[i].SwiftTypeSpec.ToString(), StringComparison.Ordinal);
             if (call[i].Literal != null && !identical)
                 return false;
             allIdentical &= identical;
@@ -439,8 +474,9 @@ internal static class SwiftOverloadCallPinning
         return allIdentical && siblingDefaults > targetDefaults;
     }
 
-    private static bool IsGenericType(ArgumentDecl arg) =>
-        arg.IsGeneric || arg.SwiftTypeSpec.ToString().Contains("τ_", StringComparison.Ordinal);
+    private static bool IsGenericType(ArgumentDecl arg) => arg.IsGeneric || IsGenericSpec(arg.SwiftTypeSpec);
+
+    private static bool IsGenericSpec(TypeSpec spec) => spec.ToString().Contains("τ_", StringComparison.Ordinal);
 
     // ─── Provable type mismatches ───────────────────────────────────────
 
@@ -462,11 +498,19 @@ internal static class SwiftOverloadCallPinning
 
     private static bool ProvablyRejects(ArgumentDecl param, CallArg arg, NominalKinds kinds)
     {
-        if (RejectsAsFunction(param.SwiftTypeSpec, arg, kinds))
+        // An autoclosure parameter wraps an expression of any type that converts to its result.
+        if (param.SwiftTypeSpec is ClosureTypeSpec { IsAutoClosure: true } autoclosure)
+            return ProvablyRejects(autoclosure.ReturnType, IsGenericSpec(autoclosure.ReturnType), arg, kinds);
+        return ProvablyRejects(param.SwiftTypeSpec, IsGenericType(param), arg, kinds);
+    }
+
+    private static bool ProvablyRejects(TypeSpec paramSpec, bool paramIsGeneric, CallArg arg, NominalKinds kinds)
+    {
+        if (RejectsAsFunction(paramSpec, arg, kinds))
             return true;
-        if (IsGenericType(param) && !IsClosed(SplitType(param.SwiftTypeSpec.ToString()).Head))
+        if (paramIsGeneric && !IsClosed(SplitType(paramSpec.ToString()).Head))
             return false;
-        var paramType = param.SwiftTypeSpec.ToString();
+        var paramType = paramSpec.ToString();
         return arg.Literal != null
             ? ProvablyRejectsLiteral(paramType, arg.Literal)
             : arg.ValueType != null && ProvablyRejectsValue(paramType, arg.ValueType, kinds);

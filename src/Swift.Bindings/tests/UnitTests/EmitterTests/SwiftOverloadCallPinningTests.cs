@@ -427,17 +427,86 @@ public class SwiftOverloadCallPinningTests
         Assert.Equal(refused, plan.IsRefused);
     }
 
-    [Fact]
-    public void SynchronousTarget_StillCompetesWithAnAsyncSibling()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SynchronousTarget_OutranksEveryAsyncSibling(bool targetDisfavored)
     {
-        // From an async context Swift prefers the async sibling, and a synchronous target's call
-        // may be in one.
-        var target = Method("store", disfavored: false,
-            Arg("", "Swift.Int"), Arg("toDisk", "Swift.Bool", "compute()"));
-        var sibling = Method("store", disfavored: false, Arg("", "Swift.Int")) with { IsAsync = true };
+        // log(_:line: = #line) beside log(_:) async: every wrapper calls a synchronous target from
+        // a synchronous body, where an async declaration cannot be called; Swift picks the
+        // synchronous one even when it is disfavored.
+        var target = Method("log", targetDisfavored,
+            Arg("", "Swift.Int"), Arg("line", "Swift.UInt", "#line"));
+        var sibling = Method("log", disfavored: false, Arg("", "Swift.Int")) with { IsAsync = true };
         Host(target, sibling);
 
         var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.Same(SwiftCallPinPlan.Unchanged, plan);
+    }
+
+    [Fact]
+    public void AutoclosureArgument_IsPassedAsItsResult()
+    {
+        // choose(_: @autoclosure () -> Int, options: = []) beside choose(_: Int): the wrapper passes
+        // `value()`, an Int, which the value-taking sibling accepts; spelling `options: []` keeps
+        // the call on the target.
+        var target = Method("choose", disfavored: false,
+            ArgOfSpec("", "@autoclosure () -> Swift.Int"), Arg("options", "Swift.Array<Swift.Int>", "[]"));
+        var sibling = Method("choose", disfavored: false, Arg("", "Swift.Int"));
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.False(plan.IsRefused);
+        Assert.Equal("options: []", plan.PinFor(target.CSSignature[2]));
+    }
+
+    [Theory]
+    [InlineData("Swift.Int", 1)]
+    [InlineData("Swift.String", 0)]
+    public void AutoclosureSibling_TakesWhatConvertsToItsResult(string resultType, int pins)
+    {
+        // choose(_: Int, options: = []) beside choose(_: @autoclosure () -> R): an autoclosure
+        // parameter wraps any expression of a type that converts to R.
+        var target = Method("choose", disfavored: false,
+            Arg("", "Swift.Int"), Arg("options", "Swift.Array<Swift.Int>", "[]"));
+        var sibling = Method("choose", disfavored: false, ArgOfSpec("", $"@autoclosure () -> {resultType}"));
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.False(plan.IsRefused);
+        Assert.Equal(pins, plan.PinCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SpecializedCopy_IsRankedAsTheGenericDeclarationItCalls(bool isAsync)
+    {
+        // f<T: P>(x: T, a: = []) specialized for S, beside f(x: Any) and f(x: S, a:, b: = []):
+        // spelling `a: []` shuts out the Any sibling, but the wrapper still calls the generic
+        // declaration, which the concrete sibling outranks however many defaults it needs.
+        var original = Method("f", disfavored: false,
+            Arg("x", "τ_0_0", generic: true), Arg("a", "Swift.Array<Swift.Int>", "[]")) with { IsAsync = isAsync };
+        var anySibling = Method("f", disfavored: false, Arg("x", "Swift.Any")) with { IsAsync = isAsync };
+        var concreteSibling = Method("f", disfavored: false,
+            Arg("x", "TestLib.S"), Arg("a", "Swift.Array<Swift.Int>"), Arg("b", "Swift.Array<Swift.Int>", "[]")) with { IsAsync = isAsync };
+        Host(original, anySibling, concreteSibling);
+        var specialized = original with
+        {
+            MangledName = "SBW_CSM_f_S",
+            SpecializedFrom = original,
+            CSSignature = new List<ArgumentDecl>
+            {
+                original.CSSignature[0],
+                original.CSSignature[1] with { SwiftTypeSpec = new NamedTypeSpec("TestLib.S"), IsGeneric = false },
+                original.CSSignature[2],
+            },
+        };
+
+        var plan = SwiftOverloadCallPinning.Plan(specialized, arg => arg.HasDefaultArg, typeDatabase: null);
 
         Assert.True(plan.IsRefused);
     }
