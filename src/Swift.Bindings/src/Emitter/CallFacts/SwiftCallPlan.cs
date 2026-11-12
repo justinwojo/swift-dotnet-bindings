@@ -601,6 +601,8 @@ public sealed class SwiftCallPlanner
             if (mine.Source == SwiftPieceSource.Piece && swiftOrdinary[i].Piece is { } swiftPiece && swiftPiece.Offset != mine.Offset)
                 return ArchitectureAttempt.Fail(SwiftPlanRefusalKind.PrefixMismatch,
                     $"argument {i}: the managed {mine.ManagedType} piece is at offset {mine.Offset}; the callee's is at {swiftPiece.Offset}");
+            if (RoleConflict(managed, mine, swiftOrdinary[i]) is { } conflict)
+                return ArchitectureAttempt.Fail(SwiftPlanRefusalKind.PrefixMismatch, $"argument {i}: {conflict} ({physical.Normalized})");
         }
         // The managed declaration may pass more than the callee reads. A forward plan carries the
         // surplus only when the facts show what the callee takes in its place; anything else is a
@@ -627,6 +629,31 @@ public sealed class SwiftCallPlanner
             ? Reverse(convention, ordinary, swiftSlots, resultView, errorParameter, parameters, semantics)
             : Forward(kind, convention, ordinary, swiftSlots, resultView, indirectParameter, selfParameter, errorParameter, parameters, semantics);
         return attempt with { Callee = physical.Normalized };
+    }
+
+    /// <summary>
+    /// Why a managed argument cannot be what the callee reads in this slot, or null. Class and size
+    /// cannot tell one pointer from another: a type's metadata and a witness table are both a
+    /// <c>ptr</c>, so a declaration that drops one table and passes a trailing metatype instead
+    /// fits the callee register for register while handing it the wrong object. The generated
+    /// declarations name these arguments for what they are (<c>metatype</c>, <c>…Metadata</c>,
+    /// <c>…PWT</c>); a name that says metadata in a witness-table slot, or a witness table in a
+    /// metadata slot, is that misbinding. Only a contradiction refuses: an argument with any other
+    /// name, or in any other slot, is left to the class and size match.
+    /// </summary>
+    internal static string? RoleConflict(SwiftManagedSignature managed, SwiftTwinArgument argument, SwiftPhysicalArgument slot)
+    {
+        if (argument.Source != SwiftPieceSource.Value || argument.Parameter is not { } p || p < 0 || p >= managed.Parameters.Length)
+            return null;
+        var name = managed.Parameters[p].Name;
+        bool namesMetadata = name == "metatype" || (name.Length > "Metadata".Length && name.EndsWith("Metadata", StringComparison.Ordinal));
+        bool namesWitnessTable = name.Length > "PWT".Length && name.EndsWith("PWT", StringComparison.Ordinal);
+        var detail = slot.Detail is { } d ? $" {d}" : "";
+        if (namesMetadata && slot.Role is SwiftPhysicalArgumentRole.WitnessTable or SwiftPhysicalArgumentRole.WitnessSelfTable)
+            return $"the managed '{name}' is type metadata; the callee reads a witness table here ({slot.Role}{detail})";
+        if (namesWitnessTable && slot.Role is SwiftPhysicalArgumentRole.GenericMetadata or SwiftPhysicalArgumentRole.SelfTypeMetadata or SwiftPhysicalArgumentRole.WitnessSelfMetadata)
+            return $"the managed '{name}' is a witness table; the callee reads type metadata here ({slot.Role}{detail})";
+        return null;
     }
 
     /// <summary>The reason a self that is a thin metatype makes a trailing metatype argument benign.</summary>

@@ -311,6 +311,35 @@ public class SwiftCallPlanTests
     }
 
     [Fact]
+    public void AMetadataArgument_InTheCalleesWitnessTableSlot_IsRefused()
+    {
+        // `func f<T: P>(_ x: Int)` takes (x, T's metadata, T: P's witness table). A managed
+        // declaration that leaves the table out and passes a trailing metatype instead fits every
+        // register by class and size, and the callee reads the metatype as the table.
+        var facts = Free(null, "Swift.Int") with
+        {
+            Generics = new SwiftGenericSignatureFacts
+            {
+                Parameters = ["τ_0_0"],
+                Requirements = [new SwiftGenericRequirementFacts("τ_0_0", "M.P", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol }],
+            },
+        };
+
+        var refusal = Refused(Planner().PlanForward(facts, Named("void", ("x", "long"), ("TMetadata", "nint"), ("metatype", "nint")), "$s1M1fyySilF"),
+            SwiftPlanRefusalKind.PrefixMismatch);
+        Assert.Contains("metatype", refusal.Reason);
+        Assert.Contains(nameof(SwiftPhysicalArgumentRole.WitnessTable), refusal.Reason);
+
+        // A witness table where the callee takes metadata is the same misbinding the other way round.
+        Refused(Planner().PlanForward(facts, Named("void", ("x", "long"), ("TPPWT", "nint"), ("TMetadata", "nint")), "$s1M1fyySilF"),
+            SwiftPlanRefusalKind.PrefixMismatch);
+
+        // Passed in the callee's order, the same arguments plan.
+        var plan = Planned(Planner().PlanForward(facts, Named("void", ("x", "long"), ("TMetadata", "nint"), ("TPPWT", "nint")), "$s1M1fyySilF"));
+        Assert.DoesNotContain(plan.Body.Managed.Arguments, a => a.Unread);
+    }
+
+    [Fact]
     public void ThickClosure_TakesItsContextInSelf_AndIsCalledThroughTheFunctionRegister()
     {
         var plan = Planned(Planner().PlanForward(Closure("Swift.Int", "Swift.Int"), Signature(SwiftManagedMarshalling.None, "long", "long", "SwiftSelf"), null));

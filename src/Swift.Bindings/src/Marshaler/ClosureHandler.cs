@@ -210,7 +210,14 @@ public partial class ClosureHandler
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns><c>true</c> if the closure is @convention(c); otherwise, <c>false</c>.</returns>
-    public bool IsConventionC(ClosureTypeSpec closureTypeSpec)
+    public bool IsConventionC(ClosureTypeSpec closureTypeSpec) => IsConventionCSpec(closureTypeSpec);
+
+    /// <summary>
+    /// Whether the spec itself records <c>@convention(c)</c>: the flag the parser and the reducer set
+    /// from the mangled name, or a parsed <c>convention(c)</c> attribute. Needs no method context, so
+    /// a type renderer can ask it too.
+    /// </summary>
+    public static bool IsConventionCSpec(ClosureTypeSpec closureTypeSpec)
     {
         // Finding 17: a closure reduced from a CFunctionPointer node carries IsConventionC directly,
         // so honor it first. (Closure specs parsed from ABI JSON printedName do not, which is why the
@@ -278,6 +285,26 @@ public partial class ClosureHandler
     /// <returns><c>true</c> if the method signature carries a @convention(c) closure; otherwise <c>false</c>.</returns>
     public bool MethodHasConventionCClosure(string methodMangledName) =>
         _demangler.HasCFunctionPointerMarker(methodMangledName);
+
+    /// <summary>
+    /// Whether every <c>@convention(c)</c> function pointer <paramref name="method"/>'s signature
+    /// spells is one of its own parameters — directly or as an <c>Optional</c>'s payload — whose
+    /// closure spec records the convention. Counting the signature's CFunctionPointer nodes against
+    /// the marked parameters rules out a C function pointer anywhere else: inside a Swift closure's
+    /// own signature, in the result, in a generic argument, or nested in another C function pointer's
+    /// type. Those have no per-parameter record, and a route that passes C function pointers through
+    /// by their recorded type cannot reach them. False when the symbol cannot be demangled.
+    /// </summary>
+    public bool ConventionCPointersAreMarkedParameters(MethodDecl method)
+    {
+        var kinds = _demangler.FunctionTypeKindsInSignature(method.MangledName);
+        if (kinds is null)
+            return false;
+        var pointers = kinds.Count(k => k == Demangling.NodeKind.CFunctionPointer);
+        var marked = method.CSSignature.Skip(1).Count(arg =>
+            IsClosure(arg) && GetClosureTypeSpec(arg) is { } spec && IsConventionCSpec(spec));
+        return pointers == marked;
+    }
 
     /// <summary>
     /// Determines whether the closure has @MainActor attribute.
@@ -1934,7 +1961,8 @@ public partial class ClosureHandler
     ///
     ///   1. Invoke-thunk invoker (preferred whenever <see cref="Emitter.StringEmitter.ClosureEmitter.CanUseInvokeThunk"/>
     ///      holds — args are cdecl primitives / simple+complex enums / by-value structs INCLUDING
-    ///      Swift.String + Foundation.Data via the metadata-remap buffer; return is a cdecl
+    ///      Swift.String + Foundation.Data via the metadata-remap buffer / Swift and ObjC class
+    ///      references; return is a cdecl
     ///      primitive / simple enum / class / ObjC class; not async). EVERY other emitter below
     ///      routes through the pre-generated invoker class when a thunk exists, so this is checked
     ///      first and short-circuits. (This is why <c>makeStringLength() -> (String) -> Int32</c>

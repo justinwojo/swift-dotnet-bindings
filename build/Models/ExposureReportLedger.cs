@@ -171,13 +171,16 @@ public static class ExposureReportLedger
                 errors.Add($"bridged fixture {name} ({bridged.Symbol}) is not routed through a native bridge by this generation");
         }
 
-        var functionPointer = rows.Where(row =>
+        // The closure this getter returns used to be called through its raw Swift function pointer.
+        // The getter hands the closure back through typed memory, where Swift keeps it in its most
+        // general form, so only a Cdecl invoke thunk that reloads it at its own type can call it.
+        var functionPointer = rows.Count(row =>
             string.Equals(row.Route, "swift_function_pointer", StringComparison.Ordinal)
             && string.Equals(row.ContainingType, "SwiftBindingsTestLib.OwnershipCallbackOwner", StringComparison.Ordinal)
             && row.PublicApiKey?.Contains(".ClassCallback:", StringComparison.Ordinal) == true
-            && string.Equals(row.Accessor, "get", StringComparison.Ordinal)).ToList();
-        if (functionPointer.Count != 1)
-            errors.Add($"named fixture OwnershipCallbackOwner.ClassCallback.get has {functionPointer.Count} Swift function-pointer rows, expected 1");
+            && string.Equals(row.Accessor, "get", StringComparison.Ordinal));
+        if (functionPointer != 0)
+            errors.Add($"resolved fixture OwnershipCallbackOwner.ClassCallback.get has {functionPointer} Swift function-pointer row(s), expected 0 after invoke-thunk routing");
     }
 
     // A direct SwiftSelf import the generation cannot bridge yet: its plan is refused (its result

@@ -421,6 +421,16 @@ public class CliOptions
                      "it is the evidence the plans are judged by; in binding generation it routes the SDK's own qualification corpus. " +
                      "Exclusive with --swift-lowering-evidence.");
 
+    public Option<string[]> SwiftBridgeRoutes { get; } = new(
+        aliases: new[] { "--swift-bridge-route" },
+        description: "The Swift symbol of a closure-bearing member to route through its native bridge (SBSR_) rather than a " +
+                     "@_cdecl closure wrapper: it keeps its Swift-convention import, which the qualification then routes. Repeatable. " +
+                     "For the SDK's bridge qualification corpus: binding generation with --swift-lowering-qualification only, and " +
+                     "generation fails unless every named member's import is bridged.")
+    {
+        AllowMultipleArgumentsPerToken = false,
+    };
+
     public Option<string[]> ValidateLinkedBridges { get; } = new(
         aliases: new[] { "--validate-linked-bridges" },
         description: "A linked Mach-O image (a framework binary, thin or fat) whose SBSR_ bridges to validate. Repeatable. " +
@@ -611,6 +621,7 @@ public class CliOptions
             ValidateLinkedBridges,
             SwiftLoweringEvidence,
             SwiftLoweringQualification,
+            SwiftBridgeRoutes,
             EmitHandWrittenPlans,
             TransitionFacts,
             PlanSources,

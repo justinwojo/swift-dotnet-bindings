@@ -661,58 +661,28 @@ namespace BindingsGeneration
                 {
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
-                    if (isOptional)
-                    {
-                        // Optional @convention(c) closures may be stored and called later by Swift
-                        // (Optional closures are always escaping). ThreadStatic is unsound for this
-                        // case — fall back to Marshal.GetFunctionPointerForDelegate. This works on
-                        // NativeAOT (device); on Mono AOT (simulator) it requires JIT trampolines
-                        // which may not be available. Optional escaping @convention(c) closures are
-                        // rare in practice.
-                        string marshalSource = csName;
-                        if (ClosureEmitter.NeedsConventionCBoolBridge(closureTypeSpec))
-                        {
-                            // csName may still be a verbatim identifier (`@object`) when no sibling
-                            // forced it aside; prepending onto that spells `_@object_boolBridge`,
-                            // which does not parse. The bridge local takes the bare name — csName
-                            // itself keeps its escaped spelling because it names the real value.
-                            var bridgeName = $"_{NameProvider.StripVerbatimPrefix(csName)}_boolBridge";
-                            ClosureEmitter.EmitConventionCBoolBridge(csWriter, csName, bridgeName, closureTypeSpec, _env.ClosureHandler);
-                            marshalSource = bridgeName;
-                            csWriter.WriteLine($"var {bridgeName}Handle = global::System.Runtime.InteropServices.GCHandle.Alloc({bridgeName});");
-                        }
-
-                        csWriter.WriteLines($"""
-                            var {csName}FuncPtr = {csName} != null
-                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({marshalSource})
-                                : ({funcPtrType})IntPtr.Zero;
-                            """);
-                    }
-                    else
-                    {
-                        // Non-optional @convention(c) closure: marshal through the per-method+param
-                        // [ThreadStatic] slot + [UnmanagedCallersOnly] thunk. This is the AOT-safe path
-                        // (no JIT trampoline) the iOS simulator requires; the optional arm above cannot
-                        // use it because an Optional closure escapes and may be invoked after the call.
-                        //
-                        // The ABI parser conservatively marks ALL @convention(c) closures escaping, so
-                        // the escaping signal cannot distinguish a genuinely-stored closure from a plain
-                        // synchronous one — both come through here. A single static slot is unsound under
-                        // synchronous reentrancy: a callback that re-enters the same method+param would
-                        // overwrite the slot the outer call still reads. The slot is made reentrancy-safe
-                        // and leak-free on the method path by a save/restore pair around this set: a
-                        // pre-try local captures the slot's prior occupant
-                        // (EmitConventionCSlotSaveDeclarations) and the trailing finally restores it
-                        // (EmitFinally) — restoring rather than clearing to null, which would null-deref
-                        // an outer re-invocation. The thunk fires synchronously within the P/Invoke scope.
-                        // This set site and the thunk/field emit on every path; the save/restore pair is
-                        // method-path-only (constructors of this shape are skipped upstream and emit no
-                        // slot). All of these gate on UsesConventionCThreadStaticSlot so they never drift
-                        // out of sync.
-                        var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
-                        csWriter.WriteLine($"{baseName}_del = {csName};");
-                        csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
-                    }
+                    // A @convention(c) closure — bare or Optional — marshals through the
+                    // per-method+param [ThreadStatic] slot + [UnmanagedCallersOnly] thunk. That is the
+                    // AOT-safe path (no JIT trampoline) the iOS simulator requires, and the only one
+                    // that takes the generic Func/Action delegates the public surface declares:
+                    // Marshal.GetFunctionPointerForDelegate rejects a generic delegate type outright.
+                    //
+                    // A C function pointer carries no context, so Swift can always keep one past the
+                    // call, Optional or not; the escaping signal cannot tell a stored callback from a
+                    // synchronous one, and both come through here. The slot covers invocation during
+                    // the call's dynamic extent. A single static slot is unsound under synchronous
+                    // reentrancy — a callback that re-enters the same method+param would overwrite the
+                    // slot the outer call still reads — so every path that writes it saves the prior
+                    // occupant in a pre-try local (EmitConventionCSlotSaveDeclarations) and the
+                    // trailing finally restores it (EmitFinally), restoring rather than clearing to
+                    // null, which would null-deref an outer re-invocation. An absent Optional callback
+                    // passes a null pointer; the slot still saves and restores around it. All of these
+                    // gate on UsesConventionCThreadStaticSlot so they never drift out of sync.
+                    var baseName = GetConventionCCallbackName(csName);
+                    csWriter.WriteLine($"{baseName}_del = {csName};");
+                    csWriter.WriteLine(isOptional
+                        ? $"var {csName}FuncPtr = {csName} != null ? ({funcPtrType}){baseName}_ptr : null;"
+                        : $"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
                 }
                 else if (_env.ClosureHandler.IsAsyncClosure(closureTypeSpec)
                          && _env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec))
@@ -1463,14 +1433,12 @@ namespace BindingsGeneration
                 // ARGUMENT trampoline is the opposite (Swift→C#) PRODUCE direction and is NOT recorded here.
                 RecordClosureConsumeDegrade(new[] { closureTypeSpec.ReturnType });
 
-                // Non-optional @convention(c) closures: emit [UnmanagedCallersOnly(CallConvCdecl)]
+                // @convention(c) closures, bare or Optional: emit [UnmanagedCallersOnly(CallConvCdecl)]
                 // callback + [ThreadStatic] delegate storage. This is the AOT-safe path (no JIT
                 // trampoline) the iOS simulator requires, in place of Marshal.GetFunctionPointerForDelegate.
                 // The single slot is kept reentrancy-safe and leak-free by the save/restore stack
-                // discipline (EmitConventionCSlotSaveDeclarations + the finally restore). The OPTIONAL
-                // @convention(c) arm uses a real function pointer and does NOT use the slot — it is
-                // excluded by UsesConventionCThreadStaticSlot.
-                if (UsesConventionCThreadStaticSlot(argumentDecl, closureTypeSpec, closureParamCount))
+                // discipline (EmitConventionCSlotSaveDeclarations + the finally restore).
+                if (UsesConventionCThreadStaticSlot(closureTypeSpec, closureParamCount))
                 {
                     EmitConventionCCallback(csWriter, argumentDecl, closureTypeSpec);
                     csWriter.WriteLine();
@@ -1601,32 +1569,30 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Gets the convention-c callback field name for a parameter.
+        /// Gets the convention-c callback field name for a parameter of the member being emitted. The
+        /// slot and thunk are members of the enclosing type, so the name carries a digest of the
+        /// member's Swift symbol: overloads that share a name and a callback label each keep their own.
         /// </summary>
-        private static string GetConventionCCallbackName(string methodName, string paramName) =>
-            $"_convC_{methodName}_{NameProvider.StripVerbatimPrefix(paramName)}";
+        private string GetConventionCCallbackName(string paramName) =>
+            $"_convC_{_env.MethodDecl.Name}_{EmitterUtility.DeterministicHash8(_env.MethodDecl.MangledName)}_{NameProvider.StripVerbatimPrefix(paramName)}";
 
         /// <summary>
-        /// True for a non-optional <c>@convention(c)</c> closure parameter, which marshals through the
-        /// per-method+param <c>[ThreadStatic]</c> delegate slot (<c>{base}_del</c>) +
+        /// True for a <c>@convention(c)</c> closure parameter — bare or <c>Optional</c> — which marshals
+        /// through the per-method+param <c>[ThreadStatic]</c> delegate slot (<c>{base}_del</c>) +
         /// <c>[UnmanagedCallersOnly]</c> thunk rather than <c>Marshal.GetFunctionPointerForDelegate</c>.
-        /// That is the AOT-safe path (no JIT trampoline) the iOS simulator requires. The optional
-        /// <c>@convention(c)</c> arm uses a real function pointer and does NOT touch the slot, so it is
-        /// excluded here. The slot sites that MUST gate on this same predicate, or they drift out of
-        /// sync (a slot written but never declared/restored, or a save with no matching set): set
-        /// (<see cref="EmitClosureMarshalling"/>) and thunk/field
-        /// (<see cref="EmitConventionCCallback"/>) on every emission path, plus the
-        /// save/restore pair (save: <see cref="EmitConventionCSlotSaveDeclarations"/>; restore: the
-        /// finally cleanup) on the METHOD path only. Constructors that take a non-optional
-        /// <c>@convention(c)</c> closure are skipped upstream as unsupported and never emit a slot, so
-        /// they carry neither save nor restore.
+        /// That is the AOT-safe path (no JIT trampoline) the iOS simulator requires, and
+        /// <c>GetFunctionPointerForDelegate</c> rejects the generic delegate types the surface
+        /// declares in any case. The slot sites that MUST gate on this same predicate, or they drift
+        /// out of sync (a slot written but never declared/restored, or a save with no matching set):
+        /// set (<see cref="EmitClosureMarshalling"/>), thunk/field (<see cref="EmitConventionCCallback"/>),
+        /// save (<see cref="EmitConventionCSlotSaveDeclarations"/>) and restore (the finally cleanup),
+        /// on every path that writes the slot — methods and constructors alike.
         /// </summary>
-        private bool UsesConventionCThreadStaticSlot(ArgumentDecl argumentDecl, ClosureTypeSpec closureTypeSpec, int closureParamCount) =>
-            _env.ClosureHandler.IsConventionC(closureTypeSpec, _env.EmissionSymbol, closureParamCount)
-            && !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
+        private bool UsesConventionCThreadStaticSlot(ClosureTypeSpec closureTypeSpec, int closureParamCount) =>
+            _env.ClosureHandler.IsConventionC(closureTypeSpec, _env.EmissionSymbol, closureParamCount);
 
         /// <summary>
-        /// Emits the pre-try save local <c>var {base}_delSaved = {base}_del;</c> for each non-optional
+        /// Emits the pre-try save local <c>var {base}_delSaved = {base}_del;</c> for each
         /// <c>@convention(c)</c> closure parameter. Declared BEFORE the try block (like the existential
         /// heap declarations) so it remains in scope in the trailing finally, where the slot is restored.
         /// Capturing the slot's prior occupant and restoring it — rather than clearing to null — keeps the
@@ -1651,11 +1617,11 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
-                if (!UsesConventionCThreadStaticSlot(argumentDecl, closureTypeSpec, closureParamCount))
+                if (!UsesConventionCThreadStaticSlot(closureTypeSpec, closureParamCount))
                     continue;
 
                 var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
-                var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
+                var baseName = GetConventionCCallbackName(csName);
                 csWriter.WriteLine($"var {baseName}_delSaved = {baseName}_del;");
             }
         }
@@ -1679,7 +1645,7 @@ namespace BindingsGeneration
         private void EmitConventionCCallback(CSharpWriter csWriter, ArgumentDecl argumentDecl, ClosureTypeSpec closureTypeSpec)
         {
             var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetMarshallingBaseName(argumentDecl));
-            var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
+            var baseName = GetConventionCCallbackName(csName);
             var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
 
             // Build parameter list and return type using ClosureHandler's type translation
@@ -2095,9 +2061,9 @@ namespace BindingsGeneration
                     // invocations still dispatch correctly; at the outermost frame the saved value is the
                     // slot's pre-call null, so the reference is also released (no leak). Gated on the same
                     // UsesConventionCThreadStaticSlot predicate as the save/set/thunk sites.
-                    if (UsesConventionCThreadStaticSlot(argumentDecl, closureTypeSpec, cleanupClosureCount))
+                    if (UsesConventionCThreadStaticSlot(closureTypeSpec, cleanupClosureCount))
                     {
-                        var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
+                        var baseName = GetConventionCCallbackName(csName);
                         csWriter.WriteLine($"{baseName}_del = {baseName}_delSaved;");
                     }
                     else if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&

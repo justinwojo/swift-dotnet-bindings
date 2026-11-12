@@ -1311,7 +1311,16 @@ public static partial class ClosureEmitter
             var swiftName = NameProvider.EscapeSwiftKeyword(csName);
             var closureTypeSpec = closureHandler.GetClosureTypeSpec(arg);
 
-            if (closureTypeSpec != null &&
+            if (IsConventionCPassThrough(arg, closureHandler, methodDecl.MangledName, closureParamCount))
+            {
+                // A C function pointer is one word with no context, in either convention: declared
+                // with its own @convention(c) type and handed to the member unchanged.
+                var (passParam, passArg) = MapConventionCPassThrough(
+                    arg, swiftName, GetSwiftArgLabel(arg), methodDecl.ModuleDecl?.Name);
+                argParams.Add(passParam);
+                callArgs.Add(passArg);
+            }
+            else if (closureTypeSpec != null &&
                 closureHandler.IsSupportedClosure(closureTypeSpec) &&
                 closureHandler.RequiresThunk(closureTypeSpec, env.EmissionSymbol, closureParamCount) &&
                 !closureHandler.IsAsyncClosure(closureTypeSpec))
@@ -1701,6 +1710,11 @@ public static partial class ClosureEmitter
     {
         if (methodDecl.IsAsync) return false;
 
+        // A member the generation was asked to route through its native bridge keeps its
+        // Swift-convention import, which the bridge replaces. Every wrapper lane that would carry a
+        // closure asks this gate, so declining here keeps the member off all of them alike.
+        if (SwiftBridgeRouteRequests.IsRequested(methodDecl.MangledName)) return false;
+
         // Property accessors (getters/setters) pass closure values directly, not as
         // callback function pointers. The Cdecl wrapper pattern doesn't apply.
         if (methodDecl.IsAccessor) return false;
@@ -1711,12 +1725,17 @@ public static partial class ClosureEmitter
             methodDecl.CSSignature[0].SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return false;
 
-        // @convention(c) closures are passed as raw C function pointers, not Swift closures.
-        // The ABI JSON doesn't include convention attributes; Finding 17 detects them by walking
-        // the demangled tree for a CFunctionPointer node (instead of an "XC" substring scan). If
-        // present, our adapter closure (a regular Swift closure) can't be passed where a
-        // @convention(c) pointer is expected.
-        if (closureHandler.MethodHasConventionCClosure(methodDecl.MangledName))
+        // @convention(c) closures are C function pointers: one word, no context. The wrapper takes
+        // each one under its own @convention(c) type and hands it to the member unchanged — no
+        // adapter, which would build a Swift closure where the C pointer is expected. That needs
+        // every C function pointer the signature spells to be a parameter whose spec records the
+        // convention, because the wrapper's spelling and the managed marshalling both read it from
+        // there. ABI JSON prints a C function pointer like a Swift closure, so the record comes from
+        // the demangled signature; a C function pointer anywhere else — inside a Swift
+        // closure's signature, in the result, in another C function pointer's type — has none, and
+        // keeps the member off the wrapper.
+        if (closureHandler.MethodHasConventionCClosure(methodDecl.MangledName) &&
+            !closureHandler.ConventionCPointersAreMarkedParameters(methodDecl))
             return false;
 
         // If the method has ANY async closures (throwing or non-throwing baseline),
@@ -1744,11 +1763,64 @@ public static partial class ClosureEmitter
                     && !closureHandler.IsAsyncClosure(spec);
             })
             .ToList();
+        // Every C function pointer parameter must be one the wrapper passes through; one that is
+        // not would otherwise reach the ordinary parameter mapper, which has no spelling for it.
+        var conventionCClosures = methodDecl.CSSignature.Skip(1)
+            .Where(closureHandler.IsClosure)
+            .Where(arg => closureHandler.GetClosureTypeSpec(arg) is { } spec
+                && closureHandler.IsConventionC(spec, methodDecl.MangledName, closureParamCount))
+            .ToList();
+        if (!conventionCClosures.All(arg =>
+                IsConventionCPassThrough(arg, closureHandler, methodDecl.MangledName, closureParamCount)))
+            return false;
 
-        // Must have at least one thunk closure, and ALL must be Cdecl-compatible.
-        return thunkClosures.Count > 0
+        // No wrapper arm spells a generic parent's type arguments for a member that passes a C
+        // function pointer through (the static-factory constructor, the Swift-convention method
+        // shim), so a wrapper claimed for one does not compile. The member's managed half could not
+        // carry it either: the callback thunk is an [UnmanagedCallersOnly] method, which C# does not
+        // allow in the generic class the member is bound in.
+        if (conventionCClosures.Count > 0 && methodDecl.ParentDecl is TypeDecl { IsGeneric: true })
+            return false;
+
+        // Must have at least one closure the wrapper carries (a thunk closure it adapts or a C
+        // function pointer it passes through), and every thunk closure must be Cdecl-compatible.
+        return (thunkClosures.Count > 0 || conventionCClosures.Count > 0)
             && thunkClosures.All(arg =>
                 IsClosureCdeclCompatible(
                     closureHandler.GetClosureTypeSpec(arg)!, closureHandler));
+    }
+
+    /// <summary>
+    /// Whether <paramref name="arg"/> is a <c>@convention(c)</c> closure parameter — bare or
+    /// <c>Optional</c> — that a <c>@_cdecl</c> or <c>@_silgen_name</c> wrapper passes straight
+    /// through. A C function pointer is one word with no context, so the wrapper declares it with
+    /// its own <c>@convention(c)</c> type (<see cref="MapConventionCPassThrough"/>) and the managed
+    /// side passes one function pointer for it. Every wrapper arm that walks closure parameters
+    /// asks this before the thunk-closure check, so the two never claim the same parameter.
+    /// </summary>
+    internal static bool IsConventionCPassThrough(
+        ArgumentDecl arg, ClosureHandler closureHandler, string mangledName, int closureParamCount)
+    {
+        if (!closureHandler.IsClosure(arg) || closureHandler.GetClosureTypeSpec(arg) is not { } spec)
+            return false;
+        return closureHandler.IsSupportedClosure(spec)
+            && !closureHandler.IsAsyncClosure(spec)
+            && closureHandler.IsConventionC(spec, mangledName, closureParamCount);
+    }
+
+    /// <summary>
+    /// The wrapper parameter and call argument for a <c>@convention(c)</c> closure parameter that
+    /// passes through unchanged. The parameter keeps the member's own type — <c>@convention(c)</c>
+    /// and any <c>Optional</c> included — so the call hands the member exactly the pointer it was
+    /// given. <c>@escaping</c> is dropped: a C function pointer carries no context, so swiftc lets
+    /// one declared without it reach an <c>@escaping</c> parameter, and inside an <c>Optional</c>'s
+    /// generic argument the attribute is not allowed at all.
+    /// </summary>
+    internal static (string Parameter, string CallArgument) MapConventionCPassThrough(
+        ArgumentDecl arg, string bindingName, string callLabel, string? boundModuleName)
+    {
+        var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpecForWrapperSignature(arg.SwiftTypeSpec, boundModuleName)
+            .Replace("@escaping ", "", StringComparison.Ordinal);
+        return ($"_ {bindingName}: {swiftType}", $"{callLabel}{bindingName}");
     }
 }

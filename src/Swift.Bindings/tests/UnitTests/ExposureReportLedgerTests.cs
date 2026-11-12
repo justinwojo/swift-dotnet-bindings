@@ -88,6 +88,8 @@ public sealed class ExposureReportLedgerTests
         Assert.Contains(errors, e => e.Contains(StableDepth, StringComparison.Ordinal) && e.Contains("not routed", StringComparison.Ordinal));
         // The refused plan stays an exposure, so its row is still expected.
         Assert.Contains(errors, e => e.Contains("PendingRequestTask", StringComparison.Ordinal) && e.Contains("0 rows", StringComparison.Ordinal));
+        // The returned closure is invoked through a Cdecl thunk, so no raw function-pointer call is expected.
+        Assert.DoesNotContain(errors, e => e.Contains("ClassCallback", StringComparison.Ordinal));
     }
 
     private static (GeneratedSwiftCallScanResult Scan, string Json) Fixture(string entryPoint = "$sRun")

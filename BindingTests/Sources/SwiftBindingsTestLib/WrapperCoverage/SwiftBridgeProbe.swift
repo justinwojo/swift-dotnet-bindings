@@ -3,10 +3,14 @@
 
 // MARK: - Native Swift bridge probe
 
-/// Instance members the binding calls through a direct Swift-convention import: the
-/// `@convention(c)` parameter keeps each one off the `@_cdecl` wrapper, so with lowering evidence
-/// every one reaches Swift through a native bridge that loads self, the error slot and the indirect
-/// result into their Swift registers. Between them they cover the register shapes a bridge moves:
+/// Instance members the iOS qualification regeneration routes through native bridges. Each takes a
+/// C callback, which by default puts it on the closure `@_cdecl` wrapper; the regeneration asks for
+/// each one's bridge by symbol (`--swift-bridge-route`, listed in the build's
+/// `SwiftBridgeProbeRoutes`), so with lowering evidence every one reaches Swift through a native
+/// bridge that loads self, the error slot and the indirect result into their Swift registers, and
+/// the generation fails if one is not routed. A regeneration without evidence (Mac Catalyst, tvOS,
+/// macOS) asks for nothing, and they take the wrapper like any consumer's C-callback member.
+/// Between them they cover the register shapes a bridge moves:
 /// self with an error and a scalar result, self with an indirect result and ordinary arguments, and
 /// self with an owned class argument and result. The mapping callback lets a test interleave
 /// managed code inside the call, so the callee-saved registers the bridge borrows are live on both

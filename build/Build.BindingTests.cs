@@ -465,7 +465,11 @@ partial class Build
         // family whichever toolchain regenerates it. The record covers the iOS triples only, so the
         // other platforms keep their direct imports.
         if (BridgeEvidenceApplies(platformOverride))
+        {
             genArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
+            // The bridge probe's members would take the closure wrapper; ask for their bridges instead.
+            genArgs.AddRange(SwiftBridgeProbeRoutes.Select(symbol => $"--swift-bridge-route \"{symbol}\""));
+        }
 
         // In strict mode (explicit --strict or --compile-only's fail-closed default), make the
         // generator fail-closed on a degraded input edge — a device→sim slice fallback, a missing
