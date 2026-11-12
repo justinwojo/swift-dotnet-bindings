@@ -241,6 +241,13 @@ public class CliOptions
                      "from the output directory, and updates binding-metadata.props. Requires --xcframework and -o.",
         getDefaultValue: () => false);
 
+    public Option<string?> CollectSwiftLoweringEvidence { get; } = new(
+        aliases: new[] { "--collect-swift-lowering-evidence" },
+        description: "With --compile-wrapper-only: after each wrapper slice links, emit the IR of the same post-processed " +
+                     "wrapper with the same swiftc, SDK and flags, and write the module's lowering receipt to this path. The " +
+                     "receipt is written only when every shipped slice compiled and was observed, and only when the selected " +
+                     "compiler is a qualified family; otherwise any receipt at the path is removed.");
+
     public Option<bool> CompileBridgeOnly { get; } = new(
         aliases: new[] { "--compile-bridge-only" },
         description: "Compile-bridge-only mode: skips all parsing and C# generation, compiles existing .SwiftUIBridge.swift files " +
@@ -568,6 +575,7 @@ public class CliOptions
             SkipWrapperCompilation,
             SkipThunkCompilation,
             CompileWrapperOnly,
+            CollectSwiftLoweringEvidence,
             CompileBridgeOnly,
             DetectAppleCrossModuleDeps,
             SliceXcframework,

@@ -113,6 +113,7 @@ partial class Build
                 throw new Exception($"--bridge-consumer: expected one {BcfModule}.swift-call-plans.json under {fixtureDir}, found {fixturePlans.Count}.");
             var routes = BridgeConsumerRoutes((AbsolutePath)fixturePlans[0]);
             AssertBridgeConsumerPackedWrapper(fixtureOut, (AbsolutePath)fixturePlans[0]);
+            AssertBridgeConsumerCollectedReceipt(fixtureDir, evidence, routes.Single(r => r.Image == BcfWrapperModule));
 
             var failures = new List<string>();
             if (sim)
@@ -135,6 +136,9 @@ partial class Build
     }
 
     // MARK: - Fixture module and its lowering evidence
+
+    // The slices BuildBridgeConsumerXcframework builds, by the triple each is compiled for.
+    static readonly string[] BcfSliceTriples = [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget];
 
     // A two-slice (device + simulator) dynamic framework, each slice linking the register sentinel.
     AbsolutePath BuildBridgeConsumerXcframework(AbsolutePath buildRoot)
@@ -256,6 +260,98 @@ partial class Build
             """;
         File.WriteAllText(fixtureDir / $"{BcfModule}.csproj", csproj);
         File.WriteAllText(fixtureDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
+    }
+
+    // The SDK's wrapper compile collects the module's lowering receipt from the IR of the wrapper it
+    // links and of the lowering probe that calls each plan target through the library's public
+    // interface. It must hold the build's own evidence: under the oracle's compiler and SDKs, every
+    // symbol it shows exactly as the oracle recorded it on the same slice. The bridged transition's
+    // target is the positive control: the wrapper does not call it, so only the probe can show it, and
+    // the receipt must show it, as the oracle does, on every slice the fixture ships.
+    void AssertBridgeConsumerCollectedReceipt(AbsolutePath fixtureDir, AbsolutePath oracle, BcfRoute bridged)
+    {
+        var sep = Path.DirectorySeparatorChar;
+        var collected = Directory.GetFiles(fixtureDir, "swift-lowering-receipt.json", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{sep}bin{sep}", StringComparison.Ordinal))
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+        if (collected.Count == 0)
+            throw new Exception($"--bridge-consumer: the SDK build collected no lowering receipt under {fixtureDir} (expected obj/**/swift-binding/swift-lowering-receipt.json).");
+
+        var expected = BcfReceiptOf(oracle, BcfModule);
+        var problems = new List<string>();
+        for (var i = 0; i < collected.Count; i++)
+        {
+            File.Copy(collected[i], BcfReceipts / $"sdk-lowering-receipt-{i}.json", overwrite: true);
+            var actual = BcfReceiptOf((AbsolutePath)collected[i], BcfModule);
+            if (actual.Compiler != expected.Compiler)
+                problems.Add($"{collected[i]} was collected by {actual.Compiler}; the oracle by {expected.Compiler}");
+            if (actual.Slices.Count == 0)
+                problems.Add($"{collected[i]} covers no slice");
+            foreach (var (triple, slice) in actual.Slices)
+            {
+                if (!expected.Slices.TryGetValue(triple, out var oracleSlice))
+                {
+                    problems.Add($"{triple}: the oracle recorded no evidence for a slice the SDK receipt covers");
+                    continue;
+                }
+                if (slice.Sdk != oracleSlice.Sdk)
+                    problems.Add($"{triple}: collected against {slice.Sdk}; the oracle against {oracleSlice.Sdk}");
+                var agree = 0;
+                foreach (var (symbol, signature) in slice.Symbols)
+                {
+                    if (!oracleSlice.Symbols.TryGetValue(symbol, out var oracleSignature))
+                        problems.Add($"{triple}: the SDK receipt shows {symbol} as {signature}; the oracle shows no {symbol}");
+                    else if (oracleSignature != signature)
+                        problems.Add($"{triple}: the SDK receipt shows {symbol} as {signature}; the oracle as {oracleSignature}");
+                    else
+                        agree++;
+                }
+                // Every shown symbol was compared with the oracle above; the bridged target must be one of them.
+                if (slice.Symbols.TryGetValue(bridged.Target, out var bridgedSignature))
+                    Log.Information("  SDK receipt {Triple}: shows the bridged target {Target} as {Signature}", triple, bridged.Target, bridgedSignature);
+                else
+                    problems.Add($"{triple}: the SDK receipt does not show the bridged target {bridged.Target} of {bridged.Member}" +
+                        (slice.Unobserved.TryGetValue(bridged.Target, out var why) ? $"; it records it unobserved: {why}" : "; it does not record it at all"));
+                if (!oracleSlice.Symbols.ContainsKey(bridged.Target))
+                    problems.Add($"{triple}: the oracle does not show the bridged target {bridged.Target}, so agreeing with it proves nothing");
+                Log.Information("  SDK receipt {Triple}: {Agree} of {Shown} shown symbol(s) agree with the oracle ({OracleShown} shown there), {Unobserved} unobserved",
+                    triple, agree, slice.Symbols.Count, oracleSlice.Symbols.Count, slice.Unobserved.Count);
+            }
+            foreach (var triple in BcfSliceTriples.Where(t => !actual.Slices.ContainsKey(t)))
+                problems.Add($"{collected[i]} covers no {triple} slice, which the fixture's xcframework ships");
+        }
+        if (problems.Count > 0)
+        {
+            foreach (var p in problems) Log.Error("  ✗ {Problem}", p);
+            throw new Exception($"--bridge-consumer: the SDK-collected lowering receipt disagrees with the oracle in {problems.Count} place(s); copies under {BcfReceipts}.");
+        }
+    }
+
+    sealed record BcfSlice(string Sdk, Dictionary<string, string> Symbols, Dictionary<string, string> Unobserved);
+    sealed record BcfReceipt(string Compiler, Dictionary<string, BcfSlice> Slices);
+
+    // The one receipt of `artifact` in a lowering-evidence file.
+    static BcfReceipt BcfReceiptOf(AbsolutePath path, string artifact)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var receipts = document.RootElement.GetProperty("receipts").EnumerateArray()
+            .Where(r => r.GetProperty("artifact").GetString() == artifact)
+            .ToList();
+        if (receipts.Count != 1)
+            throw new Exception($"--bridge-consumer: expected one receipt of {artifact} in {path}, found {receipts.Count}.");
+        var receipt = receipts[0];
+        var slices = new Dictionary<string, BcfSlice>(StringComparer.Ordinal);
+        foreach (var slice in receipt.GetProperty("slices").EnumerateObject())
+        {
+            var symbols = slice.Value.GetProperty("symbols").EnumerateObject()
+                .ToDictionary(s => s.Name, s => s.Value.GetString()!, StringComparer.Ordinal);
+            var unobserved = slice.Value.TryGetProperty("unobserved", out var u) && u.ValueKind == JsonValueKind.Object
+                ? u.EnumerateObject().ToDictionary(s => s.Name, s => s.Value.GetString()!, StringComparer.Ordinal)
+                : new Dictionary<string, string>(StringComparer.Ordinal);
+            slices[slice.Name] = new BcfSlice(slice.Value.GetProperty("sdk").GetString()!, symbols, unobserved);
+        }
+        return new BcfReceipt(receipt.GetProperty("compiler").GetString()!, slices);
     }
 
     // MARK: - Routes and packed-image checks
