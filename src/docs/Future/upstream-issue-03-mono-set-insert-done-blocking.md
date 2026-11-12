@@ -8,6 +8,8 @@
 
 > **Scope correction (2026-09-08).** This document originally scoped the defect to the `(Bool direct, @out via x0)` tuple return of `Set.insert`. That was a three-sample correlation, not the cause. The mechanism is now pinned down at register level (see **Root cause — pinned down** below): the trigger is Mono's register allocator placing the GC-safe-region cookie in a Swift-reserved argument register, and it can hit **any** `CallConvSwift` P/Invoke that passes an untyped `SwiftSelf` (self in `x20`), regardless of return or argument shape. The parallel `x21`/`SwiftError` arm is mechanically possible but was not observed in the surveyed corpus, and a typed `SwiftSelf<T>` is not implicated at all — both qualifications are set out under **Root cause — pinned down**. The `Set.insert` material below is retained as the original reproduction, not as the scope.
 
+> **Scope widening (2026-11-12).** The cookie is not the only wrapper value the allocator parks in `x20`. The wrapper's LMF push also lands there, and the LMF pop after the call then writes through `x20`, which by then holds `SwiftSelf`. That overwrites the first word of the Swift object (its isa) and leaves the thread's LMF head pointing at a dead frame. The failure is a later SIGSEGV when the object is released, far from the call, not the `DONE_BLOCKING` abort. See **Second victim — the LMF address** below. The defect is "any wrapper value live across the native call may sit in `x20`/`x21`", and the cookie is one instance of it.
+
 ## Labels
 
 `area-Interop-Swift`, `os-ios`, `os-maccatalyst`, `bug`, `runtime-mono`
@@ -204,6 +206,57 @@ So the `x21` arm should be filed as *not excluded by Mono's allocator and destro
 
 **Why the caller cannot avoid it.** The affected P/Invoke declarations are ABI-correct — the same declarations run correctly under NativeAOT. (That is an observation about NativeAOT's outcome, not about its codegen: no NativeAOT stub was disassembled here, and the `MonoThreadInfo*` cookie is a Mono construct with no NativeAOT counterpart, so the correct claim is "NativeAOT does not exhibit it", not "NativeAOT allocates the cookie elsewhere".) The trigger is entirely inside Mono's wrapper codegen and is not a function of anything the managed declaration or the Swift signature can express, so no binding generator can predict or route around the shape. The only shape-level escape is dropping `SwiftSelf`/`SwiftError` from the signature altogether, i.e. the `@_cdecl` workaround.
 
-**Suggested fix.** Exclude `x20` and `x21` from the callee-saved candidate set the managed-to-native wrapper's register allocator may use for the GC-safe-region cookie whenever the call site uses `CallConvSwift` (or unconditionally for these wrappers — the two registers are cheap to reserve). Alternatively spill the cookie to the wrapper's frame across the native call rather than holding it in a register.
+## Second victim — the LMF address (2026-11-12)
+
+**Mechanism.** Before the transition, the wrapper pushes its LMF (last managed frame) record onto the thread's LMF list. It calls `mono_get_lmf_addr`, parks the returned slot address in a callee-saved register, saves the previous head into its frame and stores its own record into the slot. After the native call it pops by storing the saved previous head back through the same register. When the allocator chooses `x20`, the `SwiftSelf` setup overwrites the slot address. Because `x20` is callee-saved, it still holds self after the call, so the pop stores a stack address into the first word of the Swift object. A wrapper with the cookie safe in another register is still exposed this way, so the cookie-only classification above cannot see it.
+
+```
++176: blr  x0             ; mono_get_lmf_addr
++180: mov  x20, x0        ; LMF slot address parked in x20
++188: ldr  x1, [x20]      ; previous LMF head
++192: str  x1, [x29, #0xc0]
++196: str  x0, [x20]      ; push this frame's LMF
++244: bl   mono_threads_enter_gc_safe_region_unbalanced
++248: mov  x22, x0        ; cookie in x22 (safe)
++296: mov  x20, x3        ; SwiftSelf — the LMF slot address is lost
++300: bl   <native Swift callee>
++500: ldr  x0, [x29, #0xc0]
++504: str  x0, [x20]      ; LMF pop writes the previous head into *self
+```
+
+**Register-level proof.** The proof was taken on the iOS Simulator (Mono, net10 / Xcode 26.3), `SwiftBridgeProbe.combine`, under lldb, against the image the survey below classified:
+
+| Point | Observation |
+|---|---|
+| After `mono_get_lmf_addr` | `x20` = `0x1209d6810` (the thread's LMF slot) |
+| Before the branch | self = `0x137dedd40`; `*self` = `0x11d8f93a8` (the class metadata), refcount word `0x3` |
+| After the call | `x20` = `0x137dedd40` (self, preserved by the callee) |
+| At `+504` | `x0` = `0x16cf9a638`, a stack address (the previous LMF head) |
+| After the store | `*self` = `0x16cf9a638`, so the isa is destroyed; the LMF slot is never restored and keeps pointing at the returning frame |
+| Later release | `SwiftBridgeProbe.Dispose` → `swift_release` → `_swift_release_dealloc` loads the destroyed isa and branches into the stack at `0x16cf9a8c8`: SIGSEGV |
+
+The call itself returns correct values. The consumer sees a crash on the object's next release or dealloc. The test that calls the member is not green while corrupting: `SwiftBridgeTests.TestCombineThroughBridge_SelfIndirectResultAndArguments` crashes in that `Dispose`.
+
+**Survey (2026-11-12).** The survey ran on .NET 10 with Microsoft.iOS / Mac Catalyst / tvOS SDK 26.2.x and Xcode 26.3, against the project's `RuntimeTestsApp`. Every managed-to-native wrapper carrying `SwiftSelf` or `SwiftError` was classified by `build/scripts/classify-mono-aot-cookie.py` (`m2n-x20-v3`). For each wrapper, the classifier finds the `x20` write that loads self, the value parked in `x20` before it, and every read of `x20` reachable after the native call before `x20` is redefined. It does the same for `x21` on `SwiftError` wrappers.
+
+| Lane | Wrappers carrying untyped `SwiftSelf` | LMF victims | Cookie victims |
+|---|---|---|---|
+| iOS Simulator, BindingTests configuration | 14 | 1 | 3 |
+| iOS device, Mono full-AOT | 14 | 1 | 3 |
+| iOS Simulator, regenerated without lowering evidence | 69 | 6 | 4 |
+| Mac Catalyst | 69 | 6 | 4 |
+| tvOS Simulator (interpreter) | 0 | — | — |
+
+- **Which members are victims.**
+  - The two iOS BindingTests lanes have the same four victims: one LMF victim (`PendingRequestTask.start`) and three cookie victims (`IndirectSource.wrap`, `IndirectTable.with`, `StaffRoster.firstEntry`).
+  - The two 69-wrapper lanes add six more, in both registers' victim classes:
+    - LMF victims: `SwiftBridgeProbe.combine`, `SwiftBridgeProbe.derive`, `InoutTally.measure`, `GenericOptionalAbiBox.tagIsPresent` and `WireNote.decodeMessage`.
+    - A cookie victim: `SwiftBridgeProbe.accumulate`, which carries both `SwiftSelf` and `SwiftError`.
+- **`x21`.** No `x21` victim was found in any lane.
+- **tvOS.** tvOS runs these calls through `interp_to_native_trampoline`. That trampoline saves `x20`/`x21` to its own frame, loads self and the error slot, and restores both after the call, so the defect does not arise there.
+
+**Typed indirect calls.** The `CallConvSwift` function-pointer wrapper (`_Module_wrapper_native_indirect_void_modoptCallConvSwift_void__SwiftSelf_intptr`) never writes `x20` at all. In the disassembly it loads the `SwiftSelf` argument into `x1` before `blr`. That is a separate defect in the same lowering, recorded here from the static listing only.
+
+**Suggested fix.** In a `CallConvSwift` managed-to-native wrapper, exclude `x20` and `x21` from the registers that may hold any value live across the native call. That covers the GC-safe-region cookie and the LMF slot address, plus anything else the allocator might place there. The rule could also apply unconditionally to these wrappers, since reserving the two registers is cheap. The alternative is to spill such values to the wrapper's frame across the call. Fixing only the cookie's allocation would leave the LMF arm in place.
 
 **Environment for this determination:** .NET 10.0, Mono full-AOT `ios-arm64` (`dotnet build -c Debug -r ios-arm64`, no `PublishAot`) and Mono JIT `iossimulator-arm64`; Microsoft.iOS.Sdk 26.2.x; Xcode 26.3. The same abort text, frame chain and wrapper symbol appear on both the simulator (JIT) and the device (full AOT), so this is Mono's wrapper codegen rather than a JIT-only artifact.
