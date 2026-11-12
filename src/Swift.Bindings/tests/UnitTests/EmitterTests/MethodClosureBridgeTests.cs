@@ -467,6 +467,34 @@ public class MethodClosureBridgeTests
         Assert.Contains(expectedSignaturePrefix, cs);
     }
 
+    [Fact]
+    public void TryEmit_AutoclosureParam_ForwardsTheAdaptersValue()
+    {
+        // choose(value: @autoclosure () -> Bool, handler: (DataResponse<MyData>) -> Void): the
+        // adapter is a `() -> Bool`, which the autoclosure parameter does not take; passed as is,
+        // Swift binds the call to any same-named sibling taking a function instead. The call
+        // passes `adapter()`, a Bool, which Swift wraps back into the autoclosure.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        var autoclosure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        autoclosure.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+        var handler = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)new NamedTypeSpec("TestModule.DataResponse", new NamedTypeSpec("TestModule.MyData")) }),
+            TupleTypeSpec.Empty);
+        var method = CreateMethodDeclWithTwoClosures("choose", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, autoclosure, "value", handler, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+
+        var result = MethodClosureBridge.TryEmit(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput), env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var call = swiftOutput.ToString().Split('\n').Single(line => line.Contains(".choose("));
+        Assert.Matches(@"value: \w+\(\), handler: \w+\)", call);
+    }
+
     // ─── TryEmit: C# Callback ─────────────────────────────────────────
 
     [Fact]

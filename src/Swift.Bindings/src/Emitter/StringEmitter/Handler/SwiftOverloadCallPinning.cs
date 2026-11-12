@@ -366,7 +366,8 @@ internal static class SwiftOverloadCallPinning
                     targetDefaults++;
                 continue;
             }
-            // An autoclosure parameter is passed an expression of its result type (`value()`).
+            // Every emitter forwards an autoclosure parameter as an expression of its result type
+            // (`value()`), which Swift wraps back into the autoclosure.
             var passed = arg.SwiftTypeSpec is ClosureTypeSpec { IsAutoClosure: true } autoclosure
                 ? autoclosure.ReturnType
                 : arg.SwiftTypeSpec;
@@ -382,6 +383,10 @@ internal static class SwiftOverloadCallPinning
         var competitors = new List<MethodDecl>();
         foreach (var sibling in siblings)
         {
+            // Every wrapper calls a synchronous target from a synchronous body, where Swift takes a
+            // synchronous declaration over an async one whatever else it weighs, variadics included.
+            if (!declaration.IsAsync && sibling.IsAsync)
+                continue;
             if (!MayAccept(sibling, call, kinds, out var bound, out int siblingDefaults, out bool usesVariadic))
                 continue;
             if (!usesVariadic && SurelyLoses(declaration, sibling, call, bound, targetDefaults, siblingDefaults))
@@ -397,7 +402,7 @@ internal static class SwiftOverloadCallPinning
     /// the argument is not provably the wrong type, or else must supply its own default. A variadic
     /// parameter takes no argument, or the one with its label and every unlabeled one after it.
     /// Answers false only when the sibling certainly cannot take the call; whenever a variadic
-    /// parameter is involved, neither ranking rule is trusted.
+    /// parameter is involved, no ranking rule beyond synchronous-over-async is trusted.
     /// </summary>
     private static bool MayAccept(
         MethodDecl sibling, IReadOnlyList<CallArg> call, NominalKinds kinds, out List<ArgumentDecl> bound,
@@ -437,23 +442,18 @@ internal static class SwiftOverloadCallPinning
 
     /// <summary>
     /// Whether Swift is sure to rank <paramref name="sibling"/> below the target for a call both
-    /// may take. Every wrapper calls a synchronous target from a synchronous body and an async one
-    /// from an async body. In a synchronous body Swift takes a synchronous declaration over an
-    /// async one whatever else it weighs. Every other rule needs the same type at every literal
-    /// argument (literal typing outranks favoring). Then a favored target beats a disfavored
-    /// sibling. In an async body Swift ranks a synchronous sibling below an async target whatever
-    /// conversions either needs; only favoring weighs more. Between declarations of the same
-    /// async-ness, a target taking every argument at exactly the sibling's types wins on needing
-    /// fewer defaults. Types are compared as the target declares them: a specialized copy still
-    /// calls its generic declaration.
+    /// may take. A synchronous target against an async sibling is settled before this. Every rule
+    /// here needs the same type at every literal argument (literal typing outranks favoring). Then
+    /// a favored target beats a disfavored sibling. In an async body Swift ranks a synchronous
+    /// sibling below an async target whatever conversions either needs; only favoring weighs more.
+    /// Between declarations of the same async-ness, a target taking every argument at exactly the
+    /// sibling's types wins on needing fewer defaults. Types are compared as the target declares
+    /// them: a specialized copy still calls its generic declaration.
     /// </summary>
     private static bool SurelyLoses(
         MethodDecl target, MethodDecl sibling, IReadOnlyList<CallArg> call, IReadOnlyList<ArgumentDecl> bound,
         int targetDefaults, int siblingDefaults)
     {
-        if (!target.IsAsync && sibling.IsAsync)
-            return true;
-
         bool allIdentical = true;
         for (int i = 0; i < call.Count; i++)
         {

@@ -446,6 +446,44 @@ public class SwiftOverloadCallPinningTests
     }
 
     [Fact]
+    public void SynchronousTarget_OutranksAnAsyncVariadicSibling()
+    {
+        // log(_:line: = #line) beside log(_:values: Int...) async: the variadic sibling may take
+        // log(x), but a synchronous body cannot call it, so the variadic ranking caveat never comes
+        // into play. #line cannot be spelled out, so treating the sibling as a rival refuses a call
+        // Swift resolves to the target.
+        var target = Method("log", disfavored: false,
+            Arg("", "Swift.Int"), Arg("line", "Swift.UInt", "#line"));
+        var values = Arg("values", "Swift.Int");
+        values.SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int") { IsVariadic = true });
+        var sibling = Method("log", disfavored: false, Arg("", "Swift.Int"), values) with { IsAsync = true };
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.Same(SwiftCallPinPlan.Unchanged, plan);
+    }
+
+    [Fact]
+    public void AutoclosureArgument_IsNotTakenByAFunctionParameter()
+    {
+        // choose(value: @autoclosure () -> Bool, handler:, options: = [1]) beside
+        // choose(value: () -> Any, handler:): every wrapper passes `value()`, a Bool, which a
+        // function parameter cannot take, so the reduced call stays on the target unpinned.
+        var handler = "(Swift.Array<Swift.Int>) -> ()";
+        var target = Method("choose", disfavored: false,
+            ArgOfSpec("value", "@autoclosure () -> Swift.Bool"), ArgOfSpec("handler", handler),
+            Arg("options", "Swift.Array<Swift.Int>", "[1]"));
+        var sibling = Method("choose", disfavored: false,
+            ArgOfSpec("value", "() -> Swift.Any"), ArgOfSpec("handler", handler));
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.Same(SwiftCallPinPlan.Unchanged, plan);
+    }
+
+    [Fact]
     public void AutoclosureArgument_IsPassedAsItsResult()
     {
         // choose(_: @autoclosure () -> Int, options: = []) beside choose(_: Int): the wrapper passes

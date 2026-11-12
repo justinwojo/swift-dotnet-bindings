@@ -300,6 +300,9 @@ public static class GenericClosureBridgeEmitter
         }
 
         var closureParamStr = string.Join(", ", closureParamDecls);
+        // An @autoclosure parameter takes its result, not a function: the literal is invoked in
+        // place and Swift wraps that call back into the autoclosure, still evaluated on demand.
+        var closeClosureAndCall = closureTypeSpec.IsAutoClosure ? "}())" : "})";
         var throwsInClosure = closureTypeSpec.Throws ? " throws" : "";
         var throwsStr = methodDecl.Throws ? " throws" : "";
         var tryPrefix = methodDecl.Throws ? "try " : "";
@@ -362,7 +365,7 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"        return {resultBufName}");
-            swiftWriter.WriteLine($"    }})");
+            swiftWriter.WriteLine($"    {closeClosureAndCall}");
 
             swiftWriter.WriteLine("}");
             swiftWriter.WriteLine();
@@ -414,7 +417,7 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
             swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
-            swiftWriter.WriteLine($"    }})");
+            swiftWriter.WriteLine($"    {closeClosureAndCall}");
 
             swiftWriter.WriteLine("}");
             swiftWriter.WriteLine();
