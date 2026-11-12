@@ -66,6 +66,18 @@ public sealed class SwiftIrModule
 
     public IReadOnlyCollection<string> TypeNames => _types.Keys;
 
+    /// <summary>
+    /// This module's declarations alone: the functions it calls in other modules, without anything it
+    /// defines itself.
+    /// </summary>
+    public SwiftIrModule DeclarationsOnly()
+    {
+        var module = new SwiftIrModule();
+        foreach (var (symbol, function) in _declarations)
+            module._declarations[symbol] = function;
+        return module;
+    }
+
     public static SwiftIrModule Parse(string ir)
     {
         var module = new SwiftIrModule();

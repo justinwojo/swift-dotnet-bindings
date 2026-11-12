@@ -1985,13 +1985,14 @@ namespace BindingsGeneration
             }
 
             // The frontend flags: everything that decides how swiftc reads and lowers the wrapper. The
-            // lowering-evidence pass compiles the same sources with exactly these.
-            var frontendArgs =
+            // lowering-evidence pass compiles the same sources with exactly these, and its probe compiles
+            // with the same flags under a module name of its own.
+            var sharedFrontendArgs =
                 $"-target {targetTriple} " +
                 $"-sdk \"{sdkPath}\" " +
                 $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
-                $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
-                $"-module-name {wrapperModuleName} ";
+                $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} ";
+            var frontendArgs = sharedFrontendArgs + $"-module-name {wrapperModuleName} ";
 
             string BuildArgs(string extraLinkerFlags) =>
                 $"swiftc -emit-library {frontendArgs}" +
@@ -2106,7 +2107,7 @@ namespace BindingsGeneration
             if (lowering != null)
             {
                 CollectLoweringEvidence(
-                    lowering, frontendArgs, swiftFiles, wrapperModuleName, targetTriple, frameworkSearchPath,
+                    lowering, sharedFrontendArgs, frontendArgs, swiftFiles, wrapperModuleName, targetTriple, frameworkSearchPath,
                     originalModuleName, transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, strippedSymbols,
                     compileClock.Elapsed, commandRunner, logger, swiftcTimeoutMs);
             }
@@ -2116,12 +2117,16 @@ namespace BindingsGeneration
         /// The lowering-evidence pass of one slice, run once the slice's wrapper has linked: swiftc emits
         /// the IR of the same post-processed sources with the link compile's own frontend flags
         /// (<paramref name="frontendArgs"/>), plus <c>-parse-as-library</c>, which <c>-emit-library</c>
-        /// implies, and the pass records what that IR shows for the module's plan targets. It never fails
-        /// the wrapper compile: a slice it cannot observe is recorded as a failure, and a receipt is then
-        /// not written.
+        /// implies; then, for a bound module, the slice's lowering probe (<see cref="SwiftLoweringProbe"/>)
+        /// calls every plan target the wrapper does not define through the module's public interface with
+        /// the same flags (<paramref name="sharedFrontendArgs"/>, under the probe's own module name). The
+        /// pass records what both IRs show for the module's plan targets. It never fails the wrapper
+        /// compile: a slice whose wrapper IR it cannot read is recorded as a failure, and a receipt is then
+        /// not written; a target the probe cannot show is recorded unobserved, with the probe's reason.
         /// </summary>
         private static void CollectLoweringEvidence(
             SwiftWrapperLoweringEvidence.Pass lowering,
+            string sharedFrontendArgs,
             string frontendArgs,
             IReadOnlyList<string> swiftFiles,
             string wrapperModuleName,
@@ -2171,19 +2176,45 @@ namespace BindingsGeneration
                     return;
                 }
 
+                var irTime = clock.Elapsed;
+
                 var sources = new List<SwiftEvidenceSource>
                 {
                     new(SwiftEvidenceSource.WrapperRole, wrapperModuleName, SwiftEvidenceSource.DigestOf(swiftFiles),
                         SwiftWrapperLoweringEvidence.WrapperFlags(targetTriple)),
                 };
+                SwiftLoweringProbe.Result? probe = null;
                 if (!string.IsNullOrEmpty(boundModuleName))
+                {
                     sources.AddRange(SwiftWrapperLoweringEvidence.InterfaceSources(boundModuleName, frameworkSearchPath, dependencySearchPaths));
-                var slice = lowering.Observe(targetTriple, modules, sources, strippedSymbols);
+                    // A target the wrapper defines is the wrapper's own code; every other one is called
+                    // as a client of the library calls it, whether or not the wrapper calls it too.
+                    var probed = lowering.Targets.Where(t => !modules.Any(m => m.Functions.ContainsKey(t))).ToList();
+                    probe = SwiftLoweringProbe.Run(
+                        new SwiftLoweringProbe.Request(
+                            probed, boundModuleName, frameworkSearchPath, dependencySearchPaths, swiftFiles,
+                            sharedFrontendArgs, wrapperModuleName + "LoweringProbe", targetTriple,
+                            Path.GetDirectoryName(swiftFiles[0])!),
+                        commandRunner, logger, timeoutMs);
+                    if (probe.Source is not null)
+                        sources.Add(probe.Source);
+                }
+                var slice = lowering.Observe(targetTriple, modules, sources, strippedSymbols, probe);
                 if (slice != null)
                 {
+                    var byWrapper = lowering.Targets.Count(t => modules.Any(m => m.Functions.ContainsKey(t) || m.Declarations.ContainsKey(t)));
                     logger.LogInformation(
-                        "Lowering evidence for {Triple}: {Shown} of {Targets} plan target(s) shown by the wrapper IR; IR pass {IrSeconds:F1}s after a {CompileSeconds:F1}s wrapper compile.",
-                        targetTriple, slice.Symbols.Count, lowering.Targets.Count, clock.Elapsed.TotalSeconds, wrapperCompileTime.TotalSeconds);
+                        "Lowering evidence for {Triple}: {Shown} of {Targets} plan target(s) shown ({ByWrapper} by the wrapper IR, {ByProbe} more by the probe); " +
+                        "IR pass {IrSeconds:F1}s and probe {ProbeSeconds:F1}s ({Calls} call(s), {Compiles} compile(s)) after a {CompileSeconds:F1}s wrapper compile.",
+                        targetTriple, slice.Symbols.Count, lowering.Targets.Count, byWrapper, slice.Symbols.Count - byWrapper,
+                        irTime.TotalSeconds, probe?.Elapsed.TotalSeconds ?? 0, probe?.Calls ?? 0, probe?.Compiles ?? 0,
+                        wrapperCompileTime.TotalSeconds);
+                    if (slice.Unobserved is { Count: > 0 } unobserved)
+                    {
+                        logger.LogInformation("Lowering evidence for {Triple}: unobserved by reason: {Reasons}", targetTriple,
+                            string.Join("; ", unobserved.Values.GroupBy(SwiftLoweringProbe.ReasonCategory).OrderByDescending(g => g.Count())
+                                .ThenBy(g => g.Key, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}")));
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException)

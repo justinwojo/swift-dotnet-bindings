@@ -140,6 +140,41 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
         Assert.Equal(SwiftWrapperLoweringEvidence.StrippedReason, slice!.Unobserved![Absent]);
     }
 
+    private static SwiftLoweringProbe.Result ProbeResult(IReadOnlyList<SwiftIrModule> modules, IDictionary<string, string> unseen, SwiftEvidenceSource? source) =>
+        new(modules.Select(m => m.DeclarationsOnly()).ToList(), unseen.ToImmutableSortedDictionary(StringComparer.Ordinal), source, 1, 1, TimeSpan.Zero);
+
+    [Fact]
+    public void Observe_WithAProbe_ShowsWhatEitherIrDeclares_AndTheProbesReasonForWhatNeitherDoes()
+    {
+        var pass = Collection().BeginPass(null);
+        var probeSource = new SwiftEvidenceSource(SwiftEvidenceSource.ProbeRole, "Swift.RuntimeSwiftBindingsLoweringProbe", "sha256:bb",
+            SwiftWrapperLoweringEvidence.WrapperFlags("arm64-apple-ios16.0-simulator"));
+        var someOther = pass.Targets.First(t => t != Declared && t != Absent);
+        var probe = ProbeResult(Ir(DeclaredIr), new Dictionary<string, string> { [Absent] = SwiftLoweringProbe.InlinedReason }, probeSource);
+
+        // The wrapper shows nothing; the post-processor stripped both unseen targets.
+        var slice = pass.Observe("arm64-apple-ios16.0-simulator", Ir("; ModuleID = 'w'"), [.. SomeSources, probeSource],
+            new HashSet<string> { Absent, someOther }, probe);
+
+        Assert.Equal("swiftcc void (ptr noalias sret, i64, ptr, ptr)", slice!.Symbols[Declared]);
+        // The probe asked for it, so its reason is why the target cannot be shown at all.
+        Assert.Equal(SwiftLoweringProbe.InlinedReason, slice.Unobserved![Absent]);
+        // The probe did not ask for it, so only the wrapper's account remains.
+        Assert.Equal(SwiftWrapperLoweringEvidence.StrippedReason, slice.Unobserved[someOther]);
+        Assert.Contains(slice.Sources, s => s.Role == SwiftEvidenceSource.ProbeRole);
+    }
+
+    [Fact]
+    public void Observe_AWrapperAndAProbeThatDisagree_RecordTheConflict_WhichNoPlanCanMatch()
+    {
+        var pass = Collection().BeginPass(null);
+        var probe = ProbeResult(Ir("declare swiftcc i64 @\"" + Declared + "\"(i64)"), new Dictionary<string, string>(), null);
+
+        var slice = pass.Observe("arm64-apple-ios16.0-simulator", Ir(DeclaredIr), SomeSources, null, probe);
+
+        Assert.StartsWith("conflict: ", slice!.Symbols[Declared]);
+    }
+
     [Fact]
     public void Observe_ASliceThePlatformDoesNotClaim_IsAFailure()
     {
@@ -420,15 +455,20 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
         private readonly MockCommandRunner _inner = new() { SynthesizeMachOOutputs = true };
         private readonly string _ir;
         private readonly int _irExit;
+        private readonly string? _probeIr;
 
-        public IrRunner(string ir, int irExit = 0)
+        public IrRunner(string ir, int irExit = 0, string? probeIr = null)
         {
             _ir = ir;
             _irExit = irExit;
+            _probeIr = probeIr;
             _inner.SetResponse("--show-sdk-path", 0, "/sdk/path");
         }
 
         public List<string> Swiftc { get; } = new();
+
+        /// <summary>Each probe source as swiftc was given it.</summary>
+        public List<string> ProbeSources { get; } = new();
 
         public (int ExitCode, string StdOut, string StdErr) Run(string command, string arguments, int timeoutMs = 30000)
         {
@@ -436,9 +476,15 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
                 Swiftc.Add(arguments);
             if (!arguments.Contains("-emit-ir", StringComparison.Ordinal))
                 return _inner.Run(command, arguments, timeoutMs);
+            var output = Regex.Match(arguments, "-o \"([^\"]+)\"");
+            if (arguments.Contains("LoweringProbe", StringComparison.Ordinal))
+            {
+                ProbeSources.Add(File.ReadAllText(Regex.Match(arguments, "\"([^\"]+\\.swift)\"$").Groups[1].Value));
+                File.WriteAllText(output.Groups[1].Value, _probeIr ?? "; ModuleID = 'probe'\n");
+                return (0, "", "");
+            }
             if (_irExit != 0)
                 return (_irExit, "", "wrapper.swift:1:1: error: something the link did not hit");
-            var output = Regex.Match(arguments, "-o \"([^\"]+)\"");
             if (!output.Success)
                 return (0, _ir, "");
             File.WriteAllText(output.Groups[1].Value, _ir);
@@ -493,11 +539,61 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
         Assert.Null(why);
         var slice = receipt.Slices["arm64-apple-ios15.0-simulator"];
         Assert.Equal("swiftcc void (ptr noalias sret, i64, ptr, ptr)", slice.Symbols[Declared]);
-        Assert.Equal(SwiftWrapperLoweringEvidence.NotInWrapperReason, slice.Unobserved![Absent]);
+        // The bound framework ships no ABI descriptor here, so the probe has nothing to write a call from.
+        Assert.Equal(SwiftLoweringProbe.NoDescriptorReason("TestLib"), slice.Unobserved![Absent]);
+        Assert.Empty(runner.ProbeSources);
         var source = Assert.Single(slice.Sources);
         Assert.Equal((SwiftEvidenceSource.WrapperRole, "TestLibSwiftBindings"), (source.Role, source.Name));
         Assert.Equal(SwiftWrapperLoweringEvidence.WrapperFlags("arm64-apple-ios16.0-simulator").ToArray(), source.Flags.ToArray());
         Assert.StartsWith("sha256:", source.Digest);
+    }
+
+    /// <summary>
+    /// A bound framework whose slice ships an ABI descriptor is probed after the wrapper IR pass, with the
+    /// link's frontend flags under the probe's own module name, and the probe's IR shows what the
+    /// wrapper's does not, recorded with the probe as a source.
+    /// </summary>
+    [Fact]
+    public void Compile_ProbesTheTargetsTheWrapperDoesNotDefine_WithTheLinksFrontendFlags()
+    {
+        var dylib = WriteWrapperSources();
+        var search = Path.Combine(_dir, "slice");
+        var modules = Path.Combine(search, "TestLib.framework", "Modules", "TestLib.swiftmodule");
+        Directory.CreateDirectory(modules);
+        // The descriptor declares the dictionary subscript getter the runtime sidecar targets.
+        File.WriteAllText(Path.Combine(modules, "arm64-apple-ios-simulator.abi.json"), $$$"""
+            {"ABIRoot": {"kind": "Root", "name": "TopLevel", "children": [
+              {"kind": "TypeDecl", "name": "Dictionary", "printedName": "Dictionary", "declKind": "Struct", "moduleName": "Swift",
+               "genericSig": "<τ_0_0, τ_0_1 where τ_0_0 : Swift.Hashable>", "children": [
+                {"kind": "Subscript", "name": "subscript", "printedName": "subscript(_:)", "declKind": "Subscript", "moduleName": "Swift",
+                 "children": [{"kind": "TypeNominal", "name": "Optional", "printedName": "τ_0_1?"}, {"kind": "TypeNominal", "name": "GenericTypeParam", "printedName": "τ_0_0"}],
+                 "accessors": [{"kind": "Accessor", "name": "Get", "printedName": "Get()", "declKind": "Accessor", "accessorKind": "get",
+                                "mangledName": "{{{Absent}}}", "children": [{"kind": "TypeNominal", "name": "Optional", "printedName": "τ_0_1?"}]}]}]}]}}
+            """);
+        var probeIr = $"; ModuleID = 'probe'\ndeclare swiftcc void @\"{Absent}\"(ptr noalias sret(%swift.opaque), ptr, ptr, ptr, ptr, ptr) #0\n";
+        var runner = new IrRunner("; ModuleID = 'Swift.TestLib.swift'\n" + DeclaredIr + "\n", probeIr: probeIr);
+        var collection = Collection();
+
+        Assert.NotNull(SwiftWrapperCompiler.Compile(_dir, "TestLib", search, dylib, NullLogger.Instance, runner,
+            lowering: collection.BeginPass(null)));
+
+        var link = Assert.Single(runner.Swiftc, a => a.Contains("-emit-library", StringComparison.Ordinal));
+        var irs = runner.Swiftc.Where(a => a.Contains("-emit-ir", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, irs.Count);
+        Assert.DoesNotContain("LoweringProbe", irs[0]);
+        // Everything the link reads the wrapper with but its module name.
+        var shared = link["swiftc -emit-library ".Length..link.IndexOf("-module-name ", StringComparison.Ordinal)];
+        Assert.StartsWith("swiftc -emit-ir -parse-as-library " + shared + "-module-name TestLibSwiftBindingsLoweringProbe ", irs[1]);
+        Assert.Contains("import TestLib", Assert.Single(runner.ProbeSources));
+
+        var slice = collection.Receipt([], out _)!.Receipts.Single().Slices["arm64-apple-ios15.0-simulator"];
+        Assert.Equal("swiftcc void (ptr noalias sret, i64, ptr, ptr)", slice.Symbols[Declared]);
+        Assert.Equal("swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr, ptr)", slice.Symbols[Absent]);
+        var probe = Assert.Single(slice.Sources, s => s.Role == SwiftEvidenceSource.ProbeRole);
+        Assert.Equal("TestLibSwiftBindingsLoweringProbe", probe.Name);
+        Assert.Equal(SwiftWrapperLoweringEvidence.WrapperFlags("arm64-apple-ios16.0-simulator").ToArray(), probe.Flags.ToArray());
+        // The probe's source and IR are removed with the compile.
+        Assert.Empty(Directory.GetFiles(_dir, "*LoweringProbe*", SearchOption.AllDirectories));
     }
 
     [Fact]

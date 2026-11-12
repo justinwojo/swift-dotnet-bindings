@@ -11,9 +11,11 @@ namespace BindingsGeneration;
 /// </summary>
 /// <remarks>
 /// After a slice's wrapper links, a second swiftc pass emits the IR of the same post-processed wrapper
-/// sources with the same compiler, SDK and frontend flags. What that IR defines (a wrapper-hosted
-/// target) or declares (a library symbol the wrapper calls) for the module's forward plan targets is
-/// the slice's evidence. Every other target is recorded as unobserved, with the reason.
+/// sources with the same compiler, SDK and frontend flags, and the slice's lowering probe
+/// (<see cref="SwiftLoweringProbe"/>) emits the IR of ordinary calls to the other targets through the
+/// library's public interface. What the wrapper's IR defines (a wrapper-hosted target) or declares (a
+/// library symbol the wrapper calls), and what the probe's IR declares, for the module's forward plan
+/// targets is the slice's evidence. Every other target is recorded as unobserved, with the reason.
 /// <para>
 /// A receipt is built only from the compile passes the shipped wrapper is made of, and only when every
 /// slice of them was observed. A slice whose IR pass failed, or that has no Swift source to observe,
@@ -47,7 +49,10 @@ public sealed class SwiftWrapperLoweringEvidence
     /// <summary>The forward plan targets of the module: what each slice's IR is searched for.</summary>
     public ImmutableSortedSet<string> Targets { get; }
 
-    /// <summary>Why a target the wrapper's IR did not show is unobserved, when the post-processor did not strip it.</summary>
+    /// <summary>
+    /// Why a target the wrapper's IR did not show is unobserved, when the post-processor did not strip it
+    /// and no probe asked for it (a wrapper of no bound module has no interface to probe).
+    /// </summary>
     public const string NotInWrapperReason =
         "the wrapper's IR neither defines nor declares it: the wrapper does not call it, and no probe asks for it";
 
@@ -244,20 +249,24 @@ public sealed class SwiftWrapperLoweringEvidence
 
         /// <summary>
         /// Records what <paramref name="modules"/>, the IR of the wrapper compiled for
-        /// <paramref name="compiledTriple"/> from <paramref name="sources"/>, shows for every target. A
-        /// target in <paramref name="stripped"/> that the IR does not show was stripped by the
-        /// post-processor. Returns the recorded slice, or null when the slice could not be keyed (which is
-        /// recorded as a failure).
+        /// <paramref name="compiledTriple"/> from <paramref name="sources"/>, and the slice's
+        /// <paramref name="probe"/>, if one ran, show for every target. A target neither shows is
+        /// unobserved with the probe's reason when the probe was asked for it; otherwise, when it is in
+        /// <paramref name="stripped"/>, because the post-processor stripped it. Returns the recorded slice,
+        /// or null when the slice could not be keyed (which is recorded as a failure).
         /// </summary>
         public SwiftLoweringSlice? Observe(
             string compiledTriple, IReadOnlyList<SwiftIrModule> modules, IReadOnlyList<SwiftEvidenceSource> sources,
-            IReadOnlySet<string>? stripped = null)
+            IReadOnlySet<string>? stripped = null, SwiftLoweringProbe.Result? probe = null)
         {
             if (!TrySlice(compiledTriple, out var triple, out var sdk))
                 return null;
-            var symbols = SwiftLoweringEvidenceCollector.Signatures(_owner.Targets, modules);
+            var observed = probe is null ? modules : modules.Concat(probe.Modules).ToList();
+            var symbols = SwiftLoweringEvidenceCollector.Signatures(_owner.Targets, observed);
             var slice = SwiftLoweringEvidenceCollector.Slice(sdk, sources, _owner.Targets, symbols,
-                t => stripped is not null && stripped.Contains(t) ? StrippedReason : NotInWrapperReason);
+                t => probe is not null && probe.Unseen.TryGetValue(t, out var why) ? why
+                    : stripped is not null && stripped.Contains(t) ? StrippedReason
+                    : NotInWrapperReason);
             _slices.Add((triple, slice));
             return slice;
         }

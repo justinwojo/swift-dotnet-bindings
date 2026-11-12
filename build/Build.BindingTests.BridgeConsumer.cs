@@ -137,6 +137,9 @@ partial class Build
 
     // MARK: - Fixture module and its lowering evidence
 
+    // The slices BuildBridgeConsumerXcframework builds, by the triple each is compiled for.
+    static readonly string[] BcfSliceTriples = [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget];
+
     // A two-slice (device + simulator) dynamic framework, each slice linking the register sentinel.
     AbsolutePath BuildBridgeConsumerXcframework(AbsolutePath buildRoot)
     {
@@ -260,10 +263,11 @@ partial class Build
     }
 
     // The SDK's wrapper compile collects the module's lowering receipt from the IR of the wrapper it
-    // links. It must hold the build's own evidence: under the oracle's compiler and SDKs, every symbol
-    // it shows exactly as the oracle recorded it on the same slice, and the bridged transition's target
-    // accounted for on every slice it covers: shown, or recorded unobserved with its reason (a target
-    // the wrapper does not call, as here, cannot be shown by the wrapper's IR).
+    // links and of the lowering probe that calls each plan target through the library's public
+    // interface. It must hold the build's own evidence: under the oracle's compiler and SDKs, every
+    // symbol it shows exactly as the oracle recorded it on the same slice. The bridged transition's
+    // target is the positive control: the wrapper does not call it, so only the probe can show it, and
+    // the receipt must show it, as the oracle does, on every slice the fixture ships.
     void AssertBridgeConsumerCollectedReceipt(AbsolutePath fixtureDir, AbsolutePath oracle, BcfRoute bridged)
     {
         var sep = Path.DirectorySeparatorChar;
@@ -303,15 +307,19 @@ partial class Build
                     else
                         agree++;
                 }
-                if (slice.Symbols.ContainsKey(bridged.Target))
-                    Log.Information("  SDK receipt {Triple}: shows the bridged target {Target}", triple, bridged.Target);
-                else if (slice.Unobserved.TryGetValue(bridged.Target, out var why))
-                    Log.Information("  SDK receipt {Triple}: records the bridged target {Target} unobserved: {Why}", triple, bridged.Target, why);
+                // Every shown symbol was compared with the oracle above; the bridged target must be one of them.
+                if (slice.Symbols.TryGetValue(bridged.Target, out var bridgedSignature))
+                    Log.Information("  SDK receipt {Triple}: shows the bridged target {Target} as {Signature}", triple, bridged.Target, bridgedSignature);
                 else
-                    problems.Add($"{triple}: the SDK receipt neither shows nor records unobserved the bridged target {bridged.Target} of {bridged.Member}");
+                    problems.Add($"{triple}: the SDK receipt does not show the bridged target {bridged.Target} of {bridged.Member}" +
+                        (slice.Unobserved.TryGetValue(bridged.Target, out var why) ? $"; it records it unobserved: {why}" : "; it does not record it at all"));
+                if (!oracleSlice.Symbols.ContainsKey(bridged.Target))
+                    problems.Add($"{triple}: the oracle does not show the bridged target {bridged.Target}, so agreeing with it proves nothing");
                 Log.Information("  SDK receipt {Triple}: {Agree} of {Shown} shown symbol(s) agree with the oracle ({OracleShown} shown there), {Unobserved} unobserved",
                     triple, agree, slice.Symbols.Count, oracleSlice.Symbols.Count, slice.Unobserved.Count);
             }
+            foreach (var triple in BcfSliceTriples.Where(t => !actual.Slices.ContainsKey(t)))
+                problems.Add($"{collected[i]} covers no {triple} slice, which the fixture's xcframework ships");
         }
         if (problems.Count > 0)
         {

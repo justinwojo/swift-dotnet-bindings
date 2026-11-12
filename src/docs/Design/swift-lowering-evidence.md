@@ -193,6 +193,39 @@ files that show a target differently record a `conflict:`. The pass runs only af
 succeeded, so a wrapper that does not compile never gets a receipt. A failing IR pass never fails
 the build; it only withholds the receipt.
 
+**The lowering probe.** The wrapper calls only some of the plan's targets. So after the IR pass, the
+slice's probe (`SwiftLoweringProbe`) calls every target that the wrapper does not define, through
+the bound library's public interface, as any client would. It compiles one generated source per
+slice to IR, with the link's frontend flags under a module name of its own (`<wrapper>LoweringProbe`).
+- **Where the calls come from.** Each call is written from the ABI descriptors (`.abi.json`) the
+  slice's frameworks ship: the bound module's descriptor first, then the other frameworks in swiftc's
+  `-F` order. It is never written from the generator's prediction. A target is matched to its
+  declaration by mangled name. A dispatch thunk (`Tj`) maps to the member it dispatches, and an
+  allocating initializer (`fC`) to the initializing one the descriptor names. `swift-demangle` adds
+  what the descriptor leaves out: a function type's `@convention`, `_const` and variadic parameters.
+- **How a call is written.** Each target gets its own function, which is never called. It is
+  `@MainActor`, `async throws`, and available nowhere (`iOS 99, …`), so that an isolated, async,
+  throwing or newly available member can be called. Every argument and receiver comes from a generic
+  helper that never returns, so the body only has to type-check. Each generic parameter becomes a
+  metatype parameter of that function.
+- **What counts.** Only a declaration of the exact mangled target in the probe's IR counts. The
+  probe's own definitions are discarded. A call that resolves to another overload or entry shows
+  nothing for the target. The probe never names a target by symbol.
+- **What a call that fails costs.** A call that does not compile is dropped, and the compiler's
+  error becomes its reason. The probe then compiles again, at most four times. An error outside
+  every call fails the remaining calls, with the error as their reason.
+- **The failure rule.** The probe never fails the build and never withholds the receipt. A target
+  it cannot show is recorded as unobserved, with the probe's reason. Each reason starts with its
+  class:
+  - `not public from the interface:` an `@usableFromInline internal` or SPI member;
+  - `inlined:` `@_transparent`, `@_alwaysEmitIntoClient`, or a call that leaves no declaration;
+  - `unsupported in the probe:` no call form, a call that did not compile, or no shipped descriptor;
+  - `other:` a client reaches it through another entry, no descriptor declares it, or the probe
+    did not compile.
+- **The source it records.** When its IR is read, the probe is recorded as a `probe` source,
+  `<probe module>.<compiled triple>.swift`, with the wrapper's flags. Its text is deterministic: no
+  paths, and the targets in order. Its source and IR are deleted after the pass.
+
 **What a slice records.**
 - The key is the platform's evidence slice with the compile's architecture, OS and environment
   (`SwiftArtifactScope.EvidenceSliceOf`). The compile's own deployment version is recorded in the
@@ -205,9 +238,11 @@ the build; it only withholds the receipt.
   framework on the dependency search paths. The first of each name in swiftc's `-F` order wins. Each
   is digested over its
   `Modules`, `Headers` and `PrivateHeaders`, which are what swiftc reads to import it. Interface
-  sources record no flags, since the evidence compile does not compile them.
-- Every forward plan target that the IR neither defines nor declares is `unobserved`. The reason is
-  either that the wrapper does not call it, or that the post-processor stripped it.
+  sources record no flags, since the evidence compile does not compile them. The probe, when its IR
+  was read, is a `probe` source.
+- Every forward plan target that neither IR shows is `unobserved`. The reason is the probe's, when
+  the probe was asked for it. A wrapper of no bound module has no interface to probe; there the
+  reason is that the wrapper does not call the target, or that the post-processor stripped it.
 
 **When a receipt is written.** The receipt is the shipped wrapper's, so it is all or nothing:
 - It holds the slices of the first compile pass and of every extra-architecture pass that was
@@ -245,8 +280,9 @@ so paying it where nothing reads the result is waste. Measured on one simulator 
   and 27.2.
 - Alamofire: it took 1.3 to 2.7 s after a 2.1 to 2.5 s compile.
 
-So it roughly doubles the wrapper's swiftc time. A build that finds the wrapper up to date skips
-both, so an incremental build pays nothing. The direct generator path (a wrapper compiled
+So it roughly doubles the wrapper's swiftc time. The probe adds little: on BindingTests it wrote 92
+calls and took 0.9 s, in two compiles, under each compiler family. A build that finds the wrapper up
+to date skips all of it, so an incremental build pays nothing. The direct generator path (a wrapper compiled
 inline during generation) and Apple-framework mode do not collect. Neither feeds a consumer's .NET
 11 routing yet.
 
@@ -261,9 +297,14 @@ the collected receipt must account for the following:
 - Feeding the collected receipt back as `<SwiftLoweringEvidence>` would make it a fingerprint input
   of the generation that deletes it, so that loop needs its own design.
 - One project with several `SwiftFramework` items shares one receipt path.
-- The wrapper's IR shows only the targets the wrapper itself calls or defines. That was 32 of 131
-  plan targets on BindingTests and 8 of 33 on Alamofire, the same under both compiler families. The
-  rest are `unobserved` until probes show them.
+- The expected sources of a slice must include its probe. The probe file's name and text are
+  deterministic, so the same inputs give the same digest.
+- The wrapper's IR alone shows 32 of the 131 plan targets on BindingTests. With the probe, the
+  receipt shows 115, all agreeing with the oracle record, under both compiler families. The other
+  16 are unobserved: 15 are `@usableFromInline internal`, and one is a setter isolated to a custom
+  global actor, which the probe's main-actor call cannot mutate.
+- The probe needs the descriptor a framework ships. A slice without one leaves its targets
+  unobserved; the probe does not yet generate a descriptor from the interface.
 
 ## Limits
 
@@ -276,3 +317,6 @@ the collected receipt must account for the following:
   function) cannot be observed. It is recorded under `unobserved`, with a reason, and never
   authorizes. Probes must never declare a target with `@_silgen_name`: that would ask swiftc to
   lower the prediction rather than the library's declaration.
+- A probe's call shows how a client of the interface calls the target, which is what a bridge does.
+  It does not show that the binary defines that symbol with that lowering; the linked-image checks
+  do that.
