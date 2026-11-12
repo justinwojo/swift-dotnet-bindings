@@ -322,6 +322,14 @@ public static class MethodClosureBridge
             passableNonClosureParams.Add((arg, csName, csType, category));
         }
 
+        // The wrapper's call leaves those defaults out; refuse a member whose shortened call would
+        // resolve to a same-named sibling that no spelled-out default steers it away from.
+        if (PlanCall(method, closureArgSet, env.TypeDatabase).WinningSibling is { } winningSibling)
+        {
+            env.AmbiguousSwiftCallWinner = winningSibling;
+            return false;
+        }
+
         // Emit closure-context owner-token helpers if any closure is escaping.
         // Idempotent per module — first MCB site that needs them emits, others no-op.
         if (closures.Any(c => c.IsEffectivelyEscaping))
@@ -732,6 +740,7 @@ public static class MethodClosureBridge
         // Collect all method call args in parameter order, interleaving non-closure and closure args
         var methodCallArgs = new List<string>();
         var closureArgSet = new HashSet<ArgumentDecl>(closures.Select(c => c.Arg));
+        var pinPlan = PlanCall(method, closureArgSet, env.TypeDatabase);
         var closureByArg = closures.ToDictionary(c => c.Arg);
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
 
@@ -826,7 +835,11 @@ public static class MethodClosureBridge
             foreach (var arg in method.CSSignature.Skip(1))
             {
                 if (arg.HasDefaultArg && !closureArgSet.Contains(arg) && !passableByArg.ContainsKey(arg))
+                {
+                    if (pinPlan.PinFor(arg) is { } pin)
+                        allCallArgs.Add(pin);
                     continue;
+                }
 
                 if (closureByArg.TryGetValue(arg, out var ci))
                 {
@@ -977,6 +990,7 @@ public static class MethodClosureBridge
         // then emit the method call with all args.
         var indent = "    ";
         var closureArgSet = new HashSet<ArgumentDecl>(closures.Select(c => c.Arg));
+        var pinPlan = PlanCall(method, closureArgSet, env.TypeDatabase);
         var closureByArg = closures.ToDictionary(c => c.Arg);
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
 
@@ -1224,7 +1238,11 @@ public static class MethodClosureBridge
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg.HasDefaultArg && !closureArgSet.Contains(arg) && !passableByArg.ContainsKey(arg))
+            {
+                if (pinPlan.PinFor(arg) is { } pin)
+                    allCallArgs.Add(pin);
                 continue;
+            }
 
             if (closureByArg.TryGetValue(arg, out var ci))
             {
@@ -2428,6 +2446,14 @@ public static class MethodClosureBridge
     /// </summary>
     private static string GetSwiftArgLabel(ArgumentDecl arg) =>
         CdeclParamMapper.BuildSwiftCallArgLabel(arg);
+
+    /// <summary>
+    /// The bridge's call passes every closure and every non-defaulted parameter and leaves the
+    /// other defaults to Swift. One plan serves the refusal in <see cref="TryEmit"/> and both call
+    /// builders.
+    /// </summary>
+    private static SwiftCallPinPlan PlanCall(MethodDecl method, IReadOnlySet<ArgumentDecl> closureArgs, ITypeDatabase typeDatabase)
+        => SwiftOverloadCallPinning.Plan(method, arg => !closureArgs.Contains(arg), typeDatabase);
 
     // ─── ParamAbiCategory ─────────────────────────────────────────────
 

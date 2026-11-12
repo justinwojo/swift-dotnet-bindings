@@ -194,6 +194,18 @@ public static class ConstrainedExistentialBridge
         if (!hasConstrainedExistential)
             return false;
 
+        // The wrapper omits every defaulted parameter it could not pass. When that reduced call
+        // would resolve to a same-named Swift initializer and no default can be spelled out to pin
+        // it, refuse instead of binding this initializer to the other declaration.
+        var passedArgs = new HashSet<ArgumentDecl>(bridgeParams.Select(bp => bp.Arg), ReferenceEqualityComparer.Instance);
+        var pinPlan = SwiftOverloadCallPinning.Plan(methodDecl, arg => !passedArgs.Contains(arg), env.TypeDatabase);
+        if (pinPlan.WinningSibling is { } winningSibling)
+        {
+            logger.LogDebug("ConstrainedExistentialBridge: reduced initializer call resolves to sibling {Sibling}.", winningSibling);
+            env.AmbiguousSwiftCallWinner = winningSibling;
+            return false;
+        }
+
         // Compute symbols
         var className = classDecl.Name;
         var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
@@ -212,7 +224,7 @@ public static class ConstrainedExistentialBridge
             methodDecl.AvailabilityAnnotations, classDecl);
 
         // --- Emit Swift wrapper ---
-        EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, neededImports,
+        EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, pinPlan, neededImports,
             classDecl.IsMainActorIsolated, mergedAvailability);
 
         // --- Emit C# constructor ---
@@ -228,6 +240,7 @@ public static class ConstrainedExistentialBridge
         string swiftTypeName,
         List<BridgeParam> bridgeParams,
         MethodDecl methodDecl,
+        SwiftCallPinPlan pinPlan,
         HashSet<string> neededImports,
         bool isMainActorIsolated = false,
         IReadOnlyList<AvailabilityAnnotation>? availability = null)
@@ -253,7 +266,10 @@ public static class ConstrainedExistentialBridge
 
             if (bp == null)
             {
-                // Param was skipped (has default arg, unsupported category) — Swift fills default
+                // Param was skipped (has default arg, unsupported category) — Swift fills default,
+                // spelled out when the reduced call needs it to stay on this initializer.
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
                 continue;
             }
 
@@ -311,7 +327,12 @@ public static class ConstrainedExistentialBridge
                 ? bridgeParams[bridgeIdx++]
                 : null;
 
-            if (bp == null) continue;
+            if (bp == null)
+            {
+                if (pinPlan.PinFor(arg) is { } pin)
+                    updatedCallArgs.Add(pin);
+                continue;
+            }
 
             var valueExpr = bp.Kind switch
             {

@@ -68,6 +68,26 @@ public class CsmInteriorDefaultSiblingsTests : TestBase
         AssertEqual(2, registry.LastModuleTag, "RowGridModule");
     }
 
+    public void TestCreateIfNotExists_PrimaryReachesDisfavoredSibling()
+    {
+        // The disfavored sibling's primary omits every default, so a bare `create(grid:using:)`
+        // call would resolve to the favored `create(grid:options:using:_:)`. The binding named for
+        // the disfavored sibling must run that sibling, with `ifNotExists` at its Swift default.
+        using var registry = new GridLayoutRegistry();
+        using var column = new ColumnGridModule();
+        registry.CreateGridIfNotExistsUsing("columns", column);
+        AssertEqual(2, registry.LastOverload, "create(grid:ifNotExists:using:_:) ran");
+        AssertFalse(registry.LastIfNotExists, "ifNotExists defaulted to false");
+        AssertEqual("columns", registry.LastName, "name");
+        AssertEqual(1, registry.LastModuleTag, "ColumnGridModule");
+        AssertFalse(registry.LastBodyRan, "body defaulted to nil");
+
+        using var row = new RowGridModule();
+        registry.CreateGridIfNotExistsUsing("rows", row);
+        AssertEqual(2, registry.LastOverload, "create(grid:ifNotExists:using:_:) ran for RowGridModule");
+        AssertEqual(2, registry.LastModuleTag, "RowGridModule");
+    }
+
     public void TestRegister_PrimaryAndInteriorDefaultOverload()
     {
         using var registry = new GridLayoutRegistry();

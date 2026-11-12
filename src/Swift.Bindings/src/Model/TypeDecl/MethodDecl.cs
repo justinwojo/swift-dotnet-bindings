@@ -139,6 +139,32 @@ namespace BindingsGeneration
         public bool IsOverride { get; set; } = false;
 
         /// <summary>
+        /// Whether the declaration carries <c>@_disfavoredOverload</c> (the ABI JSON's
+        /// <c>DisfavoredOverload</c> decl attribute). Swift's overload resolution ranks a disfavored
+        /// declaration below every other viable candidate, so a generated wrapper that calls this
+        /// declaration by name with some defaulted arguments omitted can silently reach a favored
+        /// same-named sibling instead. <see cref="SwiftOverloadCallPinning"/> reads it.
+        /// </summary>
+        public bool IsDisfavoredOverload { get; set; } = false;
+
+        /// <summary>
+        /// For a decl synthesized from a real declaration under a different symbol (a per-conformer
+        /// concrete specialization of a generic method), the declaration it was synthesized from.
+        /// The synthesized decl calls that declaration by name, so overload analysis has to treat it,
+        /// not the synthesized copy, as the call's target; otherwise the original would look like a
+        /// competing same-named sibling. Null for a decl parsed from the module.
+        /// </summary>
+        public MethodDecl? SpecializedFrom { get; init; }
+
+        /// <summary>
+        /// The parameter list as Swift declares it, once emission has removed the debug parameters
+        /// (<c>#file</c>, <c>#line</c>, ...) from <see cref="CSSignature"/> because a shim now
+        /// supplies them; null while nothing has been removed. Swift still sees, and resolves calls
+        /// against, the full list.
+        /// </summary>
+        public List<ArgumentDecl>? SignatureBeforeDebugStrip { get; set; }
+
+        /// <summary>
         /// Raw genericSig string from ABI JSON (e.g., "&lt;τ_0_0 where τ_0_0 == Foundation.Data?&gt;").
         /// Used to detect constructors with same-type constraints on parent generic params,
         /// which prevent the protocol factory pattern from working.

@@ -469,6 +469,16 @@ public enum SkipReason
     AbsentFrameworkType,
 
     /// <summary>
+    /// The only wrapper that can carry this member calls the Swift declaration by name while leaving
+    /// some defaulted arguments out, and with them out Swift's overload resolution would pick a
+    /// different same-named declaration (a favored sibling over this <c>@_disfavoredOverload</c> one,
+    /// or a sibling that needs fewer defaults). None of the omitted defaults is a literal the wrapper
+    /// can spell out to steer the call back, so the member is declined rather than bound to the wrong
+    /// declaration.
+    /// </summary>
+    AmbiguousSwiftOverloadCall,
+
+    /// <summary>
     /// An EveryProtocol reverse-dispatch surface (proxy-backed member) was <b>emitted but degraded</b>
     /// because the protocol's <c>{Protocol}Proxy</c> conformance could not be synthesized. Unlike
     /// <see cref="EveryProtocolConformanceSkipped"/> (recorded once for the suppressed proxy <em>class</em>,

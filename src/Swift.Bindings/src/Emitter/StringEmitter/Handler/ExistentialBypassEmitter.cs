@@ -260,6 +260,19 @@ public static class ExistentialBypassEmitter
             break;
         }
 
+        // The bypass call omits every existential/defaulted arg it set aside. When that reduced
+        // call would resolve to a same-named Swift sibling and no default can be spelled out to
+        // pin it, refuse instead of binding this member to the other declaration.
+        var omittedArgs = new HashSet<ArgumentDecl>(existentialArgs, ReferenceEqualityComparer.Instance);
+        var pinPlan = SwiftOverloadCallPinning.Plan(methodDecl, omittedArgs.Contains, env.TypeDatabase);
+        if (pinPlan.WinningSibling is { } winningSibling)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: constructor '{Name}': reduced call resolves to sibling {Sibling}.",
+                methodDecl.Name, winningSibling);
+            env.AmbiguousSwiftCallWinner = winningSibling;
+            return false;
+        }
+
         // Everything checks out — emit the bypass
 
         var typeName = structDecl.Name;
@@ -336,7 +349,7 @@ public static class ExistentialBypassEmitter
         }
 
         // --- Emit Swift wrapper ---
-        EmitSwiftWrapper(swiftWriter, wrapperSymbol, freeSymbol, swiftTypeName, passthroughArgs, existentialArgs, env);
+        EmitSwiftWrapper(swiftWriter, wrapperSymbol, freeSymbol, swiftTypeName, passthroughArgs, omittedArgs, pinPlan, env);
 
         // --- Emit C# factory ---
         EmitCSharpFactory(csWriter, env, typeName, factoryName, wrapperSymbol, freeSymbol,
@@ -624,6 +637,19 @@ public static class ExistentialBypassEmitter
             break;
         }
 
+        // The bypass call omits every existential/defaulted arg it set aside. When that reduced
+        // call would resolve to a same-named Swift sibling and no default can be spelled out to
+        // pin it, refuse instead of binding this member to the other declaration.
+        var omittedArgs = new HashSet<ArgumentDecl>(existentialArgs, ReferenceEqualityComparer.Instance);
+        var pinPlan = SwiftOverloadCallPinning.Plan(methodDecl, omittedArgs.Contains, env.TypeDatabase);
+        if (pinPlan.WinningSibling is { } winningSibling)
+        {
+            logger.LogDebug("ExistentialBypassEmitter: method '{Name}': reduced call resolves to sibling {Sibling}.",
+                methodDecl.Name, winningSibling);
+            env.AmbiguousSwiftCallWinner = winningSibling;
+            return false;
+        }
+
         // Everything checks out — emit the bypass
 
         var typeName = parentTypeDecl.Name;
@@ -661,7 +687,7 @@ public static class ExistentialBypassEmitter
 
         // --- Emit Swift wrapper ---
         EmitMethodSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, isClass,
-            passthroughArgs, existentialArgs, env, isExistentialReturn);
+            passthroughArgs, omittedArgs, pinPlan, env, isExistentialReturn);
 
         // --- Emit C# method ---
         EmitMethodCSharpBinding(csWriter, env, typeName, wrapperSymbol, wrapperLibPath,
@@ -676,7 +702,8 @@ public static class ExistentialBypassEmitter
         string swiftTypeName,
         bool isClass,
         List<ArgumentDecl> passthroughArgs,
-        List<ArgumentDecl> existentialArgs,
+        IReadOnlySet<ArgumentDecl> existentialArgs,
+        SwiftCallPinPlan pinPlan,
         MethodEnvironment env,
         bool isExistentialReturn)
     {
@@ -739,7 +766,13 @@ public static class ExistentialBypassEmitter
         foreach (var arg in allArgs)
         {
             if (existentialArgs.Contains(arg))
-                continue; // Omitted — Swift uses default value
+            {
+                // Omitted — Swift uses the default value, spelled out when the reduced call needs
+                // it to stay on this declaration.
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
+                continue;
+            }
 
             // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
@@ -1053,7 +1086,8 @@ public static class ExistentialBypassEmitter
         string freeSymbol,
         string swiftTypeName,
         List<ArgumentDecl> passthroughArgs,
-        List<ArgumentDecl> existentialArgs,
+        IReadOnlySet<ArgumentDecl> existentialArgs,
+        SwiftCallPinPlan pinPlan,
         MethodEnvironment env)
     {
         // Build Swift parameter list for passthrough args
@@ -1106,7 +1140,10 @@ public static class ExistentialBypassEmitter
         {
             if (existentialArgs.Contains(arg))
             {
-                // Omitted — Swift uses default value
+                // Omitted — Swift uses the default value, spelled out when the reduced call needs
+                // it to stay on this declaration.
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
                 continue;
             }
             // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the

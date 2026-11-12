@@ -154,6 +154,33 @@ public static class AsyncMethodGenericBridgeEmitter
             methodDecl, env.TypeDatabase);
         int maxTrim = allMappable ? 0 : Math.Min(trailingDefaultCount, MaxOverloads);
 
+        // Each variant omits the debug parameters and its trimmed defaults. Plan, before anything
+        // is written, which omitted defaults must be spelled out so Swift still resolves every
+        // variant's call to this declaration. A primary that cannot be pinned refuses the member;
+        // a trim that cannot be pinned is dropped and reported, since the C# overload it would
+        // declare would run a different Swift method.
+        var variants = new List<(int Trim, List<ArgumentDecl> KeptArgs, SwiftCallPinPlan PinPlan)>();
+        for (int trim = 0; trim <= maxTrim; trim++)
+        {
+            var keptArgs = ComputeKeptNonGenericArgs(methodDecl, trim);
+            var keptSet = new HashSet<ArgumentDecl>(keptArgs, ReferenceEqualityComparer.Instance);
+            var pinPlan = SwiftOverloadCallPinning.Plan(methodDecl, arg => !keptSet.Contains(arg), env.TypeDatabase);
+            if (pinPlan.WinningSibling is { } winningSibling)
+            {
+                if (trim == 0)
+                {
+                    env.AmbiguousSwiftCallWinner = winningSibling;
+                    return false;
+                }
+                ctx.TryRecordSuppressedAmbiguousOverload(
+                    $"{typeName}.{SwiftOverloadCallPinning.Describe(methodDecl)} without its last {trim} defaulted argument(s)",
+                    "Swift " + winningSibling,
+                    candidateWasFuller: false);
+                continue;
+            }
+            variants.Add((trim, keptArgs, pinPlan));
+        }
+
         // Route the C# emitter through the wrapper library so
         // WrapperValidation.IsSkippedWrapperDirectPInvoke (line 1624 kill-gate) lets
         // this method survive — without UsesWrapperLibrary the async-generic killer
@@ -169,10 +196,8 @@ public static class AsyncMethodGenericBridgeEmitter
         EmitSharedCSharpInfra(csWriter, env, parentDecl, returnKind.Value, returnTypeSpec, returnTypeRecord, ctx);
 
         // Emit FULL primary (trim 0) + each trim variant (trim 1..maxTrim).
-        for (int trim = 0; trim <= maxTrim; trim++)
+        foreach (var (trim, keptArgs, pinPlan) in variants)
         {
-            var keptArgs = ComputeKeptNonGenericArgs(methodDecl, trim);
-
             string variantSymbol = trim == 0
                 ? primaryCdeclSymbol
                 : $"{primaryCdeclSymbol}_T{trim}";
@@ -180,7 +205,7 @@ public static class AsyncMethodGenericBridgeEmitter
                 ? $"{NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}_XMA"
                 : $"{NameProvider.GetPInvokeName(env.EmissionSymbol, methodDecl)}_T{trim}_XMA";
 
-            EmitSwiftWrapper(swiftWriter, env, parentDecl, genericInfo, variantSymbol, keptArgs,
+            EmitSwiftWrapper(swiftWriter, env, parentDecl, genericInfo, variantSymbol, keptArgs, pinPlan,
                 returnKind.Value, returnTypeSpec, returnTypeRecord, ctx);
             EmitPInvoke(csWriter, env, methodDecl, genericInfo, variantSymbol, variantPInvokeName,
                 env.TypeDatabase.AsyncLibraryName ?? env.TypeDatabase.GetLibraryPath(methodDecl.ModuleDecl!.Name),
@@ -479,6 +504,7 @@ public static class AsyncMethodGenericBridgeEmitter
         GenericParamInfo genericInfo,
         string cdeclSymbol,
         List<ArgumentDecl> keptArgs,
+        SwiftCallPinPlan pinPlan,
         AsyncReturnKind returnKind,
         TypeSpec returnTypeSpec,
         TypeRecord? returnTypeRecord,
@@ -539,8 +565,19 @@ public static class AsyncMethodGenericBridgeEmitter
         // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
         // params each dodge their siblings (user-vs-sibling reserved-name collision class).
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(keptArgs);
-        foreach (var arg in keptArgs)
+        var keptSet = new HashSet<ArgumentDecl>(keptArgs, ReferenceEqualityComparer.Instance);
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+            if (!keptSet.Contains(arg))
+            {
+                // Omitted — Swift fills the default, spelled out when the reduced call needs it
+                // to stay on this declaration.
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
+                continue;
+            }
+
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
 
             if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)

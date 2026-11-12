@@ -291,6 +291,17 @@ public static class NestedClosureBridge
             passableNonClosureParams.Add((arg, csName, csType, category));
         }
 
+        // The wrapper passes the closures and every required parameter and omits the defaulted
+        // rest. When that reduced call would resolve to a same-named Swift sibling and no default
+        // can be spelled out to pin it, refuse instead of binding this member to the other
+        // declaration. (Initializers never omit a default here — IsEligible refuses them.)
+        var pinPlan = SwiftOverloadCallPinning.Plan(method, arg => !closureArgSet.Contains(arg), env.TypeDatabase);
+        if (pinPlan.WinningSibling is { } winningSibling)
+        {
+            env.AmbiguousSwiftCallWinner = winningSibling;
+            return false;
+        }
+
         // Register the SBW_ symbol with the wrapper-symbol contract before emitting
         // the Swift wrapper. The matching P/Invoke at EmitPInvoke uses this name as
         // its EntryPoint; without registration a future Cdecl path would trip the
@@ -305,7 +316,7 @@ public static class NestedClosureBridge
         // Emit a single Swift wrapper that receives all outer closures' funcPtr/context pairs
         // and dispatches to the original method. The wrapper symbol matches the first outer
         // closure's callback base name (always indexed _0).
-        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, nestedClosures, passableNonClosureParams, ctx);
+        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, nestedClosures, passableNonClosureParams, pinPlan, ctx);
 
         // Set method flags for wrapper library routing
         method.UsesWrapperLibrary = true;
@@ -412,6 +423,7 @@ public static class NestedClosureBridge
         TypeDecl? parentDecl,
         List<NestedClosureInfo> nestedClosures,
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
+        SwiftCallPinPlan pinPlan,
         ModuleEmissionContext? ctx = null)
     {
         // Emit the per-module `_sbWrapClosureContext` helper if any outer closure is escaping
@@ -558,14 +570,17 @@ public static class NestedClosureBridge
         // is the last argument actually passed; otherwise fall to the declaration-order emitter,
         // which interleaves them as declared. Closure-last members — the overwhelming majority,
         // and every pre-existing one — keep the byte-identical single-outer output.
-        if (!multiOuter && IsSingleClosureLastPassedArg(method, nestedClosures[0], passableNonClosureParams))
+        // A pinned default is an argument the single-outer layout does not place, so a pinned call
+        // also takes the declaration-order emitter.
+        if (!multiOuter && pinPlan.PinCount == 0 &&
+            IsSingleClosureLastPassedArg(method, nestedClosures[0], passableNonClosureParams))
         {
             EmitSingleOuterMethodCall(swiftWriter, nestedClosures[0], passableNonClosureParams,
                 returnPrefix, returnSuffix, calleeExpr, multiOuter: false, env: env, synth: synth);
         }
         else
         {
-            EmitMultiOuterMethodCall(swiftWriter, method, nestedClosures, passableNonClosureParams,
+            EmitMultiOuterMethodCall(swiftWriter, method, nestedClosures, passableNonClosureParams, pinPlan,
                 returnPrefix, returnSuffix, calleeExpr, env, synth);
         }
 
@@ -755,6 +770,7 @@ public static class NestedClosureBridge
         MethodDecl method,
         List<NestedClosureInfo> nestedClosures,
         List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
+        SwiftCallPinPlan pinPlan,
         string returnPrefix,
         string returnSuffix,
         string calleeExpr,
@@ -764,11 +780,12 @@ public static class NestedClosureBridge
         var passableByArg = passableNonClosureParams.ToDictionary(p => p.arg);
         var nestedByArg = nestedClosures.ToDictionary(n => n.Arg);
 
-        // Collect emittable args in source order (skip default-arg params we don't pass).
+        // Collect emittable args in source order (skip default-arg params we don't pass, unless
+        // the default is spelled out to keep the call on this declaration).
         var emitOrder = new List<ArgumentDecl>();
         foreach (var arg in method.CSSignature.Skip(1))
         {
-            if (nestedByArg.ContainsKey(arg) || passableByArg.ContainsKey(arg))
+            if (nestedByArg.ContainsKey(arg) || passableByArg.ContainsKey(arg) || pinPlan.PinFor(arg) != null)
                 emitOrder.Add(arg);
         }
 
@@ -794,11 +811,14 @@ public static class NestedClosureBridge
                 EmitOuterAdapterBody(swiftWriter, nc, multiOuter: true, indent: "            ", env, synth);
                 swiftWriter.WriteLine($"        }}{trailingComma}");
             }
+            else if (passableByArg.TryGetValue(arg, out var passable))
+            {
+                var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
+                swiftWriter.WriteLine($"        {label}{paramName}{trailingComma}");
+            }
             else
             {
-                var (_, csName, _, _) = passableByArg[arg];
-                var paramName = NameProvider.EscapeSwiftKeyword(csName);
-                swiftWriter.WriteLine($"        {label}{paramName}{trailingComma}");
+                swiftWriter.WriteLine($"        {pinPlan.PinFor(arg)}{trailingComma}");
             }
         }
 
