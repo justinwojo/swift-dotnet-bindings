@@ -2074,10 +2074,26 @@ partial class Build
             eligibleClasses = match != null ? new HashSet<string> { match } : new HashSet<string>();
         }
 
+        // On the interpreter lane, the classes that reproduce a runtime defect on purpose run apart,
+        // each alone in its own process after the suite, and are graded against their expected
+        // outcomes rather than counted: a raw transition the interpreter mishandles can leave state
+        // that a later class would inherit. Every other lane runs them as ordinary classes.
+        var negativeControls = RuntimeLane.ExecutionLane(suite.Device) == RuntimeExecutionLane.Interpreter
+            ? InterpreterNegativeControls.Classes.Where(c => eligibleClasses.Contains(c.ClassName)).ToList()
+            : [];
+        var excludeClasses = new HashSet<string>();
+        foreach (var control in negativeControls)
+        {
+            eligibleClasses.Remove(control.ClassName);
+            excludeClasses.Add(control.ClassName);
+        }
+        if (negativeControls.Count > 0)
+            Log.Information("{Lane}: running {Classes} as isolated negative controls after the suite.",
+                suite.LaneLabel, string.Join(", ", negativeControls.Select(c => c.ClassName)));
+
         // Each resume excludes at least one class that started, so a budget of one relaunch per
         // eligible class (the .NET 11 lanes) always reaches the end of the inventory.
         var maxRetries = RuntimeLane.CrashRecoveryRetries(eligibleClasses.Count);
-        var excludeClasses = new HashSet<string>();
         var aggregated = new JsonlTestResults();
         var interruptions = new List<RuntimeLaneInterruption>();
         LaunchResult? lastResult = null;
@@ -2094,7 +2110,9 @@ partial class Build
 
         try
         {
-            for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
+            // A class filter that names only a negative control leaves no suite to run.
+            var suiteSelected = eligibleClasses.Count > 0 || negativeControls.Count == 0;
+            for (int attempt = 0; suiteSelected && CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
             {
                 if (attempt > 0)
                     Log.Information("--- Resume-on-crash ({Lane}): attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
@@ -2178,12 +2196,126 @@ partial class Build
                     failure.Result, attemptDirectory);
         }
 
-        var finalResult = attempts.FinalResult(lastResult!);
-        VerifyRuntimeLaneIdentity(suite, inventory, eligibleClasses, aggregated, interruptions, finalResult, attemptDirectory);
+        var controls = RunNegativeControls(suite, inventory, negativeControls, attemptDirectory);
+
+        // The controls' witnesses and rows join the lane-identity proof and the lane report, which
+        // shows each class as it ran; they stay out of the suite's verdict below.
+        var laneResults = new JsonlTestResults();
+        laneResults.Merge(aggregated);
+        laneResults.Merge(controls.Results);
+        var laneClasses = eligibleClasses.Concat(negativeControls.Select(c => c.ClassName)).ToHashSet(StringComparer.Ordinal);
+
+        if (lastResult is null)
+        {
+            // Only negative controls were selected: their grade is the run's verdict.
+            VerifyRuntimeLaneIdentity(suite, inventory, laneClasses, laneResults, interruptions,
+                controls.LastLaunch ?? throw new InvalidOperationException($"{suite.LaneLabel}: nothing was selected to run."),
+                attemptDirectory);
+            ThrowOnNegativeControlProblems(suite, controls);
+            return;
+        }
+
+        var finalResult = attempts.FinalResult(lastResult);
+        VerifyRuntimeLaneIdentity(suite, inventory, laneClasses, laneResults, interruptions, finalResult, attemptDirectory);
 
         // Report final aggregated result
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
         ReportRuntimeTestResult(finalResult, suite.LaneLabel, finalJsonl);
+        ThrowOnNegativeControlProblems(suite, controls);
+    }
+
+    /// <summary>The graded runs of a lane's negative controls.</summary>
+    /// <param name="Results">Every control's rows and lane witnesses, for the lane-identity proof.</param>
+    /// <param name="LastLaunch">The last control launch, or null when there were none.</param>
+    sealed record NegativeControlRuns(JsonlTestResults Results, IReadOnlyList<string> Problems, string? Report, LaunchResult? LastLaunch);
+
+    /// <summary>
+    /// Runs each negative control alone in a fresh process and grades it against its expected
+    /// outcomes; the attempts are retained under the run's attempt directory and the grades are
+    /// written beside the lane report.
+    /// </summary>
+    NegativeControlRuns RunNegativeControls(RecoveringSuite suite, TestClassInventory inventory,
+        IReadOnlyList<NegativeControlClass> controls, string attemptDirectory)
+    {
+        var all = new JsonlTestResults();
+        var problems = new List<string>();
+        var lines = new List<string>();
+        LaunchResult? last = null;
+        if (controls.Count == 0)
+            return new NegativeControlRuns(all, problems, null, null);
+
+        var attempts = new RuntimeTestAttempts(Path.Combine(attemptDirectory, "negative-controls"));
+        var launch = 0;
+        foreach (var control in controls)
+        {
+            Log.Information("--- Negative control ({Lane}): {Class}, alone, expected per {Defect} ---",
+                suite.LaneLabel, control.ClassName, control.Defect);
+            JsonlTestResults? results = null;
+            LaunchResult result;
+            var launchAbortCount = 0;
+            while (true)
+            {
+                var runToken = NewRunToken();
+                var args = new List<string>(suite.PlatformArgs) { "--run-token", runToken, "--class", control.ClassName };
+                if (RuntimeLane.IsNet11) args.Add("--lane-identity");
+                result = suite.Launch(args.ToArray());
+                last = result;
+                var evidence = attempts.RecordLaunch(launch++, runToken, result);
+                AssertLiveRuntimeLane(result, suite.Device);
+                Log.Information("=== NEGATIVE CONTROL OUTPUT ({Class}) ===", control.ClassName);
+                Log.Information(result.Output);
+                if (LaunchDiagnostics.LauncherNeverStartedApp(result))
+                {
+                    RuntimeTestAttempts.RecordResults(evidence, null, "not-retrieved-known-prestart-abort");
+                    RetryKnownLauncherAbort(result, $"{suite.LaneLabel} negative control {control.ClassName}", ref launchAbortCount);
+                    continue;
+                }
+                suite.AfterAppStarted(result);
+                var jsonl = suite.CopyResults(runToken, result.Output);
+                RuntimeTestAttempts.RecordResults(evidence, jsonl, jsonl == null ? "unavailable-or-token-rejected" : "token-validated");
+                results = jsonl == null ? null : JsonlTestResults.Parse(jsonl);
+                break;
+            }
+            if (results != null)
+                all.Merge(results);
+
+            var grade = InterpreterNegativeControls.Grade(control, inventory.GetMethods(control.ClassName), results, result.Result);
+            problems.AddRange(grade);
+            lines.Add($"{control.ClassName} ({control.Defect}): {(grade.Count == 0 ? "as expected" : $"{grade.Count} problem(s)")}, process {result.Result}");
+            foreach (var expectation in control.Tests)
+            {
+                var row = results?.Tests.LastOrDefault(t => t.ClassName == control.ClassName && t.TestName == expectation.TestName);
+                lines.Add($"  {expectation.TestName}: expected {expectation.Status}, recorded {row?.Status ?? "nothing"}" +
+                          (row?.Error is { } error ? $" ({error})" : ""));
+            }
+            foreach (var problem in grade)
+                lines.Add($"  PROBLEM {problem}");
+        }
+
+        string? report = null;
+        if (RuntimeLane.ExecutionLane(suite.Device) is { } claimed)
+        {
+            var engine = RuntimeLane.Engine(suite.Device);
+            var configuration = RuntimeLane.BuildConfiguration(suite.Device, false);
+            var reportDir = RootDirectory / "artifacts" / "runtime-lanes" /
+                RuntimeLaneReport.Slug(suite.LaneLabel, BtFramework, engine, configuration);
+            Directory.CreateDirectory(reportDir);
+            report = reportDir / "negative-controls.txt";
+            File.WriteAllLines(report, new[] { $"Negative controls on {suite.LaneLabel} ({claimed}); attempts: {Path.Combine(attemptDirectory, "negative-controls")}" }.Concat(lines));
+        }
+        foreach (var line in lines)
+            Log.Information("{Line}", line);
+        return new NegativeControlRuns(all, problems, report, last);
+    }
+
+    static void ThrowOnNegativeControlProblems(RecoveringSuite suite, NegativeControlRuns controls)
+    {
+        if (controls.Problems.Count == 0)
+            return;
+        foreach (var problem in controls.Problems)
+            Log.Error("Negative control: {Problem}", problem);
+        throw new InvalidOperationException(
+            $"{suite.LaneLabel}: {controls.Problems.Count} negative-control problem(s); see {controls.Report ?? "the lines above"}.");
     }
 
     /// <summary>

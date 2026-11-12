@@ -72,13 +72,20 @@ public sealed class BridgeTwinPlans
     /// <summary>The call-plan schema this reader understands.</summary>
     public const int PlanVersion = 1;
 
+    /// <summary>
+    /// The evidence a generation records on a planned transition when it was given no lowering
+    /// evidence at all (a lane that does not bridge). Equal to the generator's own reason.
+    /// </summary>
+    public const string NoEvidenceReason = "no swiftc lowering evidence was joined";
+
     private readonly Dictionary<string, TwinPlan> _plans;
 
-    private BridgeTwinPlans(Dictionary<string, TwinPlan> plans, ImmutableArray<string> problems, ImmutableArray<string> routingGaps)
+    private BridgeTwinPlans(Dictionary<string, TwinPlan> plans, ImmutableArray<string> problems, ImmutableArray<string> routingGaps, ImmutableArray<string> evidenceGaps)
     {
         _plans = plans;
         Problems = problems;
         RoutingGaps = routingGaps;
+        EvidenceGaps = evidenceGaps;
     }
 
     /// <summary>Why the source does not read; any one makes every twin unverifiable.</summary>
@@ -92,6 +99,16 @@ public sealed class BridgeTwinPlans
     /// </summary>
     public ImmutableArray<string> RoutingGaps { get; }
 
+    /// <summary>
+    /// Forward transitions a generation that was given lowering evidence planned but could not make
+    /// executable: the evidence names no definition of the target (it predates the code that
+    /// declares it), or it contradicts the plan. Either leaves a planned Swift-convention call on its
+    /// direct import with nothing else reporting it, so the evidence must be re-recorded or the plan
+    /// corrected. A generation given no evidence, and a closure or reverse plan (which swiftc never
+    /// defines), are not gaps.
+    /// </summary>
+    public ImmutableArray<string> EvidenceGaps { get; }
+
     public int Count => _plans.Count;
 
     public TwinPlan? Find(string symbol) => _plans.TryGetValue(symbol, out var plan) ? plan : null;
@@ -100,6 +117,7 @@ public sealed class BridgeTwinPlans
     {
         var problems = new List<string>();
         var gaps = new List<string>();
+        var evidenceGaps = new List<string>();
         var plans = new Dictionary<string, TwinPlan>(StringComparer.Ordinal);
         if (source.Kind != TransitionPlanSourceKind.CallPlanSidecars)
         {
@@ -112,9 +130,9 @@ public sealed class BridgeTwinPlans
         else
         {
             foreach (var file in Directory.GetFiles(source.Location, "*" + SidecarSuffix, SearchOption.TopDirectoryOnly).Order(StringComparer.Ordinal))
-                Read(Path.GetFileName(file), File.ReadAllText(file), plans, problems, gaps);
+                Read(Path.GetFileName(file), File.ReadAllText(file), plans, problems, gaps, evidenceGaps);
         }
-        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps.ToImmutableArray());
+        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps.ToImmutableArray(), evidenceGaps.ToImmutableArray());
     }
 
     /// <summary>Plans given as (name, JSON text), for tests.</summary>
@@ -122,13 +140,14 @@ public sealed class BridgeTwinPlans
     {
         var problems = new List<string>();
         var gaps = new List<string>();
+        var evidenceGaps = new List<string>();
         var plans = new Dictionary<string, TwinPlan>(StringComparer.Ordinal);
         foreach (var (name, json) in sidecars)
-            Read(name, json, plans, problems, gaps);
-        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps.ToImmutableArray());
+            Read(name, json, plans, problems, gaps, evidenceGaps);
+        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps.ToImmutableArray(), evidenceGaps.ToImmutableArray());
     }
 
-    private static void Read(string name, string json, Dictionary<string, TwinPlan> plans, List<string> problems, List<string> gaps)
+    private static void Read(string name, string json, Dictionary<string, TwinPlan> plans, List<string> problems, List<string> gaps, List<string> evidenceGaps)
     {
         try
         {
@@ -166,10 +185,12 @@ public sealed class BridgeTwinPlans
                 {
                     var executable = entry.TryGetProperty("executable", out var e) && e.ValueKind == JsonValueKind.True;
                     var bridged = entry.TryGetProperty("bridged", out var b) && b.ValueKind == JsonValueKind.True;
-                    if (executable == bridged)
-                        continue;
                     var member = entry.TryGetProperty("member", out var m) ? m.GetString() : null;
                     var target = entry.TryGetProperty("symbol", out var s) ? s.GetString() : null;
+                    if (EvidenceGap(entry, executable, target, plans) is { } evidence)
+                        evidenceGaps.Add($"{name}: {member} is planned through {target}, but its lowering evidence does not make it executable: {evidence}");
+                    if (executable == bridged)
+                        continue;
                     var refusal = entry.TryGetProperty("bridgeRefusal", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null;
                     gaps.Add(executable
                         ? $"{name}: {member} is executable through {target} but kept its direct import: {refusal ?? "nothing routed it"}"
@@ -181,6 +202,23 @@ public sealed class BridgeTwinPlans
         {
             problems.Add($"{name}: the call plans do not read: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// The evidence of a planned forward transition that was judged against evidence and not made
+    /// executable, or null. A plan this sidecar does not hold counts as forward: the generation
+    /// could not judge it either.
+    /// </summary>
+    private static string? EvidenceGap(JsonElement entry, bool executable, string? symbol, Dictionary<string, TwinPlan> plans)
+    {
+        if (executable || !entry.TryGetProperty("status", out var status) || status.GetString() != "Planned")
+            return null;
+        var evidence = entry.TryGetProperty("evidence", out var ev) && ev.ValueKind == JsonValueKind.String ? ev.GetString() : null;
+        if (evidence is null or NoEvidenceReason)
+            return null;
+        if (symbol is not null && plans.TryGetValue(symbol, out var plan) && plan.Kind != "Forward")
+            return null;
+        return evidence;
     }
 
     private static TwinSlot Slot(JsonElement element) => new(

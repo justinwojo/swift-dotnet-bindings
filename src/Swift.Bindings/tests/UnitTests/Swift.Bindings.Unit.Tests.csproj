@@ -123,6 +123,8 @@
     <!-- The same BCL-only attempt retention and recovery decision used by the sim/device loops. -->
     <Compile Include="../../../../build/Models/RuntimeTestAttempts.cs" Link="Models/RuntimeTestAttempts.cs" />
     <Compile Include="../../../../build/Models/TestResult.cs" Link="Models/TestResult.cs" />
+    <!-- The interpreter lane's negative-control registry and grading, beside the loop that runs them. -->
+    <Compile Include="../../../../build/Models/InterpreterNegativeControls.cs" Link="Models/InterpreterNegativeControls.cs" />
     <!-- Link-compile the async-wrapper gate policy for the same reason: the load-bearing decision is
          that a failed wrapper build is FATAL by default and only the permissive flag downgrades it. Four
          runtime-test legs used to ignore the flag entirely, which turned one Mac Catalyst wrapper
