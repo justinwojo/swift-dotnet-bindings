@@ -202,6 +202,91 @@ public sealed class SwiftBridgeRoutingTests
         Assert.Null(routing.Assembly(SwiftArchitecture.Arm64));
     }
 
+    // ---- a generation's requested bridge routes ----
+
+    [Fact]
+    public void RouteRequest_IsScopedToTheGeneration_AndKeyedBySymbol()
+    {
+        Assert.False(SwiftBridgeRouteRequests.IsRequested("$s1M1CC1fyS2iF"));
+        using (SwiftBridgeRouteRequests.Use(["$s1M1CC1fyS2iF"]))
+        {
+            Assert.True(SwiftBridgeRouteRequests.IsRequested("$s1M1CC1fyS2iF"));
+            Assert.False(SwiftBridgeRouteRequests.IsRequested("$s1M1CC1gyS2iF"));
+            Assert.False(SwiftBridgeRouteRequests.IsRequested(null));
+        }
+        Assert.False(SwiftBridgeRouteRequests.IsRequested("$s1M1CC1fyS2iF"));
+        Assert.Empty(SwiftBridgeRouteRequests.Unsatisfied());
+    }
+
+    [Fact]
+    public void RouteRequest_BridgedImport_IsSatisfied()
+    {
+        var source = Source(Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var set = Set(SelfPlan(), "$s1M1CC1fyS2iF");
+        using var requests = SwiftBridgeRouteRequests.Use(["$s1M1CC1fyS2iF"]);
+
+        SwiftBridgeRouteRequests.Record("M", SwiftBridgeRouting.Plan(set, source, Library).Annotate(set));
+
+        Assert.Empty(SwiftBridgeRouteRequests.Unsatisfied());
+    }
+
+    [Fact]
+    public void RouteRequest_NamesTheMember_WhoseImportCallsItsDispatchThunk()
+    {
+        // A class member dispatched through the vtable is imported at its dispatch thunk; the request
+        // names the declaration's own symbol either way.
+        var source = Source(Import("$s1M1CC1fyS2iFTj", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var set = Set(SelfPlan(), "$s1M1CC1fyS2iFTj");
+        using var requests = SwiftBridgeRouteRequests.Use(["$s1M1CC1fyS2iF"]);
+
+        SwiftBridgeRouteRequests.Record("M", SwiftBridgeRouting.Plan(set, source, Library).Annotate(set));
+
+        Assert.Empty(SwiftBridgeRouteRequests.Unsatisfied());
+    }
+
+    [Fact]
+    public void RouteRequest_ImportKeptDirect_FailsWithTheMemberAndTheReason()
+    {
+        var source = Source(Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var set = Set(SelfPlan(), "$s1M1CC1fyS2iF", executable: false);
+        using var requests = SwiftBridgeRouteRequests.Use(["$s1M1CC1fyS2iF"]);
+
+        SwiftBridgeRouteRequests.Record("M", SwiftBridgeRouting.Plan(set, source, Library).Annotate(set));
+
+        var failure = Assert.Single(SwiftBridgeRouteRequests.Unsatisfied());
+        Assert.StartsWith("$s1M1CC1fyS2iF: M.C::PInvoke_f keeps its Swift-convention import (", failure);
+    }
+
+    [Fact]
+    public void RouteRequest_WithNoSwiftConventionImport_Fails()
+    {
+        // Another route took the member (a wrapper, a thunk) or it was not bound: nothing calls the
+        // requested symbol through a Swift-convention import, so there is nothing to bridge.
+        var source = Source(Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var set = Set(SelfPlan(), "$s1M1CC1fyS2iF");
+        using var requests = SwiftBridgeRouteRequests.Use(["$s1M1CC1gyS2iF"]);
+
+        SwiftBridgeRouteRequests.Record("M", SwiftBridgeRouting.Plan(set, source, Library).Annotate(set));
+
+        var failure = Assert.Single(SwiftBridgeRouteRequests.Unsatisfied());
+        Assert.StartsWith("$s1M1CC1gyS2iF: no Swift-convention import calls it", failure);
+    }
+
+    [Fact]
+    public void RouteRequest_ALaterEmissionOfTheModule_ReplacesTheEarlierRecord()
+    {
+        // Verify-recover can emit a module again; only the emission that ships is judged.
+        var source = Source(Import("$s1M1CC1fyS2iF", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var direct = Set(SelfPlan(), "$s1M1CC1fyS2iF", executable: false);
+        var bridged = Set(SelfPlan(), "$s1M1CC1fyS2iF");
+        using var requests = SwiftBridgeRouteRequests.Use(["$s1M1CC1fyS2iF"]);
+
+        SwiftBridgeRouteRequests.Record("M", SwiftBridgeRouting.Plan(direct, source, Library).Annotate(direct));
+        Assert.NotEmpty(SwiftBridgeRouteRequests.Unsatisfied());
+        SwiftBridgeRouteRequests.Record("M", SwiftBridgeRouting.Plan(bridged, source, Library).Annotate(bridged));
+        Assert.Empty(SwiftBridgeRouteRequests.Unsatisfied());
+    }
+
     [Theory]
     [InlineData("[global::System.Runtime.InteropServices.SuppressGCTransition]", "private static partial long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "carries the attribute")]
     [InlineData("", "private static partial long PInvoke_f<T>(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "generic")]

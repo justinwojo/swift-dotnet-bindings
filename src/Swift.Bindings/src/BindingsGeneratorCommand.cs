@@ -103,6 +103,7 @@ public static class BindingsGeneratorCommand
         var validateLinkedBridges = parseResult.GetValueForOption(options.ValidateLinkedBridges) ?? Array.Empty<string>();
         var swiftLoweringEvidence = parseResult.GetValueForOption(options.SwiftLoweringEvidence);
         var swiftLoweringQualification = parseResult.GetValueForOption(options.SwiftLoweringQualification);
+        var swiftBridgeRoutes = parseResult.GetValueForOption(options.SwiftBridgeRoutes) ?? Array.Empty<string>();
         var emitHandWrittenPlans = parseResult.GetValueForOption(options.EmitHandWrittenPlans);
         var transitionFacts = parseResult.GetValueForOption(options.TransitionFacts);
         var planSources = parseResult.GetValueForOption(options.PlanSources) ?? Array.Empty<string>();
@@ -298,6 +299,15 @@ public static class BindingsGeneratorCommand
             context.ExitCode = 1;
             return;
         }
+        if (swiftBridgeRoutes.Length > 0 &&
+            (swiftBridges || emitHandWrittenPlans || validateLinkedBridges.Length > 0 || string.IsNullOrWhiteSpace(swiftLoweringQualification)))
+        {
+            // A requested route is a qualification-corpus control: it holds a member on the import the
+            // SDK's own record routes, and means nothing to a consumer's receipt or the bridge modes.
+            logger.LogError("Error: --swift-bridge-route applies to binding generation with --swift-lowering-qualification only.");
+            context.ExitCode = 1;
+            return;
+        }
         if (swiftBridges || emitHandWrittenPlans || validateLinkedBridges.Length > 0)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
@@ -367,6 +377,7 @@ public static class BindingsGeneratorCommand
             }
         }
         using var bridgeEvidenceScope = bridgeJudge is null ? null : SwiftBridgeEvidence.Use(bridgeJudge);
+        using var bridgeRouteScope = swiftBridgeRoutes.Length == 0 ? null : SwiftBridgeRouteRequests.Use(swiftBridgeRoutes);
 
         // Handle --validate-apple-types-manifest: live-SDK CI validator.
         // Probes every manifest entry advertised on the host platform via dlsym +
@@ -1559,6 +1570,19 @@ public static class BindingsGeneratorCommand
         if (FailStrictInputsWithReport(
                 strictInputs, failureReportModule, failureReportInputs, outputDirectory, logger))
         {
+            context.ExitCode = 1;
+            return;
+        }
+
+        // Every member --swift-bridge-route named must have come out bridged: a request that did not
+        // take would leave the qualification fixture on another route while the run reports success.
+        if (SwiftBridgeRouteRequests.Unsatisfied() is { IsEmpty: false } unrouted)
+        {
+            foreach (var failure in unrouted)
+                logger.LogError("Error: --swift-bridge-route {Failure}", failure);
+            EmitCommandFailureReport(
+                BindingFailureOutcomeKind.InvalidConfiguration, "SWIFT_BRIDGE_ROUTE_NOT_TAKEN",
+                RecoveryStage.Emit, string.Join("\n", unrouted));
             context.ExitCode = 1;
             return;
         }
@@ -3429,6 +3453,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --validate-linked-bridges  Validate the SBSR_ bridges a linked image exports against --swift-call-plans sidecars (scratch in -o).");
         Console.WriteLine("  --emit-hand-written-plans  Plan --transition-facts over --plan-sources directories (repeatable) and write the plan sidecar into -o.");
         Console.WriteLine("  --swift-lowering-qualification  The SDK's qualification record: judges --swift-bridges, --emit-hand-written-plans and the qualification corpus.");
+        Console.WriteLine("  --swift-bridge-route       Swift symbol of a closure-bearing qualification-corpus member to keep on its bridged import (repeatable; needs --swift-lowering-qualification).");
         Console.WriteLine("  --swift-lowering-evidence  A generated module's own lowering receipt: routes the plans it authorizes for this compiler, SDK and --platform.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");

@@ -129,6 +129,8 @@ namespace BindingsGeneration
             // matching `NativeMemory.Free(...)` in the finally below can see them.
             EmitDeclarationsForAllocations(csWriter);
             EmitExistentialHeapDeclarations(csWriter);
+            // The finally below restores each @convention(c) slot this factory writes.
+            EmitConventionCSlotSaveDeclarations(csWriter, needsTryFinally: true);
 
             // For the indirect (struct / CallConvSwift class) path we need Self + SwiftOptional<Self>
             // metadata and a heap buffer to receive Optional<Self>. The class-cdecl path returns the

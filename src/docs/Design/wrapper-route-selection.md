@@ -31,9 +31,11 @@ Moving a member into the wrapper library is therefore not the same as rerouting 
 ## Why the direct route carries a cost
 
 A direct `CallConvSwift` P/Invoke for an instance member reserves registers the C ABI does not:
-`x20` for `SwiftSelf` and `x21` for `SwiftError`. Under Mono's full-AOT managed-to-native wrapper
-those registers are also candidates for the GC-safe-region transition cookie, and the wrapper's own
-argument setup can destroy the cookie before the branch. The `@_cdecl` route removes the collision
+`x20` for `SwiftSelf` and `x21` for `SwiftError`. Under Mono's managed-to-native wrapper (JIT and
+full AOT) those registers are also candidates for values the wrapper keeps live across the call —
+the GC-safe-region transition cookie, the LMF address — and the wrapper's own argument setup can
+destroy them before the branch. A lost cookie aborts the transition; a lost LMF address makes the
+post-call LMF pop write through self, silently corrupting the receiver. The `@_cdecl` route removes the collision
 by removing the reserved register from the signature — `self` arrives as an ordinary pointer
 argument. The register-level mechanism, its evidence and its reopen trigger are recorded in
 [the runtime/ABI reference note](../Future/notes/runtime-abi.md#mono-clobbers-the-gc-safe-region-cookie-in-x20-so-any-swiftself-carrying-direct-callconvswift-p-invoke-can-abo); what belongs here is the
@@ -60,6 +62,38 @@ carries a stable reason string; those strings are what the generated skip marker
 
 Adding a guard here is subject to the [prediction-gate freeze policy](engineering-policies.md#prediction-gate-freeze-policy-hard-policy-boundary): a new gate is
 justified only when the failure it prevents would otherwise *compile*.
+
+### C callbacks
+
+A `@convention(c)` parameter is one word with no context, so the wrapper has nothing to adapt: the
+`@_cdecl` function declares the parameter under its own `@convention(c)` type and hands the pointer
+to the member unchanged (an `Optional` one stays an `Optional` pointer). Methods take this through the
+closure wrapper (`ClosureEmitter.NeedsClosureCdeclWrapper`), alongside any Swift closures the same
+signature adapts; constructors take it through the constructor wrapper. The managed side is the one
+the direct route already used: a per-parameter `[ThreadStatic]` delegate slot, an
+`[UnmanagedCallersOnly]` C-convention thunk whose address is passed, and a save/restore of the slot
+around the call so a re-entering callback finds its own delegate. That slot binds the callback for
+the duration of the call and on the calling thread only. A C function pointer the Swift side stores
+and calls after the member returns reaches whatever the slot holds then, and one it calls on another
+thread finds that thread's slot empty, which ends the process through the thunk's fail-fast.
+
+The pass-through needs every C function pointer in the signature to be a parameter whose spec
+records the convention, because ABI JSON prints a C function pointer like a Swift closure and the
+record comes from the demangled signature. A C function pointer anywhere else — inside a Swift
+closure's signature, in a result — keeps the member off the wrapper. A constructor's `#file`-style
+debug parameters stay out of the wrapper's signature and call, so Swift supplies their defaults there.
+A member of a generic type stays off the wrapper too: no wrapper arm spells the parent's type
+arguments for a C callback, and the managed thunk is an `[UnmanagedCallersOnly]` method, which C#
+does not allow in the generic class the member is bound in. A constructor with a C callback and no
+wrapper to take it (a direct-mode generation, a C function pointer with no recorded convention, a
+generic parent) is skipped, because the direct route cannot deliver an allocating initializer's
+metatype or decode a failable result.
+
+The SDK's bridge qualification corpus keeps three such members on their Swift-convention imports on
+purpose: the iOS BindingTests regeneration names them with `--swift-bridge-route` (qualification
+generations only), which keeps each off the closure wrapper so its native bridge carries it, and the
+generation fails when one is not bridged. It is a control for that corpus, not a route a consumer's
+generation can select.
 
 ## Wrapper symbols
 

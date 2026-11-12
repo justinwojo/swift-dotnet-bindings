@@ -68,8 +68,9 @@ public class ClosureTests : TestBase
 
     #endregion
 
-    #region Tier 3 — @convention(c) closures + closure returns (still CallConvSwift)
-    // @convention(c) closures: C# callbacks still use CallConvSwift (Strategy B excludes them)
+    #region Tier 3 — @convention(c) closures + closure returns
+    // @convention(c) closures: the C# callback is a C-convention thunk whose address the @_cdecl
+    // wrapper hands to Swift unchanged. ConventionCWrapperTests covers the wrapper's other shapes.
     // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
     public void TestConventionCFunction()
@@ -169,12 +170,43 @@ public class ClosureTests : TestBase
         AssertEqual(5, reportedLength, "report's second argument");
     }
 
-    // Note: a constructor taking a non-optional @convention(c) closure (e.g. the Swift fixture
-    // ConventionCValidatedLoader.init?) is intentionally SKIPPED by the generator — it has no
-    // ABI-correct surface (no native thunk, no @_cdecl wrapper; a direct CallConvSwift call can't
-    // deliver the allocating-init metatype or decode a failable Optional<Self>). So there is no
-    // TryCreate to call here; the skip is covered structurally by the generator unit test and by the
-    // fixture's presence in the compile gate (the binding must still build with the member skipped).
+    // Failable initializers that take a non-optional @convention(c) closure reach Swift through the
+    // constructor wrapper, which keeps the allocating metatype and the Optional<Self> result on the
+    // Swift side. Each is called with a seed the callback accepts and one it rejects, so both the
+    // value and the nil arm of the result are read back.
+
+    public void TestConventionCValidatedLoader()
+    {
+        AssertTrue(ConventionCValidatedLoader.TryCreate(x => x * 3, 7, out var loader), "a non-negative mapped seed constructs");
+        using (loader)
+            AssertEqual(21, loader.Value, "the initializer stores the callback's result");
+        AssertFalse(ConventionCValidatedLoader.TryCreate(x => -x, 7, out _), "a negative mapped seed returns nil");
+    }
+
+    public void TestConventionCDebugParamLoader()
+    {
+        // The trailing #fileID parameter takes its default inside the wrapper; the binding exposes
+        // only the callback and the seed.
+        AssertTrue(ConventionCDebugParamLoader.TryCreate(x => x + 4, 6, out var loader), "a non-negative mapped seed constructs");
+        using (loader)
+            AssertEqual(10, loader.Value, "the initializer stores the callback's result");
+        AssertFalse(ConventionCDebugParamLoader.TryCreate(x => x - 100, 6, out _), "a negative mapped seed returns nil");
+    }
+
+    public void TestConventionCMultiClosureLoader()
+    {
+        // A C function pointer and a Swift closure in one initializer: the wrapper passes the first
+        // through and adapts the second, and each reaches the callback the caller gave it.
+        var readyValues = new global::System.Collections.Generic.List<int>();
+        AssertTrue(ConventionCMultiClosureLoader.TryCreate(x => x * 2, readyValues.Add, 9, out var loader), "a non-negative mapped seed constructs");
+        using (loader)
+            AssertEqual(18, loader.Value, "the initializer stores the C callback's result");
+        AssertEqual(1, readyValues.Count, "the Swift closure runs once on success");
+        AssertEqual(18, readyValues[0], "the Swift closure receives the validated value");
+
+        AssertFalse(ConventionCMultiClosureLoader.TryCreate(x => -1, readyValues.Add, 9, out _), "a negative mapped seed returns nil");
+        AssertEqual(1, readyValues.Count, "the Swift closure does not run when the initializer fails");
+    }
 
     public void TestMakeAdder()
     {

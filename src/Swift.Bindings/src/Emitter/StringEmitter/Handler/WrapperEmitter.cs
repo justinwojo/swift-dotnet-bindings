@@ -565,6 +565,7 @@ namespace BindingsGeneration
             EmitDeclarationsForAllocations(csWriter);
             EmitExistentialHeapDeclarations(csWriter);
             EmitInitFactoryResultDeclaration(csWriter);
+            EmitConventionCSlotSaveDeclarations(csWriter, needsTryFinally);
 
             if (needsTryFinally)
             {
@@ -705,17 +706,21 @@ namespace BindingsGeneration
             // Always emit — SwiftError 'ref' requires pre-declaration even without try-finally.
             EmitDeclarationsForAllocations(csWriter);
             EmitExistentialHeapDeclarations(csWriter);
+            EmitConventionCSlotSaveDeclarations(csWriter, needsTryFinally);
+
+            // Argument marshalling allocates what the finally releases (GCHandles, existential
+            // buffers) and installs each C callback's delegate in its slot, which the finally
+            // restores, so it runs inside the try as on the other constructor and method paths.
+            if (needsTryFinally)
+            {
+                EmitTryBlockStart(csWriter);
+            }
 
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
             EmitExistentialContainerMarshalling(csWriter);
             EmitConsumedArgumentHandOvers(csWriter);
-
-            if (needsTryFinally)
-            {
-                EmitTryBlockStart(csWriter);
-            }
 
             if (isGeneric)
             {

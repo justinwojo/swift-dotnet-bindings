@@ -1784,11 +1784,9 @@ public class ClosureHandlerTests
 
         var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
 
-        // WrapperValidation.IsEffectivelyEscaping must return true for Optional closures.
-        // This drives three emitter behaviors:
-        // 1. Setup: uses Marshal.GetFunctionPointerForDelegate (not ThreadStatic) for @convention(c)
-        // 2. Callback: skips [UnmanagedCallersOnly] ThreadStatic emission for @convention(c)
-        // 3. Cleanup: skips GCHandle.Free() in finally block
+        // WrapperValidation.IsEffectivelyEscaping must return true for Optional closures: it keeps
+        // the cleanup from freeing a GCHandle Swift may still hold. (@convention(c) closures, bare or
+        // Optional, do not consult it: they always take the [ThreadStatic] slot.)
         Assert.True(WrapperValidation.IsEffectivelyEscaping(innerClosure, optionalClosure, handler),
             "Optional closure must be effectively escaping");
     }
@@ -1796,10 +1794,11 @@ public class ClosureHandlerTests
     [Fact]
     public void IsEffectivelyEscaping_OptionalConventionCClosure_ReturnsTrue()
     {
-        // Optional @convention(c) closures must also be treated as effectively escaping.
-        // Without this, WrapperEmitter.Marshalling would emit a [ThreadStatic] callback
-        // (non-escaping path) for an optional @convention(c) closure, which breaks callback
-        // lookup when Swift stores and invokes the closure later on a different thread.
+        // An Optional closure spec is effectively escaping whatever its convention: the predicate
+        // reads the Optional wrapper, not the payload's attributes. (The @convention(c) marshalling
+        // does not consult it — bare and Optional C function pointers both take the [ThreadStatic]
+        // slot, whose lifetime is the call — but the predicate's answer must not depend on the
+        // payload's convention.)
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
@@ -1812,10 +1811,6 @@ public class ClosureHandlerTests
 
         var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
 
-        // IsEffectivelyEscaping returns true → WrapperEmitter.Marshalling will:
-        // - Use Marshal.GetFunctionPointerForDelegate (not ThreadStatic) at setup
-        // - Skip [UnmanagedCallersOnly] ThreadStatic callback emission
-        // - Skip GCHandle.Free() in cleanup
         Assert.True(WrapperValidation.IsEffectivelyEscaping(innerClosure, optionalClosure, handler),
             "Optional @convention(c) closure must be effectively escaping");
     }

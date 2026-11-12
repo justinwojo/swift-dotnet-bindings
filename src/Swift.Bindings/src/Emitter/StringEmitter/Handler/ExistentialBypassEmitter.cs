@@ -1715,6 +1715,12 @@ public static class ExistentialBypassEmitter
                 if (closureTypeSpec.HasAttributes && closureTypeSpec.Attributes.Exists(attr =>
                     attr.Name == "Sendable" || attr.Name == "Swift.Sendable" || attr.Name == "_Concurrency.Sendable"))
                     prefix += "@Sendable ";
+                // A C function pointer is a different type from the Swift closure with the same
+                // signature: one word and no context. Without its convention the spelling names the
+                // thick closure, which a C pointer converts to but which cannot be handed back where
+                // the C pointer is expected.
+                if (ClosureHandler.IsConventionCSpec(closureTypeSpec))
+                    prefix += "@convention(c) ";
                 return $"{prefix}{argsRendered}{asyncKeyword}{throwsKeyword} -> {ret}";
 
             case ProtocolListTypeSpec protocolListTypeSpec:
