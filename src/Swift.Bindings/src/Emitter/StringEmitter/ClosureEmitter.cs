@@ -128,8 +128,12 @@ public static partial class ClosureEmitter
             argIndex++;
         }
         // Cdecl: context is a plain IntPtr parameter.
-        // Swift: context is passed in the Swift "self" register via SwiftSelf.
-        parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
+        // Swift: context is passed in the Swift "self" register via SwiftSelf, placed by the shared
+        // reverse order.
+        if (useCdecl)
+            parameters.Add("IntPtr contextPtr");
+        else
+            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: false);
 
         var returnType = isIndirectReturn
             ? "void"
@@ -313,12 +317,7 @@ public static partial class ClosureEmitter
         bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = BuildEscapingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler, useCdecl);
-
-        // Add context parameter to the function pointer type
-        var funcPtrTypeWithContext = useCdecl
-            ? AddCdeclContextToFunctionPointerType(funcPtrType)
-            : AddContextToFunctionPointerType(funcPtrType);
+        var funcPtrTypeWithContext = BuildEscapingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler, useCdecl);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
     }
@@ -1462,6 +1461,8 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Adds SwiftSelf context parameter to a function pointer type string.
     /// SwiftSelf is used because Swift passes closure context in the "self" register.
+    /// FORWARD calls only (C# invoking a closure Swift handed back), where the special parameters
+    /// trail. A reverse callback's pointer type comes from <see cref="ReverseSwiftCallbackSignature"/>.
     /// </summary>
     private static string AddContextToFunctionPointerType(string funcPtrType)
     {
@@ -1515,7 +1516,8 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Builds the function pointer type for an escaping closure callback.
+    /// Builds the function pointer type for an escaping closure callback, context included. Mirrors
+    /// <see cref="EmitEscapingClosureCallback"/>'s parameter list on both lanes.
     /// </summary>
     private static string BuildEscapingClosureCallbackFunctionPointerType(
         ClosureTypeSpec closureTypeSpec,
@@ -1556,13 +1558,19 @@ public static partial class ClosureEmitter
             }
         }
 
-        types.Add(isIndirectReturn ? "void" : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
-        var callConv = useCdecl ? "Cdecl" : "Swift";
-        return $"delegate* unmanaged[{callConv}]<{string.Join(", ", types)}>";
+        var returnType = isIndirectReturn ? "void" : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
+        if (!useCdecl)
+            return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: false, returnType);
+
+        // Cdecl: the context is a trailing IntPtr.
+        types.Add("IntPtr");
+        types.Add(returnType);
+        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", types)}>";
     }
 
     /// <summary>
-    /// Builds the function pointer type for a throwing closure callback.
+    /// Builds the function pointer type for a throwing closure callback, context included. Mirrors
+    /// <see cref="EmitThrowingClosureCallback"/>'s parameter list on both lanes.
     /// </summary>
     private static string BuildThrowingClosureCallbackFunctionPointerType(
         ClosureTypeSpec closureTypeSpec,
@@ -1584,12 +1592,17 @@ public static partial class ClosureEmitter
             }
         }
 
-        types.Add("SwiftError*");
-        types.Add(closureTypeSpec.ReturnType.IsEmptyTuple
+        var returnType = closureTypeSpec.ReturnType.IsEmptyTuple
             ? "void"
-            : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
-        var callConv = useCdecl ? "Cdecl" : "Swift";
-        return $"delegate* unmanaged[{callConv}]<{string.Join(", ", types)}>";
+            : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
+        if (!useCdecl)
+            return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: true, returnType);
+
+        // Cdecl: the @_cdecl adapter's C order — arguments, error out-parameter, IntPtr context.
+        types.Add("SwiftError*");
+        types.Add("IntPtr");
+        types.Add(returnType);
+        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", types)}>";
     }
 
     /// <summary>

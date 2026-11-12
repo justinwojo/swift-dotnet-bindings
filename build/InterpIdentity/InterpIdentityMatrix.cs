@@ -114,7 +114,7 @@ public static class InterpIdentityMatrix
                 "the failable init reads the Optional's tag and copies the payload through value-witness function " +
                 "pointers; crossgen2 does not precompile a method containing an unmanaged calli " +
                 "(GetCookieForPInvokeCalliSig requires runtime JIT)")),
-        new("reverse-error-mid", "Swift invokes a CallConvSwift UCO (void*, SwiftError*, SwiftSelf)",
+        new("reverse-error-first", "Swift invokes a CallConvSwift UCO (SwiftError*, void*, SwiftSelf)",
             [("R4", "iifCallThrowing_arg0_")]),
         new("reverse-context-last", "Swift invokes a CallConvSwift UCO (void*, SwiftSelf) from a failable init",
             [("R4", "IifVisitorFactory::init_arg0_"), ("R1", "IifVisitorFactory::PInvoke_init_")]),
@@ -146,10 +146,11 @@ public static class InterpIdentityMatrix
     /// ReadyToRun cells pass every call they precompile; a fixture whose Swift call crossgen2
     /// leaves to the runtime (<see cref="IdentityFixture.ReadyToRunGap"/>) runs in the interpreter
     /// there too, so it carries the interpreter's expectation for the same architecture. The
-    /// interpreter cells reproduce the measured defects: on arm64 the x20 write into the receiver
-    /// and the reverse error slot; on x86_64 the missing Swift lowering, which misplaces a typed
-    /// SwiftSelf, loses a typed SwiftError, drops the indirect result and breaks both reverse
-    /// callbacks.
+    /// interpreter cells reproduce the measured defects: on arm64 the x20 write into the receiver;
+    /// on x86_64 the missing Swift lowering, which misplaces a typed SwiftSelf, loses a typed
+    /// SwiftError, drops the indirect result and breaks both reverse callbacks. The arm64 reverse
+    /// error slot is a positive control: the generator places a reverse callback's SwiftError*
+    /// first, the one position the arm64 interpreter's reverse thunk writes it to.
     /// </summary>
     public static FixtureExpectation ExpectationFor(IdentityCell cell, string fixture)
     {
@@ -163,7 +164,8 @@ public static class InterpIdentityMatrix
             ("self-receiver" or "self-error", _) => FixtureExpectation.Reproduce,
             ("indirect-result", false) => FixtureExpectation.Pass,
             ("indirect-result", true) => FixtureExpectation.Reproduce,
-            ("reverse-error-mid", _) => FixtureExpectation.Reproduce,
+            ("reverse-error-first", false) => FixtureExpectation.Pass,
+            ("reverse-error-first", true) => FixtureExpectation.Reproduce,
             ("reverse-context-last", false) => FixtureExpectation.Pass,
             ("reverse-context-last", true) => FixtureExpectation.Reproduce,
             _ => throw new ArgumentException($"No expectation for '{fixture}' on {cell.Id}."),

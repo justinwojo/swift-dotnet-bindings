@@ -65,7 +65,7 @@ public class InterpIdentityHarnessTests
     [Fact]
     public void Parse_BeginWithoutResult_IsACrash()
     {
-        var r = ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, ended: false));
+        var r = ConsoleReceiptParser.Parse("reverse-error-first", Console("reverse-error-first", null, ended: false));
         Assert.Equal(FixtureOutcome.Crash, r.Outcome);
     }
 
@@ -93,7 +93,7 @@ public class InterpIdentityHarnessTests
     public void Parse_BeginThenTimeout_IsIndeterminateNotACrash()
     {
         // A hung control must not count as reproducing its defect.
-        var r = ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, ended: false), timedOut: true);
+        var r = ConsoleReceiptParser.Parse("reverse-error-first", Console("reverse-error-first", null, ended: false), timedOut: true);
         Assert.Equal(FixtureOutcome.Indeterminate, r.Outcome);
         Assert.False(InterpIdentityMatrix.Satisfies(FixtureExpectation.Reproduce, r.Outcome));
     }
@@ -101,7 +101,7 @@ public class InterpIdentityHarnessTests
     [Fact]
     public void Parse_ACrashAfterTheCaptureStillHasItsCaller()
     {
-        var r = ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, false,
+        var r = ConsoleReceiptParser.Parse("reverse-error-first", Console("reverse-error-first", null, false,
             "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetVoid"));
         Assert.Equal(FixtureOutcome.Crash, r.Outcome);
         Assert.Equal("CallJittedMethodRetVoid", ConsoleReceiptParser.Caller(r)!.Symbol);
@@ -416,7 +416,7 @@ public class InterpIdentityHarnessTests
     [InlineData(ExecutionLane.ReadyToRun)]
     public void AFixtureThatRanWithoutACaller_DisprovesEitherClaim(ExecutionLane claim)
     {
-        var e = (claim == ExecutionLane.Interpreter ? InterpreterEvidence() : ReadyToRunEvidence()) with { Unattributed = ["reverse-error-mid"] };
+        var e = (claim == ExecutionLane.Interpreter ? InterpreterEvidence() : ReadyToRunEvidence()) with { Unattributed = ["reverse-error-first"] };
         var v = LaneClassifier.Classify(claim, e);
         Assert.False(v.Accepted);
         Assert.Null(v.Derived);
@@ -429,11 +429,11 @@ public class InterpIdentityHarnessTests
         {
             ConsoleReceiptParser.Parse("primitive", Console("primitive", "PASS", true,
                 "InterpIdentityFixture capture", "libcoreclr.dylib CallJittedMethodRetI8")),
-            ConsoleReceiptParser.Parse("reverse-error-mid", Console("reverse-error-mid", null, ended: false)),
+            ConsoleReceiptParser.Parse("reverse-error-first", Console("reverse-error-first", null, ended: false)),
         };
         var v = CellClassifier.Classify(InterpIdentityMatrix.M1, App, Binding, receipts,
             Inventory("S_P_CoreLib_Interop__CheckIo_0"), Crossgen(bindingRooted: false));
-        Assert.Equal(["reverse-error-mid"], v.Evidence.Unattributed);
+        Assert.Equal(["reverse-error-first"], v.Evidence.Unattributed);
         Assert.False(v.Lane.Accepted);
     }
 
@@ -493,6 +493,16 @@ public class InterpIdentityHarnessTests
         // interpreter, so it reproduces the same defect as the Debug app.
         Assert.Equal(FixtureExpectation.Reproduce, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M4, "indirect-result"));
         Assert.Equal(FixtureExpectation.Pass, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M2, "indirect-result"));
+    }
+
+    [Fact]
+    public void ReverseErrorFirst_PassesOnTheArm64Interpreter_AndStillReproducesOnX64()
+    {
+        // The generator places a reverse callback's SwiftError* first, where the arm64 interpreter
+        // writes the error register, so the arm64 cell is a positive control. The x86_64
+        // interpreter has no Swift lowering at all, so the same callback stays a negative control.
+        Assert.Equal(FixtureExpectation.Pass, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M1, "reverse-error-first"));
+        Assert.Equal(FixtureExpectation.Reproduce, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M3, "reverse-error-first"));
     }
 
     [Fact]
@@ -595,6 +605,6 @@ public class InterpIdentityHarnessTests
     public void DirectLaneCoverage_TheRuleMustMatchToo()
     {
         var violations = AllDirectMembers().Select(v => v.Member.Contains("iifCallThrowing", StringComparison.Ordinal) ? ("R1", v.Member) : v);
-        Assert.Contains(DirectLaneCoverage.Missing(violations), m => m.StartsWith("reverse-error-mid", StringComparison.Ordinal));
+        Assert.Contains(DirectLaneCoverage.Missing(violations), m => m.StartsWith("reverse-error-first", StringComparison.Ordinal));
     }
 }

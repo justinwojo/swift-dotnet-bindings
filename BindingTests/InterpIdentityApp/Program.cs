@@ -53,7 +53,7 @@ static unsafe class Program
             "self-receiver" => SelfReceiver,
             "self-error" => SelfError,
             "indirect-result" => IndirectResult,
-            "reverse-error-mid" => ReverseErrorMid,
+            "reverse-error-first" => ReverseErrorFirst,
             "reverse-context-last" => ReverseContextLast,
             _ => null,
         };
@@ -210,7 +210,7 @@ static unsafe class Program
         return true;
     }
 
-    static bool ReverseErrorMid(List<string> issues)
+    static bool ReverseErrorFirst(List<string> issues)
     {
         var seen = -1;
         var r = Functions.IifCallThrowing((SwiftSet<SwiftString> set) => { seen = set.Count; });

@@ -37,7 +37,7 @@ public static partial class ClosureEmitter
         RecordSwiftCallback(closureHandler, callbackName, closureTypeSpec, parameterName, mangledName, useCdecl);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
-        // Build parameter list: arguments..., SwiftError* errorOut, context
+        // Build the ordinary parameter list; the error and context are placed below, by lane.
         var parameters = new List<string>();
         var argTypes = new List<TypeSpec>();
         int argIndex = 0;
@@ -62,10 +62,17 @@ public static partial class ClosureEmitter
             argTypes.Add(arg);
             argIndex++;
         }
-        // Error out parameter before context
-        parameters.Add("SwiftError* errorOut");
-        // Cdecl: context is a plain IntPtr. Swift: context via SwiftSelf register.
-        parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
+        if (useCdecl)
+        {
+            // Cdecl: the @_cdecl adapter's C order — arguments, error out-parameter, IntPtr context.
+            parameters.Add(ReverseSwiftCallbackSignature.ErrorParameter);
+            parameters.Add("IntPtr contextPtr");
+        }
+        else
+        {
+            // Swift: the shared reverse order — error first, context (self register) last.
+            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: true);
+        }
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var returnType = hasReturn
@@ -207,12 +214,7 @@ public static partial class ClosureEmitter
         bool useCdecl = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
-        var funcPtrType = BuildThrowingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler, useCdecl);
-
-        // Add context parameter to the function pointer type
-        var funcPtrTypeWithContext = useCdecl
-            ? AddCdeclContextToFunctionPointerType(funcPtrType)
-            : AddContextToFunctionPointerType(funcPtrType);
+        var funcPtrTypeWithContext = BuildThrowingClosureCallbackFunctionPointerType(closureTypeSpec, closureHandler, useCdecl);
 
         csWriter.WriteLine($"private static unsafe readonly {funcPtrTypeWithContext} s_{callbackName} = &{callbackName};");
     }
