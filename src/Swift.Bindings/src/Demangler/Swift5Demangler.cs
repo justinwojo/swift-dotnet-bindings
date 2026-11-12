@@ -141,6 +141,141 @@ namespace BindingsGeneration.Demangling
         public bool HasCFunctionPointerMarker(string mangledName)
             => RawTreeContainsKind(mangledName, NodeKind.CFunctionPointer);
 
+        /// <summary>
+        /// For each formal parameter of the declaration's own signature (the outermost
+        /// <see cref="NodeKind.FunctionType"/>), whether its type is a <c>@convention(c)</c> function
+        /// pointer — directly or as the payload of an <c>Optional</c>.
+        ///
+        /// ABI JSON prints a C function pointer exactly like a Swift closure, so the mangled name is
+        /// the only per-parameter record of the convention. A whole-symbol presence check
+        /// (<see cref="HasCFunctionPointerMarker"/>) cannot say which closure carries it once a
+        /// signature has more than one. The two differ in width — a C function pointer is one word, a
+        /// Swift closure two — so a wrong guess shifts every later argument.
+        ///
+        /// Returns null when the tree cannot be built, has no function type, or its parameter count
+        /// is not <paramref name="parameterCount"/>; the caller then knows nothing per parameter.
+        /// </summary>
+        public IReadOnlyList<bool> GetCFunctionPointerParameterFlags(string mangledName, int parameterCount)
+        {
+            if (string.IsNullOrEmpty(mangledName) || parameterCount < 0)
+                return null;
+            lock (runLock)
+            {
+                nodeStack.Clear();
+                substitutions.Clear();
+                words.Clear();
+                originalIdentifier = mangledName;
+                slice = new StringSlice(originalIdentifier);
+                slice.Advance(GetManglingPrefixLength(originalIdentifier));
+                Node topLevelNode;
+                try
+                {
+                    topLevelNode = DemangleType(null);
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+
+                var parameters = DeclarationParameterTypes(FindOutermostFunctionType(topLevelNode), parameterCount);
+                if (parameters is null)
+                    return null;
+                var flags = new List<bool>(parameters.Count);
+                foreach (var parameter in parameters)
+                    flags.Add(IsCFunctionPointerParameter(parameter));
+                return flags;
+            }
+        }
+
+        /// <summary>
+        /// The parameter type nodes of a function type, or null when its argument tuple does not hold
+        /// exactly <paramref name="parameterCount"/> parameters. Several parameters are mangled as a
+        /// tuple whose elements are the parameters; one is mangled as its bare type, so a lone
+        /// tuple-typed parameter reads as a tuple and is taken whole.
+        /// </summary>
+        static List<Node> DeclarationParameterTypes(Node functionType, int parameterCount)
+        {
+            if (functionType is null)
+                return null;
+            Node argumentsType = null;
+            foreach (var child in functionType.Children)
+            {
+                if (child.Kind == NodeKind.ArgumentTuple)
+                {
+                    argumentsType = child.Children.Count > 0 ? child.Children[0] : null;
+                    break;
+                }
+            }
+            if (argumentsType is null)
+                return null;
+
+            var arguments = UnwrapType(argumentsType);
+            if (arguments is { Kind: NodeKind.Tuple } && parameterCount != 1)
+            {
+                if (arguments.Children.Count != parameterCount)
+                    return null;
+                var types = new List<Node>(parameterCount);
+                foreach (var element in arguments.Children)
+                {
+                    if (element.Kind != NodeKind.TupleElement)
+                        return null;
+                    Node elementType = null;
+                    foreach (var part in element.Children)
+                    {
+                        if (part.Kind == NodeKind.Type)
+                            elementType = part;
+                    }
+                    if (elementType is null)
+                        return null;
+                    types.Add(elementType);
+                }
+                return types;
+            }
+            if (parameterCount == 0)
+                return arguments is { Kind: NodeKind.Tuple, Children.Count: 0 } ? new List<Node>() : null;
+            return parameterCount == 1 ? new List<Node> { argumentsType } : null;
+        }
+
+        static bool IsCFunctionPointerParameter(Node typeNode)
+        {
+            var node = UnwrapType(typeNode);
+            if (node is null)
+                return false;
+            if (node.Kind == NodeKind.CFunctionPointer)
+                return true;
+            // Optional<@convention(c) …>: BoundGenericEnum(Type(Swift.Optional), TypeList(Type(payload))).
+            if (node.Kind == NodeKind.BoundGenericEnum && node.Children.Count == 2 &&
+                IsSwiftOptional(UnwrapType(node.Children[0])) &&
+                node.Children[1] is { Kind: NodeKind.TypeList } typeList &&
+                typeList.Children.Count == 1)
+            {
+                return UnwrapType(typeList.Children[0])?.Kind == NodeKind.CFunctionPointer;
+            }
+            return false;
+        }
+
+        static Node UnwrapType(Node node)
+        {
+            while (node is { Kind: NodeKind.Type } && node.Children.Count > 0)
+                node = node.Children[0];
+            return node;
+        }
+
+        static bool IsSwiftOptional(Node node)
+        {
+            if (node is not { Kind: NodeKind.Enum })
+                return false;
+            bool swiftModule = false, optionalName = false;
+            foreach (var child in node.Children)
+            {
+                if (child.Kind == NodeKind.Module && child.Text == "Swift")
+                    swiftModule = true;
+                else if (child.Kind == NodeKind.Identifier && child.Text == "Optional")
+                    optionalName = true;
+            }
+            return swiftModule && optionalName;
+        }
+
         private bool RawTreeContainsKind(string mangledName, NodeKind kind)
         {
             if (string.IsNullOrEmpty(mangledName))

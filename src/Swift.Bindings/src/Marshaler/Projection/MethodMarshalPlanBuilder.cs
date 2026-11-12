@@ -283,7 +283,7 @@ internal class MethodMarshalPlanBuilder
         if (MethodLevelGenericOpening.AppliesTo(_env))
             return lines;
 
-        // Cdecl constructors and static-dispatch generic-struct properties also materialize PAT /
+        // Constructors on generic parents and static-dispatch generic-struct properties also materialize PAT /
         // Self-requirement conformances with captured descriptor symbols via the
         // dynamic-PWT helper on the parent's PInvokeHelperContext. The match must stay
         // in sync with the PInvokeSignatureBuilder.HandleProtocolConformance gate so the

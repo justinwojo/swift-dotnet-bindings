@@ -1910,6 +1910,66 @@ public class MethodMarshalPlanBuilderTests
             line => line.Contains("Bag_PInvoke.GetBagItemPWT", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void WitnessTables_DirectGenericStructConstructor_UsesDescriptorBackedParentSlot()
+    {
+        // Lockstep with PInvokeSignatureBuilder: the direct-call constructor's signature now takes
+        // the Self-requirement witness table, so the call site must materialize a local for it.
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Bag", moduleDecl);
+        var genericParam = new GenericArgumentDecl(
+            "τ_0_0", "Item",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>());
+        structDecl.GenericParameters = new List<GenericArgumentDecl> { genericParam };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule(structName: "Bag", frozen: true);
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IBagItem"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BagItem"),
+                MetadataAccessor = "$s10TestModule7BagItemMp",
+                ProtocolDescriptorSymbol = "$s10TestModule7BagItemMp",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            });
+
+        var ctor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule3BagVACyxGycfC",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Bag"), moduleDecl)
+            },
+            GenericParameters = structDecl.GenericParameters,
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false
+        };
+        Assert.False(ctor.UsesCdeclWrapper);
+        var helperContext = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb);
+        var env = new MethodEnvironment(ctor, typeDb, pinvokeHelperContext: helperContext);
+
+        var plan = BuildPlan(
+            env,
+            new Signature("void", Array.Empty<Parameter>()),
+            new Signature("void", Array.Empty<Parameter>()));
+
+        Assert.Contains(plan.WitnessTableStatements,
+            line => line.Contains("Bag_PInvoke.GetBagItemPWT", StringComparison.Ordinal));
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         return new ModuleDecl

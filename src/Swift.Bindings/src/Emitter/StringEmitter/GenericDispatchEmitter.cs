@@ -195,17 +195,24 @@ internal static class GenericDispatchEmitter
     }
 
     /// <summary>
-    /// Returns whether this accessor uses the descriptor-capable parent-generic ABI seam.
+    /// Returns whether this member uses the descriptor-capable parent-generic ABI seam.
     /// Constructors and static-dispatch properties on Swift structs share the immutable
     /// <see cref="PInvokeHelperContext.PwtEntries"/> ordering: parent parameter order first,
     /// then ordinal module-qualified conformance order. Generic class properties with a
     /// concrete type remain on instance dispatch and deliberately do not opt in.
+    /// <para>
+    /// A constructor opts in on every route. The <c>@_cdecl</c> wrapper declares a slot per
+    /// conformance, and a direct Swift-convention call reaches an allocating init that is generic
+    /// over the parent's parameters, so it takes one witness table per conformance after the
+    /// metadata. Leaving the Self-requirement and associated-type tables out of a direct call
+    /// does not shorten what the callee reads: it reads the following argument registers instead.
+    /// </para>
     /// </summary>
     internal static bool ThreadsDescriptorBackedParentPwt(MethodEnvironment env) =>
-        env.MethodDecl.UsesCdeclWrapper &&
         env.ParentDecl is TypeDecl { IsGeneric: true } &&
         (env.MethodDecl.IsConstructor ||
-         (env.MethodDecl.IsAccessor &&
+         (env.MethodDecl.UsesCdeclWrapper &&
+          env.MethodDecl.IsAccessor &&
           env.MethodDecl.UsesCdeclPropertyWrapper &&
           env.ParentDecl is StructDecl));
 
