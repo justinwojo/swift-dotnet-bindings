@@ -2593,7 +2593,7 @@ public static class WrapperValidation
     /// </summary>
     internal static bool HasTruncatedLargeOptionalDirectDispatch(MethodEnvironment env)
         => AnyDirectAbiSlot(env, (spec, isInOut) =>
-               DirectOptionalAbi.HasNoSoundDirectCallPath(env.MethodDecl, spec, env.TypeDatabase, isInOut));
+               DirectOptionalAbi.HasNoSoundDirectCallPath(env.MethodDecl, spec, env.TypeDatabase, isInOut, env.ParentDecl));
 
     /// <summary>
     /// Applies <paramref name="slotHasNoSoundPath"/> to every slot a direct CallConvSwift call
@@ -3539,7 +3539,7 @@ public static class WrapperValidation
         // callable whose call hands Swift an array's storage pointer where it expects the address of
         // a variable to overwrite. The carrier oracle already withdraws itself for `inout`; this
         // width test has to do the same or it answers first and the withdrawal never runs.
-        var optionalWidth = DirectOptionalAbi.Classify(typeSpec, env.TypeDatabase);
+        var optionalWidth = DirectOptionalAbi.Classify(typeSpec, env.TypeDatabase, env.ParentDecl);
         if (!isInOut &&
             (optionalWidth == DirectOptionalAbiWidth.SingleWord ||
              DirectOptionalAbi.TryGetDirectCarrier(env.MethodDecl, typeSpec, env.TypeDatabase, isInOut) is not null))

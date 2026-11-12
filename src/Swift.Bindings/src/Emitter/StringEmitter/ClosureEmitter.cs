@@ -1236,9 +1236,11 @@ public static partial class ClosureEmitter
             // nativeType=, so TranslateTypeSpecToCSharp returns the ObjC peer name and only the
             // bridge call can produce that type. This is NOT the ObjC-bridged CLASS case — a
             // remapped class (Foundation.URLResponse → Foundation.NSUrlResponse) carries no
-            // nativeType and is classified below by BorrowedCallbackArgMarshal instead.
+            // nativeType and is classified below by BorrowedCallbackArgMarshal instead. The
+            // argument is non-optional (the Optional arms above take the nil case), so the
+            // bridged peer is never null and the delegate's non-nullable parameter takes it as is.
             if (closureHandler.HasObjCNativeRemap(namedType, out var nativeRemapType))
-                return MarshallingHelpers.FormatObjCBridgeCall(nativeRemapType, $"new IntPtr(arg{argIndex})");
+                return MarshallingHelpers.FormatObjCBridgeCall(nativeRemapType, $"new IntPtr(arg{argIndex})", nonNull: true);
 
             // Non-frozen struct cdecl param: the Swift adapter VWT-copies the value onto a
             // malloc-compatible heap buffer (UnsafeMutableRawPointer.allocate → swift_slowAlloc

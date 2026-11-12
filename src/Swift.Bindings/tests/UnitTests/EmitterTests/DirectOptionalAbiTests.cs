@@ -264,6 +264,23 @@ public class DirectOptionalAbiTests
     }
 
     [Fact]
+    public void Floor_OptionalSelfReturnOnClass_DoesNotFire()
+    {
+        // Self? of a class member is one nullable class reference, so it fits the slot. Without
+        // the declaring type, Self could be any conformer and its width is not established.
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateClass("Host", moduleDecl);
+        var method = MethodReturning("selfIfReady", Optional(new NamedTypeSpec("Self")), parent, moduleDecl);
+
+        Assert.Equal(DirectOptionalAbiWidth.SingleWord,
+            DirectOptionalAbi.Classify(Optional(new NamedTypeSpec("Self")), typeDb, parent));
+        Assert.Equal(DirectOptionalAbiWidth.Unprovable,
+            DirectOptionalAbi.Classify(Optional(new NamedTypeSpec("Self")), typeDb));
+        Assert.False(WrapperValidation.HasTruncatedLargeOptionalDirectDispatch(
+            new MethodEnvironment(method, typeDb)));
+    }
+
+    [Fact]
     public void Floor_OptionalStringReturnWithOptionalPointerWrapper_DoesNotFire()
     {
         // The out-buffer wrapper exists precisely to carry these through memory. When it is

@@ -48,8 +48,11 @@ public static class NativeThunkEmitter
     /// - ABI field layout available for return type (if thunk needs return bridging)
     /// </summary>
     /// <param name="env">The method environment.</param>
+    /// <param name="classDynamicSelfReturnAllowed">Whether a class member returning its dynamic
+    /// <c>Self</c> may be thunked. Only a caller with no <c>@_cdecl</c> wrapper to fall back to
+    /// passes true, so the thunk replaces the direct Swift-convention route and never a wrapper.</param>
     /// <returns>True if the method can be thunked.</returns>
-    public static bool ShouldEmitThunk(MethodEnvironment env)
+    public static bool ShouldEmitThunk(MethodEnvironment env, bool classDynamicSelfReturnAllowed = false)
     {
         var methodDecl = env.MethodDecl;
 
@@ -240,12 +243,16 @@ public static class NativeThunkEmitter
         if (!returnSpec.IsEmptyTuple && returnSpec is TupleTypeSpec or ClosureTypeSpec)
             return false;
 
-        // DynamicSelf (Self return type): The C# marshaller treats DynamicSelf as requiring
-        // indirect result (IsTypeInherentlyIndirect returns true), but it's actually a class
-        // pointer returned in x0 (single register). The PInvokeEmitter has a fast path that
-        // converts this to IntPtr for @_cdecl/thunk, but reject from thunking as defense-in-depth
-        // to avoid any mismatch between indirect result expectations and the thunk assembly.
-        if (returnSpec.IsDynamicSelf)
+        // DynamicSelf (Self return type): a class member's Self is one class reference returned in
+        // x0, and both MarshallingHelpers.IsTypeInherentlyIndirect and the PInvokeEmitter return
+        // path read it that way (IsClassDynamicSelf). Self outside a class stays indirect. A member
+        // that has a @_cdecl wrapper keeps it rather than gaining a thunk, since a thunk would change
+        // the carrier, not the result convention. A caller whose only other route is the direct
+        // Swift-convention call (a class operator) may thunk it, and the thunk lowers it as the
+        // declaring class (ThunkReturnSpec).
+        if (returnSpec.IsDynamicSelf
+            && !(classDynamicSelfReturnAllowed
+                 && MarshallingHelpers.IsClassDynamicSelf(returnSpec, env.ParentDecl, env.TypeDatabase)))
             return false;
 
         // Optional<T> returns require indirect result (write to buffer via resultPtr).
@@ -318,6 +325,19 @@ public static class NativeThunkEmitter
     }
 
     /// <summary>
+    /// The return type the thunk lowers. A class member's dynamic <c>Self</c> is one reference to an
+    /// instance of the declaring class, so it lowers as that class; every other return is its own type.
+    /// </summary>
+    private static TypeSpec ThunkReturnSpec(MethodEnvironment env)
+    {
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        return env.ParentDecl is TypeDecl parent
+            && MarshallingHelpers.IsClassDynamicSelf(returnSpec, parent, env.TypeDatabase)
+                ? new NamedTypeSpec(parent.SwiftTypeName.ModuleQualifiedName)
+                : returnSpec;
+    }
+
+    /// <summary>
     /// A small (≤16-byte) struct returned by value is tail-call-thunked with no repacking: the thunk
     /// branches straight to the Swift symbol and lets swiftcc's return land in the caller's registers.
     /// That is only correct when swiftcc's per-field register assignment matches the C ABI's aggregate
@@ -345,7 +365,7 @@ public static class NativeThunkEmitter
     /// </summary>
     private static bool SmallStructReturnDivergesFromCAbi(MethodEnvironment env)
     {
-        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        var returnSpec = ThunkReturnSpec(env);
         if (returnSpec.IsEmptyTuple)
             return false;
 
@@ -425,7 +445,7 @@ public static class NativeThunkEmitter
 
         // Lower the return type
         TypeLoweringResult? returnLowering = null;
-        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+        var returnSpec = ThunkReturnSpec(env);
         if (!returnSpec.IsEmptyTuple)
         {
             returnLowering = TypeLowering.LowerReturnType(returnSpec, env.TypeDatabase);
@@ -707,7 +727,7 @@ public static class NativeThunkEmitter
     /// </summary>
     private static bool IsReturnTypeLowerable(MethodEnvironment env)
     {
-        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        var returnSpec = ThunkReturnSpec(env);
         if (returnSpec.IsEmptyTuple)
             return true; // Void — no return to lower
 

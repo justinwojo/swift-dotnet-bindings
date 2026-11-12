@@ -72,6 +72,27 @@ namespace BindingsGeneration.Tests
         #region ShouldEmitThunk — Rejection Cases
 
         [Fact]
+        public void ShouldEmitThunk_ClassDynamicSelfReturn_KeepsItsWrapperByDefault()
+        {
+            // A method can still take a @_cdecl wrapper, so a Self result does not switch it to a thunk.
+            var env = CreateMethodEnv(methodType: MethodType.Instance, parentDecl: CreateClassDecl());
+            env.MethodDecl.CSSignature[0] = MakeArg(new NamedTypeSpec("Self"), "");
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_StructDynamicSelfReturn_RefusedEvenWhenClassSelfIsAllowed()
+        {
+            // Outside a class, Self is the value itself and comes back indirectly; only a class Self
+            // is the single reference the thunk can pass through.
+            var env = CreateMethodEnv(methodType: MethodType.Static, parentDecl: CreateStructDecl(isFrozen: false));
+            env.MethodDecl.CSSignature[0] = MakeArg(new NamedTypeSpec("Self"), "");
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env, classDynamicSelfReturnAllowed: true));
+        }
+
+        [Fact]
         public void ShouldEmitThunk_GateReducedOverload_ReturnsFalse()
         {
             // A gate-reduced rescue overload keeps the full-ABI MangledName but emits fewer args, so

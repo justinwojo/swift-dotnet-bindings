@@ -1207,6 +1207,57 @@ public class OperatorHandlerOutputTests
     }
 
     [Fact]
+    public void EmitOperator_ClassDynamicSelfReturn_DirectPath_MarshalsFromSwift()
+    {
+        // A class operator returning Self gets the class reference back in x0 like any class
+        // return: no result buffer, and the raw pointer becomes the projected class.
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "Self");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.Size>", output);
+        Assert.DoesNotContain("SwiftIndirectResult", output);
+        Assert.DoesNotContain("return PInvoke_op_Addition(", output);
+    }
+
+    /// <summary>
+    /// A class operator returning Self has no @_cdecl wrapper, so without the thunk it would call
+    /// Swift directly with the metatype as an untyped SwiftSelf, the register a Mono
+    /// managed-to-native wrapper may also hold its own state in. It takes the metatype-loading
+    /// thunk like any other class operator, with the Self result lowered as the declaring class.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassDynamicSelfReturnWithWrapperLibrary_GoesThroughTheThunk()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl, "Self");
+        var operatorSymbol = op.UnderlyingMethod.MangledName;
+        var thunkSymbol = ThunkAssemblyEmitter.GenerateThunkSymbol("TestModule", operatorSymbol);
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.True(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
+        Assert.Contains("CallConvCdecl", output);
+        Assert.DoesNotContain("CallConvSwift", output);
+        Assert.DoesNotContain("SwiftSelf", output);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.Size>", output);
+        Assert.DoesNotContain("SwiftIndirectResult", output);
+
+        var asm = emissionContext.AssemblyBuilder.ToString();
+        Assert.Contains("$s10TestModule4SizeCMa", asm);
+        Assert.Matches(@"mov\s+x20,\s*x0", asm);
+        Assert.Contains(operatorSymbol, asm);
+    }
+
+    [Fact]
     public void EmitOperator_ComplexEnumReturn_DirectPath_MarshalsFromSwift()
     {
         // Companion to the class-return case: a frozen non-simple enum return also comes back on the

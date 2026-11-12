@@ -171,6 +171,134 @@ public class ReturnPathTests : TestBase
 
     #endregion
 
+    #region SelfChainingBuilder — DynamicSelf Return through Swift-convention routes
+
+    // Every SelfChainingBuilder member returns `self` (the factory returns a fresh instance). A
+    // class `Self` comes back as one +1 reference in the return register, so the binding must
+    // take that reference, not read a result buffer the callee never writes.
+
+    public void TestSelfChainingTrimmedRequestOverloadReturnsSameInstance()
+    {
+        using var builder = new SelfChainingBuilder(tag: 7);
+        using var returned = builder.OnRequestCreation(_ => { });
+        AssertSameBuilder(builder, returned, 7, "trimmed OnRequestCreation");
+        AssertEqual(1, returned.Registrations, "the call registered once on the returned object");
+        AssertEqual("com.apple.main-thread", builder.LastQueueLabel, "the trimmed overload passed the main-queue default");
+    }
+
+#pragma warning disable SB0001 // The full form calls the library directly; its result convention is what is under test.
+    public void TestSelfChainingFullRequestOverloadReturnsSameInstance()
+    {
+        using var builder = new SelfChainingBuilder(tag: 8);
+        using var queue = Swift.DispatchQueue.Global();
+        using var returned = builder.OnRequestCreation(queue, _ => { });
+        AssertSameBuilder(builder, returned, 8, "full OnRequestCreation");
+        AssertEqual(queue.Label, builder.LastQueueLabel, "the full form passed the given queue");
+        AssertEqual(1, builder.Registrations, "the call registered once");
+    }
+
+    public void TestSelfChainingOptionalSelfOnSwiftConventionRoute()
+    {
+        using var builder = new SelfChainingBuilder(tag: 9);
+        using (var tagged = builder.OnRequestIfTagged(9, _ => { }))
+        {
+            AssertNotNull(tagged, "OnRequestIfTagged with the matching tag returns the receiver");
+            AssertSameBuilder(builder, tagged!, 9, "OnRequestIfTagged");
+        }
+        AssertNull(builder.OnRequestIfTagged(10, _ => { }), "OnRequestIfTagged with another tag is nil");
+        AssertEqual(1, builder.Registrations, "only the matching call registered");
+    }
+
+    public void TestSelfChainingClassFactoryOnSwiftConventionRoute()
+    {
+        using var made = SelfChainingBuilder.MakeForRequests(tag: 12, _ => { });
+        AssertNotNull(made, "MakeForRequests returned an instance");
+        AssertEqual(12, made.Tag, "factory instance keeps its tag");
+        AssertTrue(made.IsSameObject(made), "factory result is usable as a receiver");
+        AssertEqual(1, made.Registrations, "factory registered its handler");
+    }
+#pragma warning restore SB0001
+
+    public void TestSelfChainingClosureRoutesReturnSameInstance()
+    {
+        using var builder = new SelfChainingBuilder(tag: 3);
+        int sum = 0;
+        using (var r = builder.OnEvent(v => sum += v)) AssertSameBuilder(builder, r, 3, "trimmed OnEvent");
+        using (var r = builder.OnEvent(offset: 5, v => sum += v)) AssertSameBuilder(builder, r, 3, "full OnEvent");
+        AssertEqual(5, builder.LastOffset, "full OnEvent passed its offset");
+        using (var r = builder.WithHandler(v => sum += v)) AssertSameBuilder(builder, r, 3, "WithHandler");
+        using (var r = builder.Touch(10)) AssertSameBuilder(builder, r, 3, "trimmed Touch");
+        AssertEqual(13, builder.Registrations, "three closure registrations plus a touch of ten");
+        AssertEqual(3, builder.Fire(1), "three integer handlers registered");
+        AssertEqual(12, sum, "each handler saw value + tag");
+
+        using (var tagged = builder.SelfIfTagged(3))
+            AssertSameBuilder(builder, tagged!, 3, "SelfIfTagged with the matching tag");
+        AssertNull(builder.SelfIfTagged(4), "SelfIfTagged with another tag is nil");
+
+        int factoryCalls = 0;
+        using var made = SelfChainingBuilder.Make(tag: 11, _ => factoryCalls++);
+        AssertEqual(11, made.Tag, "factory instance keeps its tag");
+        AssertEqual(1, made.Registrations, "factory registered its handler");
+        AssertEqual(1, made.Fire(0), "factory handler is callable");
+        AssertEqual(1, factoryCalls, "factory handler ran once");
+    }
+
+    public void TestSelfChainingOperatorReturnsFreshInstance()
+    {
+        using var lhs = new SelfChainingBuilder(tag: 4);
+        using var rhs = new SelfChainingBuilder(tag: 5);
+        using var sum = lhs + rhs;
+        AssertNotNull(sum, "operator + returned an instance");
+        AssertEqual(9, sum.Tag, "operator + result reads its own state");
+        AssertFalse(sum.IsSameObject(lhs), "operator + returned a new object, not an operand");
+        AssertTrue(sum.IsSameObject(sum), "operator + result is usable as a receiver");
+        // The operator reads the class metatype; the call must leave the class itself intact, so a
+        // fresh instance still constructs through the class's metadata afterwards.
+        using var after = new SelfChainingBuilder(tag: 6);
+        AssertEqual(6, after.Tag, "the class still constructs after operator +");
+    }
+
+    public void TestSelfChainingReturnsDoNotLeak()
+    {
+        LifetimeTracker.RunWithLeakCheck(() =>
+        {
+            for (int i = 0; i < 10; i++)
+                ChainAndDropSelfReturns(i);
+        }, "SelfChainingBuilder Self returns");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void ChainAndDropSelfReturns(int tag)
+    {
+        using var builder = new SelfChainingBuilder(tag: tag);
+        using var queue = Swift.DispatchQueue.Global();
+        using (var r = builder.OnRequestCreation(_ => { })) AssertSameBuilder(builder, r, tag, "trimmed OnRequestCreation");
+#pragma warning disable SB0001
+        using (var r = builder.OnRequestCreation(queue, _ => { })) AssertSameBuilder(builder, r, tag, "full OnRequestCreation");
+#pragma warning restore SB0001
+        using (var r = builder.OnEvent(_ => { })) AssertSameBuilder(builder, r, tag, "trimmed OnEvent");
+        using (var r = builder.WithHandler(_ => { })) AssertSameBuilder(builder, r, tag, "WithHandler");
+        using (var r = builder.Touch(1)) AssertSameBuilder(builder, r, tag, "trimmed Touch");
+        using (var r = builder.SelfIfTagged(tag)) AssertSameBuilder(builder, r!, tag, "SelfIfTagged");
+#pragma warning disable SB0001
+        using (var r = builder.OnRequestIfTagged(tag, _ => { })) AssertSameBuilder(builder, r!, tag, "OnRequestIfTagged");
+        using (var made = SelfChainingBuilder.MakeForRequests(tag: tag + 200, _ => { })) AssertEqual(tag + 200, made.Tag, "request factory tag");
+#pragma warning restore SB0001
+        using (var made = SelfChainingBuilder.Make(tag: tag + 100, _ => { })) AssertEqual(tag + 100, made.Tag, "factory tag");
+        using (var sum = builder + builder) AssertEqual(tag + tag, sum.Tag, "operator + tag");
+    }
+
+    private void AssertSameBuilder(SelfChainingBuilder expected, SelfChainingBuilder actual, int tag, string route)
+    {
+        AssertNotNull(actual, $"{route} returned an object");
+        AssertTrue(expected.IsSameObject(actual), $"{route} returned the receiver itself");
+        AssertTrue(actual.IsSameObject(expected), $"{route} result is usable as a receiver");
+        AssertEqual(tag, actual.Tag, $"{route} result reads the receiver's state");
+    }
+
+    #endregion
+
     #region CopyableValue — Self Return on Struct
 
     public void TestCopyableValueConstruction()

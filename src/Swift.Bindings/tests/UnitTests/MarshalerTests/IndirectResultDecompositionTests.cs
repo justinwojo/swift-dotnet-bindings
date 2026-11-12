@@ -156,6 +156,80 @@ public class IndirectResultDecompositionTests
 
     #endregion
 
+    #region DynamicSelf Tests
+
+    [Fact]
+    public void IsTypeInherentlyIndirect_DynamicSelfOfClass_ReturnsFalse()
+    {
+        // A class member's Self is one class reference, returned directly in x0.
+        var env = CreateMethodEnv(returnType: new NamedTypeSpec("Self"), parentDecl: CreateClassParent());
+        Assert.False(MarshallingHelpers.IsTypeInherentlyIndirect(env));
+    }
+
+    [Theory]
+    [InlineData(false)] // the library's own entry point or dispatch thunk
+    [InlineData(true)]  // a generated @_silgen_name shim (trimmed default-argument overload)
+    public void MethodRequiresIndirectResult_DynamicSelfOfClassOnSwiftConventionRoute_ReturnsFalse(bool viaGeneratedShim)
+    {
+        var env = CreateMethodEnv(returnType: new NamedTypeSpec("Self"), parentDecl: CreateClassParent());
+        env.MethodDecl.UsesWrapperLibrary = viaGeneratedShim;
+        Assert.False(env.MethodDecl.UsesCdeclMethodWrapper);
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
+    public void IsTypeInherentlyIndirect_DynamicSelfOfProtocol_ReturnsTrue()
+    {
+        // A protocol's Self is the conformer, whose layout is unknown here, so it stays indirect.
+        var env = CreateMethodEnv(returnType: new NamedTypeSpec("Self"), parentDecl: TestDecls.Protocol("Chainable", "TestModule"));
+        Assert.True(MarshallingHelpers.IsTypeInherentlyIndirect(env));
+    }
+
+    [Fact]
+    public void IsClassDynamicSelf_ClassRecordedOnlyInTheTypeDatabase_ReturnsTrue()
+    {
+        // A parent that reaches the emitter as a plain type declaration (for example an extension
+        // of a class declared in another module) is still a class when the database says so.
+        var parent = CreateFrozenStructParent() with
+        {
+            Name = "MyClass",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyClass"),
+        };
+        var env = CreateMethodEnv(returnType: new NamedTypeSpec("Self"), parentDecl: parent);
+        Assert.True(MarshallingHelpers.IsClassDynamicSelf(new NamedTypeSpec("Self"), parent, env.TypeDatabase));
+        Assert.False(MarshallingHelpers.IsClassDynamicSelf(new NamedTypeSpec("TestModule.MyClass"), parent, env.TypeDatabase));
+        Assert.False(MarshallingHelpers.IsClassDynamicSelf(new NamedTypeSpec("Self"), CreateFrozenStructParent(), env.TypeDatabase));
+    }
+
+    [Theory]
+    [InlineData(false)] // the library's own entry point or dispatch thunk, nil in x0 as null
+    [InlineData(true)]  // a @_cdecl wrapper, which returns UnsafeMutableRawPointer?
+    public void MethodRequiresIndirectResult_OptionalDynamicSelfOfClass_ReturnsFalse(bool viaCdeclWrapper)
+    {
+        // Self? of a class is one nullable class reference. A result buffer here would shift the
+        // wrapper's arguments by one, or be read back without the callee ever writing it.
+        var env = CreateMethodEnv(returnType: OptionalOfSelf(), parentDecl: CreateClassParent());
+        env.MethodDecl.UsesCdeclMethodWrapper = viaCdeclWrapper;
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+        Assert.False(MarshallingHelpers.CdeclOptionalReturnNeedsIndirectResult(OptionalOfSelf(), env.TypeDatabase));
+    }
+
+    [Fact]
+    public void IsTypeInherentlyIndirect_OptionalDynamicSelfOfProtocol_ReturnsTrue()
+    {
+        var env = CreateMethodEnv(returnType: OptionalOfSelf(), parentDecl: TestDecls.Protocol("Chainable", "TestModule"));
+        Assert.True(MarshallingHelpers.IsTypeInherentlyIndirect(env));
+    }
+
+    private static NamedTypeSpec OptionalOfSelf()
+    {
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Self"));
+        return optional;
+    }
+
+    #endregion
+
     #region IsConstructorIndirectResultRequired Tests
 
     [Fact]
