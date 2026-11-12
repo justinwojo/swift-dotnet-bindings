@@ -557,6 +557,14 @@ namespace BindingsGeneration
         public bool PrimaryOmitsDefaultedParameters { get; set; }
 
         /// <summary>
+        /// Set by a method bridge that declined this member because its wrapper's call leaves
+        /// defaulted arguments out and Swift would then resolve it to the named same-named sibling
+        /// (see <see cref="BindingsGeneration.SwiftOverloadCallPinning"/>). The bridge chain stops on
+        /// it and records the skip, so no later route emits a member its designated bridge refused.
+        /// </summary>
+        public string? AmbiguousSwiftCallWinner { get; set; }
+
+        /// <summary>
         /// Per-module emission context, threaded by the handler so emitters that need
         /// authoritative wrapper-symbol-registration data (e.g. the wrapper-symbol
         /// contract check in <c>PInvokeEmitHelper</c>) can consult it without each call

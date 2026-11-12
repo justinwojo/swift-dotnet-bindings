@@ -204,6 +204,130 @@ public class ConcreteSpecializationEngineTests
         Assert.DoesNotContain("process(label: label, item: item)", swift);
     }
 
+    [Fact]
+    public void EmitConcreteSpecializations_DisfavoredSibling_PrimarySpellsOutTheDefaultItOmits()
+    {
+        // `process(label:prefix: = "":item:tags: = [])` beside an @_disfavoredOverload
+        // `process(label:ifNotExists: = false:item:)`. The disfavored sibling's specialized primary
+        // omits ifNotExists, and the call that leaves — process(label:item:) — is one the favored
+        // sibling also accepts, so Swift would run the favored one. The primary must write
+        // `ifNotExists: false` out so the binding named for the disfavored sibling runs it.
+        var (typeDecl, db, engine) = CreateProcessorWithProcessOverloads(
+            ProcessSignature(prefixHasDefault: true, trailingSetLabel: "tags"),
+            IfNotExistsSignature("false"));
+        typeDecl.Methods[1].IsDisfavoredOverload = true;
+        RegisterProcessableWithAssociatedType(db);
+
+        var (_, swift) = EmitSpecializations(typeDecl, db, engine);
+
+        // One specialized primary per sibling: the disfavored one's call carries the pinned
+        // default, and only the favored one's makes the bare process(label:item:) call.
+        Assert.Single(SpecializedProcessCalls(swift), call => call.Contains("ifNotExists: false, item: _item", StringComparison.Ordinal));
+        Assert.Single(SpecializedProcessCalls(swift), call => !call.Contains("ifNotExists", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_DisfavoredSibling_UnspellableDefault_PairingDeclinedAndReported()
+    {
+        // The same pair, but ifNotExists defaults to an expression the wrapper cannot repeat.
+        // Nothing steers process(label:item:) back to the disfavored sibling, so its specialized
+        // primary is declined — and the decline is reported — instead of binding to the favored one.
+        var (typeDecl, db, engine) = CreateProcessorWithProcessOverloads(
+            ProcessSignature(prefixHasDefault: true, trailingSetLabel: "tags"),
+            IfNotExistsSignature("Defaults.ifNotExists"));
+        typeDecl.Methods[1].IsDisfavoredOverload = true;
+        RegisterProcessableWithAssociatedType(db);
+        var emissionContext = new ModuleEmissionContext();
+        var swiftOutput = new StringWriter();
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput), typeDecl, db,
+            emissionContext, engine, NullLogger.Instance);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("ifNotExists", swift);
+        // The favored sibling keeps its specialized primary; the disfavored one has none.
+        Assert.Single(SpecializedProcessCalls(swift));
+        Assert.Contains(emissionContext.SuppressedAmbiguousOverloads,
+            row => row.Contains("process(label:ifNotExists:item:)", StringComparison.Ordinal)
+                && row.Contains("Swift process(label:prefix:item:tags:)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EmitConcreteSpecializations_AsyncArrayConformer_TrimOverloadTakingIEnumerableStillEmitted()
+    {
+        // `func joinItems(label: String, items: some Collection<String>, tags: Set<Int> = [],
+        //                 tag: Int = 13) async` closed over `[String]`. The async primary is written
+        // from the same specialized declaration the type's ledger keys it by, so the ledger must
+        // hold exactly what the primary declares: the inline `tag` default shadows the trim that
+        // drops only `tag`, and nothing more.
+        var (typeDecl, db, engine) = CreateHostWithJoinItemsOverloads(AsyncJoinItemsSignature());
+        typeDecl.Methods[0].IsAsync = true;
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.String"), "Swift", "SwiftString");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Set"), "Swift", "SwiftSet");
+
+        var (cs, _) = EmitSpecializations(typeDecl, db, engine);
+
+        // The primary keeps every parameter and declares `tag` inline, so dropping only `tag`
+        // would be ambiguous with it and is declined. Dropping both defaults leaves the
+        // (label, items) overload, a member the primary does not declare, which must stay.
+        var declarations = System.Text.RegularExpressions.Regex.Matches(cs, @"^\s*public [^\n(]*\bJoinItemsAsync\((.*)\)\s*$",
+                System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => System.Text.RegularExpressions.Regex.Replace(m.Groups[1].Value, @"\s+", " ").Trim())
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(
+            new[]
+            {
+                "string label, IEnumerable<string> items, IReadOnlySet<long> tags, long tag = 13, global::System.Threading.CancellationToken cancellationToken = default",
+                "string label, IEnumerable<string> items, global::System.Threading.CancellationToken cancellationToken = default",
+            },
+            declarations);
+    }
+
+    /// <summary>The <c>process</c> call of each specialized primary's Swift wrapper.</summary>
+    private static List<string> SpecializedProcessCalls(string swift)
+        => System.Text.RegularExpressions.Regex.Matches(swift, @"TestLib\.Processor\.process\([^\n]*item: _item[^\n]*")
+            .Select(m => m.Value)
+            .ToList();
+
+    /// <summary>
+    /// Makes <c>Processable</c> a protocol with an associated type. Such a generic is never bound
+    /// open, so the specialization lane is the method's only surface and same-signature siblings
+    /// are named apart instead of left to the open-generic form.
+    /// </summary>
+    private static void RegisterProcessableWithAssociatedType(ResolvingTypeDatabase db)
+        => db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Processable"), "TestLib", "IProcessable",
+            kind: TypeRecordKind.Protocol, flags: TypeRecordFlags.HasAssociatedTypes);
+
+    /// <summary>
+    /// <c>(label: String, items: some Collection&lt;String&gt;, tags: Set&lt;Int&gt; = [], tag: Int =
+    /// 13) -&gt; String</c>: a non-mappable default followed by a C#-mappable one.
+    /// </summary>
+    private static List<ArgumentDecl> AsyncJoinItemsSignature()
+        => new()
+        {
+            new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+            new() { Name = "label", PrivateName = "label", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+            new() { Name = "items", PrivateName = "items", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("τ_0_0"), IsGeneric = true },
+            new() { Name = "tags", PrivateName = "tags", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("Swift.Int")), IsGeneric = false, HasDefaultArg = true, SwiftDefaultExpression = "[]" },
+            new() { Name = "tag", PrivateName = "tag", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.Int"), IsGeneric = false, HasDefaultArg = true, SwiftDefaultExpression = "13" },
+        };
+
+    /// <summary>
+    /// <c>(label: String, ifNotExists: Bool = {ifNotExistsDefault}, item: some Processable) -&gt; String</c>.
+    /// </summary>
+    private static List<ArgumentDecl> IfNotExistsSignature(string ifNotExistsDefault)
+        => new()
+        {
+            new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+            new() { Name = "label", PrivateName = "label", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+            new() { Name = "ifNotExists", PrivateName = "ifNotExists", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"), IsGeneric = false, HasDefaultArg = true, SwiftDefaultExpression = ifNotExistsDefault },
+            new() { Name = "item", PrivateName = "item", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("τ_1_0"), IsGeneric = true },
+        };
+
     /// <summary>
     /// The full parameter list of one <c>joinItems</c> sibling: <c>label: String</c>,
     /// <c>prefix: String</c> (optionally <c>= ""</c>), the specializable

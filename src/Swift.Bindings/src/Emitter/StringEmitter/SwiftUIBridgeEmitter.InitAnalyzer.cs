@@ -270,7 +270,8 @@ public static partial class SwiftUIBridgeEmitter
                 BridgeParameterKind.VoidClosure,
                 SwiftAbiType: "(@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.Void)?",
                 CSharpPInvokeType: "IntPtr",
-                HasUserData: true);
+                HasUserData: true,
+                SwiftClosureType: closureSpec);
         }
 
         // Result<T,E> closure: (Result<Success, Failure>) -> Void
@@ -366,7 +367,8 @@ public static partial class SwiftUIBridgeEmitter
             CSharpPInvokeType: "IntPtr",
             HasUserData: true,
             ClosureArguments: closureArgs,
-            ClosureReturn: closureReturn);
+            ClosureReturn: closureReturn,
+            SwiftClosureType: closureSpec);
     }
 
     /// <summary>
@@ -1061,7 +1063,10 @@ public record BridgeParameter(
     /// sub-parameters (closure args, Result branches) that have no real Swift label. Set by
     /// <see cref="MapParameterType"/> from the source <see cref="ArgumentDecl"/>. Use
     /// <see cref="SwiftLabel"/> to emit it.</summary>
-    string? OriginalSwiftName = null)
+    string? OriginalSwiftName = null,
+    /// <summary>The init parameter's own closure type, for a closure parameter the bridge stores
+    /// and passes to the View's init. Null for every other kind.</summary>
+    ClosureTypeSpec? SwiftClosureType = null)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).

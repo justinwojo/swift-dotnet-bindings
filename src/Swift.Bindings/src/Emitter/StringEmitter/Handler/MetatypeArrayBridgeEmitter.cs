@@ -353,7 +353,7 @@ public static class MetatypeArrayBridgeEmitter
                 swiftParams.Add($"_ {label}: {swiftType}");
 
                 var origLabel = BuildArgLabel(origArg);
-                callArgs.Add($"{origLabel}{label}");
+                callArgs.Add($"{origLabel}{SwiftClosureArgument.Render(label, origArg.SwiftTypeSpec)}");
             }
         }
 

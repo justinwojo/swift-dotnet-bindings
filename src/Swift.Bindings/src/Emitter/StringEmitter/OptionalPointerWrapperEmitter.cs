@@ -200,12 +200,11 @@ public static class OptionalPointerWrapperEmitter
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                 swiftParams.Add($"_ {swiftName}: {swiftType}");
                 var label = GetSwiftArgLabel(arg);
-                // @autoclosure parameters: the wrapper receives the closure as () -> T,
-                // but the original method expects T with @autoclosure wrapping.
-                // Invoke the closure with () to produce the value for @autoclosure re-wrapping.
-                var autoClosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
-                callArgs.Add($"{label}{swiftName}{autoClosureSuffix}");
-                valueArgs.Add($"{swiftName}{autoClosureSuffix}");
+                // A closure-typed parameter passes through; SwiftClosureArgument forwards an
+                // autoclosure's value. Any other parameter renders unchanged.
+                var value = SwiftClosureArgument.Render(swiftName, arg.SwiftTypeSpec);
+                callArgs.Add($"{label}{value}");
+                valueArgs.Add(value);
             }
             argIndex++;
         }

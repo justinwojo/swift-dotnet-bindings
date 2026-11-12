@@ -357,6 +357,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
             logger.LogDebug(
                 "ConcreteSpecializationEmitter: Skipping {Method} for {Pairing} — {Reason}.",
                 method.Name, safeConformerName, rejectReason);
+            // A projection declined because its call would reach another declaration is a real
+            // surface loss with nothing else to explain it, so it gets a report row.
+            if (rejectReason?.StartsWith(AmbiguousSwiftCallRejectPrefix, StringComparison.Ordinal) == true)
+            {
+                var winner = PlanCsmSyncCall(method, pairing, typeDatabase).WinningSibling;
+                logger.LogInformation(
+                    "Declining the concrete specialization of '{Type}.{Method}' for {Pairing}: the specialized call " +
+                    "omits defaulted arguments, Swift would resolve it to the same-named '{Sibling}', and no omitted " +
+                    "default can be spelled out to keep it on this declaration.",
+                    parentTypeDecl.Name, SwiftOverloadCallPinning.Describe(method), safeConformerName, winner);
+                emissionContext.TryRecordSuppressedAmbiguousOverload(
+                    $"{parentTypeDecl.Name}.{SwiftOverloadCallPinning.Describe(method)} specialized for {safeConformerName}",
+                    $"Swift {winner}",
+                    candidateWasFuller: false);
+            }
             return false;
         }
 
@@ -561,6 +576,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var synthesized = method with
         {
             MangledName = cdeclSymbol,
+            SpecializedFrom = method.SpecializedFrom ?? method,
             GenericParameters = new List<GenericArgumentDecl>(),
             CSSignature = substitutedSignature,
             RawGenericSig = null,
@@ -789,6 +805,37 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
     }
 
+    /// <summary>
+    /// Plans the call a CSM-sync wrapper makes: it passes every parameter matched to a pairing
+    /// generic (as the conformer's concrete type) and every non-defaulted one, and leaves the other
+    /// defaults to Swift. One plan serves the preflight refusal and the wrapper's call arguments.
+    /// </summary>
+    private const string AmbiguousSwiftCallRejectPrefix =
+        "the specialized call omits defaulted arguments and Swift would resolve it to the same-named";
+
+    internal static SwiftCallPinPlan PlanCsmSyncCall(
+        MethodDecl method,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase)
+        => SwiftOverloadCallPinning.Plan(
+            method,
+            isOmitted: arg => !TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out _),
+            typeDatabase,
+            concreteArgType: arg => TryMatchGenericParam(arg.SwiftTypeSpec, pairing, method, out _, out var conformer)
+                ? PassedConformerSwiftType(conformer!, typeDatabase)
+                : null);
+
+    /// <summary>
+    /// The Swift type of the value a CSM-sync wrapper passes for a parameter specialized to
+    /// <paramref name="conformer"/>: a raw-buffer conformer reaches Swift as <c>Foundation.Data</c>
+    /// (see <see cref="EmitSwiftWrapper"/>), every other one as itself.
+    /// </summary>
+    private static string PassedConformerSwiftType(
+        ConcreteSpecializationEngine.ConcreteConformer conformer, ITypeDatabase typeDatabase)
+        => ClassifyConformerForSwiftParam(conformer, typeDatabase) == ConformerCategory.RawBuffer
+            ? "Foundation.Data"
+            : conformer.SwiftLiteral ?? conformer.SwiftQualifiedName;
+
     // ─── Swift Wrapper Generation ────────────────────────────────────
 
     private static void EmitSwiftWrapper(
@@ -875,10 +922,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // drops the wrapper. `__self`/`_self` are reserved so the escape resolves the clash;
         // siblings cover a binding that collides with another user param.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(method.CSSignature.Skip(1));
+        // The call leaves the defaults out; the preflight already refused a pairing whose shortened
+        // call no spelled-out default keeps on this declaration.
+        var pinPlan = PlanCsmSyncCall(method, pairing, typeDatabase);
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+            {
+                if (pinPlan.PinFor(arg) is { } debugPin)
+                    callArgs.Add(debugPin);
+                continue;
+            }
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
             // Escaped `_`-prefixed binding used for the @_cdecl param, the forwarding call arg, and
@@ -930,7 +985,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else if (arg.HasDefaultArg)
             {
-                continue; // Swift fills the default
+                // Swift fills the default, unless the call needs it spelled out to stay on this
+                // declaration rather than a same-named sibling.
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
+                continue;
             }
             else
             {
@@ -2893,6 +2952,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 rejectReason = "sibling overload projects to the same C# signature and no argument label or parameter type distinguishes them";
                 return false;
             }
+        }
+
+        // The wrapper leaves every non-generic default out. If that shortened call would resolve to
+        // a different same-named declaration, and no omitted default can be spelled out to keep it
+        // here, the pairing would bind the wrong Swift method — refuse it.
+        if (PlanCsmSyncCall(method, pairing, typeDatabase).WinningSibling is { } winningSibling)
+        {
+            rejectReason = $"{AmbiguousSwiftCallRejectPrefix} '{winningSibling}'";
+            return false;
         }
 
         rejectReason = null;

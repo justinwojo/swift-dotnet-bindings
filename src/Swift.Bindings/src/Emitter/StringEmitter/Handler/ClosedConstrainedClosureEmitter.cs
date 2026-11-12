@@ -403,7 +403,9 @@ public static class ClosedConstrainedClosureEmitter
         var callArgs = new List<string>();
         foreach (var p in plan.Params)
         {
-            var value = p.IsClosure ? $"_adapted_{p.Identifier}" : p.Identifier;
+            var value = p.IsClosure
+                ? SwiftClosureArgument.Render($"_adapted_{p.Identifier}", p.Closure)
+                : p.Identifier;
             callArgs.Add(p.CallLabel == null ? value : $"{p.CallLabel}: {value}");
         }
         var swiftCallName = NameProvider.ParserNameToSwift(plan.Method);

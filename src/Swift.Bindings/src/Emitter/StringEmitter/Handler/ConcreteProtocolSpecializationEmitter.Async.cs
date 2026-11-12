@@ -195,6 +195,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         synthesized = originalMethod with
         {
             MangledName = cdeclSymbol,
+            SpecializedFrom = originalMethod.SpecializedFrom ?? originalMethod,
             GenericParameters = new List<GenericArgumentDecl>(),
             CSSignature = substitutedSignature,
             RawGenericSig = null,

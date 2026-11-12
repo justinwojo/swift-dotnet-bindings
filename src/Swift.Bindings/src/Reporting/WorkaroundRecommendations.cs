@@ -88,6 +88,8 @@ public static class WorkaroundRecommendations
             "The Swift type is auto-bridged but not yet present in the .NET Foundation assembly. Write a Swift wrapper that exposes the data through a supported type (e.g. a plain String).",
         SkipReason.AbsentFrameworkType =>
             "The member references a framework type that no .NET binding visible to the generator declares. Two authorities were consulted, and both are scoped: the loaded type databases (this module's dependencies and the Apple supplement), and the platform reference assembly for the target platform (Microsoft.iOS/macOS/tvOS/MacCatalyst), which is consulted only for namespaces it binds at least one type in — a namespace it binds nothing in is left to name synthesis rather than called absent. Neither authority sees sibling binding packages the consuming project references, so if the type IS declared by a binding package you already reference, this is a generator-side false absence worth reporting. Otherwise: add a binding for the framework that declares the type, or write a Swift wrapper that exposes the data through a supported type.",
+        SkipReason.AmbiguousSwiftOverloadCall =>
+            "The wrapper reaching this member must leave some defaulted arguments out, and Swift would then resolve the call to a different same-named declaration. Call an overload that passes the distinguishing argument explicitly, or add a Swift wrapper with a unique name that calls this declaration with every argument spelled out.",
         SkipReason.SuppressedProxyMemberDegraded =>
             "This member reverse-dispatches through a protocol whose {Protocol}Proxy conformance could not be synthesized, so a C#-authored conformer cannot be marshalled (a produce getter throws, a consume setter/parameter accepts only Swift-vended values, or a receiver fail-fasts). Consume a Swift-vended conformer, or expose the functionality through a Swift wrapper that avoids requiring C#-side conformance to this protocol.",
         SkipReason.ObjCUnresolvableType =>
@@ -201,6 +203,8 @@ public static class WorkaroundRecommendations
             "Foundation type not yet available in .NET",
         SkipReason.AbsentFrameworkType =>
             "framework type has no .NET binding available",
+        SkipReason.AmbiguousSwiftOverloadCall =>
+            "call would resolve to a same-named Swift overload",
         SkipReason.SuppressedProxyMemberDegraded =>
             "reverse-dispatch member degraded (proxy conformance not synthesized): produce-throw / consume-only / fail-fast receiver",
         SkipReason.ObjCUnresolvableType =>

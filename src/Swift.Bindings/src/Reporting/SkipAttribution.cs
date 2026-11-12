@@ -313,6 +313,7 @@ public static class SkipCauseClassifier
         // ── Toolchain and environment ────────────────────────────────────────────────────────────
         Add(SkipReason.NetUnavailableType, CauseOwner.DotNetToolchain, RecoveryStage.Plan, AttributionConfidence.High);
         Add(SkipReason.AbsentFrameworkType, CauseOwner.Environment, RecoveryStage.Plan, AttributionConfidence.Medium);
+        Add(SkipReason.AmbiguousSwiftOverloadCall, CauseOwner.Generator, RecoveryStage.Plan, AttributionConfidence.High);
 
         // Discovered only after the Swift wrapper is built, when the symbol turns out not to exist.
         Add(SkipReason.MissingWrapperSymbol, CauseOwner.Generator, RecoveryStage.SymbolValidation, AttributionConfidence.High);

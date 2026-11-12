@@ -4,6 +4,8 @@
 #nullable enable
 
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -26,6 +28,24 @@ public class ClosedConstrainedClosureEmitterTests
     {
         var (method, db) = BuildEligibleMethod();
         Assert.True(ClosedConstrainedClosureEmitter.IsEligible(method, db));
+    }
+
+    [Fact]
+    public void Emit_AutoclosureParam_ForwardsTheAdaptersValue()
+    {
+        // loadPixels(scaleBy:onSuccess:onReady: @autoclosure @escaping () -> Void): the adapter is a
+        // function value, which the autoclosure parameter does not take; the call passes
+        // `_adapted_onReady()`, which Swift wraps back into the autoclosure.
+        var (method, db) = BuildEligibleMethod(extraAutoclosure: "onReady");
+        var swiftOutput = new StringWriter();
+
+        ClosedConstrainedClosureEmitter.EmitClosedConstrainedClosures(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput),
+            (TypeDecl)method.ParentDecl!, method.ModuleDecl!, db, new ModuleEmissionContext(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        var call = swiftOutput.ToString().Split('\n').Single(line => line.Contains("obj.loadPixels("));
+        Assert.Contains("onSuccess: _adapted_onSuccess, onReady: _adapted_onReady())", call);
     }
 
     // ─── Direct (non-xcframework) mode: no @_cdecl wrapper exists (Finding A) ────
@@ -196,7 +216,8 @@ public class ClosedConstrainedClosureEmitterTests
         bool scalarInOut = false,
         bool includeClosure = true,
         string? extraSlotConstraint = null,
-        TypeRecordKind anchorKind = TypeRecordKind.Class)
+        TypeRecordKind anchorKind = TypeRecordKind.Class,
+        string? extraAutoclosure = null)
     {
         parentGenericParams ??= new[] { "Base" };
 
@@ -298,6 +319,13 @@ public class ClosedConstrainedClosureEmitterTests
                 TupleTypeSpec.Empty);
             closure.Attributes.Add(new TypeSpecAttribute("escaping"));
             args.Add(MakeArg("onSuccess", closure, moduleDecl, isInOut: false));
+        }
+        if (extraAutoclosure != null)
+        {
+            var autoclosure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+            autoclosure.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+            autoclosure.Attributes.Add(new TypeSpecAttribute("escaping"));
+            args.Add(MakeArg(extraAutoclosure, autoclosure, moduleDecl, isInOut: false));
         }
 
         var method = new MethodDecl

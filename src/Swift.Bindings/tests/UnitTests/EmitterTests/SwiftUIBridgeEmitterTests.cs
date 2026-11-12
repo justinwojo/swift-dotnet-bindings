@@ -2370,6 +2370,37 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void EmitTypedClosure_Swift_AutoclosureInitParamTakesTheStoredClosuresValue()
+    {
+        // The wrapper stores the closure as a function, but an @autoclosure init parameter takes
+        // an expression of its result type: the view init has to call the stored closure, which
+        // Swift wraps back into the autoclosure.
+        var autoclosure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool"));
+        autoclosure.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+        var view = CreateViewStructWithNoConstructor("GateView");
+        view.Methods.Add(CreateConstructorWithClosureSpec("flag", autoclosure));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", new List<TypeDecl> { view },
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("GateView(flag: flag())", swiftContent);
+    }
+
+    [Fact]
+    public void EmitTypedClosure_Swift_OrdinaryClosureInitParamTakesTheStoredClosure()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("GateView", "flag",
+            TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("GateView(flag: flag)", swiftContent);
+    }
+
+    [Fact]
     public void EmitTypedClosure_CSharp_GeneratesTypedTrampoline()
     {
         var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "callback",

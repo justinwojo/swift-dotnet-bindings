@@ -2847,6 +2847,7 @@ namespace BindingsGeneration
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName, node),
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
+                IsDisfavoredOverload = node.DeclAttributes?.Contains("DisfavoredOverload") == true,
                 IsExtensionMethod = node.isFromExtension == true,
                 IsProtocolRequirement = node.protocolReq == true,
             };
