@@ -76,6 +76,50 @@ public class ArgumentOwnershipTests : TestBase
         AssertEqual(1, retainedCalls, "getter copy owns an independent Swift closure value");
     }
 
+    // A closure Swift returns whose argument is a class reference: C# invokes it with the token,
+    // which Swift borrows for the call. Both a Swift-native closure and a C# delegate Swift stored
+    // must receive the token and leave it alive and owned by the caller.
+    public void TestReturnedClassArgumentClosure_InvokesSwiftNativeClosure()
+    {
+        using var owner = new OwnershipCallbackOwner();
+        owner.InstallRecordingClassCallback();
+        var callback = owner.ClassCallback;
+        int start = TestLibFunctions.GetOwnershipDeinitCount();
+        using (var token = new OwnershipToken(91))
+        {
+            callback(token);
+            AssertEqual(91, TestLibFunctions.GetRecordedClassCallbackNumber(), "the Swift closure read the token it was passed");
+            AssertEqual(91, token.Number, "the borrowed token is still readable after the call");
+            AssertEqual(start, TestLibFunctions.GetOwnershipDeinitCount(), "the call does not release the caller's token");
+        }
+        AssertEqual(start + 1, TestLibFunctions.GetOwnershipDeinitCount(), "disposing the token deinitializes it exactly once");
+    }
+
+    public void TestReturnedObjCClassArgumentClosure_InvokesSwiftNativeClosure()
+    {
+        using var owner = new OwnershipCallbackOwner();
+        owner.InstallRecordingObjCCallback();
+        var callback = owner.ObjCCallback;
+        using var item = TestLibFunctions.CreateSimpleNSObject("from-csharp");
+        callback(item);
+        AssertEqual("from-csharp", TestLibFunctions.GetRecordedObjCCallbackLabel(), "the Swift closure read the object it was passed");
+        AssertEqual("from-csharp", item.Label.ToString(), "the borrowed object is still readable after the call");
+    }
+
+    public void TestReturnedClassArgumentClosure_InvokesStoredCSharpDelegate()
+    {
+        using var owner = new OwnershipCallbackOwner();
+        int calls = 0;
+        int seen = 0;
+        owner.ClassCallback = token => { calls++; seen = token.Number; };
+        var callback = owner.ClassCallback;
+        using var token = new OwnershipToken(92);
+        callback(token);
+        AssertEqual(1, calls, "the delegate Swift stored runs once");
+        AssertEqual(92, seen, "the delegate receives the token passed to the returned closure");
+        AssertEqual(92, token.Number, "the borrowed token is still readable after the call");
+    }
+
     public void TestDirectStoredCallbackSetter_TwoOwnersRemainIndependent()
     {
         using var first = new OwnershipCallbackOwner();

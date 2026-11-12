@@ -133,6 +133,14 @@ public static partial class ClosureEmitter
                 var swiftTypeName = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
                 callArgs.Add($"arg{argIndex}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
             }
+            else if (IsInvokeThunkReferenceArg(arg, closureHandler))
+            {
+                // Class / ObjC class: @_cdecl receives the object pointer. The managed caller keeps
+                // its own reference alive across the call, so the thunk borrows (+0) rather than
+                // consuming a retain it was never handed.
+                var swiftTypeName = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
+                callArgs.Add($"Swift.Unmanaged<{swiftTypeName}>.fromOpaque(arg{argIndex}).takeUnretainedValue()");
+            }
             else if (closureHandler.IsSimpleEnum(arg))
             {
                 // Simple enum: @_cdecl receives the underlying integer scalar (GetSwiftCdeclParamType
@@ -356,6 +364,9 @@ public static partial class ClosureEmitter
             // C# projection (a frozen struct's blittable projection would otherwise be by-value).
             if (IsInvokeThunkStructArg(arg, closureHandler))
                 csType = "nint";
+            // Class / ObjC class: the object pointer, as nint so the declaration needs no unsafe context.
+            if (IsInvokeThunkReferenceArg(arg, closureHandler))
+                csType = "nint";
             pinvokeParams.Add($"{csType} arg{argIndex}");
             argIndex++;
         }
@@ -454,6 +465,24 @@ public static partial class ClosureEmitter
                     frozenPrologue.Add($"SwiftMarshal.MarshalToSwift(_arg{i}, ref _arg{i}Span);");
                     invokeCallArgs.Add($"(nint)_arg{i}Buffer");
                 }
+            }
+            else if (closureHandler.IsClassType(arg))
+            {
+                // Swift class: hold a SafeHandle reference so a concurrent Dispose cannot free the
+                // object while Swift is borrowing it; released even if the call throws.
+                int i = invArgIndex;
+                heapPreTry.Add($"bool _arg{i}Ref = false;");
+                heapInTry.Add($"_arg{i}.Payload.DangerousAddRef(ref _arg{i}Ref);");
+                heapCleanup.Add($"if (_arg{i}Ref) _arg{i}.Payload.DangerousRelease();");
+                invokeCallArgs.Add($"_arg{i}.Payload.DangerousGetHandle()");
+            }
+            else if (IsInvokeThunkReferenceArg(arg, closureHandler))
+            {
+                // ObjC class: the managed wrapper owns the native reference; keep it reachable
+                // until Swift returns.
+                int i = invArgIndex;
+                heapCleanup.Add($"global::System.GC.KeepAlive(_arg{i});");
+                invokeCallArgs.Add($"(nint)_arg{i}.Handle");
             }
             else
             {
@@ -595,7 +624,7 @@ public static partial class ClosureEmitter
         // and initialise inside it, and Destroy+Free in a null-guarded finally (the early
         // `return`s inside invokeBody run through finally). Frozen stackalloc args carry no
         // cleanup and only need their prologue ahead of the call.
-        if (hasStructArg)
+        if (hasStructArg || heapCleanup.Count > 0)
         {
             if (heapCleanup.Count > 0)
             {
@@ -633,7 +662,7 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Determines whether a closure return type can use an invoke thunk.
-    /// Supports closures with primitive/enum/complex-enum args and primitive/enum/class/void returns.
+    /// Supports closures with primitive/enum/complex-enum/struct/class args and primitive/enum/class/void returns.
     /// </summary>
     public static bool CanUseInvokeThunk(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler)
     {
@@ -686,7 +715,31 @@ public static partial class ClosureEmitter
         // when invoked from a display-class method on Mono JIT / NativeAOT.
         if (IsInvokeThunkStructArg(typeSpec, closureHandler))
             return true;
+        // Classes and ObjC classes: C# passes the object pointer, Swift reloads it unretained.
+        if (IsInvokeThunkReferenceArg(typeSpec, closureHandler))
+            return true;
         return false;
+    }
+
+    /// <summary>
+    /// Whether a closure argument is a class reference (a Swift class or an ObjC class) that the
+    /// invoke thunk passes as its object pointer. The thunk is the only correct way to call a
+    /// returned closure whose argument is a class: the wrapper hands the closure back through
+    /// typed memory, where Swift stores it in its most general form — every argument passed by
+    /// address and the result returned indirectly — so a direct swiftcc call that passes the
+    /// object pointer itself makes Swift read the object's isa as the object. Only Swift code that
+    /// loads the closure back at its own type sees the natural calling convention again.
+    /// </summary>
+    internal static bool IsInvokeThunkReferenceArg(TypeSpec typeSpec, ClosureHandler closureHandler)
+    {
+        if (closureHandler.IsClassType(typeSpec))
+            return true;
+        // ObjC-bridged value types (a typedef'd NSString, URL) are not class references here;
+        // only a record that is itself a class crosses as an object pointer.
+        return closureHandler.IsObjCBridgedClass(typeSpec)
+            && typeSpec is NamedTypeSpec named
+            && closureHandler.TypeDatabase.TryGetTypeRecord(named, out var record)
+            && record.Kind == TypeRecordKind.Class;
     }
 
     /// <summary>

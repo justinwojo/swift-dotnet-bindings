@@ -63,7 +63,7 @@ partial class Build
             throw new Exception($"Exposure report gate failed with {errors.Count} reporting inconsistency(s).");
 
         Log.Information(
-            "  ✓ {Rows} direct SwiftSelf row(s), {Files} final C# file(s), receipt/hash exact; named positive, resolved-negative, and function-pointer fixtures attributed",
+            "  ✓ {Rows} direct SwiftSelf row(s), {Files} final C# file(s), receipt/hash exact; named positive and resolved-negative fixtures attributed",
             scan.Observations.Count,
             scan.ScannedFileCount);
     }

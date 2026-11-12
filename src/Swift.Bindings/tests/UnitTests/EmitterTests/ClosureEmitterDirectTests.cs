@@ -2051,6 +2051,78 @@ public class ClosureEmitterDirectTests
         Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
     }
 
+    // A returned Swift closure is invoked through a @_cdecl thunk because a raw swiftcc call
+    // from managed code cannot be relied on to place the closure context in the self register.
+    // A class argument must not push the closure off that path.
+    [Theory]
+    [InlineData("TestModule.Loader")]
+    [InlineData("Foundation.NSError")]
+    public void CanUseInvokeThunk_ReferenceTypeArg_ReturnsTrue(string argType)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithClassAndObjC());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec(argType), TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Theory]
+    [InlineData("TestModule.Loader")]
+    [InlineData("Foundation.NSError")]
+    public void EmitSwiftInvokeThunk_ReferenceTypeArg_ReloadsTheObjectWithoutTakingOwnership(string argType)
+    {
+        // The managed caller keeps its reference for the call; the thunk borrows it as the
+        // closure's typed argument rather than consuming a retain it was never given.
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithClassAndObjC());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec(argType), TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            new SwiftWriter(output), closureTypeSpec, closureHandler, "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        Assert.Contains("arg0: Swift.UnsafeMutableRawPointer", result);
+        Assert.Contains($"_closure(Swift.Unmanaged<{argType}>.fromOpaque(arg0).takeUnretainedValue())", result);
+        Assert.DoesNotContain("takeRetainedValue", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_SwiftClassArg_KeepsTheHandleAliveAcrossTheCall()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithClassAndObjC());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec("TestModule.Loader"), TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            new CSharpWriter(output), closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("nint arg0", result);
+        Assert.Contains("_arg0.Payload.DangerousAddRef(", result);
+        Assert.Contains("_arg0.Payload.DangerousGetHandle()", result);
+        // The release must run even when the call throws.
+        Assert.Contains("finally {", result);
+        Assert.Contains("_arg0.Payload.DangerousRelease()", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_ObjCClassArg_KeepsTheObjectAliveAcrossTheCall()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithClassAndObjC());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec("Foundation.NSError"), TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            new CSharpWriter(output), closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("nint arg0", result);
+        Assert.Contains("(nint)_arg0.Handle", result);
+        Assert.Contains("finally {", result);
+        Assert.Contains("GC.KeepAlive(_arg0)", result);
+    }
+
     [Fact]
     public void IsInvokeThunkCompatibleReturn_ClassType_ReturnsTrue()
     {

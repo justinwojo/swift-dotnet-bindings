@@ -1064,13 +1064,16 @@ namespace BindingsGeneration
             env.ParentDecl is TypeDecl { IsGeneric: true };
 
         /// <summary>
-        /// True when the protocol is a PAT / Self-requirement protocol whose
-        /// protocol-descriptor symbol the parser captured. Such conformances are
-        /// resolvable at runtime via the dynamic-PWT path
+        /// True when the protocol has no C# interface to bind its witness table through but does
+        /// have a captured protocol-descriptor symbol: a PAT / Self-requirement protocol, or the
+        /// stdlib error protocol (whose record maps to a runtime struct, not an interface). Such
+        /// conformances are resolvable at runtime via the dynamic-PWT path
         /// (<c>SwiftConformance.GetWitnessTableOrThrow</c>) — the C# call site materializes
         /// the witness table by calling <c>{HelperClass}.Get{Proto}PWT(metadata)</c> and
-        /// passing <c>.Handle</c> to the @_cdecl wrapper. Mirrors the descriptor-only
-        /// branch of <see cref="PInvokeHelperContext.CreateIfGeneric"/>.
+        /// passing <c>.Handle</c> to the callee. Mirrors the descriptor-symbol branches of
+        /// <see cref="PInvokeHelperContext.CreateIfGeneric"/>, which is what the call site's
+        /// witness-table local is built from — the two must admit the same conformances, or the
+        /// local is computed and never passed and every later argument shifts up one register.
         /// </summary>
         internal static bool HasResolvableDynamicDescriptor(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
         {
@@ -1078,12 +1081,15 @@ namespace BindingsGeneration
                 return false;
             if (record.Kind != TypeRecordKind.Protocol)
                 return false;
+            if (string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
+                return false;
             bool unresolvable =
                 record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
                 record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
-            if (!unresolvable)
-                return false;
-            return !string.IsNullOrEmpty(record.ProtocolDescriptorSymbol);
+            // The well-known runtime protocols that reach this point (the error and actor protocols)
+            // have real witness tables the callee reads; the marker protocols in that set are dropped
+            // from generic signatures before any conformance is threaded.
+            return unresolvable || TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record);
         }
 
         /// <summary>
