@@ -1,16 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-#nullable enable
-
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.IO;
-using System.Linq;
 using System.Reflection;
 
-namespace BindingsGeneration.Tests;
+namespace BindingsGeneration;
 
 /// <summary>
 /// Collects the lowering evidence of plan targets from swiftc's IR: each target's calling convention
@@ -54,12 +48,15 @@ public static class SwiftLoweringEvidenceCollector
 
     /// <summary>
     /// The slice of evidence the compile showed: <paramref name="symbols"/> for the targets it saw,
-    /// every other of <paramref name="targets"/> as unobserved, and the SDK and sources it read.
+    /// every other of <paramref name="targets"/> as unobserved (with <paramref name="unseenReason"/>'s
+    /// reason, or <see cref="UnseenReason"/>), and the SDK and sources it read.
     /// </summary>
     public static SwiftLoweringSlice Slice(
-        string sdk, IEnumerable<SwiftEvidenceSource> sources, IEnumerable<string> targets, IReadOnlyDictionary<string, string> symbols)
+        string sdk, IEnumerable<SwiftEvidenceSource> sources, IEnumerable<string> targets, IReadOnlyDictionary<string, string> symbols,
+        Func<string, string>? unseenReason = null)
     {
-        var unseen = targets.Where(t => !symbols.ContainsKey(t)).ToImmutableSortedDictionary(t => t, _ => UnseenReason, StringComparer.Ordinal);
+        var unseen = targets.Where(t => !symbols.ContainsKey(t))
+            .ToImmutableSortedDictionary(t => t, t => unseenReason?.Invoke(t) ?? UnseenReason, StringComparer.Ordinal);
         return new SwiftLoweringSlice
         {
             Sdk = sdk,
@@ -82,6 +79,12 @@ public static class SwiftLoweringEvidenceCollector
     public static void Record(string path, string artifact, string compiler, string triple, SwiftLoweringSlice slice)
     {
         var evidence = File.Exists(path) ? SwiftLoweringEvidence.Load(path) : SwiftLoweringEvidence.Empty;
-        File.WriteAllText(path, evidence.WithSlice(artifact, compiler, SwiftLoweringContract.Current, Generator, triple, slice).ToJson());
+        Write(path, evidence.WithSlice(artifact, compiler, SwiftLoweringContract.Current, Generator, triple, slice));
     }
+
+    /// <summary>
+    /// Writes <paramref name="evidence"/> to <paramref name="path"/> so that a reader sees the previous
+    /// file or the whole new one, never part of it: a same-directory temporary file renamed into place.
+    /// </summary>
+    public static void Write(string path, SwiftLoweringEvidence evidence) => AtomicArtifactWriter.Write(path, evidence.ToJson());
 }

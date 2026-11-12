@@ -124,7 +124,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? depModuleNamesForCollision = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
-            WrapperSliceCollector? collector = null)
+            WrapperSliceCollector? collector = null,
+            SwiftWrapperLoweringEvidence.Pass? lowering = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -139,7 +140,8 @@ namespace BindingsGeneration
                 depModuleNamesForCollision: depModuleNamesForCollision,
                 linkFrameworks: linkFrameworks,
                 linkLibraries: linkLibraries,
-                collector: collector);
+                collector: collector,
+                lowering: lowering);
         }
 
         /// <summary>
@@ -166,7 +168,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? depModuleNamesForCollisionDevice = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
-            WrapperSliceCollector? collector = null)
+            WrapperSliceCollector? collector = null,
+            SwiftWrapperLoweringEvidence.Pass? lowering = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -417,12 +420,15 @@ namespace BindingsGeneration
                         forceLoadBinaries: simForceLoad,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
-                        transitiveScanSearchPaths: primaryAdditionalSearchPaths);
+                        transitiveScanSearchPaths: primaryAdditionalSearchPaths,
+                        lowering: lowering,
+                        strippedSymbols: allStrippedSymbols);
                     sliceCount++;
                 }
                 else if (simThunkResult != null && simThunkResult.ObjectFiles.Count > 0)
                 {
                     logger.LogInformation("No Swift wrappers — linking thunk objects with clang (simulator).");
+                    lowering?.Fail(simTargetTriple, NoWrapperSourceReason);
                     NativeThunkCompiler.LinkWithClang(
                         simThunkResult.ObjectFiles, simBinaryPath, wrapperModuleName,
                         simTargetTriple, simSdkPath, commandRunner, logger,
@@ -574,12 +580,15 @@ namespace BindingsGeneration
                             forceLoadBinaries: devForceLoad,
                             linkFrameworks: linkFrameworks,
                             linkLibraries: linkLibraries,
-                            transitiveScanSearchPaths: deviceAdditionalSearchPaths);
+                            transitiveScanSearchPaths: deviceAdditionalSearchPaths,
+                            lowering: lowering,
+                            strippedSymbols: allStrippedSymbols);
                         sliceCount++;
                     }
                     else if (devThunkResult != null && devThunkResult.ObjectFiles.Count > 0)
                     {
                         logger.LogInformation("No Swift wrappers — linking thunk objects with clang (device).");
+                        lowering?.Fail(devTargetTriple, NoWrapperSourceReason);
                         NativeThunkCompiler.LinkWithClang(
                             devThunkResult.ObjectFiles, devBinaryPath, wrapperModuleName,
                             devTargetTriple, devSdkPath, commandRunner, logger,
@@ -715,7 +724,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? depModuleNamesForCollision = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
-            WrapperSliceCollector? collector = null)
+            WrapperSliceCollector? collector = null,
+            SwiftWrapperLoweringEvidence.Pass? lowering = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -937,13 +947,16 @@ namespace BindingsGeneration
                         forceLoadBinaries: forceLoadBinaries,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
-                        transitiveScanSearchPaths: additionalFrameworkSearchPaths);
+                        transitiveScanSearchPaths: additionalFrameworkSearchPaths,
+                        lowering: lowering,
+                        strippedSymbols: allStrippedSymbols);
                 }
                 else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
                 {
                     // Edge case: no Swift wrappers (all functions thunked).
                     // swiftc requires at least one .swift input, so use clang -shared.
                     logger.LogInformation("No Swift wrappers — linking {Count} object file(s) with clang.", objectFilesToLink.Count);
+                    lowering?.Fail(targetTriple, NoWrapperSourceReason);
                     NativeThunkCompiler.LinkWithClang(
                         objectFilesToLink, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, commandRunner, logger,
@@ -1118,7 +1131,8 @@ namespace BindingsGeneration
             string? resolvedArchitecture = null,
             IReadOnlyList<string>? depModuleNamesForCollision = null,
             IReadOnlyList<string>? linkFrameworks = null,
-            IReadOnlyList<string>? linkLibraries = null)
+            IReadOnlyList<string>? linkLibraries = null,
+            SwiftWrapperLoweringEvidence.Pass? lowering = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -1135,7 +1149,8 @@ namespace BindingsGeneration
                 skipThunkCompilation: skipThunkCompilation,
                 depModuleNamesForCollision: depModuleNamesForCollision,
                 linkFrameworks: linkFrameworks,
-                linkLibraries: linkLibraries);
+                linkLibraries: linkLibraries,
+                lowering: lowering);
         }
 
         /// <summary>
@@ -1782,6 +1797,9 @@ namespace BindingsGeneration
             File.WriteAllText(Path.Combine(xcframeworkPath, "Info.plist"), xcframeworkPlist);
         }
 
+        /// <summary>Why a slice linked from thunk objects alone has no lowering evidence.</summary>
+        internal const string NoWrapperSourceReason = "the wrapper has no Swift source on this slice, so no IR shows its targets";
+
         /// <summary>
         /// Invokes xcrun swiftc to compile the wrapper library.
         /// </summary>
@@ -1814,7 +1832,9 @@ namespace BindingsGeneration
             IReadOnlyList<string>? forceLoadBinaries = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
-            IReadOnlyList<string>? transitiveScanSearchPaths = null)
+            IReadOnlyList<string>? transitiveScanSearchPaths = null,
+            SwiftWrapperLoweringEvidence.Pass? lowering = null,
+            IReadOnlySet<string>? strippedSymbols = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
@@ -1964,12 +1984,17 @@ namespace BindingsGeneration
                 }
             }
 
-            string BuildArgs(string extraLinkerFlags) =>
-                $"swiftc -emit-library -target {targetTriple} " +
+            // The frontend flags: everything that decides how swiftc reads and lowers the wrapper. The
+            // lowering-evidence pass compiles the same sources with exactly these.
+            var frontendArgs =
+                $"-target {targetTriple} " +
                 $"-sdk \"{sdkPath}\" " +
                 $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
                 $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
-                $"-module-name {wrapperModuleName} " +
+                $"-module-name {wrapperModuleName} ";
+
+            string BuildArgs(string extraLinkerFlags) =>
+                $"swiftc -emit-library {frontendArgs}" +
                 $"{thunkLinkerFlags}" +
                 $"{transitiveFrameworkLinkerFlags}" +
                 $"{forceLoadFlags}" +
@@ -1986,6 +2011,7 @@ namespace BindingsGeneration
             // Configurable wall-clock cap (raised default; env/property override) — the wrapper
             // compile is the step that times out under runner contention on large modules.
             var swiftcTimeoutMs = GeneratorTimeouts.ResolveSwiftcTimeoutMs();
+            var compileClock = System.Diagnostics.Stopwatch.StartNew();
             var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: swiftcTimeoutMs);
 
             // Profile-runtime auto-link retry: bound frameworks compiled with
@@ -2075,6 +2101,102 @@ namespace BindingsGeneration
 
                 throw new InvalidOperationException(
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
+            }
+
+            if (lowering != null)
+            {
+                CollectLoweringEvidence(
+                    lowering, frontendArgs, swiftFiles, wrapperModuleName, targetTriple, frameworkSearchPath,
+                    originalModuleName, transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, strippedSymbols,
+                    compileClock.Elapsed, commandRunner, logger, swiftcTimeoutMs);
+            }
+        }
+
+        /// <summary>
+        /// The lowering-evidence pass of one slice, run once the slice's wrapper has linked: swiftc emits
+        /// the IR of the same post-processed sources with the link compile's own frontend flags
+        /// (<paramref name="frontendArgs"/>), plus <c>-parse-as-library</c>, which <c>-emit-library</c>
+        /// implies, and the pass records what that IR shows for the module's plan targets. It never fails
+        /// the wrapper compile: a slice it cannot observe is recorded as a failure, and a receipt is then
+        /// not written.
+        /// </summary>
+        private static void CollectLoweringEvidence(
+            SwiftWrapperLoweringEvidence.Pass lowering,
+            string frontendArgs,
+            IReadOnlyList<string> swiftFiles,
+            string wrapperModuleName,
+            string targetTriple,
+            string frameworkSearchPath,
+            string? boundModuleName,
+            IReadOnlyList<string>? dependencySearchPaths,
+            IReadOnlySet<string>? strippedSymbols,
+            TimeSpan wrapperCompileTime,
+            ICommandRunner commandRunner,
+            ILogger logger,
+            int timeoutMs)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            // One source file writes its IR module to a file. swiftc refuses -o for several primary
+            // files, and its output-file map does not take IR, so their modules come back one after
+            // another on standard output.
+            var irPath = swiftFiles.Count == 1
+                ? Path.Combine(Path.GetDirectoryName(swiftFiles[0])!, $"{wrapperModuleName}.{targetTriple}.ll")
+                : null;
+            var args = $"swiftc -emit-ir -parse-as-library {frontendArgs}" +
+                (irPath != null ? $"-o \"{irPath}\" " : "") +
+                string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
+            try
+            {
+                logger.LogDebug("Lowering evidence: xcrun {Args}", args);
+                var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: timeoutMs);
+                if (exitCode != 0)
+                {
+                    var firstError = stderr.Split('\n').FirstOrDefault(l => l.Contains("error:", StringComparison.Ordinal))?.Trim();
+                    lowering.Fail(targetTriple, $"swiftc -emit-ir exited {exitCode}{(firstError is null ? "" : ": " + firstError)}");
+                    return;
+                }
+                IReadOnlyList<SwiftIrModule> modules;
+                if (irPath != null)
+                {
+                    using var reader = File.OpenText(irPath);
+                    modules = SwiftIrModule.ParseModules(reader);
+                }
+                else
+                {
+                    modules = SwiftIrModule.ParseModules(new StringReader(stdout));
+                }
+                if (modules.Count == 0)
+                {
+                    lowering.Fail(targetTriple, "swiftc -emit-ir wrote no IR");
+                    return;
+                }
+
+                var sources = new List<SwiftEvidenceSource>
+                {
+                    new(SwiftEvidenceSource.WrapperRole, wrapperModuleName, SwiftEvidenceSource.DigestOf(swiftFiles),
+                        SwiftWrapperLoweringEvidence.WrapperFlags(targetTriple)),
+                };
+                if (!string.IsNullOrEmpty(boundModuleName))
+                    sources.AddRange(SwiftWrapperLoweringEvidence.InterfaceSources(boundModuleName, frameworkSearchPath, dependencySearchPaths));
+                var slice = lowering.Observe(targetTriple, modules, sources, strippedSymbols);
+                if (slice != null)
+                {
+                    logger.LogInformation(
+                        "Lowering evidence for {Triple}: {Shown} of {Targets} plan target(s) shown by the wrapper IR; IR pass {IrSeconds:F1}s after a {CompileSeconds:F1}s wrapper compile.",
+                        targetTriple, slice.Symbols.Count, lowering.Targets.Count, clock.Elapsed.TotalSeconds, wrapperCompileTime.TotalSeconds);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException)
+            {
+                lowering.Fail(targetTriple, $"the IR pass failed: {ex.Message}");
+            }
+            finally
+            {
+                if (irPath != null)
+                {
+                    try { File.Delete(irPath); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort: the build directory is removed after the compile */ }
+                }
             }
         }
 

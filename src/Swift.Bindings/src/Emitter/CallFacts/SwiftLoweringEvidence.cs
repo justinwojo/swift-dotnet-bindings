@@ -282,6 +282,30 @@ public sealed record SwiftArtifactScope
 
     public static SwiftArtifactScope ForPlatform(string artifact, string platform) => new(artifact, PlatformSlices(platform));
 
+    /// <summary>
+    /// The evidence slice of <paramref name="platform"/> that a compile for <paramref name="compiledTriple"/>
+    /// builds: the one with the same architecture, operating system and environment, whatever deployment
+    /// version the compile targets (a build records that version among its flags). Null when the
+    /// platform claims no such slice.
+    /// </summary>
+    public static string? EvidenceSliceOf(string platform, string compiledTriple)
+    {
+        var compiled = Shape(compiledTriple);
+        return compiled is null ? null : PlatformSlices(platform).FirstOrDefault(s => Shape(s) == compiled);
+
+        // Architecture, operating system without its version (macos and macosx alike) and environment.
+        static string? Shape(string triple)
+        {
+            var parts = triple.Split('-');
+            if (parts.Length < 3 || parts[1] != "apple")
+                return null;
+            var os = parts[2].TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.');
+            if (os == "macosx")
+                os = "macos";
+            return $"{parts[0]}-{os}-{(parts.Length > 3 ? parts[3] : "")}";
+        }
+    }
+
     /// <summary>The SDK a triple compiles against.</summary>
     public static string SdkOf(string triple)
     {

@@ -116,6 +116,18 @@
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingPlatform)' == 'maccatalyst'">15.0</SwiftAppleFrameworkMinDeploymentVersion>
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingPlatform)' == 'macos'">12.0</SwiftAppleFrameworkMinDeploymentVersion>
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
+
+    <!-- swiftc lowering receipt of this binding's module, collected by _CompileSwiftWrapper from the IR
+         of the wrapper it compiles, with the same swiftc, SDK and flags. Only .NET 11 routing reads a
+         receipt, so only net11 targets collect one by default; set SwiftCollectLoweringEvidence to
+         false to skip the extra swiftc pass, or true to collect on any target. A receipt is written only
+         under a qualified compiler family, and only once every slice of the wrapper compiled. -->
+    <SwiftCollectLoweringEvidence Condition="'$(SwiftCollectLoweringEvidence)' == '' AND '$(_SwiftBindingManagedFramework)' == 'net11.0'">true</SwiftCollectLoweringEvidence>
+    <_SwiftCollectLoweringEvidence Condition="$([System.String]::Equals('$(SwiftCollectLoweringEvidence)', 'true', StringComparison.OrdinalIgnoreCase))">true</_SwiftCollectLoweringEvidence>
+    <_SwiftLoweringReceipt>$(_SwiftBindingIntermediateDir)swift-lowering-receipt.json</_SwiftLoweringReceipt>
+    <!-- The selected swiftc and SDK identities join the fingerprint whenever a receipt is read or
+         collected: switching Xcode then regenerates and recompiles, which replaces the receipt. -->
+    <_SwiftFingerprintToolchain Condition="'$(SwiftLoweringEvidence)' != '' OR '$(_SwiftCollectLoweringEvidence)' == 'true'">true</_SwiftFingerprintToolchain>
   </PropertyGroup>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -661,8 +673,9 @@ done; true"
       4. Optional supplementary inputs: SymbolGraph, BridgeHints, SwiftInterface files
       5. All generation-affecting properties (SDK version, platform, architecture, namespace, package ID)
       6. Dependency xcframework contents (Info.plist + binaries)
-      7. With a lowering receipt (SwiftLoweringEvidence): the selected swiftc and SDK identities,
-         which the receipt must match to authorize bridges, so switching Xcode regenerates
+      7. With a lowering receipt read (SwiftLoweringEvidence) or collected (SwiftCollectLoweringEvidence):
+         the selected swiftc and SDK identities, which a receipt must match to authorize bridges, so
+         switching Xcode regenerates and recompiles the wrapper
       Shell pipeline because framework binaries have no extension (*.dylib glob misses them).
       Sorted for deterministic output regardless of filesystem traversal order.
     -->
@@ -698,7 +711,7 @@ done; true"
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
       if [ -f &quot;$(_SwiftManagedReferencesFile)&quot; ]; then shasum -a 256 &quot;$(_SwiftManagedReferencesFile)&quot;; fi ; \
-      if [ -n &quot;$(SwiftLoweringEvidence)&quot; ]; then \
+      if [ -n &quot;$(_SwiftFingerprintToolchain)&quot; ]; then \
         echo &quot;swiftc %24(xcrun swiftc --version 2>/dev/null | head -1)&quot;; \
         for sdk in iphoneos iphonesimulator appletvos appletvsimulator macosx; do \
           echo &quot;sdk %24sdk %24(xcrun --sdk %24sdk --show-sdk-version 2>/dev/null) %24(xcrun --sdk %24sdk --show-sdk-build-version 2>/dev/null)&quot;; \
@@ -1927,6 +1940,11 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --skip-wrapper-compilation</_SwiftGenCmd>
     </PropertyGroup>
 
+    <!-- Regeneration rewrites the wrapper source, so a receipt of the previous wrapper no longer
+         describes it; _CompileSwiftWrapper collects the next one. -->
+    <Delete Files="$(_SwiftLoweringReceipt)"
+            Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true' AND Exists('$(_SwiftLoweringReceipt)')" />
+
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
           EnvironmentVariables="$(_SwiftGeneratorEnv)"
@@ -3133,7 +3151,15 @@ done; true"
            These flags become LC_LOAD_DYLIB on the wrapper and dyld resolves them transitively at app load. -->
       <_SwiftWrapperCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftWrapperCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftWrapperCmd>
       <_SwiftWrapperCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftWrapperCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftWrapperCmd>
+      <!-- The module's swiftc lowering receipt, read from the IR of the wrapper this compile builds.
+           The generator removes the previous receipt first and writes the new one only after every
+           slice compiled, so an interrupted compile leaves none. -->
+      <_SwiftWrapperCmd Condition="'$(_SwiftCollectLoweringEvidence)' == 'true'">$(_SwiftWrapperCmd) --collect-swift-lowering-evidence "$(_SwiftLoweringReceipt)"</_SwiftWrapperCmd>
     </PropertyGroup>
+
+    <!-- With collection off, a receipt left by an earlier build describes a wrapper this compile replaces. -->
+    <Delete Files="$(_SwiftLoweringReceipt)"
+            Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true' AND '$(_SwiftCollectLoweringEvidence)' != 'true' AND Exists('$(_SwiftLoweringReceipt)')" />
 
     <!-- Persist the generator invocation to a shell file so the lock wrapper can run it
          verbatim without quote-mangling the embedded "%(...)"-quoted paths. The file name carries

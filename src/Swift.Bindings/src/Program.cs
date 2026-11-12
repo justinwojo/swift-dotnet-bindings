@@ -1998,13 +1998,29 @@ namespace BindingsGeneration
             bool skipThunkCompilation = false,
             string? targetArchitectures = null,
             IReadOnlyList<string>? linkFrameworks = null,
-            IReadOnlyList<string>? linkLibraries = null)
+            IReadOnlyList<string>? linkLibraries = null,
+            string? loweringReceiptPath = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
             {
                 logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
                 return 1;
+            }
+
+            // A receipt describes one compiled wrapper. Remove the previous one before anything else, so
+            // a compile that fails or is interrupted from here on leaves no receipt of an earlier wrapper.
+            if (loweringReceiptPath != null)
+            {
+                try
+                {
+                    SwiftWrapperLoweringEvidence.Discard(loweringReceiptPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogError("Error: the previous lowering receipt '{Path}' could not be removed: {Message}", loweringReceiptPath, ex.Message);
+                    return 1;
+                }
             }
 
             // CPU target arch(es) — distinct from the slice TYPE in wrapperArchitectures.
@@ -2060,6 +2076,14 @@ namespace BindingsGeneration
             }
 
             var moduleName = resolution.ModuleName;
+
+            // The module's lowering receipt is read from the IR of the wrapper each compile pass builds.
+            SwiftWrapperLoweringEvidence? lowering = null;
+            if (loweringReceiptPath != null)
+            {
+                lowering = SwiftWrapperLoweringEvidence.Begin(
+                    loweringReceiptPath, outputDirectory, moduleName, (platformStr ?? "ios").ToLowerInvariant(), logger);
+            }
 
             // Decide the wrapper's CPU arch passes from the SOURCE slice. x86_64 lives only in the
             // simulator/macOS slice (there is no Intel device); ResolveAutoArchBasis re-resolves the
@@ -2156,6 +2180,7 @@ namespace BindingsGeneration
             // its fixed path inside outputDirectory.
             SwiftWrapperCompilationResult? CompileForArch(string? requestedArch)
             {
+                var loweringPass = lowering?.BeginPass(requestedArch);
                 if (wrapperArchNormalized == "all")
                 {
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
@@ -2177,7 +2202,8 @@ namespace BindingsGeneration
                         depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
-                        linkLibraries: linkLibraries);
+                        linkLibraries: linkLibraries,
+                        lowering: loweringPass);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -2202,7 +2228,8 @@ namespace BindingsGeneration
                         resolvedArchitecture: deviceResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
-                        linkLibraries: linkLibraries);
+                        linkLibraries: linkLibraries,
+                        lowering: loweringPass);
                 }
                 else
                 {
@@ -2225,7 +2252,8 @@ namespace BindingsGeneration
                         resolvedArchitecture: simResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Simulator,
                         linkFrameworks: linkFrameworks,
-                        linkLibraries: linkLibraries);
+                        linkLibraries: linkLibraries,
+                        lowering: loweringPass);
                 }
             }
 
@@ -2294,6 +2322,12 @@ namespace BindingsGeneration
                 && compilationResult?.XCFrameworkPath != null
                 && Directory.Exists(compilationResult.XCFrameworkPath);
             var wrapperModuleName = $"{moduleName}SwiftBindings";
+
+            // The receipt is written only for a wrapper the build will ship, once that wrapper is complete
+            // on disk. A build interrupted before this point has already removed the previous receipt;
+            // one interrupted after it leaves a receipt of the wrapper that is on disk.
+            if (lowering != null && hasWrapperXcfw && outcome.ExitCode == 0)
+                lowering.Commit(loweringReceiptPath!, unmergedExtraArchs, logger);
 
             XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
                 outputDirectory, hasWrapperXcfw, wrapperModuleName,

@@ -76,6 +76,7 @@ public static class BindingsGeneratorCommand
         var skipWrapperCompilation = parseResult.GetValueForOption(options.SkipWrapperCompilation);
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
+        var collectSwiftLoweringEvidence = parseResult.GetValueForOption(options.CollectSwiftLoweringEvidence);
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
         var detectAppleCrossModuleDeps = parseResult.GetValueForOption(options.DetectAppleCrossModuleDeps);
         var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
@@ -284,6 +285,13 @@ public static class BindingsGeneratorCommand
         // bridge gate, the plan sidecars of the hand-written transition tables, and the linked check
         // of an image's bridges. Out-of-tree from binding generation, so
         // they run before --platform validation, like the Apple-types modes.
+        if (!string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence) && !compileWrapperOnly)
+        {
+            // The receipt describes a compiled wrapper, so only the wrapper compile collects it.
+            logger.LogError("Error: --collect-swift-lowering-evidence requires --compile-wrapper-only.");
+            context.ExitCode = 1;
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(swiftLoweringEvidence) && !string.IsNullOrWhiteSpace(swiftLoweringQualification))
         {
             logger.LogError("Error: --swift-lowering-evidence (a build's own receipt) and --swift-lowering-qualification (the SDK's qualification record) are exclusive.");
@@ -469,7 +477,8 @@ public static class BindingsGeneratorCommand
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
                 skipThunkCompilation, targetArchitectures,
-                linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
+                linkFrameworks: linkFrameworks, linkLibraries: linkLibraries,
+                loweringReceiptPath: string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence) ? null : Path.GetFullPath(collectSwiftLoweringEvidence));
             return;
         }
 
@@ -3399,6 +3408,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --skip-thunk-compilation    Optional. Skip native thunk assembly compilation.");
         Console.WriteLine("  --compile-wrapper-only      Optional. Compile existing .swift wrapper files only (no parsing/generation).");
         Console.WriteLine("  --compile-bridge-only       Optional. Compile existing SwiftUI bridge .swift files only (no parsing/generation).");
+        Console.WriteLine("  --collect-swift-lowering-evidence  Optional, with --compile-wrapper-only. Write the module's lowering receipt, read from the wrapper's own IR, to this path.");
         Console.WriteLine();
         Console.WriteLine("Per-RID xcframework slicing — ignores binding-generation options:");
         Console.WriteLine("  --slice-xcframework  Stage a sliced copy of --xcframework into -o, retaining only slices the given --rid can consume.");

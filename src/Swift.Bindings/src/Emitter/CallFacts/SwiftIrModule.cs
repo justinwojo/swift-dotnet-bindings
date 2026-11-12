@@ -1,16 +1,11 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-#nullable enable
-
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace BindingsGeneration.Tests;
+namespace BindingsGeneration;
 
 /// <summary>One function swiftc defined: its calling convention and its normalized signature.</summary>
 /// <param name="CallingConvention">The IR calling convention: <c>swiftcc</c>, <c>swifttailcc</c>, <c>ccc</c>.</param>
@@ -22,8 +17,8 @@ namespace BindingsGeneration.Tests;
 public sealed record SwiftIrFunction(string Symbol, string CallingConvention, string Signature, bool IsExported);
 
 /// <summary>
-/// The parts of a swiftc LLVM IR module the lowering oracle reads: every function definition's
-/// signature, and every named struct type's flattened leaves.
+/// The parts of a swiftc LLVM IR module the lowering evidence reads: every function definition's and
+/// declaration's signature, and every named struct type's flattened leaves.
 /// </summary>
 public sealed class SwiftIrModule
 {
@@ -75,28 +70,56 @@ public sealed class SwiftIrModule
     {
         var module = new SwiftIrModule();
         foreach (var raw in ir.Split('\n'))
-        {
-            var line = raw.TrimEnd('\r');
-            if (line.StartsWith("define ", StringComparison.Ordinal))
-            {
-                var function = ParseFunction(Define.Match(line), exportedByDefault: true);
-                if (function is not null)
-                    module._functions[function.Symbol] = function;
-            }
-            else if (line.StartsWith("declare ", StringComparison.Ordinal))
-            {
-                var function = ParseFunction(Declare.Match(line), exportedByDefault: false);
-                if (function is not null)
-                    module._declarations[function.Symbol] = function;
-            }
-            else if (line.StartsWith('%'))
-            {
-                var match = NamedType.Match(line);
-                if (match.Success && match.Groups["body"].Value is var body && body != "opaque")
-                    module._types[match.Groups["name"].Value.Trim()] = body.Trim();
-            }
-        }
+            module.Read(raw.TrimEnd('\r'));
         return module;
+    }
+
+    /// <summary>
+    /// Every module in <paramref name="reader"/>, read a line at a time. swiftc writes one IR module per
+    /// primary file, and a multi-file compile whose IR goes to standard output writes them one after
+    /// another, each starting with its <c>; ModuleID</c> line. Each is kept as its own module so a
+    /// symbol two of them show differently stays visible.
+    /// </summary>
+    public static IReadOnlyList<SwiftIrModule> ParseModules(TextReader reader)
+    {
+        var modules = new List<SwiftIrModule>();
+        SwiftIrModule? module = null;
+        while (reader.ReadLine() is { } line)
+        {
+            if (module is null || (line.StartsWith(ModuleHeader, StringComparison.Ordinal) && !module.IsEmpty))
+            {
+                module = new SwiftIrModule();
+                modules.Add(module);
+            }
+            module.Read(line);
+        }
+        return modules;
+    }
+
+    private const string ModuleHeader = "; ModuleID = ";
+
+    private bool IsEmpty => _functions.Count == 0 && _declarations.Count == 0 && _types.Count == 0;
+
+    private void Read(string line)
+    {
+        if (line.StartsWith("define ", StringComparison.Ordinal))
+        {
+            var function = ParseFunction(Define.Match(line), exportedByDefault: true);
+            if (function is not null)
+                _functions[function.Symbol] = function;
+        }
+        else if (line.StartsWith("declare ", StringComparison.Ordinal))
+        {
+            var function = ParseFunction(Declare.Match(line), exportedByDefault: false);
+            if (function is not null)
+                _declarations[function.Symbol] = function;
+        }
+        else if (line.StartsWith('%'))
+        {
+            var match = NamedType.Match(line);
+            if (match.Success && match.Groups["body"].Value is var body && body != "opaque")
+                _types[match.Groups["name"].Value.Trim()] = body.Trim();
+        }
     }
 
     private static SwiftIrFunction? ParseFunction(Match match, bool exportedByDefault)

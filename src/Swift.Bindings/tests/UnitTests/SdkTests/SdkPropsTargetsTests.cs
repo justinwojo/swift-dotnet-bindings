@@ -634,13 +634,14 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Targets_LoweringEvidence_FingerprintsTheSelectedCompilerAndSdks()
         {
-            // A receipt authorizes only under the compiler and SDKs that collected it, so with one set,
-            // switching Xcode must regenerate rather than reuse bridges routed under the old toolchain.
+            // A receipt authorizes only under the compiler and SDKs that collected it, so with one read
+            // or collected, switching Xcode must regenerate (and recompile, replacing the collected
+            // receipt) rather than reuse bridges routed under the old toolchain.
             var fingerprint = XDocument.Parse(TargetsContent).Descendants()
                 .Single(e => e.Name.LocalName == "Target" && (string?)e.Attribute("Name") == "_ComputeSwiftFingerprint")
                 .Descendants().Single(e => e.Name.LocalName == "Exec" && ((string?)e.Attribute("Condition"))?.Contains("!= 'AppleFramework'") == true)
                 .Attribute("Command")!.Value;
-            var guarded = fingerprint[fingerprint.IndexOf("if [ -n \"$(SwiftLoweringEvidence)\" ]; then", StringComparison.Ordinal)..];
+            var guarded = fingerprint[fingerprint.IndexOf("if [ -n \"$(_SwiftFingerprintToolchain)\" ]; then", StringComparison.Ordinal)..];
             guarded = guarded[..guarded.IndexOf("fi;", StringComparison.Ordinal)];
 
             Assert.Contains("xcrun swiftc --version", guarded);
@@ -650,6 +651,36 @@ namespace BindingsGeneration.Tests
             Assert.Contains("--show-sdk-build-version", guarded);
             // Before the pipeline's sort and hash.
             Assert.True(fingerprint.IndexOf("--show-sdk-build-version", StringComparison.Ordinal) < fingerprint.IndexOf("| sort | shasum", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Targets_LoweringReceipt_IsCollectedByTheWrapperCompile_AndNeverOutlivesTheWrapper()
+        {
+            var targets = XDocument.Parse(TargetsContent).Descendants()
+                .Where(e => e.Name.LocalName == "Target").ToList();
+            XElement Target(string name) => targets.Single(t => (string?)t.Attribute("Name") == name);
+            const string receipt = "$(_SwiftLoweringReceipt)";
+
+            // The wrapper compile is the one that collects it, into the binding's own obj dir.
+            Assert.Contains("<_SwiftLoweringReceipt>$(_SwiftBindingIntermediateDir)swift-lowering-receipt.json</_SwiftLoweringReceipt>", TargetsContent);
+            var collect = Target("_CompileSwiftWrapper").Descendants()
+                .Single(e => e.Name.LocalName == "_SwiftWrapperCmd" && e.Value.Contains("--collect-swift-lowering-evidence", StringComparison.Ordinal));
+            Assert.Equal("'$(_SwiftCollectLoweringEvidence)' == 'true'", (string?)collect.Attribute("Condition"));
+            Assert.EndsWith($"--collect-swift-lowering-evidence \"{receipt}\"", collect.Value);
+            Assert.Equal(1, TargetsContent.Split("--collect-swift-lowering-evidence").Length - 1);
+
+            // Regeneration replaces the wrapper source, so the receipt of the old one goes first.
+            var generate = Target("_GenerateSwiftBindings").Elements().ToList();
+            var regenDelete = generate.Single(e => e.Name.LocalName == "Delete" && (string?)e.Attribute("Files") == receipt);
+            Assert.Contains("'$(_SwiftBindingUpToDate)' != 'true'", (string?)regenDelete.Attribute("Condition"));
+            var generatorExec = generate.First(e => e.Name.LocalName == "Exec");
+            Assert.True(generate.IndexOf(regenDelete) < generate.IndexOf(generatorExec), "the receipt is removed before the generator runs");
+
+            // A recompile with collection off leaves no receipt of the wrapper it replaces.
+            var compileDelete = Target("_CompileSwiftWrapper").Elements()
+                .Single(e => e.Name.LocalName == "Delete" && (string?)e.Attribute("Files") == receipt);
+            Assert.Contains("'$(_SwiftWrapperSkip)' != 'true'", (string?)compileDelete.Attribute("Condition"));
+            Assert.Contains("'$(_SwiftCollectLoweringEvidence)' != 'true'", (string?)compileDelete.Attribute("Condition"));
         }
 
         [Fact]

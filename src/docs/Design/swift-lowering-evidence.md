@@ -156,10 +156,12 @@ which honours `DEVELOPER_DIR`), without sources. In binding generation,
 `--swift-lowering-evidence <receipt>` (the SDK's `<SwiftLoweringEvidence>` property) authorizes
 each module over the slices of `--platform`. The two options are exclusive.
 
-Because the verdict depends on the selected toolchain, an SDK build that sets
-`<SwiftLoweringEvidence>` adds the `swiftc --version` line and every Apple SDK's version and build to
-its incremental-build fingerprint. Switching Xcode regenerates the binding rather than reusing
-bridges routed under the previous toolchain.
+Because the verdict depends on the selected toolchain, an SDK build that reads a receipt
+(`<SwiftLoweringEvidence>`) or collects one (see *Production collection*) adds the `swiftc --version`
+line and every Apple SDK's version and build to its incremental-build fingerprint. Switching Xcode
+regenerates the binding, and recompiles its wrapper, rather than reusing bridges routed, or a
+receipt collected, under the previous toolchain. A build that does neither keeps its fingerprint
+text unchanged.
 
 ## What generation can and cannot check
 
@@ -170,6 +172,98 @@ compiler, family, contract, slices and SDKs, but not source digests. A build tha
 receipt must finalize routing after its native inputs are final, and compare sources then
 (`SwiftEvidenceExpectation.Sources`). Until it does, a receipt authorizes the plans of whatever
 wrapper the same compiler and SDKs produce.
+
+## Production collection
+
+A binding build collects its module's receipt from the wrapper it ships. The collection runs in
+the generator's wrapper compile (`--compile-wrapper-only --collect-swift-lowering-evidence <path>`,
+`SwiftWrapperLoweringEvidence` in `src/Swift.Bindings/src/Configuration/`). The SDK passes it from
+`_CompileSwiftWrapper` and writes the receipt to `obj/…/swift-binding/swift-lowering-receipt.json`
+(`$(_SwiftLoweringReceipt)`). The IR reader (`SwiftIrModule`) and the slice builder
+(`SwiftLoweringEvidenceCollector`) are shipped generator code, shared with the oracle, so the SDK
+and the qualification corpus read IR the same way under one collector version.
+
+**What is compiled.** After a slice's wrapper links, a second swiftc pass emits the IR of the same
+post-processed source files. It uses the link's own frontend flags, byte for byte: the same
+`xcrun swiftc`, `-target`, `-sdk`, `-F` search paths and module name. It adds only
+`-parse-as-library`, which `-emit-library` implies. A single source file writes its IR with `-o`.
+Several write their modules to standard output, one after another; swiftc refuses `-o` for several
+primary files and its output-file map does not take IR. Each module is read on its own, so two
+files that show a target differently record a `conflict:`. The pass runs only after the link
+succeeded, so a wrapper that does not compile never gets a receipt. A failing IR pass never fails
+the build; it only withholds the receipt.
+
+**What a slice records.**
+- The key is the platform's evidence slice with the compile's architecture, OS and environment
+  (`SwiftArtifactScope.EvidenceSliceOf`). The compile's own deployment version is recorded in the
+  wrapper source's flags (`-parse-as-library -strict-concurrency=minimal -target <compiled triple>`).
+  A changed deployment target therefore changes the sources, and the receipt goes stale.
+- The SDK is identified by name, version and build (`SwiftToolchainProbe.SdkIdentity`).
+- The sources are the wrapper (a digest of the files compiled) and one `interface` source per
+  framework the compile could import. That covers the bound module's framework, then every other
+  framework in the bound slice's directory (a slice may ship peer frameworks beside it), then every
+  framework on the dependency search paths. The first of each name in swiftc's `-F` order wins. Each
+  is digested over its
+  `Modules`, `Headers` and `PrivateHeaders`, which are what swiftc reads to import it. Interface
+  sources record no flags, since the evidence compile does not compile them.
+- Every forward plan target that the IR neither defines nor declares is `unobserved`. The reason is
+  either that the wrapper does not call it, or that the post-processor stripped it.
+
+**When a receipt is written.** The receipt is the shipped wrapper's, so it is all or nothing:
+- It holds the slices of the first compile pass and of every extra-architecture pass that was
+  merged into the shipped wrapper. A slice two passes built keeps the first pass's evidence, as
+  the shipped binary does.
+- If any slice of those passes was not observed, no receipt is written. That happens when its IR
+  pass failed, when it had no Swift source (a thunk-only slice), when it could not be keyed, or
+  when its SDK could not be identified.
+- No receipt is written unless the selected compiler is a qualified family. Such a receipt could
+  never authorize, so the extra pass is skipped altogether.
+- The receipt is written atomically, as a same-directory temporary renamed into place. It is
+  written only after the wrapper compile, its reconciliation and the merge have succeeded.
+
+**Lifecycle.** A receipt never outlives the wrapper it describes:
+- The generator removes the previous receipt before it compiles anything (under the
+  wrapper-compile lock), so an interrupted or failed compile leaves no receipt.
+- Regeneration removes it before the generator runs.
+- A wrapper recompile with collection off removes it.
+- The up-to-date skip does not require a receipt. A wrapper that compiled without one (an
+  unqualified compiler, an unobservable slice) is not recompiled on every build.
+
+The receipt goes stale through any of its inputs, each of which `Authorize` compares once
+`Sources` are named:
+- the compiler line and each SDK identity, which also join the fingerprint;
+- the wrapper digest and the `-target` flag;
+- each imported interface's digest;
+- the contract's plan, facts and collector versions.
+
+**Where it runs.** Only .NET 11 routing reads a receipt, so `SwiftCollectLoweringEvidence` defaults
+to `true` for `net11.0` binding projects and is off for `net10.0`. A project can set it either way.
+A .NET 10 build therefore runs no extra swiftc pass and keeps its fingerprint text. The extra pass
+is a full second frontend compile of the wrapper, without the link. Its cost grows with the wrapper,
+so paying it where nothing reads the result is waste. Measured on one simulator slice:
+- BindingTests: the IR pass took 29 to 42 s after a 32 to 34 s wrapper compile, under both Xcode 26.3
+  and 27.2.
+- Alamofire: it took 1.3 to 2.7 s after a 2.1 to 2.5 s compile.
+
+So it roughly doubles the wrapper's swiftc time. A build that finds the wrapper up to date skips
+both, so an incremental build pays nothing. The direct generator path (a wrapper compiled
+inline during generation) and Apple-framework mode do not collect. Neither feeds a consumer's .NET
+11 routing yet.
+
+**What this does not yet do.** The receipt is collected, but routing is still decided at
+generation from `<SwiftLoweringEvidence>`, without sources. The step that finalizes routing against
+the collected receipt must account for the following:
+- The wrapper's cleaned sources are deleted once the slice compiles, so a source comparison has to
+  happen inside the wrapper compile, or from sources it keeps.
+- The receipt covers the slices the wrapper was compiled for. An arm64-only wrapper has no x86_64
+  simulator slice, although `PlatformSlices("ios")` claims one. The scope of a build-collected
+  receipt has to be the slices that build ships.
+- Feeding the collected receipt back as `<SwiftLoweringEvidence>` would make it a fingerprint input
+  of the generation that deletes it, so that loop needs its own design.
+- One project with several `SwiftFramework` items shares one receipt path.
+- The wrapper's IR shows only the targets the wrapper itself calls or defines. That was 32 of 131
+  plan targets on BindingTests and 8 of 33 on Alamofire, the same under both compiler families. The
+  rest are `unobserved` until probes show them.
 
 ## Limits
 
