@@ -1092,6 +1092,49 @@ public class PInvokeEmitterTests
     }
 
     [Fact]
+    public void DirectGenericStructConstructor_ErrorConstraint_TakesWitnessTableBeforeMetatype()
+    {
+        // `struct Task<Value, Failure: Error> { init(value: Value) }` lowers to
+        // (sret, value, Value metadata, Failure metadata, Failure: Error witness table). The stdlib
+        // error protocol has no projected interface, but it has a real descriptor and witness
+        // table, so the call site resolves the table dynamically. Leaving it out of the signature
+        // let the trailing thin-metatype argument (the struct's own metadata) land in the
+        // witness-table register, and the type's metadata accessor faulted comparing it.
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("PendingTask", moduleDecl);
+        structDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Value", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            new("τ_0_1", "Failure",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_1" }, SwiftTypeName.FromModuleQualifiedName("Swift.Error"), ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>()),
+        };
+
+        var ctor = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        ctor.GenericParameters = structDecl.GenericParameters;
+        Assert.False(ctor.UsesCdeclWrapper);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.PendingTask", "TestModule", "PendingTask",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+        var typeDb = CreateBasicTypeDatabase(testModule: testModule);
+
+        var names = GetPInvokeSignature(ctor, typeDb).Parameters.Select(p => p.Name).ToList();
+
+        var witness = names.FindIndex(n => n.EndsWith("ErrorPWT", StringComparison.Ordinal));
+        Assert.True(witness >= 0, $"the Error witness table is a parameter: {string.Join(", ", names)}");
+        var lastMetadata = names.FindLastIndex(n => n.EndsWith("Metadata", StringComparison.Ordinal));
+        Assert.True(lastMetadata >= 0 && lastMetadata < witness,
+            $"the witness table follows the generic metadata: {string.Join(", ", names)}");
+        var metatype = names.IndexOf("metatype");
+        Assert.True(metatype < 0 || metatype > witness,
+            $"a trailing metatype never precedes the witness table: {string.Join(", ", names)}");
+    }
+
+    [Fact]
     public void ThrowingNonCdeclMethod_ErrorParamLast()
     {
         // Normal throwing methods (non-cdecl) should have error param AFTER args

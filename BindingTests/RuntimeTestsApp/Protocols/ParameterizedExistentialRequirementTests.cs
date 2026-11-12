@@ -31,6 +31,19 @@ public class ParameterizedExistentialRequirementTests : TestBase
         GC.KeepAlive(client);
     }
 
+    // The initializer of a generic struct whose parameter is constrained to Error takes that
+    // conformance's witness table after the type arguments' metadata; the value it stores must
+    // come back out when Swift reads the struct.
+#pragma warning disable SB0001
+    public void TestErrorConstrainedGenericStructInitializerStoresValue()
+    {
+        using var task = new PendingRequestTask<nint, RequestTaskError>(42);
+
+        AssertEqual((nint)42, TestLibFunctions.PendingRequestTaskValue(task),
+            "the initializer stored the value it was given");
+    }
+#pragma warning restore SB0001
+
     // The request-task interface has no bindable members; the conformer only has to name it to
     // satisfy the client's requirements.
 #pragma warning disable SB0004

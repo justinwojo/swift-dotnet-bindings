@@ -33,6 +33,12 @@ public struct PendingRequestTask<Value, Failure: Error>: RequestTask {
     public func erased() -> any RequestTask<Value, Failure> { self }
 }
 
+/// Reads back, on the Swift side, the value a request task was initialized with.
+public func pendingRequestTaskValue(_ task: PendingRequestTask<Int, RequestTaskError>) -> Int {
+    if case .success(let value) = task.start() { return value }
+    return -1
+}
+
 /// Implemented in C#; Swift calls back through it.
 public protocol RequestTaskClient {
     func fetch(id: Int) -> any RequestTask<Int, RequestTaskError>
