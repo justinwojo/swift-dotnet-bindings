@@ -27,8 +27,9 @@ partial class Build
 
     // Entry-point prefixes the gate requires. `SBW_` names the runtime's wrapper functions;
     // `SwiftBindings_` names its owner-token and reverse-context factories, whose managed imports
-    // (the external-resolver route) are as much a package contract as the wrappers.
-    static readonly string[] RuntimeNativeExportPrefixes = ["SBW_", "SwiftBindings_"];
+    // (the external-resolver route) are as much a package contract as the wrappers. `SBSR_` names the
+    // bridges of the runtime's own Swift-convention imports (SwiftTransitions.g.cs).
+    static readonly string[] RuntimeNativeExportPrefixes = ["SBW_", "SwiftBindings_", "SBSR_"];
     const string RuntimeFrameworkBinaryPath = "SwiftBindingsRuntime.framework/SwiftBindingsRuntime";
 
     static readonly IReadOnlyList<RuntimeNativeSlice> RequiredRuntimeNativeSlices =
@@ -61,6 +62,57 @@ partial class Build
             SliceMetadataMismatches.Count == 0 &&
             ArchitectureMismatches.Count == 0 &&
             MissingExports.Count == 0;
+    }
+
+    /// <summary>
+    /// The packed runtime's native gates: <see cref="AssertRuntimeNativeExports"/>, then the linked
+    /// check of its SBSR_ bridges on every packed slice and architecture. The export gate proves each
+    /// bridge the managed twins import is present; the linked check holds the set to exactly the
+    /// bridges the runtime's routed plan product names, and each bridge's frame and the unwind
+    /// information its slice's link wrote to that bridge's plan, since that information is what the
+    /// unwinder reads in a running app.
+    /// </summary>
+    void AssertRuntimeNativePackage(AbsolutePath nupkgPath)
+    {
+        AssertRuntimeNativeExports(nupkgPath);
+        AssertRuntimeLinkedBridges(nupkgPath);
+    }
+
+    void AssertRuntimeLinkedBridges(AbsolutePath nupkgPath)
+    {
+        var plans = SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json";
+        if (!File.Exists(plans))
+            Assert.Fail($"Runtime linked-bridge gate: {plans} is missing; run `nuke swift-bridge-products`.");
+        var scratch = (AbsolutePath)Path.Combine(Path.GetTempPath(), $"swift-runtime-linked-bridges-{Guid.NewGuid():N}");
+        scratch.CreateDirectory();
+        try
+        {
+            var images = new List<string>();
+            using (var archive = ZipFile.OpenRead(nupkgPath))
+            {
+                foreach (var slice in RequiredRuntimeNativeSlices)
+                {
+                    var entry = archive.GetEntry($"{RuntimeXcframeworkRoot}/{slice.Identifier}/{slice.BinaryPath}")
+                        ?? throw new InvalidOperationException(
+                            $"Runtime linked-bridge gate: {nupkgPath} has no binary for slice {slice.Identifier}.");
+                    var binary = scratch / "native" / slice.Identifier / RuntimeNativeLibraryName;
+                    binary.Parent.CreateDirectory();
+                    entry.ExtractToFile(binary, overwrite: true);
+                    images.Add(binary);
+                }
+            }
+            EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
+            var arguments = new List<string> { $"\"{GeneratorDll}\"", $"--swift-call-plans \"{plans}\"", $"-o \"{scratch / "check"}\"" };
+            arguments.AddRange(images.Select(i => $"--validate-linked-bridges \"{i}\""));
+            RunGenerator(arguments, $"the linked-bridge check of {nupkgPath}");
+            Log.Information("Runtime linked-bridge gate OK — the SBSR_ bridges of {Slices} packed slice(s) validated against {Plans}",
+                images.Count, plans);
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+                scratch.DeleteDirectory();
+        }
     }
 
     /// <summary>

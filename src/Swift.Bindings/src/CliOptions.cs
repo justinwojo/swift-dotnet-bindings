@@ -376,7 +376,7 @@ public class CliOptions
 
     public Option<string[]> SwiftCallPlans { get; } = new(
         aliases: new[] { "--swift-call-plans" },
-        description: "A {Module}.swift-call-plans.json sidecar. Repeatable. Used by --swift-bridges.")
+        description: "A {Module}.swift-call-plans.json sidecar. Repeatable. Used by --swift-bridges and --validate-linked-bridges.")
     {
         AllowMultipleArgumentsPerToken = false,
     };
@@ -396,10 +396,22 @@ public class CliOptions
         description: "The swiftc lowering evidence (swift-lowering-evidence.json) a plan must agree with to be executable. With --swift-bridges, the gate joins it; " +
                      "in binding generation, every transition whose plan it makes executable is routed through a native bridge (SBSR_) instead of its direct import.");
 
+    public Option<string[]> ValidateLinkedBridges { get; } = new(
+        aliases: new[] { "--validate-linked-bridges" },
+        description: "A linked Mach-O image (a framework binary, thin or fat) whose SBSR_ bridges to validate. Repeatable. " +
+                     "On every architecture it carries, its exported bridges must be exactly those the --swift-call-plans " +
+                     "sidecars route through, and each one's frame and the unwind information its link wrote must agree " +
+                     "with its plan. Scratch files go into -o.")
+    {
+        AllowMultipleArgumentsPerToken = false,
+    };
+
     public Option<bool> EmitHandWrittenPlans { get; } = new(
         aliases: new[] { "--emit-hand-written-plans" },
         description: "Plan a hand-written transition table (--transition-facts) over its assembly's C# (--plan-sources) " +
-                     "and write {Assembly}.swift-call-plans.json into -o.",
+                     "and write {Assembly}.swift-call-plans.json into -o. A table with a bridges section is also routed: " +
+                     "with --swift-lowering-evidence, every transition the evidence proves is called through its bridge, and " +
+                     "the table's managed shims and per-architecture bridge assemblies are written beside it.",
         getDefaultValue: () => false);
 
     public Option<string?> TransitionFacts { get; } = new(
@@ -569,6 +581,7 @@ public class CliOptions
             SwiftBridges,
             SwiftCallPlans,
             SwiftRoutedCallPlans,
+            ValidateLinkedBridges,
             SwiftLoweringEvidence,
             EmitHandWrittenPlans,
             TransitionFacts,

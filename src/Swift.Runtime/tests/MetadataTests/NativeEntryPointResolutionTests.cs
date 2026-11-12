@@ -98,13 +98,18 @@ public class NativeEntryPointResolutionTests
         // which this sweep deliberately does not resolve. The floors are set one declaring type under
         // what remains — 57 imports across 4 libraries, 32 of them mangled, with the largest single
         // declaring type contributing 9 imports and 6 mangled names.
-        Assert.True(checkedImports >= 50,
+        //
+        // They moved again, by four each, when the collection getters and iterators that return their
+        // result indirectly ($sSayxSicig, $sSDyq_Sgxcig and the Dictionary and Set makeIterator) were
+        // routed through native bridges: the managed shim now calls a C twin in `SwiftBindingsRuntime`,
+        // named by bare library, and the mangled import is gone from the assembly.
+        Assert.True(checkedImports >= 46,
             $"Only {checkedImports} import(s) were resolvable-checked; the sweep is no longer reaching the " +
             $"runtime's P/Invoke surface.");
         Assert.True(checkedLibraries.Count >= 3,
             $"Imports were checked against only {checkedLibraries.Count} distinct librar(ies); the runtime " +
             $"names more than that by absolute path.");
-        Assert.True(checkedMangled >= 28,
+        Assert.True(checkedMangled >= 24,
             $"Only {checkedMangled} Swift-mangled entry point(s) were checked. Mangled names are the class of " +
             $"name this test exists for, so a sweep that no longer sees them proves nothing.");
     }

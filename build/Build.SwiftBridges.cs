@@ -55,9 +55,28 @@ partial class Build
                 : [])
             .ToArray();
 
+    /// <summary>
+    /// Whether the table routes its executable transitions through bridges (its <c>bridges</c>
+    /// section): its products are then a routed generation, written from the lowering evidence.
+    /// </summary>
+    static bool HandWrittenTableRoutes(AbsolutePath table)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(table));
+        return document.RootElement.TryGetProperty("bridges", out var bridges) && bridges.ValueKind == System.Text.Json.JsonValueKind.Object;
+    }
+
+    /// <summary>The plan products of the tables that route through bridges, which the gate checks as routed generations.</summary>
+    string[] SwiftBridgeRoutedProductFiles() =>
+        HandWrittenTransitionTables.Where(t => HandWrittenTableRoutes(t.Table))
+            .Select(t => System.Text.Json.JsonDocument.Parse(File.ReadAllText(t.Table)).RootElement.GetProperty("assembly").GetString())
+            .Select(assembly => (SwiftBridgeProductsDir / $"{assembly}.swift-call-plans.json").ToString())
+            .ToArray();
+
     Target SwiftBridgeProducts => _ => _
         .DependsOn(Compile)
-        .Description("Write the plan sidecars of the hand-written transition tables under build/baselines/swift-call-plans/.")
+        .Description("Write the plan sidecars of the hand-written transition tables under build/baselines/swift-call-plans/, " +
+                     "and the managed shims and native bridge assemblies of a table that routes through bridges (the runtime's). " +
+                     "A runtime whose bridge assemblies change needs src/Swift.Runtime/swift/build-runtime.sh rerun.")
         .Executes(() =>
         {
             EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
@@ -69,6 +88,8 @@ partial class Build
                     $"--transition-facts \"{table}\"", $"-o \"{SwiftBridgeProductsDir}\"",
                 };
                 arguments.AddRange(sources.Select(s => $"--plan-sources \"{s}\""));
+                if (HandWrittenTableRoutes(table))
+                    arguments.Add($"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"");
                 RunGenerator(arguments, $"hand-written plans of {table}");
             }
         });
@@ -82,7 +103,7 @@ partial class Build
         {
             EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
             var plans = SwiftBridgePlanFiles();
-            var routed = SwiftBridgeCorpusPlanFiles();
+            var routed = SwiftBridgeCorpusPlanFiles().Concat(SwiftBridgeRoutedProductFiles()).ToArray();
             foreach (var missing in plans.Where(p => !File.Exists(p)))
                 Assert.Fail($"{missing} is missing: run `nuke binding-tests --compile-only` first");
             if (Directory.Exists(SwiftBridgeGateScratch))
@@ -92,7 +113,8 @@ partial class Build
                 $"\"{GeneratorDll}\"", "--swift-bridges",
                 $"--swift-lowering-evidence \"{SwiftLoweringEvidencePath}\"", $"-o \"{SwiftBridgeGateScratch}\"",
             };
-            // The corpus was regenerated with this evidence, so its routing must agree with it.
+            // The corpus was regenerated with this evidence, and a routing table's products were written
+            // from it, so their routing must agree with it.
             arguments.AddRange(plans.Select(p => routed.Contains(p) ? $"--swift-routed-call-plans \"{p}\"" : $"--swift-call-plans \"{p}\""));
             RunGenerator(arguments, "the Swift bridge gate");
             Log.Information("Swift bridge gate report: {Report}", SwiftBridgeGateScratch / "bridge-gate.txt");

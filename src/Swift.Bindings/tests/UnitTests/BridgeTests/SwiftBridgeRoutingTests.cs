@@ -227,6 +227,70 @@ public sealed class SwiftBridgeRoutingTests
         Assert.Contains(reason, entry.BridgeRefusal);
     }
 
+    private static string ExternImport(string entryPoint, string signature, string dllImportExtra = "", string containerModifiers = "public static unsafe partial") => $$"""
+        namespace M
+        {
+            {{containerModifiers}} class C
+            {
+                public static long Call(long a) => PInvoke_f(a, default);
+
+                [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+                [global::System.Runtime.InteropServices.DllImport("M", EntryPoint = "{{entryPoint}}"{{dllImportExtra}})]
+                {{signature}}
+            }
+        }
+        """;
+
+    /// <summary>
+    /// The runtime declares its Swift-convention imports as <c>static extern</c> DllImports. The shim
+    /// reproduces one exactly as it does a LibraryImport: same name and signature, a body calling the
+    /// C-convention twin, and no extern or Swift-convention import left.
+    /// </summary>
+    [Fact]
+    public void ExternDllImport_BecomesAShimCallingACdeclTwinOfTheBridge()
+    {
+        var plan = SelfPlan();
+        var source = ExternImport("$s1M1CC1fyS2iF", "public static extern long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);");
+        var routing = SwiftBridgeRouting.Plan(Set(plan, "$s1M1CC1fyS2iF"), source, Library);
+
+        var route = Assert.Single(routing.Routes);
+        Assert.True(route.IsBridged, route.Refusal);
+        var rewritten = routing.Rewrite(source);
+        Assert.Empty(CSharpSyntaxTree.ParseText(rewritten).GetDiagnostics());
+
+        var shim = Method(rewritten, "PInvoke_f");
+        Assert.NotNull(shim.Body);
+        Assert.DoesNotContain(shim.Modifiers, m => m.IsKind(SyntaxKind.ExternKeyword));
+        Assert.Contains(shim.Modifiers, m => m.IsKind(SyntaxKind.PublicKeyword));
+        Assert.Equal("(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self)", shim.ParameterList.ToString());
+        Assert.DoesNotContain(AttributeNames(shim), a => a.Contains("DllImport", StringComparison.Ordinal));
+
+        var twin = Method(rewritten, SwiftBridgeRouting.TwinName("PInvoke_f", plan.Symbol));
+        Assert.Contains(twin.Modifiers, m => m.IsKind(SyntaxKind.PartialKeyword));
+        Assert.Contains(AttributeNames(twin), a => a.Contains("LibraryImport", StringComparison.Ordinal) && a.Contains($"\"{Library}\"", StringComparison.Ordinal));
+        Assert.Equal("(long a, nint __self)", twin.ParameterList.ToString());
+        Assert.DoesNotContain("CallConvSwift", rewritten);
+        Assert.DoesNotContain("DllImport", rewritten);
+    }
+
+    [Theory]
+    [InlineData(", SetLastError = true", "public static partial", "public static extern long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "SetLastError")]
+    [InlineData(", CharSet = global::System.Runtime.InteropServices.CharSet.Unicode", "public static partial", "public static extern long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "CharSet")]
+    [InlineData("", "public static partial", "[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.I8)] public static extern long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "marshals its return value")]
+    [InlineData("", "public static", "public static extern long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "not partial")]
+    [InlineData("", "public static partial", "public extern long PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);", "neither a static partial nor a static extern")]
+    public void ExternDllImportTheShimCannotReproduce_KeepsItsDirectImport_WithTheReason(string dllImportExtra, string container, string signature, string reason)
+    {
+        var plan = SelfPlan();
+        var source = ExternImport("$s1M1CC1fyS2iF", signature, dllImportExtra, container);
+        var routing = SwiftBridgeRouting.Plan(Set(plan, "$s1M1CC1fyS2iF"), source, Library);
+
+        var route = Assert.Single(routing.Routes);
+        Assert.False(route.IsBridged);
+        Assert.Contains(reason, route.Refusal);
+        Assert.Equal(source, routing.Rewrite(source));
+    }
+
     [Fact]
     public void ImportMissingFromTheSource_IsRefused_NotSilentlyDropped()
     {

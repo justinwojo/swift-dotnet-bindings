@@ -638,7 +638,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
-internal static class SwiftArrayPInvokes
+// Array.Get is declared in Bridges/SwiftTransitions.declarations.cs and compiled from the bridge
+// products in Bridges/SwiftTransitions.g.cs.
+internal static partial class SwiftArrayPInvokes
 {
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSaMa")]
@@ -647,10 +649,6 @@ internal static class SwiftArrayPInvokes
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sS2ayxGycfC")]
     public static extern IntPtr Init(TypeMetadata typeMetadata);
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSayxSicig")]
-    public static extern void Get(SwiftIndirectResult result, nint index, IntPtr handle, TypeMetadata elementMetadata);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSa5countSivg")]

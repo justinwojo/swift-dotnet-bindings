@@ -114,6 +114,23 @@ public static class SwiftBridgeValidator
         if (!linked)
             return new(architecture, wanted, failures.Append(new SwiftBridgeFinding(name, "link", linkOutput.Trim())).ToImmutableArray());
 
+        var image = ValidateImage(imagePath, architecture, frames, toolchain, wanted);
+        return new(architecture, wanted, failures.Concat(image.Failures).ToImmutableArray());
+    }
+
+    /// <summary>
+    /// Validates each of <paramref name="functions"/> (underscore included) as an already linked image
+    /// holds it: <paramref name="imagePath"/> is a thin Mach-O of <paramref name="architecture"/>, such
+    /// as a shipped framework's binary thinned to one slice. The bridge is held to the unwind
+    /// information that image's linker wrote, which is the information the unwinder reads at run
+    /// time, and to its planned frame when <paramref name="frames"/> has one.
+    /// </summary>
+    public static SwiftBridgeValidation ValidateImage(
+        string imagePath, SwiftArchitecture architecture, IReadOnlyDictionary<string, SwiftFrame> frames,
+        SwiftBridgeToolchain toolchain, IEnumerable<string> functions)
+    {
+        var wanted = functions.Order(StringComparer.Ordinal).ToImmutableArray();
+        var failures = new List<SwiftBridgeFinding>();
         var triple = SwiftBridgeToolchain.TargetOf(architecture).Triple;
         var symbols = DefinedSymbols(toolchain.Run("nm", "--defined-only", imagePath).Output);
         var unwind = UnwindEntries(toolchain.Run("llvm-objdump", "--unwind-info", imagePath).Output);

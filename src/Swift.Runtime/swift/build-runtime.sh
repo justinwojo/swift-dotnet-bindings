@@ -19,8 +19,8 @@
 #                                     <target> ∈ macos ios iossimulator maccatalyst tvos tvossimulator
 #
 # The committed artifact is ../native/SwiftBindingsRuntime.xcframework. Run this
-# script (no args) to regenerate it after changing SwiftBindingsRuntime.swift or
-# the collections shim, then commit the refreshed tree.
+# script (no args) to regenerate it after changing SwiftBindingsRuntime.swift,
+# the collections shim or the bridge assemblies, then commit the refreshed tree.
 
 set -euo pipefail
 
@@ -37,6 +37,15 @@ SOURCE="$SCRIPT_DIR/SwiftBindingsRuntime.swift"
 # via plain Cdecl, bypassing the broken trampoline. See
 # SwiftBindingsRuntimeCollections.c for the rationale.
 COLLECTIONS_SOURCE="$SCRIPT_DIR/SwiftBindingsRuntimeCollections.c"
+# The SBSR_ bridges of the runtime's own Swift-convention imports, one file per
+# architecture, written by `nuke swift-bridge-products` from the runtime's
+# transition table and the swiftc lowering evidence. Each bridge is a
+# C-convention entry that moves its arguments into the Swift convention and
+# calls the stdlib entry point, so the managed side (SwiftTransitions.g.cs)
+# enters it with a plain Cdecl call that no interpreter or JIT lowers as Swift.
+# Every slice links its architecture's file, so the managed shims resolve on
+# every platform the runtime ships for.
+BRIDGES_SOURCE_BASE="$SCRIPT_DIR/SwiftBindingsRuntimeBridges"
 OUTPUT_BASE="$SCRIPT_DIR/../native"
 
 MODULE_NAME="SwiftBindingsRuntime"
@@ -80,6 +89,18 @@ build_single_arch() {
         -o "$collections_obj" \
         "$COLLECTIONS_SOURCE"
 
+    local bridges_obj="${output%.dylib}.bridges.o"
+    local bridges_source="$BRIDGES_SOURCE_BASE.${triple%%-*}.s"
+    if [ ! -f "$bridges_source" ]; then
+        echo "error: $bridges_source is missing; run \`nuke swift-bridge-products\`" >&2
+        exit 1
+    fi
+    SDKROOT="" "$clang_path" -c \
+        -target "$triple" \
+        -isysroot "$sdk_path" \
+        -o "$bridges_obj" \
+        "$bridges_source"
+
     # Unset SDKROOT to prevent clang sysroot mismatch warnings when
     # cross-compiling (swiftc uses the explicit -sdk flag instead).
     SDKROOT="" "$swiftc_path" -emit-library \
@@ -90,11 +111,12 @@ build_single_arch() {
         -sdk "$sdk_path" \
         -Xlinker -install_name -Xlinker "$INSTALL_NAME" \
         "$SOURCE" \
-        "$collections_obj"
+        "$collections_obj" \
+        "$bridges_obj"
 
-    # The collections object is now linked into the dylib — drop the
-    # intermediate file so it doesn't end up in the staging tree.
-    rm -f "$collections_obj"
+    # The collections and bridge objects are now linked into the dylib — drop
+    # the intermediate files so they don't end up in the staging tree.
+    rm -f "$collections_obj" "$bridges_obj"
 }
 
 # Wraps a finished slice binary in a flat .framework bundle (binary + Info.plist

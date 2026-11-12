@@ -8,8 +8,8 @@
     "refused": 0,
     "notBridged": 28,
     "plans": 4,
-    "executable": 0,
-    "bridged": 0,
+    "executable": 4,
+    "bridged": 4,
     "byTransition": {
       "ForwardPInvoke/NotBridged": 28,
       "ForwardPInvoke/Planned": 4
@@ -84,8 +84,8 @@
       },
       "refusals": [],
       "callee": "void (ptr noalias sret, i64, ptr, ptr)",
-      "executable": false,
-      "evidence": "no swiftc lowering evidence was joined",
+      "executable": true,
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, i64, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -97,7 +97,9 @@
           "parameter": 3,
           "detail": "Swift.Runtime.TypeMetadata: pass its bytes at 0:8"
         }
-      ]
+      ],
+      "bridged": true,
+      "twin": "Swift.SwiftArrayPInvokes::Get__SBSR_75d1175a25994336"
     },
     {
       "transition": "ForwardPInvoke",
@@ -154,8 +156,8 @@
       },
       "refusals": [],
       "callee": "void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
-      "executable": false,
-      "evidence": "no swiftc lowering evidence was joined",
+      "executable": true,
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -177,7 +179,9 @@
           "parameter": 5,
           "detail": "Swift.Runtime.ProtocolWitnessTable: pass its bytes at 0:8"
         }
-      ]
+      ],
+      "bridged": true,
+      "twin": "Swift.SwiftDictionaryPInvokes::Get__SBSR_a621bc11d6484c3d"
     },
     {
       "transition": "ForwardPInvoke",
@@ -196,8 +200,8 @@
       },
       "refusals": [],
       "callee": "void (ptr noalias sret, ptr, ptr, ptr, ptr)",
-      "executable": false,
-      "evidence": "no swiftc lowering evidence was joined",
+      "executable": true,
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -224,7 +228,9 @@
           "detail": "the callee consumes self (\u002B1)",
           "formal": -1
         }
-      ]
+      ],
+      "bridged": true,
+      "twin": "Swift.SwiftDictionaryPInvokes::MakeIterator__SBSR_095f1975a3d846a5"
     },
     {
       "transition": "ForwardPInvoke",
@@ -333,8 +339,8 @@
       },
       "refusals": [],
       "callee": "void (ptr noalias sret, ptr, ptr, ptr)",
-      "executable": false,
-      "evidence": "no swiftc lowering evidence was joined",
+      "executable": true,
+      "evidence": "swiftc gives swiftcc void (ptr noalias sret, ptr, ptr, ptr) on 3 triple(s) under 2 toolchain(s)",
       "obligations": [
         {
           "kind": "IndirectResultAddress",
@@ -356,7 +362,9 @@
           "detail": "the callee consumes self (\u002B1)",
           "formal": -1
         }
-      ]
+      ],
+      "bridged": true,
+      "twin": "Swift.SwiftSetPInvokes::MakeIterator__SBSR_e16d2038b2c21336"
     },
     {
       "transition": "ForwardPInvoke",

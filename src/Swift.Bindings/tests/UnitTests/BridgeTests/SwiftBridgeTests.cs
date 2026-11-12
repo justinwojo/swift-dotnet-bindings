@@ -572,4 +572,119 @@ public sealed class SwiftBridgeTests : IDisposable
         Assert.Equal(new[] { "0x5000" }, code["_SBSR_one"][1].Operands);
         Assert.Equal(new[] { "x29", "x30", "[sp]", "#0x10" }, code["_SBSR_one"][2].Operands);
     }
+
+    // ---- the linked check ----
+
+    private static readonly string RuntimeXcframework = Path.Combine(RepoRoot, "src", "Swift.Runtime", "native", "SwiftBindingsRuntime.xcframework");
+
+    private static string RuntimeSidecar => Path.Combine(RepoRoot, "build", "baselines", "swift-call-plans", "Swift.Runtime.swift-call-plans.json");
+
+    /// <summary>A bridge's instructions up to its return, with branch targets dropped (they differ between an object and a linked image).</summary>
+    private static List<string> Instructions(IEnumerable<SwiftInstruction> instructions)
+    {
+        var result = new List<string>();
+        foreach (var instruction in instructions)
+        {
+            var branch = instruction.Mnemonic is "b" or "bl" || instruction.Mnemonic.StartsWith("call", StringComparison.Ordinal)
+                || instruction.Mnemonic.StartsWith("jmp", StringComparison.Ordinal);
+            result.Add(branch ? instruction.Mnemonic : $"{instruction.Mnemonic} {string.Join(", ", instruction.Operands)}");
+            if (instruction.Mnemonic.StartsWith("ret", StringComparison.Ordinal))
+                break;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// The committed runtime xcframework is current with the runtime's routed products: on every slice
+    /// and architecture it exports exactly the SBSR_ bridges the plan sidecar routes through, each
+    /// bridge's frame and the unwind information that slice's link wrote agree with its plan, and each
+    /// bridge is, instruction for instruction, the committed bridge assembly. A runtime not rebuilt
+    /// after `nuke swift-bridge-products` fails here rather than in an app.
+    /// </summary>
+    [SkippableFact]
+    public void CommittedRuntimeFramework_ShipsExactlyTheRoutedBridges_LinkedAndCurrent()
+    {
+        var toolchain = Toolchain.Value;
+        Skip.If(toolchain is null, "xcrun with the iOS SDKs is required");
+        var routed = SwiftBridgeLinkedCheck.Routed([SwiftCallPlanSet.From(SwiftCallPlanSet.Read(RuntimeSidecar))]);
+        Assert.Equal(4, routed.Count);
+
+        var assembled = new Dictionary<SwiftArchitecture, Dictionary<string, List<SwiftInstruction>>>();
+        foreach (var architecture in Architectures)
+        {
+            var name = architecture == SwiftArchitecture.Arm64 ? "arm64" : "x86_64";
+            var scratch = Scratch("assembled-" + name);
+            var objectPath = Path.Combine(scratch, "bridges.o");
+            var source = Path.Combine(RepoRoot, "src", "Swift.Runtime", "swift", $"SwiftBindingsRuntimeBridges.{name}.s");
+            var (ok, output) = toolchain!.Assemble(source, objectPath, architecture);
+            Assert.True(ok, output);
+            // An object's disassembly may label a function by an assembler temporary that shares its
+            // address, so each bridge is found by its symbol's address.
+            var all = SwiftBridgeValidator.Disassembly(toolchain.Run("llvm-objdump", "-d", "--no-show-raw-insn",
+                "--triple=" + SwiftBridgeToolchain.TargetOf(architecture).Triple, objectPath).Output)
+                .Values.SelectMany(i => i).OrderBy(i => i.Address).ToList();
+            assembled[architecture] = SwiftBridgeValidator.DefinedSymbols(toolchain.Run("nm", "--defined-only", objectPath).Output)
+                .ToDictionary(p => p.Key, p => all.SkipWhile(i => i.Address != p.Value).ToList(), StringComparer.Ordinal);
+        }
+
+        var pairs = 0;
+        foreach (var binary in Directory.GetDirectories(RuntimeXcframework).Order(StringComparer.Ordinal)
+            .Select(d => Path.Combine(d, "SwiftBindingsRuntime.framework", "SwiftBindingsRuntime")))
+        {
+            Assert.True(File.Exists(binary), binary);
+            var archs = toolchain!.Run("lipo", "-archs", binary).Output.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var name in archs)
+            {
+                var architecture = name == "arm64" ? SwiftArchitecture.Arm64 : SwiftArchitecture.X86_64;
+                var thin = binary;
+                if (archs.Length > 1)
+                {
+                    thin = Path.Combine(Scratch("slice"), "SwiftBindingsRuntime");
+                    Assert.Equal(0, toolchain.Run("lipo", binary, "-thin", name, "-output", thin).Code);
+                }
+                var findings = SwiftBridgeLinkedCheck.Check(thin, architecture, routed, toolchain).ToList();
+                Assert.True(findings.Count == 0, $"{binary} {name}:\n" + string.Join("\n", findings));
+
+                var linked = SwiftBridgeValidator.Disassembly(toolchain.Run("llvm-objdump", "-d", "--no-show-raw-insn",
+                    "--triple=" + SwiftBridgeToolchain.TargetOf(architecture).Triple, thin).Output);
+                foreach (var symbol in routed.Keys.Select(k => "_" + k))
+                {
+                    var expected = Instructions(assembled[architecture][symbol]);
+                    Assert.NotEmpty(expected);
+                    Assert.Equal(expected, Instructions(linked[symbol]));
+                }
+                pairs++;
+            }
+        }
+        Assert.Equal(10, pairs);
+    }
+
+    /// <summary>The linked check goes red on an image missing a routed bridge and on one exporting a bridge nothing routes through.</summary>
+    [SkippableFact]
+    public void LinkedCheck_RejectsAMissingAndAStaleBridge()
+    {
+        var toolchain = Toolchain.Value;
+        Skip.If(toolchain is null, "xcrun with the iOS SDKs is required");
+        var shipped = Shapes().First().Plan;
+        var routedOnly = Shapes().Select(s => s.Plan).First(p => p.Symbol != shipped.Symbol);
+        var architecture = SwiftArchitecture.Arm64;
+        var assembly = SwiftBridgeEmitter.Emit([shipped], architecture);
+        var scratch = Scratch("linked-negative");
+        var source = Path.Combine(scratch, "b.s");
+        var objectPath = Path.Combine(scratch, "b.o");
+        var image = Path.Combine(scratch, "b.dylib");
+        File.WriteAllText(source, assembly.Source);
+        Assert.True(toolchain!.Assemble(source, objectPath, architecture).Ok);
+        var undefined = SwiftBridgeValidator.UndefinedSymbols(toolchain.Run("nm", "-m", objectPath).Output).Select(u => u.Symbol);
+        Assert.True(toolchain.LinkScratch([objectPath], image, architecture, undefined).Ok);
+
+        var routed = ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal,
+            new[] { KeyValuePair.Create(routedOnly.Symbol, routedOnly) });
+        var findings = SwiftBridgeLinkedCheck.Check(image, architecture, routed, toolchain).ToList();
+        Assert.Contains(findings, f => f.Contains($"{routedOnly.Symbol} is routed through but the image does not export it", StringComparison.Ordinal));
+        Assert.Contains(findings, f => f.Contains($"the image exports {shipped.Symbol}, which no sidecar routes through", StringComparison.Ordinal));
+
+        var matching = ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal, new[] { KeyValuePair.Create(shipped.Symbol, shipped) });
+        Assert.Empty(SwiftBridgeLinkedCheck.Check(image, architecture, matching, toolchain));
+    }
 }

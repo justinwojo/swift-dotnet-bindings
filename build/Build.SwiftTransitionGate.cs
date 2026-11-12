@@ -175,11 +175,19 @@ partial class Build
             new[] { "Swift.Foundation.Data", "Swift.Foundation.URL", "Swift.Foundation.URLRequest", "Swift.SwiftUI.Text" }),
     };
 
-    /// <summary>The call-plan sidecars beside a ledgered assembly's C#, which its bridge twins are checked against.</summary>
+    /// <summary>
+    /// The call-plan sidecars a scanned assembly's bridge twins are checked against: those beside a
+    /// ledgered assembly's C#, and for the runtime the plan products of its hand-written table, from
+    /// which its twins (SwiftTransitions.g.cs) are written.
+    /// </summary>
     TransitionPlanSource? DefaultPlanSource(string assembly) =>
-        LedgeredAssemblies.Where(l => l.Assembly == assembly)
-            .Select(l => new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, l.LedgerDirectory))
-            .SingleOrDefault();
+        assembly == RuntimeAssemblyName
+            ? new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, SwiftBridgeProductsDir)
+            : LedgeredAssemblies.Where(l => l.Assembly == assembly)
+                .Select(l => new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, l.LedgerDirectory))
+                .SingleOrDefault();
+
+    const string RuntimeAssemblyName = "Swift.Runtime.dll";
 
     /// <summary>
     /// The Apple supplement's iOS framework the compile check's reference to it resolves to: of the iOS
@@ -257,8 +265,56 @@ partial class Build
             if (routing.RoutingGaps.Length > 0)
                 failed.Add($"{name} (routing)");
         }
+        failed.AddRange(CheckRuntimeBridgeTwins());
         if (failed.Count > 0)
             throw new Exception($"Transition ledger cross-check FAILED for {string.Join(", ", failed)} — see the lines above.");
+    }
+
+    /// <summary>
+    /// R3 over the runtime's own bridge twins: each SBSR_ twin in the compiled Swift.Runtime must be
+    /// the C-convention, primitive-only import its plan product states, and there must be one for every
+    /// transition the product routes through a bridge, so a runtime compiled from stale shims, or from
+    /// the declarations alone, fails here rather than as a missing entry point in an app.
+    /// </summary>
+    IEnumerable<string> CheckRuntimeBridgeTwins()
+    {
+        var assembly = CompileCheckOutputDir / RuntimeAssemblyName;
+        if (!File.Exists(assembly))
+            throw new Exception($"Transition ledger cross-check: {assembly} not found; the compile check did not produce it.");
+        var source = new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, SwiftBridgeProductsDir);
+        var report = SwiftTransitionScanner.Scan(assembly, new SwiftTransitionScanOptions
+        {
+            ReferenceDirectories = new[]
+            {
+                CompileCheckOutputDir.ToString(),
+                System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
+            },
+            PlanSource = source,
+        });
+        if (!report.InspectionErrors.IsEmpty)
+            throw new Exception($"Transition ledger cross-check: {report.InspectionErrors.Length} inspection error(s) reading {assembly}: " +
+                                string.Join("; ", report.InspectionErrors.Take(5).Select(e => $"{e.Member}: {e.Message}")));
+        var twins = report.Violations.Where(v => v.Rule == TransitionRule.R3).ToList();
+        using var product = System.Text.Json.JsonDocument.Parse(File.ReadAllText(SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json"));
+        var routed = product.RootElement.GetProperty("coverage").EnumerateArray()
+            .Count(e => e.TryGetProperty("bridged", out var bridged) && bridged.ValueKind == System.Text.Json.JsonValueKind.True);
+        Log.Information("[Swift.Runtime] bridge twins: {Twins} (routed by its plan product: {Routed}), R3 violations: {Violations}",
+            report.Inventory.BridgeTwins, routed, twins.Count);
+        foreach (var violation in twins)
+            Log.Error("  R3 {Member} -> {EntryPoint}: {Reason}", violation.Member, violation.EntryPoint, violation.Reason);
+        if (twins.Count > 0)
+            yield return "Swift.Runtime.dll (R3)";
+        if (routed == 0 || report.Inventory.BridgeTwins != routed)
+        {
+            Log.Error("  the runtime compiles {Twins} bridge twin(s), but its plan product routes {Routed} transition(s) through a bridge: " +
+                      "rerun `nuke swift-bridge-products` and rebuild", report.Inventory.BridgeTwins, routed);
+            yield return "Swift.Runtime.dll (twins)";
+        }
+        foreach (var gap in BridgeTwinPlans.Load(source).RoutingGaps)
+        {
+            Log.Error("  routing {Gap}", gap);
+            yield return $"Swift.Runtime.dll (routing: {gap})";
+        }
     }
 
     static void WriteLedgerCrossCheck(LedgerCrossCheckResult result, AbsolutePath output, string assembly)

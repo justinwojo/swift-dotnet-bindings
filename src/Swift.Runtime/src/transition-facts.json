@@ -1,6 +1,12 @@
 {
   "schema": 1,
   "assembly": "Swift.Runtime",
+  "bridges": {
+    "library": "SwiftBindingsRuntime",
+    "declarations": "Swift/Bridges/SwiftTransitions.declarations.cs",
+    "managed": "Swift/Bridges/SwiftTransitions.g.cs",
+    "native": "../swift/SwiftBindingsRuntimeBridges"
+  },
   "lowering": [
     {
       "type": "Swift.Dictionary<τ_0_0, τ_0_1>.Iterator",

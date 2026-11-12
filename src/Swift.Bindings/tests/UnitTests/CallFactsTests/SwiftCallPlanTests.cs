@@ -852,18 +852,105 @@ public class SwiftCallPlanTests
     internal static SwiftCallPlanSet PlanHandWritten(string table, IEnumerable<string> sources, out SwiftHandWrittenTransitionTable loaded) =>
         SwiftHandWrittenPlans.Plan(Path.Combine(RepoRoot, table), sources, StandardLibraryDatabase(), out loaded);
 
+    internal static string LoweringEvidencePath => Path.Combine(RepoRoot, "build", "baselines", "swift-lowering-evidence.json");
+
+    internal static SwiftHandWrittenProducts ProduceHandWritten(string table, string sources, SwiftLoweringEvidence? evidence) =>
+        SwiftHandWrittenPlans.Produce(Path.Combine(RepoRoot, table), [Path.Combine(RepoRoot, sources)], StandardLibraryDatabase(), evidence);
+
+    private static void AssertCurrent(string path, string expected)
+    {
+        Assert.True(File.Exists(path), $"{path} is missing: run `nuke swift-bridge-products`");
+        Assert.True(expected == File.ReadAllText(path), $"{path} is stale: run `nuke swift-bridge-products`");
+    }
+
     [Theory]
     [InlineData("src/Swift.Runtime/src/transition-facts.json", "src/Swift.Runtime/src")]
     [InlineData("src/Swift.Bindings.Apple/transition-facts.json", "src/Swift.Bindings.Apple/Sources")]
     public void HandWrittenPlanProducts_AreCurrent(string table, string sources)
     {
-        // The committed sidecar is what the bridge gate reads; `nuke swift-bridge-products` rewrites it.
-        var set = PlanHandWritten(table, SwiftHandWrittenPlans.Sources([Path.Combine(RepoRoot, sources)]), out var loaded);
-        var product = Path.Combine(RepoRoot, "build", "baselines", "swift-call-plans", SwiftCallPlanSet.FileName(loaded.Assembly));
+        // The committed products are what the bridge gate reads, what the runtime compiles (its shims)
+        // and what build-runtime.sh links (its bridges); `nuke swift-bridge-products` rewrites them all.
+        var products = ProduceHandWritten(table, sources, SwiftLoweringEvidence.Load(LoweringEvidencePath));
+        var product = Path.Combine(RepoRoot, "build", "baselines", "swift-call-plans", SwiftCallPlanSet.FileName(products.Table.Assembly));
 
-        Assert.True(File.Exists(product), $"{product} is missing: run `nuke swift-bridge-products`");
-        Assert.True(set.ToJson() == File.ReadAllText(product), $"{product} is stale: run `nuke swift-bridge-products`");
-        Assert.Equal(set.Plans.Select(p => p.Symbol), SwiftCallPlanSet.Read(product).Plans.Select(p => p.Symbol));
+        AssertCurrent(product, products.Plans.ToJson());
+        Assert.Equal(products.Plans.Plans.Select(p => p.Symbol), SwiftCallPlanSet.Read(product).Plans.Select(p => p.Symbol));
+        if (products.Table.Bridges is { } bridges)
+        {
+            var directory = Path.GetDirectoryName(Path.Combine(RepoRoot, table))!;
+            AssertCurrent(Path.Combine(directory, bridges.Managed), Assert.IsType<string>(products.Managed));
+            Assert.Equal(SwiftBridgeRouting.Architectures.Order(), products.Native.Keys.Order());
+            foreach (var (architecture, source) in products.Native)
+                AssertCurrent(Path.Combine(directory, bridges.NativeFile(architecture)), source);
+        }
+    }
+
+    /// <summary>
+    /// The runtime routes all four of its Swift-convention imports through SBSR_ bridges in its own
+    /// framework: the compiled shims hold no Swift-convention import, each twin imports its bridge
+    /// from SwiftBindingsRuntime under the C convention, and each architecture's bridge assembly
+    /// defines every routed bridge.
+    /// </summary>
+    [Fact]
+    public void RuntimeTable_RoutesEveryTransitionThroughItsBridge()
+    {
+        var products = ProduceHandWritten("src/Swift.Runtime/src/transition-facts.json", "src/Swift.Runtime/src",
+            SwiftLoweringEvidence.Load(LoweringEvidencePath));
+
+        Assert.Equal(4, products.Routing.Routes.Length);
+        Assert.All(products.Routing.Routes, r => Assert.True(r.IsBridged, $"{r.Member}: {r.Refusal}"));
+        var planned = products.Plans.Coverage.Where(e => e.Status == SwiftPlanStatus.Planned).ToList();
+        Assert.Equal(4, planned.Count);
+        Assert.All(planned, e => Assert.True(e.Bridged == true, $"{e.Member} {e.EntryPoint}: {e.BridgeRefusal ?? e.Evidence}"));
+        var managed = Assert.IsType<string>(products.Managed);
+        Assert.DoesNotContain("CallConvSwift", managed);
+        Assert.DoesNotContain("extern ", managed);
+        foreach (var symbol in planned.Select(e => e.Symbol!))
+        {
+            Assert.Contains($"LibraryImport(\"SwiftBindingsRuntime\", EntryPoint = \"{symbol}\")", managed);
+            foreach (var (architecture, source) in products.Native)
+                Assert.True(source.Contains($".globl _{symbol}", StringComparison.Ordinal), $"{architecture} does not define {symbol}");
+        }
+        // The managed output is no input: the next generation reads only the declarations.
+        Assert.DoesNotContain(products.Plans.Coverage, e => e.Member.Contains("__SBSR_", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Fail-closed: with evidence that proves nothing, every runtime import is compiled exactly as
+    /// declared (a Swift-convention DllImport), no bridge is emitted, and the sidecar says why.
+    /// </summary>
+    [Fact]
+    public void RuntimeTable_WithoutProof_KeepsEveryDirectImport()
+    {
+        var products = ProduceHandWritten("src/Swift.Runtime/src/transition-facts.json", "src/Swift.Runtime/src", SwiftLoweringEvidence.Empty);
+
+        Assert.False(products.Routing.BridgesAny);
+        Assert.All(products.Plans.Coverage, e => Assert.False(e.Executable));
+        var managed = Assert.IsType<string>(products.Managed);
+        Assert.Equal(4, managed.Split("CallConvSwift").Length - 1);
+        Assert.Equal(4, managed.Split("public static extern void").Length - 1);
+        Assert.DoesNotContain("SBSR_", managed);
+        Assert.All(products.Native.Values, source => Assert.DoesNotContain(".globl", source));
+    }
+
+    [Fact]
+    public void RoutingTable_WithoutEvidence_IsRefused_RatherThanWrittenUnrouted()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"hand-written-{Guid.NewGuid():N}");
+        try
+        {
+            var code = SwiftHandWrittenPlans.Run(Path.Combine(RepoRoot, "src", "Swift.Runtime", "src", "transition-facts.json"),
+                [Path.Combine(RepoRoot, "src", "Swift.Runtime", "src")], output, evidencePath: null,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+            Assert.Equal(1, code);
+            Assert.False(Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any());
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+                Directory.Delete(output, recursive: true);
+        }
     }
 
     private static void AssertEveryTransitionPlanned(SwiftCallPlanSet set, SwiftHandWrittenTransitionTable table, int expected)

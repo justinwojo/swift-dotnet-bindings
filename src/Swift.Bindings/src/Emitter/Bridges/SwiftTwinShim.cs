@@ -238,7 +238,13 @@ internal static class SwiftTwinShim
         return null;
     }
 
-    /// <summary>Why the import is not one the shim reproduces, or null: a source-generated, partial, non-generic static import with only its import and convention attributes.</summary>
+    /// <summary>
+    /// Why the import is not one the shim reproduces, or null: a non-generic static import with only its
+    /// import and convention attributes, either source-generated (a partial <c>LibraryImport</c>, as the
+    /// generator emits) or a plain <c>extern</c> <c>DllImport</c> naming nothing but its entry point (as
+    /// the runtime's hand-written imports do). A shim replaces either the same way; its twin is always a
+    /// partial <c>LibraryImport</c>, so the type declaring an extern import must be partial.
+    /// </summary>
     private static string? Shape(MethodDeclarationSyntax method, out AttributeSyntax import, out List<AttributeListSyntax> returnLists)
     {
         import = null!;
@@ -247,9 +253,11 @@ internal static class SwiftTwinShim
             return "the import is generic";
         if (method.Body is not null || method.ExpressionBody is not null)
             return "the import has a body";
-        if (!method.Modifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword)) || !method.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword))
-            || method.Modifiers.Any(m => m.IsKind(SyntaxKind.ExternKeyword)))
-            return "the import is not a static partial method";
+        bool isStatic = method.Modifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword));
+        bool isPartial = method.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword));
+        bool isExtern = method.Modifiers.Any(m => m.IsKind(SyntaxKind.ExternKeyword));
+        if (!isStatic || isPartial == isExtern)
+            return "the import is neither a static partial nor a static extern method";
         AttributeSyntax? found = null;
         foreach (var list in method.AttributeLists)
         {
@@ -260,14 +268,25 @@ internal static class SwiftTwinShim
             }
             foreach (var attribute in list.Attributes)
             {
-                if (SwiftTransitionSyntax.IsAttribute(attribute, "LibraryImport"))
+                if (SwiftTransitionSyntax.IsAttribute(attribute, isExtern ? "DllImport" : "LibraryImport"))
                     found = attribute;
                 else if (!SwiftTransitionSyntax.IsAttribute(attribute, "UnmanagedCallConv"))
                     return $"the import carries the attribute {attribute.Name}";
             }
         }
         if (found is null)
-            return "the import is not a LibraryImport";
+            return isExtern ? "the extern import is not a DllImport" : "the import is not a LibraryImport";
+        if (isExtern)
+        {
+            // A DllImport's other settings (calling convention, character set, exact spelling, ...) have
+            // no LibraryImport spelling the twin could keep, and a Swift import needs none of them.
+            if (found.ArgumentList?.Arguments.FirstOrDefault(a => a.NameEquals is { } n && n.Name.Identifier.ValueText != "EntryPoint") is { } setting)
+                return $"the DllImport sets {setting.NameEquals!.Name.Identifier.ValueText}, which the twin does not reproduce";
+            if (returnLists.Count > 0)
+                return "the extern import marshals its return value";
+            if (method.Parent is not TypeDeclarationSyntax { } type || !type.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
+                return "the extern import's type is not partial, so it cannot declare the twin";
+        }
         import = found;
         foreach (var parameter in method.ParameterList.Parameters)
         {
@@ -303,7 +322,7 @@ internal static class SwiftTwinShim
 
     private static string ShimModifiers(MethodDeclarationSyntax method)
     {
-        var modifiers = method.Modifiers.Where(m => !m.IsKind(SyntaxKind.PartialKeyword)).Select(m => m.Text).ToList();
+        var modifiers = method.Modifiers.Where(m => !m.IsKind(SyntaxKind.PartialKeyword) && !m.IsKind(SyntaxKind.ExternKeyword)).Select(m => m.Text).ToList();
         if (!modifiers.Contains("unsafe"))
             modifiers.Add("unsafe");
         return string.Join(" ", modifiers);

@@ -65,6 +65,12 @@ public sealed record SwiftHandWrittenTransitionTable
 
     public required ImmutableArray<SwiftHandWrittenTransition> Transitions { get; init; }
 
+    /// <summary>
+    /// Where the assembly's bridges are built, when its executable transitions are routed through them;
+    /// null for an assembly whose transitions are only planned.
+    /// </summary>
+    public SwiftHandWrittenBridges? Bridges { get; init; }
+
     public static SwiftHandWrittenTransitionTable Load(string path)
     {
         var table = JsonSerializer.Deserialize(File.ReadAllText(path), SwiftHandWrittenTransitionJsonContext.Default.SwiftHandWrittenTransitionTable)
@@ -103,6 +109,22 @@ public sealed record SwiftHandWrittenTransitionTable
     /// <summary><paramref name="inner"/>, with this table's overrides answered first.</summary>
     public ISwiftValueLowering LoweringOver(ISwiftValueLowering inner) =>
         new SwiftOverriddenLowering(inner, Lowering.ToDictionary(o => o.Type, o => o.Answer(), StringComparer.Ordinal));
+}
+
+/// <summary>
+/// How a hand-written assembly routes its executable transitions through bridges, every path relative
+/// to the table's own directory. The Swift-convention imports are declared in
+/// <see cref="Declarations"/>, a C# file the assembly does not compile; the bridge products are written
+/// from it by the same routing a generated binding goes through: <see cref="Managed"/>, the compiled
+/// C# (each bridged import as its shim and Cdecl twin, any other import as it was declared), and
+/// <see cref="Native"/><c>.{arm64,x86_64}.s</c>, the bridges the assembly's native library links.
+/// </summary>
+/// <param name="Library">The native library the twins import from: the one that links the bridges.</param>
+public sealed record SwiftHandWrittenBridges(string Library, string Declarations, string Managed, string Native)
+{
+    /// <summary>The bridge assembly file of <paramref name="architecture"/>, relative like <see cref="Native"/>.</summary>
+    public string NativeFile(SwiftArchitecture architecture) =>
+        $"{Native}.{(architecture == SwiftArchitecture.Arm64 ? "arm64" : "x86_64")}.s";
 }
 
 /// <summary>A lowering that answers some types by hand and asks another for the rest.</summary>

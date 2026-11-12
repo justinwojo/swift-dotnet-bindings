@@ -55,6 +55,9 @@
         "SeedWrapperStripBaseline",
         "SmokeTest",
         "SurfaceAccounting",
+        "SwiftBridgeGate",
+        "SwiftBridgeProducts",
+        "SwiftLoweringOracle",
         "SwiftTransitionGate",
         "Test",
         "ToolchainProfileTests",
@@ -477,7 +480,7 @@
         },
         "TransitionGatePlanSource": {
           "type": "string",
-          "description": "Swift transition gate: the build-tree binding-report.json holding the bridge plans (optional; the plan-dependent rules read it)"
+          "description": "Swift transition gate: a directory of *.swift-call-plans.json sidecars rule R3 reads (default: the sidecars beside each ledgered assembly's C#; required for any other assembly with bridge twins)"
         },
         "TransitionGateReferenceDir": {
           "type": "array",

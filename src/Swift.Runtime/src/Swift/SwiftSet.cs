@@ -886,7 +886,10 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
 // and its register layout is recorded there and in the C wrapper's own
 // declaration. Adding a direct `SwiftSelf`-carrying P/Invoke back here puts
 // the member back in reach of the register clobber those shims exist to avoid.
-internal static class SwiftSetPInvokes
+//
+// MakeIterator is declared in Bridges/SwiftTransitions.declarations.cs and compiled from the bridge
+// products in Bridges/SwiftTransitions.g.cs.
+internal static partial class SwiftSetPInvokes
 {
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sShMa")]
@@ -910,13 +913,6 @@ internal static class SwiftSetPInvokes
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh8IteratorVMa")]
     public static extern TypeMetadata PInvoke_getIteratorMetadata(TypeMetadataRequest request, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
-
-    // Set.makeIterator(): $sSh12makeIteratorSh0B0Vyx_GyF
-    // SIL: (@owned Set<Element>) -> @owned Set<Element>.Iterator
-    // Non-mutating: self as handle, generic context as element metadata + witness table
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh12makeIteratorSh0B0Vyx_GyF")]
-    public static extern void MakeIterator(SwiftIndirectResult result, IntPtr handle, TypeMetadata elementMetadata, ProtocolWitnessTable witnessTable);
 }
 
 /// <summary>

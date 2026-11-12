@@ -48,6 +48,11 @@
     <IncludeSwiftBindingsRuntimeNative>true</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The bridge declarations are the input of `nuke swift-bridge-products`, not code: the
+         assembly compiles what that target writes from them, Swift/Bridges/SwiftTransitions.g.cs. -->
+    <Compile Remove="Swift/Bridges/*.declarations.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="Swift/**/*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
