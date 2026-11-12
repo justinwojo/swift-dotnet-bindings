@@ -1195,17 +1195,14 @@ namespace BindingsGeneration
                         // Provenance-aware call label (canonical builder) — preserves labels that
                         // genuinely begin with '_' (e.g. _self) and backtick-escapes keywords.
                         var label = CdeclParamMapper.BuildSwiftCallArgLabel(p);
-                        return $"{label}{ClosureEmitter.GetAdaptedClosureVarName(p.Name)}";
+                        return $"{label}{SwiftClosureArgument.Render(ClosureEmitter.GetAdaptedClosureVarName(p.Name), _env.ClosureHandler.GetClosureTypeSpec(p))}";
                     }
                     // Bridged non-async closure param: pass the adapter rebuilt from the
                     // (funcPtr, context) pair, never the raw pointers.
                     if (syncClosureBindingNames.TryGetValue(p, out var syncClosureCallName))
                     {
                         var label = CdeclParamMapper.BuildSwiftCallArgLabel(p);
-                        // @autoclosure params forward the value by calling the adapted closure.
-                        var autoClosureSuffix =
-                            _env.ClosureHandler.GetClosureTypeSpec(p)!.IsAutoClosure ? "()" : "";
-                        return $"{label}_adapted_{syncClosureCallName}{autoClosureSuffix}";
+                        return $"{label}{SwiftClosureArgument.Render($"_adapted_{syncClosureCallName}", _env.ClosureHandler.GetClosureTypeSpec(p))}";
                     }
                     // For non-frozen params, use the captured value
                     if (nonFrozenParams.Any(nfp => ReferenceEquals(nfp, p)))

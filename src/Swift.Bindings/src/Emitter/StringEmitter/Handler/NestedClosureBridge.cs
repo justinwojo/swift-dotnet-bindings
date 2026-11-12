@@ -756,9 +756,10 @@ public static class NestedClosureBridge
         // the box into the stored closure so Swift ARC tracks its lifetime — when Swift releases
         // the closure, the box's deinit upcalls the C# free callback.
         var captureList = nc.IsEffectivelyEscaping ? $"[{synth.Box[nc.Index]}] " : "";
-        swiftWriter.WriteLine($"    {returnPrefix}{calleeExpr}({prefixStr}{callLabel}{{ {captureList}{outerParamStr} in");
+        var (beforeClosure, afterClosure) = SwiftClosureArgument.Invocation(nc.OuterSpec);
+        swiftWriter.WriteLine($"    {returnPrefix}{calleeExpr}({prefixStr}{callLabel}{beforeClosure}{{ {captureList}{outerParamStr} in");
         EmitOuterAdapterBody(swiftWriter, nc, multiOuter, indent: "        ", env, synth);
-        swiftWriter.WriteLine($"    }}){returnSuffix}");
+        swiftWriter.WriteLine($"    }}{afterClosure}){returnSuffix}");
     }
 
     /// <summary>
@@ -807,9 +808,10 @@ public static class NestedClosureBridge
 
                 // Escaping outer: capture `_box_N` to track its lifetime via Swift ARC.
                 var captureList = nc.IsEffectivelyEscaping ? $"[{synth.Box[nc.Index]}] " : "";
-                swiftWriter.WriteLine($"        {label}{{ {captureList}{outerParamStr} in");
+                var (beforeClosure, afterClosure) = SwiftClosureArgument.Invocation(nc.OuterSpec);
+                swiftWriter.WriteLine($"        {label}{beforeClosure}{{ {captureList}{outerParamStr} in");
                 EmitOuterAdapterBody(swiftWriter, nc, multiOuter: true, indent: "            ", env, synth);
-                swiftWriter.WriteLine($"        }}{trailingComma}");
+                swiftWriter.WriteLine($"        }}{afterClosure}{trailingComma}");
             }
             else if (passableByArg.TryGetValue(arg, out var passable))
             {

@@ -601,7 +601,7 @@ public static partial class CrossModuleExtensionEmitter
             var argDecl = method.CSSignature[i];
             var p = parameters[i - 1];
             var valueExpr = p.Kind == ClassTrampolineParamKind.Closure
-                ? p.SwiftBindingName
+                ? SwiftClosureArgument.Render(p.SwiftBindingName, p.TypeSpec)
                 : ConvertClosureTrampolineCdeclArg(p);
             callArgsForMethod.Add($"{CdeclParamMapper.BuildSwiftCallArgLabel(argDecl)}{valueExpr}");
         }

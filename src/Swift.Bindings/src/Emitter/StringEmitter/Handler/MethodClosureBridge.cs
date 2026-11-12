@@ -869,7 +869,7 @@ public static class MethodClosureBridge
                         : ci.IsEffectivelyEscaping
                             ? $"{{ {captureList}in {observeBox}{cdeclCall} }}"
                             : $"{{ {cdeclCall} }}";
-                    allCallArgs.Add($"{callLabel}{closureBody}");
+                    allCallArgs.Add($"{callLabel}{SwiftClosureArgument.Render(closureBody, ci.Spec)}");
                 }
                 else if (passableByArg.TryGetValue(arg, out var passable))
                 {
@@ -1248,10 +1248,7 @@ public static class MethodClosureBridge
             {
                 var callLabel = GetSwiftArgLabel(ci.Arg);
                 var adapterName = synth.Adapter[ci.Index];
-                // An @autoclosure parameter takes its result, not a function: invoke the adapter
-                // and Swift wraps the call back into the autoclosure, still evaluated on demand.
-                var autoclosureSuffix = ci.Spec.IsAutoClosure ? "()" : "";
-                allCallArgs.Add($"{callLabel}{adapterName}{autoclosureSuffix}");
+                allCallArgs.Add($"{callLabel}{SwiftClosureArgument.Render(adapterName, ci.Spec)}");
             }
             else if (passableByArg.TryGetValue(arg, out var passable))
             {

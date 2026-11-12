@@ -1164,11 +1164,6 @@ public static class DefaultParameterOverloadEmitter
             // begin with '_' (e.g. _self) and backtick-escapes keywords.
             var argStr = CdeclParamMapper.BuildSwiftCallArgLabel(arg);
 
-            // @autoclosure params are received as regular closures in the wrapper,
-            // but the original method expects a bare expression. Invoke with () so
-            // Swift can re-wrap the result in @autoclosure at the call site.
-            var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
-
             // Forward the wrapper's own `inout` parameter to the original method with `&` —
             // required by Swift at every call site passing an lvalue to an inout parameter
             // (matches the `inout` prefix added to the declaration above). The widened-Optional
@@ -1178,7 +1173,9 @@ public static class DefaultParameterOverloadEmitter
             var refPrefix = (arg.IsInOut && !isWidened) ? "&" : "";
 
             // Call args use native param names — @_silgen_name preserves original ABI
-            callArgs.Add(argStr + refPrefix + valueRef + autoclosureSuffix);
+            // The shim receives an autoclosure parameter as a plain closure; SwiftClosureArgument
+            // forwards its value for Swift to wrap back into the autoclosure.
+            callArgs.Add(argStr + SwiftClosureArgument.Render(refPrefix + valueRef, arg.SwiftTypeSpec));
         }
         var callArgString = string.Join(", ", callArgs);
 
@@ -1600,16 +1597,13 @@ public static class DefaultParameterOverloadEmitter
             // begin with '_' (e.g. _self) and backtick-escapes keywords.
             var argStr = CdeclParamMapper.BuildSwiftCallArgLabel(arg);
 
-            // @autoclosure params are received as regular closures in the wrapper,
-            // but the original method expects a bare expression. Invoke with () so
-            // Swift can re-wrap the result in @autoclosure at the call site.
-            var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
-
             // Same `&`-forwarding requirement as EmitSwiftWrapper above; same widened-Optional
             // exclusion (GetDerefCode's local is a `let`, so `&{name}Val` would not compile).
             var refPrefix = (arg.IsInOut && !isWidened) ? "&" : "";
 
-            callArgs.Add(argStr + refPrefix + valueRef + autoclosureSuffix);
+            // The shim receives an autoclosure parameter as a plain closure; SwiftClosureArgument
+            // forwards its value for Swift to wrap back into the autoclosure.
+            callArgs.Add(argStr + SwiftClosureArgument.Render(refPrefix + valueRef, arg.SwiftTypeSpec));
         }
         var callArgString = string.Join(", ", callArgs);
 

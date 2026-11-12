@@ -403,11 +403,9 @@ public static class ClosedConstrainedClosureEmitter
         var callArgs = new List<string>();
         foreach (var p in plan.Params)
         {
-            // An @autoclosure parameter takes its result, not a function: invoke the adapter and
-            // Swift wraps the call back into the autoclosure.
-            var value = !p.IsClosure ? p.Identifier
-                : p.Closure!.IsAutoClosure ? $"_adapted_{p.Identifier}()"
-                : $"_adapted_{p.Identifier}";
+            var value = p.IsClosure
+                ? SwiftClosureArgument.Render($"_adapted_{p.Identifier}", p.Closure)
+                : p.Identifier;
             callArgs.Add(p.CallLabel == null ? value : $"{p.CallLabel}: {value}");
         }
         var swiftCallName = NameProvider.ParserNameToSwift(plan.Method);

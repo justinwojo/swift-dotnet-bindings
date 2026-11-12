@@ -161,7 +161,7 @@ public static class ProtocolExtensionClosureBridge
         if (closureReturnIsBool)
         {
             // Bool return: extract Func<IntPtr..., bool>, invoke, convert to byte
-            var funcTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(_ => "IntPtr")) + ", bool";
+            var funcTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(_ => "IntPtr").Append("bool"));
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -429,7 +429,7 @@ public static class ProtocolExtensionClosureBridge
         if (closureReturnIsBool)
         {
             // Func<IntPtr..., bool> inner
-            var innerTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(_ => "IntPtr")) + ", bool";
+            var innerTypeArgs = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(_ => "IntPtr").Append("bool"));
             csWriter.WriteLine($"Func<{innerTypeArgs}> __inner = ({string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"IntPtr __p{i}"))}) =>");
             csWriter.WriteLine("{");
             csWriter.Indent++;

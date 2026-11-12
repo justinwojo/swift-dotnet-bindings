@@ -781,7 +781,9 @@ public static class ExistentialBypassEmitter
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords. Label and value (the
             // escaped binding) are independent.
-            var argStr = $"{CdeclParamMapper.BuildSwiftCallArgLabel(arg)}{privateName}";
+            // The wrapper declares a closure parameter as a plain function; SwiftClosureArgument
+            // forwards an autoclosure's value. Any other binding renders unchanged.
+            var argStr = $"{CdeclParamMapper.BuildSwiftCallArgLabel(arg)}{SwiftClosureArgument.Render(privateName, arg.SwiftTypeSpec)}";
             callArgs.Add(argStr);
         }
         var callArgString = string.Join(", ", callArgs);
@@ -1153,7 +1155,9 @@ public static class ExistentialBypassEmitter
             // Provenance-aware call label (canonical builder) — preserves labels that genuinely
             // begin with '_' (e.g. _self) and backtick-escapes keywords. Label and value (the
             // escaped binding) are independent.
-            var argStr = $"{CdeclParamMapper.BuildSwiftCallArgLabel(arg)}{privateName}";
+            // The wrapper declares a closure parameter as a plain function; SwiftClosureArgument
+            // forwards an autoclosure's value. Any other binding renders unchanged.
+            var argStr = $"{CdeclParamMapper.BuildSwiftCallArgLabel(arg)}{SwiftClosureArgument.Render(privateName, arg.SwiftTypeSpec)}";
             callArgs.Add(argStr);
         }
         var callArgString = string.Join(", ", callArgs);

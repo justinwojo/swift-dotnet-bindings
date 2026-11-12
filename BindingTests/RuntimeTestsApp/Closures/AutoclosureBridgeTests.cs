@@ -59,6 +59,44 @@ public class AutoclosureBridgeTests : TestBase
         AssertFalse(handlerCalled, "the handler was not called");
     }
 
+    public void TestMethodClosureBridge_InlineAutoclosureReachesItsOwnOverload()
+    {
+        // The generic-class handler argument lowers directly, so the bridge writes the closures as
+        // literals in the call. A call bound to the function-taking sibling answers -1.
+        var host = new AutoclosureBridgeHost();
+        int evaluations = 0;
+        string? reported = null;
+
+        var outcome = host.Pick(() => { evaluations++; return true; }, box => { reported = box.Item.Name; });
+
+        AssertEqual(7, outcome, "Pick ran the autoclosure overload and returned the omitted default code");
+        AssertEqual(1, evaluations, "the condition was evaluated once");
+        AssertEqual("held", reported, "the handler received the box");
+    }
+
+    public void TestMethodClosureBridge_InlineAutoclosureFalseCondition()
+    {
+        var host = new AutoclosureBridgeHost();
+        string? reported = null;
+
+        var outcome = host.Pick(() => false, box => { reported = box.Item.Name; });
+
+        AssertEqual(0, outcome, "a false condition returns 0");
+        AssertEqual("failed", reported, "the handler received the box");
+    }
+
+    public void TestProtocolExtension_AutoclosureReachesItsOwnOverload()
+    {
+        // A call bound to the function-taking sibling records -1.
+        var host = new AutoclosureGateHost();
+
+        host.Admit(() => true);
+        AssertEqual(1, host.Admitted, "Admit ran the autoclosure overload with a true condition");
+
+        host.Admit(() => false);
+        AssertEqual(0, host.Admitted, "Admit ran the autoclosure overload with a false condition");
+    }
+
     public void TestGenericClosureBridge_AutoclosureReturnsItsValue()
     {
         var host = new AutoclosureBridgeHost();
