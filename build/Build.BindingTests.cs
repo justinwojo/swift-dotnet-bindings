@@ -1129,9 +1129,9 @@ partial class Build
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || InterpIdentity) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || InterpIdentity || BridgeConsumer) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer/--interp-identity and --compile-only cannot be "
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer/--interp-identity/--bridge-consumer and --compile-only cannot be "
                     + "combined: --compile-only is the whole-test-lib compile-check gate, while each opt-in leg builds and "
                     + "asserts its own focused fixture and returns early. Pass exactly one.");
 
@@ -1140,9 +1140,9 @@ partial class Build
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken, InterpIdentity }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken, InterpIdentity, BridgeConsumer }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, --activitykit-push-token, and --interp-identity "
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, --activitykit-push-token, --interp-identity, and --bridge-consumer "
                     + "cannot be combined: each requires its own focused execution path. Pass exactly one.");
 
             // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
@@ -1166,6 +1166,18 @@ partial class Build
                     throw new Exception("--interp-identity runs its fixed iOS-simulator and Mac Catalyst cell matrix; " +
                         "it cannot be combined with --device, --macos, --tvos or --mono-aot. Select cells with --interp-identity-cells.");
                 RunInterpIdentityHarness();
+                return;
+            }
+
+            // --bridge-consumer: the opt-in .NET 11 packaged Debug consumer of the Swift bridges. It
+            // packs its own feed and fixture binding and runs one Debug app on the simulator and/or
+            // a device (simulator when neither is given). Focused + exclusive.
+            if (BridgeConsumer)
+            {
+                if (Macos || MacosX64 || Catalyst || CatalystX64 || Tvos || MonoAot)
+                    throw new Exception("--bridge-consumer runs an iOS app on the simulator and/or a device; " +
+                        "it cannot be combined with --macos, --catalyst, --tvos or --mono-aot.");
+                RunBridgeConsumerLeg(sim: Sim || !Device, device: Device);
                 return;
             }
 
@@ -1407,7 +1419,7 @@ partial class Build
     {
         if (SkipBuild)
             return "and --skip-build contradict each other: run --build-only first, then --skip-build.";
-        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer)
+        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || BridgeConsumer)
             return "builds the iOS Simulator RuntimeTestsApp; it cannot be combined with --compile-only or an opt-in focused leg.";
         if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
             return "is iOS Simulator only; drop the other platform flags.";

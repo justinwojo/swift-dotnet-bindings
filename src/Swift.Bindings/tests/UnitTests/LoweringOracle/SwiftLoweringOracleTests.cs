@@ -224,14 +224,19 @@ public class SwiftLoweringOracleTests
         var target = SwiftOracleTarget.ByTriple(triple);
         var scratch = Path.Combine(manifest.GetProperty("scratch").GetString()!, triple);
 
-        var dependency = SwiftLoweringOracle.Compile(manifest.GetProperty("dependencyModule").GetString()!, Strings("dependency"), target, Path.Combine(scratch, "dependency"));
+        // A one-module corpus (the packaged-consumer fixture) names no dependency.
+        var dependency = manifest.TryGetProperty("dependencyModule", out var dependencyModule)
+            ? SwiftLoweringOracle.Compile(dependencyModule.GetString()!, Strings("dependency"), target, Path.Combine(scratch, "dependency"))
+            : null;
         var main = SwiftLoweringOracle.Compile(manifest.GetProperty("mainModule").GetString()!, Strings("main"), target, Path.Combine(scratch, "main"),
-            new[] { "-I", Path.Combine(scratch, "dependency") });
-        var reports = new[]
-        {
-            SwiftLoweringOracle.Compare(dependency, triple),
-            SwiftLoweringOracle.Compare(main, triple, new[] { dependency }),
-        };
+            dependency is null ? null : new[] { "-I", Path.Combine(scratch, "dependency") });
+        var reports = dependency is null
+            ? new[] { SwiftLoweringOracle.Compare(main, triple) }
+            : new[]
+            {
+                SwiftLoweringOracle.Compare(dependency, triple),
+                SwiftLoweringOracle.Compare(main, triple, new[] { dependency }),
+            };
 
         Directory.CreateDirectory(reportDirectory);
         var text = new System.Text.StringBuilder($"toolchain: {SwiftLoweringOracle.ToolchainVersion}\ntarget: {triple}\n");
@@ -253,12 +258,12 @@ public class SwiftLoweringOracleTests
         {
             var wrappers = manifest.GetProperty("wrappers");
             // The wrappers import the modules' public interfaces, as they do a shipped framework's.
-            var includes = new[]
-            {
-                "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "dependency")),
-                "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "main")),
-            };
-            var modules = new List<SwiftIrModule> { dependency.Ir, main.Ir };
+            var includes = new List<string> { "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "main")) };
+            if (dependency is not null)
+                includes.InsertRange(0, new[] { "-I", SwiftLoweringOracle.InterfaceDirectory(Path.Combine(scratch, "dependency")) });
+            var modules = new List<SwiftIrModule> { main.Ir };
+            if (dependency is not null)
+                modules.Insert(0, dependency.Ir);
             foreach (var wrapper in wrappers.EnumerateObject().OrderBy(w => w.Name, StringComparer.Ordinal))
                 modules.Add(SwiftLoweringOracle.CompileIr(wrapper.Name, new[] { wrapper.Value.GetString()! }, target,
                     Path.Combine(scratch, "wrapper-" + wrapper.Name), includes));

@@ -80,7 +80,8 @@ partial class Build
         {
             "pack" => "p",
             "direct" => "d",
-            _ => throw new ArgumentOutOfRangeException(nameof(leg), leg, "Expected pack or direct.")
+            "bridge" => "b",
+            _ => throw new ArgumentOutOfRangeException(nameof(leg), leg, "Expected pack, direct or bridge.")
         };
         int laneCode = (lane.IsNet11 ? 4 : 0)
             + (lane.Configuration == "Release" ? 2 : 0)
@@ -157,9 +158,17 @@ partial class Build
     // restore from. A trimmed mirror of PackGate steps 1–3 (publish generator into the
     // SDK tools dir, pack the three core packages, clear the SwiftBindings.* NuGet cache so
     // a stale same-version entry from a prior run can't shadow these).
-    void BuildMixedPackFeed(AbsolutePath nupkgDir, VersionScope scope)
+    void BuildMixedPackFeed(AbsolutePath nupkgDir, VersionScope scope) =>
+        BuildLocalPackageFeed(nupkgDir, scope, "mixed-pack", MixedPackLaneVersion, MixedPackLaneAppleVersion,
+            $"mixedpackfixture.{MixedPackModule.ToLowerInvariant()}");
+
+    // The throwaway-version Runtime + SDK + Apple feed a packaged-consumer leg restores from, shared by
+    // --mixed-pack and --bridge-consumer. Also evicts those versions, and the leg's own fixture
+    // package, from the global NuGet cache so a stale same-version entry cannot shadow them.
+    void BuildLocalPackageFeed(AbsolutePath nupkgDir, VersionScope scope, string leg, string version, string appleVersion,
+        string fixturePackageId)
     {
-        Log.Information("=== mixed-pack: building local feed at {Version} ===", MixedPackLaneVersion);
+        Log.Information("=== {Leg}: building local feed at {Version} ===", leg, version);
 
         Log.Information("  [1/3] Publishing generator into SDK tools");
         DotNetPublish(s => scope.Apply(s
@@ -188,14 +197,19 @@ partial class Build
         Log.Information("  [3/3] Clearing NuGet cache for throwaway-version packages");
         ProcessTasks.StartProcess("dotnet", "nuget locals http-cache --clear", logOutput: false)
             .AssertWaitForExit();
+        EvictThrowawayPackages(version, appleVersion, fixturePackageId);
+    }
+
+    static void EvictThrowawayPackages(string version, string appleVersion, string fixturePackageId)
+    {
         var nugetCacheDir = (AbsolutePath)(Environment.GetEnvironmentVariable("NUGET_PACKAGES")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages"));
         foreach (var (pkg, ver) in new[]
         {
-            ("swiftbindings.runtime", MixedPackLaneVersion),
-            ("swiftbindings.sdk", MixedPackLaneVersion),
-            ("swiftbindings.apple", MixedPackLaneAppleVersion),
-            ($"mixedpackfixture.{MixedPackModule.ToLowerInvariant()}", MixedPackLaneVersion),
+            ("swiftbindings.runtime", version),
+            ("swiftbindings.sdk", version),
+            ("swiftbindings.apple", appleVersion),
+            (fixturePackageId.ToLowerInvariant(), version),
         })
         {
             var pkgDir = nugetCacheDir / pkg / ver;
@@ -404,7 +418,6 @@ partial class Build
         AbsolutePath scratch, AbsolutePath nupkgDir, AbsolutePath fixtureOut,
         string module, string probeClass, bool onDevice)
     {
-        var nativeAot = onDevice && !RuntimeLane.DeviceCoreClr;
         var config = RuntimeLane.BuildConfiguration(onDevice, false);
         var label = RuntimeLane.IsNet11
             ? $"{(onDevice ? "device" : "simulator")} ({RuntimeLane.Engine(onDevice)}, {config})"
@@ -417,12 +430,31 @@ partial class Build
         WriteMixedPackConsumerApp(appDir, module, probeClass, rid, RuntimeLane, MixedPackLaneVersion);
         File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureOut));
 
-        Log.Information("=== mixed-pack ({Label}): building single-PackageReference consumer ===", label);
+        var (_, result) = BuildAndLaunchPackageConsumer(appDir, MixedPackAppName, MixedPackBundleId, onDevice, "--mixed-pack", label);
+
+        Log.Information("");
+        Log.Information("=== CONSUMER OUTPUT ({Label}) ===", label);
+        Log.Information(result.Output);
+
+        AssertLiveRuntimeLane(result, onDevice);
+        AssertMixedPackConsumerResult(result, label);
+    }
+
+    // Builds (simulator, or a CoreCLR device app) or NativeAOT-publishes (device) a scratch
+    // single-PackageReference consumer, then installs and launches it. Shared by the packaged-consumer
+    // legs; the caller writes the app and judges its output.
+    (AbsolutePath AppPath, LaunchResult Result) BuildAndLaunchPackageConsumer(
+        AbsolutePath appDir, string appName, string bundleId, bool onDevice, string leg, string label)
+    {
+        var nativeAot = onDevice && !RuntimeLane.DeviceCoreClr;
+        var config = RuntimeLane.BuildConfiguration(onDevice, false);
+        var rid = onDevice ? "ios-arm64" : "iossimulator-arm64";
+        Log.Information("=== {Leg} ({Label}): building single-PackageReference consumer ===", leg, label);
         if (nativeAot)
         {
             Log.Information("    NativeAOT publish — this may take several minutes (ILCompiler + code signing)...");
             DotNetPublish(s => s
-                .SetProject(appDir / $"{MixedPackAppName}.csproj")
+                .SetProject(appDir / $"{appName}.csproj")
                 .SetConfiguration(config)
                 .SetRuntime("ios-arm64")
                 .SetVerbosity(DotNetVerbosity.quiet));
@@ -430,7 +462,7 @@ partial class Build
         else
         {
             DotNetBuild(s => s
-                .SetProjectFile(appDir / $"{MixedPackAppName}.csproj")
+                .SetProjectFile(appDir / $"{appName}.csproj")
                 .SetConfiguration(config)
                 .EnableNoLogo()
                 .SetVerbosity(DotNetVerbosity.quiet));
@@ -441,7 +473,7 @@ partial class Build
         // search the bin tree for the bundle matching this config + rid.
         var publishSegment = $"{Path.DirectorySeparatorChar}publish{Path.DirectorySeparatorChar}";
         var candidates = Directory
-            .GetDirectories(appDir / "bin", $"{MixedPackAppName}.app", SearchOption.AllDirectories)
+            .GetDirectories(appDir / "bin", $"{appName}.app", SearchOption.AllDirectories)
             .Where(d => d.Contains(config, StringComparison.Ordinal) && d.Contains(rid, StringComparison.Ordinal))
             // Deterministic selection: on device prefer the published bundle (the signed,
             // NativeAOT-compiled output) over a stray build-dir copy; then a stable path
@@ -451,13 +483,13 @@ partial class Build
             .ThenBy(d => d, StringComparer.Ordinal)
             .ToList();
         var appPath = candidates.FirstOrDefault()
-            ?? throw new Exception($"--mixed-pack ({label}): {MixedPackAppName}.app bundle not found after build");
+            ?? throw new Exception($"{leg} ({label}): {appName}.app bundle not found after build");
         if (candidates.Count > 1)
-            Log.Warning("--mixed-pack ({Label}): {Count} matching {App}.app bundles (config={Config}, rid={Rid}); selected {Path}",
-                label, candidates.Count, MixedPackAppName, config, rid, appPath);
+            Log.Warning("{Leg} ({Label}): {Count} matching {App}.app bundles (config={Config}, rid={Rid}); selected {Path}",
+                leg, label, candidates.Count, appName, config, rid, appPath);
         Log.Information("    app bundle: {Path}", appPath);
 
-        Log.Information("=== mixed-pack ({Label}): deploying + launching consumer ===", label);
+        Log.Information("=== {Leg} ({Label}): deploying + launching consumer ===", leg, label);
 
         // Resolve the deploy target once, then install+launch inside the retry loop below.
         Func<LaunchResult> deployAndLaunch;
@@ -469,12 +501,12 @@ partial class Build
                 ? new DeviceCtl.PhysicalDevice(DeviceUdid, "specified")
                 : DeviceCtl.ListDevices().FirstOrDefault()
                     ?? throw new InvalidOperationException(
-                        "--mixed-pack --device: no connected iOS device found. Connect an iPhone and try again, or pass --device-udid UDID.");
+                        $"{leg} --device: no connected iOS device found. Connect an iPhone and try again, or pass --device-udid UDID.");
             Log.Information("    device: {Name} ({Udid})", dev.Name, dev.Udid);
             deployAndLaunch = () =>
             {
                 DeviceCtl.Install(dev.Udid, appPath);
-                return DeviceCtl.Launch(dev.Udid, MixedPackBundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout));
+                return DeviceCtl.Launch(dev.Udid, bundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout));
             };
         }
         else
@@ -482,7 +514,7 @@ partial class Build
             // --device-udid is shared with the device leg, and --mixed-pack --sim --device runs both
             // in one invocation: when the device leg is also running, that UDID is the phone's and
             // simctl must not be handed it.
-            var simUdid = SimulatorUdidFor($"--mixed-pack ({label})");
+            var simUdid = SimulatorUdidFor($"{leg} ({label})");
             var sim = !string.IsNullOrEmpty(simUdid)
                 ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
                 : SimCtl.EnsureBootedDevice();
@@ -490,18 +522,12 @@ partial class Build
             deployAndLaunch = () =>
             {
                 SimCtl.Install(sim.Udid, appPath);
-                return SimCtl.Launch(sim.Udid, MixedPackBundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout), appName: MixedPackAppName);
+                return SimCtl.Launch(sim.Udid, bundleId, Array.Empty<string>(), TimeSpan.FromSeconds(Timeout), appName: appName);
             };
         }
 
-        var result = LaunchUntilAppRuns(deployAndLaunch, $"--mixed-pack ({label})");
-
-        Log.Information("");
-        Log.Information("=== CONSUMER OUTPUT ({Label}) ===", label);
-        Log.Information(result.Output);
-
-        AssertLiveRuntimeLane(result, onDevice);
-        AssertMixedPackConsumerResult(result, label);
+        var result = LaunchUntilAppRuns(deployAndLaunch, $"{leg} ({label})");
+        return ((AbsolutePath)appPath, result);
     }
 
     // Asserts the launched consumer (a) ran the ObjC type to completion through the single
@@ -713,7 +739,8 @@ partial class Build
     // NuGet.config for the mixed-pack fixture + consumer. SwiftBindings.* resolve from the
     // throwaway feed; the single fixture package (MixedPackFixture.*) resolves from the
     // fixture-output feed when consuming (fixtureNupkgDir non-null).
-    static string MixedPackNuGetConfig(AbsolutePath nupkgDir, AbsolutePath? fixtureNupkgDir)
+    static string MixedPackNuGetConfig(AbsolutePath nupkgDir, AbsolutePath? fixtureNupkgDir,
+        string fixturePackagePattern = "MixedPackFixture.*")
     {
         var fixtureSource = fixtureNupkgDir is null
             ? ""
@@ -724,7 +751,7 @@ partial class Build
             ? ""
             : $"""
                     <packageSource key="mixed-pack-fixture">
-                      <package pattern="MixedPackFixture.*" />
+                      <package pattern="{fixturePackagePattern}" />
                     </packageSource>
             """;
         return $"""

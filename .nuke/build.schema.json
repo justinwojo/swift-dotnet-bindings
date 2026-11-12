@@ -188,6 +188,10 @@
           "type": "string",
           "description": "Managed BindingTests target: net10.0 (default) or net11.0"
         },
+        "BridgeConsumer": {
+          "type": "boolean",
+          "description": "Opt-in, .NET 11 with --coreclr-interp: pack a binding generated with the Swift bridges on, consume it from an ordinary Debug app through NuGet, and prove on the simulator and/or a device that its calls run through the bridges from the interpreter. Never part of the default run or --compile-only"
+        },
         "BuildOnly": {
           "type": "boolean",
           "description": "iOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build"

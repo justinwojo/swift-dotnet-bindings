@@ -603,9 +603,10 @@ namespace BindingsGeneration.Tests
             // tokens right after it ties the assertion to the echo (not an unrelated CLI site).
 
             // XCFramework-mode echo: SwiftFrameworkType drives --objc; SwiftAppleSupplementVersion
-            // drives --apple-version. Both alter generated output for source-xcframework bindings.
+            // drives --apple-version; SwiftLoweringEvidence drives --swift-lowering-evidence. All
+            // alter generated output for source-xcframework bindings.
             Assert.Contains(
-                "$(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) @(SwiftFrameworkDependency",
+                "$(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) $(SwiftLoweringEvidence) @(SwiftFrameworkDependency",
                 TargetsContent);
 
             // Apple-framework-mode echo: NamespacePattern drives --namespace-pattern;
@@ -613,6 +614,21 @@ namespace BindingsGeneration.Tests
             Assert.Contains(
                 "$(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)",
                 TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_LoweringEvidenceIsOptInAndHashed()
+        {
+            // The evidence decides which transitions get a bridge, so the generator sees it only when
+            // the project sets it, and a changed evidence file (same path) still regenerates.
+            Assert.Contains(
+                "<_SwiftGenCmd Condition=\"'$(SwiftLoweringEvidence)' != ''\">$(_SwiftGenCmd) --swift-lowering-evidence \"$(SwiftLoweringEvidence)\"</_SwiftGenCmd>",
+                TargetsContent);
+            Assert.Contains(
+                "&quot;%(SwiftFramework.SwiftInterface)&quot; &quot;$(SwiftLoweringEvidence)&quot;; do",
+                TargetsContent);
+            // Only the source-xcframework generation passes it.
+            Assert.Equal(1, TargetsContent.Split("--swift-lowering-evidence").Length - 1);
         }
 
         [Fact]
