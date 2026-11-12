@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Collections.Immutable;
+using BindingsGeneration.Demangling;
 
 namespace BindingsGeneration;
 
@@ -15,6 +16,7 @@ public sealed class SwiftCallFactsBuilder
     private readonly ITypeDatabase? _typeDatabase;
     private readonly Dictionary<string, (TypeDecl Decl, bool IsOwn)> _typesByName = new(StringComparer.Ordinal);
     private readonly List<string> _moduleNames = new();
+    private readonly Swift5Demangler _demangler = new();
 
     public SwiftCallFactsBuilder(IEnumerable<ModuleDecl> modules, ITypeDatabase? typeDatabase)
     {
@@ -107,7 +109,7 @@ public sealed class SwiftCallFactsBuilder
             var annotations = accessorDecl is SetAccessorDecl && property.SetterAvailabilityAnnotations is { } setter
                 ? (IReadOnlyList<AvailabilityAnnotation>)setter.Concat(property.AvailabilityAnnotations ?? new()).ToList()
                 : property.AvailabilityAnnotations;
-            yield return ForMethod(accessorDecl.Method, parent, new MemberContext(AccessorOf(accessorDecl), property.Name, annotations, IsSubscript: false));
+            yield return ForMethod(accessorDecl.Method, parent, new MemberContext(AccessorOf(accessorDecl), property.Name, annotations, IsSubscript: false, IsLazyStorage: property.IsLazy));
         }
     }
 
@@ -119,7 +121,8 @@ public sealed class SwiftCallFactsBuilder
         SwiftAccessorKind Accessor,
         string? StorageName,
         IReadOnlyList<AvailabilityAnnotation>? StorageAvailability,
-        bool IsSubscript)
+        bool IsSubscript,
+        bool IsLazyStorage = false)
     {
         public static readonly MemberContext Plain = new(SwiftAccessorKind.None, null, null, false);
     }
@@ -128,8 +131,10 @@ public sealed class SwiftCallFactsBuilder
     internal SwiftCallFacts ForMethod(MethodDecl method, TypeDecl? parent, MemberContext context)
     {
         var unknowns = new List<string>();
-        var generics = GenericsOf(method, parent);
+        var generics = ClassifyRequirements(GenericsOf(method, parent));
         var genericNames = GenericNamesOf(method, parent, generics);
+        // The ABI descriptor prints every function representation alike; the symbol says which.
+        var closures = UniformRepresentation(_demangler.FunctionTypeKindsInSignature(method.MangledName));
 
         var kind = context.Accessor != SwiftAccessorKind.None ? SwiftCallTargetKind.Accessor
             : method.IsConstructor ? SwiftCallTargetKind.Initializer
@@ -164,7 +169,7 @@ public sealed class SwiftCallFactsBuilder
             {
                 Index = index,
                 Name = string.IsNullOrEmpty(argument.Name) ? NullIfEmpty(argument.PrivateName) : argument.Name,
-                Type = ResolveType(argument.SwiftTypeSpec, genericNames, unknowns, $"parameter {index}"),
+                Type = ResolveType(argument.SwiftTypeSpec, genericNames, unknowns, $"parameter {index}", generics: generics, closures: closures),
                 Convention = convention,
                 ConventionSource = source,
                 Closure = closure,
@@ -181,14 +186,26 @@ public sealed class SwiftCallFactsBuilder
             ? SwiftResultFacts.Void
             : new SwiftResultFacts
             {
-                Type = ResolveType(resultSpec, genericNames, unknowns, "result"),
+                Type = DynamicSelfOf(ResolveType(resultSpec, genericNames, unknowns, "result", generics: generics, closures: closures), parent),
                 IsFailableInitializer = method.IsConstructor && method.IsFailable,
             };
 
+        // The symbol says whether the callee throws a typed error even when the interface facts that
+        // name the error type are missing; the type itself, when only the symbol has it, is spelled
+        // from the demangled tree.
+        var typedThrows = method.ThrownErrorType?.ToString(true);
+        if (typedThrows is null && method.MangledName is { Length: > 0 } mangled
+            && _demangler.TryGetTypedThrows(mangled, out var demangledError))
+        {
+            typedThrows = demangledError?.ToString(true);
+            if (typedThrows is null)
+                unknowns.Add("effects: the symbol throws a typed error whose type could not be spelled");
+        }
+
         var effects = new SwiftCallEffects
         {
-            Throws = method.Throws || method.HasTypedThrows,
-            TypedThrows = method.ThrownErrorType?.ToString(true),
+            Throws = method.Throws || method.HasTypedThrows || typedThrows is not null,
+            TypedThrows = typedThrows,
             // The parser marks a synchronous actor-isolated member async so the binding awaits it;
             // the symbol itself is synchronous.
             IsAsync = method.IsAsync && !method.IsAsyncByIsolation,
@@ -219,9 +236,19 @@ public sealed class SwiftCallFactsBuilder
     {
         var unknowns = new List<string>();
         // A function in an extension of a generic type is generic over the type's parameters too.
-        var generics = MergeGenerics(
-            string.IsNullOrWhiteSpace(function.DeclaringTypeGenericSignature) ? SwiftGenericSignatureFacts.Empty : GenericsOf(function.DeclaringTypeGenericSignature),
-            string.IsNullOrWhiteSpace(function.GenericSignature) ? SwiftGenericSignatureFacts.Empty : GenericsOf(function.GenericSignature));
+        var outer = string.IsNullOrWhiteSpace(function.DeclaringTypeGenericSignature) ? SwiftGenericSignatureFacts.Empty : GenericsOf(function.DeclaringTypeGenericSignature);
+        var own = string.IsNullOrWhiteSpace(function.GenericSignature) ? SwiftGenericSignatureFacts.Empty : GenericsOf(function.GenericSignature);
+        var generics = ClassifyRequirements(MergeGenerics(outer, own));
+        if (!generics.IsEmpty)
+        {
+            generics = generics with
+            {
+                OwnParameters = own.Parameters.Where(p => !outer.Parameters.Contains(p)).ToImmutableArray(),
+                Requirements = generics.Requirements
+                    .Select(r => r with { IsInherited = outer.Requirements.Any(o => o.Subject == r.Subject && o.Target == r.Target && o.Kind == r.Kind) })
+                    .ToImmutableArray(),
+            };
+        }
         var genericNames = new HashSet<string>(StringComparer.Ordinal) { "Self" };
         foreach (var p in generics.Parameters)
             genericNames.Add(p);
@@ -252,7 +279,8 @@ public sealed class SwiftCallFactsBuilder
                 unknowns.Add($"{where}: the written type '{text}' does not parse");
                 return (new SwiftTypeFacts { Spelling = text, Category = SwiftTypeCategory.Unresolved }, null);
             }
-            return (ResolveType(spec, genericNames, unknowns, where, writtenIn), spec);
+            // Source the generator wrote spells a function type's representation when it is not thick.
+            return (ResolveType(spec, genericNames, unknowns, where, writtenIn, generics, SwiftFunctionRepresentation.Thick), spec);
         }
 
         var self = function.Self.Kind == SwiftCallSelfKind.None
@@ -513,18 +541,19 @@ public sealed class SwiftCallFactsBuilder
                 var abstraction = !method.IsProtocolRequirement && method.IsExtensionMethod
                     ? SwiftSelfAbstraction.ProtocolExtension
                     : SwiftSelfAbstraction.ProtocolRequirement;
+                var classBound = IsClassBound(protocol);
                 var genericSelf = new SwiftTypeFacts
                 {
                     Spelling = "Self",
                     Category = SwiftTypeCategory.GenericParameter,
-                    IsClassBound = protocol.IsClassBound,
+                    IsClassBound = classBound,
                 };
                 if (isStatic || method.IsConstructor)
                     return Metatype(SwiftCallSelfKind.ThickMetatype, abstraction, genericSelf);
                 return new SwiftSelfFacts
                 {
-                    Kind = protocol.IsClassBound ? SwiftCallSelfKind.Reference : SwiftCallSelfKind.Value,
-                    Mutation = protocol.IsClassBound ? ReferenceMutationOf(method) : ValueMutationOf(method, context),
+                    Kind = classBound ? SwiftCallSelfKind.Reference : SwiftCallSelfKind.Value,
+                    Mutation = classBound ? ReferenceMutationOf(method) : ValueMutationOf(method, context),
                     Abstraction = abstraction,
                     Type = genericSelf,
                 };
@@ -542,6 +571,15 @@ public sealed class SwiftCallFactsBuilder
         }
     }
 
+    /// <summary>
+    /// A class member's <c>Self</c> is the dynamic type of its class instance: one reference, like
+    /// a generic parameter bound to the class.
+    /// </summary>
+    private SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, TypeDecl? parent) =>
+        type is { Category: SwiftTypeCategory.GenericParameter, Spelling: "Self" } && parent is not null && Canonical(parent) is ClassDecl
+            ? type with { IsClassBound = true }
+            : type;
+
     private static SwiftSelfFacts Metatype(SwiftCallSelfKind kind, SwiftSelfAbstraction abstraction, SwiftTypeFacts selfType) => new()
     {
         Kind = kind,
@@ -552,7 +590,8 @@ public sealed class SwiftCallFactsBuilder
 
     /// <summary>
     /// A value self is borrowed unless the declaration says otherwise. A setter mutates self unless
-    /// it is declared <c>nonmutating</c>.
+    /// it is declared <c>nonmutating</c>; a lazy property's getter mutates it too, since it stores
+    /// the value it computes.
     /// </summary>
     private static SwiftSelfMutation ValueMutationOf(MethodDecl method, MemberContext context)
     {
@@ -563,6 +602,8 @@ public sealed class SwiftCallFactsBuilder
         if (method.IsMutating)
             return SwiftSelfMutation.Mutating;
         if (context.Accessor == SwiftAccessorKind.Set && !method.IsNonmutating)
+            return SwiftSelfMutation.Mutating;
+        if (context.Accessor == SwiftAccessorKind.Get && context.IsLazyStorage)
             return SwiftSelfMutation.Mutating;
         return SwiftSelfMutation.Nonmutating;
     }
@@ -578,7 +619,7 @@ public sealed class SwiftCallFactsBuilder
         ClassDecl c => new SwiftTypeFacts { Spelling = parent.SwiftTypeName.ModuleQualifiedName, Category = SwiftTypeCategory.Class, IsClassBound = true },
         StructDecl s => new SwiftTypeFacts { Spelling = parent.SwiftTypeName.ModuleQualifiedName, Category = SwiftTypeCategory.Struct, IsFrozen = s.IsFrozen },
         EnumDecl e => new SwiftTypeFacts { Spelling = parent.SwiftTypeName.ModuleQualifiedName, Category = SwiftTypeCategory.Enum, IsFrozen = e.IsFrozen },
-        ProtocolDecl p => new SwiftTypeFacts { Spelling = "Self", Category = SwiftTypeCategory.GenericParameter, IsClassBound = p.IsClassBound },
+        ProtocolDecl p => new SwiftTypeFacts { Spelling = "Self", Category = SwiftTypeCategory.GenericParameter, IsClassBound = IsClassBound(p) },
         _ => new SwiftTypeFacts { Spelling = parent.SwiftTypeName.ModuleQualifiedName, Category = SwiftTypeCategory.Unresolved },
     };
 
@@ -648,11 +689,20 @@ public sealed class SwiftCallFactsBuilder
     private static SwiftGenericSignatureFacts GenericsOf(MethodDecl method, TypeDecl? parent)
     {
         // A member's own signature already includes its context's parameters; an accessor of a
-        // generic type's property may carry none, and then its context's is the one in scope.
-        var raw = !string.IsNullOrWhiteSpace(method.RawGenericSig) ? method.RawGenericSig : RawSignatureOf(parent);
+        // generic type's property may carry none, and then its context's is the one in scope. A
+        // protocol member's context is Self and its conformance to the protocol, which the witness
+        // table supplies.
+        var context = parent is ProtocolDecl protocol ? ProtocolContextSignature(protocol, method.RawGenericSig) : RawSignatureOf(parent);
+        var raw = !string.IsNullOrWhiteSpace(method.RawGenericSig) ? method.RawGenericSig : context;
         if (string.IsNullOrWhiteSpace(raw))
             return SwiftGenericSignatureFacts.Empty;
-        return GenericsOf(raw);
+        var generics = GenericsOf(raw);
+        var inherited = string.IsNullOrWhiteSpace(context) ? SwiftGenericSignatureFacts.Empty : GenericsOf(context);
+        return generics with
+        {
+            OwnParameters = generics.Parameters.Where(p => !inherited.Parameters.Contains(p)).ToImmutableArray(),
+            Requirements = generics.Requirements.Select(r => r with { IsInherited = inherited.Requirements.Contains(r) }).ToImmutableArray(),
+        };
     }
 
     /// <summary>An outer context's signature followed by a member's own: parameters outermost first.</summary>
@@ -667,6 +717,17 @@ public sealed class SwiftCallFactsBuilder
             Parameters = outer.Parameters.Concat(own.Parameters).Distinct(StringComparer.Ordinal).ToImmutableArray(),
             Requirements = outer.Requirements.Concat(own.Requirements).Distinct().ToImmutableArray(),
         };
+    }
+
+    /// <summary>
+    /// The signature a protocol's members are written in: <c>&lt;τ_0_0 where τ_0_0 : M.P&gt;</c>, or
+    /// with <c>Self</c> in its place when the member's own signature spells it so, as the digester does.
+    /// </summary>
+    private static string ProtocolContextSignature(ProtocolDecl protocol, string? memberSignature)
+    {
+        var self = !string.IsNullOrWhiteSpace(memberSignature)
+            && GenericSignatureParser.ParseSignature(memberSignature).Parameters is ["Self", ..] ? "Self" : "τ_0_0";
+        return $"<{self} where {self} : {protocol.SwiftTypeName.ModuleQualifiedName}>";
     }
 
     internal static string? RawSignatureOf(TypeDecl? type)
@@ -760,13 +821,160 @@ public sealed class SwiftCallFactsBuilder
     /// unqualified, the function's own first. Null for a declared type, which the ABI JSON always
     /// spells module-qualified.
     /// </param>
+    /// <param name="generics">The generic signature in scope, which says whether a generic parameter is class-bound.</param>
+    /// <param name="closures">
+    /// The representation of a function type the spec spells without a <c>@convention</c>
+    /// attribute, when the source records it.
+    /// </param>
     internal SwiftTypeFacts ResolveType(TypeSpec spec, IReadOnlySet<string> genericNames, List<string> unknowns, string where,
-        IReadOnlyList<string>? writtenIn = null)
+        IReadOnlyList<string>? writtenIn = null, SwiftGenericSignatureFacts? generics = null, SwiftFunctionRepresentation? closures = null)
     {
         var facts = Resolve(spec, genericNames, writtenIn);
         if (facts.Category == SwiftTypeCategory.Unresolved)
-            unknowns.Add($"{where}: type '{facts.Spelling}' is not known to the module or the type database");
+        {
+            unknowns.Add(spec is NamedTypeSpec named && IsAmbiguousMetatypeSpelling(FullNameOf(named))
+                ? $"{where}: '{facts.Spelling}' names both a metatype and a nested type, which the parsed type spelling does not tell apart"
+                : $"{where}: type '{facts.Spelling}' is not known to the module or the type database");
+        }
+        if (facts.Category == SwiftTypeCategory.GenericParameter && generics?.IsClassBound(facts.Spelling) == true)
+            facts = facts with { IsClassBound = true };
+        if (RepresentationOf(spec, closures) is { } representation)
+            facts = facts with { Representation = representation };
         return facts;
+    }
+
+    /// <summary>
+    /// The representation of every function type <paramref name="spec"/> spells without a C
+    /// convention: the one its <c>@convention</c> attribute names, else <paramref name="unattributed"/>.
+    /// Null when it spells none, or when they differ or are not known.
+    /// </summary>
+    /// <summary>
+    /// The one representation every function type in a signature has, from the symbol's function
+    /// type kinds; null when the symbol does not demangle or the signature mixes representations.
+    /// </summary>
+    internal static SwiftFunctionRepresentation? UniformRepresentation(IReadOnlyList<NodeKind>? kinds)
+    {
+        if (kinds is null)
+            return null;
+        var found = kinds.Select(kind => kind switch
+        {
+            NodeKind.FunctionType or NodeKind.NoEscapeFunctionType or NodeKind.AutoClosureType or NodeKind.EscapingAutoClosureType =>
+                SwiftFunctionRepresentation.Thick,
+            NodeKind.ThinFunctionType => SwiftFunctionRepresentation.Thin,
+            NodeKind.ObjCBlock => SwiftFunctionRepresentation.Block,
+            NodeKind.CFunctionPointer => SwiftFunctionRepresentation.C,
+            _ => (SwiftFunctionRepresentation?)null,
+        }).Distinct().ToList();
+        return found.Count switch
+        {
+            // No function type at all: whatever a spelling shows is thick, which nothing will ask.
+            0 => SwiftFunctionRepresentation.Thick,
+            1 => found[0],
+            _ => null,
+        };
+    }
+
+    private static SwiftFunctionRepresentation? RepresentationOf(TypeSpec spec, SwiftFunctionRepresentation? unattributed)
+    {
+        var found = new HashSet<SwiftFunctionRepresentation?>();
+        void Walk(TypeSpec? t)
+        {
+            switch (t)
+            {
+                case null:
+                    return;
+                case ClosureTypeSpec closure:
+                    if (!IsCFunctionPointer(closure))
+                    {
+                        var attribute = closure.HasAttributes
+                            ? closure.Attributes.FirstOrDefault(a => a.Name == "convention" && a.Parameters.Count == 1)?.Parameters[0]
+                            : null;
+                        found.Add(attribute switch
+                        {
+                            "c" => SwiftFunctionRepresentation.C,
+                            "block" => SwiftFunctionRepresentation.Block,
+                            "thin" => SwiftFunctionRepresentation.Thin,
+                            "swift" => SwiftFunctionRepresentation.Thick,
+                            null => unattributed,
+                            _ => null,
+                        });
+                    }
+                    Walk(closure.Arguments);
+                    Walk(closure.ReturnType);
+                    return;
+                case TupleTypeSpec tuple:
+                    foreach (var element in tuple.Elements)
+                        Walk(element);
+                    return;
+                case NamedTypeSpec named:
+                    foreach (var argument in named.GenericParameters)
+                        Walk(argument);
+                    Walk(named.InnerType);
+                    return;
+                case ProtocolListTypeSpec:
+                    return;
+                default:
+                    found.Add(null);
+                    return;
+            }
+        }
+        Walk(spec);
+        return found.Count == 1 ? found.First() : null;
+    }
+
+    /// <summary>
+    /// Records what each conformance requirement's target is: a Swift protocol (one witness table),
+    /// a class-bound one, an <c>@objc</c> or marker protocol (none), <c>AnyObject</c> or a superclass.
+    /// </summary>
+    private SwiftGenericSignatureFacts ClassifyRequirements(SwiftGenericSignatureFacts generics)
+    {
+        if (generics.Requirements.IsDefaultOrEmpty)
+            return generics;
+        return generics with
+        {
+            Requirements = generics.Requirements
+                .Select(r => r.Kind == SwiftGenericRequirementKind.Conformance ? r with { TargetKind = RequirementTargetOf(r.Target) } : r)
+                .ToImmutableArray(),
+        };
+    }
+
+    private static readonly HashSet<string> MarkerProtocols = new(StringComparer.Ordinal)
+    {
+        "Swift.Sendable", "Swift.Copyable", "Swift.Escapable", "Swift.BitwiseCopyable", "Swift._BitwiseCopyable", "Swift.SendableMetatype",
+    };
+
+    private SwiftRequirementTargetKind RequirementTargetOf(string target)
+    {
+        if (target is "AnyObject" or "Swift.AnyObject")
+            return SwiftRequirementTargetKind.AnyObject;
+        if (MarkerProtocols.Contains(target))
+            return SwiftRequirementTargetKind.MarkerProtocol;
+        if (_typesByName.TryGetValue(target, out var entry))
+        {
+            return entry.Decl switch
+            {
+                ProtocolDecl { IsMarker: true } => SwiftRequirementTargetKind.MarkerProtocol,
+                ProtocolDecl { IsObjC: true } => SwiftRequirementTargetKind.ObjCProtocol,
+                ProtocolDecl p when IsClassBound(p) => SwiftRequirementTargetKind.ClassBoundProtocol,
+                ProtocolDecl => SwiftRequirementTargetKind.Protocol,
+                ClassDecl => SwiftRequirementTargetKind.Superclass,
+                _ => SwiftRequirementTargetKind.Unknown,
+            };
+        }
+        if (TryPeekRecord(target, out var record))
+        {
+            return record.Kind switch
+            {
+                // The type database does not record whether a protocol is @objc, and an @objc
+                // protocol takes no witness table.
+                TypeRecordKind.Protocol when (record.Flags & TypeRecordFlags.ObjCBridged) != 0 => SwiftRequirementTargetKind.Unknown,
+                TypeRecordKind.Protocol when (record.Flags & TypeRecordFlags.ClassBound) != 0 => SwiftRequirementTargetKind.Unknown,
+                TypeRecordKind.Protocol when target.StartsWith("Swift.", StringComparison.Ordinal) => SwiftRequirementTargetKind.Protocol,
+                TypeRecordKind.Class => SwiftRequirementTargetKind.Superclass,
+                _ => SwiftRequirementTargetKind.Unknown,
+            };
+        }
+        return SwiftRequirementTargetKind.Unknown;
     }
 
     private SwiftTypeFacts Resolve(TypeSpec spec, IReadOnlySet<string> genericNames, IReadOnlyList<string>? writtenIn)
@@ -828,9 +1036,13 @@ public sealed class SwiftCallFactsBuilder
         if (name is "Swift.Void" or "Void" or "()")
             return SwiftTypeFacts.Void;
 
-        // A metatype first: T.Type is a metatype even when T is a generic parameter.
-        if (name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal))
+        // A metatype first: T.Type is a metatype even when T is a generic parameter. A type nested
+        // in T and named Type parses the same way, and is refused; a module's own top-level type
+        // named Type is no metatype, since a module is not a type.
+        if (IsMetatypeSpelling(name) && !IsDeclaredTypeName(name))
             return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Metatype };
+        if (IsAmbiguousMetatypeSpelling(name))
+            return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved };
 
         // A generic parameter, or a dependent member of one (τ_0_0.Element, Self.Item).
         var root = name.Split('.')[0];
@@ -871,6 +1083,20 @@ public sealed class SwiftCallFactsBuilder
 
         return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved };
     }
+
+    /// <summary>
+    /// True when <paramref name="name"/>, spelled like a metatype (<c>M.T.Type</c>), is also the name
+    /// of a declared type (a type <c>Type</c> nested in <c>M.T</c>). The ABI descriptor writes the
+    /// nested type with back ticks, but the type-spec parser drops them, so the parsed name no longer
+    /// tells the two apart.
+    /// </summary>
+    private bool IsAmbiguousMetatypeSpelling(string name) =>
+        IsMetatypeSpelling(name) && IsDeclaredTypeName(name) && IsDeclaredTypeName(name[..name.LastIndexOf('.')]);
+
+    private static bool IsMetatypeSpelling(string name) =>
+        name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal);
+
+    private bool IsDeclaredTypeName(string name) => _typesByName.ContainsKey(name) || TryPeekRecord(name, out _);
 
     private SwiftTypeFacts? TryResolveIn(string module, string name, string spelling)
     {
@@ -919,12 +1145,20 @@ public sealed class SwiftCallFactsBuilder
         };
     }
 
-    private static SwiftTypeFacts FromDecl(TypeDecl decl, string spelling) => decl switch
+    /// <summary>Whether a protocol is class-bound, directly or through a protocol it refines.</summary>
+    private bool IsClassBound(ProtocolDecl protocol) => SwiftProtocolBounds.IsClassBound(
+        protocol,
+        name => _typesByName.TryGetValue(name, out var entry) ? entry.Decl as ProtocolDecl : null,
+        name => TryPeekRecord(name, out var record) && record.Kind == TypeRecordKind.Protocol
+            ? (record.Flags & TypeRecordFlags.ClassBound) != 0
+            : null);
+
+    private SwiftTypeFacts FromDecl(TypeDecl decl, string spelling) => decl switch
     {
         ClassDecl => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Class, IsClassBound = true },
         StructDecl s => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Struct, IsFrozen = s.IsFrozen },
         EnumDecl e => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Enum, IsFrozen = e.IsFrozen },
-        ProtocolDecl p => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Existential, IsClassBound = p.IsClassBound },
+        ProtocolDecl p => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Existential, IsClassBound = IsClassBound(p) },
         _ => new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Unresolved },
     };
 

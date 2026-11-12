@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
+
 namespace BindingsGeneration;
 
 /// <summary>How a Swift callee receives self, physically and by ownership, for one member.</summary>
@@ -89,9 +91,26 @@ public enum SwiftLoweringOutcome
 /// <param name="Reason">Why, for an indirect or unknown answer, or which source decided.</param>
 public sealed record SwiftLoweringAnswer(SwiftLoweringOutcome Outcome, int? Pieces, string? Reason)
 {
+    /// <summary>
+    /// For a direct answer whose pieces are known, each piece with its IR type, in order; empty
+    /// otherwise (and for a value with no storage).
+    /// </summary>
+    public ImmutableArray<SwiftLoweredPiece> Layout { get; init; } = ImmutableArray<SwiftLoweredPiece>.Empty;
+
+    /// <summary>True when <see cref="Layout"/> holds the pieces: a direct answer that counted them.</summary>
+    public bool HasLayout => Outcome == SwiftLoweringOutcome.Direct && Pieces == Layout.Length;
+
     public static SwiftLoweringAnswer DirectPieces(int? pieces, string reason) => new(SwiftLoweringOutcome.Direct, pieces, reason);
+    public static SwiftLoweringAnswer DirectLayout(ImmutableArray<SwiftLoweredPiece> pieces, string reason) =>
+        new(SwiftLoweringOutcome.Direct, pieces.Length, reason) { Layout = pieces };
     public static SwiftLoweringAnswer IndirectBecause(string reason) => new(SwiftLoweringOutcome.Indirect, null, reason);
     public static SwiftLoweringAnswer UnknownBecause(string reason) => new(SwiftLoweringOutcome.Unknown, null, reason);
+
+    public bool Equals(SwiftLoweringAnswer? other) =>
+        other is not null && Outcome == other.Outcome && Pieces == other.Pieces && Reason == other.Reason
+        && Layout.AsSpan().SequenceEqual(other.Layout.AsSpan());
+
+    public override int GetHashCode() => HashCode.Combine(Outcome, Pieces, Reason, Layout.Length);
 }
 
 /// <summary>
@@ -103,7 +122,22 @@ public sealed record SwiftLoweringAnswer(SwiftLoweringOutcome Outcome, int? Piec
 /// </summary>
 public interface ISwiftValueLowering
 {
+    /// <summary>How Swift passes a value of <paramref name="type"/> as a parameter.</summary>
     SwiftLoweringAnswer Lower(SwiftTypeFacts type);
+
+    /// <summary>
+    /// How Swift returns a value of <paramref name="type"/>. It differs from
+    /// <see cref="Lower"/> only for a tuple, which a parameter list splits element by element and a
+    /// result keeps whole.
+    /// </summary>
+    SwiftLoweringAnswer LowerResult(SwiftTypeFacts type) => Lower(type);
+
+    /// <summary>
+    /// <see cref="Lower"/> or <see cref="LowerResult"/> under the callee's generic signature, which
+    /// says whether a generic parameter the type spells is bound to classes.
+    /// </summary>
+    SwiftLoweringAnswer Lower(SwiftTypeFacts type, SwiftGenericSignatureFacts? generics, bool asResult) =>
+        asResult ? LowerResult(type) : Lower(type);
 }
 
 /// <summary>A lowering that knows nothing: every question it is asked is unknown, so the classifier refuses.</summary>
@@ -197,7 +231,7 @@ public static class SwiftPassingClassifier
                 };
 
             case SwiftCallSelfKind.Value:
-                return ValueSelf(self, lowering);
+                return ValueSelf(self, facts.Generics, lowering);
 
             default:
                 return SwiftSelfPassing.Refused($"self kind {self.Kind} has no convention");
@@ -261,45 +295,107 @@ public static class SwiftPassingClassifier
     /// at all; any requirement (<c>T: AnyObject</c>, <c>T: SomeClass</c>, <c>T == SomeClass</c>,
     /// a class-bound protocol) could make it a single reference, which the facts do not record.
     /// </summary>
-    public static SwiftLoweringAnswer Physical(SwiftTypeFacts type, SwiftGenericSignatureFacts? generics, ISwiftValueLowering lowering)
+    public static SwiftLoweringAnswer Physical(SwiftTypeFacts type, SwiftGenericSignatureFacts? generics, ISwiftValueLowering lowering) =>
+        Physical(type, generics, lowering, asResult: false);
+
+    /// <summary>How Swift returns a value of <paramref name="type"/>: the parameter rules, except that a tuple stays whole.</summary>
+    public static SwiftLoweringAnswer PhysicalResult(SwiftTypeFacts type, SwiftGenericSignatureFacts? generics, ISwiftValueLowering lowering) =>
+        Physical(type, generics, lowering, asResult: true);
+
+    private static readonly ImmutableArray<SwiftLoweredPiece> OnePointer =
+        ImmutableArray.Create(new SwiftLoweredPiece(0, 8, SwiftScalarKind.Pointer));
+
+    private static readonly ImmutableArray<SwiftLoweredPiece> TwoPointers =
+        ImmutableArray.Create(new SwiftLoweredPiece(0, 8, SwiftScalarKind.Pointer), new SwiftLoweredPiece(8, 8, SwiftScalarKind.Pointer));
+
+    private static SwiftLoweringAnswer Physical(SwiftTypeFacts type, SwiftGenericSignatureFacts? generics, ISwiftValueLowering lowering, bool asResult)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(lowering);
         switch (type.Category)
         {
             case SwiftTypeCategory.Void:
-                return SwiftLoweringAnswer.DirectPieces(0, "an empty tuple has no pieces");
+                return SwiftLoweringAnswer.DirectLayout(ImmutableArray<SwiftLoweredPiece>.Empty, "an empty tuple has no pieces");
             case SwiftTypeCategory.Class:
-            case SwiftTypeCategory.MachineWord:
             case SwiftTypeCategory.CFunctionPointer:
-                return SwiftLoweringAnswer.DirectPieces(1, $"a {type.Category} is one word");
+                return SwiftLoweringAnswer.DirectLayout(OnePointer, $"a {type.Category} is one pointer");
+            case SwiftTypeCategory.MachineWord:
+                return SwiftLoweringAnswer.DirectLayout(ImmutableArray.Create(new SwiftLoweredPiece(0, 8, SwiftScalarKind.Int64)), "a machine word is one 64-bit integer");
             case SwiftTypeCategory.Closure:
-                return SwiftLoweringAnswer.DirectPieces(2, "a thick function is a function pointer and a context");
+                return type.Representation switch
+                {
+                    SwiftFunctionRepresentation.Thick => SwiftLoweringAnswer.DirectLayout(TwoPointers, "a thick function is a function pointer and a context"),
+                    SwiftFunctionRepresentation.Block => SwiftLoweringAnswer.DirectLayout(OnePointer, "a block is one reference"),
+                    SwiftFunctionRepresentation.Thin => SwiftLoweringAnswer.DirectLayout(OnePointer, "a thin function is one function pointer"),
+                    SwiftFunctionRepresentation.C => SwiftLoweringAnswer.DirectLayout(OnePointer, "a C function pointer is one pointer"),
+                    _ => SwiftLoweringAnswer.UnknownBecause($"the representation of the function type '{type.Spelling}' is not recorded"),
+                };
             case SwiftTypeCategory.Metatype:
-                // A thick metatype is one word and a thin one none; either is direct.
-                return SwiftLoweringAnswer.DirectPieces(null, "a metatype is direct");
+            {
+                // A thick metatype is one pointer and a thin one none; either is direct.
+                var answer = lowering.Lower(type, generics, asResult);
+                return answer.Outcome == SwiftLoweringOutcome.Direct ? answer : SwiftLoweringAnswer.DirectPieces(null, "a metatype is direct");
+            }
             case SwiftTypeCategory.GenericParameter when type.IsClassBound:
-                return SwiftLoweringAnswer.DirectPieces(1, "a class-bound generic parameter is one reference");
+                return SwiftLoweringAnswer.DirectLayout(OnePointer, "a class-bound generic parameter is one reference");
             case SwiftTypeCategory.GenericParameter when generics is { Requirements.IsEmpty: true }:
                 return SwiftLoweringAnswer.IndirectBecause("an unconstrained generic parameter is address-only");
+            case SwiftTypeCategory.GenericParameter when generics is not null && generics.Parameters.Contains(type.Spelling):
+                return generics.IsClassBound(type.Spelling) switch
+                {
+                    true => SwiftLoweringAnswer.DirectLayout(OnePointer, "a class-bound generic parameter is one reference"),
+                    false => SwiftLoweringAnswer.IndirectBecause($"the generic parameter '{type.Spelling}' is not bound to classes, so it is address-only"),
+                    null => SwiftLoweringAnswer.UnknownBecause($"whether the generic parameter '{type.Spelling}' is class-bound is not recorded in the facts"),
+                };
             case SwiftTypeCategory.GenericParameter:
                 return SwiftLoweringAnswer.UnknownBecause(
                     $"whether the generic parameter '{type.Spelling}' is class-bound is not recorded in the facts");
             case SwiftTypeCategory.Opaque:
                 return SwiftLoweringAnswer.IndirectBecause("an opaque type is address-only to its caller");
-            case SwiftTypeCategory.Existential when !type.IsClassBound:
+            case SwiftTypeCategory.Existential when !type.IsClassBound && !IsErrorExistential(type):
                 return SwiftLoweringAnswer.IndirectBecause("an opaque existential is address-only");
             case SwiftTypeCategory.Struct or SwiftTypeCategory.Enum when type.IsFrozen == false:
-                return SwiftLoweringAnswer.IndirectBecause($"a resilient {type.Category.ToString().ToLowerInvariant()} is address-only to a client");
+            {
+                // The lowering knows the layouts swiftc uses for types a database records as
+                // resilient (an imported C struct, a standard-library buffer pointer); otherwise a
+                // resilient type is address-only.
+                var answer = lowering.Lower(type, generics, asResult);
+                return answer.Outcome != SwiftLoweringOutcome.Unknown
+                    ? answer
+                    : SwiftLoweringAnswer.IndirectBecause($"a resilient {type.Category.ToString().ToLowerInvariant()} is address-only to a client");
+            }
             case SwiftTypeCategory.Unresolved:
                 return SwiftLoweringAnswer.UnknownBecause($"type '{type.Spelling}' is unresolved");
             default:
-                // A frozen struct or enum, a tuple, a class-bound existential: its piece count decides.
-                return lowering.Lower(type);
+                // A frozen struct or enum, a tuple, a class-bound existential: its layout decides.
+                return lowering.Lower(type, generics, asResult);
         }
     }
 
-    private static SwiftSelfPassing ValueSelf(SwiftSelfFacts self, ISwiftValueLowering lowering)
+    /// <summary>
+    /// <c>any Error</c>: Swift boxes it, so it is one reference, unlike any other existential that
+    /// is not class-bound.
+    /// </summary>
+    private static bool IsErrorExistential(SwiftTypeFacts type)
+    {
+        var spelling = type.Spelling.StartsWith("any ", StringComparison.Ordinal) ? type.Spelling[4..] : type.Spelling;
+        return spelling is "Swift.Error" or "Error";
+    }
+
+    /// <summary>
+    /// How a value self's type lowers: a generic type's self is its unspecialized type, which
+    /// the lowering answers under the callee's signature.
+    /// </summary>
+    public static SwiftLoweringAnswer PhysicalSelf(SwiftSelfFacts self, SwiftGenericSignatureFacts? generics, ISwiftValueLowering lowering)
+    {
+        ArgumentNullException.ThrowIfNull(self);
+        ArgumentNullException.ThrowIfNull(self.Type);
+        return self.Abstraction == SwiftSelfAbstraction.GenericParent
+            ? Physical(self.Type, generics, lowering)
+            : Physical(self.Type, lowering);
+    }
+
+    private static SwiftSelfPassing ValueSelf(SwiftSelfFacts self, SwiftGenericSignatureFacts generics, ISwiftValueLowering lowering)
     {
         if (self.Mutation == SwiftSelfMutation.Mutating)
             return SwiftSelfPassing.Decided(SwiftSelfConvention.Inout, SwiftPassingOwnership.BorrowedMutable);
@@ -310,13 +406,16 @@ public static class SwiftPassingClassifier
         var ownership = consuming ? SwiftPassingOwnership.Consumed : SwiftPassingOwnership.Borrowed;
         var indirect = consuming ? SwiftSelfConvention.IndirectOwned : SwiftSelfConvention.IndirectBorrowed;
 
-        // A generic or protocol self uses the unspecialized ABI: always an address, whatever it is bound to.
-        if (self.Abstraction != SwiftSelfAbstraction.Concrete)
+        // A protocol's Self is a generic parameter in unspecialized code: always an address.
+        if (self.Abstraction is SwiftSelfAbstraction.ProtocolRequirement or SwiftSelfAbstraction.ProtocolExtension)
             return SwiftSelfPassing.Decided(indirect, ownership);
         if (self.Type is null)
             return SwiftSelfPassing.Refused("a value self has no type");
 
-        var physical = Physical(self.Type, lowering);
+        // A generic type's self is its unspecialized type: an address unless its layout is the
+        // same whatever its parameters are bound to (a frozen struct whose stored properties do
+        // not hold one), which the lowering answers under the callee's signature.
+        var physical = PhysicalSelf(self, generics, lowering);
         return physical.Outcome switch
         {
             SwiftLoweringOutcome.Direct => SwiftSelfPassing.Decided(SwiftSelfConvention.Lowered, ownership, physical.Pieces),

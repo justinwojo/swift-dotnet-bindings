@@ -88,6 +88,13 @@ public sealed record ProtocolDecl : TypeDecl
     public bool IsObjC { get; set; }
 
     /// <summary>
+    /// Whether this protocol is declared <c>@_marker</c>: a compile-time constraint with no
+    /// witness table, so neither a generic requirement on it nor an existential composing it
+    /// carries one. Detected from the ABI JSON <c>DeclAttributes</c> "Marker" entry.
+    /// </summary>
+    public bool IsMarker { get; set; }
+
+    /// <summary>
     /// Indicates whether the protocol can be used as an existential type.
     /// Protocols with Self requirements or associated types cannot be used as existentials
     /// without explicit "any" syntax in Swift 5.6+.

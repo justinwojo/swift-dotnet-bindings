@@ -493,7 +493,9 @@ public class SwiftCallFactsTests
         Assert.Equal(SwiftTypeCategory.GenericParameter, first.Result.Type.Category);
         Assert.Equal(new[] { "τ_0_0" }, first.Generics.Parameters);
         var requirement = Assert.Single(first.Generics.Requirements);
-        Assert.Equal(new SwiftGenericRequirementFacts("τ_0_0", "Swift.Hashable", SwiftGenericRequirementKind.Conformance), requirement);
+        // The requirement is the type's, repeated in the member's signature: the type's metadata
+        // carries its witness table, so the member does not take it.
+        Assert.Equal(new SwiftGenericRequirementFacts("τ_0_0", "Swift.Hashable", SwiftGenericRequirementKind.Conformance) { IsInherited = true }, requirement);
 
         // The getter carries no signature of its own; its type's is the one in scope.
         var size = Facts(table, bag + "4sizes5Int32Vvg");
@@ -1021,5 +1023,191 @@ public class SwiftCallFactsTests
 
         // Deterministic: the same inputs serialize identically.
         Assert.Equal(coverage.ToJson(), SwiftCallFactsCoverage.Compute(M, coverage.Entries.Select(e => Plan(e.EntryPoint, e.Library)), table, wrapper).ToJson());
+    }
+
+    // ---- shapes the facts once misread, which the swiftc oracle found ----
+
+    private static string Pieces(SwiftLoweringAnswer answer)
+    {
+        Assert.True(answer is { Outcome: SwiftLoweringOutcome.Direct, HasLayout: true }, $"{answer.Outcome}: {answer.Reason}");
+        return string.Join(", ", answer.Layout.Select(p => p.IrType));
+    }
+
+    [Fact]
+    public void LazyPropertyGetter_TakesValueSelfInout()
+    {
+        // A lazy property's getter stores the value it computes, so it mutates self; the ABI
+        // descriptor marks the property lazy and leaves its getter unmarked.
+        var lazy = Var("derived", Point + "7deriveds5Int32V", Int32, settable: true)
+            .Replace("\"declAttributes\": [\"AccessControl\"]", "\"declAttributes\": [\"Lazy\", \"AccessControl\"]", StringComparison.Ordinal);
+        var holder = TypeDecl("Struct", "Point", Point, new[] { lazy, Var("x", Point + "1xs5Int32V", Int32, settable: true) },
+            attrs: new[] { "AccessControl", "Frozen" });
+
+        var (module, table, db) = Parse(holder);
+
+        var getter = Facts(table, Point + "7deriveds5Int32Vvg");
+        Assert.Equal(SwiftSelfMutation.Mutating, getter.Self.Mutation);
+        Assert.Equal(SwiftSelfMutation.Nonmutating, Facts(table, Point + "1xs5Int32Vvg").Self.Mutation);
+        var prediction = SwiftPhysicalSignaturePredictor.Predict(getter, new SwiftLayoutValueLowering(new[] { module }, db));
+        Assert.Equal("i32 (ptr swiftself)", prediction.Signature!.Normalized);
+    }
+
+    [Fact]
+    public void ProtocolRequirement_InTheDigesterSpellingOfSelf_InheritsSelf()
+    {
+        // The digester spells a protocol member's signature with Self where the compiler writes
+        // τ_0_0, and that spelling is kept: Self is still the protocol's, not the member's own.
+        var shape = TypeDecl("Protocol", "Shape", "$s10TestModule5ShapeP", new[]
+        {
+            Func("area", "area()", "$s10TestModule5ShapeP4areas5Int32VyF", new[] { Int32 },
+                genericSig: "<Self where Self : TestModule.Shape>", extra: "\"protocolReq\": true"),
+        });
+
+        var (module, table, db) = Parse(shape);
+
+        var area = Facts(table, "$s10TestModule5ShapeP4areas5Int32VyF");
+        Assert.Equal(new[] { "Self" }, area.Generics.Parameters);
+        Assert.Empty(area.Generics.OwnParameters);
+        Assert.All(area.Generics.Requirements, r => Assert.True(r.IsInherited));
+        var prediction = SwiftPhysicalSignaturePredictor.Predict(area, new SwiftLayoutValueLowering(new[] { module }, db));
+        Assert.True(prediction.IsPredicted, prediction.Refusal);
+        Assert.Equal("i32 (ptr noalias swiftself, ptr, ptr)", prediction.Signature!.Normalized);
+    }
+
+    [Fact]
+    public void RefinedProtocol_InheritsClassBoundness()
+    {
+        // Leaf says nothing about classes itself; it refines Node, which is class-bound, so Leaf's
+        // Self is one reference and a parameter constrained to it is bound to classes.
+        var node = TypeDecl("Protocol", "Node", "$s10TestModule4NodeP", Array.Empty<string>(), genericSig: "<τ_0_0 : AnyObject>");
+        var leaf = TypeDecl("Protocol", "Leaf", "$s10TestModule4LeafP", new[]
+        {
+            Func("visit", "visit()", "$s10TestModule4LeafP5visityyF", new[] { Void },
+                genericSig: "<τ_0_0 where τ_0_0 : TestModule.Leaf>", extra: "\"protocolReq\": true"),
+        }, genericSig: "<τ_0_0 : TestModule.Node>",
+            extra: """ "conformances": [{ "kind": "Conformance", "name": "Node", "printedName": "Node", "usr": "s:10TestModule4NodeP", "mangledName": "$s10TestModule4NodeP" }] """);
+        const string use = "$s10TestModule3useyyxAA4LeafRzlF";
+        var useDecl = Func("use", "use(_:)", use, new[] { Void, Nominal("τ_0_0") }, genericSig: "<τ_0_0 where τ_0_0 : TestModule.Leaf>");
+
+        var (module, table, db) = Parse(node, leaf, useDecl);
+
+        Assert.False(module.Protocols.Single(p => p.Name == "Leaf").IsClassBound);
+        var visit = Facts(table, "$s10TestModule4LeafP5visityyF");
+        Assert.Equal(SwiftCallSelfKind.Reference, visit.Self.Kind);
+        Assert.True(visit.Self.Type!.IsClassBound);
+        var facts = Facts(table, use);
+        Assert.Equal(SwiftRequirementTargetKind.ClassBoundProtocol, Assert.Single(facts.Generics.Requirements).TargetKind);
+        var prediction = SwiftPhysicalSignaturePredictor.Predict(facts, new SwiftLayoutValueLowering(new[] { module }, db));
+        Assert.Equal("void (ptr, ptr, ptr)", prediction.Signature!.Normalized);
+    }
+
+    [Fact]
+    public void ObjCEnum_IsAFixedLayoutCEnumOfItsRawType()
+    {
+        // An @objc enum is stored as its raw value whether or not it is frozen; a plain enum with a
+        // raw type that is not frozen stays resilient.
+        var stage = TypeDecl("Enum", "Stage", "$s10TestModule5StageO", Array.Empty<string>(),
+            attrs: new[] { "AccessControl", "ObjC" }, extra: "\"enumRawTypeName\": \"Int32\"");
+        var mode = TypeDecl("Enum", "Mode", "$s10TestModule4ModeO", Array.Empty<string>(), extra: "\"enumRawTypeName\": \"Int\"");
+
+        var (module, _, db) = Parse(stage, mode);
+
+        Assert.True(module.Types.OfType<EnumDecl>().Single(e => e.Name == "Stage").IsObjC);
+        Assert.False(module.Types.OfType<EnumDecl>().Single(e => e.Name == "Mode").IsObjC);
+        var lowering = new SwiftLayoutValueLowering(new[] { module }, db);
+        SwiftTypeFacts Enum(string spelling) => new() { Spelling = spelling, Category = SwiftTypeCategory.Enum };
+        Assert.Equal("i32", Pieces(lowering.Lower(Enum("TestModule.Stage"))));
+        Assert.Equal("i64", Pieces(lowering.Lower(Enum("Swift.Optional<TestModule.Stage>"))));
+        Assert.Equal(SwiftLoweringOutcome.Indirect, lowering.Lower(Enum("TestModule.Mode")).Outcome);
+    }
+
+    [Fact]
+    public void TypeNamedType_IsRefusedOnlyWhereItParsesLikeAnotherTypesMetatype()
+    {
+        // `Host.`Type`` parses as `Host.Type`, Host's metatype, so a callee naming it is refused
+        // rather than read as taking a metatype. Host's other members are unaffected.
+        const string host = "$s10TestModule4HostC";
+        var hostDecl = TypeDecl("Class", "Host", host, new[]
+        {
+            TypeDecl("Enum", "Type", host + "4TypeO", Array.Empty<string>()),
+            Func("kind", "kind()", host + "4kindAC4TypeOyF", new[] { Nominal("TestModule.Host.`Type`", name: "Type") }),
+            Func("count", "count()", host + "5counts5Int32VyF", new[] { Int32 }),
+        });
+
+        // A module's own top-level Type is unambiguous: a module has no metatype.
+        const string echo = "$s10TestModule4echoyAA4TypeOADF";
+        var topLevel = TypeDecl("Enum", "Type", "$s10TestModule4TypeO", Array.Empty<string>(), attrs: new[] { "AccessControl", "Frozen" });
+        var echoDecl = Func("echo", "echo(_:)", echo, new[] { Nominal("TestModule.`Type`", name: "Type"), Nominal("TestModule.`Type`", name: "Type") });
+
+        var (_, table, _) = Parse(hostDecl, topLevel, echoDecl);
+
+        var echoFacts = Facts(table, echo);
+        Assert.True(echoFacts.IsComplete, string.Join("; ", echoFacts.Unknowns));
+        Assert.Equal(SwiftTypeCategory.Enum, Assert.Single(echoFacts.Parameters).Type.Category);
+        var kind = Facts(table, host + "4kindAC4TypeOyF");
+        Assert.False(kind.IsComplete);
+        Assert.Contains(kind.Unknowns, u => u.Contains("names both a metatype and a nested type", StringComparison.Ordinal));
+        Assert.True(Facts(table, host + "5counts5Int32VyF").IsComplete);
+    }
+
+    [Fact]
+    public void ClassMemberReturningSelf_ReturnsOneReference()
+    {
+        // A class's dynamic Self is the class or a subclass: one reference, not an address.
+        const string copy = Box + "4copyACXDyF";
+        var box = TypeDecl("Class", "Box", Box, new[]
+        {
+            Func("copy", "copy()", copy, new[] { """{ "kind": "TypeNominal", "name": "DynamicSelf", "printedName": "Self" }""" }),
+        });
+
+        var (module, table, db) = Parse(box);
+
+        var facts = Facts(table, copy);
+        Assert.True(facts.Result.Type.IsClassBound);
+        var prediction = SwiftPhysicalSignaturePredictor.Predict(facts, new SwiftLayoutValueLowering(new[] { module }, db));
+        Assert.Equal("ptr (ptr swiftself)", prediction.Signature!.Normalized);
+    }
+
+    [Fact]
+    public void FrozenGenericStructWithAParameterFreeLayout_PassesSelfLoweredThenItsMetadata()
+    {
+        // The struct's two Int32s are laid out the same whatever T is, so swiftc passes self in
+        // registers. A lowered self carries no metadata, so T's metadata and witness table follow.
+        const string fixedType = "$s10TestModule5FixedV";
+        const string sig = "<τ_0_0 where τ_0_0 : TestModule.Shape>";
+        string Stored(string name, string mangledBase) => Var(name, mangledBase, Int32, settable: true)
+            .Replace("\"declAttributes\": [\"AccessControl\"]", "\"declAttributes\": [\"HasStorage\", \"AccessControl\"], \"hasStorage\": true", StringComparison.Ordinal);
+        var shape = TypeDecl("Protocol", "Shape", "$s10TestModule5ShapeP", Array.Empty<string>());
+        var fixedDecl = TypeDecl("Struct", "Fixed", fixedType, new[]
+        {
+            Stored("a", fixedType + "1as5Int32V"),
+            Stored("b", fixedType + "1bs5Int32V"),
+            Func("sum", "sum()", fixedType + "3sums5Int32VyF", new[] { Int32 }, selfKind: "NonMutating", genericSig: sig),
+        }, attrs: new[] { "AccessControl", "Frozen" }, genericSig: sig);
+
+        var (module, table, db) = Parse(shape, fixedDecl);
+
+        var sum = Facts(table, fixedType + "3sums5Int32VyF");
+        Assert.Equal(SwiftSelfAbstraction.GenericParent, sum.Self.Abstraction);
+        var lowering = new SwiftLayoutValueLowering(new[] { module }, db);
+        Assert.Equal(SwiftSelfConvention.Lowered, SwiftPassingClassifier.SelfConvention(sum, lowering).Convention);
+        Assert.Equal("i32 (i64, ptr, ptr)", SwiftPhysicalSignaturePredictor.Predict(sum, lowering).Signature!.Normalized);
+    }
+
+    [Fact]
+    public void GenericParameterNestedInAClassArgument_IsFulfilledByTheClassMetadata()
+    {
+        // A generic class instance carries its metadata, which records every generic argument,
+        // however deeply T sits inside them: T needs no metadata argument of its own.
+        const string holder = "$s10TestModule6HolderC";
+        const string use = "$s10TestModule3useySiAA6HolderCyxSgGlF";
+        var holderDecl = TypeDecl("Class", "Holder", holder, Array.Empty<string>(), genericSig: "<τ_0_0>");
+        var useDecl = Func("use", "use(_:)", use, new[] { Nominal("Swift.Int"), Nominal("TestModule.Holder<τ_0_0?>", name: "Holder") }, genericSig: "<τ_0_0>");
+
+        var (module, table, db) = Parse(holderDecl, useDecl);
+
+        var facts = Facts(table, use);
+        Assert.True(facts.IsComplete, string.Join("; ", facts.Unknowns));
+        Assert.Equal("i64 (ptr)", SwiftPhysicalSignaturePredictor.Predict(facts, new SwiftLayoutValueLowering(new[] { module }, db)).Signature!.Normalized);
     }
 }

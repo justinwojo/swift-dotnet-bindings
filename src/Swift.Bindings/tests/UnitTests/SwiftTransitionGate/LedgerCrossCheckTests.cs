@@ -166,6 +166,48 @@ public class LedgerCrossCheckTests
         Assert.Equal(3, result.IlSites[LedgerTransitionKind.ForwardCalli]);
         Assert.Equal(result.IlSites, result.LedgerEntries);
         Assert.Empty(result.Incomplete);
+        // Every Swift-convention entry's facts were read, and every callee is synchronous.
+        Assert.Empty(result.NotSynchronous);
+        Assert.Equal(result.LedgerEntries.Where(e => e.Key != LedgerTransitionKind.CdeclSpecialPInvoke).Sum(e => e.Value), result.SynchronousChecked);
+    }
+
+    [Theory]
+    [InlineData("async", "async")]
+    [InlineData("typed", "typed error (Acme.Failure)")]
+    [InlineData("coroutine", "coroutine accessor")]
+    [InlineData("modify", "coroutine accessor")]
+    [InlineData("pack", "parameter pack")]
+    public void ASwiftTransitionToACalleeThatIsNotSynchronousFails(string shape, string reason)
+    {
+        var facts = Facts("special");
+        facts = shape switch
+        {
+            "async" => facts with { Effects = new SwiftCallEffects { IsAsync = true } },
+            "typed" => facts with { Effects = new SwiftCallEffects { Throws = true, TypedThrows = "Acme.Failure" } },
+            "coroutine" => facts with { Effects = new SwiftCallEffects { IsCoroutine = true } },
+            "modify" => facts with { Target = facts.Target with { Kind = SwiftCallTargetKind.Accessor, Accessor = SwiftAccessorKind.Modify } },
+            "pack" => facts with { Effects = new SwiftCallEffects { HasParameterPacks = true } },
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+        var imports = AllImports.Select(i => i.EntryPoint == "special" ? i with { Facts = facts } : i);
+
+        var result = Check(Ledger(imports: imports).ToJson());
+
+        Assert.False(result.Passed);
+        var line = Assert.Single(result.NotSynchronous);
+        Assert.StartsWith("ForwardPInvoke Acme.Widgets.Box::Special special", line);
+        Assert.Contains(reason, line);
+    }
+
+    [Fact]
+    public void ThrowsAnyErrorIsASynchronousCallee()
+    {
+        var facts = Facts("special") with { Effects = new SwiftCallEffects { Throws = true, TypedThrows = "any Swift.Error" } };
+        var imports = AllImports.Select(i => i.EntryPoint == "special" ? i with { Facts = facts } : i);
+
+        var result = Check(Ledger(imports: imports).ToJson());
+
+        Assert.True(result.Passed, LedgerCrossCheck.ToSummary(result));
     }
 
     [Fact]

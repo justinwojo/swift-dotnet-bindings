@@ -25,7 +25,7 @@ public sealed record SwiftCallFacts
     /// The facts schema version. Bump it on any change to the shape or meaning of a field, so a
     /// serialized record is never read under a different schema than the one that wrote it.
     /// </summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     /// <summary>The schema version this record was produced under.</summary>
     public int FactsVersion { get; init; } = CurrentVersion;
@@ -447,6 +447,22 @@ public enum SwiftTypeCategory
     CFunctionPointer,
 }
 
+/// <summary>How a Swift function value is represented, which decides how wide it is.</summary>
+public enum SwiftFunctionRepresentation
+{
+    /// <summary>A Swift closure: a function pointer and a context, two words.</summary>
+    Thick,
+
+    /// <summary><c>@convention(block)</c>: one Objective-C block reference.</summary>
+    Block,
+
+    /// <summary><c>@convention(thin)</c>: one function pointer with no context.</summary>
+    Thin,
+
+    /// <summary><c>@convention(c)</c>: one C function pointer, called with the C convention.</summary>
+    C,
+}
+
 /// <summary>A Swift type as the facts see it.</summary>
 public sealed record SwiftTypeFacts
 {
@@ -463,8 +479,19 @@ public sealed record SwiftTypeFacts
     /// </summary>
     public bool? IsFrozen { get; init; }
 
-    /// <summary>For a class or existential, whether it is bound to classes (a single reference).</summary>
+    /// <summary>
+    /// For a class or existential, whether it is bound to classes (a single reference). For a
+    /// generic parameter, true when its signature binds it to classes.
+    /// </summary>
     public bool IsClassBound { get; init; }
+
+    /// <summary>
+    /// The representation of every function type this type spells without a
+    /// <c>@convention</c> attribute (a closure parameter, a closure in an <c>Optional</c>), when the
+    /// source records it. Null when the type spells no such function type, or when the source does
+    /// not say: the ABI descriptor prints a block, a thin function and a thick closure alike.
+    /// </summary>
+    public SwiftFunctionRepresentation? Representation { get; init; }
 
     /// <summary>Creates a raw machine-word type.</summary>
     public static SwiftTypeFacts Word(string spelling) => new() { Spelling = spelling, Category = SwiftTypeCategory.MachineWord };
@@ -502,7 +529,55 @@ public enum SwiftGenericRequirementKind
 /// <summary>One requirement of a generic signature.</summary>
 /// <param name="Subject">The constrained type: a parameter, or a member path rooted at one (<c>τ_0_0.Element</c>).</param>
 /// <param name="Target">The protocol, or the type the subject equals.</param>
-public sealed record SwiftGenericRequirementFacts(string Subject, string Target, SwiftGenericRequirementKind Kind);
+public sealed record SwiftGenericRequirementFacts(string Subject, string Target, SwiftGenericRequirementKind Kind)
+{
+    /// <summary>
+    /// What a conformance requirement's target is, which decides whether the callee takes a
+    /// witness table for it and whether it binds the subject to classes. Unknown when the source
+    /// does not say, and for a same-type requirement.
+    /// </summary>
+    public SwiftRequirementTargetKind TargetKind { get; init; }
+
+    /// <summary>
+    /// True when the requirement belongs to the signature of the type the member is declared in,
+    /// not to the member (or an extension's <c>where</c> clause): a generic self's metadata carries it.
+    /// </summary>
+    public bool IsInherited { get; init; }
+
+    /// <summary>True when the requirement adds a witness-table argument: a Swift protocol, class-bound or not.</summary>
+    public bool PassesWitnessTable => Kind == SwiftGenericRequirementKind.Conformance
+        && TargetKind is SwiftRequirementTargetKind.Protocol or SwiftRequirementTargetKind.ClassBoundProtocol;
+
+    /// <summary>True when the requirement binds its subject to classes.</summary>
+    public bool BindsToClasses => Kind == SwiftGenericRequirementKind.Conformance
+        && TargetKind is SwiftRequirementTargetKind.ClassBoundProtocol or SwiftRequirementTargetKind.ObjCProtocol
+            or SwiftRequirementTargetKind.AnyObject or SwiftRequirementTargetKind.Superclass;
+}
+
+/// <summary>What a conformance requirement's target is.</summary>
+public enum SwiftRequirementTargetKind
+{
+    /// <summary>Not known, or not a conformance.</summary>
+    Unknown,
+
+    /// <summary>A Swift protocol not bound to classes: one witness table.</summary>
+    Protocol,
+
+    /// <summary>A Swift protocol bound to classes: one witness table, and the subject is a reference.</summary>
+    ClassBoundProtocol,
+
+    /// <summary>An <c>@objc</c> protocol: no witness table, and the subject is a reference.</summary>
+    ObjCProtocol,
+
+    /// <summary>A marker protocol (<c>Sendable</c>, <c>Copyable</c>, ...): nothing at run time.</summary>
+    MarkerProtocol,
+
+    /// <summary><c>AnyObject</c>: no witness table, and the subject is a reference.</summary>
+    AnyObject,
+
+    /// <summary>A superclass: no witness table, and the subject is a reference.</summary>
+    Superclass,
+}
 
 /// <summary>The generic signature in scope at a callee.</summary>
 public sealed record SwiftGenericSignatureFacts
@@ -515,13 +590,47 @@ public sealed record SwiftGenericSignatureFacts
     /// <summary>The requirements in declaration order.</summary>
     public ImmutableArray<SwiftGenericRequirementFacts> Requirements { get; init; } = ImmutableArray<SwiftGenericRequirementFacts>.Empty;
 
+    /// <summary>
+    /// The parameters the member declares itself, as opposed to those of the type it belongs to
+    /// (which a generic self can carry in its metadata). Empty when the member declares none.
+    /// </summary>
+    public ImmutableArray<string> OwnParameters { get; init; } = ImmutableArray<string>.Empty;
+
     /// <summary>True when the signature has no parameters.</summary>
     public bool IsEmpty => Parameters.IsDefaultOrEmpty;
+
+    /// <summary>
+    /// Whether the generic parameter <paramref name="parameter"/> is bound to classes: true when a
+    /// requirement on it says so, false when every requirement on it is known and none does, null
+    /// when a requirement on it is not known or makes it equal to another type.
+    /// </summary>
+    public bool? IsClassBound(string parameter)
+    {
+        bool decided = true;
+        foreach (var r in Requirements)
+        {
+            bool onParameter = string.Equals(r.Subject, parameter, StringComparison.Ordinal);
+            if (r.Kind == SwiftGenericRequirementKind.SameType)
+            {
+                if (onParameter || string.Equals(r.Target, parameter, StringComparison.Ordinal))
+                    decided = false;
+                continue;
+            }
+            if (!onParameter)
+                continue;
+            if (r.BindsToClasses)
+                return true;
+            if (r.TargetKind == SwiftRequirementTargetKind.Unknown)
+                decided = false;
+        }
+        return decided ? false : null;
+    }
 
     public bool Equals(SwiftGenericSignatureFacts? other) =>
         other is not null
         && Parameters.AsSpan().SequenceEqual(other.Parameters.AsSpan())
-        && Requirements.AsSpan().SequenceEqual(other.Requirements.AsSpan());
+        && Requirements.AsSpan().SequenceEqual(other.Requirements.AsSpan())
+        && OwnParameters.AsSpan().SequenceEqual(other.OwnParameters.AsSpan());
 
     public override int GetHashCode() => HashCode.Combine(Parameters.Length, Requirements.Length);
 }

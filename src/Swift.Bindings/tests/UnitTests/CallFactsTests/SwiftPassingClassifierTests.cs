@@ -142,21 +142,33 @@ public class SwiftPassingClassifierTests
     }
 
     [Fact]
-    public void ResilientSelf_IsIndirect_FromTheFactsAlone()
+    public void ResilientSelf_IsIndirect_WhenTheLoweringKnowsNoLayoutForIt()
     {
-        var lowering = new TableLowering();
-        var result = SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(Resilient, SwiftSelfMutation.Nonmutating)), lowering);
+        var result = SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(Resilient, SwiftSelfMutation.Nonmutating)), new TableLowering());
         Assert.Equal(SwiftSelfConvention.IndirectBorrowed, result.Convention);
-        Assert.Empty(lowering.Asked);
+    }
+
+    [Fact]
+    public void RecordedResilient_ButLaidOutByTheLowering_IsPassedAsTheLoweringSays()
+    {
+        // A database can record a type as resilient that swiftc passes directly: an imported C
+        // struct, or a standard-library buffer pointer. The lowering's layout is what swiftc uses.
+        var lowering = new TableLowering(("M.Resilient", SwiftLoweringAnswer.DirectPieces(2, "two words")));
+
+        var self = SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(Resilient, SwiftSelfMutation.Nonmutating)), lowering);
+        var parameter = SwiftPassingClassifier.ParameterPassings(
+            Facts(SwiftSelfFacts.None, SwiftAccessorKind.None, Param(0, Resilient, SwiftParameterConvention.Guaranteed)), lowering);
+
+        Assert.Equal(SwiftSelfConvention.Lowered, self.Convention);
+        Assert.Equal(SwiftParameterPassingKind.Direct, parameter[0].Kind);
     }
 
     [Theory]
-    [InlineData(SwiftSelfAbstraction.GenericParent)]
     [InlineData(SwiftSelfAbstraction.ProtocolExtension)]
     [InlineData(SwiftSelfAbstraction.ProtocolRequirement)]
-    public void AbstractSelf_IsIndirectWhateverItIsBoundTo(SwiftSelfAbstraction abstraction)
+    public void ProtocolSelf_IsIndirectWhateverItIsBoundTo(SwiftSelfAbstraction abstraction)
     {
-        // A generic parent's members use the unspecialized ABI: even a small frozen self is an address.
+        // A protocol's Self is a generic parameter in the unspecialized ABI: always an address.
         var lowering = Lowering();
         Assert.Equal(SwiftSelfConvention.IndirectBorrowed,
             SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(SmallFrozen, SwiftSelfMutation.Nonmutating, abstraction)), lowering).Convention);
@@ -165,6 +177,24 @@ public class SwiftPassingClassifierTests
         Assert.Equal(SwiftSelfConvention.Inout,
             SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(SmallFrozen, SwiftSelfMutation.Mutating, abstraction)), lowering).Convention);
         Assert.Empty(lowering.Asked);
+    }
+
+    [Fact]
+    public void GenericParentSelf_IsPassedAsItsUnspecializedLayoutLowers()
+    {
+        // A generic type's self is its unspecialized type. A frozen struct whose stored properties
+        // hold no parameter has the same layout whatever it is bound to, and swiftc passes it in
+        // registers; one whose layout depends on a parameter is an address; one whose layout the
+        // lowering cannot tell is refused, not assumed to be either.
+        var lowering = Lowering();
+        SwiftSelfPassing Self(SwiftTypeFacts type, SwiftSelfMutation mutation = SwiftSelfMutation.Nonmutating) =>
+            SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(type, mutation, SwiftSelfAbstraction.GenericParent)), lowering);
+
+        Assert.Equal(SwiftSelfConvention.Lowered, Self(SmallFrozen).Convention);
+        Assert.Equal(SwiftSelfConvention.IndirectBorrowed, Self(WideFrozen).Convention);
+        Assert.Equal(SwiftSelfConvention.IndirectOwned, Self(WideFrozen, SwiftSelfMutation.Consuming).Convention);
+        Assert.Equal(SwiftSelfConvention.Inout, Self(SmallFrozen, SwiftSelfMutation.Mutating).Convention);
+        Assert.False(Self(Struct("M.Unknown", frozen: true)).IsDecided);
     }
 
     [Theory]
@@ -261,10 +291,8 @@ public class SwiftPassingClassifierTests
             (new SwiftTypeFacts { Spelling = "τ_0_0", Category = SwiftTypeCategory.GenericParameter, IsClassBound = true }, SwiftParameterPassingKind.Direct),
             (new SwiftTypeFacts { Spelling = "some M.P", Category = SwiftTypeCategory.Opaque }, SwiftParameterPassingKind.IndirectBorrowed),
             (new SwiftTypeFacts { Spelling = "any M.P", Category = SwiftTypeCategory.Existential }, SwiftParameterPassingKind.IndirectBorrowed),
-            (new SwiftTypeFacts { Spelling = "(Swift.Int) -> ()", Category = SwiftTypeCategory.Closure }, SwiftParameterPassingKind.Direct),
+            (new SwiftTypeFacts { Spelling = "(Swift.Int) -> ()", Category = SwiftTypeCategory.Closure, Representation = SwiftFunctionRepresentation.Thick }, SwiftParameterPassingKind.Direct),
             (SwiftTypeFacts.Word("Swift.UnsafeRawPointer"), SwiftParameterPassingKind.Direct),
-            (Resilient, SwiftParameterPassingKind.IndirectBorrowed),
-            (new SwiftTypeFacts { Spelling = "M.ResilientEnum", Category = SwiftTypeCategory.Enum, IsFrozen = false }, SwiftParameterPassingKind.IndirectBorrowed),
         };
         var lowering = new TableLowering();
         var facts = Facts(SwiftSelfFacts.None, SwiftAccessorKind.None,
@@ -274,6 +302,18 @@ public class SwiftPassingClassifierTests
 
         Assert.Equal(types.Select(t => (SwiftParameterPassingKind?)t.Item2), passings.Select(p => p.Kind));
         Assert.Empty(lowering.Asked);
+    }
+
+    [Fact]
+    public void FunctionType_WithoutARecordedRepresentation_Refuses()
+    {
+        // Thick, thin, block and C function values differ in width; the spelling alone does not say which.
+        var closure = new SwiftTypeFacts { Spelling = "(Swift.Int) -> ()", Category = SwiftTypeCategory.Closure };
+        var passing = SwiftPassingClassifier.ParameterPassings(
+            Facts(SwiftSelfFacts.None, SwiftAccessorKind.None, Param(0, closure, SwiftParameterConvention.Guaranteed)), new TableLowering());
+
+        Assert.False(passing[0].IsDecided);
+        Assert.Contains("representation", passing[0].Refusal);
     }
 
     [Theory]
@@ -315,68 +355,5 @@ public class SwiftPassingClassifierTests
         Assert.Contains("parameter 1", passings[1].Refusal);
         Assert.False(passings[2].IsDecided);
         Assert.Contains("parameter 2", passings[2].Refusal);
-    }
-
-    // ---- the type-database lowering ----
-
-    private static TypeDatabase Db(params TypeRecord[] records)
-    {
-        var db = new TypeDatabase();
-        var module = new ModuleTypeDatabase("M", "/fake/M.dylib");
-        foreach (var record in records)
-            module.RegisterType(record.SwiftTypeName, record);
-        db.AddModuleDatabase(module);
-        return db;
-    }
-
-    private static TypeRecord FrozenStruct(string name, string layout, int size) => new()
-    {
-        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("M", name),
-        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"M.{name}"),
-        MetadataAccessor = $"$s1M{name.Length}{name}V",
-        Flags = TypeRecordFlags.Frozen,
-        Kind = TypeRecordKind.Struct,
-        InlineSize = size,
-        AbiFieldLayout = layout,
-    };
-
-    [Fact]
-    public void TypeDatabaseLowering_SmallIsDirect_WideIsIndirect_DeclinedIsUnknown()
-    {
-        var db = Db(
-            FrozenStruct("Pair", "i8,i8", 16),
-            FrozenStruct("Wide", "i8,i8,i8,i8,i8", 40),
-            FrozenStruct("Floats", "f4,f4,f4,f4,f8", 24));
-        var lowering = new TypeDatabaseSwiftValueLowering(db);
-
-        var pair = lowering.Lower(Struct("M.Pair", frozen: true));
-        var wide = lowering.Lower(Struct("M.Wide", frozen: true));
-        var floats = lowering.Lower(Struct("M.Floats", frozen: true));
-        var missing = lowering.Lower(Struct("M.Missing", frozen: true));
-        var tuple = lowering.Lower(new SwiftTypeFacts { Spelling = "(Swift.Int)", Category = SwiftTypeCategory.Tuple });
-
-        Assert.Equal((SwiftLoweringOutcome.Direct, (int?)2), (pair.Outcome, pair.Pieces));
-        Assert.Equal(SwiftLoweringOutcome.Indirect, wide.Outcome);
-        Assert.Equal(SwiftLoweringOutcome.Unknown, floats.Outcome);
-        Assert.Equal(SwiftLoweringOutcome.Unknown, missing.Outcome);
-        Assert.Equal(SwiftLoweringOutcome.Unknown, tuple.Outcome);
-
-        var self = SwiftPassingClassifier.SelfConvention(Facts(ValueSelf(Struct("M.Wide", frozen: true), SwiftSelfMutation.Nonmutating)), lowering);
-        Assert.Equal(SwiftSelfConvention.IndirectBorrowed, self.Convention);
-    }
-
-    [Theory]
-    [InlineData("Swift.Int", 1)]
-    [InlineData("Swift.Double", 1)]
-    [InlineData("Swift.Bool", 1)]
-    [InlineData("Swift.UnsafePointer<Swift.Int>", 1)]
-    public void TypeDatabaseLowering_ScalarsAndTypedPointers_AreDirectWithoutAFieldLayout(string spelling, int pieces)
-    {
-        // The standard-library records carry no field layout; the register model knows them by name.
-        var lowering = new TypeDatabaseSwiftValueLowering(Db());
-
-        var answer = lowering.Lower(Struct(spelling, frozen: true));
-
-        Assert.Equal((SwiftLoweringOutcome.Direct, (int?)pieces), (answer.Outcome, answer.Pieces));
     }
 }

@@ -55,7 +55,9 @@ public sealed record LedgerCrossCheckResult(
     ImmutableArray<string> Incomplete,
     ImmutableArray<string> HandWritten,
     ImmutableArray<string> LedgerIssues,
-    ImmutableArray<string> Problems)
+    ImmutableArray<string> Problems,
+    ImmutableArray<string> NotSynchronous,
+    int SynchronousChecked)
 {
     /// <summary>
     /// A bijection between the IL's transition sites and the ledger's entries, kind by kind; every
@@ -64,10 +66,12 @@ public sealed record LedgerCrossCheckResult(
     /// planner's work list, and the facts it does carry are still sound. So is a C-convention import
     /// that names a Swift register type with no facts behind it: it calls a C entry point the bindings
     /// export themselves, not a Swift function, so there is no Swift call to describe; its presence and
-    /// its register types are still joined.
+    /// its register types are still joined. Every Swift-convention transition must also call a
+    /// synchronous callee: one its facts say is async, throws a typed error, is a coroutine accessor or
+    /// takes a parameter pack has a different convention than the one the transition uses.
     /// </summary>
     public bool Passed => MissingFromLedger.IsEmpty && MissingFromIl.IsEmpty && CarrierMismatches.IsEmpty
-        && Unplanned.IsEmpty && LedgerIssues.IsEmpty && Problems.IsEmpty;
+        && Unplanned.IsEmpty && LedgerIssues.IsEmpty && Problems.IsEmpty && NotSynchronous.IsEmpty;
 }
 
 /// <summary>
@@ -110,11 +114,13 @@ public static class LedgerCrossCheck
         var problems = new List<string>();
         var issues = new List<string>();
         var entries = new List<LedgerEntryView>();
+        var notSynchronous = new List<string>();
+        var synchronousChecked = 0;
         var count = 0;
         foreach (var (name, json) in ledgers)
         {
             count++;
-            ReadLedger(name, json, entries, issues, problems);
+            ReadLedger(name, json, entries, issues, problems, notSynchronous, ref synchronousChecked);
         }
         if (count == 0)
             problems.Add("no transition ledger was found; the generator writes one per module beside its C#");
@@ -155,7 +161,9 @@ public static class LedgerCrossCheck
             Sorted(entries.Where(e => e.Status == "Incomplete").Select(Describe)),
             Sorted(handWrittenSites.Select(s => $"{s.Kind} {s.Key}")),
             Sorted(issues),
-            Sorted(problems));
+            Sorted(problems),
+            Sorted(notSynchronous),
+            synchronousChecked);
 
         static string Describe(LedgerEntryView e) => $"{e.Kind} {e.Key}: {string.Join("; ", e.Reasons)}";
     }
@@ -219,7 +227,8 @@ public static class LedgerCrossCheck
         return type + "::" + method;
     }
 
-    private static void ReadLedger(string name, string json, List<LedgerEntryView> entries, List<string> issues, List<string> problems)
+    private static void ReadLedger(string name, string json, List<LedgerEntryView> entries, List<string> issues, List<string> problems,
+        List<string> notSynchronous, ref int synchronousChecked)
     {
         try
         {
@@ -235,10 +244,14 @@ public static class LedgerCrossCheck
                 foreach (var issue in issueArray.EnumerateArray())
                     issues.Add($"{name}: {issue.GetString()}");
             var factIds = new HashSet<string>(StringComparer.Ordinal);
+            var notSynchronousFacts = new Dictionary<string, string?>(StringComparer.Ordinal);
             if (root.TryGetProperty("facts", out var factArray) && factArray.ValueKind == JsonValueKind.Array)
                 foreach (var f in factArray.EnumerateArray())
                     if (Str(f, "id") is { Length: > 0 } id)
+                    {
                         factIds.Add(id);
+                        notSynchronousFacts[id] = NotSynchronousReason(f);
+                    }
             foreach (var t in root.GetProperty("transitions").EnumerateArray())
             {
                 var transition = t.TryGetProperty("transition", out var tr) ? tr.GetString() : null;
@@ -263,6 +276,15 @@ public static class LedgerCrossCheck
                 var status = Str(t, "status");
                 if (FactsProblem(kind, status, Str(t, "factsId"), t, factIds) is { } factsProblem)
                     issues.Add($"{name}: {kind} {key}: {factsProblem}");
+                if (kind != LedgerTransitionKind.CdeclSpecialPInvoke)
+                {
+                    var cited = FactsCited(t).Where(notSynchronousFacts.ContainsKey).ToList();
+                    if (cited.Count > 0)
+                        synchronousChecked++;
+                    foreach (var id in cited)
+                        if (notSynchronousFacts[id] is { } reason)
+                            notSynchronous.Add($"{kind} {key}: {reason}");
+                }
                 entries.Add(new LedgerEntryView(kind, key, primitive, status, reasons, name));
             }
         }
@@ -270,6 +292,39 @@ public static class LedgerCrossCheck
         {
             problems.Add($"{name}: the ledger does not read: {ex.Message}");
         }
+    }
+
+    /// <summary>The facts an entry cites: its own, or each candidate a shared call lists.</summary>
+    private static IEnumerable<string> FactsCited(JsonElement entry)
+    {
+        if (Str(entry, "factsId") is { Length: > 0 } id)
+            return new[] { id };
+        return entry.TryGetProperty("candidates", out var c) && c.ValueKind == JsonValueKind.Array
+            ? c.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).Distinct(StringComparer.Ordinal).ToList()
+            : Enumerable.Empty<string>();
+    }
+
+    /// <summary>
+    /// Why a facts record's callee is not a synchronous Swift-convention call, or null when it is:
+    /// async (<c>swifttailcc</c>), a typed error (an indirect error result), a read or modify
+    /// coroutine, or a parameter pack.
+    /// </summary>
+    internal static string? NotSynchronousReason(JsonElement facts)
+    {
+        var effects = facts.TryGetProperty("effects", out var e) && e.ValueKind == JsonValueKind.Object ? e : default;
+        bool Flag(string property) => effects.ValueKind == JsonValueKind.Object
+            && effects.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.True;
+        var accessor = facts.TryGetProperty("target", out var target) && target.ValueKind == JsonValueKind.Object ? Str(target, "accessor") : "";
+        var typed = effects.ValueKind == JsonValueKind.Object ? Str(effects, "typedThrows") : "";
+        if (Flag("isAsync"))
+            return "the callee is async";
+        if (typed.Length > 0 && typed is not ("Swift.Error" or "Error" or "any Swift.Error" or "any Error"))
+            return $"the callee throws a typed error ({typed})";
+        if (Flag("isCoroutine") || accessor is "Modify" or "Read")
+            return "the callee is a coroutine accessor";
+        if (Flag("hasParameterPacks"))
+            return "the callee takes a parameter pack";
+        return null;
     }
 
     /// <summary>
@@ -318,12 +373,14 @@ public static class LedgerCrossCheck
             sb.AppendLine($"  {kind,-20} IL {sites,6}   ledger {ledger,6}");
         }
         sb.AppendLine($"  primitive-marked entries: {result.PrimitiveMarked}");
+        sb.AppendLine($"  synchronous-callee check: {result.SynchronousChecked} entries with facts, {result.NotSynchronous.Length} not synchronous");
         Section(sb, "IL sites with no ledger entry", result.MissingFromLedger);
         Section(sb, "ledger entries with no IL site", result.MissingFromIl);
         Section(sb, "carrier verdicts that disagree", result.CarrierMismatches);
         Section(sb, "unplanned entries", result.Unplanned);
         Section(sb, "ledger issues", result.LedgerIssues);
         Section(sb, "problems", result.Problems);
+        Section(sb, "Swift-convention transitions to callees that are not synchronous", result.NotSynchronous);
         Section(sb, "C-convention register-type imports with no Swift facts (reported, not failed)", result.UnplannedCdeclSpecial);
         Section(sb, "incomplete entries (reported, not failed)", result.Incomplete);
         Section(sb, "hand-written transitions, not ledgered (reported, not failed)", result.HandWritten);

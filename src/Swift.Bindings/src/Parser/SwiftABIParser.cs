@@ -2056,6 +2056,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
+                IsObjC = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "ObjC") != -1,
                 HasCustomAlignment = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Alignment") != -1,
                 MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
                 RawValueTypeName = node.EnumRawTypeName,
@@ -2759,6 +2760,8 @@ namespace BindingsGeneration
                 // so it must not marshal through the 16-byte ClassExistentialContainer1 carrier.
                 IsObjC = node.DeclAttributes is not null &&
                     Array.IndexOf(node.DeclAttributes, "ObjC") != -1,
+                IsMarker = node.DeclAttributes is not null &&
+                    Array.IndexOf(node.DeclAttributes, "Marker") != -1,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsModuleInternal = IsNodeModuleInternal(node),
@@ -3528,6 +3531,7 @@ namespace BindingsGeneration
                 HasStorage = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "HasStorage") != -1,
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
+                IsLazy = node.DeclAttributes?.Contains("Lazy") == true,
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,

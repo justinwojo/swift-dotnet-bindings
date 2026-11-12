@@ -98,6 +98,13 @@ namespace BindingsGeneration
         public required bool IsFrozen { get; set; }
 
         /// <summary>
+        /// Whether the enum is declared <c>@objc</c>. Such an enum is a C enum of its integer raw
+        /// type: stored as the raw value itself, with a fixed layout even when not
+        /// <c>@frozen</c>.
+        /// </summary>
+        public bool IsObjC { get; set; }
+
+        /// <summary>
         /// Whether the enum raises its own alignment past what its payloads require (Swift's
         /// <c>@_alignment(N)</c>). As on a struct, the ABI descriptor records only that the
         /// attribute is present, never N, so the offset the enum takes inside a containing value
