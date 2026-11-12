@@ -242,6 +242,9 @@ namespace BindingsGeneration
                     return;
                 }
 
+                if (MethodHandler.TryRefuseAmbiguousSwiftCall(methodEnv, _logger))
+                    return;
+
                 // Fallback: skip as before
                 _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{firstExistentialType}'.");
                 ReportCollector.RecordMemberSkipped(
@@ -296,6 +299,9 @@ namespace BindingsGeneration
                         emittedName: methodEnv.CSharpMethodName);
                     return;
                 }
+                if (MethodHandler.TryRefuseAmbiguousSwiftCall(methodEnv, _logger))
+                    return;
+
                 // Explicit fallback skip — bypass failed (not struct, failable, throwing)
                 _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: optional closure params with defaults but constructor bypass not applicable.");
                 ReportCollector.RecordMemberSkipped(
@@ -321,6 +327,8 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.MarkEmitted();
                 return;
             }
+            if (MethodHandler.TryRefuseAmbiguousSwiftCall(methodEnv, _logger))
+                return;
 
             // A constructor that carries a @convention(c) closure has no ABI-correct surface once it
             // also has a non-optional closure parameter. A @convention(c) closure is a bare C function
@@ -402,6 +410,13 @@ namespace BindingsGeneration
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 DefaultParameterOverloadEmitter.HasDebugParameters(methodEnv.MethodDecl))
             {
+                // The shim leaves the debug parameters out; decline the initializer when that call
+                // would reach a same-named sibling instead.
+                if (DefaultParameterOverloadEmitter.DebugParamCallWinner(methodEnv.MethodDecl, methodEnv.TypeDatabase) is { } debugCallWinner)
+                {
+                    MethodHandler.RecordAmbiguousSwiftCallSkip(methodEnv.MethodDecl, debugCallWinner, _logger);
+                    return;
+                }
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
@@ -1101,6 +1116,37 @@ namespace BindingsGeneration
         internal static IReadOnlyList<IMethodBridgeEmitter> BridgeEmitters => _bridgeEmitters;
 
         /// <summary>
+        /// Records a member declined because the only wrapper that can carry it calls the Swift
+        /// declaration by name with defaulted arguments left out, and Swift would then resolve that
+        /// call to <paramref name="winningSibling"/> instead.
+        /// </summary>
+        /// <summary>
+    /// Records the refusal when a constructor bridge declined because its reduced Swift call
+    /// would resolve to a same-named sibling initializer. Returns false when no bridge refused.
+    /// </summary>
+    internal static bool TryRefuseAmbiguousSwiftCall(MethodEnvironment methodEnv, ILogger logger)
+    {
+        if (methodEnv.AmbiguousSwiftCallWinner is not { } winningSibling)
+            return false;
+        RecordAmbiguousSwiftCallSkip(methodEnv.MethodDecl, winningSibling, logger);
+        return true;
+    }
+
+    internal static void RecordAmbiguousSwiftCallSkip(MethodDecl method, string winningSibling, ILogger logger)
+        {
+            var target = SwiftOverloadCallPinning.Describe(method);
+            logger.LogInformation(
+                "Skipping '{Target}': its wrapper leaves defaulted arguments out, Swift would resolve that " +
+                "call to the same-named '{Sibling}', and no omitted default can be spelled out to keep it " +
+                "on this declaration.",
+                target, winningSibling);
+            ReportCollector.RecordMemberSkipped(
+                method,
+                SkipReason.AmbiguousSwiftOverloadCall,
+                $"Without its defaulted arguments the call to '{target}' resolves to '{winningSibling}'.");
+        }
+
+        /// <summary>
         /// Post-processor table — ordered sequence of post-processors run after normal method emission.
         /// Ordering: DefaultParameter first (emits Swift wrappers that other overloads reference).
         /// </summary>
@@ -1272,6 +1318,13 @@ namespace BindingsGeneration
                         WrapperSymbolContractGate.HandleSkip(methodEnv, ex.EntryPoint, csWriter, _logger);
                         return;
                     }
+                    if (result == null && methodEnv.AmbiguousSwiftCallWinner is { } winningSibling)
+                    {
+                        // The bridge that owns this shape would have to call a same-named sibling.
+                        bridgeTransaction.Rollback();
+                        RecordAmbiguousSwiftCallSkip(methodEnv.MethodDecl, winningSibling, _logger);
+                        return;
+                    }
                     if (result != null)
                     {
                         if (result.WasEmitted)
@@ -1307,6 +1360,13 @@ namespace BindingsGeneration
             // Must happen before SignatureHandler — updates MangledName + UsesWrapperLibrary.
             if (hadDebugParams)
             {
+                // The shim leaves the debug parameters out; decline the member when that call would
+                // reach a same-named sibling instead.
+                if (DefaultParameterOverloadEmitter.DebugParamCallWinner(methodEnv.MethodDecl, methodEnv.TypeDatabase) is { } debugCallWinner)
+                {
+                    RecordAmbiguousSwiftCallSkip(methodEnv.MethodDecl, debugCallWinner, _logger);
+                    return;
+                }
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 

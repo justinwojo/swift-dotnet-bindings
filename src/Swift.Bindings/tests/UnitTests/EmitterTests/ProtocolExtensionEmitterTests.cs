@@ -321,6 +321,24 @@ public class ProtocolExtensionEmitterTests
         Assert.Empty(ctx.ProtocolExtSwiftWrapperLines);
     }
 
+    [Fact]
+    public void AutoclosureParam_ClosureWrapperForwardsTheClosuresValue()
+    {
+        // The closure wrapper binds the managed callback to `__closure`, a `() -> Bool`. An
+        // @autoclosure parameter takes a Bool, so the call passes `__closure()` for Swift to wrap
+        // back into the autoclosure; passed as is, it binds to a sibling taking a function, if any.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyHolder", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("check", "public func check(_ condition: @autoclosure () -> Swift.Bool)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        Assert.Single(conformingType.Methods);
+        var call = ctx.ProtocolExtSwiftWrapperLines.Single(line => line.Contains("instance.check("));
+        Assert.Contains("instance.check(__closure())", call);
+    }
+
     // ─── Read-only extension-default PROPERTIES → synthetic getter methods ──
 
     [Fact]

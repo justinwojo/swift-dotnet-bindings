@@ -70,6 +70,10 @@ namespace BindingsGeneration
                     "Existential parameter(s) omitted; Swift defaults used.");
             }
 
+            // A reduced call that would reach a same-named sibling is refused by the bridge loop.
+            if (context.MethodEnv.AmbiguousSwiftCallWinner != null)
+                return null;
+
             // Bypass failed — skip method entirely
             context.Logger.LogWarning(
                 $"Skipping method {context.MethodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{context.FirstExistentialType}'.");
@@ -285,6 +289,10 @@ namespace BindingsGeneration
                 return new BridgeEmitResult("OptionalClosureBypass",
                     "Optional closure parameter(s) with defaults omitted; Swift fills nil.");
             }
+
+            // A reduced call that would reach a same-named sibling is refused by the bridge loop.
+            if (context.MethodEnv.AmbiguousSwiftCallWinner != null)
+                return null;
 
             // Explicit fallback skip — bypass failed (async/throws/static/non-void)
             context.Logger.LogWarning(

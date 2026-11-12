@@ -1925,6 +1925,94 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Superset(withoutAllDefaults, withAllDefaults);
     }
 
+    [Fact]
+    public void TrimmedOverload_SiblingOfTheSameArityButDifferentTypes_StillEmitted()
+    {
+        // describe(a: Int, b = Config()) trims to Describe(nint). The sibling describe(x: String)
+        // also takes one argument, but Describe(string) is a different C# signature and the Swift
+        // call describe(a:) cannot reach it, so nothing about the sibling costs the overload.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"));
+        AddSibling(method, WithSwiftType(CreateArg("x", hasDefault: false), "Swift.String"));
+
+        var emissionContext = RunOverloads(env);
+
+        Assert.Contains(1, EmittedArities(emissionContext, "Log.Describe"));
+        Assert.Empty(emissionContext.SuppressedAmbiguousOverloads);
+    }
+
+    [Fact]
+    public void TrimmedOverload_SiblingDeclaringTheSameCSharpSignature_DeclinedAndReported()
+    {
+        // describe(x: Int) projects to Describe(nint), exactly the trim of describe(a: Int, b =
+        // Config()). Swift tells them apart by label; C# cannot, so the trim is declined, and the
+        // decline is reported naming both sides.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("b", "Config()"));
+        AddSibling(method, CreateArg("x", hasDefault: false));
+
+        var emissionContext = RunOverloads(env);
+
+        Assert.DoesNotContain(1, EmittedArities(emissionContext, "Log.Describe"));
+        var suppressed = Assert.Single(emissionContext.SuppressedAmbiguousOverloads);
+        Assert.All(suppressed.Split(" ~ ", StringSplitOptions.None),
+            side => Assert.Contains("Describe", side, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TrimmedOverload_ReducedCallASiblingWouldWin_SpellsOutTheDefault()
+    {
+        // describe(a:flag: = 0:c: = Config()) beside describe(a:c: = Config()). The deepest trim
+        // calls describe(a:), which the sibling matches with fewer defaults, so a shim that left
+        // `flag` out would run the sibling. Writing `flag: 0` out keeps the call on the target with
+        // the value Swift would have supplied.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("flag", "0"),
+            CreateArgWithDefault("c", "Config()"));
+        AddSibling(method, CreateArg("a", hasDefault: false), CreateArgWithDefault("c", "Config()"));
+
+        var (emissionContext, swift) = RunOverloadsCapturingSwift(env);
+
+        Assert.Contains(1, EmittedArities(emissionContext, "Log.Describe"));
+        Assert.Matches(@"\.describe\(a: \w+, flag: 0\)", swift);
+    }
+
+    [Fact]
+    public void TrimmedOverload_ReducedCallASiblingWouldWin_UnspellableDefault_DeclinedAndReported()
+    {
+        // The same pair, but the omitted default is an expression the shim cannot repeat. Nothing
+        // steers describe(a:) back to the target, so the trim is declined and reported rather than
+        // bound to the sibling.
+        var (method, env) = CreateClassMethodEnvironment(
+            "Log", "describe",
+            CreateArg("a", hasDefault: false),
+            CreateArgWithDefault("flag", "Config()"),
+            CreateArgWithDefault("c", "Config()"));
+        AddSibling(method, CreateArg("a", hasDefault: false), CreateArgWithDefault("c", "Config()"));
+
+        var (emissionContext, swift) = RunOverloadsCapturingSwift(env);
+
+        Assert.DoesNotContain(1, EmittedArities(emissionContext, "Log.Describe"));
+        Assert.DoesNotMatch(@"\.describe\(a: \w+\)", swift);
+        Assert.Contains(emissionContext.SuppressedAmbiguousOverloads,
+            row => row.Contains("Swift describe(a:c:)", StringComparison.Ordinal));
+    }
+
+    private static (ModuleEmissionContext Context, string Swift) RunOverloadsCapturingSwift(MethodEnvironment env)
+    {
+        var emissionContext = new ModuleEmissionContext();
+        var swiftOutput = new StringWriter();
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput), env, NullLogger.Instance, emissionContext);
+        return (emissionContext, swiftOutput.ToString());
+    }
+
     /// <summary>
     /// The parameter counts of every overload this producer actually wrote for
     /// <paramref name="memberPrefix"/>, read back from what it recorded as emitted API surface.

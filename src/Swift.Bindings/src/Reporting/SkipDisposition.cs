@@ -135,6 +135,9 @@ public static class SkipDispositionClassifier
             [SkipReason.CovariantReturnNotRepresentable] = SkipDisposition.KnownLimitation,
             [SkipReason.NetUnavailableType] = SkipDisposition.KnownLimitation,
             [SkipReason.AbsentFrameworkType] = SkipDisposition.KnownLimitation,
+            // The wrapper would compile and call the wrong declaration; declining is the decided
+            // outcome when no omitted default can be spelled out to pin the call.
+            [SkipReason.AmbiguousSwiftOverloadCall] = SkipDisposition.KnownLimitation,
             // Constrained-extension wrapper (same-name extension collision or narrower-than-parent
             // generic constraints) and generic-enum payload case constructors are decided, documented
             // gaps — conditional-conformance wrapper extensions / open-generic enum case wrappers are

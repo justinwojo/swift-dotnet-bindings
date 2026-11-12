@@ -127,6 +127,28 @@ public class ProtocolExtensionClosureBridgeTests
         Assert.Contains("bool", result);
     }
 
+    [Fact]
+    public void TryEmit_ZeroArgBoolReturnClosure_EmitsAWellFormedFunc()
+    {
+        // A closure with no arguments has only the result as the delegate's type argument. An
+        // empty leading argument (`Func<, bool>`) doesn't compile, and the verify step fails the
+        // whole generation for it.
+        var (csWriter, swiftWriter, csOutput) = CreateWriters();
+        var method = CreateProtocolExtMethodWithClosure(
+            "admit",
+            new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool")));
+        var env = CreateMethodEnvironment(method);
+        var parentDecl = CreateClassDecl("MyProtocol");
+
+        var handled = ProtocolExtensionClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.True(handled);
+        var result = csOutput.ToString();
+        Assert.DoesNotMatch(@"Func<\s*,", result);
+        Assert.Contains("Func<bool>)handle.Target!", result);
+        Assert.Matches(@"Func<bool> __inner = \(\) =>", result);
+    }
+
     #endregion
 
     #region TryEmit: zero-arg closure

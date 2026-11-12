@@ -1890,7 +1890,7 @@ public class WitnessDispatchEmitter
                 {
                     writer.WriteLine(line);
                 }
-                callArgs.Add($"_adapted_arg{i}");
+                callArgs.Add(SwiftClosureArgument.Render($"_adapted_arg{i}", closure));
             }
             else
             {

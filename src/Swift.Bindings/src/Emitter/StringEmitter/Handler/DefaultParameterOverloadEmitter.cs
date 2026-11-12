@@ -203,28 +203,37 @@ public static class DefaultParameterOverloadEmitter
             && !allDefaultsAlreadyReachable
             && CanOmitEveryDefault(allArgs, defaultedIndices);
 
-        // The reduced call has to be unambiguous on the SWIFT side too. Omitting arguments makes the
-        // call shorter, and a shorter call reaches MORE of the declarations sharing this Swift name —
-        // a sibling overload that differs only in a defaulted parameter's type accepts the reduced
-        // argument list exactly as well as the intended one, and swiftc rejects the shim with
-        // "ambiguous use of ...". That kills the whole wrapper library, not just this member.
+        // The reduced call has to reach THIS declaration on the Swift side too. Omitting arguments
+        // makes the call shorter, and a shorter call fits MORE of the declarations sharing this Swift
+        // name: a sibling that needs fewer defaults, or a favored one over this disfavored one, would
+        // silently take the call, and an equally good one makes swiftc reject the shim as ambiguous.
+        // The candidate loop below plans every candidate's call; this form is decided here because
+        // the answer feeds the cap arithmetic.
         if (wantAllDefaultsForm)
         {
-            var ambiguousSibling = FindAmbiguousSwiftSibling(methodDecl, allArgs, defaultedIndices);
-            if (ambiguousSibling != null)
+            var allDefaultsDropped = new HashSet<ArgumentDecl>(
+                defaultedIndices.Select(i => allArgs[i]), ReferenceEqualityComparer.Instance);
+            var allDefaultsPlan = SwiftOverloadCallPinning.Plan(methodDecl, allDefaultsDropped.Contains, env.TypeDatabase);
+            if (allDefaultsPlan.IsRefused)
             {
                 logger.LogInformation(
                     "Skipping the all-defaults overload for '{Name}': omitting every defaulted " +
-                    "argument leaves a Swift call that the sibling declaration '{Sibling}' matches " +
-                    "just as well, which swiftc rejects as ambiguous. The primary signature and the " +
-                    "trailing-trim overloads are unaffected.",
+                    "argument leaves a Swift call that resolves to the same-named '{Sibling}', and no " +
+                    "omitted default can be spelled out to keep it on this declaration. The primary " +
+                    "signature and the trailing-trim overloads are unaffected.",
                     methodDecl.Name,
-                    ambiguousSibling);
+                    allDefaultsPlan.WinningSibling);
+                emissionContext?.TryRecordSuppressedAmbiguousOverload(
+                    GetProjectedOverloadKey(
+                        BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, defaultedIndices),
+                        env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput),
+                    "Swift " + allDefaultsPlan.WinningSibling,
+                    candidateWasFuller: false);
                 wantAllDefaultsForm = false;
             }
             // The C# side of the same question, asked HERE rather than in the candidate loop because
             // the answer changes the cap arithmetic below: the all-defaults form spends one of the
-            // MaxOverloads slots, so a candidate the arity-collision rule will throw away anyway must
+            // MaxOverloads slots, so a candidate the sibling-collision rule will throw away anyway must
             // not also cost a trailing trim that would otherwise have been emitted.
             //
             // Report it the way the candidate loop reports its own declines. This arm runs BEFORE
@@ -233,15 +242,16 @@ public static class DefaultParameterOverloadEmitter
             else
             {
                 var allDefaultsDecl = BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, defaultedIndices);
-                if (TryFindSignatureCollision(allDefaultsDecl, out var collidingSibling))
+                var declinedKey = GetProjectedOverloadKey(
+                    allDefaultsDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+                if (TryFindSignatureCollision(
+                        methodDecl, allDefaultsDecl, declinedKey,
+                        OverloadAmbiguityGuard.RequiredCountFor(allDefaultsDecl, env.TypeDatabase, declinedKey),
+                        env, out var collidingKey))
                 {
-                    var declinedKey = GetProjectedOverloadKey(
-                        allDefaultsDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
-                    var collidingKey = GetProjectedOverloadKey(
-                        collidingSibling!, env.TypeDatabase, env.SiblingPropertyNames);
                     logger.LogDebug(
-                        "DefaultParameterOverload: declining the all-defaults overload for {Name} — it would " +
-                        "declare the same arity as the existing sibling {Other}: {Key}",
+                        "DefaultParameterOverload: declining the all-defaults overload for {Name} — a consumer " +
+                        "could not tell it from the existing sibling {Other}: {Key}",
                         methodDecl.Name, collidingKey, declinedKey);
                     emissionContext?.TryRecordSuppressedAmbiguousOverload(
                         declinedKey, collidingKey, candidateWasFuller: false);
@@ -289,6 +299,9 @@ public static class DefaultParameterOverloadEmitter
             var overloadDecl = dropIndices == null
                 ? BuildOverloadDecl(GetOverloadSymbolBase(env), methodDecl, trim)
                 : BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, dropIndices);
+            var droppedArgs = new HashSet<ArgumentDecl>(
+                (dropIndices ?? Enumerable.Range(allArgs.Count - trim, trim).ToList()).Select(i => allArgs[i]),
+                ReferenceEqualityComparer.Instance);
 
             // Identity is fixed by the captured producer symbol. Deny before preparation or
             // reservations so a withdrawn trim cannot consume a healthy sibling's name.
@@ -428,12 +441,10 @@ public static class DefaultParameterOverloadEmitter
                     return;
                 }
 
-                // Check for collision with existing methods/ctors that have same name and param count
-                if (HasSignatureCollision(overloadDecl))
-                {
-                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — collides with existing method", trim, methodDecl.Name);
-                    return;
-                }
+                // The shim calls the original by name without the dropped arguments. Plan that call
+                // so it still reaches this declaration rather than a same-named sibling, spelling out
+                // a dropped default where that is what keeps it here.
+                var pinPlan = SwiftOverloadCallPinning.Plan(methodDecl, droppedArgs.Contains, env.TypeDatabase);
 
                 // C6/C7: the projected C# signature this candidate would claim. Computed here (not at the
                 // reservation below) because the ambiguity filter needs the whole candidate set's
@@ -491,6 +502,33 @@ public static class DefaultParameterOverloadEmitter
                         if (initFactoryParen > 0)
                             projectedKey = overloadEnv.InitFactoryName + projectedKey.Substring(initFactoryParen);
                     }
+
+                    if (pinPlan.IsRefused)
+                    {
+                        logger.LogInformation(
+                            "Skipping a default-parameter overload of '{Name}': without the omitted arguments the " +
+                            "Swift call resolves to the same-named '{Sibling}', and no omitted default can be " +
+                            "spelled out to keep it on this declaration: {Key}",
+                            methodDecl.Name, pinPlan.WinningSibling, projectedKey);
+                        emissionContext?.TryRecordSuppressedAmbiguousOverload(
+                            projectedKey, "Swift " + pinPlan.WinningSibling, candidateWasFuller: false);
+                        return;
+                    }
+
+                    int requiredCount = OverloadAmbiguityGuard.RequiredCountFor(overloadDecl, env.TypeDatabase, projectedKey);
+
+                    // A same-named declaration of the type that a consumer could not tell this overload
+                    // from — the same C# signature (CS0111), or a call both bind equally well (CS0121).
+                    if (TryFindSignatureCollision(methodDecl, overloadDecl, projectedKey, requiredCount, env, out var collidingKey))
+                    {
+                        logger.LogDebug(
+                            "DefaultParameterOverload: declining overload (trim {Trim}) for {Name} — a consumer could not tell it from the sibling {Other}: {Key}",
+                            trim, methodDecl.Name, collidingKey, projectedKey);
+                        emissionContext?.TryRecordSuppressedAmbiguousOverload(
+                            projectedKey, collidingKey!, candidateWasFuller: false);
+                        return;
+                    }
+
                     prepared.Add(new PreparedOverload
                     {
                         Decl = overloadDecl,
@@ -502,8 +540,10 @@ public static class DefaultParameterOverloadEmitter
                         SilgenSymbolForMethodCdecl = silgenSymbolForMethodCdecl,
                         CdeclSymbolForMethodRestore = cdeclSymbolForMethodRestore,
                         ProjectedKey = projectedKey,
-                        RequiredCount = OverloadAmbiguityGuard.RequiredCountFor(overloadDecl, env.TypeDatabase, projectedKey),
+                        RequiredCount = requiredCount,
                         DeclaredCount = overloadDecl.CSSignature.Count - 1,
+                        DroppedArgs = droppedArgs,
+                        PinPlan = pinPlan,
                     });
                 }
             });
@@ -607,7 +647,7 @@ public static class DefaultParameterOverloadEmitter
                     overloadEnv.PromoteSymbol(silgenSymbolForMethodCdecl!);
 
                 // Emit Swift @_silgen_name wrapper
-                EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim, emissionContext ?? env.EmissionContext);
+                EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim, candidate.DroppedArgs, candidate.PinPlan, emissionContext ?? env.EmissionContext);
 
                 // Promote the env's emission symbol to the cdecl symbol — the value P/Invoke routing reads.
                 // (overloadDecl.MangledName is immutable; EmitSwiftWrapper read it directly for the @_silgen_name.)
@@ -749,6 +789,12 @@ public static class DefaultParameterOverloadEmitter
 
         /// <summary>Declared C# parameter count — the "fullness" the ambiguity tie-break ranks on.</summary>
         public required int DeclaredCount { get; init; }
+
+        /// <summary>The original's parameters this candidate's Swift call leaves out.</summary>
+        public required IReadOnlySet<ArgumentDecl> DroppedArgs { get; init; }
+
+        /// <summary>Which of <see cref="DroppedArgs"/> the call spells out to stay on the original.</summary>
+        public required SwiftCallPinPlan PinPlan { get; init; }
     }
 
     /// <summary>
@@ -768,7 +814,9 @@ public static class DefaultParameterOverloadEmitter
     /// expression: an expression from the interface can name symbols that are not visible from the
     /// wrapper's module (internal statics, private helpers), which compiles the wrapper out of the
     /// dylib and leaves the C# P/Invoke bound to a symbol that no longer exists. Letting Swift
-    /// evaluate its own default cannot get the value wrong, and needs no expression at all.
+    /// evaluate its own default cannot get the value wrong, and needs no expression at all. The one
+    /// exception is a default that must be spelled out to keep the shortened call on this
+    /// declaration, and <see cref="SwiftOverloadCallPinning"/> only ever spells out a literal.
     /// </summary>
     private static bool CanOmitEveryDefault(IReadOnlyList<ArgumentDecl> args, IReadOnlyList<int> dropIndices)
     {
@@ -787,110 +835,6 @@ public static class DefaultParameterOverloadEmitter
             }
         }
         return true;
-    }
-
-    /// <summary>
-    /// The Swift-side mirror of the C# set-validity check: returns the sibling declaration whose
-    /// presence makes the all-defaults shim's reduced call ambiguous at the SWIFT call site, or null
-    /// when the call resolves to exactly one declaration.
-    ///
-    /// <para><see cref="CanOmitEveryDefault"/> asks whether the KEPT arguments still bind to the
-    /// parameters they were meant for within ONE declaration. This asks the other half: whether the
-    /// reduced call also fits a DIFFERENT declaration sharing the same Swift base name. Dropping
-    /// arguments only ever makes a call shorter, and a shorter call satisfies more overloads — two
-    /// declarations differing solely in a defaulted parameter's type become indistinguishable the
-    /// moment that parameter is omitted, and swiftc reports "ambiguous use of ...". A shim that does
-    /// not compile is not a lost member: the wrapper library is built as a unit, so one ambiguous
-    /// call fails every binding in the module.</para>
-    ///
-    /// <para>Acceptance is decided by replaying Swift's own argument matching: each of the sibling's
-    /// parameters either binds the next remaining argument (its call label AND its type both match —
-    /// the type is what lets Swift tell two same-labeled declarations apart) or supplies its own
-    /// value (a Swift default, or a debug parameter such as <c>#file</c>, which is one). The sibling
-    /// accepts the call when every argument was consumed that way. Type identity is compared on the
-    /// parsed <see cref="TypeSpec"/> spelling, so a pair that is ambiguous only through an implicit
-    /// conversion is not detected — the same deliberate under-detection the C# guard documents, and
-    /// the same direction: this predicate only ever declines a candidate that today's generator does
-    /// not produce at all.</para>
-    ///
-    /// <para>Only the omission-based all-defaults form consults this. A trailing trim emits a reduced
-    /// call too, but it is guarded by the pre-existing <see cref="HasSignatureCollision"/> arity rule
-    /// and its output is long-established; widening this check to that path is a separate change.</para>
-    /// </summary>
-    private static string? FindAmbiguousSwiftSibling(
-        MethodDecl methodDecl, IReadOnlyList<ArgumentDecl> args, IReadOnlyList<int> dropIndices)
-    {
-        IEnumerable<MethodDecl>? siblingMethods = methodDecl.ParentDecl switch
-        {
-            TypeDecl typeDecl => typeDecl.Methods,
-            _ => methodDecl.ModuleDecl?.Methods
-        };
-
-        if (siblingMethods == null)
-            return null;
-
-        var dropped = new HashSet<int>(dropIndices);
-        var callArgs = new List<(string Label, string Type)>();
-        for (int i = 0; i < args.Count; i++)
-        {
-            if (dropped.Contains(i) || IsDebugParameter(args[i]) || args[i].SwiftTypeSpec.IsEmptyTuple)
-                continue;
-            callArgs.Add((CdeclParamMapper.BuildSwiftCallArgLabel(args[i]), args[i].SwiftTypeSpec.ToString()));
-        }
-
-        foreach (var sibling in siblingMethods)
-        {
-            // The shim calls through the same receiver form as the original, so a static/instance
-            // mismatch is never a candidate; a module-internal declaration is not visible from the
-            // wrapper's module at all.
-            if (string.Equals(sibling.MangledName, methodDecl.MangledName, StringComparison.Ordinal))
-                continue;
-            if (!string.Equals(sibling.Name, methodDecl.Name, StringComparison.Ordinal))
-                continue;
-            if (sibling.IsConstructor != methodDecl.IsConstructor ||
-                sibling.MethodType != methodDecl.MethodType ||
-                sibling.IsModuleInternal)
-            {
-                continue;
-            }
-
-            if (AcceptsReducedCall(sibling, callArgs))
-                return sibling.Name + " (" + sibling.MangledName + ")";
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Replays Swift argument matching for <paramref name="callArgs"/> against
-    /// <paramref name="sibling"/>'s parameter list. See <see cref="FindAmbiguousSwiftSibling"/> for
-    /// why a bound argument must match on type as well as label.
-    /// </summary>
-    private static bool AcceptsReducedCall(
-        MethodDecl sibling, IReadOnlyList<(string Label, string Type)> callArgs)
-    {
-        int cursor = 0;
-        foreach (var param in sibling.CSSignature.Skip(1))
-        {
-            if (param.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-
-            bool binds = cursor < callArgs.Count
-                && string.Equals(
-                    CdeclParamMapper.BuildSwiftCallArgLabel(param), callArgs[cursor].Label, StringComparison.Ordinal)
-                && string.Equals(param.SwiftTypeSpec.ToString(), callArgs[cursor].Type, StringComparison.Ordinal);
-
-            if (binds)
-            {
-                cursor++;
-                continue;
-            }
-
-            if (!param.HasDefaultArg && !IsDebugParameter(param))
-                return false;
-        }
-
-        return cursor == callArgs.Count;
     }
 
     /// <summary>
@@ -1083,12 +1027,16 @@ public static class DefaultParameterOverloadEmitter
     /// with fewer arguments, letting Swift fill in the defaults.
     /// </summary>
     /// <param name="trim">The canonical trim count (loop variable) — number of trailing default params removed.</param>
+    /// <param name="droppedArgs">The original's parameters the call leaves out.</param>
+    /// <param name="pinPlan">Which dropped parameters the call spells out to stay on the original.</param>
     private static void EmitSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodDecl originalMethodDecl,
         MethodDecl overloadDecl,
         MethodEnvironment env,
         int trim,
+        IReadOnlySet<ArgumentDecl> droppedArgs,
+        SwiftCallPinPlan pinPlan,
         ModuleEmissionContext? emissionContext)
     {
         var wrapperSymbol = overloadDecl.MangledName;
@@ -1191,11 +1139,19 @@ public static class DefaultParameterOverloadEmitter
                 methodOwnGenericDecls, moduleQualify: isFreeFunction);
         }
 
-        // Build call arguments — use kept params with their original labels
+        // Build call arguments — kept params with their original labels, in the original's parameter
+        // order, plus any dropped default the plan spells out to keep the call on the original.
         var callArgs = new List<string>();
-        for (int i = 0; i < keptArgs.Count; i++)
+        int keptIndex = 0;
+        foreach (var originalArg in originalMethodDecl.CSSignature.Skip(1))
         {
-            var arg = keptArgs[i];
+            if (droppedArgs.Contains(originalArg))
+            {
+                if (pinPlan.PinFor(originalArg) is { } pin)
+                    callArgs.Add(pin);
+                continue;
+            }
+            var arg = keptArgs[keptIndex++];
             // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
@@ -1209,11 +1165,6 @@ public static class DefaultParameterOverloadEmitter
             // begin with '_' (e.g. _self) and backtick-escapes keywords.
             var argStr = CdeclParamMapper.BuildSwiftCallArgLabel(arg);
 
-            // @autoclosure params are received as regular closures in the wrapper,
-            // but the original method expects a bare expression. Invoke with () so
-            // Swift can re-wrap the result in @autoclosure at the call site.
-            var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
-
             // Forward the wrapper's own `inout` parameter to the original method with `&` —
             // required by Swift at every call site passing an lvalue to an inout parameter
             // (matches the `inout` prefix added to the declaration above). The widened-Optional
@@ -1223,7 +1174,9 @@ public static class DefaultParameterOverloadEmitter
             var refPrefix = (arg.IsInOut && !isWidened) ? "&" : "";
 
             // Call args use native param names — @_silgen_name preserves original ABI
-            callArgs.Add(argStr + refPrefix + valueRef + autoclosureSuffix);
+            // The shim receives an autoclosure parameter as a plain closure; SwiftClosureArgument
+            // forwards its value for Swift to wrap back into the autoclosure.
+            callArgs.Add(argStr + SwiftClosureArgument.Render(refPrefix + valueRef, arg.SwiftTypeSpec));
         }
         var callArgString = string.Join(", ", callArgs);
 
@@ -1430,38 +1383,74 @@ public static class DefaultParameterOverloadEmitter
         });
 
     /// <summary>
-    /// Checks if a trimmed overload would collide with an existing method on the same type.
-    /// Uses parameter count as a conservative heuristic: if any sibling method has the same
-    /// name and parameter count, skip the overload to avoid CS0111 duplicate declarations.
+    /// Finds a same-named declaration of the type that a consumer could not tell the candidate
+    /// overload from: one whose own C# signature is the same (CS0111), or that a call site binds as
+    /// well as the candidate (CS0121). The candidate's source declaration — and the declaration a
+    /// specialized source was built from — is never its own rival.
+    ///
+    /// <para>Methods compare full projected signatures, so a sibling that only shares the arity does
+    /// not cost the overload. Constructors keep the arity rule: a trimmed initializer can emit under a
+    /// factory name that a sibling's projected key does not carry, so its real C# name cannot be
+    /// rebuilt here.</para>
     /// </summary>
-    private static bool HasSignatureCollision(MethodDecl overloadDecl)
-        => TryFindSignatureCollision(overloadDecl, out _);
-
-    /// <summary>
-    /// The colliding sibling variant of <see cref="HasSignatureCollision"/>: reports WHICH
-    /// declaration the candidate would duplicate, so a decline can name it in the log and in the
-    /// suppressed-overload report rather than vanishing silently.
-    /// </summary>
-    private static bool TryFindSignatureCollision(MethodDecl overloadDecl, out MethodDecl? collidingSibling)
+    private static bool TryFindSignatureCollision(
+        MethodDecl sourceDecl,
+        MethodDecl overloadDecl,
+        string candidateKey,
+        int candidateRequiredCount,
+        MethodEnvironment env,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? collidingKey)
     {
-        collidingSibling = null;
-        int overloadParamCount = overloadDecl.CSSignature.Count - 1; // exclude return type
-
+        collidingKey = null;
         IEnumerable<MethodDecl>? siblingMethods = overloadDecl.ParentDecl switch
         {
             TypeDecl typeDecl => typeDecl.Methods,
             _ => overloadDecl.ModuleDecl?.Methods
         };
-
         if (siblingMethods == null)
             return false;
 
-        collidingSibling = siblingMethods.FirstOrDefault(m =>
-            m.Name == overloadDecl.Name &&
-            m.IsConstructor == overloadDecl.IsConstructor &&
-            m.CSSignature.Count - 1 == overloadParamCount &&
-            m.MangledName != overloadDecl.MangledName); // don't compare against self
-        return collidingSibling != null;
+        var origin = sourceDecl.SpecializedFrom ?? sourceDecl;
+        int overloadParamCount = overloadDecl.CSSignature.Count - 1;
+        var candidateShape = OverloadAmbiguityGuard.ParseKey(candidateKey, candidateRequiredCount);
+        foreach (var sibling in siblingMethods)
+        {
+            if (sibling.Name != overloadDecl.Name ||
+                sibling.IsConstructor != overloadDecl.IsConstructor ||
+                ReferenceEquals(sibling, sourceDecl) || ReferenceEquals(sibling, origin) ||
+                sibling.MangledName == overloadDecl.MangledName ||
+                sibling.MangledName == origin.MangledName)
+            {
+                continue;
+            }
+
+            if (overloadDecl.IsConstructor)
+            {
+                if (sibling.CSSignature.Count - 1 != overloadParamCount)
+                    continue;
+                collidingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
+                return true;
+            }
+
+            // A module-internal sibling declares no C# member.
+            if (sibling.IsModuleInternal)
+                continue;
+
+            var siblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
+            bool sameSignature = string.Equals(
+                ConcreteProtocolSpecializationEmitter.CsmOverloadLedger.CanonicalSpelling(siblingKey),
+                ConcreteProtocolSpecializationEmitter.CsmOverloadLedger.CanonicalSpelling(candidateKey),
+                StringComparison.Ordinal);
+            if (sameSignature || OverloadAmbiguityGuard.AreAmbiguous(
+                    candidateShape,
+                    OverloadAmbiguityGuard.ParseKey(
+                        siblingKey, OverloadAmbiguityGuard.RequiredCountFor(sibling, env.TypeDatabase, siblingKey))))
+            {
+                collidingKey = siblingKey;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -1518,6 +1507,22 @@ public static class DefaultParameterOverloadEmitter
     /// letting Swift supply the defaults. Updates the MethodDecl's MangledName to
     /// point to the wrapper symbol so the P/Invoke targets it instead of the original.
     /// </summary>
+    /// <summary>
+    /// The same-named declaration the debug-parameter shim's call would reach instead of
+    /// <paramref name="methodDecl"/> when no spelled-out default keeps it there, or null when the
+    /// call is safe or the member takes a fallback that calls no Swift member by name. A non-null
+    /// answer means the member must be declined before <see cref="EmitDebugParamWrapper"/>.
+    /// </summary>
+    internal static string? DebugParamCallWinner(MethodDecl methodDecl, ITypeDatabase? typeDatabase)
+    {
+        if (WrapperValidation.HasRawGenericTypeParams(methodDecl) ||
+            methodDecl.IsModuleInternal ||
+            (methodDecl.ParentDecl is TypeDecl parent && parent.IsModuleInternal) ||
+            methodDecl.CSSignature.Skip(1).Any(a => !IsDebugParameter(a) && a.IsInOut && a.SwiftTypeSpec is ClosureTypeSpec))
+            return null;
+        return SwiftOverloadCallPinning.Plan(methodDecl, IsDebugParameter, typeDatabase).WinningSibling;
+    }
+
     internal static void EmitDebugParamWrapper(SwiftWriter swiftWriter, MethodEnvironment env)
     {
         var methodDecl = env.MethodDecl;
@@ -1534,6 +1539,14 @@ public static class DefaultParameterOverloadEmitter
 
         // Gather kept (non-debug) params
         var keptArgs = methodDecl.CSSignature.Skip(1).Where(a => !IsDebugParameter(a)).ToList();
+        // The call below leaves the debug params out; a same-named sibling without them would win
+        // that call, so the plan spells them out (a magic literal means the same thing written out).
+        var originalArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var pinPlan = SwiftOverloadCallPinning.Plan(methodDecl, IsDebugParameter, env.TypeDatabase);
+        if (pinPlan.IsRefused && DebugParamCallWinner(methodDecl, env.TypeDatabase) != null)
+            throw new InvalidOperationException(
+                $"The debug-parameter shim for '{SwiftOverloadCallPinning.Describe(methodDecl)}' would call '{pinPlan.WinningSibling}'; " +
+                "the caller must decline the member (DebugParamCallWinner) before installing the shim.");
 
         // Build Swift parameter list for the wrapper
         var swiftParams = new List<string>();
@@ -1595,10 +1608,16 @@ public static class DefaultParameterOverloadEmitter
 
         var swiftParamString = string.Join(", ", swiftParams);
 
-        // Build call arguments
+        // Build call arguments, in the original's order, spelling out the debug params the plan pins
         var callArgs = new List<string>();
-        foreach (var arg in keptArgs)
+        foreach (var arg in originalArgs)
         {
+            if (IsDebugParameter(arg))
+            {
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
+                continue;
+            }
             // Identical to the param-decl loop (same sibling set + BuildSwiftBindingName) so the
             // value references the same binding.
             var rawLabel = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
@@ -1609,16 +1628,13 @@ public static class DefaultParameterOverloadEmitter
             // begin with '_' (e.g. _self) and backtick-escapes keywords.
             var argStr = CdeclParamMapper.BuildSwiftCallArgLabel(arg);
 
-            // @autoclosure params are received as regular closures in the wrapper,
-            // but the original method expects a bare expression. Invoke with () so
-            // Swift can re-wrap the result in @autoclosure at the call site.
-            var autoclosureSuffix = arg.SwiftTypeSpec is ClosureTypeSpec cls && cls.IsAutoClosure ? "()" : "";
-
             // Same `&`-forwarding requirement as EmitSwiftWrapper above; same widened-Optional
             // exclusion (GetDerefCode's local is a `let`, so `&{name}Val` would not compile).
             var refPrefix = (arg.IsInOut && !isWidened) ? "&" : "";
 
-            callArgs.Add(argStr + refPrefix + valueRef + autoclosureSuffix);
+            // The shim receives an autoclosure parameter as a plain closure; SwiftClosureArgument
+            // forwards its value for Swift to wrap back into the autoclosure.
+            callArgs.Add(argStr + SwiftClosureArgument.Render(refPrefix + valueRef, arg.SwiftTypeSpec));
         }
         var callArgString = string.Join(", ", callArgs);
 
@@ -1643,9 +1659,7 @@ public static class DefaultParameterOverloadEmitter
         // The method will emit via CallConvSwift targeting the original mangled name.
         if (WrapperValidation.HasRawGenericTypeParams(methodDecl))
         {
-            methodDecl.CSSignature = methodDecl.CSSignature
-                .Where((a, i) => i == 0 || !IsDebugParameter(a))
-                .ToList();
+            StripDebugParameters(methodDecl);
             return;
         }
 
@@ -1655,9 +1669,7 @@ public static class DefaultParameterOverloadEmitter
         if (methodDecl.IsModuleInternal ||
             (methodDecl.ParentDecl is TypeDecl parentInternal && parentInternal.IsModuleInternal))
         {
-            methodDecl.CSSignature = methodDecl.CSSignature
-                .Where((a, i) => i == 0 || !IsDebugParameter(a))
-                .ToList();
+            StripDebugParameters(methodDecl);
             return;
         }
 
@@ -1666,9 +1678,7 @@ public static class DefaultParameterOverloadEmitter
         // `inout` + `@escaping` is rejected by swiftc. Same fallback as the two skips above.
         if (keptArgs.Any(a => a.IsInOut && a.SwiftTypeSpec is ClosureTypeSpec))
         {
-            methodDecl.CSSignature = methodDecl.CSSignature
-                .Where((a, i) => i == 0 || !IsDebugParameter(a))
-                .ToList();
+            StripDebugParameters(methodDecl);
             return;
         }
 
@@ -1761,6 +1771,17 @@ public static class DefaultParameterOverloadEmitter
 
         // Remove debug params from CSSignature so downstream iterators
         // (marshalling, SafeHandle, closure callbacks) never see them.
+        StripDebugParameters(methodDecl);
+    }
+
+    /// <summary>
+    /// Removes the debug parameters from <paramref name="methodDecl"/>'s <see cref="MethodDecl.CSSignature"/>,
+    /// keeping the list Swift declares in <see cref="MethodDecl.SignatureBeforeDebugStrip"/> for
+    /// the overload replay of later calls.
+    /// </summary>
+    private static void StripDebugParameters(MethodDecl methodDecl)
+    {
+        methodDecl.SignatureBeforeDebugStrip ??= methodDecl.CSSignature;
         methodDecl.CSSignature = methodDecl.CSSignature
             .Where((a, i) => i == 0 || !IsDebugParameter(a))
             .ToList();

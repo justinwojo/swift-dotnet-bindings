@@ -788,6 +788,51 @@ public class GenericClosureBridgeEmitterTests
     }
 
     [Fact]
+    public void TryEmit_AutoclosureParam_ForwardsTheClosuresValue()
+    {
+        // evaluate<T>(_: @autoclosure () throws -> T) rethrows -> T: the bridge's closure literal is
+        // a function, which the autoclosure would wrap as T itself. Both variants invoke the literal
+        // so the call passes a T, which Swift wraps back into the autoclosure and still evaluates
+        // only when the callee asks.
+        var swiftOutput = new StringWriter();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+        var closureSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("τ_0_0")) { Throws = true };
+        closureSpec.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+        var method = new MethodDecl
+        {
+            Name = "evaluate",
+            MangledName = "$s11RecordStore8Database8evaluateyyF_ac",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                CreateArg("", closureSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        var handled = GenericClosureBridgeEmitter.TryEmit(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput), env, parentDecl, new ModuleEmissionContext());
+
+        Assert.True(handled);
+        var closings = swiftOutput.ToString().Split('\n').Select(line => line.Trim())
+            .Where(line => line.StartsWith("})") || line.StartsWith("}())")).ToList();
+        Assert.Equal(new[] { "}())", "}())" }, closings);
+    }
+
+    [Fact]
     public void TryEmit_TwoDistinctGenericsInClosure_Rejected()
     {
         // The bridge monomorphizes exactly ONE generic parameter (T = UnsafeMutableRawPointer). A

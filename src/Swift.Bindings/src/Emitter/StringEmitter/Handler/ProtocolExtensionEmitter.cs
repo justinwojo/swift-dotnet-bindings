@@ -2164,7 +2164,8 @@ public static class ProtocolExtensionEmitter
             var (label, typeSpec, _) = parameters[i];
             if (i == closureParamIndex)
             {
-                callArgs.Add(label == "_" ? "__closure" : $"{label}: __closure");
+                var closureArg = SwiftClosureArgument.Render("__closure", typeSpec);
+                callArgs.Add(label == "_" ? closureArg : $"{label}: {closureArg}");
             }
             else
             {

@@ -1321,6 +1321,42 @@ public class SwiftABIParserRuntimeTests
         Assert.Null(strMethod.AvailabilityAnnotations);
     }
 
+    [Fact]
+    public void ParseModule_DisfavoredOverloadAttribute_MarksOnlyThatSibling()
+    {
+        // `@_disfavoredOverload` reaches the ABI descriptor as the `DisfavoredOverload` decl
+        // attribute. Swift resolves a call that two same-named siblings both accept to the favored
+        // one, so a wrapper that omits defaulted arguments needs to know which sibling is which.
+        var favoredReturn = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        favoredReturn.PrintedName = "()";
+        var favoredParam = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        favoredParam.PrintedName = "Swift.Int";
+        var favored = CreateFunctionNode("pick", "pick(_:)", funcSelfKind: null,
+            children: new[] { favoredReturn, favoredParam });
+        favored.MangledName = "$s10TestModule6PickerC4pickyySiF";
+        favored.DeclAttributes = new[] { "AccessControl" };
+
+        var disfavoredReturn = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        disfavoredReturn.PrintedName = "()";
+        var disfavoredParam = CreateNode(kind: "TypeNominal", name: "String", mangledName: "$sSS");
+        disfavoredParam.PrintedName = "Swift.String";
+        var disfavored = CreateFunctionNode("pick", "pick(_:)", funcSelfKind: null,
+            children: new[] { disfavoredReturn, disfavoredParam });
+        disfavored.MangledName = "$s10TestModule6PickerC4pickyySSF";
+        disfavored.DeclAttributes = new[] { "DisfavoredOverload", "AccessControl" };
+
+        var classNode = CreateNode(kind: "TypeDecl", declKind: "Class", name: "Picker",
+            mangledName: "$s10TestModule6PickerCN");
+        classNode.DeclAttributes = new[] { "Final", "AccessControl" };
+        classNode.Children = new[] { favored, disfavored };
+
+        using var fixture = CreateParserWithNodes(classNode);
+        var classDecl = Assert.Single(fixture.Parser.ParseModule().ModuleDecl.Types);
+
+        Assert.False(classDecl.Methods.Single(m => m.MangledName == favored.MangledName).IsDisfavoredOverload);
+        Assert.True(classDecl.Methods.Single(m => m.MangledName == disfavored.MangledName).IsDisfavoredOverload);
+    }
+
     #endregion
 
     #region Parameter Value Ownership Tests

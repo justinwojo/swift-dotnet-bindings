@@ -301,6 +301,10 @@ public static class GenericClosureBridgeEmitter
         }
 
         var closureParamStr = string.Join(", ", closureParamDecls);
+        // The closure goes into the call as a literal spanning several lines; SwiftClosureArgument
+        // supplies what precedes its opening brace and follows its closing one.
+        var (beforeClosure, afterClosure) = SwiftClosureArgument.Invocation(closureTypeSpec);
+        var closeClosureAndCall = $"}}{afterClosure})";
         var throwsInClosure = closureTypeSpec.Throws ? " throws" : "";
         var throwsStr = methodDecl.Throws ? " throws" : "";
         var tryPrefix = methodDecl.Throws ? "try " : "";
@@ -360,7 +364,7 @@ public static class GenericClosureBridgeEmitter
             // Emit the call with inline closure.
             // Replace __CLOSURE__ with the closure opening — the closure body spans multiple lines,
             // ending with }) which closes both the closure brace and the method call paren.
-            var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Swift.UnsafeMutableRawPointer in";
+            var closureOpening = $"{beforeClosure}{{ ({closureParamStr}){throwsInClosure} -> Swift.UnsafeMutableRawPointer in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
             swiftWriter.WriteLine($"    let _: Swift.UnsafeMutableRawPointer = {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
             swiftWriter.WriteLine($"        var {innerErrorName}: Swift.UnsafeMutableRawPointer? = nil");
@@ -369,7 +373,7 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"        return {resultBufName}");
-            swiftWriter.WriteLine($"    }})");
+            swiftWriter.WriteLine($"    {closeClosureAndCall}");
 
             swiftWriter.WriteLine("}");
             swiftWriter.WriteLine();
@@ -419,7 +423,7 @@ public static class GenericClosureBridgeEmitter
 
             swiftWriter.WriteLine($"    let {cdeclName} = Swift.unsafeBitCast({csClosureName}FuncPtr!, to: {cdeclTypeStr})");
 
-            var closureOpening = $"{{ ({closureParamStr}){throwsInClosure} -> Swift.Void in";
+            var closureOpening = $"{beforeClosure}{{ ({closureParamStr}){throwsInClosure} -> Swift.Void in";
             var callLine = fullCallArgs.Replace("__CLOSURE__", closureOpening);
             swiftWriter.WriteLine($"    {tryPrefix}{callTarget}.{NameProvider.ParserNameToSwift(methodDecl)}({callLine}");
             swiftWriter.WriteLine($"        var {innerErrorName}: Swift.UnsafeMutableRawPointer? = nil");
@@ -427,7 +431,7 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
             swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
             swiftWriter.WriteLine($"        }}");
-            swiftWriter.WriteLine($"    }})");
+            swiftWriter.WriteLine($"    {closeClosureAndCall}");
 
             swiftWriter.WriteLine("}");
             swiftWriter.WriteLine();

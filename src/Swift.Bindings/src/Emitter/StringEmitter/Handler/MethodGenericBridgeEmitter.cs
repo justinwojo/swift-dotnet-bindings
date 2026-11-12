@@ -92,6 +92,15 @@ public static class MethodGenericBridgeEmitter
         if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
 
+        // The wrapper omits defaulted parameters. When that reduced call would resolve to a
+        // same-named Swift sibling and no default can be spelled out to pin it, refuse the member
+        // rather than bind it to the other declaration.
+        if (PlanCall(methodDecl, genericInfo, env.TypeDatabase).WinningSibling is { } winningSibling)
+        {
+            env.AmbiguousSwiftCallWinner = winningSibling;
+            return false;
+        }
+
         // --- Eligible! Generate the bridge. ---
 
         var moduleName = parentDecl.SwiftTypeName.Module;
@@ -393,6 +402,17 @@ public static class MethodGenericBridgeEmitter
 
     // ─── Swift Wrapper Generation ────────────────────────────────────
 
+    private static bool IsBridgedGenericArg(ArgumentDecl arg, GenericParamInfo genericInfo)
+        => arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName;
+
+    /// <summary>
+    /// The wrapper passes the bridged generic parameter and every required one, and omits the
+    /// rest. Plans the defaults that must be spelled out so Swift still resolves the reduced call
+    /// to this declaration.
+    /// </summary>
+    private static SwiftCallPinPlan PlanCall(MethodDecl methodDecl, GenericParamInfo genericInfo, ITypeDatabase typeDatabase)
+        => SwiftOverloadCallPinning.Plan(methodDecl, arg => !IsBridgedGenericArg(arg, genericInfo), typeDatabase);
+
     private static void EmitSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodEnvironment env,
@@ -440,14 +460,20 @@ public static class MethodGenericBridgeEmitter
         // Sibling bindings so the hand-emitted generic-pointer binding and the Map'd non-generic
         // params each dodge their siblings.
         var siblings = CdeclParamMapper.CollectSiblingBindingNames(methodDecl.CSSignature.Skip(1));
+        var pinPlan = PlanCall(methodDecl, genericInfo, env.TypeDatabase);
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+            {
+                if (pinPlan.PinFor(arg) is { } debugPin)
+                    callArgs.Add(debugPin);
+                continue;
+            }
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
 
-            if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)
+            if (IsBridgedGenericArg(arg, genericInfo))
             {
                 // Generic parameter → receive class handle as UnsafeRawPointer,
                 // recover object and cast to protocol existential for implicit opening.
@@ -463,7 +489,10 @@ public static class MethodGenericBridgeEmitter
             }
             else if (arg.HasDefaultArg)
             {
-                // Defaulted param — omit from wrapper, Swift fills the default
+                // Defaulted param — omit from wrapper, Swift fills the default, unless the reduced
+                // call needs it spelled out to stay on this declaration.
+                if (pinPlan.PinFor(arg) is { } pin)
+                    callArgs.Add(pin);
                 continue;
             }
             else

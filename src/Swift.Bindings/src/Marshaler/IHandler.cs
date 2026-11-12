@@ -979,6 +979,22 @@ namespace BindingsGeneration
                 if (!pipeline.ValidateMethodEmission(candidate, validationCtx).ShouldEmit)
                     continue;
 
+                // The reduced wrapper calls the declaration with only the kept arguments, so it is
+                // sound only while Swift still resolves that shorter call to THIS declaration. When
+                // a same-named sibling would win it, the wrapper has no way to spell the dropped
+                // defaults back in, so decline and leave the member to the gate's own skip.
+                var allArgs = methodDecl.CSSignature.Skip(1).ToList();
+                var droppedArgs = new HashSet<ArgumentDecl>(
+                    allArgs.Skip(allArgs.Count - drop), ReferenceEqualityComparer.Instance);
+                var callPlan = SwiftOverloadCallPinning.Plan(methodDecl, droppedArgs.Contains, typeDatabase);
+                if (callPlan.IsRefused || callPlan.PinCount > 0)
+                {
+                    _logger.LogDebug(
+                        "Declining the trailing-default rescue of {Name}: without its last {Drop} argument(s) the call resolves to a same-named sibling.",
+                        methodDecl.Name, drop);
+                    continue;
+                }
+
                 // The reduced clone keeps the FULL ABI symbol (MangledName) but emits FEWER
                 // arguments — correct ONLY when the candidate routes through a @_cdecl wrapper whose
                 // Swift body calls the declaration with the kept args and lets Swift supply the

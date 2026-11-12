@@ -618,7 +618,9 @@ public static class ArraySliceNormalizationEmitter
             }
             else
             {
-                argStr += valueRef;
+                // A closure-typed parameter passes through; SwiftClosureArgument forwards an
+                // autoclosure's value to the original declaration.
+                argStr += SwiftClosureArgument.Render(valueRef, origArg.SwiftTypeSpec);
             }
 
             callArgs.Add(argStr);
