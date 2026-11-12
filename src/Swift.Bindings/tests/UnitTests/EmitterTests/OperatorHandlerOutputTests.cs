@@ -1257,6 +1257,93 @@ public class OperatorHandlerOutputTests
         Assert.Contains(operatorSymbol, asm);
     }
 
+    /// <summary>
+    /// A class operator returning <c>Self?</c> or the class as an Optional gets one nullable class
+    /// reference back in the first return register, nil as null. Without a wrapper library it
+    /// stays on the direct call; the raw pointer must still become null or the projected class.
+    /// </summary>
+    [Theory]
+    [InlineData("Self")]
+    [InlineData("TestModule.Size")]
+    public void EmitOperator_ClassOptionalReferenceReturn_DirectPath_MapsNullAndMarshalsFromSwift(string inner)
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(inner)));
+
+        var output = EmitOperator(op, typeDatabase);
+
+        AssertNullableClassReferenceReturn(output);
+    }
+
+    /// <summary>
+    /// The same Optional class reference takes the metatype-loading thunk when the wrapper library
+    /// exists, for the reason a bare Self result does: the direct call would pass the metatype as an
+    /// untyped SwiftSelf. The thunk passes the nullable reference through in the return register.
+    /// </summary>
+    [Theory]
+    [InlineData("Self")]
+    [InlineData("TestModule.Size")]
+    public void EmitOperator_ClassOptionalReferenceReturnWithWrapperLibrary_GoesThroughTheThunk(string inner)
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(inner)));
+        var operatorSymbol = op.UnderlyingMethod.MangledName;
+        var thunkSymbol = ThunkAssemblyEmitter.GenerateThunkSymbol("TestModule", operatorSymbol);
+        var emissionContext = new ModuleEmissionContext();
+
+        var output = EmitOperator(op, typeDatabase, emissionContext);
+
+        Assert.True(op.UnderlyingMethod.UsesNativeThunk);
+        Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
+        Assert.Contains("CallConvCdecl", output);
+        Assert.DoesNotContain("CallConvSwift", output);
+        Assert.DoesNotContain("SwiftSelf", output);
+        AssertNullableClassReferenceReturn(output);
+
+        var asm = emissionContext.AssemblyBuilder.ToString();
+        Assert.Contains("$s10TestModule4SizeCMa", asm);
+        Assert.Matches(@"mov\s+x20,\s*x0", asm);
+        Assert.Contains(operatorSymbol, asm);
+    }
+
+    /// <summary>
+    /// A class operator returning an Optional value keeps refusing the thunk: its payload is no
+    /// single reference, so the thunk could not pass it through.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_ClassOptionalValueReturnWithWrapperLibrary_StaysOffTheThunk()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "Size");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("Size", moduleDecl);
+        var op = CreateClassBinaryOperator("+", parentType, moduleDecl,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
+
+        EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.False(op.UnderlyingMethod.UsesNativeThunk);
+    }
+
+    private static void AssertNullableClassReferenceReturn(string output)
+    {
+        // nil comes back as a null pointer and must become null before anything adopts it; a
+        // non-null pointer is the +1 reference, adopted as the projected class.
+        var nullCheck = System.Text.RegularExpressions.Regex.Match(output, @"==\s*(global::System\.)?IntPtr\.Zero\)?\s*return null;");
+        Assert.True(nullCheck.Success, "the null result must map to null");
+        var adopt = output.IndexOf("SwiftMarshal.MarshalFromSwift<TestModule.Size>", StringComparison.Ordinal);
+        Assert.True(adopt > nullCheck.Index, "the reference is adopted after the null check");
+        Assert.DoesNotContain("SwiftIndirectResult", output);
+        Assert.DoesNotContain("return PInvoke_op_Addition(", output);
+    }
+
     [Fact]
     public void EmitOperator_ComplexEnumReturn_DirectPath_MarshalsFromSwift()
     {
@@ -1343,6 +1430,10 @@ public class OperatorHandlerOutputTests
 
     private static OperatorDecl CreateClassBinaryOperator(string symbol, ClassDecl parentType,
         ModuleDecl moduleDecl, string returnType)
+        => CreateClassBinaryOperator(symbol, parentType, moduleDecl, new NamedTypeSpec(returnType));
+
+    private static OperatorDecl CreateClassBinaryOperator(string symbol, ClassDecl parentType,
+        ModuleDecl moduleDecl, TypeSpec returnType)
     {
         // The left/right operands are the class itself; the return type is supplied (class or enum).
         var method = new MethodDecl
@@ -1353,7 +1444,7 @@ public class OperatorHandlerOutputTests
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
             {
-                new() { SwiftTypeSpec = new NamedTypeSpec(returnType), Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = returnType, Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
                 new() { SwiftTypeSpec = new NamedTypeSpec($"{moduleDecl.Name}.{parentType.Name}"), Name = "left", PrivateName = "lhs", IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
                 new() { SwiftTypeSpec = new NamedTypeSpec($"{moduleDecl.Name}.{parentType.Name}"), Name = "right", PrivateName = "rhs", IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl }
             },

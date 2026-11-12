@@ -705,7 +705,7 @@ namespace BindingsGeneration
                     var resultLocal = callSite.CallSiteResultLocalName;
                     csWriter.WriteLine($"var {resultLocal} = {call};");
                     callSite.EmitCallSiteEpilogue(csWriter);
-                    EmitDirectOperatorReturn(csWriter, resultLocal, returnType, methodEnv);
+                    EmitDirectOperatorReturn(csWriter, resultLocal, returnType, methodEnv, callIsLocal: true);
                 }
             }
         }
@@ -727,12 +727,31 @@ namespace BindingsGeneration
         /// already the projected type. Mirrors the type-record dispatch order used by the general (non-operator)
         /// return marshalling (ObjC-bridged/bridgeable → GetNSObject/GetINativeObject; Class → MarshalFromSwift;
         /// non-simple Enum → MarshalFromSwift) so operator returns don't diverge from it.
+        /// <paramref name="callIsLocal"/> says <paramref name="call"/> already names a local holding the
+        /// result, so an arm that reads it twice need not copy it first.
         /// </summary>
-        private static void EmitDirectOperatorReturn(CSharpWriter csWriter, string call, string returnType, MethodEnvironment? methodEnv)
+        private static void EmitDirectOperatorReturn(CSharpWriter csWriter, string call, string returnType, MethodEnvironment? methodEnv, bool callIsLocal = false)
         {
             if (methodEnv != null)
             {
                 var returnArg = methodEnv.MethodDecl.CSSignature.First();
+
+                // An Optional of one Swift class reference (Self? included) is that reference or a
+                // null pointer for nil, at +1 like the class arm below. nil maps to null before
+                // anything adopts the pointer; a reference is adopted as the projected class.
+                if (MarshallingHelpers.IsOptionalSwiftClassReference(returnArg.SwiftTypeSpec, methodEnv.ParentDecl, methodEnv.TypeDatabase))
+                {
+                    var reference = call;
+                    if (!callIsLocal)
+                    {
+                        reference = methodEnv.SyntheticLocals.Local("optionalReference");
+                        csWriter.WriteLine($"var {reference} = {call};");
+                    }
+                    var classType = returnType.EndsWith('?') ? returnType[..^1] : returnType;
+                    csWriter.WriteLine($"if ({reference} == global::System.IntPtr.Zero) return null;");
+                    csWriter.WriteLine($"return ({classType})SwiftMarshal.MarshalFromSwift<{classType}>({reference});");
+                    return;
+                }
 
                 // A class operator's Self is the class reference itself, returned in x0 like the
                 // class arm below; it has no type record of its own to reach that arm through.
@@ -1207,8 +1226,9 @@ namespace BindingsGeneration
         {
             if (parentDecl is not ClassDecl || parentDecl.IsGeneric)
                 return false;
-            // A class operator has no @_cdecl wrapper, so a Self result may take the thunk too.
-            if (!NativeThunkEmitter.ShouldEmitThunk(methodEnv, classDynamicSelfReturnAllowed: true))
+            // A class operator has no @_cdecl wrapper, so a class reference result (Self, Self? or
+            // an Optional class) may take the thunk too.
+            if (!NativeThunkEmitter.ShouldEmitThunk(methodEnv, classReferenceResultAllowed: true))
                 return false;
 
             var methodDecl = methodEnv.MethodDecl;
