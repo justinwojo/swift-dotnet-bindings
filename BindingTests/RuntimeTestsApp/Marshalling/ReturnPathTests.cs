@@ -175,24 +175,26 @@ public class ReturnPathTests : TestBase
 
     // Every SelfChainingBuilder member returns `self` (the factory returns a fresh instance). A
     // class `Self` comes back as one +1 reference in the return register, so the binding must
-    // take that reference, not read a result buffer the callee never writes.
+    // take that reference, not read a result buffer the callee never writes. The string-closure
+    // members are called with the Swift calling convention; the request-closure members ride
+    // C-convention wrappers, and their handlers must still see the URLRequest Swift passed.
 
-    public void TestSelfChainingTrimmedRequestOverloadReturnsSameInstance()
+#pragma warning disable SB0001 // The Swift-convention routes call the library directly; their result convention is what is under test.
+    public void TestSelfChainingTrimmedTagSetOverloadReturnsSameInstance()
     {
         using var builder = new SelfChainingBuilder(tag: 7);
-        using var returned = builder.OnRequestCreation(_ => { });
-        AssertSameBuilder(builder, returned, 7, "trimmed OnRequestCreation");
+        using var returned = builder.OnTagSet(_ => { });
+        AssertSameBuilder(builder, returned, 7, "trimmed OnTagSet");
         AssertEqual(1, returned.Registrations, "the call registered once on the returned object");
         AssertEqual("com.apple.main-thread", builder.LastQueueLabel, "the trimmed overload passed the main-queue default");
     }
 
-#pragma warning disable SB0001 // The full form calls the library directly; its result convention is what is under test.
-    public void TestSelfChainingFullRequestOverloadReturnsSameInstance()
+    public void TestSelfChainingFullTagSetOverloadReturnsSameInstance()
     {
         using var builder = new SelfChainingBuilder(tag: 8);
         using var queue = Swift.DispatchQueue.Global();
-        using var returned = builder.OnRequestCreation(queue, _ => { });
-        AssertSameBuilder(builder, returned, 8, "full OnRequestCreation");
+        using var returned = builder.OnTagSet(queue, _ => { });
+        AssertSameBuilder(builder, returned, 8, "full OnTagSet");
         AssertEqual(queue.Label, builder.LastQueueLabel, "the full form passed the given queue");
         AssertEqual(1, builder.Registrations, "the call registered once");
     }
@@ -200,24 +202,79 @@ public class ReturnPathTests : TestBase
     public void TestSelfChainingOptionalSelfOnSwiftConventionRoute()
     {
         using var builder = new SelfChainingBuilder(tag: 9);
-        using (var tagged = builder.OnRequestIfTagged(9, _ => { }))
+        using (var tagged = builder.OnTagSetIfTagged(9, _ => { }))
         {
-            AssertNotNull(tagged, "OnRequestIfTagged with the matching tag returns the receiver");
-            AssertSameBuilder(builder, tagged!, 9, "OnRequestIfTagged");
+            AssertNotNull(tagged, "OnTagSetIfTagged with the matching tag returns the receiver");
+            AssertSameBuilder(builder, tagged!, 9, "OnTagSetIfTagged");
         }
-        AssertNull(builder.OnRequestIfTagged(10, _ => { }), "OnRequestIfTagged with another tag is nil");
+        AssertNull(builder.OnTagSetIfTagged(10, _ => { }), "OnTagSetIfTagged with another tag is nil");
         AssertEqual(1, builder.Registrations, "only the matching call registered");
     }
 
     public void TestSelfChainingClassFactoryOnSwiftConventionRoute()
     {
-        using var made = SelfChainingBuilder.MakeForRequests(tag: 12, _ => { });
-        AssertNotNull(made, "MakeForRequests returned an instance");
+        using var made = SelfChainingBuilder.MakeForTagSets(tag: 12, _ => { });
+        AssertNotNull(made, "MakeForTagSets returned an instance");
         AssertEqual(12, made.Tag, "factory instance keeps its tag");
         AssertTrue(made.IsSameObject(made), "factory result is usable as a receiver");
         AssertEqual(1, made.Registrations, "factory registered its handler");
     }
+
+    public void TestSelfChainingTagSetHandlersReceiveTheSet()
+    {
+        var seen = new List<string>();
+        using var builder = new SelfChainingBuilder(tag: 15);
+        using var queue = Swift.DispatchQueue.Global();
+        using (builder.OnTagSet(t => seen.Add($"trimmed {t.Count} {t.Contains("beta")}"))) { }
+        using (builder.OnTagSet(queue, t => seen.Add($"full {t.Count} {t.Contains("beta")}"))) { }
+        using (builder.OnTagSetIfTagged(15, t => seen.Add($"tagged {t.Count} {t.Contains("beta")}"))) { }
+        AssertEqual(3, builder.FireTagSets("alpha", "beta"), "three tag-set handlers registered");
+        AssertEqual("trimmed 2 True | full 2 True | tagged 2 True", string.Join(" | ", seen),
+            "every tag-set handler ran with the two-member set");
+
+        int factorySeen = -1;
+        using var made = SelfChainingBuilder.MakeForTagSets(tag: 16, t => factorySeen = (int)t.Count);
+        AssertEqual(1, made.FireTagSets("alpha", "beta"), "factory registered one tag-set handler");
+        AssertEqual(2, factorySeen, "factory handler saw the set");
+    }
 #pragma warning restore SB0001
+
+    public void TestSelfChainingRequestRoutesReturnSameInstance()
+    {
+        using var builder = new SelfChainingBuilder(tag: 17);
+        using var queue = Swift.DispatchQueue.Global();
+        using (var r = builder.OnRequestCreation(_ => { })) AssertSameBuilder(builder, r, 17, "trimmed OnRequestCreation");
+        AssertEqual("com.apple.main-thread", builder.LastQueueLabel, "the trimmed overload passed the main-queue default");
+        using (var r = builder.OnRequestCreation(queue, _ => { })) AssertSameBuilder(builder, r, 17, "full OnRequestCreation");
+        AssertEqual(queue.Label, builder.LastQueueLabel, "the full form passed the given queue");
+        using (var tagged = builder.OnRequestIfTagged(17, _ => { })) AssertSameBuilder(builder, tagged!, 17, "OnRequestIfTagged");
+        AssertNull(builder.OnRequestIfTagged(18, _ => { }), "OnRequestIfTagged with another tag is nil");
+        AssertEqual(3, builder.Registrations, "only the matching calls registered");
+        using var made = SelfChainingBuilder.MakeForRequests(tag: 12, _ => { });
+        AssertEqual(12, made.Tag, "request factory instance keeps its tag");
+        AssertEqual(1, made.Registrations, "request factory registered its handler");
+    }
+
+    // The request handlers registered on every route must also run: Swift calls each with a
+    // URLRequest value, which reaches the managed handler as its NSUrlRequest peer.
+    public void TestSelfChainingRequestHandlersReceiveTheRequest()
+    {
+        const string url = "https://example.invalid/self-chaining?fire=1";
+        var seen = new List<string>();
+        using var builder = new SelfChainingBuilder(tag: 13);
+        using var queue = Swift.DispatchQueue.Global();
+        using (builder.OnRequestCreation(r => seen.Add("trimmed " + r.Url!.AbsoluteString))) { }
+        using (builder.OnRequestCreation(queue, r => seen.Add("full " + r.Url!.AbsoluteString))) { }
+        using (builder.OnRequestIfTagged(13, r => seen.Add("tagged " + r.Url!.AbsoluteString))) { }
+        AssertEqual(3, builder.FireRequests(url), "three request handlers registered");
+        AssertEqual(string.Join(" | ", "trimmed " + url, "full " + url, "tagged " + url), string.Join(" | ", seen),
+            "every request handler saw the request URL");
+
+        string? factorySeen = null;
+        using var made = SelfChainingBuilder.MakeForRequests(tag: 14, r => factorySeen = r.Url!.AbsoluteString);
+        AssertEqual(1, made.FireRequests(url), "factory registered one request handler");
+        AssertEqual(url, factorySeen, "factory handler saw the request URL");
+    }
 
     public void TestSelfChainingClosureRoutesReturnSameInstance()
     {
@@ -274,8 +331,12 @@ public class ReturnPathTests : TestBase
         using var builder = new SelfChainingBuilder(tag: tag);
         using var queue = Swift.DispatchQueue.Global();
         using (var r = builder.OnRequestCreation(_ => { })) AssertSameBuilder(builder, r, tag, "trimmed OnRequestCreation");
-#pragma warning disable SB0001
         using (var r = builder.OnRequestCreation(queue, _ => { })) AssertSameBuilder(builder, r, tag, "full OnRequestCreation");
+#pragma warning disable SB0001
+        using (var r = builder.OnTagSet(_ => { })) AssertSameBuilder(builder, r, tag, "trimmed OnTagSet");
+        using (var r = builder.OnTagSet(queue, _ => { })) AssertSameBuilder(builder, r, tag, "full OnTagSet");
+        using (var r = builder.OnTagSetIfTagged(tag, _ => { })) AssertSameBuilder(builder, r!, tag, "OnTagSetIfTagged");
+        using (var made = SelfChainingBuilder.MakeForTagSets(tag: tag + 300, _ => { })) AssertEqual(tag + 300, made.Tag, "tag-set factory tag");
 #pragma warning restore SB0001
         using (var r = builder.OnEvent(_ => { })) AssertSameBuilder(builder, r, tag, "trimmed OnEvent");
         using (var r = builder.WithHandler(_ => { })) AssertSameBuilder(builder, r, tag, "WithHandler");

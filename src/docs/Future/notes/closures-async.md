@@ -71,19 +71,6 @@ Added 2026-09-11 (reroute-wave audit), found by a probe fixture rather than by a
 
 `ClosureEmitter.InvokeThunk.cs:360-368` failure path emits `SwiftResult.FromFailure(new SwiftError((void*)_err))`; the +1 retain that `Unmanaged.passRetained` took in the `@_cdecl` thunk stays with the `SwiftError` for its lifetime and never releases — `SwiftError` has no `Dispose`, matching the established `SwiftErrorException.Error` / `ClosureEmitter.Throwing.cs` round-trip convention. Per-error leak; only matters when a Swift→C# throwing closure throws frequently. Real fix: introduce an `IDisposable` failure carrier (Dispose-able wrapper around `SwiftError` for the closure-result failure slot) so consumers release the +1 when done with the error, without changing the broader "managed code never releases bare `SwiftError` pointers" convention used by exception forwarding. **Trigger to revisit:** a real consumer surfaces measurable error-path throughput in a throwing closure callback.
 
-<a id="optional-objc-bridgeable-value-type-closure-argument-is-unsupported-e-g-url-void"></a>
-
-## `Optional<ObjC-bridgeable value type>` closure argument is unsupported (e.g. `(URL?) -> Void`)
-
-**Revisit when:** a real consumer (or the next closure-marshalling session) needs an `Optional<ObjC-bridgeable value>` closure argument. **Remediation shape (red-first per `feedback_tdd_for_regression_fixes`):** this needs a dedicated Swift bridging thunk that materialises the value inner into an object pointer before the C# callback runs (the same mechanism general value-type closure arguments require); reproduce with a maximum-case `(URL?) -> Void` callback-arg fixture first, then add the thunk so the closure-argument predicate can safely widen to value inners.
-
-<details>
-<summary>Recorded evidence and disposition</summary>
-
-A closure parameter whose single argument is `Optional<ObjC-bridgeable VALUE type>` (`URL`/`URLRequest`/`Decimal`/…) is **not** cdecl-compatible, so the method emits its callback through the `CallConvSwift` closure path (`delegate* unmanaged[Swift]<…>` against the direct `Tj` thunk) rather than the `@_cdecl` arm. A closure slot carries such an inner by its Swift VALUE representation — there is no Swift-side `as AnyObject` bridge on the reverse-closure path — so any C# read that treats the slot as an object pointer (`GetNSObject<NSUrl>(arg0)`) aborts at runtime (`_objc_fatal`). **This is ours, not upstream** — the read doesn't match what Swift passes. The per-argument lowering runs identically for the `@_cdecl` and `CallConvSwift` closure shapes, so the closure-argument predicate must stay narrow (`ClosureHandler.IsOptionalReferenceArg` = `Optional<T>` with a *true-reference* inner only — class / ObjC-rooted / ObjC-bridged). It is deliberately distinct from the WIDER producer-position oracle `WrapperValidation.IsOptionalWithReferenceInner`, which classifies bridgeable value types as nullable-pointer ABI because a witness-getter / `@_cdecl` *return* does materialise the pointer via `as AnyObject`; feeding that wider oracle into a closure slot is what made a `(URL?) -> Void` arbiter abort (the divergence is pinned by `OptionalReferenceClassifierTests`). The exploratory value-type arbiter fixtures have been removed — they exercised this never-worked capability, not the in-scope ownership convergence. **Trigger to revisit:** a real consumer (or the next closure-marshalling session) needs an `Optional<ObjC-bridgeable value>` closure argument. **Remediation shape (red-first per `feedback_tdd_for_regression_fixes`):** this needs a dedicated Swift bridging thunk that materialises the value inner into an object pointer before the C# callback runs (the same mechanism general value-type closure arguments require); reproduce with a maximum-case `(URL?) -> Void` callback-arg fixture first, then add the thunk so the closure-argument predicate can safely widen to value inners.
-
-</details>
-
 <a id="legacy-async-fault-arm-cancels-with-a-token-less-trysetcanceled"></a>
 
 ## Legacy async fault arm cancels with a token-less `TrySetCanceled()`
@@ -107,12 +94,6 @@ The closure-bearing-initializer recovery (`927f41a4`) widened `NestedClosureBrid
 ## Legacy direct-CallConvSwift async-closure path (non-xcframework mode) is unverified at runtime
 
 2026-09 wave (s1). The async escaping-closure carrier now rides the same cdecl pointer pair the sync path uses whenever the member is `@_cdecl`-wrapped, which is every BindingTests and validation lane. The pre-existing direct-CallConvSwift arm for non-xcframework (dylib-only) generation was left intact and is exercised by unit tests only — no runtime gate builds in that mode. **Trigger:** a dylib-only consumer reports an async closure crash, or a runtime lane for non-xcframework generation is added.
-
-<a id="objc-bridgeable-value-types-on-the-direct-closure-path-are-handed-to-swift-as-raw-layouts"></a>
-
-## ObjC-bridgeable VALUE types on the direct closure path are handed to Swift as raw layouts
-
-2026-09 wave (s7/s8). `ClosureEmitter.cs` (`FormatObjCBridgeCall`, ~line 969) bridges an ObjC-bridgeable closure argument by passing the C# projection's buffer where the Swift closure expects the Swift value. It works for `URL` only because `URL`'s layout happens to be one reference word; `URLRequest`, `IndexPath`, `Decimal`, `Calendar`, `Locale`, `CharacterSet` have wider or non-reference layouts and would be read wrong. No fixture exercises those today, and the by-value direct lane (s8) fails closed on the shapes it does not model, so the reachable set is `URL`-shaped only. Fix = `as AnyObject` bridging in `GetSwiftArgConversion` with a per-type layout check. **Trigger:** a fixture or consumer closure takes any ObjC-bridgeable value type other than `URL` on the direct lane.
 
 <a id="direct-lane-by-value-closure-arguments-shapes-deliberately-failed-closed"></a>
 

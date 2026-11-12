@@ -97,6 +97,12 @@ public static partial class ClosureEmitter
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
             return "Swift.Void";
 
+        // A throwing closure returning an ObjC-bridgeable value gets the bridged object back as a
+        // +1 pointer. It is declared nullable because the managed callback returns null on its
+        // error path, and the adapter only unwraps it once the error slot has been checked.
+        if (closureHandler.IsObjCBridgeableValue(closureTypeSpec.ReturnType))
+            return "Swift.UnsafeMutableRawPointer?";
+
         // CanUseDirectCallbackReturn is now primitives-only (frozen structs go through
         // indirect return because @convention(c) can't return Swift struct types).
         // For primitives, use the actual Swift scalar type. Bool is excluded because it
@@ -272,6 +278,11 @@ public static partial class ClosureEmitter
         // pointer; .some points to Swift's compact one-word boxed-error payload and
         // remains initialized for the duration of the managed callback.
         var optionalAnyErrorArgs = new List<int>();
+        // ObjC-bridgeable value args (URL, URLRequest, …, and their Optionals), keyed by index with
+        // whether the argument is Optional. The value is bridged to its Foundation peer with
+        // `as AnyObject` and the object pointer handed over at +0; the managed side takes its own
+        // reference, and the adapter keeps the bridged object alive until the callback returns.
+        var bridgedValueArgs = new Dictionary<int, bool>();
         // `inout` args: the adapter takes the parameter by reference, hands the cdecl callback a
         // second, uninitialized cell for whatever the managed block leaves behind, and assigns that
         // cell back into the caller's storage once the call returns. The input side is unchanged —
@@ -338,6 +349,14 @@ public static partial class ClosureEmitter
                 else if (MethodClosureBridge.IsOptionalAnyErrorExistential(arg))
                 {
                     optionalAnyErrorArgs.Add(argIndex);
+                }
+                else if (closureHandler.IsObjCBridgeableValue(arg))
+                {
+                    bridgedValueArgs[argIndex] = false;
+                }
+                else if (closureHandler.IsOptionalObjCBridgeableValue(arg))
+                {
+                    bridgedValueArgs[argIndex] = true;
                 }
                 else if (arg is NamedTypeSpec
                          {
@@ -489,6 +508,12 @@ public static partial class ClosureEmitter
             {
                 cdeclArgs.Add($"__optionalError_{argIndex}.map {{ Swift.UnsafeMutableRawPointer($0) }}");
             }
+            else if (bridgedValueArgs.TryGetValue(argIndex, out var bridgedIsOptional))
+            {
+                cdeclArgs.Add(bridgedIsOptional
+                    ? $"__bridged_{argIndex}.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}"
+                    : $"Swift.Unmanaged.passUnretained(__bridged_{argIndex}).toOpaque()");
+            }
             else if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
             {
                 // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: 16-byte struct
@@ -612,6 +637,18 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}    }}");
             heapAllocLines.Add($"{indent}    defer {{ if let __typed_{idx} = __optionalError_{idx} {{ __typed_{idx}.deinitialize(count: 1); __typed_{idx}.deallocate() }} }}");
         }
+        // ObjC-bridgeable values: bridge to the Foundation peer before the call. `as AnyObject`
+        // produces an owned object the adapter holds in a local; the pointer handed over is +0, so
+        // the deferred `withExtendedLifetime` keeps that local alive until the callback has
+        // returned (Swift may otherwise end its lifetime right after the last use, the pointer
+        // conversion). The managed side's `GetNSObject` takes its own reference.
+        foreach (var (idx, isOptional) in bridgedValueArgs)
+        {
+            heapAllocLines.Add(isOptional
+                ? $"{indent}    let __bridged_{idx}: Swift.AnyObject? = p{idx}.map {{ $0 as Swift.AnyObject }}"
+                : $"{indent}    let __bridged_{idx}: Swift.AnyObject = p{idx} as Swift.AnyObject");
+            heapAllocLines.Add($"{indent}    defer {{ Swift.withExtendedLifetime(__bridged_{idx}) {{}} }}");
+        }
         // Non-frozen struct allocation: VWT-managed copy of the struct value transferred to C#.
         // `initializeMemory(as:repeating:count:)` invokes VWT.initializeWithCopy which retains
         // any ARC-owning payload inside the non-frozen struct. Ownership is transferred to
@@ -649,7 +686,28 @@ public static partial class ClosureEmitter
             inOutWriteBackLines.Add($"{indent}    __out_{idx}.deallocate()");
         }
 
-        if (isIndirectReturn)
+        if (isIndirectReturn && (closureHandler!.IsObjCBridgeableValue(closureTypeSpec.ReturnType) ||
+                                 closureHandler.IsOptionalObjCBridgeableValue(closureTypeSpec.ReturnType)))
+        {
+            // ObjC-bridgeable value return: the managed callback writes its Foundation peer into
+            // the buffer as a +1 object pointer (nil for an absent Optional), not the Swift value's
+            // storage, so the buffer is pointer-sized and the conversion consumes that reference
+            // and bridges the object back into the value.
+            var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
+            lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) -> {returnSwiftType} in");
+            if (!string.IsNullOrEmpty(observability))
+                lines.Add(observability.TrimEnd('\n'));
+            lines.AddRange(heapAllocLines);
+            lines.Add($"{indent}    let resultBuf = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<Swift.UnsafeMutableRawPointer?>.size, alignment: Swift.MemoryLayout<Swift.UnsafeMutableRawPointer?>.alignment)");
+            lines.Add($"{indent}    resultBuf.storeBytes(of: nil, as: Swift.UnsafeMutableRawPointer?.self)");
+            lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
+            lines.AddRange(inOutWriteBackLines);
+            lines.Add($"{indent}    let __resultObject = resultBuf.load(as: Swift.UnsafeMutableRawPointer?.self)");
+            lines.Add($"{indent}    resultBuf.deallocate()");
+            lines.Add($"{indent}    return {GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__resultObject", closureHandler)}");
+            lines.Add($"{indent}}}");
+        }
+        else if (isIndirectReturn)
         {
             // Indirect return: closure writes result to buffer, returns void
             var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
@@ -783,8 +841,9 @@ public static partial class ClosureEmitter
                 if (closureHandler.IsClassType(named))
                     return $"Swift.Unmanaged.passUnretained({argExpr}).toOpaque()";
 
-                // ObjC-bridged struct types (e.g., IndexPath → NSIndexPath):
-                // Bridge to AnyObject first since Unmanaged requires a class type
+                // ObjC-bridged records: bridge to AnyObject first since Unmanaged requires a class
+                // type. ObjC-bridgeable VALUE types (URL, IndexPath, …) never reach here — the
+                // adapter bridges them up front so the object outlives the call.
                 if (closureHandler.IsObjCBridgedClass(named))
                     return $"Swift.Unmanaged.passUnretained({argExpr} as Swift.AnyObject).toOpaque()";
 
@@ -840,11 +899,28 @@ public static partial class ClosureEmitter
                     return $"Swift.Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
                 }
 
-                // ObjC-bridged struct types: use AnyObject bridge for Unmanaged, then cast back
+                // ObjC-bridged records: use AnyObject bridge for Unmanaged, then cast back
                 if (closureHandler.IsObjCBridgedClass(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
                     return $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({expr}).takeUnretainedValue() as! {swiftType})";
+                }
+
+                // ObjC-bridgeable value (URL, URLRequest, …): the managed callback hands the
+                // Foundation peer back at +1, so the adapter consumes that reference and bridges the
+                // object back into the value. The pointer is nullable only for the error path,
+                // which the caller has already ruled out.
+                if (closureHandler.IsObjCBridgeableValue(named))
+                {
+                    var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(named);
+                    return $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque(({expr})!).takeRetainedValue() as! {swiftType})";
+                }
+
+                // Optional<ObjC-bridgeable value>: same +1 hand-back, nil for .none.
+                if (closureHandler.IsOptionalObjCBridgeableValue(named))
+                {
+                    var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(named.GenericParameters[0]);
+                    return $"({expr}).map {{ (Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeRetainedValue() as! {innerType}) }}";
                 }
 
                 // Simple enums: construct from underlying integer. unsafeBitCast is unsafe
@@ -1010,6 +1086,14 @@ public static partial class ClosureEmitter
             if (closureHandler.IsObjCBridgedClass(named))
                 return true;
 
+            // ObjC-bridgeable value types (URL, URLRequest, IndexPath, …): the adapter bridges the
+            // value to its Foundation peer with `as AnyObject` and hands over the object pointer,
+            // keeping the bridged object alive across the call. A return comes back as a +1 object
+            // pointer the adapter casts back to the value. This lane is the only one that can
+            // carry the shape: inside a closure the value travels as the Swift struct.
+            if (closureHandler.IsObjCBridgeableValue(named))
+                return true;
+
             // Simple enums pass as their underlying integer type (value ABI)
             if (closureHandler.IsSimpleEnum(named))
                 return true;
@@ -1051,6 +1135,10 @@ public static partial class ClosureEmitter
                     return true;
                 // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
+                    return true;
+                // Optional<ObjC-bridgeable value> — the adapter bridges the payload and hands over
+                // a nullable object pointer, nil for .none.
+                if (closureHandler.IsObjCBridgeableValue(inner))
                     return true;
                 // Optional<NumericPrimitive/Bool/SimpleEnum/FrozenStruct> — heap-allocated pointer ABI
                 if (inner is NamedTypeSpec innerNamed)
@@ -1128,12 +1216,14 @@ public static partial class ClosureEmitter
             return false;
 
         // Throwing closures can't use indirect return (buffer), so Optional<non-reference> returns
-        // go through GetSwiftReturnConversion which only handles Optional<Class/ObjC>.
-        // Reject Optional<value-type> returns for throwing closures to prevent miscompilation.
+        // go through GetSwiftReturnConversion, which handles only the nullable-object-pointer
+        // Optionals: Optional<Class/ObjC> and Optional<ObjC-bridgeable value>.
+        // Reject other Optional<value-type> returns for throwing closures to prevent miscompilation.
         if (closureTypeSpec.Throws && closureTypeSpec.ReturnType is NamedTypeSpec retNamed &&
             retNamed.Name == "Swift.Optional" && retNamed.ContainsGenericParameters &&
             retNamed.GenericParameters.Count == 1 &&
-            !closureHandler.IsReferenceType(retNamed.GenericParameters[0]))
+            !closureHandler.IsReferenceType(retNamed.GenericParameters[0]) &&
+            !closureHandler.IsObjCBridgeableValue(retNamed.GenericParameters[0]))
         {
             return false;
         }

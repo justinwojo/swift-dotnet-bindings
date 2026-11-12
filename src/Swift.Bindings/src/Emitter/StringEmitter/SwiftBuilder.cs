@@ -105,6 +105,13 @@ public static class SwiftBuilder
                 return "Swift.UnsafeMutableRawPointer?";
             }
 
+            // Optional<ObjC-bridgeable value> (URL?, URLRequest?): the closure adapter bridges the
+            // payload with `as AnyObject`, so it crosses as the same nullable object pointer.
+            if (closureHandler != null && closureHandler.IsOptionalObjCBridgeableValue(named))
+            {
+                return "Swift.UnsafeMutableRawPointer?";
+            }
+
             // Optional<any Error> — existential uses pointer-to-container ABI; nil-pointer is none.
             // Matches MCB's marshalling path (Swift.Foundation.AnyError? in C#, IntPtr.Zero sentinel).
             if (named.ContainsGenericParameters &&

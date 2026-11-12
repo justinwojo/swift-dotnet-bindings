@@ -130,10 +130,11 @@ open class Buildable {
 // MARK: - DynamicSelf Return on Class, Swift-convention routes
 
 /// Non-final class whose `Self`-returning members spread over the binding's call routes. The
-/// members taking a URL request closure have no C-convention wrapper, so the binding calls them
-/// with the Swift calling convention: the library entry point for the full forms, and a generated
-/// `@_silgen_name` shim for the trimmed default-argument overload. The members taking an integer
-/// closure or only scalars go through C-convention wrappers.
+/// members taking a string-set closure have no C-convention wrapper, so the binding calls them with
+/// the Swift calling convention: the library entry point for the full forms, and a generated
+/// `@_silgen_name` shim for the trimmed default-argument overload. The members taking a URL
+/// request closure, an integer closure or only scalars go through C-convention wrappers; the
+/// request closures also check that a `URLRequest` value reaches the managed handler intact.
 ///
 /// A dynamic `Self` on a class is one class reference, returned directly in the first return
 /// register. Every member returns `self` (or a fresh tracked instance for the factories), so a
@@ -147,6 +148,7 @@ open class SelfChainingBuilder {
     public private(set) var lastQueueLabel: String = ""
     private var handlers: [(Int32) -> Void] = []
     private var requestHandlers: [(URLRequest) -> Void] = []
+    private var tagSetHandlers: [(Set<String>) -> Void] = []
     private let trackedSerial: Int64
 
     public required init(tag: Int32) {
@@ -175,6 +177,16 @@ open class SelfChainingBuilder {
         registrations += 1
         lastQueueLabel = queue.label
         requestHandlers.append(handler)
+        return self
+    }
+
+    /// The same shape with a string-set closure, which has no C-convention wrapper.
+    @discardableResult
+    open func onTagSet(on queue: DispatchQueue = .main,
+                       perform handler: @escaping (Set<String>) -> Void) -> Self {
+        registrations += 1
+        lastQueueLabel = queue.label
+        tagSetHandlers.append(handler)
         return self
     }
 
@@ -207,6 +219,21 @@ open class SelfChainingBuilder {
         return self
     }
 
+    /// `Self?` with a string-set closure.
+    open func onTagSetIfTagged(_ wanted: Int32, perform handler: @escaping (Set<String>) -> Void) -> Self? {
+        guard wanted == tag else { return nil }
+        registrations += 1
+        tagSetHandlers.append(handler)
+        return self
+    }
+
+    /// A class factory returning `Self`, taking a string-set closure.
+    open class func makeForTagSets(tag: Int32, perform handler: @escaping (Set<String>) -> Void) -> Self {
+        let instance = self.init(tag: tag)
+        instance.onTagSet(perform: handler)
+        return instance
+    }
+
     /// A class factory returning `Self`, taking a URL request closure.
     open class func makeForRequests(tag: Int32, perform handler: @escaping (URLRequest) -> Void) -> Self {
         let instance = self.init(tag: tag)
@@ -230,6 +257,20 @@ open class SelfChainingBuilder {
     public func fire(_ value: Int32) -> Int32 {
         for handler in handlers { handler(value + tag) }
         return Int32(handlers.count)
+    }
+
+    /// Calls every registered request handler with a request for `url`, returning how many ran.
+    public func fireRequests(_ url: String) -> Int32 {
+        let request = URLRequest(url: URL(string: url)!)
+        for handler in requestHandlers { handler(request) }
+        return Int32(requestHandlers.count)
+    }
+
+    /// Calls every registered string-set handler with the set `[first, second]`, returning how many ran.
+    public func fireTagSets(_ first: String, _ second: String) -> Int32 {
+        let tags: Set<String> = [first, second]
+        for handler in tagSetHandlers { handler(tags) }
+        return Int32(tagSetHandlers.count)
     }
 
     /// Swift object identity, so a caller can tell whether a returned reference is this object.

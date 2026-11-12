@@ -109,14 +109,14 @@ public static class NestedClosureBridge
                     // Inner closure args must all be cdecl-compatible
                     foreach (var innerArg in innerCts.EachArgument())
                     {
-                        if (!ClosureEmitter.IsCdeclCompatibleType(innerArg, closureHandler))
+                        if (!IsNestedBridgeArg(innerArg, closureHandler))
                             return false;
                     }
                 }
                 else
                 {
                     // Non-closure outer args must be cdecl-compatible
-                    if (!ClosureEmitter.IsCdeclCompatibleType(outerArg, closureHandler))
+                    if (!IsNestedBridgeArg(outerArg, closureHandler))
                         return false;
                 }
             }
@@ -183,6 +183,18 @@ public static class NestedClosureBridge
     /// Everything outside this shape keeps the historical refusal and falls to the visible
     /// closure-parameter tombstone, which is honest about being unconstructible.
     /// </summary>
+    /// <summary>
+    /// A nested-closure argument this bridge can carry: cdecl-compatible, and not an
+    /// ObjC-bridgeable value type (URL, URLRequest, IndexPath, …) bare or in an Optional. The
+    /// plain closure adapter bridges those through their Foundation class; this bridge's
+    /// trampolines and C# callback have no such conversion, so admitting one would pass the
+    /// value's storage where an object pointer is expected.
+    /// </summary>
+    private static bool IsNestedBridgeArg(TypeSpec arg, ClosureHandler closureHandler) =>
+        ClosureEmitter.IsCdeclCompatibleType(arg, closureHandler)
+        && !closureHandler.IsObjCBridgeableValue(arg)
+        && !closureHandler.IsOptionalObjCBridgeableValue(arg);
+
     internal static bool IsBridgeableConstructor(MethodDecl method)
     {
         if (!method.IsConstructor) return false;

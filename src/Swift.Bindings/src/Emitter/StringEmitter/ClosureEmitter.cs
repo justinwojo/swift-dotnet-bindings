@@ -631,6 +631,19 @@ public static partial class ClosureEmitter
         if (callbackReturnType == "void*" && closureHandler.IsObjCBridgedClass(returnType))
             return $"return (void*){resultExpr}.Handle;";
 
+        // ObjC-bridgeable value (URL, URLRequest, …, or its Optional): hand the Foundation peer back
+        // at +1 — the @_cdecl adapter consumes that reference and bridges the object back into the
+        // Swift value. A +0 handle would leave the object's lifetime to this peer's finalizer.
+        if (callbackReturnType == "void*" &&
+            (closureHandler.IsObjCBridgeableValue(returnType) || closureHandler.IsOptionalObjCBridgeableValue(returnType)))
+        {
+            return $$"""
+                var _bridgedPeer = {{resultExpr}};
+                        {{BuildBridgedPeerHandOver("_bridgedPeer", "_bridgedHandle", closureHandler.IsOptionalObjCBridgeableValue(returnType))}}
+                        return (void*)_bridgedHandle;
+                """;
+        }
+
         if (callbackReturnType == "void*" && IsOptionalReferenceReturn(returnType, closureHandler))
         {
             var isClass = closureHandler.IsClassType(((NamedTypeSpec)returnType).GenericParameters[0]);
@@ -770,6 +783,21 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// One line of statements that reads the native handle of the Foundation peer held in
+    /// <paramref name="peerLocal"/> into a new <c>IntPtr</c> local <paramref name="handleLocal"/> and
+    /// takes the +1 reference the <c>@_cdecl</c> adapter consumes when it bridges the object back into
+    /// an ObjC-bridgeable Swift value. The peer is kept alive until the retain has happened, so its
+    /// finalizer cannot release the object in between. An absent Optional yields a null handle.
+    /// </summary>
+    private static string BuildBridgedPeerHandOver(string peerLocal, string handleLocal, bool isOptional)
+    {
+        var read = isOptional
+            ? $"global::System.IntPtr {handleLocal} = {peerLocal} is null ? global::System.IntPtr.Zero : (global::System.IntPtr){peerLocal}.Handle;"
+            : $"global::System.IntPtr {handleLocal} = (global::System.IntPtr){peerLocal}.Handle;";
+        return $"{read} if ({handleLocal} != global::System.IntPtr.Zero) {MarshallingHelpers.ObjCHandleHandOverStatement(handleLocal)} global::System.GC.KeepAlive({peerLocal});";
+    }
+
+    /// <summary>
     /// Builds the body statement for a Cdecl closure callback with indirect return.
     /// Instead of returning the result, writes the marshalled value to the caller-provided
     /// result buffer (passed as the first parameter by the Swift @convention(c) adapter).
@@ -800,7 +828,18 @@ public static partial class ClosureEmitter
                 """;
         }
 
-        // ObjC-bridged class (e.g., Foundation.URL → NSURL): write handle to buffer
+        // ObjC-bridgeable value (URL, URLRequest, …, or its Optional): the adapter sized the buffer
+        // for one nullable object pointer and bridges the peer back into the value, consuming a +1.
+        if (closureHandler.IsObjCBridgeableValue(returnType) || closureHandler.IsOptionalObjCBridgeableValue(returnType))
+        {
+            return $$"""
+                    var {{local}} = {{resultExpr}};
+                            {{BuildBridgedPeerHandOver(local, $"{local}Handle", closureHandler.IsOptionalObjCBridgeableValue(returnType))}}
+                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}Handle;
+                """;
+        }
+
+        // ObjC-bridged class: write handle to buffer
         if (closureHandler.IsObjCBridgedClass(returnType))
         {
             return $$"""
@@ -1159,6 +1198,16 @@ public static partial class ClosureEmitter
                 return $"arg{argIndex} != null ? {containerMarshal} : null";
             }
 
+            // Optional<ObjC-bridgeable value> (URL?, URLRequest?) on the @_cdecl adapter: the adapter
+            // bridged the payload with `as AnyObject`, so the slot is a nullable +0 object pointer to
+            // the Foundation peer, and GetNSObject takes the managed peer's own reference.
+            if (useCdecl && closureHandler.IsOptionalObjCBridgeableValue(namedType) &&
+                closureHandler.HasObjCNativeRemap(namedType.GenericParameters[0], out var optionalPeerType))
+            {
+                var peerRead = MarshallingHelpers.FormatObjCBridgeCall(optionalPeerType, $"new IntPtr(arg{argIndex})");
+                return $"arg{argIndex} != null ? {peerRead} : null";
+            }
+
             // Optional<Class>: void* → null check → MarshalCallbackArg or null
             // Callback parameters are borrowed references — use the borrowed marshal path
             // to prevent double-release when the GC collects the wrapper.
@@ -1236,7 +1285,10 @@ public static partial class ClosureEmitter
             // nativeType=, so TranslateTypeSpecToCSharp returns the ObjC peer name and only the
             // bridge call can produce that type. This is NOT the ObjC-bridged CLASS case — a
             // remapped class (Foundation.URLResponse → Foundation.NSUrlResponse) carries no
-            // nativeType and is classified below by BorrowedCallbackArgMarshal instead. The
+            // nativeType and is classified below by BorrowedCallbackArgMarshal instead. The slot is
+            // an object pointer only because the @_cdecl adapter bridged the value with
+            // `as AnyObject` before the call; the direct CallConvSwift lane hands over the Swift
+            // struct itself, which is why ClassifyDirectClosureArg refuses the shape there. The
             // argument is non-optional (the Optional arms above take the nil case), so the
             // bridged peer is never null and the delegate's non-nullable parameter takes it as is.
             if (closureHandler.HasObjCNativeRemap(namedType, out var nativeRemapType))
