@@ -48,11 +48,13 @@ partial class Build
     readonly bool CoreClr;
     [Parameter("Permit a .NET 11 functional run without a reviewed runtime baseline; reports UNQUALIFIED")]
     readonly bool AllowUnqualifiedRuntime;
+    [Parameter("Run the RuntimeTestsApp as the ordinary Debug .NET 11 app on the CoreCLR interpreter (simulator, tvOS and device)")]
+    readonly bool CoreClrInterp;
 
     RuntimeTestLane? runtimeLane;
     RuntimeTestLane RuntimeLane => runtimeLane ??= RuntimeTestLane.Create(BindingTestFramework,
         Environment.GetEnvironmentVariable("SWIFT_BINDINGS_MANAGED_FRAMEWORK"), BindingTestConfiguration,
-        CoreClr, Device, MonoAot);
+        CoreClr, Device, MonoAot, CoreClrInterp);
     string BtFramework => RuntimeLane.Framework;
     string BtConfiguration => RuntimeLane.Configuration;
     AbsolutePath RuntimeAppBin(string project, bool device = false) =>
@@ -1214,10 +1216,10 @@ partial class Build
     void RunDevicePlatform()
     {
             var monoAot = MonoAot;
-            var laneLabel = CoreClr ? "Device/CoreCLR" : monoAot ? "Device/MonoAOT" : "Device/NativeAOT";
+            var laneLabel = RuntimeLane.DeviceCoreClr ? "Device/CoreCLR" : monoAot ? "Device/MonoAOT" : "Device/NativeAOT";
 
             Log.Information("=========================================");
-            Log.Information(" BindingTests Runtime Tests (Device — {Lane})", CoreClr ? "CoreCLR" : monoAot ? "Mono full-AOT" : "NativeAOT");
+            Log.Information(" BindingTests Runtime Tests (Device — {Lane})", RuntimeLane.DeviceCoreClr ? "CoreCLR" : monoAot ? "Mono full-AOT" : "NativeAOT");
             Log.Information("=========================================");
 
             // Step 0: Find connected device
@@ -1262,7 +1264,7 @@ partial class Build
             if (!SkipBuild)
             {
                 AssertLaneNativeSlices(laneLabel, ApplePlatform.IOS.DeviceSliceId!);
-                if (monoAot || CoreClr)
+                if (monoAot || RuntimeLane.DeviceCoreClr)
                 {
                     // Mono full-AOT: a plain device BUILD with PublishAot suppressed. Property choice
                     // is taken from swift-dotnet-packages `BuildTestAppDevice` (build/Build.TestApp.cs)
@@ -1273,7 +1275,7 @@ partial class Build
                     // SwiftBindingsDeviceMonoAot is ours: it tells RuntimeTestsApp.csproj not to turn
                     // the ios-arm64 RID into a NativeAOT build, and it feeds the runtime-flavor
                     // AppContext switch the SDK injects for real consumers.
-                    Log.Information("--- Building RuntimeTestsApp ({Engine}, ios-arm64) ---", CoreClr ? "CoreCLR" : "Mono full-AOT");
+                    Log.Information("--- Building RuntimeTestsApp ({Engine}, ios-arm64) ---", RuntimeLane.DeviceCoreClr ? "CoreCLR" : "Mono full-AOT");
                     Log.Information("This may take several minutes (Mono AOT + code signing)...");
                     DotNetBuild(s =>
                     {
@@ -1282,7 +1284,7 @@ partial class Build
                             .SetConfiguration(configuration)
                             .SetProperty("RuntimeIdentifier", "ios-arm64")
                             .SetProperty(DeviceMonoAotProperty, monoAot ? "true" : "false")
-                            .SetProperty("BtDeviceCoreClr", CoreClr ? "true" : "false")
+                            .SetProperty("BtDeviceCoreClr", RuntimeLane.DeviceCoreClr ? "true" : "false")
                             .SetProperty("BtTargetFramework", BtFramework)
                             .SetProperty("BtRuntimeEngine", "coreclr")
                             .SetVerbosity(DotNetVerbosity.quiet);
@@ -1326,7 +1328,7 @@ partial class Build
                 throw new Exception($"Expected device app bundle not found at {appPath}.");
             Log.Information("App bundle: {Path}", appPath);
 
-            AssertDeviceAppFlavor(appPath, monoAot || CoreClr, CoreClr);
+            AssertDeviceAppFlavor(appPath, monoAot || RuntimeLane.DeviceCoreClr, RuntimeLane.DeviceCoreClr);
             StampOrCheckRuntimeApp(appPath, device: true);
             VerifyActivityKitPushTokenCapability(appPath, device.Udid);
 
@@ -1906,151 +1908,36 @@ partial class Build
         if (storeKitConfiguration is not null)
             RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
 
-        // Load test inventory for crash recovery
-        var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
-        var inventory = TestClassInventory.Load(inventoryPath);
-
-        // Compute eligible class set: full inventory or just the filtered class
-        var eligibleClasses = inventory.ClassNames.ToHashSet();
-        if (!string.IsNullOrEmpty(ClassFilter))
-        {
-            var match = eligibleClasses.FirstOrDefault(c =>
-                c.Equals(ClassFilter, StringComparison.OrdinalIgnoreCase));
-            eligibleClasses = match != null ? new HashSet<string> { match } : new HashSet<string>();
-        }
-
-        // Resume-on-crash orchestration loop
-        const int maxRetries = 5;
-        var excludeClasses = new HashSet<string>();
-        var aggregated = new JsonlTestResults();
-        LaunchResult? lastResult = null;
-
-        // Launcher aborts are budgeted SEPARATELY from crash recovery (see RetryKnownLauncherAbort)
-        // and extend the loop bound, so an attempt in which the app never started does not consume a
-        // crash-recovery retry. Bounded: the abort budget throws well before this can run away.
-        // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
-        // and the give-up points cannot disagree about how many attempts remain.
-        var launchAbortCount = 0;
-        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(), Guid.NewGuid().ToString("N"));
-        var attempts = new RuntimeTestAttempts(attemptDirectory);
-        Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
-
-        try
-        {
-            for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
+        var crashLogsBefore = 0;
+        RunRecoveringSuite(new RecoveringSuite(
+            LaneLabel: "Simulator", Project: "RuntimeTestsApp", AppName: "RuntimeTestsApp",
+            RuntimeIdentifier: "iossimulator-arm64", Device: false,
+            PlatformArgs: storeKitConfiguration is null
+                ? ["--platform", "simulator"]
+                : ["--platform", "simulator", StoreKitSandboxReadiness.ProductIdArgument, storeKitConfiguration.ProductId],
+            Launch: args =>
             {
-                if (attempt > 0)
-                    Log.Information("--- Resume-on-crash: attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
-                        attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
-
-                var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
-
+                crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
                 SimCtl.Install(device.Udid, appPath);
-
-                // Fresh identity token per launch ATTEMPT: the app stamps it into its JSONL, and
-                // recovery below refuses any file that doesn't carry it. Per-attempt (not per-run) so
-                // a resume attempt that never wrote results cannot be scored using the prior attempt's
-                // file — the data container persists across install.
-                var runToken = NewRunToken();
-
-                var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
-                if (storeKitConfiguration is not null)
-                    args.AddRange([
-                        StoreKitSandboxReadiness.ProductIdArgument,
-                        storeKitConfiguration.ProductId,
-                    ]);
-                if (FlakeDetect) args.AddRange(["--flake-detect"]);
-                if (Lifetime) args.AddRange(["--lifetime"]);
-                if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
-                if (excludeClasses.Count > 0)
-                    args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
-
                 Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
-                var result = SimCtl.Launch(
-                    device.Udid, RuntimeTestsBundleId,
-                    args.ToArray(), TimeSpan.FromSeconds(Timeout),
+                return SimCtl.Launch(device.Udid, RuntimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout),
                     appName: "RuntimeTestsApp");
-                lastResult = result;
-                var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
-                AssertLiveRuntimeLane(result);
-
-                // Show output
-                Log.Information("");
-                Log.Information("=== APP OUTPUT ===");
-                Log.Information(result.Output);
-
-                // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
-                // all, so only the separate launcher-abort budget applies.
-                if (LaunchDiagnostics.LauncherNeverStartedApp(result))
-                {
-                    RuntimeTestAttempts.RecordResults(attemptEvidence, null, "not-retrieved-known-prestart-abort");
-                    RetryKnownLauncherAbort(result, "iOS Simulator", ref launchAbortCount);
-                    continue;
-                }
-
-                // Crash diagnostics
-                HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp");
-
-                // Try to retrieve JSONL results from sandbox
-                JsonlTestResults? runResults = null;
-                var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, result.Output);
-                RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
-                    jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
-                if (jsonlContent != null)
-                {
-                    runResults = JsonlTestResults.Parse(jsonlContent);
-                    Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
-                }
-                else
-                {
-                    Log.Debug("JSONL retrieval failed for run {Run}", attempt + 1);
-                }
-
-                // Keep only app-emitted JSONL rows in the aggregate. Interrupted-test attribution
-                // is derived attempt evidence, not a synthetic app result or a green-recovery claim.
-                if (runResults != null) aggregated.Merge(runResults);
-                var recovery = RuntimeTestAttempts.PlanRecovery(result, runResults, inventory,
-                    eligibleClasses, excludeClasses, attempt, maxRetries, launchAbortCount);
-                RuntimeTestAttempts.RecordRecovery(attemptEvidence, recovery);
-                Log.Information("Attempt recovery: {Reason}", recovery.Reason);
-                if (recovery.ActiveTest is { } interrupted)
-                    Log.Warning("Interrupted invocation: {Class}.{Test} ({Result}); derived evidence: {Directory}.",
-                        interrupted.ClassName, interrupted.TestName, result.Result, attemptEvidence.Directory);
-                if (!recovery.Resume) break;
-                foreach (var cls in recovery.ClassesToExclude) excludeClasses.Add(cls);
-                Log.Warning("Continuing independent classes after {Class}.{Test}; the original {Result} remains in the final gate.",
-                    recovery.ActiveTest!.ClassName, recovery.ActiveTest.TestName, result.Result);
-            }
-        }
-        finally
-        {
-            if (attempts.FirstProductFailure is { } failure)
-                Log.Error("Observed product {Result} remains a failed gate; attempt evidence directory: {Directory}.",
-                    failure.Result, attemptDirectory);
-        }
-
-        // Report final aggregated result
-        var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
-        ReportRuntimeTestResult(attempts.FinalResult(lastResult!), "Simulator", finalJsonl);
+            },
+            CopyResults: (runToken, appOutput) => SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, appOutput),
+            AfterAppStarted: result => HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp")));
     }
 
     // ============================================================
     // Shared Helpers: tvOS Simulator Execution
     //
-    // Thin mirror of RunOnSimulator. The tvOS runner has no interactive UI
-    // and no resume-on-crash loop — the test surface is smaller (no smoke
-    // tests, UIKit-only regressions already excluded at compile time), and
-    // every runtime crash on tvOS is just as "our bug" as on iOS, so the
-    // simpler one-shot flow keeps the new target from becoming a second
-    // place where crash-recovery plumbing has to evolve.
+    // Same resume-on-crash loop as iOS (RunRecoveringSuite), over the tvOS app's own class
+    // inventory: a crashing class must not hide the classes after it, and one shared loop keeps
+    // the recovery plumbing in one place.
     // ============================================================
 
     void RunOnTvOSSimulator()
     {
         Log.Information("--- Running on tvOS Simulator ---");
-        Log.Information("tvOS runner is single-shot by design: no resume-on-crash. " +
-            "A crashing test class will prevent later classes from running — fix the " +
-            "crash, don't add a retry loop.");
 
         SimCtl.SimDevice device;
         var tvUdid = SimulatorUdidFor("tvOS Simulator");
@@ -2087,61 +1974,23 @@ partial class Build
             $"{BtFramework}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
         StampOrCheckRuntimeApp(appPath);
 
-        var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp.tvOS");
-
-        SimCtl.Install(device.Udid, appPath);
-
-        // One-shot by design (no resume-on-crash loop here), but a launch the LAUNCHER aborted is
-        // still not a test outcome — reported as one it reads as "tvOS runtime tests failed". Reuse
-        // the same retry the one-shot consumer gates use; the launcher-abort budget is shared.
-        // A fresh identity token per ATTEMPT: recovery below refuses a JSONL that doesn't carry the
-        // token of the launch that actually ran, so a launch that never started cannot be scored
-        // from the persistent container's previous artifact.
-        var runToken = "";
-        var result = LaunchUntilAppRuns(() =>
-        {
-            runToken = NewRunToken();
-
-            var args = new List<string> { "--platform", "simulator", "--run-token", runToken };
-            if (storeKitConfiguration is not null)
-                args.AddRange([
-                    StoreKitSandboxReadiness.ProductIdArgument,
-                    storeKitConfiguration.ProductId,
-                ]);
-            if (FlakeDetect) args.AddRange(["--flake-detect"]);
-            if (Lifetime) args.AddRange(["--lifetime"]);
-            if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
-
-            Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
-            return SimCtl.Launch(
-                device.Udid, RuntimeTestsBundleId,
-                args.ToArray(), TimeSpan.FromSeconds(Timeout),
-                appName: "RuntimeTestsApp.tvOS");
-        }, "tvOS Simulator");
-
-        Log.Information("");
-        Log.Information("=== APP OUTPUT ===");
-        Log.Information(result.Output);
-
-        HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp.tvOS");
-
-        // Try to retrieve JSONL results from sandbox
-        JsonlTestResults? jsonlResults = null;
-        var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, result.Output);
-        if (jsonlContent != null)
-        {
-            jsonlResults = JsonlTestResults.Parse(jsonlContent);
-            Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
-            var evidencePath = Path.Combine(Path.GetTempPath(), $"runtime-tests-tvos{RuntimeEvidenceSuffix()}-{runToken}.jsonl");
-            File.WriteAllText(evidencePath, jsonlContent);
-            Log.Information("tvOS JSONL evidence: {Path}", evidencePath);
-        }
-        else
-        {
-            Log.Debug("JSONL retrieval failed");
-        }
-
-        ReportRuntimeTestResult(result, "tvOS Simulator", jsonlResults);
+        var crashLogsBefore = 0;
+        RunRecoveringSuite(new RecoveringSuite(
+            LaneLabel: "tvOS Simulator", Project: "RuntimeTestsApp.tvOS", AppName: "RuntimeTestsApp.tvOS",
+            RuntimeIdentifier: "tvossimulator-arm64", Device: false,
+            PlatformArgs: storeKitConfiguration is null
+                ? ["--platform", "simulator"]
+                : ["--platform", "simulator", StoreKitSandboxReadiness.ProductIdArgument, storeKitConfiguration.ProductId],
+            Launch: args =>
+            {
+                crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp.tvOS");
+                SimCtl.Install(device.Udid, appPath);
+                Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
+                return SimCtl.Launch(device.Udid, RuntimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout),
+                    appName: "RuntimeTestsApp.tvOS");
+            },
+            CopyResults: (runToken, appOutput) => SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId, runToken, appOutput),
+            AfterAppStarted: result => HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp.tvOS")));
     }
 
     // ============================================================
@@ -2171,9 +2020,50 @@ partial class Build
             ? ActivityKitPushTokenBundleId
             : RuntimeTestsBundleId;
 
-        // Load test inventory for crash recovery (unified project — same manifest for sim + device)
-        var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
-        var inventory = TestClassInventory.Load(inventoryPath);
+        // Unified project: the same class inventory serves simulator and device.
+        RunRecoveringSuite(new RecoveringSuite(
+            LaneLabel: laneLabel, Project: "RuntimeTestsApp", AppName: "RuntimeTestsApp",
+            RuntimeIdentifier: "ios-arm64", Device: true,
+            PlatformArgs: ["--platform", RuntimeLane.DeviceCoreClr ? "device-coreclr" : monoAot ? "device-monoaot" : "device"],
+            Launch: args =>
+            {
+                DeviceCtl.Install(device.Udid, appPath);
+                Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
+                return DeviceCtl.Launch(device.Udid, runtimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout));
+            },
+            CopyResults: (runToken, _) => DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken),
+            // The app got far enough to print its banner — cross-check the runtime it actually
+            // resolved against the lane we asked for. The structural bundle check
+            // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
+            // with it on the phone, which is the claim the report ultimately makes.
+            AfterAppStarted: result =>
+            {
+                if (!RuntimeLane.DeviceCoreClr) AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
+            }));
+    }
+
+    /// <summary>One platform's resume-on-crash run of a RuntimeTestsApp.</summary>
+    /// <param name="LaneLabel">The report label; also the baseline key's source (see <see cref="ReportRuntimeTestResult"/>).</param>
+    /// <param name="Project">The app project directory, which holds its <c>TestClasses.g.txt</c> inventory.</param>
+    /// <param name="AppName">The app's assembly and executable name.</param>
+    /// <param name="PlatformArgs">The leading app arguments (<c>--platform</c> and anything platform-specific).</param>
+    /// <param name="Launch">Installs and launches the app with the full argument list.</param>
+    /// <param name="CopyResults">Retrieves the JSONL results carrying the given run token, or null. The app's
+    /// output is passed so the simulator lane can recover results from the path the app announced.</param>
+    /// <param name="AfterAppStarted">Platform checks on a launch that started the app.</param>
+    sealed record RecoveringSuite(
+        string LaneLabel, string Project, string AppName, string RuntimeIdentifier, bool Device,
+        string[] PlatformArgs, Func<string[], LaunchResult> Launch, Func<string, string, string?> CopyResults,
+        Action<LaunchResult> AfterAppStarted);
+
+    /// <summary>
+    /// Runs the suite, relaunching after a crash or timeout with the interrupted classes excluded
+    /// (see <see cref="RuntimeTestAttempts.PlanRecovery"/>), then proves the run's execution lane
+    /// per class on .NET 11 and reports. The first product failure stays the run's verdict.
+    /// </summary>
+    void RunRecoveringSuite(RecoveringSuite suite)
+    {
+        var inventory = TestClassInventory.Load(BindingTestsDir / suite.Project / "TestClasses.g.txt");
 
         // Compute eligible class set: full inventory or just the filtered class
         var eligibleClasses = inventory.ClassNames.ToHashSet();
@@ -2184,10 +2074,12 @@ partial class Build
             eligibleClasses = match != null ? new HashSet<string> { match } : new HashSet<string>();
         }
 
-        // Resume-on-crash orchestration loop
-        const int maxRetries = 5;
+        // Each resume excludes at least one class that started, so a budget of one relaunch per
+        // eligible class (the .NET 11 lanes) always reaches the end of the inventory.
+        var maxRetries = RuntimeLane.CrashRecoveryRetries(eligibleClasses.Count);
         var excludeClasses = new HashSet<string>();
         var aggregated = new JsonlTestResults();
+        var interruptions = new List<RuntimeLaneInterruption>();
         LaunchResult? lastResult = null;
 
         // Launcher aborts are budgeted SEPARATELY from crash recovery (see RetryKnownLauncherAbort)
@@ -2196,7 +2088,7 @@ partial class Build
         // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
         // and the give-up points cannot disagree about how many attempts remain.
         var launchAbortCount = 0;
-        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(device: true), Guid.NewGuid().ToString("N"));
+        var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(suite.Device), Guid.NewGuid().ToString("N"));
         var attempts = new RuntimeTestAttempts(attemptDirectory);
         Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
 
@@ -2205,59 +2097,48 @@ partial class Build
             for (int attempt = 0; CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
             {
                 if (attempt > 0)
-                    Log.Information("--- Resume-on-crash (device): attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
-                        attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
+                    Log.Information("--- Resume-on-crash ({Lane}): attempt {Attempt}/{MaxAttempts} (excluding {Count} classes) ---",
+                        suite.LaneLabel, attempt + 1, CrashRecoveryBudget.TotalAttempts(maxRetries, launchAbortCount), excludeClasses.Count);
 
-                DeviceCtl.Install(device.Udid, appPath);
-
-                // Fresh identity token per launch ATTEMPT. This is the site the false-green bug was
-                // proved on: `devicectl` can fail every launch (CoreDeviceError 10002 / EINVAL — the
-                // process never starts) while the sandbox copy keeps succeeding against the PERSISTENT
-                // data container, handing back the previous run's fully-green JSONL. Recovery below
-                // refuses any file that doesn't carry this token.
+                // Fresh identity token per launch ATTEMPT: the app stamps it into its JSONL, and
+                // recovery below refuses any file that doesn't carry it. Per-attempt (not per-run) so
+                // a resume attempt that never wrote results cannot be scored using the prior attempt's
+                // file — the data container persists across install. This is the site the device
+                // false-green was proved on: `devicectl` can fail every launch (CoreDeviceError
+                // 10002 / EINVAL) while the sandbox copy keeps returning the previous run's JSONL.
                 var runToken = NewRunToken();
-
-                var args = new List<string>
-                {
-                    "--platform", CoreClr ? "device-coreclr" : monoAot ? "device-monoaot" : "device", "--run-token", runToken
-                };
-                if (FlakeDetect) args.AddRange(["--flake-detect"]);
-                if (Lifetime) args.AddRange(["--lifetime"]);
+                var args = new List<string>(suite.PlatformArgs) { "--run-token", runToken };
+                if (FlakeDetect) args.Add("--flake-detect");
+                if (Lifetime) args.Add("--lifetime");
+                if (RuntimeLane.IsNet11) args.Add("--lane-identity");
                 if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
                 if (excludeClasses.Count > 0)
                     args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
 
-                Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
-                var result = DeviceCtl.Launch(
-                    device.Udid, runtimeTestsBundleId,
-                    args.ToArray(), TimeSpan.FromSeconds(Timeout));
+                var result = suite.Launch(args.ToArray());
                 lastResult = result;
                 var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
-                AssertLiveRuntimeLane(result, device: true);
+                AssertLiveRuntimeLane(result, suite.Device);
 
+                // Show output
                 Log.Information("");
                 Log.Information("=== APP OUTPUT ===");
                 Log.Information(result.Output);
 
                 // Classify BEFORE any recovery: a launch the launcher aborted produced no test signal at
                 // all, so only the separate launcher-abort budget applies.
-                // This is the exact path the six-CoreDeviceError-10002 run took.
                 if (LaunchDiagnostics.LauncherNeverStartedApp(result))
                 {
                     RuntimeTestAttempts.RecordResults(attemptEvidence, null, "not-retrieved-known-prestart-abort");
-                    RetryKnownLauncherAbort(result, laneLabel, ref launchAbortCount);
+                    RetryKnownLauncherAbort(result, suite.LaneLabel, ref launchAbortCount);
                     continue;
                 }
 
-                // The app got far enough to print its banner — cross-check the runtime it actually
-                // resolved against the lane we asked for. The structural bundle check
-                // (AssertDeviceAppFlavor) proves what we built; this proves what dyld+the runtime did
-                // with it on the phone, which is the claim the report ultimately makes.
-                if (!CoreClr) AssertDeviceRuntimeFlavorMatchesLane(result.Output, monoAot, laneLabel);
+                suite.AfterAppStarted(result);
 
-                // Try to retrieve JSONL results from device sandbox
+                // Try to retrieve JSONL results from the app's sandbox
                 JsonlTestResults? runResults = null;
-                var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken);
+                var jsonlContent = suite.CopyResults(runToken, result.Output);
                 RuntimeTestAttempts.RecordResults(attemptEvidence, jsonlContent,
                     jsonlContent == null ? "unavailable-or-token-rejected" : "token-validated");
                 if (jsonlContent != null)
@@ -2267,7 +2148,7 @@ partial class Build
                 }
                 else
                 {
-                    Log.Debug("JSONL retrieval from device failed for run {Run}", attempt + 1);
+                    Log.Debug("JSONL retrieval failed for run {Run}", attempt + 1);
                 }
 
                 // Keep only app-emitted JSONL rows in the aggregate. Interrupted-test attribution
@@ -2277,13 +2158,17 @@ partial class Build
                     eligibleClasses, excludeClasses, attempt, maxRetries, launchAbortCount);
                 RuntimeTestAttempts.RecordRecovery(attemptEvidence, recovery);
                 Log.Information("Attempt recovery: {Reason}", recovery.Reason);
+                if (result.Result is TestResult.Crash or TestResult.Timeout
+                    || LaunchDiagnostics.IsIncompleteProductFailure(result.Result, result.Output))
+                    interruptions.Add(new RuntimeLaneInterruption(attempt, result.Result.ToString(),
+                        recovery.ActiveTest?.ClassName, recovery.ActiveTest?.TestName, attemptEvidence.Directory));
                 if (recovery.ActiveTest is { } interrupted)
                     Log.Warning("Interrupted invocation: {Class}.{Test} ({Result}); derived evidence: {Directory}.",
                         interrupted.ClassName, interrupted.TestName, result.Result, attemptEvidence.Directory);
                 if (!recovery.Resume) break;
                 foreach (var cls in recovery.ClassesToExclude) excludeClasses.Add(cls);
-                Log.Warning("Continuing independent classes after {Class}.{Test}; the original {Result} remains in the final gate.",
-                    recovery.ActiveTest!.ClassName, recovery.ActiveTest.TestName, result.Result);
+                Log.Warning("Continuing independent classes after {Interrupted}; the original {Result} remains in the final gate.",
+                    recovery.ActiveTest is { } t ? $"{t.ClassName}.{t.TestName}" : "an interruption outside any test", result.Result);
             }
         }
         finally
@@ -2293,8 +2178,109 @@ partial class Build
                     failure.Result, attemptDirectory);
         }
 
+        var finalResult = attempts.FinalResult(lastResult!);
+        VerifyRuntimeLaneIdentity(suite, inventory, eligibleClasses, aggregated, interruptions, finalResult, attemptDirectory);
+
+        // Report final aggregated result
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
-        ReportRuntimeTestResult(attempts.FinalResult(lastResult!), laneLabel, finalJsonl);
+        ReportRuntimeTestResult(finalResult, suite.LaneLabel, finalJsonl);
+    }
+
+    /// <summary>
+    /// Proves, per test class, that a .NET 11 lane ran the way it claims (interpreter, ReadyToRun or
+    /// NativeAOT), writes the lane report, and fails the run on any disagreement. Runs before the
+    /// result is graded, so a mislabeled run can never move a baseline.
+    /// </summary>
+    void VerifyRuntimeLaneIdentity(RecoveringSuite suite, TestClassInventory inventory, IReadOnlySet<string> eligible,
+        JsonlTestResults aggregated, IReadOnlyList<RuntimeLaneInterruption> interruptions, LaunchResult finalResult,
+        string attemptDirectory)
+    {
+        if (RuntimeLane.ExecutionLane(suite.Device) is not { } claimed)
+            return;
+        var engine = RuntimeLane.Engine(suite.Device);
+        var configuration = RuntimeLane.BuildConfiguration(suite.Device, false);
+
+        // The crossgen2 map of this app build, if it ran crossgen2. Only CoreCLR builds do; a map
+        // beside a NativeAOT build is itself a contradiction the verdict reports.
+        var objRoot = BindingTestsDir / suite.Project / "obj" / engine / configuration;
+        var maps = Directory.Exists(objRoot)
+            ? Directory.GetFiles(objRoot, $"{suite.AppName}.r2r.map.csv", SearchOption.AllDirectories)
+                .Where(p => p.Split(Path.DirectorySeparatorChar).Contains(suite.RuntimeIdentifier)).ToArray()
+            : [];
+        if (maps.Length > 1)
+            throw new InvalidOperationException($"{suite.LaneLabel}: {maps.Length} crossgen2 maps for {suite.AppName} under {objRoot}; expected at most one.");
+        var mapPath = maps.SingleOrDefault();
+        var map = mapPath == null ? null : SwiftBindings.InterpIdentity.ReadyToRunInventory.ParseMapCsv(File.ReadAllText(mapPath));
+
+        var inventoryClasses = inventory.ClassNames.ToHashSet(StringComparer.Ordinal);
+        var classesWithResults = aggregated.Tests.Select(t => RuntimeLaneReport.AttributedClass(t, inventoryClasses.Contains))
+            .Where(inventoryClasses.Contains).Distinct(StringComparer.Ordinal).ToList();
+        var witnesses = RuntimeLaneIdentity.Symbolicate(aggregated.LaneWitnesses,
+            image => UnstrippedImageSymbols(objRoot, suite.RuntimeIdentifier, image));
+        var evidence = new RuntimeLaneEvidence(suite.AppName, classesWithResults, witnesses, map);
+        var verdict = RuntimeLaneIdentity.Verify(claimed, evidence);
+        var mislabels = RuntimeLaneIdentity.Mislabels(claimed, evidence).Where(v => v.Accepted).Select(v => v.Claimed).ToList();
+
+        var report = RuntimeLaneReport.Build(suite.LaneLabel, $"{BtFramework}/{engine}/{configuration}", claimed, verdict,
+            mislabels, mapPath, map?.BodiesFor(suite.AppName), eligible, aggregated, interruptions, finalResult.Result.ToString(),
+            attemptDirectory, witnesses);
+        var reportDir = RootDirectory / "artifacts" / "runtime-lanes" /
+            RuntimeLaneReport.Slug(suite.LaneLabel, BtFramework, engine, configuration);
+        Directory.CreateDirectory(reportDir);
+        File.WriteAllText(reportDir / "lane-report.json", report.ToJson());
+        File.WriteAllText(reportDir / "lane-report.txt", report.ToText());
+        File.WriteAllText(Path.Combine(attemptDirectory, "lane-report.json"), report.ToJson());
+        Log.Information("Lane report: {Path}", reportDir / "lane-report.txt");
+
+        // A run that died before any class started has no lane evidence; its crash or launch
+        // failure is the verdict, reported below.
+        if (classesWithResults.Count == 0 && aggregated.LaneWitnesses.Count == 0 && finalResult.Result != TestResult.Success)
+        {
+            Log.Warning("{Lane}: no class ran, so there is no lane evidence to verify.", suite.LaneLabel);
+            return;
+        }
+
+        if (mislabels.Count > 0)
+            throw new InvalidOperationException(
+                $"{suite.LaneLabel}: the lane evidence is also accepted as {string.Join(", ", mislabels)}, so it cannot tell the lanes apart. Report: {reportDir}.");
+        if (!verdict.Accepted)
+        {
+            foreach (var problem in verdict.Problems)
+                Log.Error("Lane identity: {Problem}", problem);
+            throw new InvalidOperationException(
+                $"{suite.LaneLabel}: the run did not prove it ran {claimed} ({verdict.Problems.Count} problem(s)). Report: {reportDir}.");
+        }
+        Log.Information("Lane identity: {Count} classes proved {Lane}; app bodies in the composite: {Bodies}.",
+            verdict.ByClass.Count, claimed, map?.BodiesFor(suite.AppName).ToString() ?? "no crossgen2 map");
+    }
+
+    /// <summary>
+    /// The symbol table of the build's unstripped copy of a bundled image, or null when there is none.
+    /// The SDK wraps each runtime dylib of a device app in a framework under <c>dylibtoframework/</c>
+    /// and the ReadyToRun composite under <c>r2rframework/</c>, before packaging strips the app.
+    /// A simulator app bundles <c>libcoreclr.dylib</c> loose and unstripped, so its own lookup stands.
+    /// </summary>
+    static IReadOnlyList<ImageSymbol>? UnstrippedImageSymbols(AbsolutePath objRoot, string runtimeIdentifier, string image)
+    {
+        if (!Directory.Exists(objRoot) || image.Contains(Path.DirectorySeparatorChar) || image is "?" or "")
+            return null;
+        var copies = Directory.GetFiles(objRoot, image, SearchOption.AllDirectories).Where(p =>
+        {
+            var segments = p.Split(Path.DirectorySeparatorChar);
+            return segments.Length >= 3 && segments.Contains(runtimeIdentifier)
+                && segments[^2] == image + ".framework"
+                && segments[^3] is "dylibtoframework" or "r2rframework";
+        }).ToArray();
+        if (copies.Length != 1)
+        {
+            if (copies.Length > 1)
+                Log.Warning("Lane identity: {Count} unstripped copies of {Image} under {Root}; not resolving its symbols.", copies.Length, image, objRoot);
+            return null;
+        }
+        var nm = ProcessTasks.StartProcess("/usr/bin/xcrun", $"nm -n --defined-only \"{copies[0]}\"", logOutput: false);
+        nm.AssertZeroExitCode();
+        return RuntimeLaneIdentity.ParseNmSymbols(string.Join('\n',
+            nm.Output.Where(o => o.Type == OutputType.Std).Select(o => o.Text)));
     }
 
     // ============================================================

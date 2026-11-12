@@ -94,6 +94,10 @@ public class Application
                 TestRunFlags.RunToken = effectiveArgs[i + 1];
                 i++;
             }
+            else if (effectiveArgs[i] == "--lane-identity")
+            {
+                TestRunFlags.LaneIdentity = true;
+            }
         }
 
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
@@ -469,6 +473,10 @@ public class MainViewController : UIViewController
     {
         TestLogger.Info("");
         TestLogger.Info($"=== {descriptor.Name} ===");
+        // After the class marker, so a crash in the probe is attributed to this class, and before
+        // any skip, so every class that records a result also records how it ran.
+        if (TestRunFlags.LaneIdentity)
+            LaneProbe.Record(descriptor.Name, results);
 
         // NativeAOT: Some classes crash during instantiation (static field initialization).
         if (platform == TestPlatform.Device && _nativeAotCrashClasses.Contains(descriptor.Name))
