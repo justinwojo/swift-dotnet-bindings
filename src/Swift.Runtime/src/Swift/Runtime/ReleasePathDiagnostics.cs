@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace Swift.Runtime;
@@ -33,9 +34,26 @@ namespace Swift.Runtime;
 /// through the same wireDestroy totals.
 /// In a clean run every skip/catch counter is zero, so any non-zero value on a failing run names
 /// the exact fail-open branch that dropped the release.
+///
+/// A test can also install a handle-creation observer (<see cref="ObserveHandleCreation"/>) to
+/// hold its own weak references to the owning handles a churn creates, so a failure readout can
+/// locate whatever still keeps a survivor reachable. The runtime keeps no per-object state for it:
+/// with no observer installed, a handle construction costs one volatile read.
 /// </summary>
 internal static class ReleasePathDiagnostics
 {
+    private static volatile Action<SafeHandle>? s_handleCreated;
+
+    /// <summary>
+    /// Installs (or, with null, removes) the observer told about every owning handle constructed
+    /// over a non-zero native value. It runs inside the handle's constructor on the constructing
+    /// thread, so it must not throw and must not keep the handle strongly reachable.
+    /// </summary>
+    internal static void ObserveHandleCreation(Action<SafeHandle>? observer) => s_handleCreated = observer;
+
+    /// <summary>An owning handle over a non-zero native value finished construction.</summary>
+    internal static void OnOwningHandleCreated(SafeHandle handle) => s_handleCreated?.Invoke(handle);
+
     private static long _wireDestroyEntered;
     private static long _wireDestroyCompleted;
     private static long _wireDestroyMetadataUnavailable;

@@ -247,7 +247,7 @@ public class BorrowedSlotParamDispatchTests : TestBase
         {
             throw new AssertionException(
                 $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)} "
-                + DescribeMainStackHits(observed.observations, scanFrom), ex);
+                + DescribeStackHits(observed.observations, scanFrom), ex);
         }
 
         var stats = LifetimeTracker.GetStats();
@@ -311,7 +311,7 @@ public class BorrowedSlotParamDispatchTests : TestBase
             {
                 throw new AssertionException(
                     $"{ex.Message} {SummarizeObservations(observed.observations, observed.scopeState)} "
-                    + DescribeMainStackHits(observed.observations, scanFrom, skip: rootedIteration), ex);
+                    + DescribeStackHits(observed.observations, scanFrom, skip: rootedIteration), ex);
             }
 
             // The Swift registry must NAME that survivor, not just count it: allocation order is
@@ -422,8 +422,8 @@ public class BorrowedSlotParamDispatchTests : TestBase
     // Collapse the per-callback weak observations into one line: how many wrappers and handles are
     // still alive and, when few, which iterations they were. Called only after the collections, and
     // it never holds a resolved target across one.
-    // DIAGNOSTIC: main-thread stack hits for every still-live observation except `skip`.
-    private static string DescribeMainStackHits(List<BorrowedSlotObservation> observations, nint scanFrom, int skip = -1)
+    // DIAGNOSTIC: all-thread stack hits for every still-live observation except `skip`.
+    private static string DescribeStackHits(List<BorrowedSlotObservation> observations, nint scanFrom, int skip = -1)
     {
         var lines = new List<string>();
         foreach (var observation in observations)
@@ -488,22 +488,21 @@ internal sealed class BorrowedSlotObservation
 
     internal bool HandleAlive => _handle.TryGetTarget(out _);
 
-    // DIAGNOSTIC: for a still-live wrapper/handle, look for words on this thread's stack at or
-    // above scanFrom that point into it — the conservative root that would pin it. Only meaningful
-    // on Mono, where the conservatively scanned local holding the target also pins it in place.
-    // The span is an upper bound on the object's size, so each hit carries its offset: +0 is an
-    // exact reference, a large offset may belong to a neighbouring allocation.
+    // DIAGNOSTIC: for a still-live wrapper/handle, look for words on every thread's stack (this
+    // thread's from scanFrom up) and in other threads' registers that point into it — the
+    // conservative root that would pin it. Only meaningful on Mono, where a conservatively scanned
+    // word naming the target also pins it in place. The span is an upper bound on the object's
+    // size, so each hit carries its offset: +0 is an exact reference, a large offset may belong to
+    // a neighbouring allocation.
     [MethodImpl(MethodImplOptions.NoInlining)]
     internal string DescribeStackHits(nint scanFrom)
     {
-        var parts = new List<string>();
+        var targets = new List<(string, nint, int)>();
         if (_wrapper.TryGetTarget(out var w))
-            parts.Add($"wrapper@0x{ConservativeRootProbe.AddressOf(w):X}: "
-                + ConservativeRootProbe.FindHits(scanFrom, ConservativeRootProbe.AddressOf(w), 64));
+            targets.Add(("wrapper", ConservativeRootProbe.AddressOf(w), 64));
         if (_handle.TryGetTarget(out var h))
-            parts.Add($"handle@0x{ConservativeRootProbe.AddressOf(h):X}: "
-                + ConservativeRootProbe.FindHits(scanFrom, ConservativeRootProbe.AddressOf(h), 96));
-        return $"#{Index} " + string.Join("; ", parts);
+            targets.Add(("handle", ConservativeRootProbe.AddressOf(h), 96));
+        return $"#{Index} " + ConservativeRootProbe.FindHitsOnAllThreads(targets, scanFrom);
     }
 }
 

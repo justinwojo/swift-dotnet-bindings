@@ -57,6 +57,8 @@ public sealed class SwiftClassHandle<T> : SafeHandleZeroOrMinusOneIsInvalid wher
         : base(ownsHandle: true)
     {
         SetHandle(swiftObjectPointer);
+        if (swiftObjectPointer != IntPtr.Zero)
+            ReleasePathDiagnostics.OnOwningHandleCreated(this);
     }
 
     private string DebugDisplay => IsClosed || IsInvalid

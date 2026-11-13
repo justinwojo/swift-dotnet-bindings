@@ -139,6 +139,9 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
                 _metadataHandle = IntPtr.Zero;
             }
         }
+
+        if (handle != IntPtr.Zero)
+            ReleasePathDiagnostics.OnOwningHandleCreated(this);
     }
 
     /// <summary>
