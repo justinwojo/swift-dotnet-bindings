@@ -83,11 +83,13 @@ public static class LifetimeTracker
             // nothing can land in the gap before ResetAllocationCounters(). Best-effort: if a
             // prior-window leak keeps live above 0 past the timeout the reset proceeds anyway —
             // that leak is the prior test's AssertNoLeaks to report, not this reset's.
+            DisarmHandleLedger()?.Dispose();
             DrainWhileAbove(0, ResetQuiescenceTimeoutMs);
             ResetAllocationCounters();
             // Zero the value-witness release-path counters in the same window as the allocation
             // counters, so a leak probe's failure readout covers only this test's release activity.
             ReleasePathDiagnostics.Reset();
+            ArmHandleLedger();
             TestLogger.Memory("Allocation counters reset");
         }
         catch (Exception ex)
@@ -137,6 +139,7 @@ public static class LifetimeTracker
     {
         int stackAnchor = 0;
         nint scanFrom = (nint)(&stackAnchor);
+        using var ledger = DisarmHandleLedger();
         // Drain finalizers, then re-check with conservative-root eviction and a bounded
         // quiescence wait if anything still looks live. Two orthogonal effects are absorbed
         // here, neither of which is a real leak:
@@ -163,10 +166,40 @@ public static class LifetimeTracker
                 $"{prefix}Memory leak detected: {live} object(s) not deallocated " +
                 $"(allocations={alloc}, deallocations={dealloc}). {DescribeLiveIdentities()} " +
                 $"{ReleasePathDiagnostics.Snapshot()}" +
-                (observations is null ? "" : $" {observations.Summarize()} {observations.DescribeRoots(scanFrom)}"));
+                DescribeObservations(observations, scanFrom) +
+                DescribeObservations(ledger, scanFrom));
         }
 
         TestLogger.Memory($"No leaks: {alloc} allocated, {dealloc} deallocated");
+    }
+
+    // The weak-observation readout of a failing assertion: which observed objects are still
+    // strongly reachable, and which thread's stack or registers hold a word pointing at one of
+    // them or at an object that holds one.
+    private static string DescribeObservations(LeakObservations? observations, nint scanFrom)
+        => observations is null ? "" : $" {observations.Summarize()} {observations.DescribeRoots(scanFrom)}";
+
+    // Owning handles created since the last Reset, observed weakly through the runtime's
+    // handle-creation hook, so every probe that asserts through this tracker can name the thread
+    // and frame pinning a survivor without recording its own observations. The capacity covers
+    // the largest probe churn; only the first slots are allocated up front, so a short probe
+    // pays for no more. Handles beyond the capacity are counted, not recorded.
+    private const int HandleLedgerCapacity = 32768;
+    private const int HandleLedgerPreallocated = 4096;
+    private static LeakObservations? s_handleLedger;
+
+    private static void ArmHandleLedger()
+    {
+        var ledger = new LeakObservations(HandleLedgerCapacity, HandleLedgerPreallocated);
+        s_handleLedger = ledger;
+        ReleasePathDiagnostics.ObserveHandleCreation(ledger.AddHandle);
+    }
+
+    // Stops recording and hands the ledger to the caller, who disposes it.
+    private static LeakObservations? DisarmHandleLedger()
+    {
+        ReleasePathDiagnostics.ObserveHandleCreation(null);
+        return Interlocked.Exchange(ref s_handleLedger, null);
     }
 
     // Force finalizers and give slow async Swift releases time to land, re-checking with
@@ -392,11 +425,60 @@ public static class LifetimeTracker
         _evictSink = unchecked((int)SumBuffer(scratch));
     }
 
+    // Upper bound on the decoy fill, far above any nursery size, so a collector that never
+    // reports a collection cannot hold the churn thread forever.
+    private const long NurseryFillCapBytes = 256L << 20;
+    private const int DecoyBytes = 16;
+    private static object? s_decoy;
+
+    /// <summary>
+    /// Fills the free nursery with tiny decoy objects until the allocation triggers a collection,
+    /// twice. Mono only.
+    /// <para>
+    /// A thread's live frames can hold a stale pointer-shaped word that names a nursery address
+    /// freed by an earlier collection: a frame pushed over dead stack keeps whatever its
+    /// not-yet-written slots held. Stack below a frame can be scrubbed, but live frames cannot,
+    /// and the test runner's own caller frames sit above every probe for the whole test. If a
+    /// churn object is later allocated at that address, the word pins it and it survives every
+    /// drain although nothing references it. Allocating small objects until a collection runs
+    /// puts a decoy at nearly every free address, so that collection pins exactly the decoys such
+    /// words name and frees the rest. The pinned decoys keep those addresses occupied for as long
+    /// as the words exist, and the churn that follows cannot be allocated there.
+    /// </para>
+    /// <para>
+    /// The decoys are untracked and unreferenced, so this changes only where the churn's objects
+    /// land. A genuine leak, a reachable reference or an orphaned native retain, survives it.
+    /// </para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void OccupyFreeNursery()
+    {
+        // Two passes. Every other thread that has allocated holds a private allocation buffer
+        // whose unused tail the fill cannot reach, and with many pool workers those tails add up
+        // to a large share of the nursery. The first collection takes those buffers back, so the
+        // second pass reaches the space they held; the decoys pinned by the first stay in place.
+        for (int pass = 0; pass < 2; pass++)
+        {
+            int collections = GC.CollectionCount(0) + GC.CollectionCount(1);
+            for (long filled = 0; filled < NurseryFillCapBytes; filled += 64 * DecoyBytes)
+            {
+                // The smallest object, so no free run between decoys can hold any churn object.
+                for (int i = 0; i < 64; i++)
+                    s_decoy = new object();
+                if (GC.CollectionCount(0) + GC.CollectionCount(1) != collections)
+                    break;
+            }
+        }
+        s_decoy = null;
+    }
+
     /// <summary>
     /// Asserts that the expected number of objects are currently live.
     /// </summary>
-    public static void AssertLiveCount(int expected, string context = "")
+    public static unsafe void AssertLiveCount(int expected, string context = "")
     {
+        int stackAnchor = 0;
+        nint scanFrom = (nint)(&stackAnchor);
         // Raw snapshot first — no GC — so a test whose count is already exact behaves exactly
         // as before (this method used to be a pure snapshot). Only when MORE objects are live
         // than expected — an in-flight async release from earlier in the test that has not yet
@@ -415,7 +497,8 @@ public static class LifetimeTracker
             var prefix = string.IsNullOrEmpty(context) ? "" : $"{context}: ";
             throw new AssertionException(
                 $"{prefix}Expected {expected} live object(s), got {live}. {DescribeLiveIdentities()} " +
-                $"{ReleasePathDiagnostics.Snapshot()}");
+                $"{ReleasePathDiagnostics.Snapshot()}" +
+                (live > expected ? DescribeObservations(Volatile.Read(ref s_handleLedger), scanFrom) : ""));
         }
     }
 
@@ -458,7 +541,11 @@ public static class LifetimeTracker
     /// that thread's own frames, the frames of its callers and its callee-saved registers. The
     /// drain in <see cref="AssertNoLeaks"/> can only overwrite stack below its own frame, so one
     /// of those values can pin a dead wrapper past every collection. When the churn thread
-    /// exits, its stack and registers stop being roots. Before returning, the parked thread-pool
+    /// exits, its stack and registers stop being roots. Stale words that predate the churn, in
+    /// the test thread's live caller frames for example, are disarmed before it starts: the
+    /// churn thread fills the free nursery with decoys until a collection runs (see
+    /// <see cref="OccupyFreeNursery"/>), so no churn object can land on an address such a word
+    /// names. Before returning, the parked thread-pool
     /// workers are woken and scrubbed (see <see cref="RefreshParkedPoolWorkers"/>), because a
     /// stale word in a worker's saved state can pin a churned object the same way. A genuine
     /// leak survives both: a reachable reference or an orphaned native retain does not depend on
@@ -482,12 +569,25 @@ public static class LifetimeTracker
 
         T result = default!;
         ExceptionDispatchInfo? failure = null;
+        bool mono = SwiftRuntimeInfo.IsMonoRuntime;
         var thread = new Thread(() =>
         {
-            try { result = churn(); }
+            try
+            {
+                if (mono)
+                {
+                    OccupyFreeNursery();
+                    ScrubStack();
+                }
+                result = churn();
+            }
             catch (Exception ex) { failure = ExceptionDispatchInfo.Capture(ex); }
         })
         { Name = "LifetimeTracker.RunIsolated" };
+        // The caller blocks in the join below, and its parked state includes the stack just below
+        // its frame. Clear that region first, so no stale word from earlier work is captured.
+        if (mono)
+            ScrubStack();
         thread.Start();
         thread.Join();
         RefreshParkedPoolWorkers();
