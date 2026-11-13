@@ -126,8 +126,17 @@ public static class LifetimeTracker
     /// Asserts that all tracked objects have been deallocated.
     /// Forces GC first to ensure finalizers run.
     /// </summary>
-    public static void AssertNoLeaks(string context = "")
+    public static void AssertNoLeaks(string context = "") => AssertNoLeaks(context, observations: null);
+
+    /// <summary>
+    /// <see cref="AssertNoLeaks(string)"/> with the churn's weak <paramref name="observations"/>:
+    /// on failure the message also says which abandoned objects are still strongly reachable and
+    /// which thread's stack or registers hold a word pointing into them.
+    /// </summary>
+    internal static unsafe void AssertNoLeaks(string context, LeakObservations? observations)
     {
+        int stackAnchor = 0;
+        nint scanFrom = (nint)(&stackAnchor);
         // Drain finalizers, then re-check with conservative-root eviction and a bounded
         // quiescence wait if anything still looks live. Two orthogonal effects are absorbed
         // here, neither of which is a real leak:
@@ -138,7 +147,9 @@ public static class LifetimeTracker
         //   2. Conservative-root phantoms. Under Mono's conservative stack scan a stale
         //      pointer-shaped value left in a spilled slot by a just-returned churn helper
         //      can pin one already-dead wrapper; overwriting that stack region with
-        //      non-pointer fill and re-draining lets the next collect reclaim it.
+        //      non-pointer fill and re-draining lets the next collect reclaim it. A stale word
+        //      in a parked thread-pool worker's saved state is cleared by waking the workers
+        //      (see RefreshParkedPoolWorkers).
         // Draining only ever releases objects (it never allocates), so the live count is
         // monotonically non-increasing here: a genuine leak — a still-reachable reference or
         // an orphaned native retain — never balances, stays non-zero for the whole timeout,
@@ -151,7 +162,8 @@ public static class LifetimeTracker
             throw new AssertionException(
                 $"{prefix}Memory leak detected: {live} object(s) not deallocated " +
                 $"(allocations={alloc}, deallocations={dealloc}). {DescribeLiveIdentities()} " +
-                $"{ReleasePathDiagnostics.Snapshot()}");
+                $"{ReleasePathDiagnostics.Snapshot()}" +
+                (observations is null ? "" : $" {observations.Summarize()} {observations.DescribeRoots(scanFrom)}"));
         }
 
         TestLogger.Memory($"No leaks: {alloc} allocated, {dealloc} deallocated");
@@ -169,11 +181,19 @@ public static class LifetimeTracker
     {
         var deadline = Environment.TickCount64 + timeoutMs;
         var snap = DrainAndSnapshot();
+        bool poolRefreshed = false;
         while (snap.live > target && Environment.TickCount64 < deadline)
         {
             // Clear a conservative-root phantom, then re-drain: cheap, and resolves at once
-            // if a dead-but-pinned stack straggler was the only thing above target.
+            // if a dead-but-pinned stack straggler was the only thing above target. The pool
+            // refresh covers a stale word in a parked worker's saved state; once is enough,
+            // since nothing the drain does gives a worker a pointer to a tracked object.
             EvictConservativeStackRoots();
+            if (!poolRefreshed)
+            {
+                RefreshParkedPoolWorkers();
+                poolRefreshed = true;
+            }
             snap = DrainAndSnapshot();
             if (snap.live <= target)
                 break;
@@ -273,6 +293,105 @@ public static class LifetimeTracker
 
     private static volatile int _evictSink;
 
+    // How long the pool may go without another refresh item starting before every idle worker
+    // is taken to have woken. Waking a parked worker takes microseconds, and each woken worker
+    // wakes the next while items remain queued, whereas the pool injects a new thread only after
+    // a starvation delay many times longer. A gap this long therefore means every idle worker is
+    // already holding an item, and the wait ends without growing the pool.
+    private const int PoolRefreshQuietMs = 25;
+    private const int PoolRefreshTimeoutMs = 1000;
+
+    /// <summary>
+    /// Wakes every parked thread-pool worker once, has each overwrite a deep region of its own
+    /// stack with non-pointer fill, and lets it park again. Mono only.
+    /// <para>
+    /// When a Mono thread blocks, as an idle pool worker does while it waits for work, the runtime
+    /// saves its registers and a copy of the stack just below its stack pointer, and every
+    /// collection scans that saved state conservatively for as long as the thread stays parked,
+    /// which for an idle worker can be many seconds. A pointer-shaped word in it that names a
+    /// since-freed nursery address pins whatever object the allocator later puts there. A leak
+    /// probe's churn allocates hundreds of objects in a row, so one of them can land on such an
+    /// address and survive every drain although nothing references it. Waking the worker
+    /// discards the saved state, and the scrub makes sure the state saved when it parks again
+    /// holds no stale word. Each item holds its worker until no further item has started for
+    /// <see cref="PoolRefreshQuietMs"/>, so one worker cannot run every item while the rest stay
+    /// parked.
+    /// </para>
+    /// <para>
+    /// This only removes roots that no live reference stands behind. A genuine leak, a reachable
+    /// reference or an orphaned native retain, does not depend on any thread's saved state and
+    /// survives it.
+    /// </para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    internal static void RefreshParkedPoolWorkers()
+    {
+        if (!SwiftRuntimeInfo.IsMonoRuntime)
+            return;
+        int existing = ThreadPool.ThreadCount;
+        // A caller running on a pool thread is not parked, and cannot take an item.
+        int workers = existing - (Thread.CurrentThread.IsThreadPoolThread ? 1 : 0);
+        if (workers <= 0)
+            return;
+        // The pool lets only as many items run at once as its current thread goal, which can sit
+        // below the number of threads that exist, and the surplus threads stay parked. Raising
+        // the floor to the existing count for the refresh lets every one of them take an item.
+        ThreadPool.GetMinThreads(out int minWorkers, out int minIo);
+        bool raised = minWorkers < existing && ThreadPool.SetMinThreads(existing, minIo);
+        try
+        {
+            var refresh = new PoolRefresh(workers);
+            for (int i = 0; i < workers; i++)
+                ThreadPool.UnsafeQueueUserWorkItem(refresh, preferLocal: false);
+            long deadline = Environment.TickCount64 + PoolRefreshTimeoutMs;
+            while (refresh.StartedCount < workers
+                && Environment.TickCount64 < deadline
+                && refresh.StartSignal.Wait(PoolRefreshQuietMs))
+            {
+            }
+            refresh.Release.Set();
+            // Items still queued run on the released workers and finish at once. Waiting for
+            // them keeps refresh work from overlapping the caller's next step.
+            refresh.Finished.Wait(PoolRefreshTimeoutMs);
+        }
+        finally
+        {
+            if (raised)
+                ThreadPool.SetMinThreads(minWorkers, minIo);
+        }
+    }
+
+    private sealed class PoolRefresh : IThreadPoolWorkItem
+    {
+        private int _started;
+        internal readonly SemaphoreSlim StartSignal = new(0);
+        internal readonly ManualResetEventSlim Release = new(false);
+        internal readonly CountdownEvent Finished;
+
+        internal PoolRefresh(int items) => Finished = new CountdownEvent(items);
+
+        internal int StartedCount => Volatile.Read(ref _started);
+
+        public void Execute()
+        {
+            ScrubStack();
+            Interlocked.Increment(ref _started);
+            StartSignal.Release();
+            Release.Wait(PoolRefreshTimeoutMs);
+            Finished.Signal();
+        }
+    }
+
+    // 64 KB of non-pointer fill below the caller: deeper than any saved stack copy a parked
+    // worker's next block can capture from the frames that ran before it.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ScrubStack()
+    {
+        Span<nint> scratch = stackalloc nint[8192];
+        FillWithNonPointers(scratch);
+        _evictSink = unchecked((int)SumBuffer(scratch));
+    }
+
     /// <summary>
     /// Asserts that the expected number of objects are currently live.
     /// </summary>
@@ -339,8 +458,11 @@ public static class LifetimeTracker
     /// that thread's own frames, the frames of its callers and its callee-saved registers. The
     /// drain in <see cref="AssertNoLeaks"/> can only overwrite stack below its own frame, so one
     /// of those values can pin a dead wrapper past every collection. When the churn thread
-    /// exits, its stack and registers stop being roots. A genuine leak survives that: a
-    /// reachable reference or an orphaned native retain does not depend on any thread's stack.
+    /// exits, its stack and registers stop being roots. Before returning, the parked thread-pool
+    /// workers are woken and scrubbed (see <see cref="RefreshParkedPoolWorkers"/>), because a
+    /// stale word in a worker's saved state can pin a churned object the same way. A genuine
+    /// leak survives both: a reachable reference or an orphaned native retain does not depend on
+    /// any thread's stack.
     /// </para>
     /// <para>
     /// The result crosses back to the test thread, so it must not reference a churned object.
@@ -368,6 +490,7 @@ public static class LifetimeTracker
         { Name = "LifetimeTracker.RunIsolated" };
         thread.Start();
         thread.Join();
+        RefreshParkedPoolWorkers();
         failure?.Throw();
         return result;
     }
