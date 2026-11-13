@@ -213,6 +213,57 @@ public class CaseOnlyCollisionPassTests
     }
 
     [Fact]
+    public void PublishedDependencyDecls_AdoptTheDecisionsTheDependencyBindingShipped()
+    {
+        // A dependency read back from its xcframework next to its published database must name
+        // its members the way its binding does. The decision lives only in the ledger, so the
+        // re-read declarations take it from there, including a nested type's.
+        var typeDatabase = new TypeDatabase();
+        var dependency = new ModuleTypeDatabase("DepModule", "/tmp/DepModule.dylib");
+        var protocolName = SwiftTypeName.FromModuleQualifiedName("DepModule.Endpoint");
+        var nestedName = SwiftTypeName.FromModuleQualifiedName("DepModule.Endpoint.Options");
+        foreach (var (name, csharpName, kind) in new[]
+                 {
+                     (protocolName, "IEndpoint", TypeRecordKind.Protocol),
+                     (nestedName, "Options", TypeRecordKind.Struct),
+                 })
+        {
+            dependency.RegisterType(name, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DepModule", csharpName),
+                SwiftTypeName = name,
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = kind,
+                RenamedMembers = new[]
+                {
+                    new RenamedMember(RenamedMemberKind.Property, "URL", false, "Url2",
+                        nameof(NameCollisionScheme.CaseOnlyMemberCollision)),
+                },
+            });
+        }
+        typeDatabase.AddModuleDatabase(dependency);
+
+        var moduleDecl = CreateModuleDecl();
+        var protocolDecl = CreateProtocolDecl("Endpoint", protocolName, moduleDecl);
+        protocolDecl.Properties.Add(CreateProperty("url"));
+        protocolDecl.Properties.Add(CreateProperty("URL"));
+        var nested = CreateStructDecl("Options", nestedName, moduleDecl);
+        nested.Properties.Add(CreateProperty("url"));
+        nested.Properties.Add(CreateProperty("URL"));
+        protocolDecl.Types.Add(nested);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        CaseOnlyCollisionPass.AdoptPublishedDecisions(moduleDecl, typeDatabase);
+
+        foreach (var owner in new TypeDecl[] { protocolDecl, nested })
+        {
+            Assert.Null(owner.Properties[0].CaseDisambiguatedName);
+            Assert.Equal("Url2", owner.Properties[1].CaseDisambiguatedName);
+        }
+    }
+
+    [Fact]
     public void Conformance_RequirementsFlaggedModuleInternal_AreStillResolved()
     {
         // The ABI JSON carries no access-control attribute on a protocol requirement, so the

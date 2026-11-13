@@ -576,6 +576,14 @@ partial class Build
                     Log.Warning("{Message}", GeneratorExitGate.WarningMessage(legLabel, DepModuleName, depExitCode));
             }
 
+            // Consumer-shape equivalence: regenerate the main module the way an SDK consumer of the
+            // dependency's binding does (the dependency's published module database next to its
+            // xcframework, two-pass SDK mode) and require the same emitted source the rest of this
+            // gate compiles and runs. Runs here, while the dependency's database still exists and
+            // before its outputs are folded into BtOutputDir. Unconditional on --compile-only.
+            if (CompileOnly)
+                RunConsumerShapeGate(genArgs, depOutputDir, exitCode);
+
             // Move the dependency C# alongside the main bindings: the {DepModule}.cs prelude
             var dependencyEvidence = BtOutputDir / "withdrawal-evidence" / DepModuleName;
             dependencyEvidence.CreateDirectory();

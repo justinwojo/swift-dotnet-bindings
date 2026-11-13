@@ -158,7 +158,10 @@ namespace BindingsGeneration
                 LoadBuiltInDatabase(database);
             }
 
-            // Load dependency module databases for cross-module type resolution
+            // Load dependency module databases for cross-module type resolution. The modules loaded
+            // here are remembered: a dependency that arrives as a published database AND as an
+            // xcframework still needs its declarations read (see ReadPublishedDependencyDecls).
+            var publishedDatabaseModules = new HashSet<string>(StringComparer.Ordinal);
             if (moduleDatabasePaths != null)
             {
                 foreach (var dbPath in moduleDatabasePaths)
@@ -201,6 +204,7 @@ namespace BindingsGeneration
                             failureInputs, outputDirectory, logger);
                         return false;
                     }
+                    publishedDatabaseModules.Add(dbModuleName);
                     logger.LogInformation("Loaded dependency module database: {Path} (module: {Module})", dbPath, dbModuleName);
                 }
             }
@@ -592,6 +596,13 @@ namespace BindingsGeneration
                         }
                     }
                 }
+            }
+
+            if (resolvedDependencies != null && publishedDatabaseModules.Count > 0)
+            {
+                ReadPublishedDependencyDecls(
+                    resolvedDependencies, publishedDatabaseModules, currentModuleName, typeDatabase,
+                    crossModuleFactIndex, dependencyProtocols, dependencyQuarantinedTypeNames, crossModuleSkeletons, loggerFactory, logger);
             }
 
             logger.LogInformation("Starting bindings generation for {SwiftAbiPath}...", swiftAbiPath);
@@ -2872,6 +2883,125 @@ namespace BindingsGeneration
 
             foreach (var nested in type.Types)
                 RegisterSkeletonTree(nested, owningModule, index);
+        }
+
+        /// <summary>
+        /// Reads the declarations of each dependency whose type records came from a published module
+        /// database (<c>--module-database</c>) while its xcframework was also supplied — the shape every
+        /// SDK consumer of a dependency binding has, through a ProjectReference or a PackageReference.
+        ///
+        /// <para>The database is authoritative for the dependency's type records, so its ABI is never
+        /// finalized again. But a record is not a declaration: the bound module's emission also reads
+        /// the dependency's <see cref="ModuleDecl"/> — its protocols' requirements, to give
+        /// <c>EveryProtocol</c> and the cross-module proxies the witnesses of a parent protocol declared
+        /// in the dependency, and its types, for the call-facts tables, layout lowering and the
+        /// KeyPath-init factory. Without this read, those consumers saw a dependency supplied as raw
+        /// ABI but not the same dependency supplied as a binding, and the binding path emitted an
+        /// <c>EveryProtocol</c> conformance to a local protocol with none of its dependency parent's
+        /// witnesses, which swiftc rejects.</para>
+        ///
+        /// <para>The parse is the same one the raw-ABI branch runs, and it is side-effect free on the
+        /// type database. The dependency's published case-only property decisions are stamped onto its
+        /// declarations from the database's rename ledger, so the declarations name members the way
+        /// the dependency's binding does. What the parse records about the dependency's ABI (its format
+        /// version, declarations it had to drop or quarantine) is kept, as the raw-ABI branch keeps it:
+        /// the bound module emits from these declarations, so <c>--strict-inputs</c> must see a degraded
+        /// read exactly as it would see a degraded raw-ABI parse.</para>
+        /// </summary>
+        internal static void ReadPublishedDependencyDecls(
+            IReadOnlyList<FrameworkDependencyInfo> resolvedDependencies,
+            IReadOnlySet<string> publishedDatabaseModules,
+            string? currentModuleName,
+            TypeDatabase typeDatabase,
+            ModuleFactIndexSet crossModuleFactIndex,
+            Dictionary<string, List<ProtocolDecl>> dependencyProtocols,
+            HashSet<string> dependencyQuarantinedTypeNames,
+            NominalSkeletonIndex crossModuleSkeletons,
+            ILoggerFactory loggerFactory,
+            ILogger logger)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var dep in resolvedDependencies)
+            {
+                if (dep.IsObjCOnly || string.IsNullOrEmpty(dep.AbiJsonPath) || string.IsNullOrEmpty(dep.TbdPath))
+                    continue;
+                if (currentModuleName != null && dep.ModuleName == currentModuleName)
+                    continue;
+                if (!publishedDatabaseModules.Contains(dep.ModuleName) || !visited.Add(dep.ModuleName))
+                    continue;
+
+                string? failure = null;
+                var read = false;
+                try
+                {
+                    var depTbd = Demangling.DemanglingResults.FromTbd(dep.TbdPath!, loggerFactory);
+                    var depParser = new SwiftABIParser(
+                        dep.AbiJsonPath!, typeDatabase, depTbd,
+                        loggerFactory.CreateLogger<SwiftABIParser>(),
+                        SwiftInterfaceFacts.Empty,
+                        new PublishedModuleDeclarationResolver(
+                            new IndexBackedCrossModuleFactResolver(
+                                crossModuleFactIndex,
+                                new LegacyCrossModuleFactResolver(typeDatabase, depTbd)),
+                            dep.ModuleName),
+                        docComments: null);
+                    var depModuleName = depParser.HasNoDeclChildren ? dep.ModuleName : depParser.GetModuleName();
+                    if (depParser.HasNoDeclChildren)
+                    {
+                        // Nothing declared, so nothing for the bound module to miss.
+                    }
+                    else if (depModuleName != dep.ModuleName)
+                    {
+                        // The database was keyed by the module name its own generator saw; an
+                        // xcframework whose ABI names a different module is not that database's
+                        // declaration source, so pairing them would describe one module by another.
+                        failure = $"its xcframework '{dep.XCFrameworkPath}' declares module '{depModuleName}'";
+                    }
+                    else
+                    {
+                        var depModule = depParser.ParseModule().ModuleDecl;
+                        CaseOnlyCollisionPass.AdoptPublishedDecisions(depModule, typeDatabase);
+                        typeDatabase.AddDependencyModuleDecl(depModule);
+                        CollectQuarantinedTypeNames(depModule.Types, dependencyQuarantinedTypeNames);
+                        if (depModule.Protocols is { Count: > 0 } depProtos)
+                        {
+                            var healthyProtos = depProtos.Where(p => !p.IsIngestionQuarantined).ToList();
+                            if (healthyProtos.Count > 0)
+                                dependencyProtocols[depModuleName] = healthyProtos;
+                        }
+                        RegisterResolvedSkeletons(depModule, depModuleName, crossModuleSkeletons);
+                        read = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failure = ex.InnerException?.Message ?? ex.Message;
+                }
+
+                if (failure != null)
+                {
+                    // The types still resolve through the database; what is lost is the declaration
+                    // surface (a parent protocol's requirements, a dependency type's shape), so the
+                    // bound module emits less. Recorded as a degraded input so --strict-inputs fails it.
+                    InputResolutionReport.RecordDegradation(
+                        InputResolutionCategory.Dependency,
+                        $"Dependency '{dep.ModuleName}' was loaded from its module database but its declarations " +
+                        $"could not be read, so they are unavailable to the bound module ({failure}).");
+                    logger.LogWarning(
+                        "Could not read declarations of dependency '{Module}' (module database loaded): {Message}",
+                        dep.ModuleName, failure);
+                }
+                else if (read)
+                {
+                    // Recorded so the manifest says which source each half of the dependency came from.
+                    InputResolutionReport.RecordInfo(
+                        InputResolutionCategory.Dependency,
+                        $"Dependency '{dep.ModuleName}': type records from its module database, declarations " +
+                        "from its xcframework ABI.");
+                    logger.LogInformation(
+                        "Read dependency declarations for published module database: {Module}", dep.ModuleName);
+                }
+            }
         }
 
         /// <summary>
